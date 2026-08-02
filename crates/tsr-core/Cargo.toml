@@ -1,0 +1,16 @@
+[package]
+name = "tsr-core"
+description = "Foundational data structures for tsr: spans, typed indices, arenas, and side tables"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nonmax = { workspace = true }
+rustc-hash = { workspace = true }
+
+[lints]
+workspace = true

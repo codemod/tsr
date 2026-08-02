@@ -1,0 +1,19 @@
+[package]
+name = "tsr-ast"
+description = "The TypeScript AST, matching typescript-go's node shapes exactly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tsr-core = { workspace = true }
+bitflags = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

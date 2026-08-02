@@ -1,0 +1,66 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/codemod-com/tsr"
+authors = ["the tsr contributors"]
+
+[workspace.dependencies]
+tsr-core = { path = "crates/tsr-core" }
+tsr-ast = { path = "crates/tsr-ast" }
+
+# Foundations. These mirror oxc's dependency choices (see PLAN.md §3.1); we take
+# oxc's bill of materials, not oxc's crates.
+allocator-api2 = "0.2.21"        # Allocator trait, stable on stable Rust
+bitflags = "2.9"                 # NodeFlags / ModifierFlags / TransformFlags
+hashbrown = { version = "0.15", default-features = false, features = ["allocator-api2", "inline-more"] }
+index_vec = "0.1.4"              # Typed index vectors
+nonmax = "0.5.5"                 # NonMaxU32 ids, so Option<Id> is 4 bytes
+rustc-hash = "2"                 # Fast non-cryptographic hashing
+self_cell = "1.2"                # Self-referential arena + AST storage
+smallvec = { version = "1.15", features = ["union"] }
+
+# Codegen (xtask only).
+anyhow = "1"
+convert_case = "0.11"
+prettyplease = "0.2"
+proc-macro2 = "1"
+quote = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+syn = { version = "2", features = ["full", "parsing"] }
+
+# Testing.
+insta = "1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Generated AST code is inherently large and repetitive; these fire constantly
+# without indicating a real problem.
+module_name_repetitions = "allow"
+too_many_lines = "allow"
+wildcard_imports = "allow"
+enum_glob_use = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+# Codegen and conformance runs are unusably slow in a debug build against a
+# 49k-baseline corpus.
+[profile.dev.package."*"]
+opt-level = 2

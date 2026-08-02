@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: build, test, lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The conformance tests diff against the vendored typescript-go source,
+          # so the submodule is required rather than optional.
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # The generated AST is checked in so that a plain `cargo build` works without
+      # the submodule. That only stays honest if CI proves the checked-in output
+      # still matches what the generator produces.
+      - name: Generated code is up to date
+        run: |
+          cargo run -p xtask -- codegen
+          # The generator emits unformatted source; `cargo fmt` is part of the
+          # pipeline, so format before diffing or this always fails.
+          cargo fmt --all
+          if ! git diff --exit-code -- crates/tsr-ast/src/generated; then
+            echo "::error::Generated AST is stale. Run 'cargo xtask codegen' and commit."
+            exit 1
+          fi
