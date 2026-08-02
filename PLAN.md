@@ -1,6 +1,6 @@
 # Porting `microsoft/typescript-go` to Rust
 
-**Status:** planning complete
+**Status:** Phase 0 in progress — workspace, foundations, and a conformant AST landed
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`
 **Reference corpus:** 80,521 test inputs (`_submodules/TypeScript/tests`) against 49,354 reference baselines (`testdata/baselines/reference`)
 **Prior art studied:** [oxc](https://github.com/oxc-project/oxc) @ `5e5178b`
@@ -59,7 +59,10 @@ in Phase 0 and treated as load-bearing:
 
 Load-bearing facts:
 
-- **386 AST node kinds** (`internal/ast/kind_generated.go`).
+- **351 AST node kinds** (`internal/ast/kind_generated.go`). Note upstream's
+  `_scripts/ast.json` lists only 349 — it lags the generated Go by two
+  (`DeferKeyword`, `JSDocAllType`), which is why conformance is asserted against
+  the Go source (§6).
 - Upstream already uses **arena allocation** (`internal/core/arena.go`).
 - Upstream already keeps checker state in **side tables, not on nodes** —
   `internal/core/linkstore.go` defines `LinkStore[K, V]` and a paged variant, and
@@ -209,7 +212,7 @@ instances, and we mirror that.
 oxc spends **19,970 LOC** in `tasks/ast_tools` generating, from `#[ast]`-annotated
 definitions: `AstKind`, visitors (`Visit`/`VisitMut`), traversal with ancestor
 access, ESTree serialization, `.d.ts` type definitions, and **struct-size
-assertions** that fail CI if a node grows. With 386 node kinds, hand-writing and
+assertions** that fail CI if a node grows. With 351 node kinds and 192 node types, hand-writing and
 hand-maintaining this is not viable. Our `xtask` must generate:
 
 - node kinds + diagnostic catalogue from `_submodules/TypeScript`
