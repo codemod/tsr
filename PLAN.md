@@ -1,6 +1,6 @@
 # Porting `microsoft/typescript-go` to Rust
 
-**Status:** planning complete, pending one open decision (§8)
+**Status:** planning complete
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`
 **Reference corpus:** 80,521 test inputs (`_submodules/TypeScript/tests`) against 49,354 reference baselines (`testdata/baselines/reference`)
 **Prior art studied:** [oxc](https://github.com/oxc-project/oxc) @ `5e5178b`
@@ -14,9 +14,9 @@
 | **Scope** | Everything: scanner → parser → binder → checker → transformers → emit → compiler driver → tsc CLI → language service → LSP server → project system |
 | **Fidelity** | Idiomatic Rust rewrite (not a mechanical transliteration) |
 | **Correctness oracle** | Port the Go test harness; run the full upstream conformance corpus and diff against upstream baselines |
-| **Foundation** | Depend on oxc's published infrastructure crates rather than rebuilding them (§3.1) |
-| **AST model** | Bump-allocated tree + struct-of-arrays side tables keyed by `NodeId` (§3.3) — **revised from the first draft, see §3.2** |
-| **Parser** | Port typescript-go's TS-shaped parser rather than adopt `oxc_parser`'s ESTree-flavored AST (§8, recommendation) |
+| **AST** | Our own, built from scratch to match TypeScript's AST shape. Not `oxc_ast` — the shapes do not match (§8) |
+| **Relationship to oxc** | Inspiration, not dependency. We take oxc's *designs* and its *third-party dependencies*, but link no `oxc_*` crate (§3.1) |
+| **AST model** | Arena-allocated tree + struct-of-arrays side tables keyed by `NodeId` (§3.3) — **revised from the first draft, see §3.2** |
 
 ### Consequence of the fidelity choice
 
@@ -79,35 +79,43 @@ Expect **250k–400k LOC of Rust**. Multi-engineer, multi-quarter.
 
 ## 3. Architecture
 
-### 3.1 Build on oxc's foundation
+### 3.1 Inspiration, not dependency
 
 oxc is the most advanced Rust JS/TS toolchain in existence (~960k LOC) and has
 solved, in production, most of the infrastructure problems this port would
-otherwise hit. These are published on crates.io and we should depend on them rather
-than write our own:
+otherwise hit. We take its designs and its dependency choices; we do not link its
+crates. The `oxc_*` workspace crates are pre-1.0 (currently `0.138.0`) and release
+weekly with breaking changes — the wrong thing to pin a multi-year, 300k-LOC port's
+foundational types to. Their *dependencies*, by contrast, are mature and stable, and
+oxc's selections are a well-tested bill of materials we can adopt directly:
 
-| Crate | What it gives us | Replaces (v1 plan) |
+| Need | Crate oxc uses | Notes |
 |---|---|---|
-| `oxc_allocator` | bumpalo-based arena, plus a thread-safe **`AllocatorPool`** for reuse across parallel workloads and fixed-size allocators | hand-rolled arena |
-| `oxc_index` | `IndexVec` with the **`nonmax`** feature, so `Option<NodeId>` is 4 bytes via niche optimization | hand-rolled index types |
-| `oxc_span` | `Span { start: u32, end: u32 }` byte offsets, `Atom<'a>` arena strings, `SourceType` | part of `tsr-core` |
-| `oxc_diagnostics` | labeled-span diagnostic rendering, LSP-compatible | part of `tsr-diagnostics` |
-| `oxc_resolver` | production node/TS module resolution (used by rspack) | much of `tsr-module` |
-| `oxc_data_structures` | stack/bitset/pointer utilities tuned for compiler workloads | part of `tsr-core` |
-| `oxc_str` | `CompactStr` — small-string-optimized owned strings | part of `tsr-core` |
+| Arena | `allocator-api2` + `hashbrown` | **`oxc_allocator` is not bumpalo** — it's a custom allocator over the `Allocator` trait. Their `AllocatorPool` (thread-safe reuse across parallel workloads) and fixed-size allocators are the designs to copy |
+| Typed indices | `index_vec` + `nonmax` | `NonMaxU32` ids make `Option<NodeId>` 4 bytes via niche optimization |
+| Self-referential AST storage | `self_cell` | §3.4 |
+| Hashing / maps | `rustc-hash`, `hashbrown`, `papaya` | `papaya` is a concurrent hash map — relevant to parallel checker link stores |
+| Diagnostics | `miette` (oxc maintains the `oxc-miette` fork) | labeled spans, LSP-compatible rendering |
+| Parallelism | `rayon` | |
+| Small strings / vectors | `compact_str`, `smallvec` | replaces tsgo's string handling |
+| Number formatting | `dragonbox_ecma` | directly covers tsgo's `jsnum` (584 LOC) — ECMAScript float-to-string |
+| Scanner | `memchr`, `simdutf8`, `unicode-id-start`, `phf` + `phf_codegen` | `phf` for keyword lookup |
+| Globs / JSONC | `fast-glob`, `json-strip-comments` | tsconfig `include`/`exclude` and JSONC parsing |
+| LSP | `tower-lsp-server`, `ropey` | replaces much of tsgo's 21k-LOC `lsp`; `ropey` for incremental document edits |
+| Position lookup | `rust-lapper` | interval tree — tsgo's `astnav` / `positionmap` |
+| Graphs | `petgraph` | flow graph, module graph |
+| Testing | `insta`, `similar`, `criterion2` | `similar` replaces upstream's `patience` diff for baselines |
 
-The first draft had us writing `tsr-core`, `tsr-path`, `tsr-vfs` and
-`tsr-diagnostics` from scratch. That is weeks of work for a strictly worse result.
-We keep our own crates only where TypeScript semantics genuinely differ:
-TS-specific path normalization (`tspath`), `jsnum` (TS number formatting
-semantics), and the TS diagnostic-code catalogue.
+So `tsr-core`, `tsr-path`, `tsr-vfs` and `tsr-diagnostics` do get written, but they
+are thin TS-specific layers over the above, not from-scratch infrastructure.
 
 **oxc is already porting typescript-go.** `crates/oxc_type_checker` (2,274 LOC,
 explicitly "experimental") has ported the tsgo *driver shell* — `vfs`, `tspath`,
 `tsoptions/tsconfigparsing`, `compiler/program`, `compiler/fileloader`,
 `compiler/references`, `execute/tsc` — with doc comments naming the upstream Go
-files. The checker itself is a 144-line no-op scaffold. Two implications: our
-approach is independently validated by a credible team, and §8 is a real question.
+files. The checker itself is a 144-line no-op scaffold. Our approach is therefore
+independently validated by a credible team, and those 2,274 LOC are a worked
+reference for the same shell we have to build.
 
 ### 3.2 The central problem, and why the first draft was wrong
 
@@ -212,12 +220,17 @@ hand-maintaining this is not viable. Our `xtask` must generate:
 ### 3.7 Crate layout
 
 ```
-tsr-ast           node definitions, AstKind, side tables      ← deps: oxc_allocator, oxc_span, oxc_index
+tsr-core          arena + AllocatorPool, typed indices, side-table macro, CompactStr
+tsr-path          TS-specific path normalization (tspath, nativepath)
+tsr-vfs           vfs trait + os/in-memory impls, bundled libs
+tsr-diagnostics   TS diagnostic-code catalogue (codegen) over miette
+
+tsr-ast           node definitions matching TypeScript's shape, AstKind, side tables
 tsr-scanner       lexer
 tsr-parser        parser, JSDoc
 
 tsr-binder        symbols, scopes, flow graph
-tsr-module        TS resolution modes           ← wraps oxc_resolver
+tsr-module        TS module + type resolution, modulespecifiers, packagejson
 tsr-checker       the checker  ← 60k LOC, sharded (§4)
 
 tsr-transformers  ts→js downlevel, jsx, decorators, esm/cjs
@@ -362,37 +375,38 @@ This is hard evidence for the §4 phasing — and the reason Phase 3.5 exists.
 | Upstream drift on a checker we rewrote idiomatically | Upstream-anchored doc comments (lint-enforced) + drift tracker + baseline ratchet (§1) |
 | Checker memoization vs. the borrow checker | Blocking spike before Phase 4; no direct prior art in oxc, so this is genuinely novel work |
 | AST design mistake propagating downstream | Phase 1 gate is corpus-wide diffing; §3.2 model is now validated by two independent implementations rather than derived from first principles |
-| oxc's AST/crates are a moving target | Pin versions; depend on the stable infrastructure crates, not on `oxc_ast` (§8) |
+| Building our own AST and parser costs a phase oxc would have given us free | Accepted deliberately (§8). Bounded: tsgo's scanner+parser is 13.3k LOC and is validated exhaustively against 49,354 baselines |
+| Writing our own infrastructure instead of linking `oxc_*` | Bounded by adopting oxc's *dependencies* (§3.1), so what we write is thin TS-specific layers, not allocators and diff algorithms from scratch |
 | Effort underestimated | Every phase gated on a number; Phase 3.5 delivers value early |
-| Duplicating oxc's effort | §8 |
+| Duplicating oxc's effort | Talk to them early (§8) |
 
 ---
 
-## 8. The one open decision: relationship to oxc
+## 8. Why we build the AST from scratch
+
+**Decided: our own AST, matching TypeScript's shape.**
 
 `oxc_parser` reaches **100%** on the TypeScript corpus and `oxc_ast` covers full TS
-syntax. Adopting them would delete our Phase 1 outright. But `oxc_ast` is
-*deliberately* not TypeScript's AST — it splits `Identifier` into
-`BindingIdentifier` / `IdentifierReference` / `IdentifierName` and follows ESTree
-conventions, by explicit design choice documented in their `ARCHITECTURE.md`.
+syntax, so adopting them would have deleted Phase 1 outright. We are not adopting
+them, because `oxc_ast` is *deliberately* not TypeScript's AST. Per their
+`ARCHITECTURE.md`, oxc removes what it calls estree's "ambiguous nodes" — splitting
+`Identifier` into `BindingIdentifier` / `IdentifierReference` / `IdentifierName`,
+and following ESTree conventions throughout. That is a good decision for a linter
+and a bundler. It is the wrong substrate for this port.
 
-typescript-go's 60k-LOC checker, its 39k-LOC language service, and every one of its
-baselines are written against TypeScript's AST shape.
+typescript-go's 60k-LOC checker, its 39k-LOC language service, and all 49,354
+baselines are written against TypeScript's AST shape. The checker dominates total
+cost and its fidelity *is* the product. Paying a per-function translation tax
+across 60k LOC to save a 9k-LOC parser port — one we can validate exhaustively
+against those baselines — is a bad trade, and it would put a permanent semantic
+seam between us and every upstream fix we need to track.
 
-**Recommendation: port typescript-go's TS-shaped parser (option B), and depend on
-oxc's infrastructure crates only.** The checker dominates total cost and its
-fidelity *is* the product; accepting a per-function translation tax across 60k LOC
-to save a 9k-LOC parser port — one we can validate against 49,354 baselines — is a
-bad trade. The plan above is written to this recommendation.
+So: TypeScript's node kinds, TypeScript's node shapes, TypeScript's `SyntaxKind`
+numbering. What we take from oxc is *technique*, catalogued in §3.1 (dependencies),
+§3.2–3.4 (side tables, `self_cell`), §3.6 (codegen), and §6 (conformance
+snapshots).
 
-The alternatives, for the record:
-
-- **A — build on `oxc_ast` + `oxc_parser` + `oxc_semantic`.** Deletes Phase 1 and
-  most of Phase 2. Costs an AST impedance mismatch on the two largest components
-  and couples our release cadence to oxc's. Worth a cheap spike: port ~5
-  representative checker functions onto `oxc_ast` and measure the friction
-  honestly.
-- **C — contribute into `oxc_type_checker` upstream.** They have the shell and no
-  checker; we want the checker. Whatever we decide on A/B, this is worth a
-  conversation with the oxc maintainers rather than discovering in six months that
-  two teams built the same thing twice.
+**Still worth doing: talk to the oxc maintainers.** They have the tsgo driver shell
+and no checker; we want the checker. Even with no shared code, that is worth a
+conversation rather than discovering in six months that two teams built the same
+thing twice.
