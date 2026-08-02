@@ -1,8 +1,9 @@
 # Porting `microsoft/typescript-go` to Rust
 
-**Status:** planning
+**Status:** planning complete, pending one open decision (§8)
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`
-**Reference corpus:** `vendor/typescript-go/testdata/baselines/reference` (49,354 baseline files)
+**Reference corpus:** 80,521 test inputs (`_submodules/TypeScript/tests`) against 49,354 reference baselines (`testdata/baselines/reference`)
+**Prior art studied:** [oxc](https://github.com/oxc-project/oxc) @ `5e5178b`
 
 ---
 
@@ -12,36 +13,37 @@
 |---|---|
 | **Scope** | Everything: scanner → parser → binder → checker → transformers → emit → compiler driver → tsc CLI → language service → LSP server → project system |
 | **Fidelity** | Idiomatic Rust rewrite (not a mechanical transliteration) |
-| **Correctness oracle** | Port the Go test harness; run against the full upstream `testdata` conformance corpus and diff against upstream baselines |
+| **Correctness oracle** | Port the Go test harness; run the full upstream conformance corpus and diff against upstream baselines |
+| **Foundation** | Depend on oxc's published infrastructure crates rather than rebuilding them (§3.1) |
+| **AST model** | Bump-allocated tree + struct-of-arrays side tables keyed by `NodeId` (§3.3) — **revised from the first draft, see §3.2** |
+| **Parser** | Port typescript-go's TS-shaped parser rather than adopt `oxc_parser`'s ESTree-flavored AST (§8, recommendation) |
 
 ### Consequence of the fidelity choice
 
-An idiomatic rewrite permanently forks from upstream. typescript-go is under active
-development, and its 60k-LOC checker receives a steady stream of correctness fixes.
-Those fixes cannot be diffed and replayed onto our tree; each one must be re-derived
-by hand against a structurally different codebase.
+An idiomatic rewrite permanently forks from upstream, and typescript-go's 60k-LOC
+checker receives a steady stream of correctness fixes that cannot be diffed and
+replayed onto a structurally different tree. Two mechanisms contain this, both built
+in Phase 0 and treated as load-bearing:
 
-We contain this with two mechanisms, both built in Phase 0 and treated as
-load-bearing rather than nice-to-have:
-
-1. **Drift tracker** — a scheduled job walks upstream commits since our pin, classifies
-   each by the `internal/` package it touches, and files a `bd` issue against the
-   corresponding Rust crate. Nothing gets silently dropped.
-2. **Baseline ratchet** — the conformance pass-rate is a CI gate that may only go up.
-   An upstream fix we failed to port shows up as a baseline diff, not as a silent
-   behavioral divergence discovered by a user.
+1. **Upstream-anchored doc comments, lint-enforced.** Every ported item names its
+   upstream counterpart and the pinned commit. This is oxc's own practice in
+   `oxc_type_checker` — e.g. `//! Corresponds to typescript-go's ast.SourceFile
+   (internal/ast/ast.go)`. It is what makes drift tracking mechanical instead of
+   archaeological.
+2. **Drift tracker.** A scheduled job walks upstream commits since our pin,
+   classifies each by the `internal/` package it touches, resolves that to the Rust
+   items claiming to port it (via 1), and files a `bd` issue. Nothing is silently
+   dropped.
+3. **Baseline ratchet.** Conformance pass-rate is a CI gate that may only go up
+   (§6). An upstream fix we failed to port surfaces as a baseline diff, not as a
+   silent divergence found by a user.
 
 ---
 
-## 2. What we are actually porting
+## 2. What we are porting
 
-`vendor/typescript-go` @ `5b1047d10`:
-
-- **300,987 LOC** non-test Go, 47 `internal/` packages
-- **827,846 LOC** of Go tests
-- **288 MB / ~50k files** of `testdata`
-
-Non-test LOC by package (top 20):
+`vendor/typescript-go` @ `5b1047d10`: **300,987 LOC** non-test Go across 47
+`internal/` packages, **827,846 LOC** of tests, **288 MB** of `testdata`.
 
 ```
 60,269  checker          9,860  fourslash        3,533  binder
@@ -55,201 +57,342 @@ Non-test LOC by package (top 20):
                          5,446  fswatch
 ```
 
-Expect **250k–400k LOC of Rust**. This is a multi-engineer, multi-quarter effort;
-the phasing below is designed so that each phase produces something independently
-verifiable rather than deferring all validation to the end.
-
-### Load-bearing upstream facts
+Load-bearing facts:
 
 - **386 AST node kinds** (`internal/ast/kind_generated.go`).
-- Upstream already uses **arena allocation** (`internal/core/arena.go`, `Arena[T]`),
-  which makes the arena-and-index approach below a smaller conceptual jump than it
-  looks.
-- Generated code (`ast_generated.go`, `kind_generated.go`, diagnostics) is derived
-  from the real TypeScript sources in the nested `_submodules/TypeScript` submodule.
-  Our codegen must read the same inputs so an upstream bump regenerates cleanly.
-- `unsafe` in upstream is confined to `fswatch`, `nativepath`, and one
-  `unsafe.String` in `tspath` — i.e. platform syscall glue, not core algorithms.
-  Nothing in the compiler core needs `unsafe` in Rust.
+- Upstream already uses **arena allocation** (`internal/core/arena.go`).
+- Upstream already keeps checker state in **side tables, not on nodes** —
+  `internal/core/linkstore.go` defines `LinkStore[K, V]` and a paged variant, and
+  `checker.go` holds **23+ separate link stores** (`nodeLinks`, `valueSymbolLinks`,
+  `typeAliasLinks`, …) keyed by `*ast.Node` / `*ast.Symbol`. This matters a lot;
+  see §3.2.
+- `.Parent` is read **2,092 times** across `checker`/`ls`/`binder`. Parent access
+  must be O(1) and allocation-free.
+- Generated code derives from the real TypeScript sources in the nested
+  `_submodules/TypeScript` submodule (now initialized).
+- `unsafe` upstream is confined to `fswatch`, `nativepath`, and one `unsafe.String`
+  in `tspath` — platform syscall glue, not core algorithms.
+
+Expect **250k–400k LOC of Rust**. Multi-engineer, multi-quarter.
 
 ---
 
 ## 3. Architecture
 
-### 3.1 The central problem
+### 3.1 Build on oxc's foundation
 
-Go's object graph is cyclic and mutably shared:
+oxc is the most advanced Rust JS/TS toolchain in existence (~960k LOC) and has
+solved, in production, most of the infrastructure problems this port would
+otherwise hit. These are published on crates.io and we should depend on them rather
+than write our own:
 
-```go
-type Node struct {
-    Kind Kind; Flags NodeFlags; Loc core.TextRange
-    id atomic.Uint64
-    Parent *Node          // back-pointer
-    data nodeData         // interface, ~386 implementations
-}
+| Crate | What it gives us | Replaces (v1 plan) |
+|---|---|---|
+| `oxc_allocator` | bumpalo-based arena, plus a thread-safe **`AllocatorPool`** for reuse across parallel workloads and fixed-size allocators | hand-rolled arena |
+| `oxc_index` | `IndexVec` with the **`nonmax`** feature, so `Option<NodeId>` is 4 bytes via niche optimization | hand-rolled index types |
+| `oxc_span` | `Span { start: u32, end: u32 }` byte offsets, `Atom<'a>` arena strings, `SourceType` | part of `tsr-core` |
+| `oxc_diagnostics` | labeled-span diagnostic rendering, LSP-compatible | part of `tsr-diagnostics` |
+| `oxc_resolver` | production node/TS module resolution (used by rspack) | much of `tsr-module` |
+| `oxc_data_structures` | stack/bitset/pointer utilities tuned for compiler workloads | part of `tsr-core` |
+| `oxc_str` | `CompactStr` — small-string-optimized owned strings | part of `tsr-core` |
 
-type Type struct {
-    flags TypeFlags; objectFlags ObjectFlags; id TypeId
-    symbol *ast.Symbol
-    alias *TypeAlias
-    checker *Checker      // back-pointer to the owning checker
-    data TypeData
-}
-```
+The first draft had us writing `tsr-core`, `tsr-path`, `tsr-vfs` and
+`tsr-diagnostics` from scratch. That is weeks of work for a strictly worse result.
+We keep our own crates only where TypeScript semantics genuinely differ:
+TS-specific path normalization (`tspath`), `jsnum` (TS number formatting
+semantics), and the TS diagnostic-code catalogue.
 
-`Node.Parent`, `Type.checker`, and the `Symbol ↔ Type ↔ Node` cycles make a direct
-`Rc<RefCell<…>>` translation both unwritable and slow. It would also forfeit the
-single biggest reason to be in Rust here: cheap, sound parallelism.
+**oxc is already porting typescript-go.** `crates/oxc_type_checker` (2,274 LOC,
+explicitly "experimental") has ported the tsgo *driver shell* — `vfs`, `tspath`,
+`tsoptions/tsconfigparsing`, `compiler/program`, `compiler/fileloader`,
+`compiler/references`, `execute/tsc` — with doc comments naming the upstream Go
+files. The checker itself is a 144-line no-op scaffold. Two implications: our
+approach is independently validated by a credible team, and §8 is a real question.
 
-### 3.2 The answer: arenas + typed index handles
+### 3.2 The central problem, and why the first draft was wrong
 
-Every cross-referencing entity becomes a newtype index into an arena owned by its
-phase:
+Go's object graph is cyclic and mutably shared — `Node.Parent`, `Type.checker`, and
+`Symbol ↔ Type ↔ Node` cycles. A direct `Rc<RefCell<…>>` translation is unwritable
+and forfeits the main reason to be in Rust.
+
+The first draft proposed making the AST itself index-based: a 386-variant enum in
+`IndexVec<NodeId, Node>` with children stored as `NodeId`. **Studying oxc says
+that's the wrong cut.** Both oxc and typescript-go independently converged on a
+different split, and the agreement of two mature implementations is worth more than
+my derivation:
+
+> **The tree is a tree. Everything cyclic lives in side tables keyed by id.**
+
+- oxc: the AST is a plain bump-allocated tree of `&'a mut` nodes with no back-edges.
+  `oxc_semantic::AstNodes<'a>` then holds `nodes: IndexVec<NodeId, AstNode<'a>>`,
+  `parent_ids: IndexVec<NodeId, NodeId>`, `flags: IndexVec<NodeId, NodeFlags>`,
+  `cfg_ids: …` — parent is a *side table*, not a field.
+- typescript-go: `LinkStore[*ast.Node, NodeLinks]` and 22 sibling stores hold all
+  checker state off-node, plus `PagedLinkStore` keyed by dense integer ids — which
+  is an `IndexVec` with paging in all but name.
+
+So the port is *more* natural than the first draft assumed. Children stay as direct
+arena references (fast to build, no id indirection on the hot traversal path), and
+every cyclic or phase-specific relationship — parent, symbol, scope, type,
+flow-node, and all 23 checker link stores — becomes an id-keyed side table.
+
+### 3.3 The resulting model
 
 ```rust
-#[derive(Copy, Clone, PartialEq, Eq, Hash)] pub struct NodeId(u32);
-#[derive(Copy, Clone, PartialEq, Eq, Hash)] pub struct SymbolId(u32);
-#[derive(Copy, Clone, PartialEq, Eq, Hash)] pub struct TypeId(u32);
+// Ids: NonMax-backed, so Option<Id> is 4 bytes (oxc_index "nonmax").
+pub struct NodeId(NonMaxU32);
+pub struct SymbolId(NonMaxU32);
+pub struct TypeId(NonMaxU32);
+
+// AST: bump-allocated tree, children are direct references.
+// `node_id` is a Cell so the binder can stamp ids without &mut on the tree —
+// oxc uses exactly this pattern for `scope_id: Cell<Option<ScopeId>>`.
+pub struct CallExpression<'a> {
+    pub span: Span,
+    pub node_id: Cell<NodeId>,
+    pub callee: Expression<'a>,
+    pub arguments: Vec<'a, Argument<'a>>,
+}
 ```
 
-- **AST:** one `enum Node` with 386 variants (large payloads boxed to keep the enum
-  small), stored in an `IndexVec<NodeId, Node>` owned per `SourceFile`. Children and
-  `parent` are `NodeId`. Exhaustive `match` replaces Go's type switches and the
-  `nodeData` interface — this is where idiomatic Rust genuinely wins.
-- **Symbols/Types:** arenas owned by the `Checker`. `Type.checker` simply
-  disappears: methods take `&Checker`.
-- **Payoff:** a parsed `SourceFile` becomes plain data — `Send + Sync`, trivially
-  shareable across threads, serializable for incremental caching.
+- **Parent + flags:** struct-of-arrays side tables keyed by `NodeId`. oxc has a
+  `multi_index_vec!` macro (modeled on Zig's `MultiArrayList`) that packs N
+  parallel `IndexVec`s into one allocation with a single length, capacity, and
+  bounds check. With 2,092 parent reads in the checker alone, this is the right
+  shape and we should copy the macro's approach.
+- **Symbols/Types:** `IndexVec` arenas owned by the checker. `Type.checker` simply
+  disappears — methods take `&Checker`.
+- **Checker links:** the 23 `LinkStore`s become id-keyed side tables. Dense ones
+  become `IndexVec<NodeId, T>`; sparse ones a paged vec mirroring `PagedLinkStore`.
 
-**Open design problem (spike required before Phase 4):** the checker memoizes
-lazily — it computes and caches types while already holding references into its own
-arenas. Rust's borrow checker forbids the naive form. Candidate resolutions:
-append-only arenas with interior mutability (`elsa`-style), id-returning `&mut self`
-methods that never hand out long-lived `&Type`, or a `RefCell`-guarded memo table
-separate from the arena. **This decision constrains 60k LOC and must be settled by a
-prototype, not by discussion.**
+### 3.4 Long-lived ASTs and the LSP — solved, not open
 
-### 3.3 Crate layout
+An arena AST parameterized by `'a` is awkward to *store*: an LSP holds hundreds of
+parsed files across edits, and `(Allocator, Program<'a>)` is self-referential.
+This was an open risk in the first draft. oxc has shipped the answer, in
+`oxc_type_checker::compiler::source_file` and `oxc_linter`:
 
-A Cargo workspace. Crates consolidate upstream packages where the split was a Go
-import-cycle artifact rather than a real boundary.
+```rust
+self_cell! {
+    struct SourceFileCell {
+        owner: SourceFileOwner,          // Allocator + owned source text
+        #[covariant]
+        dependent: SourceFileData,       // Program<'a> + ModuleRecord<'a>
+    }
+}
+// SAFETY: the cell owns the arena together with everything borrowing from it,
+// with no outside borrows, so moving the cell moves the arena with its dependents.
+unsafe impl Send for SourceFileCell {}
+```
+
+`self_cell` + one audited `unsafe impl Send` per self-referential container. Parsed
+files then move freely between rayon workers. Adopt directly.
+
+### 3.5 Parallelism
+
+Per-file `Allocator` drawn from an `AllocatorPool`, rayon across files, arenas
+reset and returned rather than dropped. This must be a Phase-1 design requirement:
+retrofitting thread-safety into an arena design is a rewrite, not an optimization.
+The checker is program-wide rather than per-file; upstream runs multiple checker
+instances, and we mirror that.
+
+### 3.6 Codegen is a first-class subsystem
+
+oxc spends **19,970 LOC** in `tasks/ast_tools` generating, from `#[ast]`-annotated
+definitions: `AstKind`, visitors (`Visit`/`VisitMut`), traversal with ancestor
+access, ESTree serialization, `.d.ts` type definitions, and **struct-size
+assertions** that fail CI if a node grows. With 386 node kinds, hand-writing and
+hand-maintaining this is not viable. Our `xtask` must generate:
+
+- node kinds + diagnostic catalogue from `_submodules/TypeScript`
+- visitors and traversal
+- the canonical AST dump used for conformance diffing against Go (§6)
+- size assertions on every node type
+
+### 3.7 Crate layout
 
 ```
-tsr-core          core, collections, stringutil, jsnum, semver, glob
-tsr-path          tspath, nativepath
-tsr-vfs           vfs trait + os/in-memory impls, bundled libs
-tsr-diagnostics   generated diagnostic messages (codegen)
-
-tsr-ast           node arena, 386 kinds, flags, symbols, astnav, positionmap
-tsr-scanner       scanner
+tsr-ast           node definitions, AstKind, side tables      ← deps: oxc_allocator, oxc_span, oxc_index
+tsr-scanner       lexer
 tsr-parser        parser, JSDoc
 
-tsr-binder        binder, flow graph
-tsr-module        module + type resolution, modulespecifiers, packagejson
-tsr-checker       checker  ← 60k LOC, internally sharded (§4, Phase 4)
+tsr-binder        symbols, scopes, flow graph
+tsr-module        TS resolution modes           ← wraps oxc_resolver
+tsr-checker       the checker  ← 60k LOC, sharded (§4)
 
 tsr-transformers  ts→js downlevel, jsx, decorators, esm/cjs
-tsr-printer       emitter, sourcemap
-tsr-compiler      Program, driver, outputpaths
+tsr-printer       emitter, sourcemaps
+tsr-dts           isolatedDeclarations-style .d.ts emit (ships before the checker, §4)
+tsr-compiler      Program, driver
 
 tsr-tsoptions     tsconfig parse/validate
 tsr-execute       tsc CLI, build mode, incremental
 tsr-ls            language service
-tsr-lsp           LSP server, jsonrpc
+tsr-lsp           LSP server
 tsr-project       project system, ATA
 tsr-fswatch       platform watchers
-tsr-api           programmatic API surface
+tsr-napi          Node bindings (napi-rs)
 
-tsr               the binary (tsc / lsp / api entry points)
-xtask             codegen from _submodules/TypeScript; drift tracker
-tsr-testharness   baseline runner, fourslash DSL, compiler-test harness
+tsr               the binary
+xtask             codegen, drift tracker
+tasks/coverage    conformance runner + committed snapshots
+tasks/benchmark   continuous benchmarks
 ```
-
-### 3.4 Parallelism as a design constraint
-
-typescript-go's headline advantage is parallel checking. `Send + Sync` arenas must
-be a Phase-1 design requirement, not a Phase-9 retrofit — retrofitting thread-safety
-into an arena design is a rewrite, not an optimization.
 
 ---
 
 ## 4. Phases
 
-Each phase is gated on a measurable conformance number, not on "the code is written".
+Each phase is gated on a measurable conformance number, not on "the code is
+written". **Performance and memory are per-PR CI gates from Phase 0** — oxc runs
+`tasks/benchmark`, `tasks/minsize`, and `tasks/track_memory_allocations`
+continuously, and that is why they are fast. The first draft's "Phase 9 —
+Performance" was a mistake; a final tuning phase remains, but the gate is
+continuous.
 
 ### Phase 0 — Foundations
-Workspace skeleton, CI, `xtask` codegen (diagnostics + node kinds from
-`_submodules/TypeScript`), upstream-drift tracker, `tsr-core` / `tsr-path` /
-`tsr-vfs` / `tsr-diagnostics`.
-**Gate:** codegen reproduces the full diagnostic set; drift tracker files issues.
+Workspace on oxc crates; `xtask` codegen; drift tracker; coverage + benchmark
+harnesses; the upstream-anchoring lint.
+**Gate:** codegen reproduces the full diagnostic set and all 386 kinds; drift
+tracker files issues; CI publishes coverage and benchmark numbers.
 
 ### Phase 1 — Scanner, AST, Parser
-The AST arena design lands here and everything downstream inherits it. Verify by
-parsing the entire corpus and diffing a canonical AST + parse-diagnostic dump
-against the Go implementation.
-**Gate:** 100% of corpus parses with byte-identical parse diagnostics.
+The AST model (§3.3) lands here and everything downstream inherits it.
+**Gate:** 100% of the corpus parses with byte-identical parse diagnostics vs. Go.
 
 ### Phase 2 — Binder
-Symbol tables, declaration merging, control-flow graph construction.
-**Gate:** symbol-table dumps match Go across the corpus.
+Symbol tables, scopes, declaration merging, flow graph.
+**Gate:** symbol-table dumps match Go across the corpus (compare against oxc's
+`symbols_typescript` at 21.1% — this is harder than it looks).
 
 ### Phase 3 — Module resolution & tsconfig
-`node16`/`nodenext`/`bundler` resolution modes, path mapping, `tsoptions`.
+`node16`/`nodenext`/`bundler`, path mapping, `tsoptions`, on `oxc_resolver`.
 **Gate:** upstream module-resolution baselines pass.
 
+### Phase 3.5 — First shippable artifact (no checker required)
+`tsr-dts` (isolatedDeclarations-style `.d.ts` emit) and syntax-only transforms.
+oxc ships `oxc_isolated_declarations` in 4,066 LOC without any checker. This exists
+so the project delivers usable output roughly a year before P4 completes.
+
 ### Phase 4 — Checker (the mountain)
-Preceded by the memoization spike (§3.2). Sharded into parallelizable workstreams:
+Preceded by the memoization spike. Sharded into parallelizable workstreams:
 relations/assignability · inference · generics & instantiation ·
 unions/intersections/indexed access · control-flow narrowing · contextual typing ·
-overload resolution · JSX · decorators · declaration emit types.
-**Gate:** type-baseline and error-baseline pass-rate ratchet toward 100%.
+overload resolution · JSX · decorators · declaration-emit types.
+**Gate:** type- and error-baseline pass-rate ratchets toward 100%.
 
 ### Phase 5 — Transformers & printer
-Downlevel emit, JSX, decorators, module transforms, sourcemaps.
 **Gate:** emit baselines byte-identical.
 
 ### Phase 6 — Compiler driver & `tsc`
-`Program`, watch mode, incremental, `--build`.
-**Gate:** upstream `tsc` CLI baselines pass; self-hosting check on real repos.
+`Program`, watch, incremental, `--build`.
+**Gate:** upstream `tsc` CLI baselines pass; self-hosting on real repos.
 
 ### Phase 7 — Language service
 Split by feature: completions · quickinfo · goto-definition · find-references ·
-rename · organize-imports · auto-import · formatting · code fixes.
-Requires porting the **fourslash** DSL (9.8k LOC) first.
+rename · organize-imports · auto-import · formatting · code fixes. Requires porting
+the **fourslash** DSL (9,860 LOC) first.
 **Gate:** fourslash tests pass.
 
 ### Phase 8 — LSP, project system, file watching
-`fswatch` is the one place to seriously evaluate an existing crate (`notify`) rather
-than porting upstream's hand-rolled inotify/fanotify/FSEvents/ReadDirectoryChangesW
-layer.
+Evaluate the `notify` crate against porting upstream's hand-rolled
+inotify/fanotify/FSEvents/ReadDirectoryChangesW layer. Evaluate `salsa`
+(rust-analyzer's query engine) against upstream's explicit incremental model —
+these are genuinely different architectures and the choice belongs here, informed
+by real editor latency.
 **Gate:** editor smoke tests against VS Code.
 
-### Phase 9 — Performance & parallelism
-Benchmark against `tsgo` and `tsc`. Tune parallel checking, arena layout,
-string interning.
-**Gate:** at or below typescript-go wall-clock on a fixed repo suite.
+### Phase 9 — Final tuning
+Close the gap against `tsgo` and `tsc` on a fixed repo suite. Distinct from the
+continuous per-PR gate above.
 
 ---
 
-## 5. Conformance harness (starts in Phase 0, runs continuously)
+## 5. Node bindings
 
-- Port `internal/testrunner` + `internal/testutil/harnessutil` baseline machinery.
+`tsr-napi` via napi-rs, following oxc's `napi/` layout. Worth naming as a
+first-class deliverable rather than an afterthought given the consumer.
+
+---
+
+## 6. Conformance harness (Phase 0 onward, continuous)
+
+- Port `internal/testrunner` + `internal/testutil/harnessutil`.
 - Use upstream `testdata/baselines/reference` (49,354 files) verbatim as the oracle.
 - Port the `fourslash` DSL before Phase 7.
-- CI publishes `passing/total` per baseline category; the number is a ratchet.
+- **Copy oxc's snapshot format exactly.** `tasks/coverage/snapshots/*.snap`, each
+  pinned to an upstream commit and committed to the repo:
 
-**Note:** the conformance *inputs* live in the nested `_submodules/TypeScript`
-submodule, which must be initialized (`git submodule update --init` inside
-`vendor/typescript-go`). Only 341 test files live directly in
-`vendor/typescript-go/testdata/tests`.
+  ```
+  commit: 7539c04d
+
+  types_typescript Summary:
+  AST Parsed     : 8364/8364 (100.00%)
+  Positive Passed: 78/8364 (0.93%)
+  ```
+
+  Committing the snapshot makes every regression a reviewable diff in the PR that
+  caused it. This is the ratchet, made concrete.
+
+### Reality check from oxc's own numbers
+
+oxc's current pass rates against the TypeScript corpus:
+
+| Suite | Pass rate |
+|---|---|
+| `parser_typescript` (positive) | **100%** |
+| `codegen_typescript` | **100%** |
+| `transformer_typescript` | 99.80% |
+| `estree_typescript` | 99.81% |
+| `semantic_typescript` | 73.94% |
+| `symbols_typescript` | 21.10% |
+| `types_typescript` | **0.93%** |
+
+Read that bottom row carefully. The strongest team in Rust JS tooling, with a
+production parser at 100%, is at **under 1% on type baselines**. Parsing and
+emitting TypeScript are solved problems; *checking* it is not, by anyone, in Rust.
+This is hard evidence for the §4 phasing — and the reason Phase 3.5 exists.
 
 ---
 
-## 6. Risks
+## 7. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Upstream drift on a 60k-LOC checker we rewrote idiomatically | Drift tracker + baseline ratchet (§1) |
-| Checker memoization vs. the borrow checker | Blocking spike before Phase 4 |
-| AST design mistake propagating into every downstream crate | Phase 1 gate is corpus-wide diffing, not unit tests |
-| Effort underestimated | Every phase gated on a conformance number, so progress is measured rather than asserted |
+| Upstream drift on a checker we rewrote idiomatically | Upstream-anchored doc comments (lint-enforced) + drift tracker + baseline ratchet (§1) |
+| Checker memoization vs. the borrow checker | Blocking spike before Phase 4; no direct prior art in oxc, so this is genuinely novel work |
+| AST design mistake propagating downstream | Phase 1 gate is corpus-wide diffing; §3.2 model is now validated by two independent implementations rather than derived from first principles |
+| oxc's AST/crates are a moving target | Pin versions; depend on the stable infrastructure crates, not on `oxc_ast` (§8) |
+| Effort underestimated | Every phase gated on a number; Phase 3.5 delivers value early |
+| Duplicating oxc's effort | §8 |
+
+---
+
+## 8. The one open decision: relationship to oxc
+
+`oxc_parser` reaches **100%** on the TypeScript corpus and `oxc_ast` covers full TS
+syntax. Adopting them would delete our Phase 1 outright. But `oxc_ast` is
+*deliberately* not TypeScript's AST — it splits `Identifier` into
+`BindingIdentifier` / `IdentifierReference` / `IdentifierName` and follows ESTree
+conventions, by explicit design choice documented in their `ARCHITECTURE.md`.
+
+typescript-go's 60k-LOC checker, its 39k-LOC language service, and every one of its
+baselines are written against TypeScript's AST shape.
+
+**Recommendation: port typescript-go's TS-shaped parser (option B), and depend on
+oxc's infrastructure crates only.** The checker dominates total cost and its
+fidelity *is* the product; accepting a per-function translation tax across 60k LOC
+to save a 9k-LOC parser port — one we can validate against 49,354 baselines — is a
+bad trade. The plan above is written to this recommendation.
+
+The alternatives, for the record:
+
+- **A — build on `oxc_ast` + `oxc_parser` + `oxc_semantic`.** Deletes Phase 1 and
+  most of Phase 2. Costs an AST impedance mismatch on the two largest components
+  and couples our release cadence to oxc's. Worth a cheap spike: port ~5
+  representative checker functions onto `oxc_ast` and measure the friction
+  honestly.
+- **C — contribute into `oxc_type_checker` upstream.** They have the shell and no
+  checker; we want the checker. Whatever we decide on A/B, this is worth a
+  conversation with the oxc maintainers rather than discovering in six months that
+  two teams built the same thing twice.
