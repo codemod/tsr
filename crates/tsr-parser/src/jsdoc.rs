@@ -57,10 +57,7 @@ impl<'a> Parser<'a> {
     /// a bit test the scanner already computed, which is what makes it affordable
     /// to call at the head of every statement, member, and parameter.
     pub(crate) fn parse_leading_jsdoc(&mut self) -> &'a [&'a JSDoc<'a>] {
-        if !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT) {
-            return &[];
-        }
-        if jsdoc_disabled() {
+        if !self.parse_jsdoc || !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT) {
             return &[];
         }
         let full_start = self.scanner.full_start();
@@ -1035,17 +1032,6 @@ impl<'a> Parser<'a> {
         let end = self.token.span.start.max(start);
         self.finish_node_with_end(node, kind, start, end)
     }
-}
-
-/// Whether `TSR_NO_JSDOC` is set.
-///
-/// The escape hatch `examples/jsdoc_cost.rs` uses to time the same corpus with
-/// and without JSDoc parsing. Read once: this sits on the path taken by every
-/// documented node, and an environment lookup per node would show up in exactly
-/// the measurement it exists to support.
-fn jsdoc_disabled() -> bool {
-    static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *DISABLED.get_or_init(|| std::env::var_os("TSR_NO_JSDOC").is_some())
 }
 
 /// Which of the three link tags was written.

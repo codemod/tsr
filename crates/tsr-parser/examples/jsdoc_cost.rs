@@ -1,7 +1,7 @@
 //! Measure what eager JSDoc parsing costs across the conformance corpus.
 //!
-//! Parses every `.ts` unit twice: once normally, once with JSDoc parsing
-//! disabled, and reports the difference. Diagnostic tool.
+//! Parses every `.ts` unit twice, with and without JSDoc, and reports the
+//! difference. Diagnostic tool backing ADR-0008 and ADR-0010.
 use std::time::Instant;
 use tsr_core::Arena;
 
@@ -17,19 +17,26 @@ fn main() {
         std::hint::black_box(tsr_parser::parse(&arena, source).jsdoc.len());
     }
 
-    let mut documented = 0usize;
-    let start = Instant::now();
-    for source in &sources {
-        let arena = Arena::new();
-        let parsed = tsr_parser::parse(&arena, source);
-        documented += parsed.jsdoc.len();
-        std::hint::black_box(&parsed);
-    }
-    let elapsed = start.elapsed();
-    println!("with jsdoc:    {elapsed:?}  ({documented} documented nodes)");
-    println!(
-        "set TSR_NO_JSDOC=1 and re-run to compare; the difference is the cost of parsing eagerly"
-    );
+    let run = |jsdoc: bool| {
+        let options = tsr_parser::ParseOptions { jsdoc, ..Default::default() };
+        let mut documented = 0usize;
+        let start = Instant::now();
+        for source in &sources {
+            let arena = Arena::new();
+            let parsed = tsr_parser::parse_with_options(&arena, source, options);
+            documented += parsed.jsdoc.len();
+            std::hint::black_box(&parsed);
+        }
+        (start.elapsed(), documented)
+    };
+
+    let (without, _) = run(false);
+    let (with, documented) = run(true);
+    #[allow(clippy::cast_precision_loss)]
+    let overhead = 100.0 * (with.as_secs_f64() - without.as_secs_f64()) / without.as_secs_f64();
+    println!("without jsdoc: {without:?}");
+    println!("with jsdoc:    {with:?}  ({documented} documented nodes)");
+    println!("overhead:      {overhead:+.1}%");
 }
 
 fn collect(dir: &std::path::Path, out: &mut Vec<String>) {

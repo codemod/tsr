@@ -12,6 +12,11 @@
 //! - **Single-threaded.** Both sides measure work, not scheduling.
 //! - **Parse only** — no binding, no checking, and the tree is dropped inside the
 //!   timed region exactly as Go drops its result to the GC.
+//! - **Two arms, and the like-for-like one is `-jsdoc`.** typescript-go does not
+//!   build JSDoc nodes for `.ts`/`.tsx` files at all; it sets a flag and defers.
+//!   Comparing our JSDoc-building parse against that measures a different amount
+//!   of work — on `dom.generated.d.ts` it is 46% more of it. Both arms are
+//!   reported so neither number can be quoted without the other.
 //! - **Go's adaptive iteration count**: run for a target duration and divide,
 //!   rather than a fixed count, so short and long fixtures get comparable
 //!   statistical weight.
@@ -105,19 +110,18 @@ struct Measurement {
     allocs_per_op: f64,
 }
 
-fn measure(name: &str, source: &str, target: Duration) -> Measurement {
+fn measure(name: &str, source: &str, target: Duration, jsdoc: bool) -> Measurement {
+    let options = tsr_parser::ParseOptions {
+        script_kind: tsr_parser::ScriptKind::from_file_name(name),
+        jsdoc,
+    };
     // Warm the allocator and the instruction cache before anything is recorded;
     // otherwise the first fixture pays for both and looks slower than it is.
     for _ in 0..3 {
         let arena = Arena::new();
-        black_box(tsr_parser::parse_with_script_kind(
-            &arena,
-            source,
-            tsr_parser::ScriptKind::from_file_name(name),
-        ));
+        black_box(tsr_parser::parse_with_options(&arena, source, options));
     }
 
-    let script_kind = tsr_parser::ScriptKind::from_file_name(name);
     let mut iterations: u64 = 1;
     loop {
         ALLOCATED.store(0, Ordering::Relaxed);
@@ -126,7 +130,7 @@ fn measure(name: &str, source: &str, target: Duration) -> Measurement {
         let start = Instant::now();
         for _ in 0..iterations {
             let arena = Arena::new();
-            let parsed = tsr_parser::parse_with_script_kind(&arena, source, script_kind);
+            let parsed = tsr_parser::parse_with_options(&arena, source, options);
             black_box(&parsed);
         }
         let elapsed = start.elapsed();
@@ -156,8 +160,13 @@ fn main() {
         std::env::var("TSR_BENCH_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(3),
     );
 
-    let measurements: Vec<Measurement> =
-        fixtures().iter().map(|(name, source)| measure(name, source, target)).collect();
+    let loaded = fixtures();
+    let run = |jsdoc: bool| -> Vec<Measurement> {
+        loaded.iter().map(|(name, source)| measure(name, source, target, jsdoc)).collect()
+    };
+    // The like-for-like arm first: it is the one ADR-0009's ratio is against.
+    let without = run(false);
+    let measurements = run(true);
 
     if json {
         println!("[");
@@ -174,15 +183,19 @@ fn main() {
     }
 
     println!(
-        "{:<46} {:>10} {:>14} {:>13} {:>11}",
-        "fixture", "iters", "ns/op", "B/op", "allocs/op"
+        "{:<46} {:>14} {:>14} {:>13} {:>11}",
+        "fixture", "ns/op -jsdoc", "ns/op +jsdoc", "B/op +jsdoc", "allocs +jsdoc"
     );
-    for m in &measurements {
+    for (m, w) in measurements.iter().zip(&without) {
         println!(
-            "{:<46} {:>10} {:>14.1} {:>13.0} {:>11.1}",
-            m.name, m.iterations, m.ns_per_op, m.bytes_per_op, m.allocs_per_op
+            "{:<46} {:>14.1} {:>14.1} {:>13.0} {:>11.1}",
+            m.name, w.ns_per_op, m.ns_per_op, m.bytes_per_op, m.allocs_per_op
         );
     }
+    println!(
+        "\n(-jsdoc is the like-for-like comparison against typescript-go, which does\n \
+         not build JSDoc nodes for .ts/.tsx. See docs/adr/0010-jsdoc-is-a-parse-option.md.)"
+    );
     println!("\n(source sizes: {})", {
         let mut parts: Vec<String> =
             measurements.iter().map(|m| format!("{} {}B", m.name, m.bytes)).collect();

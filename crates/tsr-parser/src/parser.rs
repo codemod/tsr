@@ -86,6 +86,47 @@ impl<'a> JSDocTable<'a> {
     }
 }
 
+/// What to build while parsing.
+///
+/// JSDoc is optional because it is the one part of the tree that only some
+/// consumers want, and it is expensive: on `dom.generated.d.ts` it is 46% of
+/// parse time and 57% of allocations. typescript-go makes the same split by
+/// deferring JSDoc for `.ts` files — see
+/// [ADR-0010](../../../docs/adr/0010-jsdoc-is-a-parse-option.md).
+#[derive(Debug, Clone, Copy)]
+pub struct ParseOptions {
+    /// Which dialect to parse: `.tsx` reads a leading `<` as JSX.
+    pub script_kind: ScriptKind,
+    /// Whether to parse `/** … */` comments into the JSDoc side table.
+    ///
+    /// Defaults to `true`. A consumer that turns this off and then reads
+    /// [`crate::JSDocTable`] gets an empty table, not an error, so the default
+    /// is the safe one: paying for JSDoc you did not need is a performance bug,
+    /// while silently losing documentation is a correctness one.
+    pub jsdoc: bool,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self { script_kind: ScriptKind::TypeScript, jsdoc: true }
+    }
+}
+
+impl ParseOptions {
+    /// Options for a file, with the dialect inferred from its name.
+    #[must_use]
+    pub fn for_file(name: &str) -> Self {
+        Self { script_kind: ScriptKind::from_file_name(name), ..Self::default() }
+    }
+
+    /// The same options with JSDoc parsing turned off.
+    #[must_use]
+    pub const fn without_jsdoc(mut self) -> Self {
+        self.jsdoc = false;
+        self
+    }
+}
+
 /// A recursive-descent parser over one source file.
 pub struct Parser<'a> {
     pub(crate) arena: &'a Arena,
@@ -110,6 +151,8 @@ pub struct Parser<'a> {
     /// absent from the overwhelming majority of nodes, and a field would cost
     /// every node a pointer to carry information a handful of them use.
     pub(crate) jsdoc: Vec<(tsr_ast::NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
+    /// Whether to parse JSDoc; see [`ParseOptions::jsdoc`].
+    pub(crate) parse_jsdoc: bool,
     /// Guards against runaway recursion on pathological input.
     ///
     /// TypeScript permits arbitrarily nested expressions, and a deeply nested
@@ -140,6 +183,13 @@ impl<'a> Parser<'a> {
     /// Create a parser for a specific dialect.
     #[must_use]
     pub fn with_script_kind(arena: &'a Arena, source: &'a str, script_kind: ScriptKind) -> Self {
+        Self::with_options(arena, source, ParseOptions { script_kind, ..Default::default() })
+    }
+
+    /// Create a parser with explicit options.
+    #[must_use]
+    pub fn with_options(arena: &'a Arena, source: &'a str, options: ParseOptions) -> Self {
+        let script_kind = options.script_kind;
         let mut scanner = Scanner::new(source);
         let token = scanner.scan();
         let token_value = capture_value(&scanner);
@@ -154,6 +204,7 @@ impl<'a> Parser<'a> {
             nodes: NodeTable::new(),
             no_in: 0,
             jsdoc: Vec::new(),
+            parse_jsdoc: options.jsdoc,
             depth: 0,
         }
     }

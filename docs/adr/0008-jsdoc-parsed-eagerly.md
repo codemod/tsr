@@ -1,6 +1,10 @@
 # ADR-0008: JSDoc is parsed eagerly, not on demand
 
-- **Status:** accepted
+- **Status:** partly superseded by [ADR-0010](0010-jsdoc-is-a-parse-option.md)
+  — *when* JSDoc is parsed is still eager and still for the reason below; *whether*
+  it is parsed became a caller's choice once the falsifier at the bottom of this
+  document fired on `dom.generated.d.ts` (45% of parse time, not the 7.5%
+  measured here).
 - **Date:** 2026-08-03
 - **Supersedes:** nothing
 - **Related:** [ADR-0003](0003-tree-plus-side-tables.md) (side tables),
@@ -65,6 +69,10 @@ parses a corpus twice — once normally, once with `TSR_NO_JSDOC=1`:
 | `tests/cases/compiler` | 6,412 (4.5 MB) | 92.8 ms | 86.4 ms | **+7.5%** |
 | `tests/cases/conformance/jsdoc` | 341 (178 KB) | 3.69 ms | 2.24 ms | **+64%** |
 
+*This table is what led the decision astray — see
+[ADR-0010](0010-jsdoc-is-a-parse-option.md). Neither corpus resembles the `.d.ts`
+files a real project spends its parse time on, where the true figure is 45%.*
+
 The first row is what ordinary TypeScript costs: 755 documented nodes across 4.5 MB,
 so almost every token's flag test fails and nothing is allocated. The second row is
 the worst case — files that are mostly JSDoc — and is the honest upper bound.
@@ -97,7 +105,8 @@ TypeScript file.
   reads it.
 - The `TSR_NO_JSDOC` environment variable exists so the cost stays measurable. It
   is read once into a `OnceLock`, because reading it per node would distort the
-  very measurement it supports.
+  very measurement it supports. *(Replaced by `ParseOptions::jsdoc` in
+  [ADR-0010](0010-jsdoc-is-a-parse-option.md); the env var no longer exists.)*
 
 ## How we would know this was wrong
 

@@ -17,7 +17,9 @@ holds is *superseded* by a new record that references it, never edited or delete
 | [0005](adr/0005-codegen-from-ast-json.md) | Generate the AST from upstream's `_scripts/ast.json` | Accepted |
 | [0006](adr/0006-conformance-oracle.md) | Assert conformance against generated Go, not against `ast.json` | Accepted |
 | [0007](adr/0007-generated-code-policy.md) | Classify generated code by source of truth; port only Category A | Accepted |
-| [0008](adr/0008-jsdoc-parsed-eagerly.md) | Parse JSDoc during the main parse; upstream's lazy path needs a lifetime we do not have | Accepted |
+| [0008](adr/0008-jsdoc-parsed-eagerly.md) | Parse JSDoc during the main parse; upstream's lazy path needs a lifetime we do not have | Partly superseded by 0010 |
+| [0009](adr/0009-performance-gate.md) | Gate performance against typescript-go at the pin, not against our own history | Proposed |
+| [0010](adr/0010-jsdoc-is-a-parse-option.md) | JSDoc becomes a parse option; the gate's ratio is measured without it, as upstream does | Accepted |
 
 ## Architecture — `architecture/`
 

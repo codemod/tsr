@@ -45,7 +45,7 @@ mod statement;
 mod types;
 
 pub use parsed_file::ParsedFile;
-pub use parser::{JSDocTable, ParseResult, Parser, ScriptKind};
+pub use parser::{JSDocTable, ParseOptions, ParseResult, Parser, ScriptKind};
 
 use tsr_ast::SourceFile;
 use tsr_core::Arena;
@@ -78,7 +78,20 @@ pub fn parse_with_script_kind<'a>(
     source: &'a str,
     script_kind: ScriptKind,
 ) -> ParsedSourceFile<'a> {
-    let mut parser = Parser::with_script_kind(arena, source, script_kind);
+    parse_with_options(arena, source, ParseOptions { script_kind, ..Default::default() })
+}
+
+/// Parse a source file with explicit options.
+///
+/// The one that matters is [`ParseOptions::jsdoc`]: turning it off skips building
+/// the JSDoc side table, which on a documentation-dense file is most of the work.
+#[must_use]
+pub fn parse_with_options<'a>(
+    arena: &'a Arena,
+    source: &'a str,
+    options: ParseOptions,
+) -> ParsedSourceFile<'a> {
+    let mut parser = Parser::with_options(arena, source, options);
     let source_file = parser.parse_source_file();
     let (diagnostics, node_table, jsdoc) = parser.finish();
     ParsedSourceFile { source_file, diagnostics, nodes: node_table, jsdoc }

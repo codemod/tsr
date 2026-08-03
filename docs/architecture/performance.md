@@ -4,22 +4,28 @@
 typescript-go at the pinned commit, not against our own history.
 **Harness:** `crates/tsr-parser/benches/parse.rs`, mirroring
 `internal/parser/parser_test.go`'s `BenchmarkParse`.
-**Profile:** `cargo run --release -p tsr-parser --example alloc_profile -- <file>`.
+**Profiles:** `examples/alloc_profile` (scan/parse split, allocation histogram) and
+`perf record` against `examples/parse_loop`, built with `--profile profiling`.
 
-## Where we are — 2026-08-03, after the first round of profiling
+## Where we are — 2026-08-03, after profiling
+
+**Faster than typescript-go on all five fixtures**, like for like.
 
 Single-threaded, pinned to one core (`taskset -c 2`), 3 s per fixture, AMD Ryzen 9
 7950X3D. typescript-go at `5b1047d10`, Go 1.26.5. tsr built `--release`.
 
-| Fixture | Size | tsgo ns/op | tsr ns/op | tsr / tsgo |
-|---|---:|---:|---:|---:|
-| `empty.ts` | 0 B | 438 | 111 | **0.25×** |
-| `Herebyfile.mjs` | 37 KB | 551,711 | 270,721 | **0.49×** |
-| `checker.ts` | 3.1 MB | 32,721,718 | 29,744,505 | **0.91×** |
-| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 158,598 | 1.07× |
-| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 20,176,507 | 1.56× |
+| Fixture | Size | tsgo ns/op | tsr `-jsdoc` | ratio | tsr `+jsdoc` |
+|---|---:|---:|---:|---:|---:|
+| `empty.ts` | 0 B | 438 | 112 | **0.26×** | 121 |
+| `Herebyfile.mjs` | 37 KB | 551,711 | 244,413 | **0.44×** | 271,064 |
+| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 95,127 | **0.64×** | 154,419 |
+| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 10,908,342 | **0.84×** | 19,825,587 |
+| `checker.ts` | 3.1 MB | 32,721,718 | 28,838,476 | **0.88×** | 29,612,201 |
 
-Faster on three, at parity on one, and 1.56× slower on the large `.d.ts`.
+`-jsdoc` is the like-for-like column: typescript-go does not build JSDoc nodes for
+`.ts`/`.tsx` — `withJSDoc` sets a flag and returns. Both arms are printed by the
+benchmark so neither can be quoted alone; see
+[ADR-0010](../adr/0010-jsdoc-is-a-parse-option.md).
 
 ### What changed, and a correction to the previous entry
 
@@ -89,47 +95,81 @@ Generated rather than hand-written because the keyword set is defined by
 adds a keyword, and the failure mode is the scanner quietly emitting it as an
 identifier. A generated test asserts the table and the `SyntaxKind` range agree.
 
+## Round two: the profile
+
+With `perf` available (`perf_event_paranoid=1`), `dom.generated.d.ts` at 150
+iterations, frame pointers on:
+
+```
+  12.6%  Scanner::scan
+  12.5%  Scanner::scan_jsdoc_comment_text_token
+   8.9%  Scanner::bump
+   8.2%  Scanner::peek
+   5.9%  Scanner::scan_identifier_or_keyword
+   4.7%  jsdoc_ranges_in
+   4.0%  Parser::parse_leading_jsdoc
+   2.9%  Parser::next_token
+   2.9%  Scanner::scan_jsdoc_token
+   2.8%  is_identifier_part
+   2.1%  NodeTable::push
+   1.5%  mentions_tag
+   1.3%  keyword_kind
+```
+
+**JSDoc is 25% of the samples**, in five separate functions none of which the
+previous two rounds of guessing had implicated. Measured directly by turning it
+off, it is more than that:
+
+| | with JSDoc | without | share |
+|---|---:|---:|---:|
+| `dom.generated.d.ts` | 19.83 ms | 10.91 ms | **45%** |
+| `dom.generated.d.ts` allocations | 60,182 | 26,044 | **57%** |
+| `jsxComplexSignature….tsx` | 154.4 µs | 95.1 µs | 38% |
+| `checker.ts` | 29.61 ms | 28.84 ms | 3% |
+
+This fired [ADR-0008](../adr/0008-jsdoc-parsed-eagerly.md)'s stated falsifier
+verbatim — "the 7.5% figure becomes, say, 25% on a large project's `.ts` files" —
+and [ADR-0010](../adr/0010-jsdoc-is-a-parse-option.md) makes JSDoc a parse option
+in response. ADR-0008's 7.5% was not wrong for the corpus it used; it was the wrong
+corpus, because a `.d.ts` is exactly the documentation-dense shape a real project
+parses most of.
+
+It also revises the allocation story a second time. 57% of `dom.d.ts`'s
+allocations were JSDoc's own — so the "parser builds a `Vec` per list" diagnosis
+from round one was, in part, measuring JSDoc.
+
 ## Where the remaining time goes
 
-`dom.generated.d.ts`, the one fixture still behind, at 19.44 ms against tsgo's
-12.96 ms:
+Every fixture is now ahead of tsgo, so what follows is opportunity rather than
+deficit. In the order the profile supports:
 
-```
-  2,348,669 bytes, 124,103 nodes
-  scan only        7.39 ms   (38%)
-  parse - scan    12.05 ms   (62%)
-  60,182 allocations (12,955 reallocs), 12.0 MB
-```
+**The character cursor is still 17% of samples** (`bump` 8.9%, `peek` 8.2%) even
+after the ASCII fast path. Both are called per character and still re-derive the
+window bounds on every call. A cursor holding a raw pointer pair rather than
+`(source, pos, limit)` would remove that; it is the standard shape for a fast
+lexer and the profile says it is worth roughly what the keyword table was.
 
-Two candidates, in the order the evidence supports:
+**JSDoc scanning is expensive when it runs at all.**
+`scan_jsdoc_comment_text_token` alone is 12.5% of the `+jsdoc` profile. It advances
+one `peek()` at a time and calls `at_tag_start()` per `@`. A `memchr`-style scan
+for the next interesting byte would cut most of it. This matters for the language
+service, which is the consumer that will actually want JSDoc.
 
-**The parser proper: 12.05 ms for 124,103 nodes, ~97 ns per node.** This is now the
-biggest single block of time on the fixture and it has not been profiled — `perf`
-is unavailable on this machine (`perf_event_paranoid=4`), so `alloc_profile` only
-resolves to the scan/parse boundary. Getting inside it needs either relaxed perf
-permissions or finer manual instrumentation.
-
-**The arena vector, still worth doing but smaller than first claimed.** Every list
-site collects into a `Vec` and copies into the arena, giving ~47k mallocs and ~13k
-reallocs on this fixture. At a plausible 20–30 ns each that is roughly 1.0–1.4 ms of
-19.4 ms — about **6%**, not the 2.4× the first entry implied. It remains the right
-change (it also removes a second copy of every list, which the malloc estimate does
-not capture) but it should not be expected to close the remaining gap alone.
-
-`.d.ts` files are the worst case for both: dense in declarations, and each
-declaration carries several lists — modifiers, type parameters, parameters,
-members. Per node, `dom.d.ts` builds three times as many lists as `checker.ts`
-(37,913 / 124,103 versus 43,245 / 304,884).
+**The arena vector, smaller again than the revised estimate.** With JSDoc off,
+`dom.d.ts` does 26,044 allocations rather than 60,182, so the ceiling on this fix
+is now roughly 0.5–0.8 ms of 10.9 ms. Still worth doing for the second-copy
+elimination, but it has been re-estimated downward twice and should be scheduled
+accordingly.
 
 ## Honest limits of these numbers
 
 - **`Herebyfile.mjs` is a dialect mismatch that flatters us.** tsgo parses `.mjs`
   with the JSX language variant (`getLanguageVariant` maps `ScriptKindJS` to JSX);
   `ScriptKind::from_file_name` gives us plain TypeScript. We are doing less work.
-  Its 0.49× should not be quoted without this caveat.
-- **We parse JSDoc eagerly** ([ADR-0008](../adr/0008-jsdoc-parsed-eagerly.md)),
-  which tsgo defers for `.ts`. That is included in every tsr number here and makes
-  the comparison, if anything, unfavourable to us.
+  Its 0.44× should not be quoted without this caveat.
+- **The ratio is the `-jsdoc` column**, because that is what tsgo does for these
+  fixtures. The `+jsdoc` column is our default. Turning off work is not the same as
+  making work faster, and both columns stay in the table so that stays visible.
 - **Parse only.** No binder, no checker. ADR-0009's "faster in every aspect" is not
   a claim these numbers support.
 - **Peak RSS is not measured**, though ADR-0009 gates it.
