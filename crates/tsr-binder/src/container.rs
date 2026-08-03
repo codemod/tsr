@@ -14,8 +14,8 @@ bitflags::bitflags! {
         const IS_CONTAINER = 1 << 0;
         /// Owns a block scope, for `let`/`const` and class declarations.
         const IS_BLOCK_SCOPED_CONTAINER = 1 << 1;
-        /// Root of a control-flow graph. Recorded but unused until the flow
-        /// graph is built — see the note in `lib.rs`.
+        /// Root of a control-flow graph: the current flow is saved, a fresh
+        /// graph is started inside, and the old one restored on the way out.
         const IS_CONTROL_FLOW_CONTAINER = 1 << 2;
         /// Has a `locals` table, as opposed to only members or exports.
         const HAS_LOCALS = 1 << 3;
@@ -28,6 +28,15 @@ bitflags::bitflags! {
         const IS_INTERFACE = 1 << 6;
         /// Binds its own `this`.
         const IS_THIS_CONTAINER = 1 << 7;
+        /// A method or accessor written inside an object literal or a class
+        /// *expression*.
+        ///
+        /// It can be contextually typed by the literal it sits in, so its flow
+        /// graph's start node names it and the checker can find its way back.
+        const IS_OBJECT_LITERAL_OR_CLASS_EXPRESSION_METHOD_OR_ACCESSOR = 1 << 8;
+        /// Does not bind its own `this`, so a `this` inside it belongs to
+        /// whatever encloses it: arrow functions and the call-signature kinds.
+        const PROPAGATES_THIS_KEYWORD = 1 << 9;
     }
 }
 
@@ -57,13 +66,26 @@ pub fn container_flags(node: Node<'_>, nodes: &NodeTable) -> ContainerFlags {
 
         Node::SourceFile(_) => F::IS_CONTAINER | F::IS_CONTROL_FLOW_CONTAINER | F::HAS_LOCALS,
 
-        // A method or accessor on an object literal or class *expression* also
-        // binds `this` differently; upstream distinguishes the two and so does
-        // this, though nothing consumes the distinction until the checker.
+        // A method or accessor written inside an object literal or a class
+        // expression is contextually typeable, which changes what its flow
+        // graph's start node records; everything else about it is a plain
+        // function-like container.
         Node::GetAccessorDeclaration(_)
         | Node::SetAccessorDeclaration(_)
-        | Node::MethodDeclaration(_)
-        | Node::ConstructorDeclaration(_)
+        | Node::MethodDeclaration(_) => {
+            let base = F::IS_CONTAINER
+                | F::IS_CONTROL_FLOW_CONTAINER
+                | F::HAS_LOCALS
+                | F::IS_FUNCTION_LIKE
+                | F::IS_THIS_CONTAINER;
+            if is_object_literal_or_class_expression_member(node, nodes) {
+                base | F::IS_OBJECT_LITERAL_OR_CLASS_EXPRESSION_METHOD_OR_ACCESSOR
+            } else {
+                base
+            }
+        }
+
+        Node::ConstructorDeclaration(_)
         | Node::FunctionDeclaration(_)
         | Node::ClassStaticBlockDeclaration(_) => {
             F::IS_CONTAINER
@@ -78,15 +100,31 @@ pub fn container_flags(node: Node<'_>, nodes: &NodeTable) -> ContainerFlags {
         | Node::FunctionTypeNode(_)
         | Node::ConstructSignatureDeclaration(_)
         | Node::ConstructorTypeNode(_) => {
-            F::IS_CONTAINER | F::IS_CONTROL_FLOW_CONTAINER | F::HAS_LOCALS | F::IS_FUNCTION_LIKE
+            F::IS_CONTAINER
+                | F::IS_CONTROL_FLOW_CONTAINER
+                | F::HAS_LOCALS
+                | F::IS_FUNCTION_LIKE
+                | F::PROPAGATES_THIS_KEYWORD
         }
 
-        Node::FunctionExpression(_) | Node::ArrowFunction(_) => {
+        Node::FunctionExpression(_) => {
             F::IS_CONTAINER
                 | F::IS_CONTROL_FLOW_CONTAINER
                 | F::HAS_LOCALS
                 | F::IS_FUNCTION_LIKE
                 | F::IS_FUNCTION_EXPRESSION
+                | F::IS_THIS_CONTAINER
+        }
+
+        // An arrow function has no `this` of its own: that is the whole point of
+        // the syntax, and it is why `this` inside one propagates outward.
+        Node::ArrowFunction(_) => {
+            F::IS_CONTAINER
+                | F::IS_CONTROL_FLOW_CONTAINER
+                | F::HAS_LOCALS
+                | F::IS_FUNCTION_LIKE
+                | F::IS_FUNCTION_EXPRESSION
+                | F::PROPAGATES_THIS_KEYWORD
         }
 
         Node::ModuleBlock(_) => F::IS_CONTROL_FLOW_CONTAINER,
@@ -123,6 +161,20 @@ pub fn container_flags(node: Node<'_>, nodes: &NodeTable) -> ContainerFlags {
 
         _ => F::empty(),
     }
+}
+
+/// Whether a method or accessor is written inside an object literal or a class
+/// expression.
+///
+/// Upstream: `ast.IsObjectLiteralOrClassExpressionMethodOrAccessor`. By parent
+/// kind, which is all the side table holds.
+fn is_object_literal_or_class_expression_member(node: Node<'_>, nodes: &NodeTable) -> bool {
+    node.node_id().and_then(|id| nodes.parent(id)).is_some_and(|parent| {
+        matches!(
+            nodes.kind(parent),
+            SyntaxKind::ObjectLiteralExpression | SyntaxKind::ClassExpression
+        )
+    })
 }
 
 /// Whether a kind is function-like, for the `Block` parent test above.

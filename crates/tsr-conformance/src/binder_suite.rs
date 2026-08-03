@@ -106,8 +106,12 @@ impl Suite for BinderSymbols {
 
         // What upstream expects, deduplicated: the baseline repeats a symbol once
         // per occurrence, and a symbol is one fact however often it is used.
-        let mut expected: std::collections::HashMap<&str, BTreeSet<u32>> =
-            std::collections::HashMap::new();
+        // `BTreeMap`, not `HashMap`: the loop below stops after three misses, so
+        // hash order would decide *which* three a failing case reports and the
+        // committed snapshot would churn on reruns with no code change. A snapshot
+        // that moves on its own teaches reviewers to ignore its diff.
+        let mut expected: std::collections::BTreeMap<&str, BTreeSet<u32>> =
+            std::collections::BTreeMap::new();
         let unit_file = &expected_files[0].file;
         for reference in &expected_files[0].refs {
             if reference.declarations.is_empty() {

@@ -41,31 +41,55 @@ The large-file numbers are the ones that matter, and they went from **parity
 (1.01×) to 1.37–1.41× faster** in one round of profile-directed work: `checker.ts`
 33.2 ms → 23.9 ms, `dom.generated.d.ts` 12.0 ms → 9.2 ms.
 
-## Parse + bind — reported, not gated
+## Parse + bind
 
-Added 2026-08-03 with the binder. Both sides parse a fresh file and bind it on
-every iteration:
+Added 2026-08-03 with the binder; **our column re-measured 2026-08-04** when the
+control-flow graph landed. Both sides parse a fresh file and bind it on every
+iteration.
 
-| Fixture | tsgo | tsr | ratio |
-|---|---:|---:|---:|
-| `empty.ts` | 0.5 µs | 0.2 µs | 0.31× |
-| `Herebyfile.mjs` | 777 µs | 288 µs | 0.37× |
-| `checker.ts` | 48.5 ms | 23.5 ms | 0.49× |
-| `jsxComplexSignature….tsx` | 223 µs | 112 µs | 0.50× |
-| `dom.generated.d.ts` | 18.3 ms | 10.1 ms | 0.55× |
+| Fixture | tsgo | tsr, no flow graph (2026-08-03) | tsr, with flow graph (2026-08-04) | ratio |
+|---|---:|---:|---:|---:|
+| `empty.ts` | 0.5 µs | 0.2 µs | 0.21 µs | 0.43× |
+| `Herebyfile.mjs` | 777 µs | 288 µs | 247 µs | 0.32× |
+| `checker.ts` | 48.5 ms | 23.5 ms | 25.3 ms | 0.52× |
+| `jsxComplexSignature….tsx` | 223 µs | 112 µs | 96 µs | 0.43× |
+| `dom.generated.d.ts` | 18.3 ms | 10.1 ms | 8.5 ms | 0.47× |
 
-**Do not quote these as a binder result.** Our binder does not build the
-control-flow graph and upstream's does, so this compares a partial binder against
-a complete one and flatters us by exactly the amount of work we have not written.
-Deriving the binder's own cost — parse+bind minus parse-only — gives ~0.7 ms for us
-against ~15.6 ms for upstream on `checker.ts`, and that 20× is almost entirely the
-flow graph.
+The tsgo column is carried over unchanged — upstream did not move — and only ours
+was re-run. Three of the five fixtures got **faster while gaining the entire flow
+graph**, because the same change replaced the binder's per-level `Vec` of children
+with one shared stack; `dom.generated.d.ts`, whose `.d.ts` interfaces have very
+wide child lists, gained the most from that and lost the least to the flow graph.
 
-It is reported rather than gated for the same reason. Gating now would lock in a
-number that *must* get worse as the binder is finished, and a gate whose correct
-response to real progress is "override" is precisely the failure mode
-[ADR-0009](../adr/0009-performance-gate.md) exists to avoid. `BIND_IS_GATED` in
-`xtask/src/perf.rs` flips when the flow graph lands.
+### Correcting the record
+
+The 2026-08-03 version of this section said, correctly at the time:
+
+> Our binder does not build the control-flow graph and upstream's does, so this
+> compares a partial binder against a complete one … Deriving the binder's own
+> cost — parse+bind minus parse-only — gives ~0.7 ms for us against ~15.6 ms for
+> upstream on `checker.ts`, and that 20× is almost entirely the flow graph.
+
+That prediction held. With the flow graph built, the binder's own cost on
+`checker.ts` is **25.3 − 21.3 = 4.0 ms**, against upstream's ~15.6 ms: a **~3.9×**
+advantage, not 20×. The 20× was measuring absent work, exactly as the note warned.
+
+The binder is still not complete — destructuring declares no symbols, `export`
+does not route, and the strict-mode diagnostics are unported (see
+[binder.md](binder.md)) — so a few percent of upstream's binder work is still
+missing from our column. The flow graph was the dominant piece and it is now
+present on both sides.
+
+### Now gated
+
+`BIND_IS_GATED` in `xtask/src/perf.rs` is `true` as of 2026-08-04, the condition
+its comment named. The measured ratio is 0.52 against a ceiling of 1.10, so the
+headroom is roughly 2×.
+
+**This flip has not been exercised locally**: there is no Go toolchain on the
+machine it was made on, so the tsgo half of the parse+bind comparison could not be
+re-run and the first CI run is the real test. The ratio would have to more than
+double before the gate fires.
 
 ### The trap in benchmarking a binder
 
@@ -110,6 +134,33 @@ Two distinct effects, worth separating because they generalise differently:
   node count, 12.8 MB less to hold it: no per-object GC headers, no interior
   pointers the collector must trace, and a bump arena with no per-allocation
   bookkeeping.
+
+### The binder's own memory — measured, not compared
+
+Added 2026-08-04 with the flow graph. Same four fixtures, same method, three
+measurements instead of two: baseline, every AST live, every `BindResult` live
+too.
+
+| | KiB |
+|---|---:|
+| AST | 25,600 |
+| Binder, symbols only (2026-08-03) | 12,288 |
+| Binder, symbols + flow graph (2026-08-04) | **15,616** |
+| — attributable to the flow graph | 3,328 |
+
+3.25 MiB buys 81,713 flow nodes and 419,464 `node -> flow` entries — one flow
+node per 5.1 AST nodes. The flow graph is 13% of the AST's footprint and 21% of
+the binder's; [ADR-0014](../adr/0014-flow-graph-representation.md) accounts for it
+byte by byte and explains why a record is 16 bytes rather than upstream's 32.
+
+**There is no typescript-go number beside these.** `benches/go/rss_test.go`
+measures parsing only, so unlike the AST row above, the binder's memory is
+absolute rather than comparative and cannot be gated. Writing the Go counterpart
+is `bd tsr-y4u.9`. Reproduce ours with:
+
+```
+cargo run -p tsr-binder --example rss --release
+```
 
 ### What this measurement does *not* show
 

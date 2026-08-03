@@ -29,17 +29,22 @@ use anyhow::{Context, Result, bail};
 /// The number to watch is the trend in `perf-results.json`, not this threshold.
 const MAX_WALL_RATIO: f64 = 1.10;
 
-/// Fixtures whose parse+bind numbers are reported but **not gated**.
+/// Whether parse+bind ratios gate, or are only reported.
 ///
-/// Every one of them, for now. Our binder does not build the control-flow graph
-/// and upstream's does, so a parse+bind ratio compares our partial binder against
-/// their complete one and flatters us by exactly the amount of work we have not
-/// written. Gating on it would lock in a number that must get worse as the binder
-/// is finished, and a gate whose correct response to real progress is "override"
-/// is the failure mode ADR-0009 exists to avoid.
+/// `true` since 2026-08-04, when `bd tsr-y4u.2` landed the control-flow graph —
+/// the condition this constant was introduced waiting for. Until then a
+/// parse+bind ratio compared our partial binder against upstream's complete one
+/// and flattered us by exactly the amount of work we had not written; gating on
+/// it would have locked in a number that must get worse as the binder is
+/// finished, which is the failure mode ADR-0009 exists to avoid.
 ///
-/// This becomes a gate when `bd tsr-y4u.2` lands the flow graph.
-const BIND_IS_GATED: bool = false;
+/// Some of upstream's binder work is still unported — destructuring symbols,
+/// `export` routing, strict-mode diagnostics — so the ratio still has room to
+/// worsen legitimately. It is gated anyway because the flow graph was the
+/// dominant piece (it was ~95% of upstream's binder cost on `checker.ts`) and the
+/// measured headroom is roughly 2×: 0.52 against `MAX_WALL_RATIO`'s 1.10. See
+/// `docs/architecture/binder.md` for what remains.
+const BIND_IS_GATED: bool = true;
 
 /// Ceiling on peak-RSS ratio (ours ÷ typescript-go's).
 ///

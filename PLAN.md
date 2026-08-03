@@ -289,6 +289,12 @@ Symbol tables, scopes, declaration merging, flow graph.
 **Gate:** symbol-table dumps match Go across the corpus (compare against oxc's
 `symbols_typescript` at 21.1% — this is harder than it looks).
 
+Symbols, scopes, and declaration merging landed 2026-08-03; the control-flow
+graph 2026-08-04. `binder_symbols` conformance is 62.05%. Destructuring symbols,
+`export` routing, module-vs-script, and the strict-mode diagnostics remain — see
+[docs/architecture/binder.md](docs/architecture/binder.md) and
+[ADR-0014](docs/adr/0014-flow-graph-representation.md).
+
 ### Phase 3 — Module resolution & tsconfig
 `node16`/`nodenext`/`bundler`, path mapping, `tsoptions`, on `oxc_resolver`.
 **Gate:** upstream module-resolution baselines pass.
