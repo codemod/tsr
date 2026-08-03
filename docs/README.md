@@ -27,6 +27,7 @@ Living documents describing how a subsystem works and why it is shaped that way.
 - [scanner.md](architecture/scanner.md) — tokenisation, re-scanning, backtracking
 - [parser.md](architecture/parser.md) — recursive descent, recovery, the arrow-function trap
 - [jsdoc.md](architecture/jsdoc.md) — two languages in one file, and switching between them
+- [performance.md](architecture/performance.md) — the tsgo comparison, and where the time goes
 - [threading.md](architecture/threading.md) — what is `Send`, what is not, and why
 - [conformance.md](architecture/conformance.md) — the corpus, the oracles, the ratchet
 
