@@ -97,6 +97,13 @@ impl<'a> JSDocTable<'a> {
 pub struct ParseOptions {
     /// Which dialect to parse: `.tsx` reads a leading `<` as JSX.
     pub script_kind: ScriptKind,
+    /// Whether to fill in the parent column of the node table.
+    ///
+    /// Defaults to `true`, matching typescript-go, which assigns parents inside
+    /// `finishNode` and has no way to opt out. Ours is a separate pass, so a
+    /// consumer that never walks upward can skip it — see
+    /// [`tsr_ast::assign_parents`].
+    pub parents: bool,
     /// Whether to parse `/** … */` comments into the JSDoc side table.
     ///
     /// Defaults to `true`. A consumer that turns this off and then reads
@@ -108,7 +115,7 @@ pub struct ParseOptions {
 
 impl Default for ParseOptions {
     fn default() -> Self {
-        Self { script_kind: ScriptKind::TypeScript, jsdoc: true }
+        Self { script_kind: ScriptKind::TypeScript, parents: true, jsdoc: true }
     }
 }
 
@@ -123,6 +130,13 @@ impl ParseOptions {
     #[must_use]
     pub const fn without_jsdoc(mut self) -> Self {
         self.jsdoc = false;
+        self
+    }
+
+    /// The same options with parent assignment turned off.
+    #[must_use]
+    pub const fn without_parents(mut self) -> Self {
+        self.parents = false;
         self
     }
 }

@@ -19,6 +19,9 @@
 
 mod flags;
 mod generated;
+pub mod parent;
+pub use generated::visit::push_children;
+pub use parent::assign_parents;
 
 pub use flags::{ModifierFlags, NodeFlags, TokenFlags};
 pub use generated::visit::Visit;

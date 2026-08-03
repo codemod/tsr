@@ -7,25 +7,116 @@ typescript-go at the pinned commit, not against our own history.
 **Profiles:** `examples/alloc_profile` (scan/parse split, allocation histogram) and
 `perf record` against `examples/parse_loop`, built with `--profile profiling`.
 
-## Where we are — 2026-08-03, after profiling
-
-**Faster than typescript-go on all five fixtures**, like for like.
+## Where we are — 2026-08-03, at equal work
 
 Single-threaded, pinned to one core (`taskset -c 2`), 3 s per fixture, AMD Ryzen 9
-7950X3D. typescript-go at `5b1047d10`, Go 1.26.5. tsr built `--release`.
+7950X3D. typescript-go at `5b1047d10`, Go 1.26.5. tsr `--release`, parent
+assignment **on** (see below), JSDoc off in the ratio column.
 
 | Fixture | Size | tsgo ns/op | tsr `-jsdoc` | ratio | tsr `+jsdoc` |
 |---|---:|---:|---:|---:|---:|
-| `empty.ts` | 0 B | 438 | 112 | **0.26×** | 121 |
-| `Herebyfile.mjs` | 37 KB | 551,711 | 244,413 | **0.44×** | 271,064 |
-| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 95,127 | **0.64×** | 154,419 |
-| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 10,908,342 | **0.84×** | 19,825,587 |
-| `checker.ts` | 3.1 MB | 32,721,718 | 28,838,476 | **0.88×** | 29,612,201 |
+| `empty.ts` | 0 B | 438 | 144 | **0.33×** | 144 |
+| `Herebyfile.mjs` | 37 KB | 551,711 | 281,546 | **0.51×** | 312,754 |
+| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 111,403 | **0.75×** | 171,042 |
+| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 12,036,118 | **0.93×** | 21,097,712 |
+| `checker.ts` | 3.1 MB | 32,721,718 | 33,158,866 | **1.01×** | 33,475,941 |
 
-`-jsdoc` is the like-for-like column: typescript-go does not build JSDoc nodes for
-`.ts`/`.tsx` — `withJSDoc` sets a flag and returns. Both arms are printed by the
-benchmark so neither can be quoted alone; see
-[ADR-0010](../adr/0010-jsdoc-is-a-parse-option.md).
+**On the largest realistic file we are at parity, marginally slower.** The
+double-digit wins are on small files, where the advantage is fixed per-file
+overhead — an arena versus Go's parser pool and per-file setup — and that advantage
+does not scale with input.
+
+This is a worse picture than the previous entry reported, and the previous entry
+was wrong for a reason worth stating: **we were not doing the same work.**
+
+## Is the comparison fair? — audited both directions
+
+typescript-go's `BenchmarkParse` calls `parser.ParseSourceFile` and nothing else:
+no binder, no checker, no program construction. That much is straightforwardly
+comparable. But `ParseSourceFile` does three things around the parse that we did
+not, and they are not all negligible.
+
+Measured by adding benchmarks inside `internal/parser` (temporary, not committed —
+these functions are package-private):
+
+| tsgo does | cost on `dom.generated.d.ts` | share of its 13.0 ms |
+|---|---:|---:|
+| `getCommentPragmas` — rescans the source from offset 0 | 570 ns | 0.004% |
+| `collectExternalModuleReferences` — walks the finished tree | 12.6 µs | 0.1% |
+| **`overrideParentInImmediateChildren` — sets every node's parent** | **~1.25 ms** | **9.6%** |
+
+The first two are noise. The third is not, and **we were not doing it at all.**
+
+`finishNodeWithEnd` calls `overrideParentInImmediateChildren`, which re-walks each
+node's children through `ForEachChild` with a closure, assigning `Parent`. A CPU
+profile of the Go parser attributes 9.55% to that path. Our `NodeTable` had a
+`parent` column that nothing ever wrote — the tree could not answer "who is my
+parent" at all.
+
+So the earlier 0.84× on `dom.generated.d.ts` was comparing our parse against a
+tsgo parse doing ~10% more work *and* producing something we were not producing.
+`tsr_ast::assign_parents` now fills the column, costing us 10–11% — close enough to
+upstream's 9.6% that the axis is fair — and the ratio moved from 0.84× to 0.93×.
+
+## Why are we not faster?
+
+This is the question the numbers now force, and the answer is uncomfortable.
+
+A CPU profile of typescript-go parsing `dom.generated.d.ts`:
+
+| | share of tsgo's parse |
+|---|---:|
+| `runtime.*` total | **36%** |
+| — write barriers (`wbBufFlush`, `gcWriteBarrier`) | 14.6% |
+| — `runtime.mallocgc` | 12.4% |
+| — `runtime.growslice` | 11.8% |
+| parent assignment | 9.6% |
+| identifier interning (`mapaccess1_faststr`, `aeshashbody`) | ~5.6% |
+
+**Roughly a third of typescript-go's parse time is Go runtime tax that does not
+exist in our build.** We have no GC, no write barriers, and a bump arena instead of
+`mallocgc`. That advantage is handed to us before we write a line of parser code.
+
+We are spending all of it and arriving at parity. Netting it out: at equal
+algorithmic work, our parser is something like **1.4–1.5× slower than Go's** — and
+typescript-go's parser is not exotic, it is a straightforward recursive-descent
+port of `tsc`. The gap is ours, not theirs.
+
+Our own profile says where it goes:
+
+| | share of our parse |
+|---|---:|
+| `Scanner::bump` + `Scanner::peek` | 17% |
+| `Scanner::scan` | 12.6% |
+| `Scanner::scan_identifier_or_keyword` | 5.9% |
+| `is_identifier_part` | 2.8% |
+| `NodeTable::push` | 2.1% |
+
+The scanner is ~40% of the parse and is still doing per-character work that a fast
+lexer does per-word. That is the headroom, and it is large: closing it should put
+us meaningfully ahead rather than at parity.
+
+## Does parse speed justify the port?
+
+Honestly: **not on these numbers, and it was never the strongest argument.**
+
+Parsing is a small share of a compiler run — the checker dominates — so a parser at
+parity is not a reason to rewrite 300k lines. The arguments that do carry weight
+are ones we have not yet measured:
+
+- **Memory and GC behaviour.** 36% of tsgo's parse is runtime overhead, and the
+  same tax applies to the checker, where allocation volume is far higher.
+  [ADR-0009](../adr/0009-performance-gate.md) gates peak RSS for this reason and
+  the harness does not report it yet. This is the most valuable missing number.
+- **Latency, not throughput.** GC pauses are what an editor feels. Steady-state
+  throughput parity with no pauses is a different product.
+- **The checker.** Where the time actually is, and where nobody — including oxc,
+  at 0.93% type conformance — has a fast implementation. That is the real prize
+  and none of these fixtures touch it.
+
+Until those are measured, the honest claim is narrow: *parse throughput is at
+parity with typescript-go, with identified headroom, and the port's case rests on
+axes we have not yet instrumented.* Anything stronger is unearned.
 
 ### What changed, and a correction to the previous entry
 
@@ -140,8 +231,7 @@ from round one was, in part, measuring JSDoc.
 
 ## Where the remaining time goes
 
-Every fixture is now ahead of tsgo, so what follows is opportunity rather than
-deficit. In the order the profile supports:
+In the order the profile supports:
 
 **The character cursor is still 17% of samples** (`bump` 8.9%, `peek` 8.2%) even
 after the ASCII fast path. Both are called per character and still re-derive the
@@ -167,6 +257,10 @@ accordingly.
   with the JSX language variant (`getLanguageVariant` maps `ScriptKindJS` to JSX);
   `ScriptKind::from_file_name` gives us plain TypeScript. We are doing less work.
   Its 0.44× should not be quoted without this caveat.
+- **Parent assignment is on**, matching tsgo, but ours is one pass afterwards
+  while tsgo's is interleaved into `finishNode`. Same work, different cache
+  behaviour; the totals are close (10–11% versus 9.6%) but they are not identical
+  operations.
 - **The ratio is the `-jsdoc` column**, because that is what tsgo does for these
   fixtures. The `+jsdoc` column is our default. Turning off work is not the same as
   making work faster, and both columns stay in the table so that stays visible.

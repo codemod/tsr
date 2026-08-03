@@ -12,6 +12,10 @@
 //! - **Single-threaded.** Both sides measure work, not scheduling.
 //! - **Parse only** — no binding, no checking, and the tree is dropped inside the
 //!   timed region exactly as Go drops its result to the GC.
+//! - **Parent assignment on.** typescript-go does it during `finishNode`; a
+//!   profile of its parser attributes 9.6% of `dom.generated.d.ts` to it. Ours is
+//!   a separate pass and it runs here, because the alternative is reporting a
+//!   ratio against work only one side performs.
 //! - **Two arms, and the like-for-like one is `-jsdoc`.** typescript-go does not
 //!   build JSDoc nodes for `.ts`/`.tsx` files at all; it sets a flag and defers.
 //!   Comparing our JSDoc-building parse against that measures a different amount
@@ -113,6 +117,10 @@ struct Measurement {
 fn measure(name: &str, source: &str, target: Duration, jsdoc: bool) -> Measurement {
     let options = tsr_parser::ParseOptions {
         script_kind: tsr_parser::ScriptKind::from_file_name(name),
+        // Parents are always on: typescript-go assigns them inside `finishNode`
+        // and cannot opt out, so leaving them off would compare our parse against
+        // 9.6% of work upstream is doing and we are not.
+        parents: true,
         jsdoc,
     };
     // Warm the allocator and the instruction cache before anything is recorded;

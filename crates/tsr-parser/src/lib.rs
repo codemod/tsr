@@ -93,7 +93,10 @@ pub fn parse_with_options<'a>(
 ) -> ParsedSourceFile<'a> {
     let mut parser = Parser::with_options(arena, source, options);
     let source_file = parser.parse_source_file();
-    let (diagnostics, node_table, jsdoc) = parser.finish();
+    let (diagnostics, mut node_table, jsdoc) = parser.finish();
+    if options.parents {
+        tsr_ast::assign_parents(tsr_ast::Node::SourceFile(source_file), &mut node_table);
+    }
     ParsedSourceFile { source_file, diagnostics, nodes: node_table, jsdoc }
 }
 

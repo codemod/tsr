@@ -711,6 +711,48 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
     }
     out.push_str("    }\n}\n\n");
 
+    // ---- immediate children --------------------------------------------
+    //
+    // A `Visit` impl cannot collect immediate children: the walkers call *typed*
+    // methods (`visit_identifier`) for concretely-typed fields, so a visitor that
+    // overrides only `visit_node` silently misses them — and the typed defaults
+    // recurse, so it also does not stop at one level. Anything that needs "the
+    // children of this node, as `Node`" needs a separate function, and it must be
+    // generated for the same reason the walkers are.
+    out.push_str(
+        "/// Append `node`'s immediate children to `out`, in source order.\n\
+         ///\n\
+         /// Does not recurse. This is the primitive for an iterative tree walk —\n\
+         /// which is what a walk over parser output has to be, since tree depth is\n\
+         /// a function of the source and a recursive walk over hostile input\n\
+         /// overflows the stack.\n\
+         pub fn push_children<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {\n    \
+         match node {\n",
+    );
+    let mut childless: Vec<String> = Vec::new();
+    for name in ast.nodes.definitions.keys() {
+        let fields =
+            if name == "Token" { Vec::new() } else { resolve_fields(ast, nullability, name)? };
+        let pushes: Vec<String> =
+            fields.iter().filter_map(|field| child_push_call(ast, field)).collect();
+        if pushes.is_empty() {
+            childless.push(name.clone());
+        } else {
+            writeln!(out, "        Node::{name}(n) => {{")?;
+            for push in pushes {
+                out.push_str(&push);
+            }
+            out.push_str("        }\n");
+        }
+    }
+    if !childless.is_empty() {
+        // Leaves — identifiers, literals, keyword types — share one arm; sixty
+        // identical `=> {}` arms would be noise clippy is right to object to.
+        let arms: Vec<String> = childless.iter().map(|name| format!("Node::{name}(_)")).collect();
+        writeln!(out, "        {} => {{}}", arms.join("\n        | "))?;
+    }
+    out.push_str("    }\n}\n\n");
+
     // ---- per-node walkers ----------------------------------------------
     for name in ast.nodes.definitions.keys() {
         let snake = name.to_case(Case::Snake);
@@ -739,6 +781,65 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
 }
 
 /// Emit the traversal statement for one field, or `None` for non-node fields.
+/// How to push one field's children as `Node`, for `push_children`.
+///
+/// Mirrors [`child_visit_call`]'s type analysis but always widens to `Node`,
+/// because the caller wants a uniform list rather than a typed dispatch.
+fn child_push_call(ast: &AstDefinition, field: &ResolvedField) -> Option<String> {
+    let ty = &field.rust_type;
+    let name = &field.rust_name;
+
+    if !ty.contains("'a") || ty.contains("str") {
+        return None;
+    }
+    let inner = ty
+        .trim_start_matches("Option<")
+        .trim_end_matches('>')
+        .trim_start_matches("&'a [")
+        .trim_end_matches(']')
+        .trim_start_matches("&'a ");
+    let base = inner.split('<').next().unwrap_or(inner);
+    let is_list = ty.contains("&'a [");
+    let is_option = ty.starts_with("Option<");
+    let is_alias = ast.nodes.aliases.contains_key(base) || base == "Node";
+    let is_node = ast.nodes.definitions.contains_key(base);
+    // Unlike the walkers, `Token` children are included: they are real nodes with
+    // ids, and anything keyed by node identity needs to reach them.
+    if !is_alias && !is_node && base != "Token" {
+        return None;
+    }
+
+    // Three shapes, because `Node` has no blanket `From`: it is already `Node`,
+    // it is an alias that converts, or it is a concrete node whose variant has to
+    // be named.
+    let widen = |expr: &str| -> String {
+        if base == "Node" {
+            format!("out.push({expr});")
+        } else if is_alias {
+            format!("out.push(Node::from({expr}));")
+        } else {
+            format!("out.push(Node::{base}({expr}));")
+        }
+    };
+
+    Some(match (is_list, is_option) {
+        (true, _) => {
+            // `&'a [&'a T]` iterates as `&&'a T`: the alias conversion takes a
+            // value so it needs the deref, the concrete variant auto-derefs.
+            let bound = if is_alias || base == "Node" { "*child" } else { "child" };
+            format!(
+                "            for child in n.{name} {{\n                {}\n            }}\n",
+                widen(bound)
+            )
+        }
+        (false, true) => format!(
+            "            if let Some(child) = n.{name} {{\n                {}\n            }}\n",
+            widen("child")
+        ),
+        (false, false) => format!("            {}\n", widen(&format!("n.{name}"))),
+    })
+}
+
 fn child_visit_call(ast: &AstDefinition, field: &ResolvedField) -> Option<String> {
     let ty = &field.rust_type;
     let name = &field.rust_name;

@@ -1190,6 +1190,1637 @@ pub fn walk_node<'a, V: Visit<'a>>(visitor: &mut V, node: Node<'a>) {
     }
 }
 
+/// Append `node`'s immediate children to `out`, in source order.
+///
+/// Does not recurse. This is the primitive for an iterative tree walk —
+/// which is what a walk over parser output has to be, since tree depth is
+/// a function of the source and a recursive walk over hostile input
+/// overflows the stack.
+pub fn push_children<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
+    match node {
+        Node::ArrayLiteralExpression(n) => {
+            for child in n.elements {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::ArrayTypeNode(n) => {
+            if let Some(child) = n.element_type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ArrowFunction(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.equals_greater_than_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+        }
+        Node::AsExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::AwaitExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::BinaryExpression(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.left {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.operator_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.right {
+                out.push(Node::from(child));
+            }
+        }
+        Node::BindingElement(n) => {
+            if let Some(child) = n.dot_dot_dot_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.property_name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::BindingPattern(n) => {
+            out.push(Node::Token(n.kind));
+            for child in n.elements {
+                out.push(Node::BindingElement(child));
+            }
+        }
+        Node::Block(n) => {
+            for child in n.statements {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::BreakStatement(n) => {
+            if let Some(child) = n.label {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::CallExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.question_dot_token {
+                out.push(Node::Token(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+            for child in n.arguments {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::CallSignatureDeclaration(n) => {
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+        }
+        Node::CaseBlock(n) => {
+            for child in n.clauses {
+                out.push(Node::CaseOrDefaultClause(child));
+            }
+        }
+        Node::CaseOrDefaultClause(n) => {
+            out.push(Node::Token(n.kind));
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            for child in n.statements {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::CatchClause(n) => {
+            if let Some(child) = n.variable_declaration {
+                out.push(Node::VariableDeclaration(child));
+            }
+            if let Some(child) = n.block {
+                out.push(Node::Block(child));
+            }
+        }
+        Node::ClassDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.heritage_clauses {
+                out.push(Node::HeritageClause(child));
+            }
+            for child in n.members {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::ClassExpression(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.heritage_clauses {
+                out.push(Node::HeritageClause(child));
+            }
+            for child in n.members {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::ClassStaticBlockDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::Block(child));
+            }
+        }
+        Node::ComputedPropertyName(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ConditionalExpression(n) => {
+            if let Some(child) = n.condition {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.question_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.when_true {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.colon_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.when_false {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ConditionalTypeNode(n) => {
+            if let Some(child) = n.check_type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.extends_type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.true_type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.false_type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ConstructSignatureDeclaration(n) => {
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ConstructorDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+        }
+        Node::ConstructorTypeNode(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ContinueStatement(n) => {
+            if let Some(child) = n.label {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::Decorator(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::DeleteExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::DoStatement(n) => {
+            out.push(Node::from(n.statement));
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ElementAccessExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.question_dot_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.argument_expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::EnumDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            for child in n.members {
+                out.push(Node::EnumMember(child));
+            }
+        }
+        Node::EnumMember(n) => {
+            out.push(Node::from(n.name));
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+        }
+        Node::ExportAssignment(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ExportDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.export_clause {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.module_specifier {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.attributes {
+                out.push(Node::ImportAttributes(child));
+            }
+        }
+        Node::ExportSpecifier(n) => {
+            if let Some(child) = n.property_name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ExpressionStatement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ExpressionWithTypeArguments(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::ExternalModuleReference(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ForInOrOfStatement(n) => {
+            out.push(Node::Token(n.kind));
+            if let Some(child) = n.await_modifier {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.statement {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ForStatement(n) => {
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.condition {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.incrementor {
+                out.push(Node::from(child));
+            }
+            out.push(Node::from(n.statement));
+        }
+        Node::FunctionDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+        }
+        Node::FunctionExpression(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+        }
+        Node::FunctionTypeNode(n) => {
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+        }
+        Node::GetAccessorDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::from(n.name));
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+        }
+        Node::HeritageClause(n) => {
+            out.push(Node::Token(n.token));
+            for child in n.types {
+                out.push(Node::ExpressionWithTypeArguments(child));
+            }
+        }
+        Node::IfStatement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.then_statement {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.else_statement {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ImportAttribute(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.value {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ImportAttributes(n) => {
+            out.push(Node::Token(n.token));
+            for child in n.attributes {
+                out.push(Node::ImportAttribute(child));
+            }
+        }
+        Node::ImportClause(n) => {
+            if let Some(child) = n.phase_modifier {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            if let Some(child) = n.named_bindings {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ImportDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.import_clause {
+                out.push(Node::ImportClause(child));
+            }
+            if let Some(child) = n.module_specifier {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.attributes {
+                out.push(Node::ImportAttributes(child));
+            }
+        }
+        Node::ImportEqualsDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            if let Some(child) = n.module_reference {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ImportSpecifier(n) => {
+            if let Some(child) = n.property_name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::ImportTypeNode(n) => {
+            if let Some(child) = n.argument {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.attributes {
+                out.push(Node::ImportAttributes(child));
+            }
+            if let Some(child) = n.qualifier {
+                out.push(Node::from(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::IndexSignatureDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+        }
+        Node::IndexedAccessTypeNode(n) => {
+            if let Some(child) = n.object_type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.index_type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::InferTypeNode(n) => {
+            if let Some(child) = n.type_parameter {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+        }
+        Node::InterfaceDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.heritage_clauses {
+                out.push(Node::HeritageClause(child));
+            }
+            for child in n.members {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::IntersectionTypeNode(n) => {
+            for child in n.types {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDoc(n) => {
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+            for child in n.tags {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocAugmentsTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.class_name {
+                out.push(Node::ExpressionWithTypeArguments(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocCallbackTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocDeprecatedTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocImplementsTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.class_name {
+                out.push(Node::ExpressionWithTypeArguments(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocImportTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.import_clause {
+                out.push(Node::ImportClause(child));
+            }
+            if let Some(child) = n.module_specifier {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.attributes {
+                out.push(Node::ImportAttributes(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocLink(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocLinkCode(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocLinkPlain(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocNameReference(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocNonNullableType(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocNullableType(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocOptionalType(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocOverloadTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocOverrideTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocParameterOrPropertyTag(n) => {
+            out.push(Node::Token(n.kind));
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.type_expression {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocPrivateTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocProtectedTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocPublicTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocReadonlyTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocReturnTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocSatisfiesTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocSeeTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.name_expression {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocSignature(n) => {
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocTemplateTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.constraint {
+                out.push(child);
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocThisTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocThrowsTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocTypeExpression(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JSDocTypeLiteral(n) => {
+            for child in n.js_doc_property_tags {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocTypeTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(child);
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocTypedefTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            if let Some(child) = n.type_expression {
+                out.push(child);
+            }
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocUnknownTag(n) => {
+            out.push(Node::Identifier(n.tag_name));
+            for child in n.comment {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JSDocVariadicType(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JsxAttribute(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JsxAttributes(n) => {
+            for child in n.properties {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::JsxClosingElement(n) => {
+            if let Some(child) = n.tag_name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JsxElement(n) => {
+            if let Some(child) = n.opening_element {
+                out.push(Node::JsxOpeningElement(child));
+            }
+            for child in n.children {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.closing_element {
+                out.push(Node::JsxClosingElement(child));
+            }
+        }
+        Node::JsxExpression(n) => {
+            if let Some(child) = n.dot_dot_dot_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::JsxFragment(n) => {
+            if let Some(child) = n.opening_fragment {
+                out.push(Node::JsxOpeningFragment(child));
+            }
+            for child in n.children {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.closing_fragment {
+                out.push(Node::JsxClosingFragment(child));
+            }
+        }
+        Node::JsxNamespacedName(n) => {
+            if let Some(child) = n.namespace {
+                out.push(Node::Identifier(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::JsxOpeningElement(n) => {
+            if let Some(child) = n.tag_name {
+                out.push(Node::from(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.attributes {
+                out.push(Node::JsxAttributes(child));
+            }
+        }
+        Node::JsxSelfClosingElement(n) => {
+            if let Some(child) = n.tag_name {
+                out.push(Node::from(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.attributes {
+                out.push(Node::JsxAttributes(child));
+            }
+        }
+        Node::JsxSpreadAttribute(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::LabeledStatement(n) => {
+            if let Some(child) = n.label {
+                out.push(Node::Identifier(child));
+            }
+            if let Some(child) = n.statement {
+                out.push(Node::from(child));
+            }
+        }
+        Node::LiteralTypeNode(n) => {
+            if let Some(child) = n.literal {
+                out.push(child);
+            }
+        }
+        Node::MappedTypeNode(n) => {
+            if let Some(child) = n.readonly_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.type_parameter {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            if let Some(child) = n.name_type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.question_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            for child in n.members {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::MetaProperty(n) => {
+            out.push(Node::Token(n.keyword_token));
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::MethodDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+            out.push(Node::from(n.name));
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+        }
+        Node::MethodSignatureDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::from(n.name));
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+        }
+        Node::MissingDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::ModuleBlock(n) => {
+            for child in n.statements {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::ModuleDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::Token(n.keyword));
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+        }
+        Node::NamedExports(n) => {
+            for child in n.elements {
+                out.push(Node::ExportSpecifier(child));
+            }
+        }
+        Node::NamedImports(n) => {
+            for child in n.elements {
+                out.push(Node::ImportSpecifier(child));
+            }
+        }
+        Node::NamedTupleMember(n) => {
+            if let Some(child) = n.dot_dot_dot_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            if let Some(child) = n.question_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::NamespaceExport(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::NamespaceExportDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::NamespaceImport(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::NewExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+            for child in n.arguments {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::NonNullExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ObjectLiteralExpression(n) => {
+            for child in n.properties {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::OptionalTypeNode(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ParameterDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.dot_dot_dot_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.question_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ParenthesizedExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ParenthesizedTypeNode(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::PartiallyEmittedExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::PostfixUnaryExpression(n) => {
+            if let Some(child) = n.operand {
+                out.push(Node::from(child));
+            }
+            out.push(Node::Token(n.operator));
+        }
+        Node::PrefixUnaryExpression(n) => {
+            out.push(Node::Token(n.operator));
+            if let Some(child) = n.operand {
+                out.push(Node::from(child));
+            }
+        }
+        Node::PropertyAccessExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.question_dot_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+        }
+        Node::PropertyAssignment(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::from(n.name));
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::PropertyDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::from(n.name));
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::PropertySignatureDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::from(n.name));
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::QualifiedName(n) => {
+            if let Some(child) = n.left {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.right {
+                out.push(Node::Identifier(child));
+            }
+        }
+        Node::RestTypeNode(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ReturnStatement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::SatisfiesExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::SetAccessorDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::from(n.name));
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            for child in n.parameters {
+                out.push(Node::ParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.full_signature {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.body {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+        }
+        Node::ShorthandPropertyAssignment(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::from(n.name));
+            if let Some(child) = n.postfix_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.equals_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.object_assignment_initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::SourceFile(n) => {
+            for child in n.statements {
+                out.push(Node::from(*child));
+            }
+            out.push(Node::Token(n.end_of_file_token));
+        }
+        Node::SpreadAssignment(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::SpreadElement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::SwitchStatement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.case_block {
+                out.push(Node::CaseBlock(child));
+            }
+        }
+        Node::SyntaxList(n) => {
+            for child in n.children {
+                out.push(*child);
+            }
+        }
+        Node::SyntheticExpression(n) => {
+            out.push(n.r#type);
+            if let Some(child) = n.tuple_name_source {
+                out.push(child);
+            }
+        }
+        Node::SyntheticReferenceExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.this_arg {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TaggedTemplateExpression(n) => {
+            if let Some(child) = n.tag {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.question_dot_token {
+                out.push(Node::Token(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.template {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TemplateExpression(n) => {
+            if let Some(child) = n.head {
+                out.push(Node::TemplateHead(child));
+            }
+            for child in n.template_spans {
+                out.push(Node::TemplateSpan(child));
+            }
+        }
+        Node::TemplateLiteralTypeNode(n) => {
+            if let Some(child) = n.head {
+                out.push(Node::TemplateHead(child));
+            }
+            for child in n.template_spans {
+                out.push(Node::TemplateLiteralTypeSpan(child));
+            }
+        }
+        Node::TemplateLiteralTypeSpan(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.literal {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TemplateSpan(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.literal {
+                out.push(Node::from(child));
+            }
+        }
+        Node::ThrowStatement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TryStatement(n) => {
+            if let Some(child) = n.try_block {
+                out.push(Node::Block(child));
+            }
+            if let Some(child) = n.catch_clause {
+                out.push(Node::CatchClause(child));
+            }
+            if let Some(child) = n.finally_block {
+                out.push(Node::Block(child));
+            }
+        }
+        Node::TupleTypeNode(n) => {
+            for child in n.elements {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::TypeAliasDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            for child in n.type_parameters {
+                out.push(Node::TypeParameterDeclaration(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TypeAssertion(n) => {
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TypeLiteralNode(n) => {
+            for child in n.members {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::TypeOfExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TypeOperatorNode(n) => {
+            out.push(Node::Token(n.operator));
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TypeParameterDeclaration(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.name {
+                out.push(Node::Identifier(child));
+            }
+            if let Some(child) = n.constraint {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.default_type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TypePredicateNode(n) => {
+            if let Some(child) = n.asserts_modifier {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.parameter_name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+        }
+        Node::TypeQueryNode(n) => {
+            if let Some(child) = n.expr_name {
+                out.push(Node::from(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::TypeReferenceNode(n) => {
+            if let Some(child) = n.type_name {
+                out.push(Node::from(child));
+            }
+            for child in n.type_arguments {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::UnionTypeNode(n) => {
+            for child in n.types {
+                out.push(Node::from(*child));
+            }
+        }
+        Node::VariableDeclaration(n) => {
+            if let Some(child) = n.name {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.exclamation_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.r#type {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.initializer {
+                out.push(Node::from(child));
+            }
+        }
+        Node::VariableDeclarationList(n) => {
+            for child in n.declarations {
+                out.push(Node::VariableDeclaration(child));
+            }
+        }
+        Node::VariableStatement(n) => {
+            for child in n.modifiers {
+                out.push(Node::from(*child));
+            }
+            if let Some(child) = n.declaration_list {
+                out.push(Node::VariableDeclarationList(child));
+            }
+        }
+        Node::VoidExpression(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::WhileStatement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            out.push(Node::from(n.statement));
+        }
+        Node::WithStatement(n) => {
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+            if let Some(child) = n.statement {
+                out.push(Node::from(child));
+            }
+        }
+        Node::YieldExpression(n) => {
+            if let Some(child) = n.asterisk_token {
+                out.push(Node::Token(child));
+            }
+            if let Some(child) = n.expression {
+                out.push(Node::from(child));
+            }
+        }
+        Node::BigIntLiteral(_)
+        | Node::DebuggerStatement(_)
+        | Node::EmptyStatement(_)
+        | Node::Identifier(_)
+        | Node::JSDocAllType(_)
+        | Node::JSDocText(_)
+        | Node::JsxClosingFragment(_)
+        | Node::JsxOpeningFragment(_)
+        | Node::JsxText(_)
+        | Node::KeywordExpression(_)
+        | Node::KeywordTypeNode(_)
+        | Node::NoSubstitutionTemplateLiteral(_)
+        | Node::NotEmittedStatement(_)
+        | Node::NotEmittedTypeElement(_)
+        | Node::NumericLiteral(_)
+        | Node::OmittedExpression(_)
+        | Node::PrivateIdentifier(_)
+        | Node::RegularExpressionLiteral(_)
+        | Node::SemicolonClassElement(_)
+        | Node::StringLiteral(_)
+        | Node::TemplateHead(_)
+        | Node::TemplateMiddle(_)
+        | Node::TemplateTail(_)
+        | Node::ThisTypeNode(_)
+        | Node::Token(_) => {}
+    }
+}
+
 /// Walk the children of a [`ArrayLiteralExpression`].
 pub fn walk_array_literal_expression<'a, V: Visit<'a>>(
     visitor: &mut V,

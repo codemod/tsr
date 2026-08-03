@@ -722,3 +722,78 @@ fn a_shebang_is_trivia_on_the_first_line_only() {
     // Elsewhere `#` still starts a private name.
     statements(&arena, "class B { #x = 1; m() { return this.#x; } }");
 }
+
+// ---- parent assignment ----------------------------------------------------
+
+#[test]
+fn every_node_but_the_root_has_a_parent() {
+    let arena = Arena::new();
+    let source =
+        "class C { m(a: number) { return [a, {b: 1}]; } }\nexport const x = <T,>(y: T) => y;";
+    let parsed = tsr_parser::parse(&arena, source);
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+
+    let mut checked = 0;
+    let mut stack = vec![tsr_ast::Node::SourceFile(parsed.source_file)];
+    let mut children = Vec::new();
+    while let Some(node) = stack.pop() {
+        children.clear();
+        tsr_ast::push_children(node, &mut children);
+        for child in &children {
+            if let Some(id) = child.node_id() {
+                assert!(parsed.nodes.parent(id).is_some(), "{child:?} has no parent");
+                checked += 1;
+            }
+            stack.push(*child);
+        }
+    }
+    assert!(checked > 20, "walked {checked} nodes, expected the tree to be bigger");
+    assert_eq!(parsed.nodes.parent(root), None, "the root has no parent");
+}
+
+#[test]
+fn parents_chain_back_to_the_root() {
+    let arena = Arena::new();
+    let source = "function f() { if (a) { while (b) { c(); } } }";
+    let parsed = tsr_parser::parse(&arena, source);
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+
+    // Take the deepest node by span and walk up; it must terminate at the root
+    // rather than cycling or dead-ending.
+    let deepest = (0..parsed.nodes.len())
+        .map(|i| tsr_ast::NodeId::new(u32::try_from(i).unwrap()))
+        .max_by_key(|id| {
+            let span = parsed.nodes.span(*id);
+            (span.start, std::cmp::Reverse(span.end))
+        })
+        .expect("some nodes");
+
+    let mut current = deepest;
+    let mut steps = 0;
+    while let Some(parent) = parsed.nodes.parent(current) {
+        current = parent;
+        steps += 1;
+        assert!(steps < parsed.nodes.len(), "parent chain does not terminate");
+    }
+    assert_eq!(current, root, "the chain ended somewhere other than the root");
+}
+
+#[test]
+fn parent_assignment_can_be_skipped() {
+    let arena = Arena::new();
+    let options = tsr_parser::ParseOptions::default().without_parents();
+    let parsed = tsr_parser::parse_with_options(&arena, "let x = 1;", options);
+    let has_any_parent = (0..parsed.nodes.len())
+        .any(|i| parsed.nodes.parent(tsr_ast::NodeId::new(u32::try_from(i).unwrap())).is_some());
+    assert!(!has_any_parent, "no parent should have been recorded");
+}
+
+#[test]
+fn deeply_nested_input_does_not_overflow_the_parent_pass() {
+    // The parser's depth guard bounds how deep it descends, not how deep a tree
+    // it can produce, so the pass over that tree has to be iterative.
+    let arena = Arena::new();
+    let source = format!("let x = {}1{};", "(".repeat(2000), ")".repeat(2000));
+    let parsed = tsr_parser::parse(&arena, &source);
+    assert!(!parsed.nodes.is_empty());
+}
