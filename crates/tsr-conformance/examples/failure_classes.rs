@@ -44,7 +44,8 @@ fn main() {
                 continue;
             }
             let arena = tsr_core::Arena::new();
-            let result = tsr_parser::parse(&arena, &file.content);
+            let script_kind = tsr_parser::ScriptKind::from_file_name(&file.name);
+            let result = tsr_parser::parse_with_script_kind(&arena, &file.content, script_kind);
             if let Some(first) = result.diagnostics.first() {
                 case_failed = true;
                 let start = first.span.start as usize;

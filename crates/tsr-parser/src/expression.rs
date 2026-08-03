@@ -568,7 +568,16 @@ impl<'a> Parser<'a> {
                 Expression::NoSubstitutionTemplateLiteral(node)
             }
             SyntaxKind::TemplateHead => self.parse_template_expression(),
-            SyntaxKind::LessThanToken => self.parse_type_assertion(),
+            // `<` is a type assertion in `.ts` and a JSX element in `.tsx`. The
+            // two readings are mutually exclusive, which is why TypeScript ties
+            // them to the file extension rather than to a lookahead.
+            SyntaxKind::LessThanToken => {
+                if self.script_kind.allows_jsx() {
+                    self.parse_jsx_element()
+                } else {
+                    self.parse_type_assertion()
+                }
+            }
             SyntaxKind::FunctionKeyword => self.parse_function_expression(None),
             SyntaxKind::AsyncKeyword if self.next_is_function_keyword() => {
                 let modifier = self.take_token();
@@ -984,7 +993,7 @@ impl<'a> Parser<'a> {
     ///
     /// Returns `false` if the group is unterminated, in which case the cursor is
     /// left at end of file.
-    fn skip_balanced(&mut self, open: SyntaxKind) -> bool {
+    pub(crate) fn skip_balanced(&mut self, open: SyntaxKind) -> bool {
         debug_assert!(self.at(open));
         let close = match open {
             SyntaxKind::OpenParenToken => SyntaxKind::CloseParenToken,
@@ -1382,8 +1391,23 @@ impl<'a> Parser<'a> {
         let dot_dot_dot =
             if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
 
+        // `{ [k]: v }` renames via a computed key; `[a, b]` is a nested array
+        // pattern. Both start with `[`, and only the `:` after the closing
+        // bracket tells them apart — reading `[` as a key unconditionally breaks
+        // every nested array destructuring.
+        let bracket_is_computed_key = self.at(SyntaxKind::OpenBracketToken) && {
+            let mut matched = false;
+            self.try_parse(|p| {
+                if p.skip_balanced(SyntaxKind::OpenBracketToken) {
+                    matched = p.at(SyntaxKind::ColonToken);
+                }
+                None::<()>
+            });
+            matched
+        };
+
         // `{ a: b }` renames; `{ a }` does not.
-        let (property_name, name) = if self.at(SyntaxKind::OpenBracketToken)
+        let (property_name, name) = if bracket_is_computed_key
             || self.at(SyntaxKind::StringLiteral)
             || self.at(SyntaxKind::NumericLiteral)
         {

@@ -2,7 +2,7 @@
 
 **Crates:** `tsr-scanner`, `tsr-diagnostics`
 **Ported from:** `vendor/typescript-go/internal/scanner/scanner.go`
-**Conformance:** `scanner_termination` 12,444/12,444 · `scanner_clean_files` 5,646/5,648 (99.96%)
+**Conformance:** `scanner_termination` 12,444/12,444 · `scanner_clean_files` 5,648/5,648 (100%)
 
 ## Pull-based, not a token stream
 
@@ -76,11 +76,33 @@ recur.
 The shared lesson: the failure mode is a *false positive* on valid code, and
 inspection does not find those. Only the corpus does.
 
-## Not yet built
+## JSX mode
 
-- **JSX scanning mode** (`bd tsr-pum.1`). JSX children scan under different rules
-  — backslash is not an escape introducer, `&nbsp;` is literal text. This is the
-  sole remaining cause of `scanner_clean_files` failures: 2 of 5,648.
+JSX children obey different rules from expressions: everything up to the next `<`
+or `{` is literal text, so `&nbsp;`, backslashes, and quotes carry no special
+meaning. Attribute values are raw strings — `title="a\b"` contains a backslash,
+not an escape. And JSX names may contain `-`, which is a subtraction everywhere
+else.
+
+None of that is decidable by the scanner alone: all three depend on *where in an
+element* the cursor is, which only the parser knows. So JSX is a set of explicit
+entry points rather than a mode flag — `scan_jsx_token`, `scan_jsx_identifier`,
+`scan_jsx_attribute_value`, and re-scan variants for each.
+
+`scan_jsx_identifier` **mutates the current token in place** rather than producing
+a new one, matching upstream: `data` has already been scanned by the time the
+parser knows it wants `data-foo`.
+
+`rescan_jsx_attribute_value` exists because the parser holds one token of
+lookahead — by the time it has consumed `=`, the value was already scanned under
+expression rules, where `"a\b"` reports a bad escape. The rescan rewinds and
+discards those misattributed diagnostics.
+
+Whitespace-only children are distinguished by whether they contain a line break:
+`<div>\n  </div>` has no text child (that is indentation), while `<div>  </div>`
+does. Getting this wrong changes rendered output.
+
+## Not yet built
 - **JSDoc scanning.** Upstream has a separate mode for doc comments.
 - **Shebang handling** for `#!` on the first line.
 - **Speed.** A full corpus run takes ~58s in a debug build. The scanner is not the

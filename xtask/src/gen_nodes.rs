@@ -115,11 +115,63 @@ fn base_reaches(ast: &AstDefinition, from: &str, target: &str) -> bool {
     ast.bases.get(from).is_some_and(|b| b.extends.iter().any(|p| base_reaches(ast, p, target)))
 }
 
+/// TS-side type names with no node of their own.
+///
+/// `JsxTagNamePropertyAccess` is a documentation name for a
+/// `PropertyAccessExpression` whose chain is a JSX tag; upstream's Go widens the
+/// whole union to `Node` and loses the distinction entirely.
+fn alias_only_name(name: &str) -> Option<&'static str> {
+    match name {
+        "JsxTagNamePropertyAccess" => Some("PropertyAccessExpression"),
+        _ => None,
+    }
+}
+
+/// The node a name denotes when it is an *instantiation* of a generic node.
+///
+/// `ThisExpression` is `KeywordExpression` carrying `ThisKeyword`, and
+/// `AsteriskToken` is `Token` carrying `AsteriskToken`. Upstream records these
+/// under each definition's `instantiationAliases`.
+fn instantiation_of(ast: &AstDefinition, name: &str) -> Option<String> {
+    if let Some((node, _)) =
+        ast.nodes.definitions.iter().find(|(_, def)| def.instantiation_aliases.contains_key(name))
+    {
+        return Some(node.clone());
+    }
+
+    // A node whose `Kind` member is an inline union covers each of those kinds:
+    // `ObjectBindingPattern` and `ArrayBindingPattern` are both `BindingPattern`.
+    let wanted = format!("SyntaxKind.{name}");
+    ast.nodes
+        .definitions
+        .iter()
+        .find(|(_, def)| {
+            def.members.iter().any(|member| {
+                member.name == "Kind"
+                    && matches!(
+                        member.r#type.as_ref(),
+                        Some(TypeRef::KindUnion(kinds)) if kinds.contains(&wanted)
+                    )
+            })
+        })
+        .map(|(node, _)| node.clone())
+}
+
 /// Resolve an alias to the set of concrete node definitions it covers.
-fn resolve_alias(ast: &AstDefinition, name: &str, seen: &mut BTreeSet<String>) -> BTreeSet<String> {
+///
+/// **Bails on anything it does not recognise.** Four separate silent drops have
+/// been found in this generator — `{name, comment}` kind elements, kind-alias
+/// members, inherited optionality, and generic instantiations — each shipping a
+/// quietly wrong AST. A member that cannot be resolved is now a hard error, not a
+/// skipped entry.
+fn resolve_alias(
+    ast: &AstDefinition,
+    name: &str,
+    seen: &mut BTreeSet<String>,
+) -> Result<BTreeSet<String>> {
     let mut out = BTreeSet::new();
     if !seen.insert(name.to_string()) {
-        return out;
+        return Ok(out);
     }
     match ast.nodes.aliases.get(name) {
         Some(NodeAlias::Base { base }) => {
@@ -134,15 +186,28 @@ fn resolve_alias(ast: &AstDefinition, name: &str, seen: &mut BTreeSet<String>) -
                 if ast.nodes.definitions.contains_key(m) {
                     out.insert(m.clone());
                 } else if ast.kinds.aliases.contains_key(m) {
-                    // The member names a set of *token kinds*, not a node — as in
-                    // `Modifier = ["ModifierSyntaxKind"]`. Such a member admits a
-                    // `Token` carrying one of those kinds.
-                    //
-                    // Dropping this silently left `ModifierLike` holding only
-                    // `Decorator`, so no modifier list could hold a modifier.
+                    // A set of *token kinds*, not a node — `Modifier =
+                    // ["ModifierSyntaxKind"]`. Admits a `Token` of those kinds.
                     out.insert("Token".to_string());
+                } else if let Some(node) = alias_only_name(m) {
+                    out.insert(node.to_string());
+                } else if let Some(node) = instantiation_of(ast, m) {
+                    out.insert(node);
+                } else if ast.bases.contains_key(m) {
+                    // A member naming a *base* means every node extending it:
+                    // `IncrementExpression = ["UpdateExpressionBase"]`.
+                    for def_name in ast.nodes.definitions.keys() {
+                        if extends_base(ast, def_name, m) {
+                            out.insert(def_name.clone());
+                        }
+                    }
+                } else if ast.nodes.aliases.contains_key(m) {
+                    out.extend(resolve_alias(ast, m, seen)?);
                 } else {
-                    out.extend(resolve_alias(ast, m, seen));
+                    bail!(
+                        "alias {name}: member {m:?} resolves to nothing — teach \
+                         gen_nodes::resolve_alias about it rather than dropping it"
+                    );
                 }
             }
         }
@@ -152,7 +217,7 @@ fn resolve_alias(ast: &AstDefinition, name: &str, seen: &mut BTreeSet<String>) -
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Map an upstream type reference to a Rust type.
@@ -495,7 +560,7 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
     let mut alias_members: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for alias_name in ast.nodes.aliases.keys() {
         let mut seen = BTreeSet::new();
-        let members = resolve_alias(ast, alias_name, &mut seen);
+        let members = resolve_alias(ast, alias_name, &mut seen)?;
         if members.is_empty() {
             continue;
         }

@@ -829,6 +829,204 @@ impl<'a> Scanner<'a> {
         self.token
     }
 
+    // ---- JSX -------------------------------------------------------------
+
+    /// Scan the next token as JSX child content.
+    ///
+    /// JSX children obey different rules from expressions: everything up to the
+    /// next `<` or `{` is literal text, so `&nbsp;`, backslashes, and quotes carry
+    /// no special meaning. Only the parser knows when it is inside a JSX element,
+    /// which is why this is a separate entry point rather than a scanner mode flag.
+    ///
+    /// Ported from typescript-go's `ScanJsxTokenEx`.
+    pub fn scan_jsx_token(&mut self) -> Token {
+        self.value = None;
+        self.full_start = self.pos;
+        self.token_start = self.pos;
+
+        let Some(ch) = self.peek() else {
+            self.token = Token::new(SyntaxKind::EndOfFile, Span::at(self.pos), TokenFlags::empty());
+            return self.token;
+        };
+
+        let kind = match ch {
+            '<' => {
+                self.bump();
+                if self.eat('/') {
+                    SyntaxKind::LessThanSlashToken
+                } else {
+                    SyntaxKind::LessThanToken
+                }
+            }
+            '{' => {
+                self.bump();
+                SyntaxKind::OpenBraceToken
+            }
+            _ => self.scan_jsx_text(),
+        };
+
+        self.token = Token::new(kind, Span::new(self.token_start, self.pos), TokenFlags::empty());
+        self.token
+    }
+
+    /// Consume literal JSX text, up to the next `<` or `{`.
+    ///
+    /// Distinguishes `JsxText` from `JsxTextAllWhiteSpaces`: whitespace that
+    /// begins with a line break is layout, not content, and is dropped from the
+    /// emitted children. `<div>\n  </div>` has no text child; `<div>  </div>` does.
+    fn scan_jsx_text(&mut self) -> SyntaxKind {
+        // `None` until a non-whitespace character is seen; `Some(false)` once a
+        // line break has been seen with only whitespace before it.
+        let mut saw_content = false;
+        let mut leading_line_break = false;
+
+        while let Some(ch) = self.peek() {
+            if ch == '<' || ch == '{' {
+                break;
+            }
+            if is_line_break(ch) && !saw_content {
+                leading_line_break = true;
+            } else if !is_whitespace_single_line(ch) && !is_line_break(ch) {
+                saw_content = true;
+            }
+            self.bump();
+        }
+
+        if saw_content || !leading_line_break {
+            SyntaxKind::JsxText
+        } else {
+            SyntaxKind::JsxTextAllWhiteSpaces
+        }
+    }
+
+    /// Re-scan the current token as JSX child content.
+    ///
+    /// The parser reaches a child position holding a token scanned under
+    /// expression rules; this rewinds to that token's start and rescans.
+    pub fn rescan_jsx_token(&mut self) -> Token {
+        self.pos = self.full_start;
+        self.scan_jsx_token()
+    }
+
+    /// Extend the current identifier with JSX's extra characters.
+    ///
+    /// JSX names may contain `-`, which is not an identifier character anywhere
+    /// else: `<my-element data-foo="1" />`. Upstream describes this as *mutating*
+    /// the current token rather than producing a new one, and so does this.
+    ///
+    /// Ported from typescript-go's `ScanJsxIdentifier`.
+    pub fn scan_jsx_identifier(&mut self) -> Token {
+        if self.token.kind != SyntaxKind::Identifier && !self.token.kind.is_keyword() {
+            return self.token;
+        }
+
+        let start = self.token.span.start;
+        let mut extended = false;
+        while let Some(ch) = self.peek() {
+            if ch == '-' || is_identifier_part(ch) {
+                self.bump();
+                extended = true;
+            } else {
+                break;
+            }
+        }
+
+        if extended {
+            // The decoded value is the raw text: a JSX name with a dash cannot
+            // also contain escapes worth decoding separately.
+            self.value = None;
+            self.token =
+                Token::new(SyntaxKind::Identifier, Span::new(start, self.pos), self.token.flags);
+        }
+        self.token
+    }
+
+    /// Scan a JSX attribute value.
+    ///
+    /// A quoted attribute value is a raw string: `class="a\b"` contains a
+    /// backslash, not an escape. Anything else falls back to ordinary scanning so
+    /// `{expr}` works.
+    ///
+    /// Ported from typescript-go's `ScanJsxAttributeValue`.
+    pub fn scan_jsx_attribute_value(&mut self) -> Token {
+        self.value = None;
+        self.full_start = self.pos;
+
+        while self.peek().is_some_and(|c| is_whitespace_single_line(c) || is_line_break(c)) {
+            self.bump();
+        }
+        self.token_start = self.pos;
+
+        match self.peek() {
+            Some(quote @ ('"' | '\'')) => {
+                self.bump();
+                let start = self.pos;
+                while let Some(ch) = self.peek() {
+                    if ch == quote {
+                        break;
+                    }
+                    self.bump();
+                }
+                let end = self.pos;
+                let unterminated = self.peek().is_none();
+                if !unterminated {
+                    self.bump();
+                }
+                self.value = Some(self.source[start as usize..end as usize].to_string());
+                let mut flags = TokenFlags::empty();
+                if unterminated {
+                    flags |= TokenFlags::UNTERMINATED;
+                    self.error(
+                        &messages::UNTERMINATED_STRING_LITERAL,
+                        Span::new(self.token_start, self.pos),
+                    );
+                }
+                self.token = Token::new(
+                    SyntaxKind::StringLiteral,
+                    Span::new(self.token_start, self.pos),
+                    flags,
+                );
+                self.token
+            }
+            // Not a quoted value: `{expr}` and error recovery both want ordinary
+            // scanning from here.
+            _ => self.scan(),
+        }
+    }
+
+    /// Re-scan the current token as a JSX attribute value.
+    ///
+    /// The parser holds one token of lookahead, so by the time it has consumed
+    /// `=` the value has already been scanned under expression rules — where
+    /// `"a\b"` reports a bad escape. This rewinds to that token's start and
+    /// rescans it as a raw JSX string.
+    ///
+    /// Ported from typescript-go's `ReScanJsxAttributeValue`.
+    pub fn rescan_jsx_attribute_value(&mut self) -> Token {
+        self.pos = self.full_start;
+        // Diagnostics from the discarded expression-rules scan would be
+        // misattributed; drop anything reported at or after the rewind point.
+        let from = self.full_start;
+        self.diagnostics.retain(|d| d.span.start < from);
+        self.scan_jsx_attribute_value()
+    }
+
+    /// Re-scan a compound `<` token as a single `<`.
+    ///
+    /// `<<T>() => void>x` lexes the opening as a shift operator; JSX and type
+    /// assertions both need it split.
+    pub fn rescan_less_than(&mut self) -> Token {
+        if self.token.kind == SyntaxKind::LessThanLessThanToken {
+            self.pos = self.token.span.start + 1;
+            self.token = Token::new(
+                SyntaxKind::LessThanToken,
+                Span::new(self.token.span.start, self.pos),
+                self.token.flags,
+            );
+        }
+        self.token
+    }
+
     /// Re-scan a compound `>` token as a single `>`.
     ///
     /// `List<List<T>>` lexes the trailing `>>` as a shift operator; the parser

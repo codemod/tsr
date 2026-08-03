@@ -143,8 +143,15 @@ impl<'a> Parser<'a> {
     }
 
     /// Whether `namespace`/`module` is followed by a name rather than used as one.
+    ///
+    /// The name may itself be a contextual keyword: `namespace require { … }` is
+    /// legal, and rejecting it leaves the whole namespace body unparsed.
     fn next_starts_module_name(&mut self) -> bool {
-        self.peek_kind(|kind| kind == SyntaxKind::Identifier || kind == SyntaxKind::StringLiteral)
+        self.peek_kind(|kind| {
+            kind == SyntaxKind::Identifier
+                || kind == SyntaxKind::StringLiteral
+                || is_contextual_keyword(kind)
+        })
     }
 
     /// Whether the next token is an identifier, for contextual keywords.
@@ -254,9 +261,11 @@ impl<'a> Parser<'a> {
             SyntaxKind::TypeKeyword => self.parse_type_alias_declaration(start, modifiers),
             SyntaxKind::EnumKeyword => self.parse_enum_declaration(start, modifiers),
             SyntaxKind::ImportKeyword => self.parse_import_declaration(start, modifiers),
-            SyntaxKind::NamespaceKeyword | SyntaxKind::ModuleKeyword => {
-                self.parse_module_declaration(start, modifiers)
-            }
+            // `declare global { … }` augments the global scope; `global` is a
+            // contextual keyword standing in for the module name.
+            SyntaxKind::NamespaceKeyword
+            | SyntaxKind::ModuleKeyword
+            | SyntaxKind::GlobalKeyword => self.parse_module_declaration(start, modifiers),
             _ => {
                 // The modifiers were a false start; treat what follows as an
                 // expression so the tree still covers the text.

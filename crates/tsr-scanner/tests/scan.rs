@@ -406,3 +406,94 @@ fn private_identifiers_are_one_token() {
     // A lone `#` is not one.
     assert_eq!(kinds("# x"), vec![HashToken, Identifier]);
 }
+
+// ---- JSX ------------------------------------------------------------------
+
+#[test]
+fn jsx_text_runs_to_the_next_angle_or_brace() {
+    let mut scanner = Scanner::new("hello &nbsp; world<div>");
+    let token = scanner.scan_jsx_token();
+    assert_eq!(token.kind, JsxText);
+    assert_eq!(scanner.token_text(), "hello &nbsp; world");
+    // Entities and backslashes are literal text in JSX, not escapes.
+    assert!(scanner.diagnostics().is_empty());
+}
+
+#[test]
+fn jsx_text_stops_at_an_expression_container() {
+    let mut scanner = Scanner::new("abc{expr}");
+    assert_eq!(scanner.scan_jsx_token().kind, JsxText);
+    assert_eq!(scanner.token_text(), "abc");
+    assert_eq!(scanner.scan_jsx_token().kind, OpenBraceToken);
+}
+
+#[test]
+fn jsx_recognises_open_and_closing_delimiters() {
+    let mut scanner = Scanner::new("<div>");
+    assert_eq!(scanner.scan_jsx_token().kind, LessThanToken);
+    let mut scanner = Scanner::new("</div>");
+    assert_eq!(scanner.scan_jsx_token().kind, LessThanSlashToken);
+}
+
+#[test]
+fn whitespace_with_a_line_break_is_layout_not_content() {
+    // `<div>\n  </div>` has no text child; `<div>  </div>` does. The distinction
+    // is what keeps indentation out of rendered output.
+    let mut scanner = Scanner::new("\n  <");
+    assert_eq!(scanner.scan_jsx_token().kind, JsxTextAllWhiteSpaces);
+
+    let mut scanner = Scanner::new("  <");
+    assert_eq!(scanner.scan_jsx_token().kind, JsxText);
+}
+
+#[test]
+fn jsx_identifiers_may_contain_dashes() {
+    // `data-foo` is one JSX name; anywhere else it is a subtraction.
+    let mut scanner = Scanner::new("data-foo=");
+    assert_eq!(scanner.scan().kind, Identifier);
+    assert_eq!(scanner.token_text(), "data");
+    let extended = scanner.scan_jsx_identifier();
+    assert_eq!(extended.kind, Identifier);
+    assert_eq!(scanner.token_text(), "data-foo");
+}
+
+#[test]
+fn jsx_identifier_extension_is_a_no_op_on_a_plain_name() {
+    let mut scanner = Scanner::new("div>");
+    scanner.scan();
+    let token = scanner.scan_jsx_identifier();
+    assert_eq!(token.kind, Identifier);
+    assert_eq!(scanner.token_text(), "div");
+}
+
+#[test]
+fn jsx_attribute_values_are_raw_strings() {
+    // `"a\b"` is four characters in JSX; `\b` is not an escape.
+    let mut scanner = Scanner::new(r#""a\b""#);
+    let token = scanner.scan_jsx_attribute_value();
+    assert_eq!(token.kind, StringLiteral);
+    assert_eq!(scanner.token_value(), r"a\b");
+    assert!(scanner.diagnostics().is_empty());
+}
+
+#[test]
+fn jsx_attribute_value_falls_back_for_expression_containers() {
+    let mut scanner = Scanner::new("{expr}");
+    assert_eq!(scanner.scan_jsx_attribute_value().kind, OpenBraceToken);
+}
+
+#[test]
+fn unterminated_jsx_attribute_value_is_reported() {
+    let mut scanner = Scanner::new("\"abc");
+    let token = scanner.scan_jsx_attribute_value();
+    assert!(token.is_unterminated());
+    assert!(!scanner.diagnostics().is_empty());
+}
+
+#[test]
+fn compound_less_than_can_be_split() {
+    let mut scanner = Scanner::new("<<T>");
+    assert_eq!(scanner.scan().kind, LessThanLessThanToken);
+    assert_eq!(scanner.rescan_less_than().kind, LessThanToken);
+    assert_eq!(scanner.scan().kind, LessThanToken);
+}

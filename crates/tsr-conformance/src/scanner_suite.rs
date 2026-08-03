@@ -140,6 +140,13 @@ impl Suite for ScannerCleanFiles {
             if file.content.contains('\u{FFFD}') {
                 continue;
             }
+            // JSX scanning exists (`Scanner::scan_jsx_token` and friends) but only
+            // the parser knows when to enter it — which element, which attribute,
+            // which child. The heuristic driver below cannot, so `.tsx` is covered
+            // by `parser_typescript` instead of pretended at here.
+            if tsr_parser::ScriptKind::from_file_name(&file.name).allows_jsx() {
+                continue;
+            }
             let mut scanner = Scanner::new(&file.content);
             scan_like_a_parser(&mut scanner);
             let diagnostics = scanner.diagnostics();

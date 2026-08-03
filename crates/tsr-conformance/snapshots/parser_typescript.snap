@@ -2,23 +2,15 @@ commit: 5b1047d10
 
 parser_typescript Summary:
 What a pass means: a file TypeScript reports no errors for parses with no diagnostics
-Passed         : 5183/5648 (91.77%)
-Failed         : 465
+Passed         : 5376/5648 (95.18%)
+Failed         : 272
 Skipped        : 6796 (excluded from the denominator)
 
   757  skipped: configuration-varied baselines; needs per-configuration runs
   5539  skipped: expects diagnostics; the parser cannot tell which are its own
   500  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 465 failures:
-compiler/bindingPatternInParameter01
-  bindingPatternInParameter01.ts: 8 diagnostic(s), first is TS1005 at 67..68: ']' expected.
-compiler/bindingPatternOmittedExpressionNesting
-  bindingPatternOmittedExpressionNesting.ts: 13 diagnostic(s), first is TS1109 at 15..16: Expression expected.
-compiler/booleanLiteralsContextuallyTypedFromUnion
-  booleanLiteralsContextuallyTypedFromUnion.tsx: 29 diagnostic(s), first is TS1161 at 516..522: Unterminated regular expression literal.
-compiler/callsOnComplexSignatures
-  callsOnComplexSignatures.tsx: 7 diagnostic(s), first is TS1161 at 2181..2187: Unterminated regular expression literal.
+First 100 of 272 failures:
 compiler/circularInstantiationExpression
   circularInstantiationExpression.ts: 2 diagnostic(s), first is TS1005 at 41..42: ';' expected.
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -27,8 +19,6 @@ compiler/collisionExportsRequireAndAmbientClass
   collisionExportsRequireAndAmbientClass_externalmodule.ts: 9 diagnostic(s), first is TS1005 at 21..28: '{' expected.
 compiler/collisionExportsRequireAndClass
   collisionExportsRequireAndClass_externalmodule.ts: 9 diagnostic(s), first is TS1005 at 13..20: '{' expected.
-compiler/collisionExportsRequireAndModule
-  collisionExportsRequireAndModule_externalmodule.ts: 2 diagnostic(s), first is TS1005 at 312..319: ';' expected.
 compiler/conditionalTypesASI
   conditionalTypesASI.ts: 2 diagnostic(s), first is TS1110 at 68..69: Type expected.
 compiler/contextualParamTypeVsNestedReturnTypeInference2
@@ -37,16 +27,6 @@ compiler/contextualParamTypeVsNestedReturnTypeInference3
   contextualParamTypeVsNestedReturnTypeInference3.ts: 4 diagnostic(s), first is TS1005 at 1422..1423: '{' expected.
 compiler/contextualParamTypeVsNestedReturnTypeInference4
   contextualParamTypeVsNestedReturnTypeInference4.ts: 4 diagnostic(s), first is TS1005 at 1117..1118: '{' expected.
-compiler/contextualTypingOfOptionalMembers
-  index.tsx: 19 diagnostic(s), first is TS1005 at 1682..1687: '>' expected.
-compiler/contextuallyTypedJsxAttribute
-  index.tsx: 14 diagnostic(s), first is TS1005 at 264..266: '>' expected.
-compiler/contextuallyTypedJsxAttribute2
-  contextuallyTypedJsxAttribute2.tsx: 28 diagnostic(s), first is TS1110 at 288..289: Type expected.
-compiler/contextuallyTypedJsxChildren
-  contextuallyTypedJsxChildren.tsx: 25 diagnostic(s), first is TS1005 at 683..687: '>' expected.
-compiler/contextuallyTypedJsxChildren2
-  contextuallyTypedJsxChildren2.tsx: 48 diagnostic(s), first is TS1110 at 625..626: Type expected.
 compiler/controlFlowInstanceofWithSymbolHasInstance
   controlFlowInstanceofWithSymbolHasInstance.ts: 15 diagnostic(s), first is TS1005 at 1131..1134: ')' expected.
 compiler/correlatedUnions
@@ -55,64 +35,32 @@ compiler/curiousNestedConditionalEvaluationResult
   curiousNestedConditionalEvaluationResult.ts: 2 diagnostic(s), first is TS1005 at 67..68: ':' expected.
 compiler/declarationEmitArrowFunctionNoRenaming
   declarationEmitArrowFunctionNoRenaming.ts: 8 diagnostic(s), first is TS1005 at 448..449: ')' expected.
-compiler/declarationEmitCrossFileCopiedGeneratedImportType
-  projC/index.d.ts: 8 diagnostic(s), first is TS1005 at 37..38: ')' expected.
-compiler/declarationEmitDestructuring1
-  declarationEmitDestructuring1.ts: 4 diagnostic(s), first is TS1005 at 80..81: ':' expected.
-compiler/declarationEmitDestructuring4
-  declarationEmitDestructuring4.ts: 3 diagnostic(s), first is TS1109 at 224..225: Expression expected.
-compiler/declarationEmitDestructuringArrayPattern5
-  declarationEmitDestructuringArrayPattern5.ts: 7 diagnostic(s), first is TS1109 at 62..63: Expression expected.
 compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused
   declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: 5 diagnostic(s), first is TS1005 at 338..339: '>' expected.
 compiler/declarationEmitExpressionInExtends5
   declarationEmitExpressionInExtends5.ts: 4 diagnostic(s), first is TS1005 at 141..142: '{' expected.
-compiler/declarationEmitForGlobalishSpecifierSymlink
-  /p2/index.d.ts: 2 diagnostic(s), first is TS1110 at 16..22: Type expected.
-compiler/declarationEmitForGlobalishSpecifierSymlink2
-  /p2/index.d.ts: 2 diagnostic(s), first is TS1110 at 16..22: Type expected.
 compiler/declarationEmitHigherOrderRetainedGenerics
   declarationEmitHigherOrderRetainedGenerics.ts: 111 diagnostic(s), first is TS1005 at 2405..2406: '?' expected.
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
   declarationEmitMappedTypePreservesTypeParameterConstraint.ts: 14 diagnostic(s), first is TS1005 at 957..958: '?' expected.
-compiler/declarationEmitNoInvalidCommentReuse1
-  obj.d.ts: 6 diagnostic(s), first is TS1110 at 29..35: Type expected.
-compiler/declarationEmitNoInvalidCommentReuse2
-  obj.d.ts: 6 diagnostic(s), first is TS1110 at 29..35: Type expected.
 compiler/declarationEmitOptionalMethod
   declarationEmitOptionalMethod.ts: 16 diagnostic(s), first is TS1005 at 24..25: ')' expected.
 compiler/declarationEmitRecursiveConditionalAliasPreserved
-  a.tsx: 18 diagnostic(s), first is TS1005 at 74..75: '?' expected.
-compiler/declarationEmitRetainsJsdocyComments
-  declarationEmitRetainsJsdocyComments.ts: 1 diagnostic(s), first is TS1005 at 471..472: ';' expected.
+  a.tsx: 10 diagnostic(s), first is TS1003 at 74..75: Identifier expected.
 compiler/declarationEmitShadowingInferNotRenamed
   declarationEmitShadowingInferNotRenamed.ts: 43 diagnostic(s), first is TS1005 at 278..279: '?' expected.
-compiler/declarationEmitTopLevelNodeFromCrossFile2
-  boxedBox.d.ts: 6 diagnostic(s), first is TS1110 at 31..37: Type expected.
-compiler/declarationEmitTripleSlashReferenceAmbientModule
-  /usage2.ts: 2 diagnostic(s), first is TS1110 at 49..55: Type expected.
-compiler/declarationImportTypeAliasInferredAndEmittable
-  usage.ts: 2 diagnostic(s), first is TS1110 at 12..18: Type expected.
-compiler/declarationsForInferredTypeFromOtherFile
-  file2.ts: 3 diagnostic(s), first is TS1110 at 23..29: Type expected.
 compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
   declarationsWithRecursiveInternalTypesProduceUniqueTypeParams.ts: 13 diagnostic(s), first is TS1005 at 604..605: '?' expected.
 compiler/declareIdentifierAsBeginningOfStatementExpression01
   declareIdentifierAsBeginningOfStatementExpression01.ts: 1 diagnostic(s), first is TS1005 at 51..52: ';' expected.
 compiler/deferredConditionalTypes2
   deferredConditionalTypes2.ts: 8 diagnostic(s), first is TS1005 at 445..452: '?' expected.
-compiler/destructuredDeclarationEmit
-  index.ts: 12 diagnostic(s), first is TS1109 at 169..170: Expression expected.
 compiler/destructuringAssignmentWithDefault
   destructuringAssignmentWithDefault.ts: 4 diagnostic(s), first is TS1005 at 330..331: ':' expected.
-compiler/discriminatedUnionJsxElement
-  discriminatedUnionJsxElement.tsx: 3 diagnostic(s), first is TS1005 at 362..369: '>' expected.
 compiler/divideAndConquerIntersections
   divideAndConquerIntersections.ts: 11 diagnostic(s), first is TS1005 at 1652..1653: ')' expected.
 compiler/doYouNeedToChangeYourTargetLibraryES2015
   doYouNeedToChangeYourTargetLibraryES2015.ts: 1 diagnostic(s), first is TS1005 at 3970..3972: ';' expected.
-compiler/doubleUnderscoreReactNamespace
-  index.tsx: 3 diagnostic(s), first is TS1005 at 15..16: ';' expected.
 compiler/emitBundleWithShebang1
   emitBundleWithShebang1.ts: 2 diagnostic(s), first is TS1012 at 0..1: Unexpected token.
 compiler/emitBundleWithShebang2
@@ -123,8 +71,6 @@ compiler/emitBundleWithShebangAndPrologueDirectives2
   test.ts: 2 diagnostic(s), first is TS1012 at 0..1: Unexpected token.
 compiler/es5-yieldFunctionObjectLiterals
   es5-yieldFunctionObjectLiterals.ts: 2 diagnostic(s), first is TS1109 at 706..707: Expression expected.
-compiler/evalOrArgumentsInDeclarationFunctions
-  /a.d.ts: 1 diagnostic(s), first is TS1005 at 15..16: ';' expected.
 compiler/excessPropertyCheckingIntersectionWithConditional
   excessPropertyCheckingIntersectionWithConditional.ts: 15 diagnostic(s), first is TS1005 at 89..90: '>' expected.
 compiler/exportAsNamespace.d
@@ -135,10 +81,8 @@ compiler/exportDefaultInterfaceAndValue
   exportDefaultInterfaceAndValue.ts: 2 diagnostic(s), first is TS1005 at 25..26: ';' expected.
 compiler/genericCallInferenceInConditionalTypes1
   genericCallInferenceInConditionalTypes1.ts: 17 diagnostic(s), first is TS1005 at 666..667: '?' expected.
-compiler/globalFunctionAugmentationOverload
-  mine.ts: 1 diagnostic(s), first is TS1005 at 30..31: ';' expected.
 compiler/globalIsContextualKeyword
-  globalIsContextualKeyword.ts: 5 diagnostic(s), first is TS1005 at 62..68: '{' expected.
+  globalIsContextualKeyword.ts: 3 diagnostic(s), first is TS1005 at 62..68: '{' expected.
 compiler/importHelpers
   external.ts: 1 diagnostic(s), first is TS1005 at 189..202: ';' expected.
 compiler/importHelpersNoHelpersForPrivateFields
@@ -148,7 +92,7 @@ compiler/importShouldNotBeElidedInDeclarationEmit
 compiler/importTypeTypeofClassStaticLookup
   index.d.ts: 1 diagnostic(s), first is TS1005 at 31..32: ';' expected.
 compiler/importUsedInGenericImportResolves
-  test3.ts: 3 diagnostic(s), first is TS1110 at 16..22: Type expected.
+  test3.ts: 3 diagnostic(s), first is TS1005 at 49..50: '>' expected.
 compiler/inferTypesWithFixedTupleExtendsAtVariadicPosition
   inferTypesWithFixedTupleExtendsAtVariadicPosition.ts: 28 diagnostic(s), first is TS1005 at 107..108: '?' expected.
 compiler/inferredReturnTypeIncorrectReuse1
@@ -161,53 +105,109 @@ compiler/isolatedDeclarationsStrictBuiltinIteratorReturn
   isolatedDeclarationsStrictBuiltinIteratorReturn.ts: 72 diagnostic(s), first is TS1109 at 1602..1603: Expression expected.
 compiler/jsFileImportPreservedWhenUsed
   index.js: 5 diagnostic(s), first is TS1005 at 272..274: ')' expected.
-compiler/jsxCallbackWithDestructuring
-  jsxCallbackWithDestructuring.tsx: 8 diagnostic(s), first is TS1005 at 225..226: ';' expected.
-compiler/jsxChildrenSingleChildConfusableWithMultipleChildrenNoError
-  jsxChildrenSingleChildConfusableWithMultipleChildrenNoError.tsx: 9 diagnostic(s), first is TS1005 at 232..233: '>' expected.
-compiler/jsxComplexSignatureHasApplicabilityError
-  jsxComplexSignatureHasApplicabilityError.tsx: 11 diagnostic(s), first is TS1005 at 785..786: '>' expected.
-compiler/jsxContainsOnlyTriviaWhiteSpacesNotCountedAsChild
-  jsxContainsOnlyTriviaWhiteSpacesNotCountedAsChild.tsx: 8 diagnostic(s), first is TS1005 at 208..217: '>' expected.
-compiler/jsxElementClassTooManyParams
-  jsxElementClassTooManyParams.tsx: 4 diagnostic(s), first is TS1005 at 591..592: '>' expected.
-compiler/jsxElementsAsIdentifierNames
-  a.tsx: 5 diagnostic(s), first is TS1005 at 154..155: '>' expected.
-compiler/jsxEmitWithAttributes
-  test.tsx: 14 diagnostic(s), first is TS1005 at 112..119: '>' expected.
-compiler/jsxEmptyExpressionNotCountedAsChild
-  jsxEmptyExpressionNotCountedAsChild.tsx: 7 diagnostic(s), first is TS1005 at 190..191: '}' expected.
-compiler/jsxFactoryIdentifier
-  test.tsx: 14 diagnostic(s), first is TS1005 at 154..161: '>' expected.
-compiler/jsxFactoryIdentifierAsParameter
-  test.tsx: 2 diagnostic(s), first is TS1005 at 169..170: '>' expected.
-compiler/jsxFactoryQualifiedName
-  test.tsx: 14 diagnostic(s), first is TS1005 at 112..119: '>' expected.
-compiler/jsxFragReactReferenceErrors
-  jsxFragReactReferenceErrors.tsx: 4 diagnostic(s), first is TS1110 at 141..142: Type expected.
-compiler/jsxFragmentAndFactoryUsedOnFragmentUse
-  index.tsx: 3 diagnostic(s), first is TS1110 at 60..61: Type expected.
-compiler/jsxFunctionTypeChildren
-  jsxFunctionTypeChildren.tsx: 10 diagnostic(s), first is TS1005 at 512..513: '>' expected.
-compiler/jsxGenericComponentWithSpreadingResultOfGenericFunction
-  jsxGenericComponentWithSpreadingResultOfGenericFunction.tsx: 3 diagnostic(s), first is TS1005 at 366..367: '>' expected.
-compiler/jsxHasLiteralType
-  jsxHasLiteralType.tsx: 3 diagnostic(s), first is TS1005 at 214..215: '>' expected.
-compiler/jsxInferenceProducesLiteralAsExpected
-  jsxInferenceProducesLiteralAsExpected.tsx: 13 diagnostic(s), first is TS1110 at 386..387: Type expected.
-compiler/jsxIntrinsicElementsCompatability
-  jsxIntrinsicElementsCompatability.tsx: 5 diagnostic(s), first is TS1005 at 290..291: '>' expected.
-compiler/jsxIntrinsicElementsExtendsRecord
-  index.tsx: 2 diagnostic(s), first is TS1005 at 91..92: '>' expected.
-compiler/jsxIntrinsicUnions
-  jsxIntrinsicUnions.tsx: 3 diagnostic(s), first is TS1005 at 135..144: '>' expected.
-compiler/jsxLibraryManagedAttributesUnusedGeneric
-  jsxLibraryManagedAttributesUnusedGeneric.tsx: 3 diagnostic(s), first is TS1005 at 845..848: '>' expected.
-compiler/jsxLocalNamespaceIndexSignatureNoCrash
-  index.tsx: 2 diagnostic(s), first is TS1161 at 269..274: Unterminated regular expression literal.
-compiler/jsxNamespaceGlobalReexport
-  /node_modules/preact/jsx-runtime/index.d.ts: 1 diagnostic(s), first is TS1005 at 1425..1426: ';' expected.
-compiler/jsxNamespaceImplicitImportJSXNamespace
-  /index.tsx: 3 diagnostic(s), first is TS1110 at 32..33: Type expected.
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne
-  /node_modules/react/index.d.ts: 2 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+  /node_modules/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+compiler/jsxNamespaceImplicitImportJSXNamespaceFromPragmaPickedOverGlobalOne
+  /node_modules/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+compiler/jsxPreserveWithJsInput
+  c.js: 1 diagnostic(s), first is TS1161 at 20..24: Unterminated regular expression literal.
+compiler/mappedTypeGenericInstantiationPreservesInlineForm
+  mappedTypeGenericInstantiationPreservesInlineForm.ts: 4 diagnostic(s), first is TS1005 at 46..47: '>' expected.
+compiler/moduleAugmentationGlobal5
+  f1.d.ts: 1 diagnostic(s), first is TS1005 at 32..33: ';' expected.
+compiler/moduleAugmentationInAmbientModule5
+  array.d.ts: 1 diagnostic(s), first is TS1005 at 112..113: ';' expected.
+compiler/moduleAugmentationOfAlias
+  /b.ts: 2 diagnostic(s), first is TS1005 at 63..64: ';' expected.
+compiler/modulePreserve5
+  main.ts: 3 diagnostic(s), first is TS1005 at 32..36: ';' expected.
+compiler/moduleResolutionWithRequireAndImport
+  /index.ts: 1 diagnostic(s), first is TS1005 at 50..51: ';' expected.
+compiler/moduleResolution_packageJson_yesAtPackageRoot
+  /node_modules/foo/bar/index.js: 1 diagnostic(s), first is TS1005 at 4..8: ';' expected.
+compiler/moduleResolution_packageJson_yesAtPackageRoot_fakeScopedPackage
+  /node_modules/foo/@bar/index.js: 1 diagnostic(s), first is TS1005 at 4..8: ';' expected.
+compiler/noCrashUMDMergedWithGlobalValue
+  /other.d.ts: 1 diagnostic(s), first is TS1005 at 10..19: ';' expected.
+compiler/optionalChainWithInstantiationExpression2
+  optionalChainWithInstantiationExpression2.ts: 2 diagnostic(s), first is TS1003 at 110..111: Identifier expected.
+compiler/parseArrowFunctionWithFunctionReturnType
+  parseArrowFunctionWithFunctionReturnType.ts: 12 diagnostic(s), first is TS1109 at 15..16: Expression expected.
+compiler/parseGenericArrowRatherThanLeftShift
+  parseGenericArrowRatherThanLeftShift.ts: 15 diagnostic(s), first is TS1005 at 21..23: ';' expected.
+compiler/reactImportDropped
+  react.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+compiler/reactTransitiveImportHasValidDeclaration
+  node_modules/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 144..153: ';' expected.
+compiler/selfReferentialFunctionType
+  selfReferentialFunctionType.ts: 8 diagnostic(s), first is TS1005 at 36..37: ')' expected.
+compiler/shebang
+  shebang.ts: 2 diagnostic(s), first is TS1012 at 0..1: Unexpected token.
+compiler/shebangBeforeReferences
+  f.ts: 2 diagnostic(s), first is TS1012 at 0..1: Unexpected token.
+compiler/singletonLabeledTuple
+  singletonLabeledTuple.ts: 2 diagnostic(s), first is TS1005 at 409..410: ':' expected.
+compiler/stackDepthLimitCastingType
+  node_modules/backbone/index.d.ts: 1 diagnostic(s), first is TS1005 at 591..600: ';' expected.
+compiler/staticFieldWithInterfaceContext
+  staticFieldWithInterfaceContext.ts: 4 diagnostic(s), first is TS1005 at 682..683: ':' expected.
+compiler/strictOptionalProperties2
+  strictOptionalProperties2.ts: 2 diagnostic(s), first is TS1005 at 158..159: ':' expected.
+compiler/taggedTemplateStringWithSymbolExpression01
+  taggedTemplateStringWithSymbolExpression01.ts: 1 diagnostic(s), first is TS1005 at 149..152: ';' expected.
+compiler/taggedTemplateStringsHexadecimalEscapes
+  taggedTemplateStringsHexadecimalEscapes.ts: 1 diagnostic(s), first is TS1005 at 34..41: ';' expected.
+compiler/taggedTemplateStringsHexadecimalEscapesES6
+  taggedTemplateStringsHexadecimalEscapesES6.ts: 1 diagnostic(s), first is TS1005 at 34..41: ';' expected.
+compiler/taggedTemplateStringsWithCurriedFunction
+  taggedTemplateStringsWithCurriedFunction.ts: 5 diagnostic(s), first is TS1005 at 75..77: ';' expected.
+compiler/taggedTemplateStringsWithMultilineTemplate
+  taggedTemplateStringsWithMultilineTemplate.ts: 1 diagnostic(s), first is TS1005 at 40..46: ';' expected.
+compiler/taggedTemplateStringsWithMultilineTemplateES6
+  taggedTemplateStringsWithMultilineTemplateES6.ts: 1 diagnostic(s), first is TS1005 at 40..46: ';' expected.
+compiler/taggedTemplateStringsWithUnicodeEscapes
+  taggedTemplateStringsWithUnicodeEscapes.ts: 1 diagnostic(s), first is TS1005 at 34..48: ';' expected.
+compiler/taggedTemplateStringsWithUnicodeEscapesES6
+  taggedTemplateStringsWithUnicodeEscapesES6.ts: 1 diagnostic(s), first is TS1005 at 34..48: ';' expected.
+compiler/taggedTemplateStringsWithWhitespaceEscapes
+  taggedTemplateStringsWithWhitespaceEscapes.ts: 1 diagnostic(s), first is TS1005 at 34..48: ';' expected.
+compiler/taggedTemplateStringsWithWhitespaceEscapesES6
+  taggedTemplateStringsWithWhitespaceEscapesES6.ts: 1 diagnostic(s), first is TS1005 at 34..48: ';' expected.
+compiler/taggedTemplateWithoutDeclaredHelper
+  foo.ts: 1 diagnostic(s), first is TS1005 at 63..76: ';' expected.
+compiler/taggedTemplatesInDifferentScopes
+  taggedTemplatesInDifferentScopes.ts: 4 diagnostic(s), first is TS1005 at 117..122: ';' expected.
+compiler/taggedTemplatesInModuleAndGlobal
+  global.ts: 1 diagnostic(s), first is TS1005 at 125..138: ';' expected.
+compiler/trackedSymbolsNoCrash
+  index.ts: 11 diagnostic(s), first is TS1005 at 130..131: ')' expected.
+compiler/typeGuardNarrowsIndexedAccessOfKnownProperty1
+  typeGuardNarrowsIndexedAccessOfKnownProperty1.ts: 2 diagnostic(s), first is TS1005 at 1852..1853: ':' expected.
+compiler/typeofImportInstantiationExpression
+  main.ts: 3 diagnostic(s), first is TS1005 at 23..24: ';' expected.
+compiler/umdGlobalConflict
+  v1/index.d.ts: 1 diagnostic(s), first is TS1005 at 10..19: ';' expected.
+compiler/unionReductionWithStringMappingAndIdenticalBaseTypeExistsNoCrash
+  node_modules/@types/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+compiler/unusedImports13
+  node_modules/@types/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+compiler/unusedImports14
+  node_modules/@types/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+compiler/unusedImports15
+  node_modules/@types/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+compiler/unusedImports16
+  node_modules/@types/react/index.d.ts: 1 diagnostic(s), first is TS1005 at 26..35: ';' expected.
+conformance/FunctionDeclaration9_es6
+  FunctionDeclaration9_es6.ts: 1 diagnostic(s), first is TS1109 at 37..38: Expression expected.
+conformance/arrayTypeOfTypeOf
+  arrayTypeOfTypeOf.ts: 4 diagnostic(s), first is TS1005 at 166..167: ';' expected.
+conformance/arrowFunctionWithParameterNameAsync_es2017
+  arrowFunctionWithParameterNameAsync_es2017.ts: 2 diagnostic(s), first is TS1005 at 16..18: ';' expected.
+conformance/arrowFunctionWithParameterNameAsync_es5
+  arrowFunctionWithParameterNameAsync_es5.ts: 2 diagnostic(s), first is TS1005 at 16..18: ';' expected.
+conformance/arrowFunctionWithParameterNameAsync_es6
+  arrowFunctionWithParameterNameAsync_es6.ts: 2 diagnostic(s), first is TS1005 at 16..18: ';' expected.
+conformance/asOperator3
+  asOperator3.ts: 2 diagnostic(s), first is TS1005 at 283..292: ';' expected.
+conformance/autoAccessor10
+  autoAccessor10.ts: 2 diagnostic(s), first is TS1012 at 252..272: Unexpected token.

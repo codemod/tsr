@@ -2,15 +2,9 @@ commit: 5b1047d10
 
 scanner_clean_files Summary:
 What a pass means: a file TypeScript reports no errors for produces no scan diagnostics
-Passed         : 5646/5648 (99.96%)
-Failed         : 2
+Passed         : 5648/5648 (100.00%)
 Skipped        : 6796 (excluded from the denominator)
 
   757  skipped: configuration-varied baselines; needs per-configuration runs
   5539  skipped: expects diagnostics; the scanner cannot tell which are its own
   500  skipped: upstream records a known divergence from TypeScript (.diff baseline)
-
-conformance/tsxReactEmitEntities
-  file.tsx: 2 scan diagnostic(s), first is TS1125 at 295..296: Hexadecimal digit expected.
-conformance/tsxReactEmitWhitespace
-  file.tsx: 1 scan diagnostic(s), first is TS1125 at 653..654: Hexadecimal digit expected.

@@ -136,7 +136,9 @@ impl Suite for Parser {
                 continue;
             }
             let arena = tsr_core::Arena::new();
-            let result = tsr_parser::parse(&arena, &file.content);
+            // `.tsx` reads `<` as JSX; `.ts` reads it as a type assertion.
+            let script_kind = tsr_parser::ScriptKind::from_file_name(&file.name);
+            let result = tsr_parser::parse_with_script_kind(&arena, &file.content, script_kind);
             if let Some(first) = result.diagnostics.first() {
                 return Outcome::Failed {
                     reason: format!(

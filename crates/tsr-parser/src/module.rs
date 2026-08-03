@@ -311,6 +311,33 @@ impl<'a> Parser<'a> {
         start: u32,
         modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
+        // `declare global { … }` has no separate name: `global` is both.
+        if self.at(SyntaxKind::GlobalKeyword) {
+            let keyword_start = self.pos();
+            let keyword = self.take_token();
+            let name = ModuleName::Identifier(self.finish_node(
+                Identifier::new("global"),
+                SyntaxKind::Identifier,
+                keyword_start,
+            ));
+            let block_start = self.pos();
+            self.expect(SyntaxKind::OpenBraceToken);
+            let statements = self.parse_statement_list(SyntaxKind::CloseBraceToken);
+            self.expect(SyntaxKind::CloseBraceToken);
+            let statements = self.arena.alloc_slice(&statements);
+            let body = ModuleBody::ModuleBlock(self.finish_node(
+                ModuleBlock::new(statements),
+                SyntaxKind::ModuleBlock,
+                block_start,
+            ));
+            let modifiers = self.arena.alloc_slice(modifiers);
+            return Statement::ModuleDeclaration(self.finish_node(
+                ModuleDeclaration::new(modifiers, keyword, Some(name), Some(body), None),
+                SyntaxKind::ModuleDeclaration,
+                start,
+            ));
+        }
+
         let keyword = self.take_token();
         let name = if self.at(SyntaxKind::StringLiteral) {
             let literal_start = self.pos();

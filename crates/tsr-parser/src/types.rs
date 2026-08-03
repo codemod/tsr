@@ -272,6 +272,26 @@ impl<'a> Parser<'a> {
                     self.parse_type_literal()
                 }
             }
+            // `import("m").T` and `typeof import("m")`.
+            SyntaxKind::ImportKeyword => {
+                self.next_token();
+                self.expect(SyntaxKind::OpenParenToken);
+                let argument = self.parse_type();
+                self.expect(SyntaxKind::CloseParenToken);
+                let qualifier = if self.eat(SyntaxKind::DotToken) {
+                    Some(self.parse_entity_name())
+                } else {
+                    None
+                };
+                let type_arguments = self.parse_type_arguments();
+                let type_arguments = self.arena.alloc_slice(&type_arguments);
+                let node = self.finish_node(
+                    ImportTypeNode::new(false, Some(argument), None, qualifier, type_arguments),
+                    SyntaxKind::ImportType,
+                    start,
+                );
+                TypeNode::ImportTypeNode(node)
+            }
             SyntaxKind::ThisKeyword => {
                 self.next_token();
                 let node = self.finish_node(ThisTypeNode::new(), SyntaxKind::ThisType, start);

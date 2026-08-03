@@ -2,7 +2,7 @@
 
 **Crate:** `tsr-parser`
 **Ported from:** `vendor/typescript-go/internal/parser/parser.go`
-**Conformance:** `parser_typescript` 5,183/5,648 (91.77%)
+**Conformance:** `parser_typescript` 5,376/5,648 (95.18%)
 
 ## Shape
 
@@ -86,13 +86,24 @@ constructor types, conditional types, and `infer`.
 worker can parse a file and hand the result back. See
 [threading.md](threading.md).
 
+## Dialect
+
+`<` means two different things and the readings are mutually exclusive: in `.ts`
+it opens a type assertion (`<Foo>x`), in `.tsx` it opens a JSX element. No cheap
+lookahead separates `<Foo>x` from `<Foo>x</Foo>`, which is why TypeScript ties the
+choice to the file extension rather than to context — and why `ScriptKind` is
+threaded through the parser rather than inferred.
+
+JSX parsing is the one place the parser drives the scanner's mode explicitly:
+children, attribute values, and names each need a different scan, and only the
+parser knows which position it is in. See [scanner.md](scanner.md).
+
 ## Not yet built
 
-- **JSX** — the largest remaining class (75 cases), blocked on the scanner's JSX
-  mode (`bd tsr-pum.1`). `<T>expr` type assertions currently always win, which is
-  wrong for `.tsx` and needs the file's script kind threaded through.
 - **Instantiation expressions** (`typeof foo<T>` without a call).
 - **JSDoc** parsing.
+- **ASI inside type members** — `a?: number` followed by `extends?: string` on the
+  next line reads the `extends` as a conditional type.
 - Roughly 8% of clean corpus files still report a diagnostic; the snapshot lists
   the first failure per case, and
   `cargo run -p tsr-conformance --example failure_classes` buckets all of them,

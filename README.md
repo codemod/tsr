@@ -67,7 +67,7 @@ explicitly rather than being omitted.
 | `baseline_resolution` | 100% | every case maps to its baselines |
 | `parser_reachable_target` | 5648/11187 | how many cases a parser alone could be judged against |
 | `scanner_termination` | 100% | the scanner consumes every file without stalling |
-| `scanner_clean_files` | 5646/5648 (99.96%) | files TypeScript accepts produce no scan errors |
-| `parser_typescript` | 5183/5648 (91.77%) | files TypeScript accepts parse with no diagnostics |
+| `scanner_clean_files` | 100% | files TypeScript accepts produce no scan errors |
+| `parser_typescript` | 5376/5648 (95.18%) | files TypeScript accepts parse with no diagnostics |
 
 See [docs/architecture/conformance.md](docs/architecture/conformance.md).

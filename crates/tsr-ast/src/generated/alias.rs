@@ -883,6 +883,36 @@ impl<'a> TryFrom<Node<'a>> for BlockOrExpression<'a> {
     }
 }
 
+/// The `BooleanLiteral` union.
+///
+/// Corresponds to typescript-go's `ast.BooleanLiteral`.
+#[derive(Debug, Clone, Copy)]
+pub enum BooleanLiteral<'a> {
+    /// See [`KeywordExpression`].
+    KeywordExpression(&'a KeywordExpression<'a>),
+}
+
+impl<'a> From<BooleanLiteral<'a>> for Node<'a> {
+    fn from(value: BooleanLiteral<'a>) -> Self {
+        match value {
+            BooleanLiteral::KeywordExpression(n) => Node::KeywordExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for BooleanLiteral<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `BooleanLiteral`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::KeywordExpression(n) => Ok(BooleanLiteral::KeywordExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `BreakOrContinueStatement` union.
 ///
 /// Corresponds to typescript-go's `ast.BreakOrContinueStatement`.
@@ -2347,6 +2377,154 @@ impl<'a> TryFrom<Node<'a>> for ImportClauseOrBindingPattern<'a> {
     }
 }
 
+/// The `IncrementExpression` union.
+///
+/// Corresponds to typescript-go's `ast.IncrementExpression`.
+#[derive(Debug, Clone, Copy)]
+pub enum IncrementExpression<'a> {
+    /// See [`ArrayLiteralExpression`].
+    ArrayLiteralExpression(&'a ArrayLiteralExpression<'a>),
+    /// See [`BigIntLiteral`].
+    BigIntLiteral(&'a BigIntLiteral<'a>),
+    /// See [`CallExpression`].
+    CallExpression(&'a CallExpression<'a>),
+    /// See [`ClassExpression`].
+    ClassExpression(&'a ClassExpression<'a>),
+    /// See [`ElementAccessExpression`].
+    ElementAccessExpression(&'a ElementAccessExpression<'a>),
+    /// See [`ExpressionWithTypeArguments`].
+    ExpressionWithTypeArguments(&'a ExpressionWithTypeArguments<'a>),
+    /// See [`FunctionExpression`].
+    FunctionExpression(&'a FunctionExpression<'a>),
+    /// See [`Identifier`].
+    Identifier(&'a Identifier<'a>),
+    /// See [`JsxAttributes`].
+    JsxAttributes(&'a JsxAttributes<'a>),
+    /// See [`JsxElement`].
+    JsxElement(&'a JsxElement<'a>),
+    /// See [`JsxFragment`].
+    JsxFragment(&'a JsxFragment<'a>),
+    /// See [`JsxSelfClosingElement`].
+    JsxSelfClosingElement(&'a JsxSelfClosingElement<'a>),
+    /// See [`MetaProperty`].
+    MetaProperty(&'a MetaProperty<'a>),
+    /// See [`NewExpression`].
+    NewExpression(&'a NewExpression<'a>),
+    /// See [`NonNullExpression`].
+    NonNullExpression(&'a NonNullExpression<'a>),
+    /// See [`NumericLiteral`].
+    NumericLiteral(&'a NumericLiteral<'a>),
+    /// See [`ObjectLiteralExpression`].
+    ObjectLiteralExpression(&'a ObjectLiteralExpression<'a>),
+    /// See [`ParenthesizedExpression`].
+    ParenthesizedExpression(&'a ParenthesizedExpression<'a>),
+    /// See [`PartiallyEmittedExpression`].
+    PartiallyEmittedExpression(&'a PartiallyEmittedExpression<'a>),
+    /// See [`PostfixUnaryExpression`].
+    PostfixUnaryExpression(&'a PostfixUnaryExpression<'a>),
+    /// See [`PrefixUnaryExpression`].
+    PrefixUnaryExpression(&'a PrefixUnaryExpression<'a>),
+    /// See [`PrivateIdentifier`].
+    PrivateIdentifier(&'a PrivateIdentifier<'a>),
+    /// See [`PropertyAccessExpression`].
+    PropertyAccessExpression(&'a PropertyAccessExpression<'a>),
+    /// See [`RegularExpressionLiteral`].
+    RegularExpressionLiteral(&'a RegularExpressionLiteral<'a>),
+    /// See [`StringLiteral`].
+    StringLiteral(&'a StringLiteral<'a>),
+    /// See [`TaggedTemplateExpression`].
+    TaggedTemplateExpression(&'a TaggedTemplateExpression<'a>),
+    /// See [`TemplateExpression`].
+    TemplateExpression(&'a TemplateExpression<'a>),
+}
+
+impl<'a> From<IncrementExpression<'a>> for Node<'a> {
+    fn from(value: IncrementExpression<'a>) -> Self {
+        match value {
+            IncrementExpression::ArrayLiteralExpression(n) => Node::ArrayLiteralExpression(n),
+            IncrementExpression::BigIntLiteral(n) => Node::BigIntLiteral(n),
+            IncrementExpression::CallExpression(n) => Node::CallExpression(n),
+            IncrementExpression::ClassExpression(n) => Node::ClassExpression(n),
+            IncrementExpression::ElementAccessExpression(n) => Node::ElementAccessExpression(n),
+            IncrementExpression::ExpressionWithTypeArguments(n) => {
+                Node::ExpressionWithTypeArguments(n)
+            }
+            IncrementExpression::FunctionExpression(n) => Node::FunctionExpression(n),
+            IncrementExpression::Identifier(n) => Node::Identifier(n),
+            IncrementExpression::JsxAttributes(n) => Node::JsxAttributes(n),
+            IncrementExpression::JsxElement(n) => Node::JsxElement(n),
+            IncrementExpression::JsxFragment(n) => Node::JsxFragment(n),
+            IncrementExpression::JsxSelfClosingElement(n) => Node::JsxSelfClosingElement(n),
+            IncrementExpression::MetaProperty(n) => Node::MetaProperty(n),
+            IncrementExpression::NewExpression(n) => Node::NewExpression(n),
+            IncrementExpression::NonNullExpression(n) => Node::NonNullExpression(n),
+            IncrementExpression::NumericLiteral(n) => Node::NumericLiteral(n),
+            IncrementExpression::ObjectLiteralExpression(n) => Node::ObjectLiteralExpression(n),
+            IncrementExpression::ParenthesizedExpression(n) => Node::ParenthesizedExpression(n),
+            IncrementExpression::PartiallyEmittedExpression(n) => {
+                Node::PartiallyEmittedExpression(n)
+            }
+            IncrementExpression::PostfixUnaryExpression(n) => Node::PostfixUnaryExpression(n),
+            IncrementExpression::PrefixUnaryExpression(n) => Node::PrefixUnaryExpression(n),
+            IncrementExpression::PrivateIdentifier(n) => Node::PrivateIdentifier(n),
+            IncrementExpression::PropertyAccessExpression(n) => Node::PropertyAccessExpression(n),
+            IncrementExpression::RegularExpressionLiteral(n) => Node::RegularExpressionLiteral(n),
+            IncrementExpression::StringLiteral(n) => Node::StringLiteral(n),
+            IncrementExpression::TaggedTemplateExpression(n) => Node::TaggedTemplateExpression(n),
+            IncrementExpression::TemplateExpression(n) => Node::TemplateExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for IncrementExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `IncrementExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayLiteralExpression(n) => Ok(IncrementExpression::ArrayLiteralExpression(n)),
+            Node::BigIntLiteral(n) => Ok(IncrementExpression::BigIntLiteral(n)),
+            Node::CallExpression(n) => Ok(IncrementExpression::CallExpression(n)),
+            Node::ClassExpression(n) => Ok(IncrementExpression::ClassExpression(n)),
+            Node::ElementAccessExpression(n) => Ok(IncrementExpression::ElementAccessExpression(n)),
+            Node::ExpressionWithTypeArguments(n) => {
+                Ok(IncrementExpression::ExpressionWithTypeArguments(n))
+            }
+            Node::FunctionExpression(n) => Ok(IncrementExpression::FunctionExpression(n)),
+            Node::Identifier(n) => Ok(IncrementExpression::Identifier(n)),
+            Node::JsxAttributes(n) => Ok(IncrementExpression::JsxAttributes(n)),
+            Node::JsxElement(n) => Ok(IncrementExpression::JsxElement(n)),
+            Node::JsxFragment(n) => Ok(IncrementExpression::JsxFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(IncrementExpression::JsxSelfClosingElement(n)),
+            Node::MetaProperty(n) => Ok(IncrementExpression::MetaProperty(n)),
+            Node::NewExpression(n) => Ok(IncrementExpression::NewExpression(n)),
+            Node::NonNullExpression(n) => Ok(IncrementExpression::NonNullExpression(n)),
+            Node::NumericLiteral(n) => Ok(IncrementExpression::NumericLiteral(n)),
+            Node::ObjectLiteralExpression(n) => Ok(IncrementExpression::ObjectLiteralExpression(n)),
+            Node::ParenthesizedExpression(n) => Ok(IncrementExpression::ParenthesizedExpression(n)),
+            Node::PartiallyEmittedExpression(n) => {
+                Ok(IncrementExpression::PartiallyEmittedExpression(n))
+            }
+            Node::PostfixUnaryExpression(n) => Ok(IncrementExpression::PostfixUnaryExpression(n)),
+            Node::PrefixUnaryExpression(n) => Ok(IncrementExpression::PrefixUnaryExpression(n)),
+            Node::PrivateIdentifier(n) => Ok(IncrementExpression::PrivateIdentifier(n)),
+            Node::PropertyAccessExpression(n) => {
+                Ok(IncrementExpression::PropertyAccessExpression(n))
+            }
+            Node::RegularExpressionLiteral(n) => {
+                Ok(IncrementExpression::RegularExpressionLiteral(n))
+            }
+            Node::StringLiteral(n) => Ok(IncrementExpression::StringLiteral(n)),
+            Node::TaggedTemplateExpression(n) => {
+                Ok(IncrementExpression::TaggedTemplateExpression(n))
+            }
+            Node::TemplateExpression(n) => Ok(IncrementExpression::TemplateExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `JSDocComment` union.
 ///
 /// Corresponds to typescript-go's `ast.JSDocComment`.
@@ -2736,6 +2914,10 @@ pub enum JsxTagNameExpression<'a> {
     Identifier(&'a Identifier<'a>),
     /// See [`JsxNamespacedName`].
     JsxNamespacedName(&'a JsxNamespacedName<'a>),
+    /// See [`KeywordExpression`].
+    KeywordExpression(&'a KeywordExpression<'a>),
+    /// See [`PropertyAccessExpression`].
+    PropertyAccessExpression(&'a PropertyAccessExpression<'a>),
 }
 
 impl<'a> From<JsxTagNameExpression<'a>> for Node<'a> {
@@ -2743,6 +2925,8 @@ impl<'a> From<JsxTagNameExpression<'a>> for Node<'a> {
         match value {
             JsxTagNameExpression::Identifier(n) => Node::Identifier(n),
             JsxTagNameExpression::JsxNamespacedName(n) => Node::JsxNamespacedName(n),
+            JsxTagNameExpression::KeywordExpression(n) => Node::KeywordExpression(n),
+            JsxTagNameExpression::PropertyAccessExpression(n) => Node::PropertyAccessExpression(n),
         }
     }
 }
@@ -2756,6 +2940,10 @@ impl<'a> TryFrom<Node<'a>> for JsxTagNameExpression<'a> {
         match value {
             Node::Identifier(n) => Ok(JsxTagNameExpression::Identifier(n)),
             Node::JsxNamespacedName(n) => Ok(JsxTagNameExpression::JsxNamespacedName(n)),
+            Node::KeywordExpression(n) => Ok(JsxTagNameExpression::KeywordExpression(n)),
+            Node::PropertyAccessExpression(n) => {
+                Ok(JsxTagNameExpression::PropertyAccessExpression(n))
+            }
             other => Err(other),
         }
     }
@@ -3842,6 +4030,8 @@ impl<'a> TryFrom<Node<'a>> for ObjectLiteralElementLike<'a> {
 /// Corresponds to typescript-go's `ast.ObjectLiteralLikeNode`.
 #[derive(Debug, Clone, Copy)]
 pub enum ObjectLiteralLikeNode<'a> {
+    /// See [`BindingPattern`].
+    BindingPattern(&'a BindingPattern<'a>),
     /// See [`ObjectLiteralExpression`].
     ObjectLiteralExpression(&'a ObjectLiteralExpression<'a>),
 }
@@ -3849,6 +4039,7 @@ pub enum ObjectLiteralLikeNode<'a> {
 impl<'a> From<ObjectLiteralLikeNode<'a>> for Node<'a> {
     fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
         match value {
+            ObjectLiteralLikeNode::BindingPattern(n) => Node::BindingPattern(n),
             ObjectLiteralLikeNode::ObjectLiteralExpression(n) => Node::ObjectLiteralExpression(n),
         }
     }
@@ -3861,6 +4052,7 @@ impl<'a> TryFrom<Node<'a>> for ObjectLiteralLikeNode<'a> {
     /// `ObjectLiteralLikeNode`, so callers can recover it without a second match.
     fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
         match value {
+            Node::BindingPattern(n) => Ok(ObjectLiteralLikeNode::BindingPattern(n)),
             Node::ObjectLiteralExpression(n) => {
                 Ok(ObjectLiteralLikeNode::ObjectLiteralExpression(n))
             }
@@ -4865,6 +5057,14 @@ impl<'a> From<AccessExpression<'a>> for ForInitializer<'a> {
     }
 }
 
+impl<'a> From<AccessExpression<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `AccessExpression` variant is also a `IncrementExpression` variant.
+    fn from(value: AccessExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessExpression is a subset of IncrementExpression"))
+    }
+}
+
 impl<'a> From<AccessExpression<'a>> for LeftHandSideExpression<'a> {
     /// Infallible: every `AccessExpression` variant is also a `LeftHandSideExpression` variant.
     fn from(value: AccessExpression<'a>) -> Self {
@@ -5078,6 +5278,54 @@ impl<'a> From<BlockOrExpression<'a>> for NodeBody<'a> {
     }
 }
 
+impl<'a> From<BooleanLiteral<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `BooleanLiteral` variant is also a `BlockOrExpression` variant.
+    fn from(value: BooleanLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BooleanLiteral is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<BooleanLiteral<'a>> for ConciseBody<'a> {
+    /// Infallible: every `BooleanLiteral` variant is also a `ConciseBody` variant.
+    fn from(value: BooleanLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BooleanLiteral is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<BooleanLiteral<'a>> for Expression<'a> {
+    /// Infallible: every `BooleanLiteral` variant is also a `Expression` variant.
+    fn from(value: BooleanLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BooleanLiteral is a subset of Expression"))
+    }
+}
+
+impl<'a> From<BooleanLiteral<'a>> for ForInitializer<'a> {
+    /// Infallible: every `BooleanLiteral` variant is also a `ForInitializer` variant.
+    fn from(value: BooleanLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BooleanLiteral is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<BooleanLiteral<'a>> for JsxTagNameExpression<'a> {
+    /// Infallible: every `BooleanLiteral` variant is also a `JsxTagNameExpression` variant.
+    fn from(value: BooleanLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BooleanLiteral is a subset of JsxTagNameExpression"))
+    }
+}
+
+impl<'a> From<BooleanLiteral<'a>> for NodeBody<'a> {
+    /// Infallible: every `BooleanLiteral` variant is also a `NodeBody` variant.
+    fn from(value: BooleanLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BooleanLiteral is a subset of NodeBody"))
+    }
+}
+
 impl<'a> From<BreakOrContinueStatement<'a>> for Statement<'a> {
     /// Infallible: every `BreakOrContinueStatement` variant is also a `Statement` variant.
     fn from(value: BreakOrContinueStatement<'a>) -> Self {
@@ -5125,6 +5373,15 @@ impl<'a> From<CallOrNewExpression<'a>> for ForInitializer<'a> {
     fn from(value: CallOrNewExpression<'a>) -> Self {
         Self::try_from(Node::from(value))
             .unwrap_or_else(|_| unreachable!("CallOrNewExpression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `IncrementExpression` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("CallOrNewExpression is a subset of IncrementExpression")
+        })
     }
 }
 
@@ -5367,6 +5624,15 @@ impl<'a> From<ImportAttributeName<'a>> for ForInitializer<'a> {
     }
 }
 
+impl<'a> From<ImportAttributeName<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `IncrementExpression` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ImportAttributeName is a subset of IncrementExpression")
+        })
+    }
+}
+
 impl<'a> From<ImportAttributeName<'a>> for LeftHandSideExpression<'a> {
     /// Infallible: every `ImportAttributeName` variant is also a `LeftHandSideExpression` variant.
     fn from(value: ImportAttributeName<'a>) -> Self {
@@ -5398,6 +5664,47 @@ impl<'a> From<ImportAttributeName<'a>> for PropertyNameLiteral<'a> {
         Self::try_from(Node::from(value)).unwrap_or_else(|_| {
             unreachable!("ImportAttributeName is a subset of PropertyNameLiteral")
         })
+    }
+}
+
+impl<'a> From<IncrementExpression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `IncrementExpression` variant is also a `BlockOrExpression` variant.
+    fn from(value: IncrementExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("IncrementExpression is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<IncrementExpression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `IncrementExpression` variant is also a `ConciseBody` variant.
+    fn from(value: IncrementExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("IncrementExpression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<IncrementExpression<'a>> for Expression<'a> {
+    /// Infallible: every `IncrementExpression` variant is also a `Expression` variant.
+    fn from(value: IncrementExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("IncrementExpression is a subset of Expression"))
+    }
+}
+
+impl<'a> From<IncrementExpression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `IncrementExpression` variant is also a `ForInitializer` variant.
+    fn from(value: IncrementExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("IncrementExpression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<IncrementExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `IncrementExpression` variant is also a `NodeBody` variant.
+    fn from(value: IncrementExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("IncrementExpression is a subset of NodeBody"))
     }
 }
 
@@ -5438,6 +5745,15 @@ impl<'a> From<JsxAttributeName<'a>> for ForInitializer<'a> {
     fn from(value: JsxAttributeName<'a>) -> Self {
         Self::try_from(Node::from(value))
             .unwrap_or_else(|_| unreachable!("JsxAttributeName is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<JsxAttributeName<'a>> for JsxTagNameExpression<'a> {
+    /// Infallible: every `JsxAttributeName` variant is also a `JsxTagNameExpression` variant.
+    fn from(value: JsxAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("JsxAttributeName is a subset of JsxTagNameExpression")
+        })
     }
 }
 
@@ -5654,6 +5970,15 @@ impl<'a> From<LeftHandSideExpression<'a>> for ForInitializer<'a> {
     }
 }
 
+impl<'a> From<LeftHandSideExpression<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `LeftHandSideExpression` variant is also a `IncrementExpression` variant.
+    fn from(value: LeftHandSideExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("LeftHandSideExpression is a subset of IncrementExpression")
+        })
+    }
+}
+
 impl<'a> From<LeftHandSideExpression<'a>> for NodeBody<'a> {
     /// Infallible: every `LeftHandSideExpression` variant is also a `NodeBody` variant.
     fn from(value: LeftHandSideExpression<'a>) -> Self {
@@ -5790,6 +6115,14 @@ impl<'a> From<MemberName<'a>> for ForInitializer<'a> {
     }
 }
 
+impl<'a> From<MemberName<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `MemberName` variant is also a `IncrementExpression` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of IncrementExpression"))
+    }
+}
+
 impl<'a> From<MemberName<'a>> for LeftHandSideExpression<'a> {
     /// Infallible: every `MemberName` variant is also a `LeftHandSideExpression` variant.
     fn from(value: MemberName<'a>) -> Self {
@@ -5894,6 +6227,14 @@ impl<'a> From<ModuleExportName<'a>> for ForInitializer<'a> {
     }
 }
 
+impl<'a> From<ModuleExportName<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `IncrementExpression` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of IncrementExpression"))
+    }
+}
+
 impl<'a> From<ModuleExportName<'a>> for LeftHandSideExpression<'a> {
     /// Infallible: every `ModuleExportName` variant is also a `LeftHandSideExpression` variant.
     fn from(value: ModuleExportName<'a>) -> Self {
@@ -5964,6 +6305,14 @@ impl<'a> From<ModuleName<'a>> for ForInitializer<'a> {
     fn from(value: ModuleName<'a>) -> Self {
         Self::try_from(Node::from(value))
             .unwrap_or_else(|_| unreachable!("ModuleName is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `ModuleName` variant is also a `IncrementExpression` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of IncrementExpression"))
     }
 }
 
@@ -6159,64 +6508,6 @@ impl<'a> From<ObjectLiteralElementLike<'a>> for ObjectLiteralElement<'a> {
     }
 }
 
-impl<'a> From<ObjectLiteralLikeNode<'a>> for BlockOrExpression<'a> {
-    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `BlockOrExpression` variant.
-    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
-        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
-            unreachable!("ObjectLiteralLikeNode is a subset of BlockOrExpression")
-        })
-    }
-}
-
-impl<'a> From<ObjectLiteralLikeNode<'a>> for ConciseBody<'a> {
-    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `ConciseBody` variant.
-    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
-        Self::try_from(Node::from(value))
-            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of ConciseBody"))
-    }
-}
-
-impl<'a> From<ObjectLiteralLikeNode<'a>> for Declaration<'a> {
-    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `Declaration` variant.
-    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
-        Self::try_from(Node::from(value))
-            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of Declaration"))
-    }
-}
-
-impl<'a> From<ObjectLiteralLikeNode<'a>> for Expression<'a> {
-    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `Expression` variant.
-    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
-        Self::try_from(Node::from(value))
-            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of Expression"))
-    }
-}
-
-impl<'a> From<ObjectLiteralLikeNode<'a>> for ForInitializer<'a> {
-    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `ForInitializer` variant.
-    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
-        Self::try_from(Node::from(value))
-            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of ForInitializer"))
-    }
-}
-
-impl<'a> From<ObjectLiteralLikeNode<'a>> for LeftHandSideExpression<'a> {
-    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `LeftHandSideExpression` variant.
-    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
-        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
-            unreachable!("ObjectLiteralLikeNode is a subset of LeftHandSideExpression")
-        })
-    }
-}
-
-impl<'a> From<ObjectLiteralLikeNode<'a>> for NodeBody<'a> {
-    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `NodeBody` variant.
-    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
-        Self::try_from(Node::from(value))
-            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of NodeBody"))
-    }
-}
-
 impl<'a> From<ObjectTypeDeclaration<'a>> for Declaration<'a> {
     /// Infallible: every `ObjectTypeDeclaration` variant is also a `Declaration` variant.
     fn from(value: ObjectTypeDeclaration<'a>) -> Self {
@@ -6271,6 +6562,15 @@ impl<'a> From<PropertyNameLiteral<'a>> for ForInitializer<'a> {
     fn from(value: PropertyNameLiteral<'a>) -> Self {
         Self::try_from(Node::from(value))
             .unwrap_or_else(|_| unreachable!("PropertyNameLiteral is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for IncrementExpression<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `IncrementExpression` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("PropertyNameLiteral is a subset of IncrementExpression")
+        })
     }
 }
 

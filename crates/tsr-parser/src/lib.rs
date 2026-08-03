@@ -36,6 +36,7 @@
 
 mod declaration;
 mod expression;
+mod jsx;
 mod module;
 mod parsed_file;
 mod parser;
@@ -43,7 +44,7 @@ mod statement;
 mod types;
 
 pub use parsed_file::ParsedFile;
-pub use parser::{ParseResult, Parser};
+pub use parser::{ParseResult, Parser, ScriptKind};
 
 use tsr_ast::SourceFile;
 use tsr_core::Arena;
@@ -63,7 +64,20 @@ use tsr_diagnostics::Diagnostic;
 /// ```
 #[must_use]
 pub fn parse<'a>(arena: &'a Arena, source: &'a str) -> ParsedSourceFile<'a> {
-    let mut parser = Parser::new(arena, source);
+    parse_with_script_kind(arena, source, ScriptKind::TypeScript)
+}
+
+/// Parse a source file in a specific dialect.
+///
+/// `.tsx` reads a leading `<` as JSX; `.ts` reads it as a type assertion. See
+/// [`ScriptKind`].
+#[must_use]
+pub fn parse_with_script_kind<'a>(
+    arena: &'a Arena,
+    source: &'a str,
+    script_kind: ScriptKind,
+) -> ParsedSourceFile<'a> {
+    let mut parser = Parser::with_script_kind(arena, source, script_kind);
     let source_file = parser.parse_source_file();
     let (diagnostics, node_table) = parser.finish();
     ParsedSourceFile { source_file, diagnostics, nodes: node_table }

@@ -5,6 +5,41 @@ use tsr_core::{Arena, Span};
 use tsr_diagnostics::{Diagnostic, Message, messages};
 use tsr_scanner::{Scanner, Token};
 
+/// Which dialect a file is parsed as.
+///
+/// The only thing this changes is what `<` means in expression position, and the
+/// two readings are mutually exclusive: in `.ts` a leading `<` is a type
+/// assertion (`<Foo>x`), and in `.tsx` it opens a JSX element. TypeScript made
+/// them exclusive for exactly this reason — no lookahead can separate
+/// `<Foo>x` from `<Foo>x</Foo>` cheaply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScriptKind {
+    /// `.ts`, `.mts`, `.cts`, `.d.ts` — `<T>expr` is a type assertion.
+    #[default]
+    TypeScript,
+    /// `.tsx`, `.jsx` — `<` opens JSX; type assertions must use `as`.
+    Tsx,
+}
+
+impl ScriptKind {
+    /// Infer the dialect from a file name.
+    #[must_use]
+    pub fn from_file_name(name: &str) -> Self {
+        let extension = std::path::Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if extension == "tsx" || extension == "jsx" { Self::Tsx } else { Self::TypeScript }
+    }
+
+    /// Whether `<` in expression position opens JSX.
+    #[must_use]
+    pub const fn allows_jsx(self) -> bool {
+        matches!(self, Self::Tsx)
+    }
+}
+
 /// What [`Parser::parse_source_file`] produced.
 pub struct ParseResult<'a> {
     /// The root node.
@@ -17,6 +52,7 @@ pub struct ParseResult<'a> {
 pub struct Parser<'a> {
     pub(crate) arena: &'a Arena,
     pub(crate) source: &'a str,
+    pub(crate) script_kind: ScriptKind,
     scanner: Scanner<'a>,
     /// The token under the cursor.
     pub(crate) token: Token,
@@ -45,15 +81,22 @@ pub struct Parser<'a> {
 const MAX_DEPTH: u32 = 512;
 
 impl<'a> Parser<'a> {
-    /// Create a parser positioned on the first token.
+    /// Create a parser positioned on the first token, in TypeScript dialect.
     #[must_use]
     pub fn new(arena: &'a Arena, source: &'a str) -> Self {
+        Self::with_script_kind(arena, source, ScriptKind::TypeScript)
+    }
+
+    /// Create a parser for a specific dialect.
+    #[must_use]
+    pub fn with_script_kind(arena: &'a Arena, source: &'a str, script_kind: ScriptKind) -> Self {
         let mut scanner = Scanner::new(source);
         let token = scanner.scan();
         let token_value = capture_value(&scanner);
         Self {
             arena,
             source,
+            script_kind,
             scanner,
             token,
             token_value,
@@ -139,6 +182,30 @@ impl<'a> Parser<'a> {
     /// Re-scan a `/` as a regular expression literal.
     pub(crate) fn rescan_regular_expression(&mut self) {
         self.token = self.scanner.rescan_as_regular_expression();
+        self.token_value = capture_value(&self.scanner);
+    }
+
+    /// Re-scan the current token as JSX child content.
+    pub(crate) fn rescan_jsx_token(&mut self) {
+        self.token = self.scanner.rescan_jsx_token();
+        self.token_value = capture_value(&self.scanner);
+    }
+
+    /// Scan the next token as JSX child content.
+    pub(crate) fn scan_jsx_token(&mut self) {
+        self.token = self.scanner.scan_jsx_token();
+        self.token_value = capture_value(&self.scanner);
+    }
+
+    /// Extend the current identifier with JSX's `-`.
+    pub(crate) fn scan_jsx_identifier(&mut self) {
+        self.token = self.scanner.scan_jsx_identifier();
+        self.token_value = capture_value(&self.scanner);
+    }
+
+    /// Re-scan the current token as a JSX attribute value.
+    pub(crate) fn rescan_jsx_attribute_value(&mut self) {
+        self.token = self.scanner.rescan_jsx_attribute_value();
         self.token_value = capture_value(&self.scanner);
     }
 

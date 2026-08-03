@@ -490,3 +490,128 @@ fn modifier_keywords_are_usable_as_member_names() {
     statements(&arena, "interface abstract { abstract(): void; }");
     statements(&arena, "class C { static: number; readonly = 1; }");
 }
+
+// ---- JSX ------------------------------------------------------------------
+
+/// Parse as `.tsx` and assert no diagnostics.
+fn tsx<'a>(arena: &'a Arena, source: &'a str) -> &'a [Statement<'a>] {
+    let result = tsr_parser::parse_with_script_kind(arena, source, tsr_parser::ScriptKind::Tsx);
+    assert!(
+        result.diagnostics.is_empty(),
+        "unexpected diagnostics for {source:?}: {:?}",
+        result.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+    );
+    result.source_file.statements
+}
+
+#[test]
+fn jsx_elements() {
+    let arena = Arena::new();
+    tsx(&arena, "const a = <div />;");
+    tsx(&arena, "const b = <div>text</div>;");
+    tsx(&arena, "const c = <div><span /></div>;");
+    tsx(&arena, "const d = <></>;");
+    tsx(&arena, "const e = <>text{expr}</>;");
+}
+
+#[test]
+fn jsx_attributes() {
+    let arena = Arena::new();
+    tsx(&arena, r#"const a = <div className="x" />;"#);
+    tsx(&arena, "const b = <div onClick={handler} />;");
+    tsx(&arena, "const c = <input disabled />;");
+    tsx(&arena, "const d = <div {...props} />;");
+    tsx(&arena, r#"const e = <div data-testid="x" aria-label="y" />;"#);
+    tsx(&arena, r##"const f = <svg:circle xlink:href="#x" />;"##);
+}
+
+#[test]
+fn jsx_tag_names() {
+    let arena = Arena::new();
+    tsx(&arena, "const a = <My.Component />;");
+    tsx(&arena, "const b = <A.B.C />;");
+    tsx(&arena, "const c = <my-element />;");
+    tsx(&arena, "const d = <svg:circle />;");
+}
+
+#[test]
+fn jsx_children_and_expressions() {
+    let arena = Arena::new();
+    tsx(&arena, "const a = <div>{items.map(i => <li key={i} />)}</div>;");
+    tsx(&arena, "const b = <div>{}</div>;");
+    tsx(&arena, "const c = <ul>{...items}</ul>;");
+    // Entities are literal text, not escapes — the case that first exposed the
+    // missing JSX scanner mode.
+    tsx(&arena, "const d = <div>&#0123;&#x7d;</div>;");
+}
+
+#[test]
+fn jsx_attribute_values_are_raw() {
+    // `"a\b"` is four characters; treating `\b` as an escape is wrong in JSX.
+    let arena = Arena::new();
+    tsx(&arena, r#"const a = <div title="a\b" />;"#);
+}
+
+#[test]
+fn angle_bracket_means_different_things_per_dialect() {
+    // The whole reason `ScriptKind` exists.
+    let arena = Arena::new();
+    let statements = statements(&arena, "const a = <Foo>x;");
+    let Statement::VariableStatement(_) = statements[0] else { panic!() };
+
+    let arena = Arena::new();
+    tsx(&arena, "const a = <Foo>x</Foo>;");
+
+    // A type assertion is not available in `.tsx`; `as` is the alternative.
+    let arena = Arena::new();
+    tsx(&arena, "const b = x as Foo;");
+}
+
+#[test]
+fn script_kind_is_inferred_from_the_file_name() {
+    use tsr_parser::ScriptKind;
+    assert_eq!(ScriptKind::from_file_name("a.tsx"), ScriptKind::Tsx);
+    assert_eq!(ScriptKind::from_file_name("a.jsx"), ScriptKind::Tsx);
+    assert_eq!(ScriptKind::from_file_name("a.ts"), ScriptKind::TypeScript);
+    assert_eq!(ScriptKind::from_file_name("a.d.ts"), ScriptKind::TypeScript);
+    assert!(ScriptKind::Tsx.allows_jsx());
+    assert!(!ScriptKind::TypeScript.allows_jsx());
+}
+
+#[test]
+fn jsx_whitespace_only_children_are_marked() {
+    // `<div>\n  </div>` has a whitespace-only child that emit drops; `<div>  </div>`
+    // has real text.
+    let arena = Arena::new();
+    tsx(&arena, "const a = <div>\n  </div>;");
+    tsx(&arena, "const b = <div>  </div>;");
+}
+
+#[test]
+fn nested_and_elided_array_destructuring() {
+    // `[` opens a nested pattern; only a `:` after the closing bracket makes it a
+    // computed key. Reading it as a key unconditionally broke every nested array
+    // destructuring in the corpus.
+    let arena = Arena::new();
+    statements(&arena, "let [,,[,[],,[],]] = x;");
+    statements(&arena, "function f([[]] = [[1,2,3]]) {}");
+    statements(&arena, "var [, a, , ] = [3, 4, 5];");
+    statements(&arena, "var [, , [, b, ]] = [3,5,[0,1]];");
+    // A computed key still works.
+    statements(&arena, "const { [k]: v } = o;");
+}
+
+#[test]
+fn namespaces_may_be_named_with_contextual_keywords() {
+    let arena = Arena::new();
+    statements(&arena, "namespace require { }");
+    statements(&arena, "namespace m1 { namespace require { } }");
+    statements(&arena, "declare global { interface X {} }");
+}
+
+#[test]
+fn import_types() {
+    let arena = Arena::new();
+    statements(&arena, "const a: import('mod').Type = x;");
+    statements(&arena, "let b: import('mod').Ns.Type<string>;");
+}

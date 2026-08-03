@@ -26,8 +26,8 @@ corpus_ingest                       12444/12444   100.00%         0
 baseline_resolution                 12444/12444   100.00%         0
 parser_reachable_target              5648/11187    50.49%      1257
 scanner_termination                 12444/12444   100.00%         0
-scanner_clean_files                   5646/5648    99.96%      6796
-parser_typescript                     5183/5648    91.77%      6796
+scanner_clean_files                   5648/5648   100.00%      6796
+parser_typescript                     5376/5648    95.18%      6796
 ```
 
 The first two measure the **harness**; `parser_reachable_target` measures the
