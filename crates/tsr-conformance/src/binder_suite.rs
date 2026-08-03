@@ -54,6 +54,9 @@
 
 use std::collections::BTreeSet;
 
+use tsr_ast::{NodeTable, SyntaxKind};
+use tsr_binder::BindResult;
+
 use crate::{
     corpus::CaseEntry,
     suite::{Outcome, Suite},
@@ -133,7 +136,7 @@ impl Suite for BinderSymbols {
             // Accepting any suffix is the honest approximation; it weakens the
             // test slightly, since `C.m` would also match a `C.m` nested
             // somewhere else entirely.
-            let full = qualified_name(bound.symbols(), id);
+            let full = qualified_name(&bound, &result.nodes, id);
             for (offset, _) in
                 std::iter::once((0, '.')).chain(full.match_indices('.').map(|(i, _)| (i + 1, '.')))
             {
@@ -198,13 +201,6 @@ impl Suite for BinderSymbols {
 
 /// A symbol's name as the baseline writes it.
 ///
-/// Upstream qualifies a member with its container — `C.foo` — and switches to
-/// bracket form when the name is not a plain identifier: `C[1]` for a numeric
-/// name, `C["bar"]` for a string one. Reproducing that here rather than stripping
-/// it from the baseline keeps the comparison sensitive to *which* container a
-/// member ended up in, which is most of what the binder decides.
-/// A symbol's name as the baseline writes it.
-///
 /// Upstream's baseline prints `checker.symbolToString(symbol, node.parent)` —
 /// the name as reachable *from the reference site*, not a raw parent walk. The
 /// difference shows on anonymous containers: a member of `{ salt: 2 }` prints as
@@ -212,7 +208,8 @@ impl Suite for BinderSymbols {
 /// member of an unnamed class expression prints as `(Anonymous class).foo`,
 /// because upstream gives that one a display name. A parent walk that stops at
 /// the right places reproduces both without a checker.
-fn qualified_name(symbols: &tsr_binder::SymbolStore<'_>, id: tsr_binder::SymbolId) -> String {
+fn qualified_name(bound: &BindResult<'_>, nodes: &NodeTable, id: tsr_binder::SymbolId) -> String {
+    let symbols = bound.symbols();
     let symbol = symbols.get(id);
     let Some(parent) = symbol.parent else {
         return symbol.name.to_string();
@@ -220,9 +217,33 @@ fn qualified_name(symbols: &tsr_binder::SymbolStore<'_>, id: tsr_binder::SymbolI
     match anonymity_of(symbols.get(parent).name) {
         // Unreachable by any name: the member is only ever written bare.
         Anonymity::Unnameable => symbol.name.to_string(),
-        Anonymity::Displayed(display) => format!("{display}.{}", symbol.name),
-        Anonymity::Named => format!("{}.{}", qualified_name(symbols, parent), symbol.name),
+        Anonymity::Displayed(fallback) => {
+            let container = assigned_name(bound, nodes, parent)
+                .map_or_else(|| fallback.to_string(), |named| qualified_name(bound, nodes, named));
+            format!("{container}.{}", symbol.name)
+        }
+        Anonymity::Named => {
+            format!("{}.{}", qualified_name(bound, nodes, parent), symbol.name)
+        }
     }
+}
+
+/// The symbol of the variable an anonymous declaration is assigned to.
+///
+/// A direct port of the rule in upstream's `getNameOfSymbolAsWritten`
+/// (`internal/checker/nodebuilderimpl.go:1005`): before falling back to
+/// `(Anonymous class)`, it checks whether the declaration's parent is a
+/// `VariableDeclaration` and, if so, displays the variable's name. That is why
+/// `const C = class { #x }` gives `C.#x` in the baselines and not
+/// `(Anonymous class).#x`.
+fn assigned_name(
+    bound: &BindResult<'_>,
+    nodes: &NodeTable,
+    symbol: tsr_binder::SymbolId,
+) -> Option<tsr_binder::SymbolId> {
+    let declaration = *bound.symbols().get(symbol).declarations.first()?;
+    let parent = nodes.parent(declaration)?;
+    (nodes.kind(parent) == SyntaxKind::VariableDeclaration).then(|| bound.symbol_of(parent))?
 }
 
 /// How a container participates in a qualified name.
@@ -334,6 +355,41 @@ mod tests {
         assert_eq!(normalise_symbol_name("A[A.p1]"), "A[A.p1]");
         assert_eq!(normalise_symbol_name("Result[Symbol.iterator]"), "Result[Symbol.iterator]");
         assert_eq!(normalise_symbol_name("[foo()]"), "[foo()]");
+    }
+
+    /// Bind a snippet and return the qualified name of the symbol called `name`.
+    fn qualified(source: &str, name: &str) -> String {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "the snippet should parse cleanly");
+        let bound = tsr_binder::bind(parsed.source_file, &parsed.nodes);
+        let (id, _) = bound
+            .symbols()
+            .iter()
+            .find(|(_, symbol)| symbol.name == name)
+            .unwrap_or_else(|| panic!("no symbol named {name}"));
+        qualified_name(&bound, &parsed.nodes, id)
+    }
+
+    #[test]
+    fn a_class_expression_is_displayed_under_the_variable_it_is_assigned_to() {
+        // Upstream's getNameOfSymbolAsWritten checks for a VariableDeclaration
+        // parent before falling back to `(Anonymous class)`, which is why the
+        // baselines say `C.#x` here and not `(Anonymous class).#x`.
+        assert_eq!(qualified("const C = class { #x = 1; };", "#x"), "C.#x");
+    }
+
+    #[test]
+    fn a_class_expression_assigned_to_nothing_stays_anonymous() {
+        assert_eq!(
+            qualified("declare function f(c: unknown): void;\nf(class { #x = 1; });", "#x"),
+            "(Anonymous class).#x"
+        );
+    }
+
+    #[test]
+    fn an_object_literal_member_is_never_qualified() {
+        assert_eq!(qualified("const o = { salt: 2 };", "salt"), "salt");
     }
 
     #[test]

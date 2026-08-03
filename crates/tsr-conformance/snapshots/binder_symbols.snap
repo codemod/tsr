@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 6898/7621 (90.51%)
-Failed         : 723
+Passed         : 6914/7621 (90.72%)
+Failed         : 707
 Skipped        : 4823 (excluded from the denominator)
 
   1153  skipped: multi-file case; needs per-file symbol attribution
@@ -12,7 +12,7 @@ Skipped        : 4823 (excluded from the denominator)
   520  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 723 failures:
+First 100 of 707 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/ambientExternalModuleWithRelativeModuleName
@@ -169,10 +169,6 @@ compiler/enumKeysQuotedAsObjectPropertiesInDeclarationEmit
   1 symbol(s): '-1': no symbol
 compiler/enumWithUnicodeEscape1
   1 symbol(s): E.gold \u2730: no symbol
-compiler/errorInUnnamedClassExpression
-  1 symbol(s): Foo.bar: no symbol
-compiler/errorsWithInvokablesInUnions01
-  1 symbol(s): ctor.someUnaccountedProp: no symbol
 compiler/es2017basicAsync
   2 symbol(s): asyncNamedFunc: no symbol; namedFunc: no symbol
 compiler/es6ExportDefaultClassDeclaration2
@@ -213,3 +209,7 @@ compiler/exportDefaultInterfaceClassAndFunctionOverloads
   1 symbol(s): foo: declared on {0, 1}, expected to include {0, 1, 6}
 compiler/exportDefaultInterfaceClassAndValue
   1 symbol(s): foo: declared on {0}, expected to include {0, 1, 2}
+compiler/exportDefaultTypeClassAndValue
+  1 symbol(s): foo: declared on {0}, expected to include {0, 1}
+compiler/exportImportAndClodule
+  1 symbol(s): D: declared on {12}, expected to include {0, 3, 12}

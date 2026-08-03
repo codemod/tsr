@@ -253,8 +253,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 6,898/7,621
-(**90.51%**), up from 62.05% on 2026-08-04. See
+own `.symbols` baselines over the 12,444-case corpus. Currently 6,914/7,621
+(**90.72%**), up from 62.05% on 2026-08-04. See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -283,6 +283,7 @@ five biggest wins turned out to be in the harness.
 | `namespace A.B {}` desugared into nested modules | 88.39% | parser |
 | computed names that are literals declare statically | 88.78% | binder |
 | JSX attributes declare properties | 90.51% | binder |
+| a class expression displayed under the variable it is assigned to | 90.72% | harness |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -292,15 +293,20 @@ at length, and the reason it is not an optimisation is exactly what the failures
 showed: an unqualified reference inside the namespace resolves to the local, so
 creating only the export loses every one of them.
 
-### What the remaining 723 failures are
+### What the remaining 707 failures are
 
 | Bucket | Complaints | Cases failing on this alone | Cause |
 |---|---:|---:|---|
 | Computed name | 509 | 342 | **late-bound**: `[Symbol.iterator]`, `[k]`, `[super.foo()]` — needs the checker |
-| Wrong declaration lines | 205 | 106 | mostly alias resolution; see below |
-| Qualified `A.b` | 189 | 98 | mixed remainder |
-| Bare name | 179 | 116 | mixed remainder |
-| Private identifier | 13 | — | `#x` is named per containing class upstream |
+| Wrong declaration lines | 206 | ~106 | mostly alias resolution; see below |
+| Bare name | 179 | ~116 | mixed remainder |
+| Qualified `A.b` | 169 | ~98 | mixed remainder |
+| Private identifier | 1 | — | a string-named property containing `#`, not a private name at all |
+
+Private identifiers went 181 → 1 across the day without a single binder change:
+most were the old bracket-form name printer, and the last seven were all
+`const C = class { #x }`, where upstream displays the class under the variable it
+is assigned to (see the display rules in [conformance.md](conformance.md)).
 
 **Both of the top two are blocked rather than unwritten**, and that is the more
 useful fact than the percentage.
