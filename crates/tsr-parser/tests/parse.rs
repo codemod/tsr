@@ -615,3 +615,110 @@ fn import_types() {
     statements(&arena, "const a: import('mod').Type = x;");
     statements(&arena, "let b: import('mod').Ns.Type<string>;");
 }
+
+// ---- long-tail syntax -----------------------------------------------------
+
+#[test]
+fn tagged_templates() {
+    let arena = Arena::new();
+    statements(&arena, "const a = String.raw``;");
+    statements(&arena, "const b = tag`x${1}y`;");
+    statements(&arena, "const c = a.b.c`text`;");
+}
+
+#[test]
+fn modifier_keywords_remain_usable_as_identifiers() {
+    // `declare` is contextual: it is a modifier only when a declaration follows.
+    let arena = Arena::new();
+    statements(&arena, "var declare: any;\ndeclare instanceof C;");
+    statements(&arena, "const async = 1;");
+    statements(&arena, "const x = async => async;");
+}
+
+#[test]
+fn instantiation_expressions() {
+    // `f<T>` without a call is legal since TS 4.7, but `a < b > c` is arithmetic;
+    // only what follows the `>` separates them.
+    let arena = Arena::new();
+    statements(&arena, "const f = foo<string>;");
+    statements(&arena, "declare function g<T>(t: T): typeof g<T>;");
+    statements(&arena, "const cmp = a < b > c;");
+}
+
+#[test]
+fn shift_tokens_are_split_where_brackets_are_expected() {
+    // `<K extends Key<U>>` ends in one `>>` token, and `Foo<<T>() => void>`
+    // opens with one `<<`. Both must be split into separate brackets.
+    let arena = Arena::new();
+    statements(&arena, "const a = <K extends Key<U>>(k: K) => k;");
+    statements(&arena, "type B = ReturnType<<T>(x: T) => number>;");
+    statements(&arena, "type C = Map<string, Array<number>>;");
+}
+
+#[test]
+fn arrow_return_types_may_contain_brackets_and_arrows() {
+    // The "is this an arrow?" lookahead must track depth: in `(): (() => T) => x`
+    // the inner `)` must not end the scan and the inner `=>` must not satisfy it.
+    let arena = Arena::new();
+    statements(&arena, "const a = <T>(): (() => T) => null as any;");
+    statements(&arena, "const b = (): Iterable<number, any> => null!;");
+    statements(&arena, "const c = (up: U): up is Filter<U, Q> => true;");
+}
+
+#[test]
+fn decorators_in_their_several_positions() {
+    let arena = Arena::new();
+    statements(&arena, "@dec class A {}");
+    statements(&arena, "@((t, c) => {}) class B {}");
+    statements(&arena, "class C { @(x['y']) m() {} }");
+    // `[` after an unparenthesised decorator is the *member's* computed name.
+    statements(&arena, "class D { @dec ['1']() {} }");
+    statements(&arena, "export default @dec class {}");
+}
+
+#[test]
+fn explicit_resource_management() {
+    let arena = Arena::new();
+    statements(&arena, "async function f() { await using x = r(); using y = s(); }");
+    statements(&arena, "async function g() { for (await using z of []) {} }");
+}
+
+#[test]
+fn import_attributes() {
+    let arena = Arena::new();
+    statements(&arena, r#"import d from "./d.json" with { type: "json" };"#);
+    statements(&arena, r#"export { a } from "./m" with { type: "json" };"#);
+}
+
+#[test]
+fn keyword_named_declarations_and_types() {
+    let arena = Arena::new();
+    statements(&arena, "class require { }");
+    statements(&arena, "namespace require { }");
+    // `string` names a namespace when a `.` follows.
+    statements(&arena, "var x: string.X;");
+}
+
+#[test]
+fn abstract_constructor_types_and_infer_constraints() {
+    let arena = Arena::new();
+    statements(&arena, "type A = abstract new (...args: any) => object;");
+    statements(&arena, "type B = T extends [infer R extends string] ? R : never;");
+}
+
+#[test]
+fn optional_tuple_elements_versus_named_members() {
+    // `[any?]` is an optional element; `[a?: number]` is a named one. Only the
+    // `:` after the `?` tells them apart.
+    let arena = Arena::new();
+    statements(&arena, "type A = [number, any?];");
+    statements(&arena, "type B = [a: number, b?: string];");
+}
+
+#[test]
+fn a_shebang_is_trivia_on_the_first_line_only() {
+    let arena = Arena::new();
+    statements(&arena, "#!/usr/bin/env node\nclass A {}");
+    // Elsewhere `#` still starts a private name.
+    statements(&arena, "class B { #x = 1; m() { return this.#x; } }");
+}

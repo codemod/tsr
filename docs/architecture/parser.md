@@ -2,7 +2,7 @@
 
 **Crate:** `tsr-parser`
 **Ported from:** `vendor/typescript-go/internal/parser/parser.go`
-**Conformance:** `parser_typescript` 5,376/5,648 (95.18%)
+**Conformance:** `parser_typescript` 4,999/5,031 (99.36%)
 
 ## Shape
 
@@ -98,12 +98,30 @@ JSX parsing is the one place the parser drives the scanner's mode explicitly:
 children, attribute values, and names each need a different scan, and only the
 parser knows which position it is in. See [scanner.md](scanner.md).
 
+## Two lookaheads that keep getting subtler
+
+Both of the parser's hard decisions are token-level scans, and both were wrong in
+ways that only the corpus revealed.
+
+**"Is this an arrow function?"** must track bracket depth *and* angle brackets. In
+`(): (() => T) => x` the inner `)` must not end the scan and the inner `=>` must
+not satisfy it; in `(): Iterable<number, any> => x` the comma inside the type
+arguments must not end it either. Everything after the `:` is a type, so `<` is
+unambiguously a bracket there.
+
+**Shift tokens are several brackets.** The scanner emits `>>` and `>>>` as single
+tokens, so a naive bracket counter never balances `<K extends Key<U>>`, and
+`ReturnType<<T>() => number>` opens with one `<<`. Both directions need splitting;
+`greater_than_count` and `rescan_less_than` do it.
+
 ## Not yet built
 
-- **Instantiation expressions** (`typeof foo<T>` without a call).
 - **JSDoc** parsing.
 - **ASI inside type members** — `a?: number` followed by `extends?: string` on the
   next line reads the `extends` as a conditional type.
+- **Import types with attributes** (`import("pkg", { with: … })`).
+- 32 corpus cases still fail; `cargo run -p tsr-conformance --example
+  failure_classes` buckets them.
 - Roughly 8% of clean corpus files still report a diagnostic; the snapshot lists
   the first failure per case, and
   `cargo run -p tsr-conformance --example failure_classes` buckets all of them,

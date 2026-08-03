@@ -91,6 +91,11 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Whether a `.` follows, making a keyword a namespace qualifier.
+    fn next_is_dot(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::DotToken)
+    }
+
     fn next_starts_predicate_subject(&mut self) -> bool {
         self.peek_kind(|kind| {
             kind == SyntaxKind::Identifier
@@ -216,9 +221,13 @@ impl<'a> Parser<'a> {
     #[allow(clippy::too_many_lines)]
     fn parse_primary_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
-        match self.token.kind {
-            // Keyword types: `string`, `number`, `any`, `void`, …
-            kind if kind.is_keyword_type() => {
+        // Bound before matching: a guard below needs `&mut self` for lookahead.
+        let token_kind = self.token.kind;
+        match token_kind {
+            // Keyword types: `string`, `number`, `any`, `void`, … unless a `.`
+            // follows, in which case the keyword names a namespace:
+            // `var x: string.X` refers to a namespace called `string`.
+            kind if kind.is_keyword_type() && !self.next_is_dot() => {
                 self.next_token();
                 let node = self.finish_node(KeywordTypeNode::new(kind), kind, start);
                 TypeNode::KeywordTypeNode(node)
@@ -243,8 +252,21 @@ impl<'a> Parser<'a> {
                 );
                 TypeNode::ParenthesizedTypeNode(node)
             }
-            SyntaxKind::NewKeyword => {
-                self.next_token();
+            SyntaxKind::AbstractKeyword | SyntaxKind::NewKeyword => {
+                // `abstract new (…) => T` — a constructor type that cannot be
+                // instantiated directly.
+                let modifiers = if self.at(SyntaxKind::AbstractKeyword) {
+                    let modifier_start = self.pos();
+                    self.next_token();
+                    let token = self.alloc_token(
+                        SyntaxKind::AbstractKeyword,
+                        tsr_core::Span::new(modifier_start, self.pos()),
+                    );
+                    self.arena.alloc_slice(&[ModifierLike::Token(token)])
+                } else {
+                    &[][..]
+                };
+                self.expect(SyntaxKind::NewKeyword);
                 let type_parameters = self.parse_type_parameters();
                 let parameters = self.parse_parameter_list();
                 self.expect(SyntaxKind::EqualsGreaterThanToken);
@@ -253,7 +275,7 @@ impl<'a> Parser<'a> {
                 let parameters = self.arena.alloc_slice(&parameters);
                 let node = self.finish_node(
                     ConstructorTypeNode::new(
-                        &[],
+                        modifiers,
                         type_parameters,
                         parameters,
                         Some(return_type),
@@ -299,9 +321,30 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::TypeOfKeyword => {
                 self.next_token();
+                // `typeof import("m").A` — a type query over an import type.
+                if self.at(SyntaxKind::ImportKeyword) {
+                    let TypeNode::ImportTypeNode(import) = self.parse_primary_type() else {
+                        return self.missing_type();
+                    };
+                    let node = self.finish_node(
+                        ImportTypeNode::new(
+                            true,
+                            import.argument,
+                            import.attributes,
+                            import.qualifier,
+                            import.type_arguments,
+                        ),
+                        SyntaxKind::ImportType,
+                        start,
+                    );
+                    return TypeNode::ImportTypeNode(node);
+                }
                 let name = self.parse_entity_name();
+                // `typeof foo<T>` — an instantiation expression in type position.
+                let type_arguments = self.parse_type_arguments();
+                let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
-                    TypeQueryNode::new(Some(name), &[]),
+                    TypeQueryNode::new(Some(name), type_arguments),
                     SyntaxKind::TypeQuery,
                     start,
                 );
@@ -311,8 +354,17 @@ impl<'a> Parser<'a> {
                 self.next_token();
                 let parameter_start = self.pos();
                 let name = self.parse_identifier();
+                // `infer R extends T` constrains the inference. The constraint
+                // binds tighter than the enclosing conditional's `extends`, so it
+                // is parsed here rather than left to `parse_conditional_type`.
+                let constraint = if self.at(SyntaxKind::ExtendsKeyword) {
+                    self.next_token();
+                    Some(self.parse_union_type())
+                } else {
+                    None
+                };
                 let parameter = self.finish_node(
-                    TypeParameterDeclaration::new(&[], Some(name), None, None, None),
+                    TypeParameterDeclaration::new(&[], Some(name), constraint, None, None),
                     SyntaxKind::TypeParameter,
                     parameter_start,
                 );
@@ -569,8 +621,22 @@ impl<'a> Parser<'a> {
         inner
     }
 
+    /// Whether `name` here labels a tuple member rather than being its type.
+    ///
+    /// `[a: number]` and `[a?: number]` are named; `[any?]` is an optional
+    /// element whose type happens to be a keyword. Only a `:` — after the
+    /// optional `?` — settles it.
     fn next_starts_named_tuple_member(&mut self) -> bool {
-        self.peek_kind(|kind| matches!(kind, SyntaxKind::ColonToken | SyntaxKind::QuestionToken))
+        let mut matched = false;
+        self.try_parse(|p| {
+            p.next_token();
+            if p.at(SyntaxKind::QuestionToken) {
+                p.next_token();
+            }
+            matched = p.at(SyntaxKind::ColonToken);
+            None::<()>
+        });
+        matched
     }
 
     fn parse_tuple_type(&mut self) -> TypeNode<'a> {
@@ -924,6 +990,10 @@ impl<'a> Parser<'a> {
     /// Returns `None` rather than recovering, because the caller uses failure to
     /// decide that `<` was a comparison after all.
     pub(crate) fn parse_type_arguments_for_call(&mut self) -> Option<Vec<TypeNode<'a>>> {
+        // `Foo<<T>() => void>` opens with a single `<<` shift token.
+        if self.at(SyntaxKind::LessThanLessThanToken) {
+            self.rescan_less_than();
+        }
         if !self.eat(SyntaxKind::LessThanToken) {
             return None;
         }
@@ -948,6 +1018,9 @@ impl<'a> Parser<'a> {
 
     /// `<A, B>` after a type reference, if present.
     fn parse_type_arguments(&mut self) -> Vec<TypeNode<'a>> {
+        if self.at(SyntaxKind::LessThanLessThanToken) {
+            self.rescan_less_than();
+        }
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
@@ -969,6 +1042,9 @@ impl<'a> Parser<'a> {
 
     /// `<T, U extends V>` on a declaration, if present.
     pub(crate) fn parse_type_parameters(&mut self) -> Vec<&'a TypeParameterDeclaration<'a>> {
+        if self.at(SyntaxKind::LessThanLessThanToken) {
+            self.rescan_less_than();
+        }
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }

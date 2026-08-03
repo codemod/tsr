@@ -18,7 +18,7 @@ fn main() {
     let mut passed = 0usize;
 
     for case in &cases {
-        if case.has_known_divergence() || case.has_varied_errors() {
+        if !case.has_any_baseline() || case.has_known_divergence() || case.has_varied_errors() {
             continue;
         }
         match case.expected_errors() {

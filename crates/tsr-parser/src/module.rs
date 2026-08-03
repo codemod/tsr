@@ -24,9 +24,10 @@ impl<'a> Parser<'a> {
         // `import "module";` — a side-effect import with no bindings.
         if self.at(SyntaxKind::StringLiteral) {
             let specifier = self.parse_module_specifier();
+            let attributes = self.parse_import_attributes();
             self.parse_semicolon();
             let node = self.finish_node(
-                ImportDeclaration::new(modifiers, None, Some(specifier), None),
+                ImportDeclaration::new(modifiers, None, Some(specifier), attributes),
                 SyntaxKind::ImportDeclaration,
                 start,
             );
@@ -71,10 +72,11 @@ impl<'a> Parser<'a> {
 
         self.expect(SyntaxKind::FromKeyword);
         let specifier = self.parse_module_specifier();
+        let attributes = self.parse_import_attributes();
         self.parse_semicolon();
 
         let node = self.finish_node(
-            ImportDeclaration::new(modifiers, Some(clause), Some(specifier), None),
+            ImportDeclaration::new(modifiers, Some(clause), Some(specifier), attributes),
             SyntaxKind::ImportDeclaration,
             start,
         );
@@ -167,6 +169,26 @@ impl<'a> Parser<'a> {
     ) -> Statement<'a> {
         let modifiers_slice = self.arena.alloc_slice(modifiers);
 
+        // `export as namespace N;` declares a UMD global. It has no dedicated
+        // node here, so it is recorded as an export assignment of the name.
+        if self.at(SyntaxKind::AsKeyword) {
+            self.next_token();
+            self.expect(SyntaxKind::NamespaceKeyword);
+            let name = self.parse_identifier();
+            self.parse_semicolon();
+            let node = self.finish_node(
+                ExportAssignment::new(
+                    modifiers_slice,
+                    false,
+                    None,
+                    Some(Expression::Identifier(name)),
+                ),
+                SyntaxKind::ExportAssignment,
+                start,
+            );
+            return Statement::ExportAssignment(node);
+        }
+
         // `export = expr;`
         if self.at(SyntaxKind::EqualsToken) {
             self.next_token();
@@ -184,11 +206,19 @@ impl<'a> Parser<'a> {
         // expression.
         if self.at(SyntaxKind::DefaultKeyword) {
             self.next_token();
+            // `export default @dec class {}` — decorators sit between.
+            if self.at(SyntaxKind::AtToken) {
+                let decorators = self.parse_modifiers();
+                return self.parse_declaration_after_modifiers(start, &decorators);
+            }
             if matches!(
                 self.token.kind,
                 SyntaxKind::ClassKeyword
                     | SyntaxKind::FunctionKeyword
                     | SyntaxKind::AbstractKeyword
+                    | SyntaxKind::InterfaceKeyword
+                    | SyntaxKind::EnumKeyword
+                    | SyntaxKind::AsyncKeyword
             ) {
                 return self.parse_declaration_after_modifiers(start, modifiers);
             }
@@ -227,6 +257,7 @@ impl<'a> Parser<'a> {
             };
             self.expect(SyntaxKind::FromKeyword);
             let specifier = self.parse_module_specifier();
+            let attributes = self.parse_import_attributes();
             self.parse_semicolon();
             let node = self.finish_node(
                 ExportDeclaration::new(
@@ -234,7 +265,7 @@ impl<'a> Parser<'a> {
                     is_type_only,
                     clause,
                     Some(specifier),
-                    None,
+                    attributes,
                 ),
                 SyntaxKind::ExportDeclaration,
                 start,
@@ -284,6 +315,7 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
+            let attributes = self.parse_import_attributes();
             self.parse_semicolon();
             let node = self.finish_node(
                 ExportDeclaration::new(
@@ -291,7 +323,7 @@ impl<'a> Parser<'a> {
                     is_type_only,
                     Some(NamedExportBindings::NamedExports(named)),
                     specifier,
-                    None,
+                    attributes,
                 ),
                 SyntaxKind::ExportDeclaration,
                 start,
@@ -381,6 +413,57 @@ impl<'a> Parser<'a> {
             start,
         );
         Statement::ModuleDeclaration(node)
+    }
+
+    /// `with { type: "json" }` — import attributes, if present.
+    ///
+    /// Also accepts the older `assert` spelling, which TypeScript still parses.
+    fn parse_import_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
+        if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
+            return None;
+        }
+        let start = self.pos();
+        let token = self.take_token();
+        self.expect(SyntaxKind::OpenBraceToken);
+
+        let mut elements = Vec::new();
+        while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
+            let before = self.pos();
+            let element_start = self.pos();
+            // An attribute key is an identifier or a string, not the full
+            // property-name grammar — no computed keys here.
+            let name = if self.at(SyntaxKind::StringLiteral) {
+                let literal_start = self.pos();
+                let text = self.token_value();
+                let flags = self.token.ast_flags();
+                self.next_token();
+                ImportAttributeName::StringLiteral(self.finish_node(
+                    StringLiteral::new(text, flags),
+                    SyntaxKind::StringLiteral,
+                    literal_start,
+                ))
+            } else {
+                ImportAttributeName::Identifier(self.parse_identifier())
+            };
+            self.expect(SyntaxKind::ColonToken);
+            let value = self.parse_assignment_expression();
+            elements.push(self.finish_node(
+                ImportAttribute::new(Some(name), Some(value)),
+                SyntaxKind::ImportAttribute,
+                element_start,
+            ));
+            if !self.eat(SyntaxKind::CommaToken) || self.pos() == before {
+                break;
+            }
+        }
+        self.expect(SyntaxKind::CloseBraceToken);
+
+        let elements = self.arena.alloc_slice(&elements);
+        Some(self.finish_node(
+            ImportAttributes::new(token, elements, false),
+            SyntaxKind::ImportAttributes,
+            start,
+        ))
     }
 
     /// An import/export name, which may be a string: `export { a as "b" }`.

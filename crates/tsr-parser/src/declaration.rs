@@ -13,9 +13,15 @@ impl<'a> Parser<'a> {
         modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
         self.expect(SyntaxKind::ClassKeyword);
-        // `export default class {}` has no name.
-        let name =
-            if self.at(SyntaxKind::Identifier) { Some(self.parse_identifier()) } else { None };
+        // `export default class {}` has no name; `class require {}` has one that
+        // happens to be a contextual keyword.
+        let name = if self.at(SyntaxKind::Identifier)
+            || crate::statement::is_contextual_keyword(self.token.kind)
+        {
+            Some(self.parse_identifier())
+        } else {
+            None
+        };
         let type_parameters = self.parse_type_parameters();
         let heritage = self.parse_heritage_clauses();
 
@@ -90,6 +96,18 @@ impl<'a> Parser<'a> {
         let mut expression = match self.token.kind {
             // `class A extends class {} {}` — an anonymous class expression.
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
+            // `class D extends (await p) {}` — any parenthesised expression.
+            SyntaxKind::OpenParenToken => {
+                let paren_start = self.pos();
+                self.next_token();
+                let inner = self.parse_expression();
+                self.expect(SyntaxKind::CloseParenToken);
+                Expression::ParenthesizedExpression(self.finish_node(
+                    ParenthesizedExpression::new(Some(inner)),
+                    SyntaxKind::ParenthesizedExpression,
+                    paren_start,
+                ))
+            }
             _ => Expression::Identifier(self.parse_identifier()),
         };
         loop {
@@ -113,6 +131,25 @@ impl<'a> Parser<'a> {
                     let arguments = self.arena.alloc_slice(&arguments);
                     let node = self.finish_node(
                         CallExpression::new(Some(expression), None, &[], arguments),
+                        SyntaxKind::CallExpression,
+                        start,
+                    );
+                    expression = Expression::CallExpression(node);
+                }
+                // `extends Class<A>("A")(…)` — type arguments only continue the
+                // chain when a call follows; otherwise they belong to the clause.
+                SyntaxKind::LessThanToken => {
+                    let Some(type_arguments) = self.try_parse(|p| {
+                        let arguments = p.parse_type_arguments_for_call()?;
+                        p.at(SyntaxKind::OpenParenToken).then_some(arguments)
+                    }) else {
+                        break;
+                    };
+                    let arguments = self.parse_arguments();
+                    let arguments = self.arena.alloc_slice(&arguments);
+                    let type_arguments = self.arena.alloc_slice(&type_arguments);
+                    let node = self.finish_node(
+                        CallExpression::new(Some(expression), None, type_arguments, arguments),
                         SyntaxKind::CallExpression,
                         start,
                     );

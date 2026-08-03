@@ -101,6 +101,13 @@ impl Suite for Parser {
     }
 
     fn run(&self, case: &CaseEntry) -> Outcome {
+        if !case.has_any_baseline() {
+            return Outcome::Skipped {
+                reason: "upstream recorded no output for this case, so there is nothing to judge \
+                         against"
+                    .into(),
+            };
+        }
         if case.has_known_divergence() {
             return Outcome::Skipped {
                 reason: "upstream records a known divergence from TypeScript (.diff baseline)"
@@ -176,6 +183,13 @@ impl Suite for ParserReachable {
     }
 
     fn run(&self, case: &CaseEntry) -> Outcome {
+        if !case.has_any_baseline() {
+            return Outcome::Skipped {
+                reason: "upstream recorded no output for this case, so there is nothing to judge \
+                         against"
+                    .into(),
+            };
+        }
         if case.has_known_divergence() {
             return Outcome::Skipped {
                 reason: "upstream records a known divergence from TypeScript (.diff baseline)"

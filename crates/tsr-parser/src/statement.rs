@@ -64,6 +64,15 @@ impl<'a> Parser<'a> {
                 }
                 Some(self.parse_variable_statement(start, &[]))
             }
+            // `using x = r;` and `await using x = r;` — explicit resource
+            // management. `using` is contextual, so a binding name must follow.
+            SyntaxKind::UsingKeyword if self.next_starts_binding() => {
+                Some(self.parse_variable_statement(start, &[]))
+            }
+            SyntaxKind::AwaitKeyword if self.next_starts_using_declaration() => {
+                self.next_token();
+                Some(self.parse_variable_statement(start, &[]))
+            }
             SyntaxKind::FunctionKeyword => Some(self.parse_function_declaration(start, &[])),
             SyntaxKind::ClassKeyword => Some(self.parse_class_declaration(start, &[])),
             SyntaxKind::ImportKeyword if self.import_starts_declaration() => {
@@ -76,6 +85,10 @@ impl<'a> Parser<'a> {
             SyntaxKind::NamespaceKeyword | SyntaxKind::ModuleKeyword
                 if self.next_starts_module_name() =>
             {
+                Some(self.parse_module_declaration(start, &[]))
+            }
+            // `global { … }` augments the global scope from inside a module body.
+            SyntaxKind::GlobalKeyword if self.next_is_open_brace_token() => {
                 Some(self.parse_module_declaration(start, &[]))
             }
             SyntaxKind::EnumKeyword => Some(self.parse_enum_declaration(start, &[])),
@@ -111,7 +124,7 @@ impl<'a> Parser<'a> {
                 let modifiers = self.parse_modifiers();
                 Some(self.parse_declaration_after_modifiers(start, &modifiers))
             }
-            _ if self.at_modifier_starting_declaration() => {
+            _ if self.at_modifier_starting_declaration() && self.next_starts_declaration() => {
                 let modifiers = self.parse_modifiers();
                 Some(self.parse_declaration_after_modifiers(start, &modifiers))
             }
@@ -157,6 +170,64 @@ impl<'a> Parser<'a> {
     /// Whether the next token is an identifier, for contextual keywords.
     fn next_is_identifier(&mut self) -> bool {
         self.peek_kind(|kind| kind == SyntaxKind::Identifier || is_contextual_keyword(kind))
+    }
+
+    /// Whether `await` here begins an `await using` declaration.
+    fn next_starts_using_declaration(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::UsingKeyword)
+    }
+
+    /// Whether the cursor opens a variable declaration list.
+    fn at_variable_declaration_list(&mut self) -> bool {
+        match self.token.kind {
+            SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => true,
+            SyntaxKind::UsingKeyword => self.next_starts_binding(),
+            SyntaxKind::AwaitKeyword => self.next_starts_using_declaration(),
+            _ => false,
+        }
+    }
+
+    /// Whether `global` here opens an augmentation block.
+    fn next_is_open_brace_token(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::OpenBraceToken)
+    }
+
+    /// Whether what follows a modifier keyword actually begins a declaration.
+    ///
+    /// `declare` and friends are contextual: `var declare: any; declare
+    /// instanceof C;` uses one as a plain identifier, and treating it as a
+    /// modifier there swallows the expression statement.
+    fn next_starts_declaration(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            matches!(
+                kind,
+                SyntaxKind::VarKeyword
+                    | SyntaxKind::LetKeyword
+                    | SyntaxKind::ConstKeyword
+                    | SyntaxKind::FunctionKeyword
+                    | SyntaxKind::ClassKeyword
+                    | SyntaxKind::InterfaceKeyword
+                    | SyntaxKind::TypeKeyword
+                    | SyntaxKind::EnumKeyword
+                    | SyntaxKind::ImportKeyword
+                    | SyntaxKind::ExportKeyword
+                    | SyntaxKind::NamespaceKeyword
+                    | SyntaxKind::ModuleKeyword
+                    | SyntaxKind::GlobalKeyword
+                    | SyntaxKind::AtToken
+                    | SyntaxKind::AbstractKeyword
+                    | SyntaxKind::AsyncKeyword
+                    | SyntaxKind::DeclareKeyword
+                    | SyntaxKind::ReadonlyKeyword
+                    | SyntaxKind::StaticKeyword
+                    | SyntaxKind::PublicKeyword
+                    | SyntaxKind::PrivateKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::AccessorKeyword
+                    | SyntaxKind::OverrideKeyword
+                    | SyntaxKind::DefaultKeyword
+            )
+        })
     }
 
     /// Whether the cursor is on a modifier that introduces a declaration.
@@ -410,10 +481,10 @@ impl<'a> Parser<'a> {
 
         let initializer: Option<ForInitializer<'a>> = if self.at(SyntaxKind::SemicolonToken) {
             None
-        } else if matches!(
-            self.token.kind,
-            SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword
-        ) {
+        } else if self.at_variable_declaration_list() {
+            // `for (await using x of …)` — the `await` belongs to the declaration,
+            // not to the loop.
+            self.eat(SyntaxKind::AwaitKeyword);
             Some(ForInitializer::VariableDeclarationList(self.parse_variable_declaration_list()))
         } else {
             // `in` is banned here so `for (x in y)` is not read as a comparison.

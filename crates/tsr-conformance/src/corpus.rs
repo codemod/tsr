@@ -181,6 +181,24 @@ impl CaseEntry {
         }
     }
 
+    /// Whether upstream recorded *any* output for this case.
+    ///
+    /// 617 cases have none — upstream never ran them, so there is no evidence of
+    /// what they should produce. A missing `.errors.txt` means "no diagnostics"
+    /// only when some other baseline proves the case was run; without that, the
+    /// absence proves nothing, and treating it as a clean expectation both
+    /// inflates the denominator and hands free passes to whatever we happen to
+    /// accept.
+    ///
+    /// The same trap as configuration-varied baselines, in a different guise.
+    #[must_use]
+    pub fn has_any_baseline(&self) -> bool {
+        let stem = self.stem();
+        ["errors.txt", "types", "symbols", "js", "diff"]
+            .iter()
+            .any(|extension| self.baselines.has_any(stem, extension))
+    }
+
     /// Whether upstream recorded a known divergence from TypeScript for this case.
     ///
     /// typescript-go writes `.diff` baselines where its output intentionally

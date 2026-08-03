@@ -11,6 +11,22 @@ use tsr_diagnostics::messages;
 
 use crate::parser::Parser;
 
+/// How many `>` a token represents.
+///
+/// The scanner produces `>>` and `>>>` as single shift tokens, but in a type
+/// argument list each `>` closes a separate bracket.
+fn greater_than_count(kind: SyntaxKind) -> u32 {
+    match kind {
+        SyntaxKind::GreaterThanToken | SyntaxKind::GreaterThanEqualsToken => 1,
+        SyntaxKind::GreaterThanGreaterThanToken | SyntaxKind::GreaterThanGreaterThanEqualsToken => {
+            2
+        }
+        SyntaxKind::GreaterThanGreaterThanGreaterThanToken
+        | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken => 3,
+        _ => 0,
+    }
+}
+
 /// Wrap an optional `async` modifier as an arena slice.
 fn modifier_slice<'a>(
     arena: &'a tsr_core::Arena,
@@ -234,11 +250,18 @@ impl<'a> Parser<'a> {
         self.next_token();
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
-        let expression = if self.can_parse_semicolon() || self.token.has_preceding_line_break() {
-            None
-        } else {
-            Some(self.parse_assignment_expression())
-        };
+        // `yield` may stand alone. Besides the usual statement enders, a closing
+        // delimiter ends it too: `{ [yield]: 1 }` and `f(yield)` are both legal.
+        let has_operand = !self.can_parse_semicolon()
+            && !self.token.has_preceding_line_break()
+            && !matches!(
+                self.token.kind,
+                SyntaxKind::CloseBracketToken
+                    | SyntaxKind::CloseParenToken
+                    | SyntaxKind::CommaToken
+                    | SyntaxKind::ColonToken
+            );
+        let expression = if has_operand { Some(self.parse_assignment_expression()) } else { None };
         let node = self.finish_node(
             YieldExpression::new(asterisk, expression),
             SyntaxKind::YieldExpression,
@@ -353,14 +376,22 @@ impl<'a> Parser<'a> {
                 }
                 SyntaxKind::QuestionDotToken => {
                     let question_dot = self.take_token();
-                    if self.at(SyntaxKind::OpenParenToken) {
+                    if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
+                        // `a?.<T>()` — type arguments after the optional-chain dot.
+                        let type_arguments = if self.at(SyntaxKind::LessThanToken) {
+                            self.try_parse(Parser::parse_type_arguments_for_call)
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
                         let arguments = self.parse_arguments();
                         let arguments = self.arena.alloc_slice(&arguments);
+                        let type_arguments = self.arena.alloc_slice(&type_arguments);
                         let node = self.finish_node(
                             CallExpression::new(
                                 Some(expression),
                                 Some(question_dot),
-                                &[],
+                                type_arguments,
                                 arguments,
                             ),
                             SyntaxKind::CallExpression,
@@ -419,21 +450,47 @@ impl<'a> Parser<'a> {
                 // `f<T>(x)`. `<` is also less-than, so the type arguments are
                 // only accepted when a call follows them.
                 SyntaxKind::LessThanToken => {
+                    // `f<T>(x)` is a generic call. `f<T>` alone is an
+                    // *instantiation expression*, legal since TS 4.7 — but `a < b
+                    // > c` is a comparison, so the type arguments only stand
+                    // without a call when what follows cannot continue an
+                    // expression.
                     let Some(type_arguments) = self.try_parse(|p| {
                         let arguments = p.parse_type_arguments_for_call()?;
-                        p.at(SyntaxKind::OpenParenToken).then_some(arguments)
+                        (p.at(SyntaxKind::OpenParenToken) || p.at_instantiation_terminator())
+                            .then_some(arguments)
                     }) else {
                         break;
                     };
+                    let type_arguments = self.arena.alloc_slice(&type_arguments);
+                    if !self.at(SyntaxKind::OpenParenToken) {
+                        let node = self.finish_node(
+                            ExpressionWithTypeArguments::new(Some(expression), type_arguments),
+                            SyntaxKind::ExpressionWithTypeArguments,
+                            start,
+                        );
+                        expression = Expression::ExpressionWithTypeArguments(node);
+                        continue;
+                    }
                     let arguments = self.parse_arguments();
                     let arguments = self.arena.alloc_slice(&arguments);
-                    let type_arguments = self.arena.alloc_slice(&type_arguments);
                     let node = self.finish_node(
                         CallExpression::new(Some(expression), None, type_arguments, arguments),
                         SyntaxKind::CallExpression,
                         start,
                     );
                     expression = Expression::CallExpression(node);
+                }
+                // `` tag`…` `` — a tagged template. The template is an operand of
+                // the tag, not a separate expression.
+                SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
+                    let template = self.parse_template_literal();
+                    let node = self.finish_node(
+                        TaggedTemplateExpression::new(Some(expression), None, &[], Some(template)),
+                        SyntaxKind::TaggedTemplateExpression,
+                        start,
+                    );
+                    expression = Expression::TaggedTemplateExpression(node);
                 }
                 SyntaxKind::ExclamationToken if !self.token.has_preceding_line_break() => {
                     self.next_token();
@@ -584,6 +641,25 @@ impl<'a> Parser<'a> {
                 self.parse_function_expression(Some(modifier))
             }
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
+            // `(@dec class C {})` — a decorated class expression.
+            SyntaxKind::AtToken => {
+                let modifiers = self.parse_modifiers();
+                let modifiers = self.arena.alloc_slice(&modifiers);
+                let Expression::ClassExpression(class) = self.parse_class_expression() else {
+                    unreachable!("parse_class_expression yields a class")
+                };
+                Expression::ClassExpression(self.finish_node(
+                    ClassExpression::new(
+                        modifiers,
+                        class.name,
+                        class.type_parameters,
+                        class.heritage_clauses,
+                        class.members,
+                    ),
+                    SyntaxKind::ClassExpression,
+                    start,
+                ))
+            }
             SyntaxKind::OpenParenToken => {
                 self.next_token();
                 let saved_no_in = std::mem::take(&mut self.no_in);
@@ -833,8 +909,11 @@ impl<'a> Parser<'a> {
             None
         };
 
-        // A bare `x => …` needs no speculation.
-        if self.at(SyntaxKind::Identifier) {
+        // A bare `x => …` needs no speculation. The name may be a contextual
+        // keyword — `async => async` names its parameter `async`.
+        if self.at(SyntaxKind::Identifier)
+            || crate::statement::is_contextual_keyword(self.token.kind)
+        {
             let saved_start = self.pos();
             let parsed = self.try_parse(|p| {
                 let parameter_start = p.pos();
@@ -913,6 +992,27 @@ impl<'a> Parser<'a> {
         Some(Expression::ArrowFunction(node))
     }
 
+    /// Whether the token after `f<T>` rules out a comparison.
+    ///
+    /// `a < b > c` is arithmetic; `f<T>;` is an instantiation expression. The
+    /// difference is whether an operand could follow — TypeScript decides the same
+    /// way.
+    fn at_instantiation_terminator(&self) -> bool {
+        matches!(
+            self.token.kind,
+            SyntaxKind::SemicolonToken
+                | SyntaxKind::CommaToken
+                | SyntaxKind::CloseParenToken
+                | SyntaxKind::CloseBracketToken
+                | SyntaxKind::CloseBraceToken
+                | SyntaxKind::QuestionDotToken
+                | SyntaxKind::ColonToken
+                | SyntaxKind::EndOfFile
+                | SyntaxKind::NoSubstitutionTemplateLiteral
+                | SyntaxKind::TemplateHead
+        ) || self.token.has_preceding_line_break()
+    }
+
     /// Whether `async` here prefixes an arrow rather than naming something.
     fn next_is_function_keyword(&mut self) -> bool {
         self.peek_kind(|kind| kind == SyntaxKind::FunctionKeyword)
@@ -970,17 +1070,42 @@ impl<'a> Parser<'a> {
                 // `(a): T => …`. Only a return type may sit between, so stop at
                 // anything that would end the expression — otherwise a later,
                 // unrelated `=>` would be mistaken for this one's.
-                SyntaxKind::ColonToken => loop {
-                    match p.token.kind {
-                        SyntaxKind::EqualsGreaterThanToken => break true,
-                        SyntaxKind::SemicolonToken
-                        | SyntaxKind::OpenBraceToken
-                        | SyntaxKind::CloseParenToken
-                        | SyntaxKind::CommaToken
-                        | SyntaxKind::EndOfFile => break false,
-                        _ => p.next_token(),
-                    };
-                },
+                //
+                // Depth-tracked, because a return type may itself contain both
+                // brackets and arrows: in `(): (() => T) => null` the inner `)`
+                // must not end the scan and the inner `=>` must not satisfy it.
+                SyntaxKind::ColonToken => {
+                    // Everything after `:` is a type, so `<` is always a type
+                    // argument list here — and its commas must not end the scan:
+                    // `(): Iterable<number, any> => …` is an arrow.
+                    let mut depth = 0u32;
+                    loop {
+                        let kind = p.token.kind;
+                        let closes = greater_than_count(kind);
+                        match kind {
+                            SyntaxKind::OpenParenToken
+                            | SyntaxKind::OpenBracketToken
+                            | SyntaxKind::OpenBraceToken
+                            | SyntaxKind::LessThanToken => depth += 1,
+                            SyntaxKind::EqualsGreaterThanToken if depth == 0 => break true,
+                            SyntaxKind::CloseParenToken
+                            | SyntaxKind::CloseBracketToken
+                            | SyntaxKind::CloseBraceToken => {
+                                if depth == 0 {
+                                    break false;
+                                }
+                                depth -= 1;
+                            }
+                            _ if closes > 0 => depth = depth.saturating_sub(closes),
+                            SyntaxKind::SemicolonToken | SyntaxKind::CommaToken if depth == 0 => {
+                                break false;
+                            }
+                            SyntaxKind::EndOfFile => break false,
+                            _ => {}
+                        }
+                        p.next_token();
+                    }
+                }
                 _ => false,
             };
             // Always rewind: this is a lookahead, not a parse.
@@ -1009,14 +1134,23 @@ impl<'a> Parser<'a> {
             if kind == SyntaxKind::EndOfFile {
                 return false;
             }
+            // `<K extends Key<U>>` ends in a single `>>` token: the scanner has no
+            // idea those are two closing brackets. Counting it as one leaves the
+            // group unbalanced and the whole construct unrecognised.
+            let closes = if open == SyntaxKind::LessThanToken {
+                greater_than_count(kind)
+            } else {
+                u32::from(kind == close)
+            };
+
             if kind == open {
                 depth += 1;
-            } else if kind == close {
-                depth -= 1;
-                if depth == 0 {
+            } else if closes > 0 {
+                if closes >= depth {
                     self.next_token();
                     return true;
                 }
+                depth -= closes;
             } else if open == SyntaxKind::LessThanToken
                 && matches!(kind, SyntaxKind::SemicolonToken | SyntaxKind::OpenBraceToken)
             {
@@ -1042,6 +1176,25 @@ impl<'a> Parser<'a> {
     /// lexically a close-brace, and only the parser's bracket tracking
     /// distinguishes the two. So each span is driven explicitly, re-scanning the
     /// `}` as template text via [`Parser::rescan_template_continuation`].
+    fn parse_template_literal(&mut self) -> TemplateLiteral<'a> {
+        if self.at(SyntaxKind::NoSubstitutionTemplateLiteral) {
+            let start = self.pos();
+            let raw = self.token_text();
+            let (text, flags) = self.take_literal();
+            return TemplateLiteral::NoSubstitutionTemplateLiteral(self.finish_node(
+                NoSubstitutionTemplateLiteral::new(text, flags, flags, raw),
+                SyntaxKind::NoSubstitutionTemplateLiteral,
+                start,
+            ));
+        }
+        match self.parse_template_expression() {
+            Expression::TemplateExpression(template) => {
+                TemplateLiteral::TemplateExpression(template)
+            }
+            _ => unreachable!("a template head yields a template expression"),
+        }
+    }
+
     fn parse_template_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         let head_start = self.pos();
@@ -1124,7 +1277,19 @@ impl<'a> Parser<'a> {
     /// following `class` or member be swallowed as an operand.
     pub(crate) fn parse_decorator_expression(&mut self) -> LeftHandSideExpression<'a> {
         let start = self.pos();
-        let mut expression = Expression::Identifier(self.parse_identifier());
+        let mut expression = if self.at(SyntaxKind::OpenParenToken) {
+            // `@(expr)` — the parenthesised form takes an arbitrary expression.
+            self.next_token();
+            let inner = self.parse_expression();
+            self.expect(SyntaxKind::CloseParenToken);
+            Expression::ParenthesizedExpression(self.finish_node(
+                ParenthesizedExpression::new(Some(inner)),
+                SyntaxKind::ParenthesizedExpression,
+                start,
+            ))
+        } else {
+            Expression::Identifier(self.parse_identifier())
+        };
         loop {
             match self.token.kind {
                 SyntaxKind::DotToken => {
@@ -1151,6 +1316,10 @@ impl<'a> Parser<'a> {
                     );
                     expression = Expression::CallExpression(node);
                 }
+                // Deliberately not `[`: an unparenthesised decorator takes a
+                // dotted name with an optional call, so in `@dec ["1"]() {}` the
+                // brackets are the *member's* computed name. Use `@(a["b"])` for
+                // element access.
                 _ => break,
             }
         }

@@ -65,9 +65,9 @@ explicitly rather than being omitted.
 |---|---|---|
 | `corpus_ingest` | 100% | the harness reads and splits every case |
 | `baseline_resolution` | 100% | every case maps to its baselines |
-| `parser_reachable_target` | 5648/11187 | how many cases a parser alone could be judged against |
+| `parser_reachable_target` | 5031/10570 | how many cases a parser alone could be judged against |
 | `scanner_termination` | 100% | the scanner consumes every file without stalling |
 | `scanner_clean_files` | 100% | files TypeScript accepts produce no scan errors |
-| `parser_typescript` | 5376/5648 (95.18%) | files TypeScript accepts parse with no diagnostics |
+| `parser_typescript` | 4999/5031 (99.36%) | files TypeScript accepts parse with no diagnostics |
 
 See [docs/architecture/conformance.md](docs/architecture/conformance.md).

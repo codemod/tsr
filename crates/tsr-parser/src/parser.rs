@@ -76,9 +76,15 @@ pub struct Parser<'a> {
 
 /// Maximum expression/type nesting before the parser gives up on a subtree.
 ///
-/// Chosen well below the point a release build overflows, and far above anything
-/// hand-written.
-const MAX_DEPTH: u32 = 512;
+/// The binding constraint is a **debug** build: frames are several times larger
+/// than in release, and test threads get a smaller stack than the main thread. An
+/// earlier value of 512 was fine until the expression parser grew, at which point
+/// a 2,000-paren input overflowed — the guard was doing its job and the constant
+/// had silently stopped being conservative.
+///
+/// 192 is still far beyond anything hand-written, and the corpus's deepest real
+/// nesting is 69.
+const MAX_DEPTH: u32 = 192;
 
 impl<'a> Parser<'a> {
     /// Create a parser positioned on the first token, in TypeScript dialect.
@@ -177,6 +183,11 @@ impl<'a> Parser<'a> {
     /// Re-scan the current `>`-family token as a single `>`.
     pub(crate) fn rescan_greater_than(&mut self) {
         self.token = self.scanner.rescan_greater_than();
+    }
+
+    /// Re-scan a compound `<` token as a single `<`.
+    pub(crate) fn rescan_less_than(&mut self) {
+        self.token = self.scanner.rescan_less_than();
     }
 
     /// Re-scan a `/` as a regular expression literal.

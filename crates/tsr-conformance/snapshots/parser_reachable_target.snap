@@ -2,11 +2,12 @@ commit: 5b1047d10
 
 parser_reachable_target Summary:
 What a pass means: the case expects zero diagnostics, so a parser alone can be judged against it
-Passed         : 5648/11187 (50.49%)
+Passed         : 5031/10570 (47.60%)
 Failed         : 5539
-Skipped        : 1257 (excluded from the denominator)
+Skipped        : 1874 (excluded from the denominator)
 
   757  skipped: configuration-varied baselines; needs per-configuration runs
+  617  skipped: upstream recorded no output for this case, so there is nothing to judge against
   500  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
 First 100 of 5539 failures:

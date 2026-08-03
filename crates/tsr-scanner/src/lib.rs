@@ -267,6 +267,13 @@ impl<'a> Scanner<'a> {
     /// Scan the next token and return it.
     pub fn scan(&mut self) -> Token {
         self.value = None;
+        // A `#!` shebang is trivia, but only on the very first line of a file —
+        // anywhere else `#` starts a private name.
+        if self.pos == 0 && self.source.starts_with("#!") {
+            while self.peek().is_some_and(|c| !is_line_break(c)) {
+                self.bump();
+            }
+        }
         self.full_start = self.pos;
         let mut flags = TokenFlags::empty();
 

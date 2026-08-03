@@ -96,6 +96,25 @@ by any test. `BaselineIndex::has_variant` now matches `<stem>(...).<ext>`, and
 Full per-configuration runs are not implemented; those cases are currently
 *skipped*, and the skip count is printed so the exclusion is never silent.
 
+### Cases with no recorded output
+
+**617 cases have no baseline of any kind** — no `.errors.txt`, `.types`,
+`.symbols`, `.js`, or `.diff`. Upstream never ran them.
+
+The load-bearing convention above says a missing `.errors.txt` means "expects no
+diagnostics", but that inference only holds when *some* baseline proves the case
+was run at all. Without one, the absence proves nothing: `exportNonInitializedVariablesAMD`
+opens with `var; let; const;`, which TypeScript rejects outright, yet it has no
+recorded errors.
+
+Counting those as clean expectations inflated the denominator and handed free
+passes to whatever the parser happened to accept. They are now skipped, which cost
+about 600 apparent passes and is the honest number.
+
+This is the configuration-varied-baseline trap in a second guise: an absent file
+is not evidence, and only a positive signal that the case *was* run makes its
+absence meaningful.
+
 ### Known divergences
 
 typescript-go writes `.diff` baselines where its own output intentionally differs
