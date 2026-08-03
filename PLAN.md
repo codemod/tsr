@@ -272,6 +272,13 @@ harnesses; the upstream-anchoring lint.
 **Gate:** codegen reproduces the full diagnostic set and all 386 kinds; drift
 tracker files issues; CI publishes coverage and benchmark numbers.
 
+**Status (2026-08-03):** coverage ratchet shipped; the benchmark half is measured
+locally but not yet in CI (`bd tsr-cmh`). Against typescript-go at the pin, parse
+throughput is 1.37-1.41x on large files and peak RSS is 1.77x lower — see
+[docs/architecture/performance.md](docs/architecture/performance.md) for the
+method and the caveats, and [ADR-0009](docs/adr/0009-performance-gate.md) for why
+the comparison is against upstream rather than our own history.
+
 ### Phase 1 — Scanner, AST, Parser
 The AST model (§3.3) lands here and everything downstream inherits it.
 **Gate:** 100% of the corpus parses with byte-identical parse diagnostics vs. Go.

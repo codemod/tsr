@@ -1,6 +1,9 @@
 # ADR-0009: Gate performance against typescript-go, not against our own history
 
-**Status:** Proposed — becomes Accepted when `bd tsr-cmh` lands the harness.
+**Status:** Accepted for the two gated axes; the CI wiring (`bd tsr-cmh`) is still
+outstanding. Both axes now have a measured baseline — see
+`docs/architecture/performance.md` — which is what the "Proposed" status was
+waiting on.
 **Date:** 2026-08-03
 **Relates to:** [ADR-0006](0006-conformance-oracle.md) (same principle: the oracle
 is the artifact whose behaviour we are matching, not our own prior output)
@@ -74,6 +77,22 @@ This is the same principle as [ADR-0006](0006-conformance-oracle.md): assert
 against the artifact whose behaviour is the target, not against our own prior
 output. Testing against your own history tests whether you changed, not whether
 you are correct — or here, not whether you are fast.
+
+### The first RSS measurement (added 2026-08-03)
+
+The reasoning below was written before anything was measured. It holds up, and the
+numbers are now in `docs/architecture/performance.md`: parsing the four non-empty
+fixtures and holding every tree, peak RSS is **33.0 MB against typescript-go's
+57.0 MB (1.77×)**, and the AST's own cost — peak minus a baseline taken after the
+source text is read — is **25.0 MB against 37.8 MB (1.51×)**.
+
+One caveat that matters for how this gate should be read: at that heap size Go's
+collector never runs (`GOGC=off` produces an identical figure), so the comparison
+is of data-structure size, not of GC headroom. The headroom effect — a collector
+needing roughly twice the live set before collecting, which is the mechanism
+behind `tsc` running out of memory on large projects — is **not captured here and
+would only widen the margin**. A whole-project measurement belongs with `bd
+tsr-oqn` when a driver exists.
 
 ### Why peak RSS gates and wall-clock alone does not
 
