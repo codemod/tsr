@@ -44,6 +44,10 @@
 //!   reports `with` in strict mode, `eval`/`arguments` misuse, and octal
 //!   literals; none of that is ported.
 //!
+//! - **Alias resolution.** `import X = Y` declares `X` as an alias and stops
+//!   there; what `X` refers to needs a resolver. Upstream's baselines resolve
+//!   through it, which is the ceiling on `binder_symbols` for those cases.
+//!
 //! Each is a `bd` issue under the binder epic.
 
 mod binder;

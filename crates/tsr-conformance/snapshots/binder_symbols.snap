@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 6766/7621 (88.78%)
-Failed         : 855
+Passed         : 6898/7621 (90.51%)
+Failed         : 723
 Skipped        : 4823 (excluded from the denominator)
 
   1153  skipped: multi-file case; needs per-file symbol attribution
@@ -12,7 +12,7 @@ Skipped        : 4823 (excluded from the denominator)
   520  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 855 failures:
+First 100 of 723 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/ambientExternalModuleWithRelativeModuleName
@@ -27,10 +27,6 @@ compiler/assignmentCompatability24
   1 symbol(s): f: no symbol
 compiler/asyncYieldStarContextualType
   1 symbol(s): Result[Symbol.iterator]: no symbol
-compiler/booleanLiteralsContextuallyTypedFromUnion
-  2 symbol(s): mandatoryFn: declared on {10, 23}, expected to include {10, 19, 20, 22, 23}; optionalBool: declared on {9, 13, 23}, expected to include {9, 13, 19, 20, 22, 23}
-compiler/callsOnComplexSignatures
-  1 symbol(s): p: declared on {88, 92}, expected to include {100}
 compiler/capturedLetConstInLoop13
   1 symbol(s): [name + ".a"]: no symbol
 compiler/capturedParametersInInitializers1
@@ -93,16 +89,6 @@ compiler/contextualOuterTypeParameters
   1 symbol(s): test: no symbol
 compiler/contextualTypeArrayReturnType
   1 symbol(s): 'ry': no symbol
-compiler/contextualTypingOfOptionalMembers
-  2 symbol(s): foo: declared on {14, 23, 42}, expected to include {14, 23, 42, 72}; state: declared on {1, 4, 6, 12, 32, 34, 40, 49, 53, 67, 70}, expected to include {1, 6, 12, 34, 40, 49, 53, 67, 70, 72}
-compiler/contextuallyTypedJsxAttribute
-  2 symbol(s): as: declared on {5, 13}, expected to include {5, 8, 13, 18}; callback: declared on {1, 2, 14}, expected to include {1, 2, 9, 14, 19}
-compiler/contextuallyTypedJsxAttribute2
-  2 symbol(s): as: declared on {14}, expected to include {14, 22}; onClick: no symbol
-compiler/contextuallyTypedJsxChildren
-  3 symbol(s): children: declared on {10, 15}, expected to include {35}; icon: declared on {6}, expected to include {25, 33}; label: declared on {7}, expected to include {25, 34}
-compiler/contextuallyTypedJsxChildren2
-  3 symbol(s): notChildren: declared on {14}, expected to include {14, 27}; selector: declared on {7, 13, 40}, expected to include {7, 13, 21, 26, 40, 46}; state: declared on {6, 8, 9, 12, 14, 15, 21, 27, 41, 42, 47}, expected to include {6, 8, 9, 12, 14, 15, 21, 25, 27, 41, 42, 47}
 compiler/contextuallyTypedParametersOptionalInJSDoc
   1 symbol(s): self: no symbol
 compiler/contextuallyTypedParametersWithInitializers1
@@ -167,8 +153,6 @@ compiler/destructuringAssignment_private
   2 symbol(s): [nameO]: no symbol; [nameX]: no symbol
 compiler/destructuringInitializerContextualTypeFromContext
   1 symbol(s): f: declared on {20}, expected to include {18}
-compiler/discriminatedUnionJsxElement
-  1 symbol(s): variant: declared on {11}, expected to include {8, 11}
 compiler/duplicateIdentifierDifferentSpelling
   1 symbol(s): A.0b11: declared on {0}, expected to include {0, 1}
 compiler/duplicateObjectLiteralProperty_computedName1
@@ -199,8 +183,6 @@ compiler/esNextWeakRefs_IterableWeakMap
   3 symbol(s): IterableWeakMap[Symbol.iterator]: no symbol; IterableWeakMap[Symbol.toStringTag]: no symbol; [Symbol.iterator]: no symbol
 compiler/escapedIdentifiers
   3 symbol(s): \u0061: no symbol; arg\u0032: no symbol; arg\u0033: no symbol
-compiler/excessiveStackDepthFlatArray
-  1 symbol(s): key: no symbol
 compiler/expandoFunctionBlockShadowing
   1 symbol(s): Y.test: no symbol
 compiler/expandoFunctionContextualTypesJSDocInTs
@@ -213,3 +195,21 @@ compiler/expandoFunctionExpressionsWithDynamicNames2
   1 symbol(s): Foo[mySymbol]: no symbol
 compiler/expandoFunctionNullishProperty
   1 symbol(s): inner.prop: no symbol
+compiler/expandoFunctionSymbolProperty
+  1 symbol(s): TestSymb[symb]: no symbol
+compiler/exportAsNamespace.d
+  1 symbol(s): N: no symbol
+compiler/exportDeclarationsInAmbientNamespaces
+  1 symbol(s): Q.try: no symbol
+compiler/exportDefaultAsyncFunction
+  1 symbol(s): foo: no symbol
+compiler/exportDefaultClassAndValue
+  1 symbol(s): foo: declared on {0}, expected to include {0, 1}
+compiler/exportDefaultInterfaceAndFunctionOverloads
+  1 symbol(s): foo: declared on {0, 1}, expected to include {0, 1, 4}
+compiler/exportDefaultInterfaceAndTwoFunctions
+  1 symbol(s): A: declared on {0}, expected to include {0, 1}
+compiler/exportDefaultInterfaceClassAndFunctionOverloads
+  1 symbol(s): foo: declared on {0, 1}, expected to include {0, 1, 6}
+compiler/exportDefaultInterfaceClassAndValue
+  1 symbol(s): foo: declared on {0}, expected to include {0, 1, 2}

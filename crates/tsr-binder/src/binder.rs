@@ -2224,10 +2224,14 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         Node::ParameterDeclaration(_) => (S::FUNCTION_SCOPED_VARIABLE, D::Locals),
 
         // Members.
+        // A JSX attribute is grouped here because it is one: a property of the
+        // anonymous attributes object the element is checked against, so
+        // `<X icon={…} />` declares `icon`.
         Node::PropertyDeclaration(_)
         | Node::PropertySignatureDeclaration(_)
         | Node::PropertyAssignment(_)
-        | Node::ShorthandPropertyAssignment(_) => (S::PROPERTY, D::Members),
+        | Node::ShorthandPropertyAssignment(_)
+        | Node::JsxAttribute(_) => (S::PROPERTY, D::Members),
         Node::MethodDeclaration(_) | Node::MethodSignatureDeclaration(_) => (S::METHOD, D::Members),
         Node::GetAccessorDeclaration(_) => (S::GET_ACCESSOR, D::Members),
         Node::SetAccessorDeclaration(_) => (S::SET_ACCESSOR, D::Members),
@@ -2290,7 +2294,20 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
         Node::NamespaceImport(n) => n.name.map(|i| i.text),
         Node::ExportSpecifier(n) => n.name.map(export_name),
         Node::ImportEqualsDeclaration(n) => n.name.map(|i| i.text),
+        Node::JsxAttribute(n) => n.name.and_then(jsx_attribute_name),
         _ => None,
+    }
+}
+
+/// The name of a JSX attribute.
+///
+/// A namespaced one (`xlink:href`) is named `namespace:name` upstream, which
+/// needs an owned string where every name here borrows from the source. Left
+/// undeclared rather than misnamed; it is rare and confined to XML-ish JSX.
+fn jsx_attribute_name(name: tsr_ast::JsxAttributeName<'_>) -> Option<&str> {
+    match name {
+        tsr_ast::JsxAttributeName::Identifier(identifier) => Some(identifier.text),
+        tsr_ast::JsxAttributeName::JsxNamespacedName(_) => None,
     }
 }
 

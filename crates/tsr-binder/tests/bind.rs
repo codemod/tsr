@@ -368,3 +368,27 @@ fn a_late_bound_computed_name_declares_nothing() {
         "a late-bound member is invisible until the checker resolves its name"
     );
 }
+
+#[test]
+fn a_jsx_attribute_declares_a_property_on_the_attributes_object() {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse_with_script_kind(
+        &arena,
+        "declare const X: any;\nconst e = <X icon={1} label=\"a\" />;",
+        tsr_parser::ScriptKind::Tsx,
+    );
+    assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
+    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes);
+
+    // The attributes object is anonymous — no expression names it — so the
+    // attributes hang off an internal symbol rather than off anything in scope.
+    let attributes = result
+        .symbols()
+        .iter()
+        .find(|(_, symbol)| symbol.name == "__jsxAttributes")
+        .map(|(id, _)| id)
+        .expect("the attributes object gets an anonymous symbol");
+    let members = &result.symbols().get(attributes).members;
+    assert!(members.contains_key("icon"), "`icon` is a property of the attributes");
+    assert!(members.contains_key("label"), "`label` is too");
+}
