@@ -1,0 +1,82 @@
+# The performance gate from docs/adr/0009-performance-gate.md.
+#
+# Separate from ci.yml because it needs a Go toolchain and a typescript-go build,
+# and because it is the one job whose result is a *measurement* rather than a
+# pass/fail on our own source. Its artifacts are the point: the thresholds catch
+# cliffs, the recorded ratios catch drift.
+name: Performance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Comparing against upstream means the number can move without our code moving,
+  # so it is worth taking a reading even on a quiet week.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+# A benchmark racing another benchmark measures the contention, not the code.
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: vs typescript-go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Recursive for the benchmark fixtures, which resolve through the
+          # TypeScript submodule inside typescript-go; shallow because no history
+          # is read. See the same note in ci.yml.
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-go@v5
+        with:
+          # Taken from the pinned submodule rather than hard-coded, so a pin bump
+          # that raises the Go requirement does not silently build with the wrong
+          # toolchain.
+          go-version-file: vendor/typescript-go/go.mod
+          cache-dependency-path: vendor/typescript-go/go.sum
+
+      # Build both sides before measuring. A compile running alongside a benchmark
+      # is the single largest source of noise on a shared runner — locally it was
+      # enough to move one fixture from 0.71x to 1.04x.
+      - name: Build tsr
+        run: |
+          cargo build --release -p tsr-parser --example rss
+          cargo build --release -p tsr-parser --bench parse
+
+      - name: Build typescript-go
+        working-directory: vendor/typescript-go
+        run: go test -run '^$' -bench '^$' ./internal/parser/
+
+      - name: Compare
+        id: compare
+        run: cargo run -p xtask -- perf
+
+      # `always()`: a failing gate is exactly when the numbers are worth keeping.
+      - name: Publish results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-results-${{ github.sha }}
+          path: |
+            perf-results.json
+            perf-summary.md
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Job summary
+        if: always()
+        run: cat perf-summary.md >> "$GITHUB_STEP_SUMMARY" || true

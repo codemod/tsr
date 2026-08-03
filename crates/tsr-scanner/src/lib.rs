@@ -506,18 +506,32 @@ impl<'a> Scanner<'a> {
             return SyntaxKind::EndOfFile;
         };
 
-        match ch {
-            '0'..='9' => self.scan_number(flags),
-            '"' | '\'' => self.scan_string(flags),
-            '`' => self.scan_template(flags),
+        // Dispatch on the byte, not the decoded character. Identifiers, digits,
+        // quotes and punctuation are all ASCII, so only genuinely non-ASCII input
+        // needs `ch` at all — and that is the rare case.
+        let byte = self.source.as_bytes()[self.pos as usize];
+        match byte {
+            b'0'..=b'9' => self.scan_number(flags),
+            b'"' | b'\'' => self.scan_string(flags),
+            b'`' => self.scan_template(flags),
             // `#x` is a private identifier: one token, not `#` then `x`.
-            '#' if self.peek_at(1).is_some_and(|c| is_identifier_start(c) || c == '\\') => {
+            b'#' if self.peek_at(1).is_some_and(|c| is_identifier_start(c) || c == '\\') => {
                 self.bump();
                 self.scan_identifier_or_keyword(flags);
                 SyntaxKind::PrivateIdentifier
             }
-            _ if is_identifier_start(ch) || ch == '\\' => self.scan_identifier_or_keyword(flags),
-            _ => self.scan_punctuation(),
+            b'\\' => self.scan_identifier_or_keyword(flags),
+            b if ASCII_ID_START[b as usize] => self.scan_identifier_or_keyword(flags),
+            b if b < 0x80 => self.scan_punctuation(),
+            // Non-ASCII: only now is it worth decoding, to tell an identifier
+            // start from a stray character.
+            _ => {
+                if is_identifier_start(ch) {
+                    self.scan_identifier_or_keyword(flags)
+                } else {
+                    self.scan_punctuation()
+                }
+            }
         }
     }
 

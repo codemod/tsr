@@ -16,11 +16,13 @@ assignment on, JSDoc off in the ratio column (see
 
 | Fixture | Size | tsgo ns/op | tsr `-jsdoc` | ratio | speedup |
 |---|---:|---:|---:|---:|---:|
-| `empty.ts` | 0 B | 438 | 148 | 0.34× | 3.0× |
-| `Herebyfile.mjs` | 37 KB | 551,711 | 208,440 | 0.38× | 2.6× |
-| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 76,005 | 0.51× | 2.0× |
-| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 9,206,160 | 0.71× | **1.41×** |
-| `checker.ts` | 3.1 MB | 32,721,718 | 23,891,168 | 0.73× | **1.37×** |
+| `empty.ts` | 0 B | 438 | 125 | 0.29× | 3.5× |
+| `Herebyfile.mjs` | 37 KB | 551,711 | 207,242 | 0.38× | 2.7× |
+| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 79,707 | 0.54× | 1.9× |
+| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 9,500,392 | 0.73× | **1.36×** |
+| `checker.ts` | 3.1 MB | 32,721,718 | 23,627,543 | 0.72× | **1.38×** |
+
+Peak RSS is **1.74× lower** (32.0 MB against 57.0 MB) — see the memory section.
 
 The large-file numbers are the ones that matter, and they went from **parity
 (1.01×) to 1.37–1.41× faster** in one round of profile-directed work: `checker.ts`
@@ -83,6 +85,25 @@ rm vendor/typescript-go/internal/parser/rss_test.go
 The Go half is ours, not upstream's — there is no upstream RSS benchmark — so
 ADR-0009's warning applies: it is an artifact we control both halves of and should
 be read adversarially. `benches/go/rss_test.go` says what to check.
+
+### Parent assignment moved into `finish_node`
+
+It was a separate pass over the finished tree, costing 11.2% of a `checker.ts`
+parse (`assign_parents` + `push_children` + `Node::node_id`). It now happens in
+`finish_node_with_end`, where the children were created moments earlier and are
+still in cache — which is where typescript-go does it, presumably for the same
+reason. The cost fell to ~6.4%.
+
+Wall clock barely moved, which is worth stating plainly rather than dressing up:
+the profile share halved but the total did not, so something else absorbed it. The
+change stands because it removes an entire traversal and a worklist, and because
+it makes the structure match upstream's — not because it produced a headline
+number.
+
+It needed `From<&'a T> for Node<'a>` for all 192 node types, which is generated:
+`finish_node` is generic over `T` and had no way to reach the `Node` union. Those
+impls were missing generally, and their absence is what made the first version of
+`push_children` awkward.
 
 ### What did it
 
@@ -176,12 +197,12 @@ less than that — **the algorithmic gap has narrowed, not closed.**
 
 The next items, in the order the profile supports:
 
-- **The parent pass, 11.2%.** Comparable to tsgo's 9.6%, so we are not losing
-  here, but ours is a second traversal over a tree that was just built and is no
-  longer in cache. Fusing it into `finish_node` — where the children were touched
-  moments ago — is what upstream does and should be cheaper than either.
-- **`NodeTable::push`, 4.9%**, even with capacity reserved: four parallel vectors
-  means four length checks and four stores per node.
+- **`NodeTable::push`, 5.0%**, even with capacity reserved: four parallel vectors
+  means four length checks and four stores per node. The largest remaining item
+  that is not the scanner.
+- **`Scanner::scan`, 18.5%**, after the trivia loop and token dispatch were both
+  put on bytes. What is left is the token-kind dispatch itself; further gains here
+  look like a jump table over the punctuation set rather than another easy win.
 - **The arena vector.** Every list site still collects into a `Vec` and copies into
   the arena. With JSDoc off, `dom.d.ts` does 26,044 allocations; this is the
   smallest of the three and has been re-estimated downward twice.

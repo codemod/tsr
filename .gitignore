@@ -7,3 +7,7 @@
 # Rust
 /target/
 **/*.rs.bk
+
+# Written by `cargo xtask perf`; published as a CI artifact, not committed.
+perf-results.json
+perf-summary.md

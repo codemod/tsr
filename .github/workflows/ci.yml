@@ -16,9 +16,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The conformance tests diff against the vendored typescript-go source,
-          # so the submodule is required rather than optional.
-          submodules: true
+          # `recursive`, not `true`: the conformance corpus lives in the
+          # TypeScript submodule *inside* typescript-go, and `true` stops at the
+          # first level. With only the first level the harness finds no cases and
+          # reports 100% of nothing.
+          submodules: recursive
+          # Shallow. The two submodules carry well over a decade of history that
+          # nothing here reads — we only ever check out the pinned commit — and
+          # `fetch-depth: 1` makes actions/checkout pass `--depth=1` to the
+          # submodule fetch as well. This is the difference between a clone
+          # measured in minutes and one measured in seconds.
+          fetch-depth: 1
 
       - uses: dtolnay/rust-toolchain@stable
         with:

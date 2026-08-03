@@ -71,8 +71,9 @@ explicitly rather than being omitted.
 | `parser_typescript` | 4999/5031 (99.36%) | files TypeScript accepts parse with no diagnostics |
 
 Against typescript-go at the pinned commit, single-threaded and at equal work:
-parse throughput **1.37–1.41×** on the large fixtures (2–3× on small ones), peak
-RSS **1.77× lower** holding the same trees. Method, profiles, and the caveats that
+parse throughput **1.36–1.38×** on the large fixtures (1.9–3.5× on small ones),
+peak RSS **1.74× lower** holding the same trees. CI enforces both
+(`.github/workflows/perf.yml`) and publishes the measurements as an artifact. Method, profiles, and the caveats that
 matter are in [docs/architecture/performance.md](docs/architecture/performance.md).
 
 See [docs/architecture/conformance.md](docs/architecture/conformance.md).

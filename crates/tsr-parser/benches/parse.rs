@@ -178,12 +178,21 @@ fn main() {
 
     if json {
         println!("[");
-        for (i, m) in measurements.iter().enumerate() {
+        for (i, (m, w)) in measurements.iter().zip(&without).enumerate() {
             let comma = if i + 1 == measurements.len() { "" } else { "," };
+            // Both arms, named so a consumer cannot pick the flattering one by
+            // accident: `ns_per_op_without_jsdoc` is the like-for-like figure.
             println!(
-                "  {{\"name\": {:?}, \"bytes\": {}, \"iterations\": {}, \"ns_per_op\": {:.1}, \
+                "  {{\"name\": {:?}, \"bytes\": {}, \"iterations\": {}, \
+                 \"ns_per_op_without_jsdoc\": {:.1}, \"ns_per_op_with_jsdoc\": {:.1}, \
                  \"bytes_per_op\": {:.0}, \"allocs_per_op\": {:.1}}}{comma}",
-                m.name, m.bytes, m.iterations, m.ns_per_op, m.bytes_per_op, m.allocs_per_op
+                m.name,
+                m.bytes,
+                m.iterations,
+                w.ns_per_op,
+                m.ns_per_op,
+                m.bytes_per_op,
+                m.allocs_per_op
             );
         }
         println!("]");

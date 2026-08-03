@@ -1190,6 +1190,1158 @@ pub fn walk_node<'a, V: Visit<'a>>(visitor: &mut V, node: Node<'a>) {
     }
 }
 
+impl<'a> From<&'a ArrayLiteralExpression<'a>> for Node<'a> {
+    fn from(value: &'a ArrayLiteralExpression<'a>) -> Self {
+        Node::ArrayLiteralExpression(value)
+    }
+}
+
+impl<'a> From<&'a ArrayTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a ArrayTypeNode<'a>) -> Self {
+        Node::ArrayTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a ArrowFunction<'a>> for Node<'a> {
+    fn from(value: &'a ArrowFunction<'a>) -> Self {
+        Node::ArrowFunction(value)
+    }
+}
+
+impl<'a> From<&'a AsExpression<'a>> for Node<'a> {
+    fn from(value: &'a AsExpression<'a>) -> Self {
+        Node::AsExpression(value)
+    }
+}
+
+impl<'a> From<&'a AwaitExpression<'a>> for Node<'a> {
+    fn from(value: &'a AwaitExpression<'a>) -> Self {
+        Node::AwaitExpression(value)
+    }
+}
+
+impl<'a> From<&'a BigIntLiteral<'a>> for Node<'a> {
+    fn from(value: &'a BigIntLiteral<'a>) -> Self {
+        Node::BigIntLiteral(value)
+    }
+}
+
+impl<'a> From<&'a BinaryExpression<'a>> for Node<'a> {
+    fn from(value: &'a BinaryExpression<'a>) -> Self {
+        Node::BinaryExpression(value)
+    }
+}
+
+impl<'a> From<&'a BindingElement<'a>> for Node<'a> {
+    fn from(value: &'a BindingElement<'a>) -> Self {
+        Node::BindingElement(value)
+    }
+}
+
+impl<'a> From<&'a BindingPattern<'a>> for Node<'a> {
+    fn from(value: &'a BindingPattern<'a>) -> Self {
+        Node::BindingPattern(value)
+    }
+}
+
+impl<'a> From<&'a Block<'a>> for Node<'a> {
+    fn from(value: &'a Block<'a>) -> Self {
+        Node::Block(value)
+    }
+}
+
+impl<'a> From<&'a BreakStatement<'a>> for Node<'a> {
+    fn from(value: &'a BreakStatement<'a>) -> Self {
+        Node::BreakStatement(value)
+    }
+}
+
+impl<'a> From<&'a CallExpression<'a>> for Node<'a> {
+    fn from(value: &'a CallExpression<'a>) -> Self {
+        Node::CallExpression(value)
+    }
+}
+
+impl<'a> From<&'a CallSignatureDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a CallSignatureDeclaration<'a>) -> Self {
+        Node::CallSignatureDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a CaseBlock<'a>> for Node<'a> {
+    fn from(value: &'a CaseBlock<'a>) -> Self {
+        Node::CaseBlock(value)
+    }
+}
+
+impl<'a> From<&'a CaseOrDefaultClause<'a>> for Node<'a> {
+    fn from(value: &'a CaseOrDefaultClause<'a>) -> Self {
+        Node::CaseOrDefaultClause(value)
+    }
+}
+
+impl<'a> From<&'a CatchClause<'a>> for Node<'a> {
+    fn from(value: &'a CatchClause<'a>) -> Self {
+        Node::CatchClause(value)
+    }
+}
+
+impl<'a> From<&'a ClassDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ClassDeclaration<'a>) -> Self {
+        Node::ClassDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ClassExpression<'a>> for Node<'a> {
+    fn from(value: &'a ClassExpression<'a>) -> Self {
+        Node::ClassExpression(value)
+    }
+}
+
+impl<'a> From<&'a ClassStaticBlockDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ClassStaticBlockDeclaration<'a>) -> Self {
+        Node::ClassStaticBlockDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ComputedPropertyName<'a>> for Node<'a> {
+    fn from(value: &'a ComputedPropertyName<'a>) -> Self {
+        Node::ComputedPropertyName(value)
+    }
+}
+
+impl<'a> From<&'a ConditionalExpression<'a>> for Node<'a> {
+    fn from(value: &'a ConditionalExpression<'a>) -> Self {
+        Node::ConditionalExpression(value)
+    }
+}
+
+impl<'a> From<&'a ConditionalTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a ConditionalTypeNode<'a>) -> Self {
+        Node::ConditionalTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a ConstructSignatureDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ConstructSignatureDeclaration<'a>) -> Self {
+        Node::ConstructSignatureDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ConstructorDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ConstructorDeclaration<'a>) -> Self {
+        Node::ConstructorDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ConstructorTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a ConstructorTypeNode<'a>) -> Self {
+        Node::ConstructorTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a ContinueStatement<'a>> for Node<'a> {
+    fn from(value: &'a ContinueStatement<'a>) -> Self {
+        Node::ContinueStatement(value)
+    }
+}
+
+impl<'a> From<&'a DebuggerStatement<'a>> for Node<'a> {
+    fn from(value: &'a DebuggerStatement<'a>) -> Self {
+        Node::DebuggerStatement(value)
+    }
+}
+
+impl<'a> From<&'a Decorator<'a>> for Node<'a> {
+    fn from(value: &'a Decorator<'a>) -> Self {
+        Node::Decorator(value)
+    }
+}
+
+impl<'a> From<&'a DeleteExpression<'a>> for Node<'a> {
+    fn from(value: &'a DeleteExpression<'a>) -> Self {
+        Node::DeleteExpression(value)
+    }
+}
+
+impl<'a> From<&'a DoStatement<'a>> for Node<'a> {
+    fn from(value: &'a DoStatement<'a>) -> Self {
+        Node::DoStatement(value)
+    }
+}
+
+impl<'a> From<&'a ElementAccessExpression<'a>> for Node<'a> {
+    fn from(value: &'a ElementAccessExpression<'a>) -> Self {
+        Node::ElementAccessExpression(value)
+    }
+}
+
+impl<'a> From<&'a EmptyStatement<'a>> for Node<'a> {
+    fn from(value: &'a EmptyStatement<'a>) -> Self {
+        Node::EmptyStatement(value)
+    }
+}
+
+impl<'a> From<&'a EnumDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a EnumDeclaration<'a>) -> Self {
+        Node::EnumDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a EnumMember<'a>> for Node<'a> {
+    fn from(value: &'a EnumMember<'a>) -> Self {
+        Node::EnumMember(value)
+    }
+}
+
+impl<'a> From<&'a ExportAssignment<'a>> for Node<'a> {
+    fn from(value: &'a ExportAssignment<'a>) -> Self {
+        Node::ExportAssignment(value)
+    }
+}
+
+impl<'a> From<&'a ExportDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ExportDeclaration<'a>) -> Self {
+        Node::ExportDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ExportSpecifier<'a>> for Node<'a> {
+    fn from(value: &'a ExportSpecifier<'a>) -> Self {
+        Node::ExportSpecifier(value)
+    }
+}
+
+impl<'a> From<&'a ExpressionStatement<'a>> for Node<'a> {
+    fn from(value: &'a ExpressionStatement<'a>) -> Self {
+        Node::ExpressionStatement(value)
+    }
+}
+
+impl<'a> From<&'a ExpressionWithTypeArguments<'a>> for Node<'a> {
+    fn from(value: &'a ExpressionWithTypeArguments<'a>) -> Self {
+        Node::ExpressionWithTypeArguments(value)
+    }
+}
+
+impl<'a> From<&'a ExternalModuleReference<'a>> for Node<'a> {
+    fn from(value: &'a ExternalModuleReference<'a>) -> Self {
+        Node::ExternalModuleReference(value)
+    }
+}
+
+impl<'a> From<&'a ForInOrOfStatement<'a>> for Node<'a> {
+    fn from(value: &'a ForInOrOfStatement<'a>) -> Self {
+        Node::ForInOrOfStatement(value)
+    }
+}
+
+impl<'a> From<&'a ForStatement<'a>> for Node<'a> {
+    fn from(value: &'a ForStatement<'a>) -> Self {
+        Node::ForStatement(value)
+    }
+}
+
+impl<'a> From<&'a FunctionDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a FunctionDeclaration<'a>) -> Self {
+        Node::FunctionDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a FunctionExpression<'a>> for Node<'a> {
+    fn from(value: &'a FunctionExpression<'a>) -> Self {
+        Node::FunctionExpression(value)
+    }
+}
+
+impl<'a> From<&'a FunctionTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a FunctionTypeNode<'a>) -> Self {
+        Node::FunctionTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a GetAccessorDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a GetAccessorDeclaration<'a>) -> Self {
+        Node::GetAccessorDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a HeritageClause<'a>> for Node<'a> {
+    fn from(value: &'a HeritageClause<'a>) -> Self {
+        Node::HeritageClause(value)
+    }
+}
+
+impl<'a> From<&'a Identifier<'a>> for Node<'a> {
+    fn from(value: &'a Identifier<'a>) -> Self {
+        Node::Identifier(value)
+    }
+}
+
+impl<'a> From<&'a IfStatement<'a>> for Node<'a> {
+    fn from(value: &'a IfStatement<'a>) -> Self {
+        Node::IfStatement(value)
+    }
+}
+
+impl<'a> From<&'a ImportAttribute<'a>> for Node<'a> {
+    fn from(value: &'a ImportAttribute<'a>) -> Self {
+        Node::ImportAttribute(value)
+    }
+}
+
+impl<'a> From<&'a ImportAttributes<'a>> for Node<'a> {
+    fn from(value: &'a ImportAttributes<'a>) -> Self {
+        Node::ImportAttributes(value)
+    }
+}
+
+impl<'a> From<&'a ImportClause<'a>> for Node<'a> {
+    fn from(value: &'a ImportClause<'a>) -> Self {
+        Node::ImportClause(value)
+    }
+}
+
+impl<'a> From<&'a ImportDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ImportDeclaration<'a>) -> Self {
+        Node::ImportDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ImportEqualsDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ImportEqualsDeclaration<'a>) -> Self {
+        Node::ImportEqualsDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ImportSpecifier<'a>> for Node<'a> {
+    fn from(value: &'a ImportSpecifier<'a>) -> Self {
+        Node::ImportSpecifier(value)
+    }
+}
+
+impl<'a> From<&'a ImportTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a ImportTypeNode<'a>) -> Self {
+        Node::ImportTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a IndexSignatureDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a IndexSignatureDeclaration<'a>) -> Self {
+        Node::IndexSignatureDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a IndexedAccessTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a IndexedAccessTypeNode<'a>) -> Self {
+        Node::IndexedAccessTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a InferTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a InferTypeNode<'a>) -> Self {
+        Node::InferTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a InterfaceDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a InterfaceDeclaration<'a>) -> Self {
+        Node::InterfaceDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a IntersectionTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a IntersectionTypeNode<'a>) -> Self {
+        Node::IntersectionTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a JSDoc<'a>> for Node<'a> {
+    fn from(value: &'a JSDoc<'a>) -> Self {
+        Node::JSDoc(value)
+    }
+}
+
+impl<'a> From<&'a JSDocAllType<'a>> for Node<'a> {
+    fn from(value: &'a JSDocAllType<'a>) -> Self {
+        Node::JSDocAllType(value)
+    }
+}
+
+impl<'a> From<&'a JSDocAugmentsTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocAugmentsTag<'a>) -> Self {
+        Node::JSDocAugmentsTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocCallbackTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocCallbackTag<'a>) -> Self {
+        Node::JSDocCallbackTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocDeprecatedTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocDeprecatedTag<'a>) -> Self {
+        Node::JSDocDeprecatedTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocImplementsTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocImplementsTag<'a>) -> Self {
+        Node::JSDocImplementsTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocImportTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocImportTag<'a>) -> Self {
+        Node::JSDocImportTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocLink<'a>> for Node<'a> {
+    fn from(value: &'a JSDocLink<'a>) -> Self {
+        Node::JSDocLink(value)
+    }
+}
+
+impl<'a> From<&'a JSDocLinkCode<'a>> for Node<'a> {
+    fn from(value: &'a JSDocLinkCode<'a>) -> Self {
+        Node::JSDocLinkCode(value)
+    }
+}
+
+impl<'a> From<&'a JSDocLinkPlain<'a>> for Node<'a> {
+    fn from(value: &'a JSDocLinkPlain<'a>) -> Self {
+        Node::JSDocLinkPlain(value)
+    }
+}
+
+impl<'a> From<&'a JSDocNameReference<'a>> for Node<'a> {
+    fn from(value: &'a JSDocNameReference<'a>) -> Self {
+        Node::JSDocNameReference(value)
+    }
+}
+
+impl<'a> From<&'a JSDocNonNullableType<'a>> for Node<'a> {
+    fn from(value: &'a JSDocNonNullableType<'a>) -> Self {
+        Node::JSDocNonNullableType(value)
+    }
+}
+
+impl<'a> From<&'a JSDocNullableType<'a>> for Node<'a> {
+    fn from(value: &'a JSDocNullableType<'a>) -> Self {
+        Node::JSDocNullableType(value)
+    }
+}
+
+impl<'a> From<&'a JSDocOptionalType<'a>> for Node<'a> {
+    fn from(value: &'a JSDocOptionalType<'a>) -> Self {
+        Node::JSDocOptionalType(value)
+    }
+}
+
+impl<'a> From<&'a JSDocOverloadTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocOverloadTag<'a>) -> Self {
+        Node::JSDocOverloadTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocOverrideTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocOverrideTag<'a>) -> Self {
+        Node::JSDocOverrideTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocParameterOrPropertyTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocParameterOrPropertyTag<'a>) -> Self {
+        Node::JSDocParameterOrPropertyTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocPrivateTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocPrivateTag<'a>) -> Self {
+        Node::JSDocPrivateTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocProtectedTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocProtectedTag<'a>) -> Self {
+        Node::JSDocProtectedTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocPublicTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocPublicTag<'a>) -> Self {
+        Node::JSDocPublicTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocReadonlyTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocReadonlyTag<'a>) -> Self {
+        Node::JSDocReadonlyTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocReturnTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocReturnTag<'a>) -> Self {
+        Node::JSDocReturnTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocSatisfiesTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocSatisfiesTag<'a>) -> Self {
+        Node::JSDocSatisfiesTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocSeeTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocSeeTag<'a>) -> Self {
+        Node::JSDocSeeTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocSignature<'a>> for Node<'a> {
+    fn from(value: &'a JSDocSignature<'a>) -> Self {
+        Node::JSDocSignature(value)
+    }
+}
+
+impl<'a> From<&'a JSDocTemplateTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocTemplateTag<'a>) -> Self {
+        Node::JSDocTemplateTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocText<'a>> for Node<'a> {
+    fn from(value: &'a JSDocText<'a>) -> Self {
+        Node::JSDocText(value)
+    }
+}
+
+impl<'a> From<&'a JSDocThisTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocThisTag<'a>) -> Self {
+        Node::JSDocThisTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocThrowsTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocThrowsTag<'a>) -> Self {
+        Node::JSDocThrowsTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocTypeExpression<'a>> for Node<'a> {
+    fn from(value: &'a JSDocTypeExpression<'a>) -> Self {
+        Node::JSDocTypeExpression(value)
+    }
+}
+
+impl<'a> From<&'a JSDocTypeLiteral<'a>> for Node<'a> {
+    fn from(value: &'a JSDocTypeLiteral<'a>) -> Self {
+        Node::JSDocTypeLiteral(value)
+    }
+}
+
+impl<'a> From<&'a JSDocTypeTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocTypeTag<'a>) -> Self {
+        Node::JSDocTypeTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocTypedefTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocTypedefTag<'a>) -> Self {
+        Node::JSDocTypedefTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocUnknownTag<'a>> for Node<'a> {
+    fn from(value: &'a JSDocUnknownTag<'a>) -> Self {
+        Node::JSDocUnknownTag(value)
+    }
+}
+
+impl<'a> From<&'a JSDocVariadicType<'a>> for Node<'a> {
+    fn from(value: &'a JSDocVariadicType<'a>) -> Self {
+        Node::JSDocVariadicType(value)
+    }
+}
+
+impl<'a> From<&'a JsxAttribute<'a>> for Node<'a> {
+    fn from(value: &'a JsxAttribute<'a>) -> Self {
+        Node::JsxAttribute(value)
+    }
+}
+
+impl<'a> From<&'a JsxAttributes<'a>> for Node<'a> {
+    fn from(value: &'a JsxAttributes<'a>) -> Self {
+        Node::JsxAttributes(value)
+    }
+}
+
+impl<'a> From<&'a JsxClosingElement<'a>> for Node<'a> {
+    fn from(value: &'a JsxClosingElement<'a>) -> Self {
+        Node::JsxClosingElement(value)
+    }
+}
+
+impl<'a> From<&'a JsxClosingFragment<'a>> for Node<'a> {
+    fn from(value: &'a JsxClosingFragment<'a>) -> Self {
+        Node::JsxClosingFragment(value)
+    }
+}
+
+impl<'a> From<&'a JsxElement<'a>> for Node<'a> {
+    fn from(value: &'a JsxElement<'a>) -> Self {
+        Node::JsxElement(value)
+    }
+}
+
+impl<'a> From<&'a JsxExpression<'a>> for Node<'a> {
+    fn from(value: &'a JsxExpression<'a>) -> Self {
+        Node::JsxExpression(value)
+    }
+}
+
+impl<'a> From<&'a JsxFragment<'a>> for Node<'a> {
+    fn from(value: &'a JsxFragment<'a>) -> Self {
+        Node::JsxFragment(value)
+    }
+}
+
+impl<'a> From<&'a JsxNamespacedName<'a>> for Node<'a> {
+    fn from(value: &'a JsxNamespacedName<'a>) -> Self {
+        Node::JsxNamespacedName(value)
+    }
+}
+
+impl<'a> From<&'a JsxOpeningElement<'a>> for Node<'a> {
+    fn from(value: &'a JsxOpeningElement<'a>) -> Self {
+        Node::JsxOpeningElement(value)
+    }
+}
+
+impl<'a> From<&'a JsxOpeningFragment<'a>> for Node<'a> {
+    fn from(value: &'a JsxOpeningFragment<'a>) -> Self {
+        Node::JsxOpeningFragment(value)
+    }
+}
+
+impl<'a> From<&'a JsxSelfClosingElement<'a>> for Node<'a> {
+    fn from(value: &'a JsxSelfClosingElement<'a>) -> Self {
+        Node::JsxSelfClosingElement(value)
+    }
+}
+
+impl<'a> From<&'a JsxSpreadAttribute<'a>> for Node<'a> {
+    fn from(value: &'a JsxSpreadAttribute<'a>) -> Self {
+        Node::JsxSpreadAttribute(value)
+    }
+}
+
+impl<'a> From<&'a JsxText<'a>> for Node<'a> {
+    fn from(value: &'a JsxText<'a>) -> Self {
+        Node::JsxText(value)
+    }
+}
+
+impl<'a> From<&'a KeywordExpression<'a>> for Node<'a> {
+    fn from(value: &'a KeywordExpression<'a>) -> Self {
+        Node::KeywordExpression(value)
+    }
+}
+
+impl<'a> From<&'a KeywordTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a KeywordTypeNode<'a>) -> Self {
+        Node::KeywordTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a LabeledStatement<'a>> for Node<'a> {
+    fn from(value: &'a LabeledStatement<'a>) -> Self {
+        Node::LabeledStatement(value)
+    }
+}
+
+impl<'a> From<&'a LiteralTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a LiteralTypeNode<'a>) -> Self {
+        Node::LiteralTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a MappedTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a MappedTypeNode<'a>) -> Self {
+        Node::MappedTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a MetaProperty<'a>> for Node<'a> {
+    fn from(value: &'a MetaProperty<'a>) -> Self {
+        Node::MetaProperty(value)
+    }
+}
+
+impl<'a> From<&'a MethodDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a MethodDeclaration<'a>) -> Self {
+        Node::MethodDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a MethodSignatureDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a MethodSignatureDeclaration<'a>) -> Self {
+        Node::MethodSignatureDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a MissingDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a MissingDeclaration<'a>) -> Self {
+        Node::MissingDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ModuleBlock<'a>> for Node<'a> {
+    fn from(value: &'a ModuleBlock<'a>) -> Self {
+        Node::ModuleBlock(value)
+    }
+}
+
+impl<'a> From<&'a ModuleDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ModuleDeclaration<'a>) -> Self {
+        Node::ModuleDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a NamedExports<'a>> for Node<'a> {
+    fn from(value: &'a NamedExports<'a>) -> Self {
+        Node::NamedExports(value)
+    }
+}
+
+impl<'a> From<&'a NamedImports<'a>> for Node<'a> {
+    fn from(value: &'a NamedImports<'a>) -> Self {
+        Node::NamedImports(value)
+    }
+}
+
+impl<'a> From<&'a NamedTupleMember<'a>> for Node<'a> {
+    fn from(value: &'a NamedTupleMember<'a>) -> Self {
+        Node::NamedTupleMember(value)
+    }
+}
+
+impl<'a> From<&'a NamespaceExport<'a>> for Node<'a> {
+    fn from(value: &'a NamespaceExport<'a>) -> Self {
+        Node::NamespaceExport(value)
+    }
+}
+
+impl<'a> From<&'a NamespaceExportDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a NamespaceExportDeclaration<'a>) -> Self {
+        Node::NamespaceExportDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a NamespaceImport<'a>> for Node<'a> {
+    fn from(value: &'a NamespaceImport<'a>) -> Self {
+        Node::NamespaceImport(value)
+    }
+}
+
+impl<'a> From<&'a NewExpression<'a>> for Node<'a> {
+    fn from(value: &'a NewExpression<'a>) -> Self {
+        Node::NewExpression(value)
+    }
+}
+
+impl<'a> From<&'a NoSubstitutionTemplateLiteral<'a>> for Node<'a> {
+    fn from(value: &'a NoSubstitutionTemplateLiteral<'a>) -> Self {
+        Node::NoSubstitutionTemplateLiteral(value)
+    }
+}
+
+impl<'a> From<&'a NonNullExpression<'a>> for Node<'a> {
+    fn from(value: &'a NonNullExpression<'a>) -> Self {
+        Node::NonNullExpression(value)
+    }
+}
+
+impl<'a> From<&'a NotEmittedStatement<'a>> for Node<'a> {
+    fn from(value: &'a NotEmittedStatement<'a>) -> Self {
+        Node::NotEmittedStatement(value)
+    }
+}
+
+impl<'a> From<&'a NotEmittedTypeElement<'a>> for Node<'a> {
+    fn from(value: &'a NotEmittedTypeElement<'a>) -> Self {
+        Node::NotEmittedTypeElement(value)
+    }
+}
+
+impl<'a> From<&'a NumericLiteral<'a>> for Node<'a> {
+    fn from(value: &'a NumericLiteral<'a>) -> Self {
+        Node::NumericLiteral(value)
+    }
+}
+
+impl<'a> From<&'a ObjectLiteralExpression<'a>> for Node<'a> {
+    fn from(value: &'a ObjectLiteralExpression<'a>) -> Self {
+        Node::ObjectLiteralExpression(value)
+    }
+}
+
+impl<'a> From<&'a OmittedExpression<'a>> for Node<'a> {
+    fn from(value: &'a OmittedExpression<'a>) -> Self {
+        Node::OmittedExpression(value)
+    }
+}
+
+impl<'a> From<&'a OptionalTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a OptionalTypeNode<'a>) -> Self {
+        Node::OptionalTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a ParameterDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a ParameterDeclaration<'a>) -> Self {
+        Node::ParameterDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ParenthesizedExpression<'a>> for Node<'a> {
+    fn from(value: &'a ParenthesizedExpression<'a>) -> Self {
+        Node::ParenthesizedExpression(value)
+    }
+}
+
+impl<'a> From<&'a ParenthesizedTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a ParenthesizedTypeNode<'a>) -> Self {
+        Node::ParenthesizedTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a PartiallyEmittedExpression<'a>> for Node<'a> {
+    fn from(value: &'a PartiallyEmittedExpression<'a>) -> Self {
+        Node::PartiallyEmittedExpression(value)
+    }
+}
+
+impl<'a> From<&'a PostfixUnaryExpression<'a>> for Node<'a> {
+    fn from(value: &'a PostfixUnaryExpression<'a>) -> Self {
+        Node::PostfixUnaryExpression(value)
+    }
+}
+
+impl<'a> From<&'a PrefixUnaryExpression<'a>> for Node<'a> {
+    fn from(value: &'a PrefixUnaryExpression<'a>) -> Self {
+        Node::PrefixUnaryExpression(value)
+    }
+}
+
+impl<'a> From<&'a PrivateIdentifier<'a>> for Node<'a> {
+    fn from(value: &'a PrivateIdentifier<'a>) -> Self {
+        Node::PrivateIdentifier(value)
+    }
+}
+
+impl<'a> From<&'a PropertyAccessExpression<'a>> for Node<'a> {
+    fn from(value: &'a PropertyAccessExpression<'a>) -> Self {
+        Node::PropertyAccessExpression(value)
+    }
+}
+
+impl<'a> From<&'a PropertyAssignment<'a>> for Node<'a> {
+    fn from(value: &'a PropertyAssignment<'a>) -> Self {
+        Node::PropertyAssignment(value)
+    }
+}
+
+impl<'a> From<&'a PropertyDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a PropertyDeclaration<'a>) -> Self {
+        Node::PropertyDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a PropertySignatureDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a PropertySignatureDeclaration<'a>) -> Self {
+        Node::PropertySignatureDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a QualifiedName<'a>> for Node<'a> {
+    fn from(value: &'a QualifiedName<'a>) -> Self {
+        Node::QualifiedName(value)
+    }
+}
+
+impl<'a> From<&'a RegularExpressionLiteral<'a>> for Node<'a> {
+    fn from(value: &'a RegularExpressionLiteral<'a>) -> Self {
+        Node::RegularExpressionLiteral(value)
+    }
+}
+
+impl<'a> From<&'a RestTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a RestTypeNode<'a>) -> Self {
+        Node::RestTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a ReturnStatement<'a>> for Node<'a> {
+    fn from(value: &'a ReturnStatement<'a>) -> Self {
+        Node::ReturnStatement(value)
+    }
+}
+
+impl<'a> From<&'a SatisfiesExpression<'a>> for Node<'a> {
+    fn from(value: &'a SatisfiesExpression<'a>) -> Self {
+        Node::SatisfiesExpression(value)
+    }
+}
+
+impl<'a> From<&'a SemicolonClassElement<'a>> for Node<'a> {
+    fn from(value: &'a SemicolonClassElement<'a>) -> Self {
+        Node::SemicolonClassElement(value)
+    }
+}
+
+impl<'a> From<&'a SetAccessorDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a SetAccessorDeclaration<'a>) -> Self {
+        Node::SetAccessorDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a ShorthandPropertyAssignment<'a>> for Node<'a> {
+    fn from(value: &'a ShorthandPropertyAssignment<'a>) -> Self {
+        Node::ShorthandPropertyAssignment(value)
+    }
+}
+
+impl<'a> From<&'a SourceFile<'a>> for Node<'a> {
+    fn from(value: &'a SourceFile<'a>) -> Self {
+        Node::SourceFile(value)
+    }
+}
+
+impl<'a> From<&'a SpreadAssignment<'a>> for Node<'a> {
+    fn from(value: &'a SpreadAssignment<'a>) -> Self {
+        Node::SpreadAssignment(value)
+    }
+}
+
+impl<'a> From<&'a SpreadElement<'a>> for Node<'a> {
+    fn from(value: &'a SpreadElement<'a>) -> Self {
+        Node::SpreadElement(value)
+    }
+}
+
+impl<'a> From<&'a StringLiteral<'a>> for Node<'a> {
+    fn from(value: &'a StringLiteral<'a>) -> Self {
+        Node::StringLiteral(value)
+    }
+}
+
+impl<'a> From<&'a SwitchStatement<'a>> for Node<'a> {
+    fn from(value: &'a SwitchStatement<'a>) -> Self {
+        Node::SwitchStatement(value)
+    }
+}
+
+impl<'a> From<&'a SyntaxList<'a>> for Node<'a> {
+    fn from(value: &'a SyntaxList<'a>) -> Self {
+        Node::SyntaxList(value)
+    }
+}
+
+impl<'a> From<&'a SyntheticExpression<'a>> for Node<'a> {
+    fn from(value: &'a SyntheticExpression<'a>) -> Self {
+        Node::SyntheticExpression(value)
+    }
+}
+
+impl<'a> From<&'a SyntheticReferenceExpression<'a>> for Node<'a> {
+    fn from(value: &'a SyntheticReferenceExpression<'a>) -> Self {
+        Node::SyntheticReferenceExpression(value)
+    }
+}
+
+impl<'a> From<&'a TaggedTemplateExpression<'a>> for Node<'a> {
+    fn from(value: &'a TaggedTemplateExpression<'a>) -> Self {
+        Node::TaggedTemplateExpression(value)
+    }
+}
+
+impl<'a> From<&'a TemplateExpression<'a>> for Node<'a> {
+    fn from(value: &'a TemplateExpression<'a>) -> Self {
+        Node::TemplateExpression(value)
+    }
+}
+
+impl<'a> From<&'a TemplateHead<'a>> for Node<'a> {
+    fn from(value: &'a TemplateHead<'a>) -> Self {
+        Node::TemplateHead(value)
+    }
+}
+
+impl<'a> From<&'a TemplateLiteralTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a TemplateLiteralTypeNode<'a>) -> Self {
+        Node::TemplateLiteralTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a TemplateLiteralTypeSpan<'a>> for Node<'a> {
+    fn from(value: &'a TemplateLiteralTypeSpan<'a>) -> Self {
+        Node::TemplateLiteralTypeSpan(value)
+    }
+}
+
+impl<'a> From<&'a TemplateMiddle<'a>> for Node<'a> {
+    fn from(value: &'a TemplateMiddle<'a>) -> Self {
+        Node::TemplateMiddle(value)
+    }
+}
+
+impl<'a> From<&'a TemplateSpan<'a>> for Node<'a> {
+    fn from(value: &'a TemplateSpan<'a>) -> Self {
+        Node::TemplateSpan(value)
+    }
+}
+
+impl<'a> From<&'a TemplateTail<'a>> for Node<'a> {
+    fn from(value: &'a TemplateTail<'a>) -> Self {
+        Node::TemplateTail(value)
+    }
+}
+
+impl<'a> From<&'a ThisTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a ThisTypeNode<'a>) -> Self {
+        Node::ThisTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a ThrowStatement<'a>> for Node<'a> {
+    fn from(value: &'a ThrowStatement<'a>) -> Self {
+        Node::ThrowStatement(value)
+    }
+}
+
+impl<'a> From<&'a Token<'a>> for Node<'a> {
+    fn from(value: &'a Token<'a>) -> Self {
+        Node::Token(value)
+    }
+}
+
+impl<'a> From<&'a TryStatement<'a>> for Node<'a> {
+    fn from(value: &'a TryStatement<'a>) -> Self {
+        Node::TryStatement(value)
+    }
+}
+
+impl<'a> From<&'a TupleTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a TupleTypeNode<'a>) -> Self {
+        Node::TupleTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a TypeAliasDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a TypeAliasDeclaration<'a>) -> Self {
+        Node::TypeAliasDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a TypeAssertion<'a>> for Node<'a> {
+    fn from(value: &'a TypeAssertion<'a>) -> Self {
+        Node::TypeAssertion(value)
+    }
+}
+
+impl<'a> From<&'a TypeLiteralNode<'a>> for Node<'a> {
+    fn from(value: &'a TypeLiteralNode<'a>) -> Self {
+        Node::TypeLiteralNode(value)
+    }
+}
+
+impl<'a> From<&'a TypeOfExpression<'a>> for Node<'a> {
+    fn from(value: &'a TypeOfExpression<'a>) -> Self {
+        Node::TypeOfExpression(value)
+    }
+}
+
+impl<'a> From<&'a TypeOperatorNode<'a>> for Node<'a> {
+    fn from(value: &'a TypeOperatorNode<'a>) -> Self {
+        Node::TypeOperatorNode(value)
+    }
+}
+
+impl<'a> From<&'a TypeParameterDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a TypeParameterDeclaration<'a>) -> Self {
+        Node::TypeParameterDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a TypePredicateNode<'a>> for Node<'a> {
+    fn from(value: &'a TypePredicateNode<'a>) -> Self {
+        Node::TypePredicateNode(value)
+    }
+}
+
+impl<'a> From<&'a TypeQueryNode<'a>> for Node<'a> {
+    fn from(value: &'a TypeQueryNode<'a>) -> Self {
+        Node::TypeQueryNode(value)
+    }
+}
+
+impl<'a> From<&'a TypeReferenceNode<'a>> for Node<'a> {
+    fn from(value: &'a TypeReferenceNode<'a>) -> Self {
+        Node::TypeReferenceNode(value)
+    }
+}
+
+impl<'a> From<&'a UnionTypeNode<'a>> for Node<'a> {
+    fn from(value: &'a UnionTypeNode<'a>) -> Self {
+        Node::UnionTypeNode(value)
+    }
+}
+
+impl<'a> From<&'a VariableDeclaration<'a>> for Node<'a> {
+    fn from(value: &'a VariableDeclaration<'a>) -> Self {
+        Node::VariableDeclaration(value)
+    }
+}
+
+impl<'a> From<&'a VariableDeclarationList<'a>> for Node<'a> {
+    fn from(value: &'a VariableDeclarationList<'a>) -> Self {
+        Node::VariableDeclarationList(value)
+    }
+}
+
+impl<'a> From<&'a VariableStatement<'a>> for Node<'a> {
+    fn from(value: &'a VariableStatement<'a>) -> Self {
+        Node::VariableStatement(value)
+    }
+}
+
+impl<'a> From<&'a VoidExpression<'a>> for Node<'a> {
+    fn from(value: &'a VoidExpression<'a>) -> Self {
+        Node::VoidExpression(value)
+    }
+}
+
+impl<'a> From<&'a WhileStatement<'a>> for Node<'a> {
+    fn from(value: &'a WhileStatement<'a>) -> Self {
+        Node::WhileStatement(value)
+    }
+}
+
+impl<'a> From<&'a WithStatement<'a>> for Node<'a> {
+    fn from(value: &'a WithStatement<'a>) -> Self {
+        Node::WithStatement(value)
+    }
+}
+
+impl<'a> From<&'a YieldExpression<'a>> for Node<'a> {
+    fn from(value: &'a YieldExpression<'a>) -> Self {
+        Node::YieldExpression(value)
+    }
+}
+
 /// Append `node`'s immediate children to `out`, in source order.
 ///
 /// Does not recurse. This is the primitive for an iterative tree walk —

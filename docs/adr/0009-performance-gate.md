@@ -1,7 +1,7 @@
 # ADR-0009: Gate performance against typescript-go, not against our own history
 
-**Status:** Accepted for the two gated axes; the CI wiring (`bd tsr-cmh`) is still
-outstanding. Both axes now have a measured baseline — see
+**Status:** Accepted and enforced. `.github/workflows/perf.yml` runs
+`cargo xtask perf` on every pull request, on `main`, and weekly. Both axes now have a measured baseline — see
 `docs/architecture/performance.md` — which is what the "Proposed" status was
 waiting on.
 **Date:** 2026-08-03
@@ -142,13 +142,35 @@ is what an LSP reopening files actually pays.
 | **Instruction counts (iai/cachegrind) instead of wall-clock** | Not rejected — deferred pending measurement. Instruction counts are near-deterministic and would remove the noise problem entirely, but they do not capture memory behaviour or allocator effects, and they cannot be compared meaningfully against a Go binary. Adopt as the *self-regression* metric if runner variance proves too wide; the tsgo ratio stays wall-clock. |
 | **Our own benchmark corpus** | Adds a degree of freedom in which inputs get chosen. Upstream's set is fixed by the pin. |
 
+## The thresholds, and why they differ
+
+`xtask/src/perf.rs` gates two ratios, and they are deliberately not calibrated the
+same way:
+
+- **Wall clock ≤ 1.10×**, loose. GitHub's shared runners have noisy neighbours, no
+  CPU pinning and variable clocks. Locally the ratio is 0.72–0.73 on the large
+  fixtures; on a runner it moved to 1.04 on one fixture purely because a compile
+  was running alongside the benchmark. A tight threshold on that hardware measures
+  the runner. The number to watch is the trend recorded in `perf-results.json`,
+  not the threshold.
+- **Peak RSS ≤ 1.00×**, tight. RSS is near-deterministic — a high-water mark over
+  the same allocations on the same input — so there is no noise budget to allow
+  for. And using *more* memory than the implementation being replaced would negate
+  the main argument for the port, so parity is the right place to fail.
+
+`empty.ts` is reported but not gated: it measures fixed per-file overhead in
+hundreds of nanoseconds, below a cloud runner's noise floor.
+
 ## Consequences accepted
 
 - **CI needs a Go toolchain.** `ci.yml` currently has none. Build time increases
   by a full typescript-go compile, mitigated by caching the built binary against
   the submodule SHA — it changes only when the pin moves.
 
-- **CI needs recursive submodules.** `ci.yml:21` uses `submodules: true`, which is
+- **CI needs recursive submodules.** *(Done: both workflows use
+  `submodules: recursive` with `fetch-depth: 1`, which makes the submodule fetches
+  shallow too — the two submodules carry over a decade of history that nothing
+  here reads.)* `ci.yml` previously used `submodules: true`, which is
   not recursive. `BenchFixtures` resolves paths through
   `repo.TypeScriptSubmodulePath()`, i.e. the `TypeScript` submodule *inside*
   typescript-go. This must become `submodules: recursive`, matching the

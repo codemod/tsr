@@ -1023,12 +1023,11 @@ impl<'a> Parser<'a> {
     /// Distinct from [`Parser::finish_node`] because inside JSDoc the cursor is
     /// the token start, not the previous token's end: layout is tokenised, so
     /// there is no trivia to step back over.
-    fn finish_jsdoc_node<T: tsr_ast::HasNodeId>(
-        &mut self,
-        node: T,
-        kind: SyntaxKind,
-        start: u32,
-    ) -> &'a T {
+    fn finish_jsdoc_node<T>(&mut self, node: T, kind: SyntaxKind, start: u32) -> &'a T
+    where
+        T: tsr_ast::HasNodeId,
+        &'a T: Into<Node<'a>>,
+    {
         let end = self.token.span.start.max(start);
         self.finish_node_with_end(node, kind, start, end)
     }

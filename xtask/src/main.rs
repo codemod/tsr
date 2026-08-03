@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! cargo xtask codegen    regenerate crates/tsr-ast/src/generated
+//! cargo xtask perf       compare against typescript-go; write perf artifacts
 //! ```
 //!
 //! Codegen reads `vendor/typescript-go/_scripts/ast.json`, the same
@@ -15,6 +16,7 @@ mod gen_diagnostics;
 mod gen_kind;
 mod gen_nodes;
 mod gen_unicode;
+mod perf;
 
 use std::{fs, path::PathBuf};
 
@@ -26,9 +28,10 @@ fn main() -> Result<()> {
     let task = std::env::args().nth(1);
     match task.as_deref() {
         Some("codegen") => codegen(),
-        Some(other) => bail!("unknown task {other:?}; expected `codegen`"),
+        Some("perf") => perf::run(&workspace_root()),
+        Some(other) => bail!("unknown task {other:?}; expected `codegen` or `perf`"),
         None => {
-            eprintln!("usage: cargo xtask codegen");
+            eprintln!("usage: cargo xtask <codegen|perf>");
             Ok(())
         }
     }

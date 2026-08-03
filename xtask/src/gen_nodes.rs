@@ -711,6 +711,19 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
     }
     out.push_str("    }\n}\n\n");
 
+    // Widening a concrete node reference into the union. `Node`'s variants hold
+    // `&'a T`, so `Node::from(&foo)` needs one impl per node type — without them
+    // any generic function holding a `&'a T` has no way to reach `Node`, which is
+    // what `Parser::finish_node` needs to record parents as it builds.
+    for name in ast.nodes.definitions.keys() {
+        writeln!(
+            out,
+            "impl<'a> From<&'a {name}<'a>> for Node<'a> {{\n    \
+             fn from(value: &'a {name}<'a>) -> Self {{\n        \
+             Node::{name}(value)\n    }}\n}}\n"
+        )?;
+    }
+
     // ---- immediate children --------------------------------------------
     //
     // A `Visit` impl cannot collect immediate children: the walkers call *typed*
