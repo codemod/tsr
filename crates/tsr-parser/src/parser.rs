@@ -456,7 +456,28 @@ impl<'a> Parser<'a> {
         T: HasNodeId,
         &'a T: Into<tsr_ast::Node<'a>>,
     {
-        let id = self.nodes.push(kind, Span::new(start, end), tsr_ast::NodeFlags::empty());
+        self.finish_node_with_flags(node, kind, start, end, tsr_ast::NodeFlags::empty())
+    }
+
+    /// Allocate a node with explicit end and node flags.
+    ///
+    /// Node flags carry facts the tree's shape does not: whether a variable list
+    /// was written `var`, `let`, or `const` is not recoverable from the nodes,
+    /// because upstream models all three with one node kind and distinguishes them
+    /// here. The binder needs it to decide function versus block scope.
+    pub(crate) fn finish_node_with_flags<T>(
+        &mut self,
+        node: T,
+        kind: SyntaxKind,
+        start: u32,
+        end: u32,
+        flags: tsr_ast::NodeFlags,
+    ) -> &'a T
+    where
+        T: HasNodeId,
+        &'a T: Into<tsr_ast::Node<'a>>,
+    {
+        let id = self.nodes.push(kind, Span::new(start, end), flags);
         // `alloc` hands back `&mut` for a block nothing else can reference yet, so
         // the id is written before any shared reference exists. That is why nodes
         // need no interior mutability and the finished tree is `Sync`.
@@ -470,7 +491,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Where the most recently consumed token ended.
-    fn node_end(&self) -> u32 {
+    pub(crate) fn node_end(&self) -> u32 {
         self.scanner.full_start()
     }
 

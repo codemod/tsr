@@ -13,6 +13,7 @@ authors = ["the tsr contributors"]
 [workspace.dependencies]
 tsr-core = { path = "crates/tsr-core" }
 tsr-ast = { path = "crates/tsr-ast" }
+tsr-binder = { path = "crates/tsr-binder" }
 tsr-diagnostics = { path = "crates/tsr-diagnostics" }
 tsr-scanner = { path = "crates/tsr-scanner" }
 tsr-parser = { path = "crates/tsr-parser" }

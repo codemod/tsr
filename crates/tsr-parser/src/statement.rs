@@ -391,9 +391,18 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn parse_variable_declaration_list(&mut self) -> &'a VariableDeclarationList<'a> {
         let start = self.pos();
-        // `var`, `let`, or `const`; the flag distinguishing them lives on the node
-        // flags upstream, which the binder sets.
+        // `var`, `let`, `const`, or `using`. All four produce the same node kind,
+        // so the keyword is recorded in the node flags — the binder reads it to
+        // decide function scope versus block scope, and it is not recoverable from
+        // the tree otherwise.
+        let keyword = self.token.kind;
         self.next_token();
+        let flags = match keyword {
+            SyntaxKind::LetKeyword => tsr_ast::NodeFlags::LET,
+            SyntaxKind::ConstKeyword => tsr_ast::NodeFlags::CONST,
+            SyntaxKind::UsingKeyword => tsr_ast::NodeFlags::USING,
+            _ => tsr_ast::NodeFlags::empty(),
+        };
 
         let mut declarations = Vec::new();
         loop {
@@ -403,10 +412,13 @@ impl<'a> Parser<'a> {
             }
         }
         let declarations = self.arena.alloc_slice(&declarations);
-        self.finish_node(
+        let end = self.node_end();
+        self.finish_node_with_flags(
             VariableDeclarationList::new(declarations),
             SyntaxKind::VariableDeclarationList,
             start,
+            end,
+            flags,
         )
     }
 
