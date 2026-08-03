@@ -11,23 +11,50 @@ typescript-go at the pinned commit, not against our own history.
 
 Single-threaded, pinned to one core (`taskset -c 2`), 3 s per fixture, AMD Ryzen 9
 7950X3D. typescript-go at `5b1047d10`, Go 1.26.5. tsr `--release`, parent
-assignment **on** (see below), JSDoc off in the ratio column.
+assignment on, JSDoc off in the ratio column (see
+[ADR-0010](../adr/0010-jsdoc-is-a-parse-option.md)).
 
-| Fixture | Size | tsgo ns/op | tsr `-jsdoc` | ratio | tsr `+jsdoc` |
+| Fixture | Size | tsgo ns/op | tsr `-jsdoc` | ratio | speedup |
 |---|---:|---:|---:|---:|---:|
-| `empty.ts` | 0 B | 438 | 144 | **0.33×** | 144 |
-| `Herebyfile.mjs` | 37 KB | 551,711 | 281,546 | **0.51×** | 312,754 |
-| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 111,403 | **0.75×** | 171,042 |
-| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 12,036,118 | **0.93×** | 21,097,712 |
-| `checker.ts` | 3.1 MB | 32,721,718 | 33,158,866 | **1.01×** | 33,475,941 |
+| `empty.ts` | 0 B | 438 | 148 | 0.34× | 3.0× |
+| `Herebyfile.mjs` | 37 KB | 551,711 | 208,440 | 0.38× | 2.6× |
+| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 76,005 | 0.51× | 2.0× |
+| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 9,206,160 | 0.71× | **1.41×** |
+| `checker.ts` | 3.1 MB | 32,721,718 | 23,891,168 | 0.73× | **1.37×** |
 
-**On the largest realistic file we are at parity, marginally slower.** The
-double-digit wins are on small files, where the advantage is fixed per-file
-overhead — an arena versus Go's parser pool and per-file setup — and that advantage
-does not scale with input.
+The large-file numbers are the ones that matter, and they went from **parity
+(1.01×) to 1.37–1.41× faster** in one round of profile-directed work: `checker.ts`
+33.2 ms → 23.9 ms, `dom.generated.d.ts` 12.0 ms → 9.2 ms.
 
-This is a worse picture than the previous entry reported, and the previous entry
-was wrong for a reason worth stating: **we were not doing the same work.**
+### What did it
+
+All four came from the same observation: the scanner was written in terms of
+`char`, and TypeScript source is bytes that are almost all ASCII.
+
+| Change | What it removed |
+|---|---|
+| Byte-driven trivia loop | A `peek()` call, a UTF-8 decode and two branches *per character* of whitespace, between every pair of tokens |
+| ASCII identifier fast path | The same, per character of every identifier, plus the `char` classification |
+| `ASCII_ID_START`/`ASCII_ID_PART` tables | Three comparisons per character, replaced by one indexed load |
+| `capture_value` asking the scanner directly | Two slice constructions and a pointer comparison per token, to answer a question the scanner already knew |
+| `NodeTable::with_capacity(len / 10)` | Four capacity checks and four growth reallocations per doubling, across 300k nodes |
+
+None of it is clever. It is the difference between writing a lexer in terms of the
+abstraction the language offers (`chars()`) and writing it in terms of what the
+hardware does. `Scanner::scan` went from 19% of the profile to well under that,
+and the aggregate is a 28% cut on `checker.ts`.
+
+### The regression this introduced, and how it was caught
+
+The byte-driven trivia loop broke out of the byte path on the first non-ASCII
+byte — including *inside a line comment*, which then resumed scanning the
+comment's contents as code. `// héllo` is enough to trigger it.
+
+Every unit test passed. The corpus caught it: `scanner_clean_files` 100% → 99.66%,
+`parser_typescript` 99.36% → 99.03%, 17 files each. Non-ASCII characters in
+comments are common in real source and absent from hand-written tests, which is
+the whole argument for the corpus gate. There are now five trivia regression tests
+covering it (`crates/tsr-scanner/tests/scan.rs`).
 
 ## Is the comparison fair? — audited both directions
 
@@ -58,11 +85,20 @@ tsgo parse doing ~10% more work *and* producing something we were not producing.
 `tsr_ast::assign_parents` now fills the column, costing us 10–11% — close enough to
 upstream's 9.6% that the axis is fair — and the ratio moved from 0.84× to 0.93×.
 
-## Why are we not faster?
+## Where the remaining time goes
 
-This is the question the numbers now force, and the answer is uncomfortable.
+A profile of `checker.ts` after this round:
 
-A CPU profile of typescript-go parsing `dom.generated.d.ts`:
+| | share |
+|---|---:|
+| `Scanner::scan` | 18.9% |
+| parent assignment (`assign_parents` + `push_children` + `Node::node_id`) | 11.2% |
+| `Scanner::scan_identifier_or_keyword` | 5.8% |
+| `NodeTable::push` | 4.9% |
+| `Scanner::peek` + `Scanner::bump` | 5.9% |
+| `keyword_kind` | 1.9% |
+
+For context, the same profile of **typescript-go**:
 
 | | share of tsgo's parse |
 |---|---:|
@@ -73,32 +109,32 @@ A CPU profile of typescript-go parsing `dom.generated.d.ts`:
 | parent assignment | 9.6% |
 | identifier interning (`mapaccess1_faststr`, `aeshashbody`) | ~5.6% |
 
-**Roughly a third of typescript-go's parse time is Go runtime tax that does not
-exist in our build.** We have no GC, no write barriers, and a bump arena instead of
-`mallocgc`. That advantage is handed to us before we write a line of parser code.
+Roughly a third of typescript-go's parse is Go runtime tax that does not exist in
+our build: no GC, no write barriers, a bump arena instead of `mallocgc`. Before
+this round we were spending that entire advantage and arriving at parity, which
+meant our parser was ~1.4× slower than Go's at equal algorithmic work. We are now
+ahead, but the 36% is still the size of the structural head start, and 1.37× is
+less than that — **the algorithmic gap has narrowed, not closed.**
 
-We are spending all of it and arriving at parity. Netting it out: at equal
-algorithmic work, our parser is something like **1.4–1.5× slower than Go's** — and
-typescript-go's parser is not exotic, it is a straightforward recursive-descent
-port of `tsc`. The gap is ours, not theirs.
+The next items, in the order the profile supports:
 
-Our own profile says where it goes:
-
-| | share of our parse |
-|---|---:|
-| `Scanner::bump` + `Scanner::peek` | 17% |
-| `Scanner::scan` | 12.6% |
-| `Scanner::scan_identifier_or_keyword` | 5.9% |
-| `is_identifier_part` | 2.8% |
-| `NodeTable::push` | 2.1% |
-
-The scanner is ~40% of the parse and is still doing per-character work that a fast
-lexer does per-word. That is the headroom, and it is large: closing it should put
-us meaningfully ahead rather than at parity.
+- **The parent pass, 11.2%.** Comparable to tsgo's 9.6%, so we are not losing
+  here, but ours is a second traversal over a tree that was just built and is no
+  longer in cache. Fusing it into `finish_node` — where the children were touched
+  moments ago — is what upstream does and should be cheaper than either.
+- **`NodeTable::push`, 4.9%**, even with capacity reserved: four parallel vectors
+  means four length checks and four stores per node.
+- **The arena vector.** Every list site still collects into a `Vec` and copies into
+  the arena. With JSDoc off, `dom.d.ts` does 26,044 allocations; this is the
+  smallest of the three and has been re-estimated downward twice.
 
 ## Does parse speed justify the port?
 
-Honestly: **not on these numbers, and it was never the strongest argument.**
+Better than it was, and still not the strongest argument.
+
+1.37× on a large file is a real result, and it is the kind of margin a rewrite can
+be asked to show. But parsing is a small share of a compiler run — the checker
+dominates — so this is necessary, not sufficient.
 
 Parsing is a small share of a compiler run — the checker dominates — so a parser at
 parity is not a reason to rewrite 300k lines. The arguments that do carry weight
@@ -114,9 +150,9 @@ are ones we have not yet measured:
   at 0.93% type conformance — has a fast implementation. That is the real prize
   and none of these fixtures touch it.
 
-Until those are measured, the honest claim is narrow: *parse throughput is at
-parity with typescript-go, with identified headroom, and the port's case rests on
-axes we have not yet instrumented.* Anything stronger is unearned.
+Until those are measured, the honest claim is: *parse throughput is 1.37–1.41× on
+large files and 2–3× on small ones, with identified headroom remaining, and the
+port's wider case still rests on axes we have not instrumented.*
 
 ### What changed, and a correction to the previous entry
 

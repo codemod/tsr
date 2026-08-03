@@ -28,6 +28,37 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use generated::unicode;
 
+/// ASCII bytes that may start an identifier: `A-Z a-z $ _`.
+///
+/// A table rather than a chain of comparisons because this is consulted once per
+/// token and, in the continuation form, once per character of every identifier in
+/// the file. One indexed load beats three branches, and the table is built at
+/// compile time so it costs nothing but 256 bytes of rodata.
+#[allow(clippy::cast_possible_truncation)] // `i < 128`, so the cast is exact.
+static ASCII_ID_START: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut i = 0;
+    while i < 128 {
+        let b = i as u8;
+        table[i] = b.is_ascii_alphabetic() || b == b'$' || b == b'_';
+        i += 1;
+    }
+    table
+};
+
+/// ASCII bytes that may continue an identifier: [`ASCII_ID_START`] plus digits.
+#[allow(clippy::cast_possible_truncation)] // `i < 128`, so the cast is exact.
+static ASCII_ID_PART: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut i = 0;
+    while i < 128 {
+        let b = i as u8;
+        table[i] = b.is_ascii_alphanumeric() || b == b'$' || b == b'_';
+        i += 1;
+    }
+    table
+};
+
 /// Whether a code point may begin an identifier.
 ///
 /// `$` and `_` are permitted by ECMAScript in addition to `ID_Start`.
@@ -35,7 +66,7 @@ use generated::unicode;
 pub fn is_identifier_start(cp: char) -> bool {
     let c = cp as u32;
     if c < 128 {
-        return cp.is_ascii_alphabetic() || cp == '$' || cp == '_';
+        return ASCII_ID_START[c as usize];
     }
     unicode::contains(unicode::ID_START, c)
 }
@@ -47,7 +78,7 @@ pub fn is_identifier_start(cp: char) -> bool {
 pub fn is_identifier_part(cp: char) -> bool {
     let c = cp as u32;
     if c < 128 {
-        return cp.is_ascii_alphanumeric() || cp == '$' || cp == '_';
+        return ASCII_ID_PART[c as usize];
     }
     // ZWNJ (200C) and ZWJ (200D) are valid identifier parts per ECMAScript.
     c == 0x200C || c == 0x200D || unicode::contains(unicode::ID_CONTINUE, c)
@@ -175,6 +206,17 @@ impl<'a> Scanner<'a> {
         self.value.as_deref().unwrap_or_else(|| self.token_text())
     }
 
+    /// The decoded value, if the token needed decoding.
+    ///
+    /// `None` when the token's text is its value, which is the overwhelmingly
+    /// common case. Distinct from [`Scanner::token_value`], which papers over the
+    /// difference — callers that only want to know *whether* decoding happened
+    /// should ask this and avoid materialising the text.
+    #[must_use]
+    pub fn decoded_value(&self) -> Option<&str> {
+        self.value.as_deref()
+    }
+
     /// Diagnostics produced so far.
     #[must_use]
     pub fn diagnostics(&self) -> &[Diagnostic] {
@@ -286,6 +328,27 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    /// Flags describing a block comment that was just skipped.
+    ///
+    /// JSDoc is recorded here rather than parsed: the parser only needs to know
+    /// that a `/** … */` was in this token's trivia, and the two tag scans are
+    /// substring searches that let it skip the JSDoc parse entirely for the
+    /// overwhelming majority of nodes. See `docs/architecture/jsdoc.md`.
+    fn classify_block_comment(&self, start: u32) -> TokenFlags {
+        let text = &self.source[start as usize..self.pos as usize];
+        if !is_jsdoc_like_text(text) {
+            return TokenFlags::empty();
+        }
+        let mut flags = TokenFlags::PRECEDING_JSDOC_COMMENT;
+        if mentions_tag(text, &["deprecated"]) {
+            flags |= TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED;
+        }
+        if mentions_tag(text, &["see", "link", "linkcode", "linkplain"]) {
+            flags |= TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
+        }
+        flags
+    }
+
     fn error(&mut self, message: &'static tsr_diagnostics::Message, span: Span) {
         self.diagnostics.push(Diagnostic::new(message, span));
     }
@@ -308,62 +371,96 @@ impl<'a> Scanner<'a> {
         // Skip trivia, remembering whether a line break was crossed. The parser
         // needs that for automatic semicolon insertion, so it rides on the token
         // rather than requiring a separate trivia scan.
-        while let Some(ch) = self.peek() {
-            if is_line_break(ch) {
+        //
+        // Driven by bytes rather than `char`s. Trivia is the single hottest loop
+        // in the scanner — it runs between every pair of tokens, and indented
+        // source is mostly spaces — and every case that matters is one ASCII
+        // byte. Only the rare non-ASCII trivia (NBSP, U+2028, U+FEFF) needs a
+        // decode, and it falls out of the loop to get one.
+        let bytes = self.source.as_bytes();
+        let limit = self.limit as usize;
+        let mut i = self.pos as usize;
+        'trivia: loop {
+            while i < limit {
+                match bytes[i] {
+                    b' ' | b'\t' | 0x0b | 0x0c => i += 1,
+                    b'\n' => {
+                        flags |= TokenFlags::PRECEDING_LINE_BREAK;
+                        i += 1;
+                    }
+                    b'\r' => {
+                        flags |= TokenFlags::PRECEDING_LINE_BREAK;
+                        i += 1;
+                        // CRLF is one break.
+                        if i < limit && bytes[i] == b'\n' {
+                            i += 1;
+                        }
+                    }
+                    b'/' if i + 1 < limit && bytes[i + 1] == b'/' => {
+                        i += 2;
+                        while i < limit {
+                            match bytes[i] {
+                                b'\n' | b'\r' => break,
+                                // U+2028 and U+2029 are line terminators in
+                                // ECMAScript and end a line comment. They are the
+                                // only non-ASCII bytes that mean anything here,
+                                // so everything else is comment text and is
+                                // skipped as bytes — breaking out on any
+                                // non-ASCII byte would resume scanning *inside*
+                                // the comment and read its contents as code.
+                                0xE2 if i + 2 < limit
+                                    && bytes[i + 1] == 0x80
+                                    && matches!(bytes[i + 2], 0xA8 | 0xA9) =>
+                                {
+                                    break;
+                                }
+                                _ => i += 1,
+                            }
+                        }
+                    }
+                    b'/' if i + 1 < limit && bytes[i + 1] == b'*' => break,
+                    // Anything else ASCII starts a token.
+                    b if b < 0x80 => break 'trivia,
+                    // Non-ASCII: might be trivia, might be an identifier.
+                    _ => break,
+                }
+            }
+            if i >= limit {
+                break;
+            }
+
+            // Out of the byte loop: either non-ASCII, or a `/*` comment, or a
+            // line comment that ran into a non-ASCII character. Fall back to the
+            // character-level path for one step, then resume.
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                self.pos = i as u32;
+            }
+            let Some(ch) = self.peek() else { break };
+            if ch == '/' {
+                if self.peek_at(1) == Some('*') {
+                    let comment_start = self.pos;
+                    if self.skip_block_comment() {
+                        flags |= TokenFlags::PRECEDING_LINE_BREAK;
+                    }
+                    flags |= self.classify_block_comment(comment_start);
+                } else {
+                    // A line comment stopped at a non-ASCII character.
+                    self.skip_line_comment();
+                }
+            } else if is_line_break(ch) {
                 flags |= TokenFlags::PRECEDING_LINE_BREAK;
                 self.bump();
-                // Treat CRLF as one break.
-                if ch == '\r' {
-                    self.eat('\n');
-                }
-                continue;
-            }
-            if is_whitespace_single_line(ch) {
+            } else if is_whitespace_single_line(ch) {
                 self.bump();
-                continue;
+            } else {
+                break;
             }
-            // Inside a JSDoc type expression the `*` opening a continuation line
-            // is decoration, not an operator. Only the first one on the line is:
-            // `* *` is a leading asterisk followed by a real token.
-            if ch == '*'
-                && self.skip_jsdoc_leading_asterisks > 0
-                && !flags.contains(TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS)
-                && flags.contains(TokenFlags::PRECEDING_LINE_BREAK)
-            {
-                flags |= TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS;
-                self.bump();
-                continue;
-            }
-            if ch == '/' {
-                match self.peek_at(1) {
-                    Some('/') => {
-                        self.skip_line_comment();
-                        continue;
-                    }
-                    Some('*') => {
-                        let start = self.pos;
-                        if self.skip_block_comment() {
-                            flags |= TokenFlags::PRECEDING_LINE_BREAK;
-                        }
-                        let text = &self.source[start as usize..self.pos as usize];
-                        if is_jsdoc_like_text(text) {
-                            flags |= TokenFlags::PRECEDING_JSDOC_COMMENT;
-                            // A substring scan, not a parse: this is what lets the
-                            // parser skip JSDoc entirely for the overwhelming
-                            // majority of nodes that have none of these tags.
-                            if mentions_tag(text, &["deprecated"]) {
-                                flags |= TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED;
-                            }
-                            if mentions_tag(text, &["see", "link", "linkcode", "linkplain"]) {
-                                flags |= TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
-                            }
-                        }
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-            break;
+            i = self.pos as usize;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            self.pos = i.min(limit) as u32;
         }
 
         self.token_start = self.pos;
@@ -428,6 +525,36 @@ impl<'a> Scanner<'a> {
 
     fn scan_identifier_or_keyword(&mut self, flags: &mut TokenFlags) -> SyntaxKind {
         let start = self.pos;
+
+        // Fast path: a run of ASCII identifier bytes. This is what essentially
+        // every identifier in real source is, and it costs one table load and one
+        // increment per byte instead of a UTF-8 decode, a `char` classification
+        // and a second read to advance.
+        let bytes = self.source.as_bytes();
+        let limit = self.limit as usize;
+        let mut i = self.pos as usize;
+        while i < limit && ASCII_ID_PART[bytes[i] as usize] {
+            i += 1;
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            self.pos = i as u32;
+        }
+
+        // Anything that could still continue the identifier — a `\u` escape or a
+        // non-ASCII code point — drops into the general loop below, which handles
+        // both. Otherwise the identifier is exactly the bytes just scanned.
+        let needs_slow_path = i < limit && (bytes[i] == b'\\' || bytes[i] >= 0x80);
+        if !needs_slow_path {
+            let text = &self.source[start as usize..i];
+            // A zero-length match means the caller dispatched here on a character
+            // the fast loop rejects (a leading `\`), which the general loop below
+            // is responsible for.
+            if !text.is_empty() {
+                return keyword_kind(text).unwrap_or(SyntaxKind::Identifier);
+            }
+        }
+
         let mut decoded: Option<String> = None;
 
         while let Some(ch) = self.peek() {

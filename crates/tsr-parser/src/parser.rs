@@ -215,7 +215,11 @@ impl<'a> Parser<'a> {
             token,
             token_value,
             diagnostics: Vec::new(),
-            nodes: NodeTable::new(),
+            // One node per ~10 bytes is what the corpus shows: checker.ts is
+            // 3.15 MB for 304,884 nodes, dom.generated.d.ts 2.35 MB for 124,103.
+            // Estimating low would reintroduce the growth this avoids, so this
+            // takes the denser of the two.
+            nodes: NodeTable::with_capacity(source.len() / 10),
             no_in: 0,
             jsdoc: Vec::new(),
             parse_jsdoc: options.jsdoc,
@@ -488,14 +492,10 @@ impl<'a> Parser<'a> {
 
 /// Capture the scanner's decoded value, if it differs from the raw text.
 fn capture_value(scanner: &Scanner<'_>) -> Option<String> {
-    let value = scanner.token_value();
-    if std::ptr::eq(value.as_ptr(), scanner.token_text().as_ptr())
-        && value.len() == scanner.token_text().len()
-    {
-        None
-    } else {
-        Some(value.to_string())
-    }
+    // Asking the scanner directly, rather than comparing `token_value` against
+    // `token_text`: that comparison built both slices and compared pointers on
+    // every token, to answer a question the scanner already knows the answer to.
+    scanner.decoded_value().map(str::to_string)
 }
 
 /// Human-readable text for a token kind, for `'{0}' expected.`

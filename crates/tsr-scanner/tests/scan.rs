@@ -497,3 +497,89 @@ fn compound_less_than_can_be_split() {
     assert_eq!(scanner.rescan_less_than().kind, LessThanToken);
     assert_eq!(scanner.scan().kind, LessThanToken);
 }
+
+// ---- trivia --------------------------------------------------------------
+
+#[test]
+fn a_line_comment_containing_non_ascii_does_not_leak_into_the_token_stream() {
+    // The byte-level trivia loop must treat non-ASCII inside a line comment as
+    // comment text. Breaking out of the loop on the first non-ASCII byte resumes
+    // scanning *inside* the comment and reads its contents as code — which the
+    // unit tests missed and the corpus caught, as 17 scanner regressions.
+    for source in [
+        "// héllo wörld\nlet x = 1;",
+        "// 日本語のコメント\nlet x = 1;",
+        "// emoji 🎉 comment\nlet x = 1;",
+        "// ünicode\n// twö\nlet x = 1;",
+    ] {
+        let (tokens, diagnostics) = tsr_scanner::tokenize(source);
+        assert!(diagnostics.is_empty(), "{source:?} produced diagnostics");
+        let kinds: Vec<SyntaxKind> = tokens.iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                SyntaxKind::LetKeyword,
+                SyntaxKind::Identifier,
+                SyntaxKind::EqualsToken,
+                SyntaxKind::NumericLiteral,
+                SyntaxKind::SemicolonToken,
+                SyntaxKind::EndOfFile,
+            ],
+            "for {source:?}"
+        );
+    }
+}
+
+#[test]
+fn the_unicode_line_terminators_end_a_line_comment() {
+    // U+2028 and U+2029 are line terminators in ECMAScript, so they close a line
+    // comment even though no other non-ASCII character does.
+    for terminator in ['\u{2028}', '\u{2029}'] {
+        let source = format!("// comment{terminator}let x = 1;");
+        let (tokens, _) = tsr_scanner::tokenize(&source);
+        assert_eq!(
+            tokens.first().map(|t| t.kind),
+            Some(SyntaxKind::LetKeyword),
+            "for {terminator:?}"
+        );
+    }
+}
+
+#[test]
+fn block_comments_still_record_jsdoc_in_the_token_flags() {
+    // The byte loop hands `/*` to the character-level path; the JSDoc
+    // classification has to survive that hand-off.
+    let (tokens, _) = tsr_scanner::tokenize("/** @deprecated @see x */\nlet a;");
+    let first = tokens.first().expect("a token");
+    assert!(first.flags.contains(tsr_scanner::TokenFlags::PRECEDING_JSDOC_COMMENT));
+    assert!(first.flags.contains(tsr_scanner::TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED));
+    assert!(first.flags.contains(tsr_scanner::TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK));
+
+    let (plain, _) = tsr_scanner::tokenize("/* not jsdoc */\nlet a;");
+    assert!(!plain[0].flags.contains(tsr_scanner::TokenFlags::PRECEDING_JSDOC_COMMENT));
+}
+
+#[test]
+fn non_ascii_whitespace_is_still_trivia() {
+    // NBSP, the BOM, and the paragraph separators are trivia but not ASCII, so
+    // they leave the byte loop and must be recognised by the fallback.
+    for source in ["let\u{00A0}x = 1;", "\u{FEFF}let x = 1;", "let\u{2003}x = 1;"] {
+        let (tokens, diagnostics) = tsr_scanner::tokenize(source);
+        assert!(diagnostics.is_empty(), "{source:?} produced {diagnostics:?}");
+        assert_eq!(tokens.first().map(|t| t.kind), Some(SyntaxKind::LetKeyword), "for {source:?}");
+    }
+}
+
+#[test]
+fn line_breaks_are_reported_across_every_trivia_form() {
+    for source in ["a\nb", "a\r\nb", "a\rb", "a/* \n */b", "a//x\nb", "a\u{2028}b"] {
+        let (tokens, _) = tsr_scanner::tokenize(source);
+        assert!(
+            tokens[1].flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK),
+            "no line break recorded for {source:?}"
+        );
+    }
+    // And not reported when there is none.
+    let (tokens, _) = tsr_scanner::tokenize("a /* x */ b");
+    assert!(!tokens[1].flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK));
+}
