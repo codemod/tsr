@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 4729/7621 (62.05%)
-Failed         : 2892
+Passed         : 5305/7621 (69.61%)
+Failed         : 2316
 Skipped        : 4823 (excluded from the denominator)
 
   1153  skipped: multi-file case; needs per-file symbol attribution
@@ -12,9 +12,7 @@ Skipped        : 4823 (excluded from the denominator)
   520  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 2892 failures:
-compiler/ClassDeclaration22
-  2 symbol(s): C["bar"]: no symbol; C["foo"]: no symbol
+First 100 of 2316 failures:
 compiler/DeclarationErrorsNoEmitOnError
   1 symbol(s): x: no symbol
 compiler/ParameterList7
@@ -27,22 +25,12 @@ compiler/acceptableAlias1
   1 symbol(s): M.X: no symbol
 compiler/accessOverriddenBaseClassMember1
   3 symbol(s): ColoredPoint.color: no symbol; Point.x: no symbol; Point.y: no symbol
-compiler/accessorDeclarationOrder
-  2 symbol(s): C1.#name: no symbol; C2.#name: no symbol
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   1 symbol(s): x: no symbol
-compiler/ambientEnum1
-  1 symbol(s): E2: declared on {4}, expected to include {2}
-compiler/ambientExternalModuleInAnotherExternalModule
-  2 symbol(s): "ext": no symbol; ext: declared on {1, 7}, expected to include {5}
-compiler/ambientExternalModuleReopen
-  1 symbol(s): "fs": no symbol
-compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
-  1 symbol(s): "OuterModule": no symbol
 compiler/ambientExternalModuleWithRelativeModuleName
-  2 symbol(s): "./relativeModule": no symbol; ".\\relativeModule": no symbol
+  1 symbol(s): .\\relativeModule: no symbol
 compiler/ambientModuleExports
   3 symbol(s): Foo.C: no symbol; Foo.a: no symbol; Foo.b: no symbol
 compiler/ambientModuleWithTemplateLiterals
@@ -66,7 +54,7 @@ compiler/arithmeticOnInvalidTypes2
 compiler/arityErrorRelatedSpanBindingPattern
   1 symbol(s): c: no symbol
 compiler/arrayAssignmentTest3
-  3 symbol(s): B: declared on {2}, expected to include {0}; a.x: no symbol; a.y: no symbol
+  2 symbol(s): a.x: no symbol; a.y: no symbol
 compiler/arrayBestCommonTypes
   2 symbol(s): x: declared on {8, 9, 10, 11, 61, 62, 63, 64}, expected to include {8, 9, 10, 11, 31, 32, 33, 37, 38, 39, 61, 62, 63, 64, 84, 85, 86, 90, 91, 92}; y: declared on {8, 9, 10, 11, 61, 62, 63, 64}, expected to include {8, 9, 10, 11, 31, 32, 33, 37, 38, 39, 61, 62, 63, 64, 84, 85, 86, 90, 91, 92}
 compiler/arrayBindingPatternOmittedExpressions
@@ -76,13 +64,11 @@ compiler/arrayDestructuringInSwitch1
 compiler/arrayDestructuringInSwitch2
   3 symbol(s): a: no symbol; kind: no symbol; n: no symbol
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
-  3 symbol(s): "done": no symbol; "recur": no symbol; obj: no symbol
+  3 symbol(s): done: no symbol; obj: no symbol; recur: no symbol
 compiler/arrayFrom
-  3 symbol(s): A: declared on {1}, expected to include {0}; a: declared on {20}, expected to include {20, 23, 25, 27}; b: declared on {23, 25, 27}, expected to include {20, 23, 25, 27}
+  2 symbol(s): a: declared on {20}, expected to include {20, 23, 25, 27}; b: declared on {23, 25, 27}, expected to include {20, 23, 25, 27}
 compiler/arrayTypeInSignatureOfInterfaceAndClass
-  3 symbol(s): IVirtualList.removeIndices: declared on {17}, expected to include {16}; VirtualList.removeIndices: declared on {21}, expected to include {20}; WinJS.Promise: no symbol
-compiler/arrowFunctionParsingDoesNotConfuseParenthesizedObjectForArrowHead
-  1 symbol(s): prop: declared on {5}, expected to include {4}
+  1 symbol(s): WinJS.Promise: no symbol
 compiler/asiAbstract
   2 symbol(s): C2.abstract: no symbol; C2.nonAbstractFunction: declared on {5}, expected to include {6}
 compiler/asiInES6Classes
@@ -95,8 +81,6 @@ compiler/assignToExistingClass
   1 symbol(s): myProp: no symbol
 compiler/assignToFn
   1 symbol(s): f: no symbol
-compiler/assignmentCompatBug3
-  1 symbol(s): dist: declared on {5}, expected to include {3}
 compiler/assignmentCompatability1
   3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
 compiler/assignmentCompatability10
@@ -183,33 +167,49 @@ compiler/assignmentCompatability8
   3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x1: no symbol; classWithPublic.one: no symbol
 compiler/assignmentCompatability9
   3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x3: no symbol; classWithOptional.one: no symbol
-compiler/assignmentCompatability_checking-apply-member-off-of-function-interface
-  1 symbol(s): f: declared on {14}, expected to include {12}
-compiler/assignmentCompatability_checking-call-member-off-of-function-interface
-  1 symbol(s): f: declared on {14}, expected to include {12}
-compiler/assignmentIndexedToPrimitives
-  1 symbol(s): "0": no symbol
 compiler/asyncFunctionReturnExpressionErrorSpans
   3 symbol(s): baz: declared on {12}, expected to include {1, 12}; inner: declared on {13}, expected to include {2, 13}; thing: declared on {14}, expected to include {3, 14}
-compiler/asyncFunctionReturnType
-  1 symbol(s): Obj: declared on {10}, expected to include {8}
 compiler/asyncFunctionsAndStrictNullChecks
   3 symbol(s): Windows: no symbol; Windows.Foundation: no symbol; Windows.Foundation.IPromise: no symbol
 compiler/asyncYieldStarContextualType
   3 symbol(s): Result[Symbol.iterator]: no symbol; author: no symbol; authorId: no symbol
-compiler/augmentedTypesClass
-  1 symbol(s): c4: declared on {4, 5}, expected to include {2, 5}
-compiler/augmentedTypesClass2
-  3 symbol(s): c11: declared on {2, 7}, expected to include {0, 7}; c33: declared on {14, 19}, expected to include {11, 19}; c44: declared on {22}, expected to include {20}
-compiler/augmentedTypesClass3
-  1 symbol(s): c5c: declared on {10}, expected to include {8}
-compiler/augmentedTypesEnum
-  3 symbol(s): e2: declared on {4, 5}, expected to include {2, 5}; e4: declared on {11, 12}, expected to include {9, 12}; e5: declared on {15, 16}, expected to include {13, 16}
-compiler/augmentedTypesEnum2
-  1 symbol(s): e2: declared on {9, 10}, expected to include {5, 10}
-compiler/augmentedTypesFunction
-  3 symbol(s): y2: declared on {4, 5}, expected to include {2, 5}; y3: declared on {11, 12}, expected to include {9, 12}; y4: declared on {18, 19}, expected to include {16, 19}
-compiler/augmentedTypesInterface
-  3 symbol(s): i2: declared on {10, 13}, expected to include {8, 13}; i3: declared on {21, 24}, expected to include {19, 24}; i4: declared on {27}, expected to include {25}
-compiler/augmentedTypesModules
-  3 symbol(s): m2: declared on {20, 21}, expected to include {18, 21}; m2c: declared on {30, 31}, expected to include {28, 31}; m3: declared on {46, 47}, expected to include {44, 47}
+compiler/autolift3
+  1 symbol(s): readFile: no symbol
+compiler/autolift4
+  3 symbol(s): Point.x: no symbol; Point.y: no symbol; Point3D.z: no symbol
+compiler/avoidCycleWithVoidExpressionReturnedFromArrow
+  1 symbol(s): Howl.options: no symbol
+compiler/avoidNarrowingUsingConstVariableFromBindingElementWithLiteralInitializer
+  1 symbol(s): index: declared on {2}, expected to include {2, 3}
+compiler/awaitInClassInAsyncFunction
+  1 symbol(s): (Anonymous class).baz: no symbol
+compiler/awaitUnionPromise
+  1 symbol(s): x: declared on {12}, expected to include {8, 12}
+compiler/awaitedType
+  3 symbol(s): include: declared on {207, 212, 220, 225}, expected to include {189, 195, 207, 212, 220, 225}; select: declared on {207, 212, 219, 224}, expected to include {188, 192, 207, 212, 219, 224}; then: declared on {116, 148, 155}, expected to include {4, 5, 6, 7, 28, 116, 148, 155}
+compiler/awaitedTypeStrictNull
+  1 symbol(s): then: no symbol
+compiler/baseCheck
+  3 symbol(s): D.z: no symbol; E.z: no symbol; F.z: no symbol
+compiler/bindingPatternCannotBeOnlyInferenceSource
+  3 symbol(s): e1: no symbol; e2: no symbol; p1: no symbol
+compiler/bindingPatternInParameter01
+  2 symbol(s): a: no symbol; b: no symbol
+compiler/blockScopedBindingUsedBeforeDef
+  2 symbol(s): a: no symbol; b: no symbol
+compiler/blockScopedBindingsReassignedInLoop6
+  2 symbol(s): x: no symbol; y: no symbol
+compiler/bluebirdStaticThis
+  1 symbol(s): Promise.Thenable: no symbol
+compiler/booleanLiteralsContextuallyTypedFromUnion
+  2 symbol(s): mandatoryFn: declared on {23}, expected to include {10, 19, 20, 22, 23}; optionalBool: declared on {23}, expected to include {9, 13, 19, 20, 22, 23}
+compiler/builtinIterator
+  2 symbol(s): done: declared on {13}, expected to include {13, 32, 45, 47, 54, 61, 63}; value: declared on {14}, expected to include {14, 32, 45, 47, 54, 61, 63}
+compiler/cachedContextualTypes
+  1 symbol(s): foo: declared on {17}, expected to include {5, 17}
+compiler/callsOnComplexSignatures
+  3 symbol(s): a: declared on {33, 42, 43, 44, 45, 46, 100}, expected to include {24, 33, 42, 43, 44, 45, 46, 100}; b: declared on {33, 42, 44, 45, 46}, expected to include {23, 33, 42, 44, 45, 46}; getValue: no symbol
+compiler/captureThisInSuperCall
+  1 symbol(s): test: no symbol
+compiler/capturedLetConstInLoop13
+  1 symbol(s): [name + ".a"]: no symbol

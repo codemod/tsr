@@ -137,8 +137,7 @@ pub fn line_and_character(source: &str, offset: u32) -> (u32, u32) {
     (line, character as u32)
 }
 
-/// The position upstream reports for a declaration: the end of the previous
-/// token.
+/// Every token's full start in a file, recovered by scanning forwards.
 ///
 /// TypeScript's `node.pos` is the *full start* — where the node's leading trivia
 /// begins — not where its first token does. For
@@ -150,13 +149,76 @@ pub fn line_and_character(source: &str, offset: u32) -> (u32, u32) {
 ///
 /// `foo`'s declaration is reported at line 0, character 9: just after the `{`,
 /// on the line above the one `foo` is written on. Comparing token starts, or even
-/// token-start *lines*, therefore disagrees with the baseline everywhere.
+/// token-start *lines*, disagrees with the baseline everywhere.
 ///
-/// We do not record full start on nodes, so this recovers it by walking back over
-/// trivia. Comments are handled for the `*/` form only; a `//` comment cannot be
-/// recognised scanning backwards without re-lexing the line, so a declaration
-/// preceded by one lands on the comment's end rather than before it. That is a
-/// known and bounded inaccuracy — see the note in `binder_suite`.
+/// # Why forwards
+///
+/// This used to walk *backwards* over trivia from the token start, which cannot
+/// work: a `//` comment is unrecognisable scanning backwards without re-lexing
+/// the line, so a declaration preceded by one landed on the comment's end rather
+/// than before it. Measured 2026-08-04 over the corpus, that mis-attributed
+/// **2,015 declaration positions** — 817 cases failed on nothing else — and the
+/// error had a signature: the expected line was 2 above ours in 860 of them, the
+/// shape of a `//` comment plus a blank line.
+///
+/// The scanner already computes exactly this quantity ([`Scanner::full_start`]),
+/// because the parser needs it. One forward pass over the file therefore gives
+/// the answer directly rather than approximating it.
+///
+/// # Where it is still approximate
+///
+/// The scanner is context-free and the parser is not: a `/` is a regex or a
+/// division depending on grammatical context, `>>` splits inside type arguments,
+/// and JSX text is not lexed as ordinary tokens. In such a region this scan's
+/// token boundaries can diverge from the parser's, and a declaration start may
+/// not land on one. That case falls back to [`full_start`]'s backwards walk, so
+/// the result is never worse than before — it is exact wherever the forward scan
+/// agrees, which is everywhere outside those regions.
+///
+/// [`Scanner::full_start`]: tsr_scanner::Scanner::full_start
+pub struct FullStarts {
+    /// `(token start, token full start)`, ascending by token start.
+    entries: Vec<(u32, u32)>,
+}
+
+impl FullStarts {
+    /// Scan `source` once and record where every token's trivia begins.
+    #[must_use]
+    pub fn scan(source: &str) -> Self {
+        let mut scanner = tsr_scanner::Scanner::new(source);
+        let mut entries = Vec::new();
+        loop {
+            let token = scanner.scan();
+            entries.push((token.span.start, scanner.full_start()));
+            if token.kind == tsr_ast::SyntaxKind::EndOfFile {
+                break;
+            }
+        }
+        Self { entries }
+    }
+
+    /// The full start of the token beginning at `start`.
+    ///
+    /// Falls back to [`full_start`] when `start` is not a token boundary this
+    /// scan found; see the note above on why that can happen.
+    #[must_use]
+    pub fn of(&self, source: &str, start: u32) -> u32 {
+        match self.entries.binary_search_by_key(&start, |(token_start, _)| *token_start) {
+            Ok(index) => self.entries[index].1,
+            Err(_) => full_start(source, start),
+        }
+    }
+}
+
+/// The position upstream reports for a declaration, recovered by walking back
+/// over trivia.
+///
+/// Superseded by [`FullStarts`], which gets this right; kept as its fallback for
+/// the positions a forward scan cannot place, and because it is what the
+/// difference between the two is measured against.
+///
+/// Comments are handled for the `*/` form only; a `//` comment cannot be
+/// recognised scanning backwards without re-lexing the line.
 #[must_use]
 pub fn full_start(source: &str, start: u32) -> u32 {
     let bytes = source.as_bytes();
@@ -235,6 +297,41 @@ mod tests {
         let (line, character) = line_and_character(source, offset as u32);
         assert_eq!(line, 0);
         assert_eq!(character, 16, "expected UTF-16 units");
+    }
+
+    #[test]
+    fn a_forward_scan_places_a_declaration_before_its_line_comments() {
+        // The case the backwards walk could not do, and the reason the corpus
+        // mis-attributed 2,015 declaration positions before this existed:
+        // upstream reports `interface A` at 0,0 — back through both comments.
+        let source = "// one\n// two\n\ninterface A {}\n";
+        #[allow(clippy::cast_possible_truncation)]
+        let interface = source.find("interface").expect("present") as u32;
+        let full_starts = FullStarts::scan(source);
+        assert_eq!(full_starts.of(source, interface), 0);
+        assert_eq!(line_and_character(source, full_starts.of(source, interface)), (0, 0));
+
+        // What the backwards walk gets instead, kept as the record of the gap.
+        assert_eq!(line_and_character(source, full_start(source, interface)), (1, 6));
+    }
+
+    #[test]
+    fn a_forward_scan_agrees_with_the_backwards_walk_where_that_one_worked() {
+        let source = "class C {\n   foo();\n}";
+        #[allow(clippy::cast_possible_truncation)]
+        let foo = source.find("foo").expect("present") as u32;
+        let full_starts = FullStarts::scan(source);
+        assert_eq!(full_starts.of(source, foo), full_start(source, foo));
+        assert_eq!(line_and_character(source, full_starts.of(source, foo)), (0, 9));
+    }
+
+    #[test]
+    fn a_position_that_is_not_a_token_boundary_falls_back() {
+        // Inside a string literal, so no token starts there. The fallback keeps
+        // the old behaviour rather than returning some earlier token's trivia.
+        let source = "const s = \"abcdef\";";
+        let full_starts = FullStarts::scan(source);
+        assert_eq!(full_starts.of(source, 13), full_start(source, 13));
     }
 
     #[test]

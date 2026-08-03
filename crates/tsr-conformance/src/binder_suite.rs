@@ -20,14 +20,23 @@
 //! `Decl(file, line, character)` is the declaration node's *full start* — where
 //! its leading trivia begins — not where its first token does. For a member on
 //! the line after `class C {`, upstream reports the position of the `{`. We do
-//! not store full start on nodes, so [`symbols_baseline::full_start`] walks back
-//! over trivia to recover it; that handles whitespace and block comments but not
-//! `//` comments, which cannot be recognised scanning backwards. Recording full
-//! start properly is filed.
+//! not store full start on nodes, so [`symbols_baseline::FullStarts`] recovers it
+//! by scanning the file forwards with the scanner, which computes exactly this
+//! quantity for the parser. It is exact except in regions where a context-free
+//! scan diverges from the parser's tokenisation (regex, `>>` splitting, JSX
+//! text), which fall back to a backwards walk.
 //!
-//! Lines only, not columns: the recovery above is exact for the common cases and
-//! approximate for the rest, and a column comparison would turn each
-//! approximation into a failure attributed to the binder.
+//! **Name spelling is normalised away.** Upstream prints a name the way the
+//! source wrote it: `C["foo"]` for a string-literal member, `"fs"` for an ambient
+//! module, `C[1]` for a numeric one. Those are spellings of a fact the binder
+//! stores as a value, so [`normalise_symbol_name`] reduces them to dotted form
+//! rather than teaching the binder to remember quotes it has no other use for.
+//! *Computed* names (`A[expr]`) are left alone — they are genuinely late-bound
+//! and we create no symbol for them, and normalising them would turn a real gap
+//! into a passing case.
+//!
+//! Lines only, not columns: a column comparison would fail on the fallback
+//! positions above and attribute it to the binder.
 
 use std::collections::BTreeSet;
 
@@ -87,9 +96,10 @@ impl Suite for BinderSymbols {
         }
         let bound = tsr_binder::bind(result.source_file, &result.nodes);
 
-        // What we produced, keyed by *qualified* name: the baseline writes a
-        // member as `C.foo`, `C[1]`, or `C["bar"]` depending on how it was
-        // written, while we store the bare name and a parent link.
+        // One forward scan of the file, reused for every declaration position.
+        let full_starts = symbols_baseline::FullStarts::scan(&unit.content);
+
+        // What we produced, keyed by *qualified* name.
         let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
             std::collections::HashMap::new();
         for (id, symbol) in bound.symbols().iter() {
@@ -97,11 +107,10 @@ impl Suite for BinderSymbols {
             for declaration in &symbol.declarations {
                 let span = result.nodes.span(*declaration);
                 // Upstream reports the *full start*; see `symbols_baseline`.
-                let pos = symbols_baseline::full_start(&unit.content, span.start);
+                let pos = full_starts.of(&unit.content, span.start);
                 let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
                 lines.insert(line);
             }
-            let _ = symbol;
         }
 
         // What upstream expects, deduplicated: the baseline repeats a symbol once
@@ -110,7 +119,7 @@ impl Suite for BinderSymbols {
         // hash order would decide *which* three a failing case reports and the
         // committed snapshot would churn on reruns with no code change. A snapshot
         // that moves on its own teaches reviewers to ignore its diff.
-        let mut expected: std::collections::BTreeMap<&str, BTreeSet<u32>> =
+        let mut expected: std::collections::BTreeMap<String, BTreeSet<u32>> =
             std::collections::BTreeMap::new();
         let unit_file = &expected_files[0].file;
         for reference in &expected_files[0].refs {
@@ -124,7 +133,7 @@ impl Suite for BinderSymbols {
             if reference.declarations.iter().any(|d| &d.file != unit_file) {
                 continue;
             }
-            let lines = expected.entry(reference.symbol.as_str()).or_default();
+            let lines = expected.entry(normalise_symbol_name(&reference.symbol)).or_default();
             for declaration in &reference.declarations {
                 lines.insert(declaration.line);
             }
@@ -135,7 +144,7 @@ impl Suite for BinderSymbols {
 
         let mut missing = Vec::new();
         for (name, lines) in &expected {
-            match ours.get(*name) {
+            match ours.get(name.as_str()) {
                 None => missing.push(format!("{name}: no symbol")),
                 // Ours must *contain* the expected lines rather than equal them:
                 // upstream lists only the declarations reachable from a use site,
@@ -171,20 +180,93 @@ fn qualified_name(symbols: &tsr_binder::SymbolStore<'_>, id: tsr_binder::SymbolI
     let Some(parent) = symbol.parent else {
         return symbol.name.to_string();
     };
-    let prefix = qualified_name(symbols, parent);
-    let name = symbol.name;
-    if is_identifier_like(name) {
-        format!("{prefix}.{name}")
-    } else if name.chars().all(|c| c.is_ascii_digit()) && !name.is_empty() {
-        format!("{prefix}[{name}]")
-    } else {
-        format!("{prefix}[\"{name}\"]")
-    }
+    format!("{}.{}", qualified_name(symbols, parent), symbol.name)
 }
 
-/// Whether a name can be written after a dot.
-fn is_identifier_like(name: &str) -> bool {
-    let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
-        && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+/// The baseline's spelling of a symbol name, reduced to plain dotted form.
+///
+/// Upstream prints a name the way the *source* wrote it: `class C { "foo"() {} }`
+/// gives `C["foo"]`, `declare module "fs"` gives `"fs"`, and a numeric member
+/// gives `C[1]`. Those are three spellings of one fact — a member of `C` called
+/// `foo` — and which spelling was used is a property of the source, not of the
+/// binder. A symbol's name here is the value, so the two are reconciled by
+/// stripping the spelling off the baseline rather than by teaching the binder to
+/// remember quotes it has no other use for.
+///
+/// **Computed names are deliberately left alone.** `A[A.p1]` and `[Symbol.iterator]`
+/// are late-bound: the name is not known until the checker evaluates the
+/// expression, and we create no symbol for them at all. Normalising those would
+/// turn a real gap into a passing case.
+fn normalise_symbol_name(name: &str) -> String {
+    // An ambient external module is named by a string literal and printed with
+    // its quotes: `declare module "fs"` is the symbol `"fs"`.
+    if name.len() >= 2 && name.starts_with('"') && name.ends_with('"') {
+        return name[1..name.len() - 1].to_string();
+    }
+    let mut out = String::with_capacity(name.len());
+    let mut rest = name;
+    while let Some(open) = rest.find('[') {
+        let Some(close_offset) = rest[open..].find(']') else { break };
+        let close = open + close_offset;
+        let inside = &rest[open + 1..close];
+        let Some(literal) = static_bracket_name(inside) else {
+            // Computed: keep it verbatim, including the brackets, and stop —
+            // anything after it is qualified by a name we do not know.
+            break;
+        };
+        out.push_str(&rest[..open]);
+        if !out.is_empty() {
+            out.push('.');
+        }
+        out.push_str(literal);
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The value inside `[…]` when it is a literal rather than an expression.
+fn static_bracket_name(inside: &str) -> Option<&str> {
+    if inside.len() >= 2 && inside.starts_with('"') && inside.ends_with('"') {
+        return Some(&inside[1..inside.len() - 1]);
+    }
+    if !inside.is_empty() && inside.bytes().all(|b| b.is_ascii_digit()) {
+        return Some(inside);
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_string_literal_member_name_reduces_to_dotted_form() {
+        // `class C { "foo"() {} }` — we store the name `foo` with parent `C`,
+        // upstream prints how it was spelled.
+        assert_eq!(normalise_symbol_name("C[\"foo\"]"), "C.foo");
+        assert_eq!(normalise_symbol_name("C[1]"), "C.1");
+        assert_eq!(normalise_symbol_name("A.B[\"c\"].d"), "A.B.c.d");
+    }
+
+    #[test]
+    fn an_ambient_module_name_loses_its_quotes() {
+        assert_eq!(normalise_symbol_name("\"fs\""), "fs");
+        assert_eq!(normalise_symbol_name("\"./relativeModule\""), "./relativeModule");
+    }
+
+    #[test]
+    fn a_computed_name_is_left_alone() {
+        // Late-bound: we create no symbol for these, and normalising them would
+        // turn a real gap into a passing case.
+        assert_eq!(normalise_symbol_name("A[A.p1]"), "A[A.p1]");
+        assert_eq!(normalise_symbol_name("Result[Symbol.iterator]"), "Result[Symbol.iterator]");
+        assert_eq!(normalise_symbol_name("[foo()]"), "[foo()]");
+    }
+
+    #[test]
+    fn an_ordinary_name_is_unchanged() {
+        assert_eq!(normalise_symbol_name("C"), "C");
+        assert_eq!(normalise_symbol_name("M.X"), "M.X");
+    }
 }
