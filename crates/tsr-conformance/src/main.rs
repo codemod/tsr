@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use tsr_conformance::{
-    Corpus, repo_root, run_suite,
+    Corpus,
+    binder_suite::BinderSymbols,
+    repo_root, run_suite,
     scanner_suite::{ScannerCleanFiles, ScannerTermination},
     snapshot,
     suite::Suite,
@@ -42,6 +44,7 @@ fn main() -> Result<()> {
         Box::new(ScannerTermination),
         Box::new(ScannerCleanFiles),
         Box::new(Parser),
+        Box::new(BinderSymbols),
     ];
 
     let mut rows = Vec::new();

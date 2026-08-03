@@ -212,6 +212,7 @@ dependencies = [
  "anyhow",
  "rayon",
  "tsr-ast",
+ "tsr-binder",
  "tsr-core",
  "tsr-parser",
  "tsr-scanner",

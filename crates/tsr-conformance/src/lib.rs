@@ -9,12 +9,14 @@
 //! summary. A missing row and a zero row look the same in a table, and only one of
 //! them tells you where you are.
 
+pub mod binder_suite;
 pub mod case;
 pub mod corpus;
 pub mod scanner_suite;
 pub mod snapshot;
 pub mod suite;
 pub mod suites;
+pub mod symbols_baseline;
 
 use std::path::{Path, PathBuf};
 

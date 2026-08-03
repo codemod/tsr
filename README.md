@@ -69,6 +69,7 @@ explicitly rather than being omitted.
 | `scanner_termination` | 100% | the scanner consumes every file without stalling |
 | `scanner_clean_files` | 100% | files TypeScript accepts produce no scan errors |
 | `parser_typescript` | 4999/5031 (99.36%) | files TypeScript accepts parse with no diagnostics |
+| `binder_symbols` | 4729/7621 (62.05%) | symbols in upstream's `.symbols` baseline exist with the same declaration lines |
 
 Against typescript-go at the pinned commit, single-threaded and at equal work:
 parse throughput **1.45×** on the large fixtures (2–3.8× on small ones),

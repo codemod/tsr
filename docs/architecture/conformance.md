@@ -183,3 +183,70 @@ verified at 1, 3, and default thread counts. The full run is ~25 s of CPU in
 - **Per-configuration runs** are still the largest excluded group (793 cases).
 - **`.types` / `.symbols` / `.js` suites** for the binder, checker, and emitter.
 - **fourslash**, needed for the language service (`bd` epic `tsr-5o3`).
+
+## The binder's oracle: `.symbols` baselines
+
+The submodule commits **12,482 `.symbols` files**. For every identifier occurrence
+in a case, upstream records the symbol it resolved to and where every declaration
+of that symbol is:
+
+```text
+=== ClassDeclaration14.ts ===
+class C {
+>C : Symbol(C, Decl(ClassDeclaration14.ts, 0, 0))
+
+   foo();
+>foo : Symbol(C.foo, Decl(ClassDeclaration14.ts, 0, 9))
+```
+
+This is a better oracle than a symbol-table dump, and the reason is worth
+recording: a dump would compare our data model against upstream's, and the two are
+deliberately different ([ADR-0003](../adr/0003-tree-plus-side-tables.md),
+[ADR-0013](../adr/0013-checker-memoisation.md)). Resolution *results* are
+model-independent, so the baseline judges the thing we care about without
+constraining how we store it.
+
+`binder_symbols` currently asks a subset: for each symbol upstream names, did we
+create one of the same qualified name, declared on the same lines? That covers
+symbol creation, scope placement, and declaration merging.
+
+### Three things the format taught us, each of which was a bug in the harness
+
+The first measurement read **23.59%**, and almost all of the gap was the harness
+rather than the binder.
+
+**Members are qualified.** The baseline writes a member as `C.foo`, `C[1]`, or
+`C["bar"]` depending on how it was written, while we store the bare name and a
+parent link. Worth +0.4% — much less than expected, which is what sent us looking
+further.
+
+**Not every symbol is ours to produce.** A reference to `console` resolves to
+`Decl(lib.dom.d.ts, --, --)`. We do not load lib files, so requiring those symbols
+scored the absence of a standard library as a binder failure. Excluding
+declarations from other files removed 73 cases from the denominator.
+
+**Positions are full starts, and that changes the line.** `Decl(…, 0, 9)` for
+`foo` on line 1 is the position of the `{` that precedes it: TypeScript's
+`node.pos` is where a node's *leading trivia* begins, not where its first token
+does. Comparing token starts disagrees almost everywhere, and — the part that
+matters — comparing token-start *lines* does not dodge it, because the previous
+token is often on the line above.
+
+That one was worth **+38 points**, 24.14% → 62.05%.
+
+The lesson is the same one the parser's `allocs/op` diagnosis taught: a
+measurement that disagrees with a trusted oracle is more likely to be measuring
+the wrong thing than to have found a defect. Three rounds here, three harness
+bugs, no binder bugs.
+
+### What is approximate, and what is not covered
+
+- **Full start is recovered, not recorded.** We do not store it on nodes, so the
+  suite walks back over trivia from the token start. That is exact for whitespace
+  and block comments and wrong for `//` comments, which cannot be recognised
+  scanning backwards. Recording full start properly is filed.
+- **Lines, not columns**, because of the above.
+- **Resolution is not tested.** The baseline says which *occurrence* binds to which
+  symbol; recovering an occurrence's position means reconstructing the
+  interleaving of source and annotations. Filed.
+- **Multi-file cases are skipped** — 4,823 of them — pending per-file attribution.

@@ -181,6 +181,15 @@ impl CaseEntry {
         }
     }
 
+    /// The `.symbols` baseline, if upstream recorded one.
+    ///
+    /// The binder's oracle; see [`crate::symbols_baseline`].
+    #[must_use]
+    pub fn expected_symbols(&self) -> Option<String> {
+        let path = self.baseline_path("symbols");
+        path.exists().then(|| read_lossy(&path).ok()).flatten()
+    }
+
     /// Whether upstream recorded *any* output for this case.
     ///
     /// 617 cases have none — upstream never ran them, so there is no evidence of
