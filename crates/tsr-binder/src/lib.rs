@@ -28,8 +28,11 @@
 //!
 //! Named here rather than left to be discovered:
 //!
-//! - **Computed property names.** `{ ['a']: 1 }` names a symbol statically and
-//!   should declare `a`; `[Symbol.iterator]` is late-bound and needs the checker.
+//! - **Late-bound property names.** `{ ['a']: 1 }` names a symbol statically and
+//!   does declare `a`, but `[Symbol.iterator]` and `[k]` name whatever the
+//!   expression evaluates to. The binder declares nothing for those: a symbol
+//!   under a guessed name would be unreachable by any reference. Upstream gives
+//!   them an internal `__computed` name and resolves them in the checker.
 //! - **Module vs script.** A *namespace* routes its exported members into its own
 //!   symbol, but a source file still binds as a script, so top-level declarations
 //!   are locals rather than exports of a module symbol. Telling the two apart

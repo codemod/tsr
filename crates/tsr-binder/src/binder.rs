@@ -2257,7 +2257,7 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
             tsr_ast::PropertyName::StringLiteral(s) => Some(s.text),
             tsr_ast::PropertyName::NumericLiteral(n) => Some(n.text),
             tsr_ast::PropertyName::PrivateIdentifier(p) => Some(p.text),
-            tsr_ast::PropertyName::ComputedPropertyName(_) => None,
+            tsr_ast::PropertyName::ComputedPropertyName(computed) => computed_name(computed),
             tsr_ast::PropertyName::BigIntLiteral(b) => Some(b.text),
             tsr_ast::PropertyName::NoSubstitutionTemplateLiteral(t) => Some(t.text),
         }
@@ -2290,6 +2290,28 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
         Node::NamespaceImport(n) => n.name.map(|i| i.text),
         Node::ExportSpecifier(n) => n.name.map(export_name),
         Node::ImportEqualsDeclaration(n) => n.name.map(|i| i.text),
+        _ => None,
+    }
+}
+
+/// The name a computed property declares, when it is spelled with a literal.
+///
+/// `{ ['a']: 1 }` and `{ [2]: 1 }` name a member *statically*: upstream treats
+/// them exactly as if written `a` and `2`, because the expression is already the
+/// value. Anything else — `[Symbol.iterator]`, `[k]`, `[foo()]` — is
+/// **late-bound**: the name is whatever the expression evaluates to, which needs
+/// the checker, so the binder declares nothing and the member is invisible until
+/// then.
+///
+/// Upstream also handles a signed numeric literal (`[-1]`), building the name by
+/// concatenating the operator with the operand. That needs an owned string where
+/// every name here is a borrow from the source, and `[-1]` as a property name is
+/// vanishingly rare, so it is left late-bound instead.
+fn computed_name<'a>(computed: &'a tsr_ast::ComputedPropertyName<'a>) -> Option<&'a str> {
+    match computed.expression? {
+        Expression::StringLiteral(literal) => Some(literal.text),
+        Expression::NoSubstitutionTemplateLiteral(literal) => Some(literal.text),
+        Expression::NumericLiteral(literal) => Some(literal.text),
         _ => None,
     }
 }

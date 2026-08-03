@@ -253,8 +253,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 6,676/7,621
-(**87.60%**), up from 62.05% on 2026-08-04. See
+own `.symbols` baselines over the 12,444-case corpus. Currently 6,766/7,621
+(**88.78%**), up from 62.05% on 2026-08-04. See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -280,6 +280,8 @@ five biggest wins turned out to be in the harness.
 | exported members get a local *and* an export | 75.42% | binder |
 | anonymous containers own their members | 83.15% | binder + harness |
 | symbols indexed by every dotted suffix | 87.60% | harness |
+| `namespace A.B {}` desugared into nested modules | 88.39% | parser |
+| computed names that are literals declare statically | 88.78% | binder |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -289,19 +291,22 @@ at length, and the reason it is not an optimisation is exactly what the failures
 showed: an unqualified reference inside the namespace resolves to the local, so
 creating only the export loses every one of them.
 
-### What the remaining 945 failures are
+### What the remaining 855 failures are
 
 | Bucket | Complaints | Cases failing on this alone | Cause |
 |---|---:|---:|---|
-| Computed name | 488 | 331 | `tsr-y4u.11` — half is static (`{ ['a']: 1 }`), half needs the checker |
-| Wrong declaration lines | 437 | 206 | a symbol found with fewer declaration sites than upstream: declaration merging across module blocks |
-| Bare name | 347 | 164 | mixed remainder |
-| Qualified `A.b` | 271 | 108 | `tsr-y4u.10` — `namespace Foo.Bar` is not desugared by the parser |
-| Private identifier | 15 | — | |
+| Computed name | 509 | 341 | **late-bound**: `[Symbol.iterator]`, `[k]`, `[super.foo()]` — needs the checker |
+| Wrong declaration lines | 370 | 188 | a symbol found with fewer declaration sites than upstream: declaration merging across module blocks |
+| Bare name | 266 | 148 | mixed remainder |
+| Qualified `A.b` | 189 | 86 | mixed remainder |
+| Private identifier | 13 | — | `#x` is named per containing class upstream |
 
-Two of these are parser gaps rather than binder gaps, which is the same pattern
-as the oracle: the binder is now often correct about things the tree cannot
-express yet.
+The largest bucket is now **blocked rather than unwritten**. A late-bound name is
+whatever an expression evaluates to; the binder cannot know it, and declaring a
+symbol under a guessed name would be worse than declaring none — it would be
+unreachable by any reference. Upstream gives these an internal `__computed` name
+at bind time and resolves them in the checker, which is the shape this will take
+when there is one.
 
 ---
 

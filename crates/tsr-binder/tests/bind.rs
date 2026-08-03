@@ -320,3 +320,51 @@ fn an_object_literal_does_not_put_its_properties_on_the_enclosing_symbol() {
         "the object literal's properties belong to the literal, not to `I`"
     );
 }
+
+#[test]
+fn a_dotted_namespace_name_declares_nested_namespaces() {
+    let arena = Arena::new();
+    let bound = bind(&arena, "namespace A.B { export const x = 1; }");
+    let symbols = bound.result.symbols();
+    // `namespace A.B {}` means `namespace A { export namespace B {} }`, so only
+    // `A` is visible at the top level and `B` hangs off it.
+    assert_eq!(bound.top_level_names(), vec!["A"]);
+    let outer = bound.result.lookup_local(bound.root(), "A").expect("A is declared");
+    let inner = symbols
+        .get(outer)
+        .exports
+        .get("B")
+        .copied()
+        .expect("the inner namespace is exported from the outer");
+    assert_eq!(symbols.get(inner).name, "B");
+    assert!(
+        symbols.get(inner).exports.contains_key("x"),
+        "the body belongs to the innermost segment"
+    );
+}
+
+#[test]
+fn a_computed_property_name_that_is_a_literal_declares_statically() {
+    let arena = Arena::new();
+    let bound = bind(&arena, "class C { ['a']() {} [2]() {} [\"b\"]() {} }");
+    let class = bound.result.lookup_local(bound.root(), "C").expect("C is declared");
+    let members = &bound.result.symbols().get(class).members;
+    for name in ["a", "2", "b"] {
+        assert!(members.contains_key(name), "[{name}] names a member statically");
+    }
+}
+
+#[test]
+fn a_late_bound_computed_name_declares_nothing() {
+    let arena = Arena::new();
+    let bound =
+        bind(&arena, "declare const k: string;\nclass C { [k]() {} [Symbol.iterator]() {} }");
+    let class = bound.result.lookup_local(bound.root(), "C").expect("C is declared");
+    // The name is whatever the expression evaluates to, which needs the checker.
+    // Declaring *something* here would be worse than declaring nothing: it would
+    // be a symbol under a name no reference can ever match.
+    assert!(
+        bound.result.symbols().get(class).members.is_empty(),
+        "a late-bound member is invisible until the checker resolves its name"
+    );
+}

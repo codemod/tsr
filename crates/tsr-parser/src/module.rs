@@ -381,48 +381,91 @@ impl<'a> Parser<'a> {
         }
 
         let keyword = self.take_token();
-        let name = if self.at(SyntaxKind::StringLiteral) {
+        if self.at(SyntaxKind::StringLiteral) {
             let literal_start = self.pos();
             let text = self.token_value();
             let flags = self.token.ast_flags();
             self.next_token();
-            ModuleName::StringLiteral(self.finish_node(
+            let name = ModuleName::StringLiteral(self.finish_node(
                 StringLiteral::new(text, flags),
                 SyntaxKind::StringLiteral,
                 literal_start,
-            ))
-        } else {
-            // A dotted name declares nested namespaces: `namespace A.B {}`.
-            let mut name = ModuleName::Identifier(self.parse_identifier());
-            while self.eat(SyntaxKind::DotToken) {
-                name = ModuleName::Identifier(self.parse_identifier());
-            }
-            name
-        };
+            ));
+            let body = self.parse_module_body();
+            let modifiers = self.arena.alloc_slice(modifiers);
+            return Statement::ModuleDeclaration(self.finish_node(
+                ModuleDeclaration::new(modifiers, keyword, Some(name), body, None),
+                SyntaxKind::ModuleDeclaration,
+                start,
+            ));
+        }
 
-        let body = if self.at(SyntaxKind::OpenBraceToken) {
-            let block_start = self.pos();
-            self.expect(SyntaxKind::OpenBraceToken);
-            let statements = self.parse_statement_list(SyntaxKind::CloseBraceToken);
-            self.expect(SyntaxKind::CloseBraceToken);
-            let statements = self.arena.alloc_slice(&statements);
-            Some(ModuleBody::ModuleBlock(self.finish_node(
-                ModuleBlock::new(statements),
-                SyntaxKind::ModuleBlock,
-                block_start,
-            )))
-        } else {
-            self.parse_semicolon();
-            None
-        };
+        let kind = keyword.kind;
+        Statement::ModuleDeclaration(
+            self.parse_dotted_module_declaration(start, modifiers, kind, keyword),
+        )
+    }
 
+    /// One segment of a possibly-dotted namespace name, and everything under it.
+    ///
+    /// `namespace A.B { … }` means `namespace A { export namespace B { … } }`, so
+    /// upstream desugars a dotted name into one `ModuleDeclaration` per segment
+    /// rather than keeping the dots in a single node. Doing anything else loses
+    /// the nesting the binder needs: without it, neither `A` nor `A.B` gets a
+    /// symbol in the right table.
+    ///
+    /// Each segment after the first carries a **synthesised** `export` modifier —
+    /// upstream's `implicitExport` — because the inner namespace has to be
+    /// reachable through the outer one. Both it and the segment's `namespace`
+    /// keyword are zero-width: the source spells them once, and the node shape
+    /// wants one per level.
+    fn parse_dotted_module_declaration(
+        &mut self,
+        start: u32,
+        modifiers: &[ModifierLike<'a>],
+        keyword_kind: SyntaxKind,
+        keyword: &'a tsr_ast::Token<'a>,
+    ) -> &'a ModuleDeclaration<'a> {
+        let name = ModuleName::Identifier(self.parse_identifier());
+        let body = if self.eat(SyntaxKind::DotToken) {
+            let nested_start = self.pos();
+            let empty = tsr_core::Span::new(nested_start, nested_start);
+            let nested_keyword = self.alloc_token(keyword_kind, empty);
+            let export = self.alloc_token(SyntaxKind::ExportKeyword, empty);
+            let inner = self.parse_dotted_module_declaration(
+                nested_start,
+                &[ModifierLike::Token(export)],
+                keyword_kind,
+                nested_keyword,
+            );
+            Some(ModuleBody::ModuleDeclaration(inner))
+        } else {
+            self.parse_module_body()
+        };
         let modifiers = self.arena.alloc_slice(modifiers);
-        let node = self.finish_node(
+        self.finish_node(
             ModuleDeclaration::new(modifiers, keyword, Some(name), body, None),
             SyntaxKind::ModuleDeclaration,
             start,
-        );
-        Statement::ModuleDeclaration(node)
+        )
+    }
+
+    /// `{ … }` after a namespace name, or nothing for a bare declaration.
+    fn parse_module_body(&mut self) -> Option<ModuleBody<'a>> {
+        if !self.at(SyntaxKind::OpenBraceToken) {
+            self.parse_semicolon();
+            return None;
+        }
+        let block_start = self.pos();
+        self.expect(SyntaxKind::OpenBraceToken);
+        let statements = self.parse_statement_list(SyntaxKind::CloseBraceToken);
+        self.expect(SyntaxKind::CloseBraceToken);
+        let statements = self.arena.alloc_slice(&statements);
+        Some(ModuleBody::ModuleBlock(self.finish_node(
+            ModuleBlock::new(statements),
+            SyntaxKind::ModuleBlock,
+            block_start,
+        )))
     }
 
     /// `with { type: "json" }` — import attributes, if present.
