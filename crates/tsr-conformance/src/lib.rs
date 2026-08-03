@@ -11,6 +11,7 @@
 
 pub mod case;
 pub mod corpus;
+pub mod scanner_suite;
 pub mod snapshot;
 pub mod suite;
 pub mod suites;

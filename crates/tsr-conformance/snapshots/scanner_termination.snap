@@ -1,0 +1,5 @@
+commit: 5b1047d10
+
+scanner_termination Summary:
+What a pass means: every unit scans to end-of-file, consuming all input, without stalling
+Passed         : 12444/12444 (100.00%)

@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use tsr_conformance::{
-    Corpus, repo_root, run_suite, snapshot,
+    Corpus, repo_root, run_suite,
+    scanner_suite::{ScannerCleanFiles, ScannerTermination},
+    snapshot,
     suite::Suite,
     suites::{BaselineResolution, CorpusIngest, Parser, ParserReachable},
     upstream_commit,
@@ -37,6 +39,8 @@ fn main() -> Result<()> {
         Box::new(CorpusIngest),
         Box::new(BaselineResolution),
         Box::new(ParserReachable),
+        Box::new(ScannerTermination),
+        Box::new(ScannerCleanFiles),
         Box::new(Parser),
     ];
 

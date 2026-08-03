@@ -16,12 +16,14 @@ holds is *superseded* by a new record that references it, never edited or delete
 | [0004](adr/0004-oxc-inspiration-not-dependency.md) | Take oxc's designs and dependency choices; link no `oxc_*` crate | Accepted |
 | [0005](adr/0005-codegen-from-ast-json.md) | Generate the AST from upstream's `_scripts/ast.json` | Accepted |
 | [0006](adr/0006-conformance-oracle.md) | Assert conformance against generated Go, not against `ast.json` | Accepted |
+| [0007](adr/0007-generated-code-policy.md) | Classify generated code by source of truth; port only Category A | Accepted |
 
 ## Architecture — `architecture/`
 
 Living documents describing how a subsystem works and why it is shaped that way.
 
 - [ast.md](architecture/ast.md) — node representation, ids, side tables, codegen
+- [scanner.md](architecture/scanner.md) — tokenisation, re-scanning, backtracking
 - [conformance.md](architecture/conformance.md) — the corpus, the oracles, the ratchet
 
 ## Conventions

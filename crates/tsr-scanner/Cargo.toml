@@ -1,0 +1,18 @@
+[package]
+name = "tsr-scanner"
+description = "The TypeScript scanner (lexer)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tsr-core = { workspace = true }
+tsr-ast = { workspace = true }
+tsr-diagnostics = { workspace = true }
+bitflags = { workspace = true }
+
+[lints]
+workspace = true

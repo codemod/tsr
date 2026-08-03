@@ -25,11 +25,31 @@ suite                                    passed      rate   skipped
 corpus_ingest                       12444/12444   100.00%         0
 baseline_resolution                 12444/12444   100.00%         0
 parser_reachable_target              5648/11187    50.49%      1257
+scanner_termination                 12444/12444   100.00%         0
+scanner_clean_files                   5646/5648    99.96%      6796
 parser_typescript                       0/12444     0.00%         0
 ```
 
-The first two measure the **harness**; the third measures the **size of the target**;
-the fourth measures the **compiler**, and is the number this crate exists to move.
+The first two measure the **harness**; `parser_reachable_target` measures the
+**size of the target**; the scanner suites and `parser_typescript` measure the
+**compiler**.
+
+`scanner_clean_files` is the first suite to have found real bugs — three of them,
+none visible by inspection. See [scanner.md](scanner.md).
+
+### Driving the scanner without a parser
+
+`scanner_clean_files` cannot use a bare `while scan()` loop: templates and regular
+expressions need context the scanner does not have, and a naive loop blames the
+scanner for its own mis-driving. Before this was fixed the suite read 96.55%, of
+which most failures were the harness's fault.
+
+The suite therefore tracks template substitution nesting exactly (decidable) and
+*probes* each `/` as a regular expression, rewinding via `Scanner::restore` when it
+does not close. The probe is a heuristic — it would mis-handle some division
+expressions — which is acceptable for a "produces no diagnostics" check and would
+not be for a token-stream comparison. It is harness scaffolding; the parser
+replaces it.
 
 ## The corpus
 
@@ -132,10 +152,8 @@ hides detail, never magnitude.
 ## Not yet built
 
 - **Per-configuration runs** for the 793 varied cases.
-- **CI wiring.** The ratchet is not enforced yet; snapshots are written and
-  committed by hand. Until CI diffs them, the ratchet is a convention rather than
-  a gate.
-- **Parallelism.** The full run takes ~0.5s single-threaded, so `rayon` is not
-  warranted yet. It will be once a real parser runs per case.
+- **Parallelism.** The full run now takes ~58s in a debug build, up from ~0.5s
+  before the scanner suites existed — it is now doing real work per file. `rayon`
+  across cases is the obvious next move.
 - **`.types` / `.symbols` / `.js` suites** for the binder, checker, and emitter.
 - **fourslash**, needed for the language service (`bd` epic `tsr-5o3`).

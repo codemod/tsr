@@ -133,6 +133,8 @@ name = "tsr-conformance"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "tsr-ast",
+ "tsr-scanner",
 ]
 
 [[package]]
@@ -141,6 +143,24 @@ version = "0.1.0"
 dependencies = [
  "nonmax",
  "rustc-hash",
+]
+
+[[package]]
+name = "tsr-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "tsr-core",
+]
+
+[[package]]
+name = "tsr-scanner"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "tsr-ast",
+ "tsr-core",
+ "tsr-diagnostics",
 ]
 
 [[package]]
