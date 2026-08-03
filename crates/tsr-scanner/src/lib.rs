@@ -18,6 +18,7 @@ mod generated;
 mod jsdoc;
 mod token;
 
+pub use generated::keywords::keyword_kind;
 pub use jsdoc::{CommentRange, is_jsdoc_like_text, jsdoc_ranges_in};
 pub use token::{Token, TokenFlags};
 
@@ -86,27 +87,6 @@ pub fn is_whitespace_single_line(cp: char) -> bool {
             | '\u{3000}' // ideographic space
             | '\u{FEFF}' // byte order mark
     )
-}
-
-/// Look up a reserved word or contextual keyword.
-///
-/// The table is derived from [`SyntaxKind`] itself rather than duplicated: every
-/// keyword kind is named `<Word>Keyword`, and the source text is its lowercase
-/// form (`KeyOfKeyword` → `keyof`, `InstanceOfKeyword` → `instanceof`). That the
-/// derivation matches upstream's hand-written map exactly is asserted in
-/// `tests/keyword_conformance.rs` rather than assumed.
-#[must_use]
-pub fn keyword_kind(text: &str) -> Option<SyntaxKind> {
-    // Cheap rejection: no keyword is shorter than 2 or longer than 11 chars, and
-    // all are pure lowercase ASCII.
-    if text.len() < 2 || text.len() > 11 || !text.bytes().all(|b| b.is_ascii_lowercase()) {
-        return None;
-    }
-    let first = SyntaxKind::FIRST_KEYWORD as u16;
-    let last = SyntaxKind::LAST_KEYWORD as u16;
-    (first..=last).filter_map(SyntaxKind::from_u16).find(|kind| {
-        kind.name().strip_suffix("Keyword").is_some_and(|word| word.eq_ignore_ascii_case(text))
-    })
 }
 
 /// A saved scanner position, produced by [`Scanner::save`].
@@ -253,16 +233,39 @@ impl<'a> Scanner<'a> {
     }
 
     fn peek(&self) -> Option<char> {
+        let pos = self.pos as usize;
+        let bytes = self.source.as_bytes();
+        if pos >= self.limit as usize {
+            return None;
+        }
+        let byte = bytes[pos];
+        if byte < 0x80 {
+            return Some(byte as char);
+        }
         self.rest().chars().next()
     }
 
     fn peek_at(&self, offset: usize) -> Option<char> {
+        let pos = self.pos as usize + offset;
+        let bytes = self.source.as_bytes();
+        if pos < self.limit as usize && bytes[self.pos as usize..=pos].is_ascii() {
+            return Some(bytes[pos] as char);
+        }
         self.rest().chars().nth(offset)
     }
 
     fn bump(&mut self) -> Option<char> {
-        let ch = self.peek()?;
-        // `len_utf8` is 1..=4, so the cast cannot truncate.
+        let pos = self.pos as usize;
+        let bytes = self.source.as_bytes();
+        if pos >= self.limit as usize {
+            return None;
+        }
+        let byte = bytes[pos];
+        if byte < 0x80 {
+            self.pos += 1;
+            return Some(byte as char);
+        }
+        let ch = self.rest().chars().next()?;
         #[allow(clippy::cast_possible_truncation)]
         {
             self.pos += ch.len_utf8() as u32;

@@ -2,122 +2,149 @@
 
 **Gate:** [ADR-0009](../adr/0009-performance-gate.md) — the comparison is against
 typescript-go at the pinned commit, not against our own history.
-**Harness:** `crates/tsr-parser/benches/parse.rs`, deliberately mirroring
+**Harness:** `crates/tsr-parser/benches/parse.rs`, mirroring
 `internal/parser/parser_test.go`'s `BenchmarkParse`.
+**Profile:** `cargo run --release -p tsr-parser --example alloc_profile -- <file>`.
 
-## First measurement — 2026-08-03
+## Where we are — 2026-08-03, after the first round of profiling
 
-The gate was specified in ADR-0009 before anything had been measured. This is the
-first run of it. **We are slower than typescript-go on every non-trivial fixture.**
-
-Both sides: single-threaded, pinned to one core (`taskset -c 2`), 3 s per fixture,
-AMD Ryzen 9 7950X3D, typescript-go at `5b1047d10` built with Go 1.26.5, tsr built
-`--release`.
-
-### Wall clock
+Single-threaded, pinned to one core (`taskset -c 2`), 3 s per fixture, AMD Ryzen 9
+7950X3D. typescript-go at `5b1047d10`, Go 1.26.5. tsr built `--release`.
 
 | Fixture | Size | tsgo ns/op | tsr ns/op | tsr / tsgo |
 |---|---:|---:|---:|---:|
-| `empty.ts` | 0 B | 438 | 110 | **0.25×** ✅ |
-| `Herebyfile.mjs` | 37 KB | 551,711 | 593,857 | 1.08× |
-| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 282,170 | 1.90× |
-| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 31,540,421 | **2.43×** |
-| `checker.ts` | 3.1 MB | 32,721,718 | 48,429,856 | 1.48× |
+| `empty.ts` | 0 B | 438 | 111 | **0.25×** |
+| `Herebyfile.mjs` | 37 KB | 551,711 | 270,721 | **0.49×** |
+| `checker.ts` | 3.1 MB | 32,721,718 | 29,744,505 | **0.91×** |
+| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 158,598 | 1.07× |
+| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 20,176,507 | 1.56× |
 
-Fixed per-file overhead is 4× *better* than upstream's — an arena and no VFS
-lookup beat Go's per-file setup. Everything that actually parses is worse.
+Faster on three, at parity on one, and 1.56× slower on the large `.d.ts`.
 
-### Allocation
+### What changed, and a correction to the previous entry
 
-This is where the answer is.
+The first measurement (committed in `66e20d5`) had every fixture slower — 1.48× on
+`checker.ts` and 2.43× on `dom.generated.d.ts`. That entry attributed the gap to
+**allocation counts**, on the evidence that they were 4× and 21.6× upstream's.
 
-| Fixture | tsgo B/op | tsr B/op | tsgo allocs/op | tsr allocs/op | alloc ratio |
-|---|---:|---:|---:|---:|---:|
-| `empty.ts` | 1,072 | 4,264 | 4 | 6 | 1.5× |
-| `Herebyfile.mjs` | 433,223 | 388,565 | 1,104 | 1,386 | 1.3× |
-| `jsxComplexSignature….tsx` | 153,434 | 210,602 | 183 | 868 | 4.7× |
-| `checker.ts` | 26,132,951 | 25,773,917 | 11,930 | 48,584 | 4.1× |
-| `dom.generated.d.ts` | 9,840,043 | 12,035,922 | 2,784 | 60,182 | **21.6×** |
+**That diagnosis was wrong about the primary cause, and the record is corrected
+here.** Profiling showed the allocation counts were real but not what the time was
+going into. Two changes to the *scanner* — which the previous entry did not
+implicate at all — accounted for nearly all of it:
 
-Bytes are comparable. **Allocation *counts* are not**, and the two fixtures where
-the count is worst are exactly the two where wall-clock is worst.
+| | dom.d.ts total | checker.ts total |
+|---|---:|---:|
+| Before | 32.78 ms | 49.27 ms |
+| ASCII fast path in `peek`/`bump` | 25.50 ms | 42.46 ms |
+| Generated keyword table | **19.44 ms** | **29.03 ms** |
+| Net | **−41%** | **−41%** |
 
-## Diagnosis: the arena is bypassed for every list
+Allocation counts are **unchanged** by both — still 60,182 and 48,584. The whole
+41% came from work per byte and per identifier, not from the allocator. Had we
+acted on the original diagnosis and built the arena vector first, we would have
+done the harder change for the smaller win.
 
-`dom.generated.d.ts` produces 124,103 nodes and 60,182 heap allocations — one
-malloc per two nodes, in a parser whose entire premise is a bump arena.
+The lesson is narrow and worth keeping: *`allocs/op` was the only per-operation
+number the benchmark reported, so it was the only thing the diagnosis could point
+at.* A wall-clock benchmark plus an allocation counter is not a profile.
 
-The cause is the shape of every list-building site. `Arena::alloc_slice` takes a
-`&[T]` and copies, so each of the 108 call sites in the parser looks like:
+## The two fixes
+
+### 1. The scanner decoded UTF-8 for every character read
+
+`peek`, `peek_at`, and `bump` each built a bounds-checked `&str` slice, constructed
+a `Chars` iterator, and decoded a UTF-8 code point — for source that is almost
+entirely ASCII:
 
 ```rust
-let mut members = Vec::new();
-while … { members.push(self.parse_type_member()); }
-let members = self.arena.alloc_slice(&members);   // copy into the arena
+fn peek(&self) -> Option<char> {
+    self.rest().chars().next()
+}
 ```
 
-The `Vec` is a heap allocation that reallocs as it grows, and then the contents are
-copied a second time into the arena. Instrumenting `alloc_slice` confirms the
-scale:
+Now they read a byte and take the `< 0x80` branch, falling back to the decoder only
+for genuinely non-ASCII input. Roughly 30 lines. Scanning got 30–33% faster and
+whole-parse 14–22% faster.
 
-| Fixture | Nodes | Non-empty `alloc_slice` calls | Total allocations |
-|---|---:|---:|---:|
-| `dom.generated.d.ts` | 124,103 | 37,913 | 60,182 |
-| `checker.ts` | 304,884 | 43,245 | 48,584 |
+### 2. `keyword_kind` was a linear scan with string comparisons
 
-Non-empty lists account for the bulk of allocations on both, and the growth
-reallocs make up most of the rest.
+Asked once per identifier — hundreds of thousands of times on `checker.ts` — the
+hand-written version walked `FIRST_KEYWORD..=LAST_KEYWORD`, called
+`SyntaxKind::name()`, and did `eq_ignore_ascii_case` against each:
 
-It also explains why `dom.generated.d.ts` is the worst case rather than the larger
-`checker.ts`. A `.d.ts` is dense in *declarations*, and each declaration carries
-several lists — modifiers, type parameters, parameters, members. A function body is
-dense in *expressions*, which mostly are not lists. Per node, dom.d.ts builds three
-times as many lists (37,913 / 124,103 versus 43,245 / 304,884), and it is 2.43×
-slower where checker.ts is 1.48× slower.
+```rust
+(first..=last).filter_map(SyntaxKind::from_u16).find(|kind| {
+    kind.name().strip_suffix("Keyword").is_some_and(|word| word.eq_ignore_ascii_case(text))
+})
+```
 
-typescript-go avoids this with pooled slice arenas (`p.nodeSliceArena.NewSlice(n)`),
-which is why it manages 2,784 allocations for a 2.3 MB file.
+That is ~85 string comparisons to decide that `elementFromPoint` is not a keyword.
+It is now a generated `match` on `&str`
+(`crates/tsr-scanner/src/generated/keywords.rs`), which rustc dispatches on length
+before comparing bytes, so most identifiers cost one integer comparison. This was
+the larger of the two fixes.
 
-## What to do about it
+Generated rather than hand-written because the keyword set is defined by
+`SyntaxKind`: a hand-maintained table would drift silently the next time upstream
+adds a keyword, and the failure mode is the scanner quietly emitting it as an
+identifier. A generated test asserts the table and the `SyntaxKind` range agree.
 
-The fix is an arena-backed growable vector — allocate into the bump arena and grow
-in place, so a list costs no malloc and no second copy. This is what oxc does with
-`ArenaVec`, and it is the single change the numbers point at. Filed as `bd`
-issue; it should be done before any other performance work, because the allocation
-profile is currently distorted enough that any other measurement is measuring this.
+## Where the remaining time goes
 
-Nothing here suggests a design problem with
-[ADR-0003](../adr/0003-tree-plus-side-tables.md): the tree-plus-side-tables shape
-is fine, and byte counts are already at parity. It is one missing container type.
+`dom.generated.d.ts`, the one fixture still behind, at 19.44 ms against tsgo's
+12.96 ms:
 
-## Honest limits of this measurement
+```
+  2,348,669 bytes, 124,103 nodes
+  scan only        7.39 ms   (38%)
+  parse - scan    12.05 ms   (62%)
+  60,182 allocations (12,955 reallocs), 12.0 MB
+```
 
-- **Two fixtures out of five are dialect mismatches.** `Herebyfile.mjs` is parsed
-  by tsgo with the JSX language variant (its `getLanguageVariant` maps `ScriptKindJS`
-  to JSX); `ScriptKind::from_file_name` gives us plain TypeScript for `.mjs`. We are
-  doing slightly *less* work than upstream on that fixture, so its 1.08× flatters us.
-- **The parse is not the same parse.** tsgo defers JSDoc for `.ts`; per
-  [ADR-0008](../adr/0008-jsdoc-parsed-eagerly.md) we parse it eagerly. That is
-  measured at +7.5% on ordinary TypeScript and is included in every tsr number here.
-  It does not account for a 2.4× gap.
-- **This is parse only.** The binder and checker do not exist, so ADR-0009's
-  "faster in every aspect" is not yet a claim this covers — as that ADR says
-  explicitly.
-- **Peak RSS is not measured.** ADR-0009 gates it; the harness does not report it
-  yet.
-- **One machine, one run.** No variance estimate. Treat the 1.08× as noise-adjacent
-  and the 2.43× as real.
+Two candidates, in the order the evidence supports:
+
+**The parser proper: 12.05 ms for 124,103 nodes, ~97 ns per node.** This is now the
+biggest single block of time on the fixture and it has not been profiled — `perf`
+is unavailable on this machine (`perf_event_paranoid=4`), so `alloc_profile` only
+resolves to the scan/parse boundary. Getting inside it needs either relaxed perf
+permissions or finer manual instrumentation.
+
+**The arena vector, still worth doing but smaller than first claimed.** Every list
+site collects into a `Vec` and copies into the arena, giving ~47k mallocs and ~13k
+reallocs on this fixture. At a plausible 20–30 ns each that is roughly 1.0–1.4 ms of
+19.4 ms — about **6%**, not the 2.4× the first entry implied. It remains the right
+change (it also removes a second copy of every list, which the malloc estimate does
+not capture) but it should not be expected to close the remaining gap alone.
+
+`.d.ts` files are the worst case for both: dense in declarations, and each
+declaration carries several lists — modifiers, type parameters, parameters,
+members. Per node, `dom.d.ts` builds three times as many lists as `checker.ts`
+(37,913 / 124,103 versus 43,245 / 304,884).
+
+## Honest limits of these numbers
+
+- **`Herebyfile.mjs` is a dialect mismatch that flatters us.** tsgo parses `.mjs`
+  with the JSX language variant (`getLanguageVariant` maps `ScriptKindJS` to JSX);
+  `ScriptKind::from_file_name` gives us plain TypeScript. We are doing less work.
+  Its 0.49× should not be quoted without this caveat.
+- **We parse JSDoc eagerly** ([ADR-0008](../adr/0008-jsdoc-parsed-eagerly.md)),
+  which tsgo defers for `.ts`. That is included in every tsr number here and makes
+  the comparison, if anything, unfavourable to us.
+- **Parse only.** No binder, no checker. ADR-0009's "faster in every aspect" is not
+  a claim these numbers support.
+- **Peak RSS is not measured**, though ADR-0009 gates it.
+- **One machine, one run, no variance estimate.** Treat 1.07× as parity and the
+  1.56× as real.
 
 ## Reproducing
 
 ```bash
-# tsr — pinned to one core, 3 s per fixture
 taskset -c 2 cargo bench -p tsr-parser --bench parse
+taskset -c 2 cargo run --release -p tsr-parser --example alloc_profile -- <file>
 
-# typescript-go, same fixtures, same core
 cd vendor/typescript-go
 taskset -c 2 go test -run '^$' -bench BenchmarkParse -benchmem -cpu 1 -benchtime 3s ./internal/parser/
 ```
 
-A Go toolchain is not installed in CI yet — ADR-0009 lists that, and recursive
-submodules, as the prerequisites the gate still needs.
+CI has neither a Go toolchain nor recursive submodules; ADR-0009 lists both as
+prerequisites the gate still needs.
