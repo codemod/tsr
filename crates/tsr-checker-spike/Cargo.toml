@@ -1,0 +1,16 @@
+[package]
+name = "tsr-checker-spike"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+tsr-core = { workspace = true }
+rustc-hash = { workspace = true }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "memo"
+harness = false

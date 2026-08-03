@@ -186,6 +186,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsr-checker-spike"
+version = "0.1.0"
+dependencies = [
+ "rustc-hash",
+ "tsr-core",
+]
+
+[[package]]
 name = "tsr-conformance"
 version = "0.1.0"
 dependencies = [
