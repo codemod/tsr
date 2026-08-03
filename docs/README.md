@@ -19,7 +19,7 @@ holds is *superseded* by a new record that references it, never edited or delete
 | [0007](adr/0007-generated-code-policy.md) | Classify generated code by source of truth; port only Category A | Accepted |
 | [0008](adr/0008-jsdoc-parsed-eagerly.md) | Parse JSDoc during the main parse; upstream's lazy path needs a lifetime we do not have | Partly superseded by 0010 |
 | [0009](adr/0009-performance-gate.md) | Gate performance against typescript-go at the pin, not against our own history | Proposed |
-| [0013](adr/0013-checker-memoisation.md) | The checker computes through `&mut self` and returns ids; no interior mutability | Accepted |
+| [0013](adr/0013-checker-memoisation.md) | The checker computes through `&mut self` and returns handles, not references; no interior mutability | Accepted |
 | [0012](adr/0012-ast-is-sync.md) | Nodes hold no interior mutability, so a parsed tree can be shared across threads | Accepted |
 | [0011](adr/0011-unsafe-is-opt-in.md) | `unsafe_code = "deny"` workspace-wide; three justified exceptions | Accepted |
 | [0010](adr/0010-jsdoc-is-a-parse-option.md) | JSDoc becomes a parse option; the gate's ratio is measured without it, as upstream does | Accepted |

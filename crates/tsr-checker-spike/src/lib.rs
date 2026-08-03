@@ -52,10 +52,10 @@
 //!
 //! See `docs/adr/0013-checker-memoisation.md` for the recommendation.
 
-pub mod arena;
-pub mod cells;
-pub mod ids;
+pub mod handles;
 pub mod program;
+pub mod refs_cell;
+pub mod refs_refcell;
 
 pub use program::{Decl, Prim, Program, SymbolId};
 
@@ -88,9 +88,9 @@ mod tests {
     #[test]
     fn the_three_styles_agree() {
         for program in program::fixtures() {
-            let by_ids = ids::resolve_all(&program);
-            let by_arena = arena::resolve_all(&program);
-            let by_cells = cells::resolve_all(&program);
+            let by_ids = handles::resolve_all(&program);
+            let by_arena = refs_refcell::resolve_all(&program);
+            let by_cells = refs_cell::resolve_all(&program);
             assert_eq!(by_ids, by_arena, "ids vs arena on {}", program.name);
             assert_eq!(by_ids, by_cells, "ids vs cells on {}", program.name);
         }
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn circular_definitions_resolve_to_an_error_rather_than_hanging() {
         let program = Program::circular_pair();
-        let resolved = ids::resolve_all(&program);
+        let resolved = handles::resolve_all(&program);
         assert!(
             resolved.iter().any(|r| matches!(r, Resolved::Circular)),
             "expected a circularity, got {resolved:?}"
@@ -111,7 +111,7 @@ mod tests {
         // Memoisation is the point; a style that recomputes would still pass the
         // agreement test above while being exponential on a diamond graph.
         let program = Program::diamond(12);
-        let (_, computations) = ids::resolve_all_counting(&program);
+        let (_, computations) = handles::resolve_all_counting(&program);
         assert_eq!(computations, program.len(), "each symbol should be computed exactly once");
     }
 }

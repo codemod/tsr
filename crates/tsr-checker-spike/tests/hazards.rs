@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 
-use tsr_checker_spike::{Program, Resolved, arena, cells, ids};
+use tsr_checker_spike::{Program, Resolved, handles, refs_cell, refs_refcell};
 
 /// The hazard that `RefCell`-guarded memo tables carry.
 ///
@@ -73,9 +73,9 @@ fn a_cell_memo_has_no_equivalent_hazard() {
 fn deep_chains_do_not_overflow() {
     // TypeScript's own alias chains are short; 5,000 is far past realistic.
     let program = Program::chain(5_000);
-    assert_eq!(ids::resolve_all(&program).len(), 5_000);
-    assert_eq!(arena::resolve_all(&program).len(), 5_000);
-    assert_eq!(cells::resolve_all(&program).len(), 5_000);
+    assert_eq!(handles::resolve_all(&program).len(), 5_000);
+    assert_eq!(refs_refcell::resolve_all(&program).len(), 5_000);
+    assert_eq!(refs_cell::resolve_all(&program).len(), 5_000);
 }
 
 /// A cycle is reported for every symbol that participates, not just the first.
@@ -86,7 +86,7 @@ fn deep_chains_do_not_overflow() {
 #[test]
 fn every_symbol_in_a_cycle_reports_it() {
     let program = Program::circular_pair();
-    for resolved in ids::resolve_all(&program) {
+    for resolved in handles::resolve_all(&program) {
         assert!(
             matches!(resolved, Resolved::Circular),
             "both symbols in the cycle should report circularity"

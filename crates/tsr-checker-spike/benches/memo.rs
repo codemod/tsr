@@ -14,7 +14,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use tsr_checker_spike::{Program, arena, cells, ids};
+use tsr_checker_spike::{Program, handles, refs_cell, refs_refcell};
 
 /// Median of `runs`, in nanoseconds. Median rather than mean so one scheduling
 /// hiccup does not move the number.
@@ -58,25 +58,25 @@ fn main() {
 
     println!(
         "{:<26} {:>8} {:>13} {:>13} {:>13} {:>9}",
-        "program", "symbols", "ids ns", "arena ns", "cells ns", "best"
+        "program", "symbols", "handles", "refs+RefCell", "refs+Cell", "best"
     );
     for program in &programs {
         // Warm up: the first run of each pays for allocator growth.
-        black_box(ids::resolve_only(program));
-        black_box(arena::resolve_only(program));
-        black_box(cells::resolve_only(program));
+        black_box(handles::resolve_only(program));
+        black_box(refs_refcell::resolve_only(program));
+        black_box(refs_cell::resolve_only(program));
 
         let by_ids = measure(target, || {
-            black_box(ids::resolve_only(program));
+            black_box(handles::resolve_only(program));
         });
         let by_arena = measure(target, || {
-            black_box(arena::resolve_only(program));
+            black_box(refs_refcell::resolve_only(program));
         });
         let by_cells = measure(target, || {
-            black_box(cells::resolve_only(program));
+            black_box(refs_cell::resolve_only(program));
         });
 
-        let best = [("ids", by_ids), ("arena", by_arena), ("cells", by_cells)]
+        let best = [("handles", by_ids), ("refs+RefCell", by_arena), ("refs+Cell", by_cells)]
             .into_iter()
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map_or("-", |(name, _)| name);

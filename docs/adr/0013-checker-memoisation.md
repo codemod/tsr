@@ -1,4 +1,4 @@
-# ADR-0013: The checker computes through `&mut self` and returns ids
+# ADR-0013: The checker computes through `&mut self` and returns handles
 
 - **Status:** accepted
 - **Date:** 2026-08-03
@@ -51,6 +51,31 @@ self.memo[symbol.index()] = Some(resolved);
 Because `TypeId` is `Copy`, nothing survives into the recursion, and the whole
 subsystem is ordinary safe Rust with no interior mutability at all.
 
+## What this does *not* change
+
+**The AST stays in the arena.** Nothing here touches the parser, `tsr_core::Arena`,
+or [ADR-0003](0003-tree-plus-side-tables.md). The arena remains how the tree is
+allocated, and it is not in question.
+
+The decision is scoped to a subsystem that does not exist yet: how a *checker*
+hands back the types it computes. The axis is **handle or reference** —
+
+- a **reference** (`&'a Type<'a>`) needs storage with stable addresses, which means
+  an arena, and forces `&self` methods with interior mutability so the recursion
+  can re-enter;
+- a **handle** (`TypeId`) can index contiguous storage and lets methods stay
+  `&mut self` with no interior mutability at all.
+
+The storage question follows from the handle question rather than being separate.
+And even that is not settled by this ADR: a handle can perfectly well index a table
+of arena-allocated types if a future `Type` turns out to want stable addresses for
+other reasons. What is settled is the *calling convention*, because that is the
+part which cannot be changed later without touching every line.
+
+An earlier version of the spike named its three styles `ids` / `arena` / `cells`,
+which read as though the question were whether to use an arena at all. They are now
+`handles` / `refs_refcell` / `refs_cell`, which names the axis.
+
 ## The evidence
 
 Three styles were built as complete implementations over the same vertical slice —
@@ -60,31 +85,35 @@ five program shapes, and to compute each symbol exactly once.
 
 | Style | Issue's label | Shape |
 |---|---|---|
-| `ids` | (b) | `&mut self`, `TypeId` everywhere |
-| `arena` | (a)/(c) | `&self`, types in the bump arena, memo behind `RefCell` |
-| `cells` | (c) refined | as `arena`, memo as `Cell<Option<&Type>>` |
+| `handles` | (b) | `&mut self`, methods return `TypeId` |
+| `refs_refcell` | (a)/(c) | `&self`, methods return `&'a Type` from a bump arena, memo behind `RefCell` |
+| `refs_cell` | (c) refined | as above, memo as `Cell<Option<&Type>>` |
 
 Resolution time, one core, median of repeated runs:
 
-| Program | Symbols | `ids` | `arena` | `cells` |
+| Program | Symbols | `handles` | `refs_refcell` | `refs_cell` |
 |---|---:|---:|---:|---:|
-| wide | 2,000 | **38.8 µs** | 50.4 µs | 44.5 µs |
-| wide | 20,000 | **413 µs** | 467 µs | 442 µs |
-| chain (deep aliases) | 2,000 | **10.2 µs** | 12.4 µs | 11.0 µs |
-| cycle in the middle | 20,000 | **423 µs** | 473 µs | 452 µs |
-| diamond | 42 | 2.04 µs | 1.88 µs | **1.84 µs** |
+| wide | 2,000 | **38.3 µs** | 46.3 µs | 44.5 µs |
+| wide | 20,000 | **379 µs** | 462 µs | 441 µs |
+| chain (deep aliases) | 2,000 | **9.1 µs** | 12.3 µs | 10.9 µs |
+| cycle in the middle | 20,000 | **378 µs** | 459 µs | 448 µs |
+| diamond | 42 | 1.99 µs | 1.85 µs | **1.83 µs** |
 
-**`ids` is 7–23% faster on every realistic shape**, losing only on a 42-symbol
-program where the whole run is microseconds. The likely reason is mundane: `ids`
-holds types in one contiguous `Vec`, while the arena styles scatter them and add a
-pointer hop per member.
+**`handles` is 17–25% faster on every realistic shape**, losing only on a
+42-symbol program where the whole run is microseconds.
+
+The likely reason is mundane and worth naming because it is *not* "arenas are
+slow": `handles` keeps types in one contiguous `Vec`, so resolving a union walks
+adjacent memory, while the reference styles allocate each type separately and add
+a pointer hop per member. The same effect would appear between a `Vec` and any
+scattered allocator. It says something about locality, not about arenas.
 
 ### An earlier version of this benchmark was wrong
 
 It timed resolution *plus* building a structural description of every result. The
 description is identical in all three styles and large enough to flatten every
 difference to under 4% — from which the first reading was "they are all the same,
-choose on ergonomics", with `cells` marginally ahead. Removing the shared work
+choose on ergonomics", with `refs_cell` marginally ahead. Removing the shared work
 reversed the ranking and roughly quintupled the spread. A benchmark that includes
 enough common work will report that any two things are equivalent.
 
@@ -92,7 +121,7 @@ enough common work will report that any two things are equivalent.
 
 This decision would be harder if it were a trade-off. It is not.
 
-The `arena` and `cells` styles need `&self` methods and therefore interior
+The two reference styles need `&self` methods and therefore interior
 mutability, which moves a real invariant from compile time to run time: a `RefCell`
 borrow held across a recursive call panics. `crates/tsr-checker-spike/tests/hazards.rs`
 demonstrates it — the bad version compiles cleanly, passes a test that only
@@ -100,13 +129,13 @@ exercises the base case, and panics only once the input recurses. In a subsystem
 that recurses through dozens of mutually-referential functions, that is a bug class
 with no compile-time defence and poor test visibility.
 
-`cells` narrows the hazard by making the memo table `Cell`-guarded, which is
+`refs_cell` narrows the hazard by making the memo table `Cell`-guarded, which is
 genuinely better — `Cell::get` copies out, so there is no borrow to hold. But the
 intern map is a `HashMap` and cannot be a `Cell`, so the hazard is reduced rather
 than removed, and the resulting rule ("memo tables may be `Cell`, everything else
 must be handled carefully") is exactly the kind of distinction that erodes.
 
-`ids` has no such rule because it has no interior mutability.
+`handles` has no such rule because it has no interior mutability.
 
 ## What it costs
 
@@ -114,12 +143,12 @@ Stated plainly, because the cost is real and will be felt on every one of those
 60k lines:
 
 - **A second lookup on the miss path.** Read the memo, miss, compute, write. The
-  benchmark includes this and `ids` still wins.
+  benchmark includes this and `handles` still wins.
 - **Type contents are only reachable through the checker.** Where Go writes
   `t.Target.Symbol`, we write `self.type_data(t).target()` and then ask again.
   Chained field access becomes chained method calls.
-- **No long-lived `&Type`.** The `arena` style can hold a resolved `&'a Type`
-  across further resolution; `ids` cannot. This is the one thing the rejected
+- **No long-lived `&Type`.** The reference styles can hold a resolved `&'a Type`
+  across further resolution; `handles` cannot. This is the one thing the rejected
   styles genuinely do better, and where the port will feel most awkward.
 - **Type data has to be cheap to copy or read behind an index.** That constrains
   the eventual `Type` representation, and it constrains it *before* the type
@@ -127,7 +156,7 @@ Stated plainly, because the cost is real and will be felt on every one of those
 
 ## Consequences for parallelism
 
-`ids` keeps [ADR-0012](0012-ast-is-sync.md) intact and does not depend on it. The
+`handles` keeps [ADR-0012](0012-ast-is-sync.md) intact and does not depend on it. The
 checker is `Send` and not `Sync`, which matches upstream: `checkerpool.go` runs N
 independent `Checker` instances (default 4) over a partitioned file set, each with
 its own state and its own arena. Nothing here needs a shared checker.
@@ -146,13 +175,13 @@ mutable field on a shared node is what ADR-0012 rules out.
   into unreadable code, that shows up early — within the first real subsystem —
   and the answer is to revisit with that code as evidence rather than to soldier on.
 - **Real type representations invert the benchmark.** The slice's `Type` is small.
-  If the real one is large enough that copying or re-indexing dominates, the arena
-  styles' ability to hold a reference starts to pay. Re-run
+  If the real one is large enough that copying or re-indexing dominates, the
+  reference styles' ability to hold one starts to pay. Re-run
   `cargo bench -p tsr-checker-spike` against a representative `Type` before
   concluding either way.
 - **Deferred resolution needs a reference held across a call.** Upstream has
   patterns (`getTypeOfSymbolWithDeferredType`) not modelled here. If one of them
-  genuinely cannot be expressed with ids, that is a concrete counter-example and
+  genuinely cannot be expressed with handles, that is a concrete counter-example and
   this ADR should be superseded rather than stretched.
 
 The spike crate stays in the tree for exactly that purpose: it is the harness these
