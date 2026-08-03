@@ -21,6 +21,8 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 tsr-ast = { workspace = true }
 tsr-scanner = { workspace = true }
+tsr-parser = { workspace = true }
+tsr-core = { workspace = true }
 
 [lints]
 workspace = true

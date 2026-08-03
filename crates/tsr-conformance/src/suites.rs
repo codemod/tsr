@@ -80,17 +80,15 @@ impl Suite for BaselineResolution {
     }
 }
 
-/// Does the source parse, producing the expected parse diagnostics?
+/// Does a file TypeScript accepts parse without complaint?
 ///
-/// **This is the number that matters and it is currently 0.** There is no scanner
-/// and no parser (`bd` epic `tsr-pum`); every case reports `Unsupported`.
+/// Restricted to cases with no `.errors.txt`, for the reason given on
+/// [`crate::scanner_suite::ScannerCleanFiles`]: for those the expected diagnostic
+/// output is exactly nothing, so any parse error is unambiguously our bug.
 ///
-/// When a parser lands, the judgement becomes: parse every unit, collect
-/// syntactic diagnostics, and compare against the case's `.errors.txt` — with the
-/// caveat that `.errors.txt` mixes syntactic and semantic errors, so the initial
-/// comparison will only be sound for the subset of cases that have **no**
-/// `.errors.txt` at all. Those cases must produce zero diagnostics, which is a
-/// real and checkable property long before a checker exists.
+/// Cases that *do* expect errors are skipped. `.errors.txt` mixes syntactic and
+/// semantic diagnostics with no marker distinguishing them, and most of its
+/// contents belong to the checker, so matching against it is not yet meaningful.
 pub struct Parser;
 
 impl Suite for Parser {
@@ -99,11 +97,60 @@ impl Suite for Parser {
     }
 
     fn describes(&self) -> &'static str {
-        "the source parses and produces the expected parse diagnostics"
+        "a file TypeScript reports no errors for parses with no diagnostics"
     }
 
-    fn run(&self, _case: &CaseEntry) -> Outcome {
-        Outcome::Unsupported { reason: "no scanner or parser implemented yet (bd tsr-pum)".into() }
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        if case.has_known_divergence() {
+            return Outcome::Skipped {
+                reason: "upstream records a known divergence from TypeScript (.diff baseline)"
+                    .into(),
+            };
+        }
+        if case.has_varied_errors() {
+            return Outcome::Skipped {
+                reason: "configuration-varied baselines; needs per-configuration runs".into(),
+            };
+        }
+        match case.expected_errors() {
+            Err(err) => return Outcome::Failed { reason: format!("{err:#}") },
+            Ok(Some(_)) => {
+                return Outcome::Skipped {
+                    reason: "expects diagnostics; the parser cannot tell which are its own".into(),
+                };
+            }
+            Ok(None) => {}
+        }
+
+        let parsed = match case.load() {
+            Ok(parsed) => parsed,
+            Err(err) => return Outcome::Failed { reason: format!("{err:#}") },
+        };
+
+        for file in &parsed.files {
+            if !crate::scanner_suite::is_typescript_unit(&file.name) {
+                continue;
+            }
+            // Encoding is the file loader's job, not the parser's.
+            if file.content.contains('\u{FFFD}') {
+                continue;
+            }
+            let arena = tsr_core::Arena::new();
+            let result = tsr_parser::parse(&arena, &file.content);
+            if let Some(first) = result.diagnostics.first() {
+                return Outcome::Failed {
+                    reason: format!(
+                        "{}: {} diagnostic(s), first is TS{} at {:?}: {}",
+                        file.name,
+                        result.diagnostics.len(),
+                        first.message.code(),
+                        first.span,
+                        first.text()
+                    ),
+                };
+            }
+        }
+        Outcome::Passed
     }
 }
 

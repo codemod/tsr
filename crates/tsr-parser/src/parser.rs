@@ -154,21 +154,18 @@ impl<'a> Parser<'a> {
         let saved_diagnostics = self.diagnostics.len();
         let saved_nodes = self.nodes.len();
 
-        match f(self) {
-            Some(result) => Some(result),
-            None => {
-                self.scanner.restore(saved_scanner);
-                self.token = saved_token;
-                self.token_value = saved_value;
-                self.diagnostics.truncate(saved_diagnostics);
-                // Nodes registered during the abandoned attempt stay in the table
-                // but are unreachable from the tree. Truncating is safe only
-                // because ids are handed out sequentially and nothing else holds
-                // one yet.
-                self.nodes.truncate(saved_nodes);
-                None
-            }
+        let result = f(self);
+        if result.is_none() {
+            self.scanner.restore(saved_scanner);
+            self.token = saved_token;
+            self.token_value = saved_value;
+            self.diagnostics.truncate(saved_diagnostics);
+            // Nodes registered during the abandoned attempt stay in the table but
+            // are unreachable from the tree. Truncating is safe only because ids
+            // are handed out sequentially and nothing else holds one yet.
+            self.nodes.truncate(saved_nodes);
         }
+        result
     }
 
     /// Enter a nested construct, refusing past [`MAX_DEPTH`].
@@ -239,7 +236,8 @@ impl<'a> Parser<'a> {
     pub(crate) fn missing_identifier(&mut self) -> &'a Identifier<'a> {
         let start = self.pos();
         let node = Identifier::new("");
-        let id = self.nodes.push(SyntaxKind::Identifier, Span::at(start), tsr_ast::NodeFlags::empty());
+        let id =
+            self.nodes.push(SyntaxKind::Identifier, Span::at(start), tsr_ast::NodeFlags::empty());
         let allocated: &'a Identifier<'a> = self.arena.alloc(node);
         allocated.node_id.set(Some(id));
         allocated
@@ -276,7 +274,9 @@ impl<'a> Parser<'a> {
 /// Capture the scanner's decoded value, if it differs from the raw text.
 fn capture_value(scanner: &Scanner<'_>) -> Option<String> {
     let value = scanner.token_value();
-    if std::ptr::eq(value.as_ptr(), scanner.token_text().as_ptr()) && value.len() == scanner.token_text().len() {
+    if std::ptr::eq(value.as_ptr(), scanner.token_text().as_ptr())
+        && value.len() == scanner.token_text().len()
+    {
         None
     } else {
         Some(value.to_string())

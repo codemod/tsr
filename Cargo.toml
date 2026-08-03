@@ -1,10 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
-# tsr-parser is written but does not compile yet; see its lib.rs header and
-# `bd tsr-pum.2`. Excluding it keeps `cargo build --workspace` honest rather than
-# permanently red.
-exclude = ["crates/tsr-parser"]
 
 [workspace.package]
 version = "0.1.0"

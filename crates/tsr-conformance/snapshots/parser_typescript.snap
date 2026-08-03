@@ -1,8 +1,213 @@
 commit: 5b1047d10
 
 parser_typescript Summary:
-What a pass means: the source parses and produces the expected parse diagnostics
-Passed         : 0/12444 (0.00%)
-Unsupported    : 12444
+What a pass means: a file TypeScript reports no errors for parses with no diagnostics
+Passed         : 3969/5648 (70.27%)
+Failed         : 1679
+Skipped        : 6796 (excluded from the denominator)
 
-  12444  no scanner or parser implemented yet (bd tsr-pum)
+  757  skipped: configuration-varied baselines; needs per-configuration runs
+  5539  skipped: expects diagnostics; the parser cannot tell which are its own
+  500  skipped: upstream records a known divergence from TypeScript (.diff baseline)
+
+First 100 of 1679 failures:
+compiler/APISample_jsdoc
+  APISample_jsdoc.ts: 10 diagnostic(s), first is TS1005 at 718..719: ']' expected.
+compiler/APISample_linter
+  APISample_linter.ts: 3 diagnostic(s), first is TS1109 at 773..774: Expression expected.
+compiler/accessorDeclarationEmitJs
+  /a.js: 18 diagnostic(s), first is TS1005 at 44..50: '}' expected.
+compiler/amdDeclarationEmitNoExtraDeclare
+  Class.ts: 5 diagnostic(s), first is TS1005 at 121..122: '{' expected.
+compiler/anonClassDeclarationEmitIsAnon
+  wrapClass.ts: 10 diagnostic(s), first is TS1109 at 160..161: Expression expected.
+compiler/anonterface
+  anonterface.ts: 3 diagnostic(s), first is TS1131 at 50..51: Property or signature expected.
+compiler/argumentsObjectIterator01_ES5
+  argumentsObjectIterator01_ES5.ts: 1 diagnostic(s), first is TS1109 at 196..197: Expression expected.
+compiler/argumentsObjectIterator01_ES6
+  argumentsObjectIterator01_ES6.ts: 1 diagnostic(s), first is TS1109 at 196..197: Expression expected.
+compiler/argumentsObjectIterator02_ES5
+  argumentsObjectIterator02_ES5.ts: 1 diagnostic(s), first is TS1109 at 237..238: Expression expected.
+compiler/argumentsObjectIterator02_ES6
+  argumentsObjectIterator02_ES6.ts: 1 diagnostic(s), first is TS1109 at 237..238: Expression expected.
+compiler/argumentsSpreadRestIterables
+  argumentsSpreadRestIterables.tsx: 14 diagnostic(s), first is TS1005 at 189..190: '>' expected.
+compiler/arrayConcat2
+  arrayConcat2.ts: 1 diagnostic(s), first is TS1109 at 97..98: Expression expected.
+compiler/arrayDestructuringInSwitch1
+  arrayDestructuringInSwitch1.ts: 1 diagnostic(s), first is TS1109 at 127..128: Expression expected.
+compiler/arrayEvery
+  arrayEvery.ts: 2 diagnostic(s), first is TS1005 at 86..88: ';' expected.
+compiler/arrayFind
+  arrayFind.ts: 3 diagnostic(s), first is TS1005 at 106..108: ';' expected.
+compiler/arrayLiteralContextualType
+  arrayLiteralContextualType.ts: 3 diagnostic(s), first is TS1005 at 239..240: ']' expected.
+compiler/arrowFunctionParsingGenericInObject
+  arrowFunctionParsingGenericInObject.ts: 60 diagnostic(s), first is TS1005 at 163..164: ')' expected.
+compiler/arrowFunctionWithObjectLiteralBody3
+  arrowFunctionWithObjectLiteralBody3.ts: 1 diagnostic(s), first is TS1109 at 13..14: Expression expected.
+compiler/arrowFunctionWithObjectLiteralBody4
+  arrowFunctionWithObjectLiteralBody4.ts: 2 diagnostic(s), first is TS1109 at 13..14: Expression expected.
+compiler/arrowFunctionWithObjectLiteralBody5
+  arrowFunctionWithObjectLiteralBody5.ts: 3 diagnostic(s), first is TS1109 at 14..15: Expression expected.
+compiler/arrowFunctionWithObjectLiteralBody6
+  arrowFunctionWithObjectLiteralBody6.ts: 3 diagnostic(s), first is TS1109 at 14..15: Expression expected.
+compiler/assertionFunctionWildcardImport1
+  src/core/debug.ts: 3 diagnostic(s), first is TS1110 at 53..60: Type expected.
+compiler/assertionFunctionWildcardImport2
+  asserts.ts: 8 diagnostic(s), first is TS1110 at 35..42: Type expected.
+compiler/assertionFunctionsCanNarrowByDiscriminant
+  assertionFunctionsCanNarrowByDiscriminant.ts: 17 diagnostic(s), first is TS1110 at 190..197: Type expected.
+compiler/assignmentCompatBug3
+  assignmentCompatBug3.ts: 8 diagnostic(s), first is TS1005 at 68..69: '}' expected.
+compiler/assignmentCompatability10
+  assignmentCompatability10.ts: 2 diagnostic(s), first is TS1005 at 387..388: ';' expected.
+compiler/assignmentCompatability9
+  assignmentCompatability9.ts: 1 diagnostic(s), first is TS1109 at 375..376: Expression expected.
+compiler/assignmentToConditionalBrandedStringTemplateOrMapping
+  assignmentToConditionalBrandedStringTemplateOrMapping.ts: 20 diagnostic(s), first is TS1110 at 27..30: Type expected.
+compiler/asyncArrowInClassES5
+  asyncArrowInClassES5.ts: 8 diagnostic(s), first is TS1005 at 123..124: ')' expected.
+compiler/asyncFunctionContextuallyTypedReturns
+  asyncFunctionContextuallyTypedReturns.ts: 16 diagnostic(s), first is TS1005 at 114..115: ')' expected.
+compiler/asyncFunctionNoReturnType
+  asyncFunctionNoReturnType.ts: 2 diagnostic(s), first is TS1005 at 9..11: ';' expected.
+compiler/asyncFunctionReturnType.2
+  asyncFunctionReturnType.2.ts: 7 diagnostic(s), first is TS1005 at 82..83: ';' expected.
+compiler/asyncFunctionTempVariableScoping
+  asyncFunctionTempVariableScoping.ts: 2 diagnostic(s), first is TS1005 at 87..89: ';' expected.
+compiler/asyncFunctionWithForStatementNoInitializer
+  asyncFunctionWithForStatementNoInitializer.ts: 5 diagnostic(s), first is TS1005 at 165..166: ';' expected.
+compiler/asyncFunctionsAcrossFiles
+  a.ts: 4 diagnostic(s), first is TS1005 at 60..62: '}' expected.
+compiler/asyncFunctionsAndStrictNullChecks
+  asyncFunctionsAndStrictNullChecks.ts: 37 diagnostic(s), first is TS1131 at 85..86: Property or signature expected.
+compiler/asyncIIFE
+  asyncIIFE.ts: 5 diagnostic(s), first is TS1005 at 30..32: ')' expected.
+compiler/augmentArray
+  augmentArray.ts: 4 diagnostic(s), first is TS1131 at 25..26: Property or signature expected.
+compiler/awaitedTypeJQuery
+  awaitedTypeJQuery.ts: 216 diagnostic(s), first is TS1131 at 196..197: Property or signature expected.
+compiler/badInferenceLowerPriorityThanGoodInference
+  badInferenceLowerPriorityThanGoodInference.ts: 7 diagnostic(s), first is TS1005 at 352..353: '}' expected.
+compiler/badOverloadError
+  badOverloadError.ts: 8 diagnostic(s), first is TS1109 at 41..42: Expression expected.
+compiler/bindingPatternInParameter01
+  bindingPatternInParameter01.ts: 8 diagnostic(s), first is TS1005 at 67..68: ']' expected.
+compiler/bindingPatternOmittedExpressionNesting
+  bindingPatternOmittedExpressionNesting.ts: 13 diagnostic(s), first is TS1109 at 15..16: Expression expected.
+compiler/booleanFilterAnyArray
+  booleanFilterAnyArray.ts: 21 diagnostic(s), first is TS1131 at 85..86: Property or signature expected.
+compiler/booleanLiteralsContextuallyTypedFromUnion
+  booleanLiteralsContextuallyTypedFromUnion.tsx: 35 diagnostic(s), first is TS1109 at 505..506: Expression expected.
+compiler/cachedContextualTypes
+  cachedContextualTypes.ts: 7 diagnostic(s), first is TS1005 at 484..485: '}' expected.
+compiler/callOfConditionalTypeWithConcreteBranches
+  callOfConditionalTypeWithConcreteBranches.ts: 22 diagnostic(s), first is TS1005 at 570..571: ']' expected.
+compiler/callSignatureFunctionOverload
+  callSignatureFunctionOverload.ts: 24 diagnostic(s), first is TS1131 at 15..16: Property or signature expected.
+compiler/callsOnComplexSignatures
+  callsOnComplexSignatures.tsx: 15 diagnostic(s), first is TS1005 at 535..536: ']' expected.
+compiler/capturedLetConstInLoop1
+  capturedLetConstInLoop1.ts: 6 diagnostic(s), first is TS1005 at 2088..2089: ']' expected.
+compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
+  Uppercased_Dir/src/type-b.ts: 3 diagnostic(s), first is TS1005 at 116..117: '}' expected.
+compiler/castExpressionParentheses
+  castExpressionParentheses.ts: 40 diagnostic(s), first is TS1109 at 62..63: Expression expected.
+compiler/castNewObjectBug
+  castNewObjectBug.ts: 1 diagnostic(s), first is TS1109 at 27..28: Expression expected.
+compiler/castParentheses
+  castParentheses.ts: 7 diagnostic(s), first is TS1109 at 41..42: Expression expected.
+compiler/circularConstrainedMappedTypeNoCrash
+  circularConstrainedMappedTypeNoCrash.ts: 3 diagnostic(s), first is TS1005 at 55..56: ']' expected.
+compiler/circularConstructorWithReturn
+  circularConstructorWithReturn.ts: 5 diagnostic(s), first is TS1005 at 189..192: ';' expected.
+compiler/circularContextualMappedType
+  circularContextualMappedType.ts: 10 diagnostic(s), first is TS1005 at 56..57: ']' expected.
+compiler/circularContextualReturnType
+  circularContextualReturnType.ts: 6 diagnostic(s), first is TS1005 at 45..46: '}' expected.
+compiler/circularInferredTypeOfVariable
+  circularInferredTypeOfVariable.ts: 4 diagnostic(s), first is TS1005 at 32..34: ')' expected.
+compiler/circularInstantiationExpression
+  circularInstantiationExpression.ts: 3 diagnostic(s), first is TS1005 at 41..42: ';' expected.
+compiler/circularMappedTypeConstraint
+  circularMappedTypeConstraint.ts: 6 diagnostic(s), first is TS1005 at 68..69: ']' expected.
+compiler/circularObjectLiteralAccessors
+  circularObjectLiteralAccessors.ts: 16 diagnostic(s), first is TS1005 at 54..57: '}' expected.
+compiler/circularlySimplifyingConditionalTypesNoCrash
+  circularlySimplifyingConditionalTypesNoCrash.ts: 35 diagnostic(s), first is TS1005 at 278..291: ']' expected.
+compiler/classDeclaredBeforeClassFactory
+  classDeclaredBeforeClassFactory.ts: 4 diagnostic(s), first is TS1005 at 67..68: '{' expected.
+compiler/classExtendingAbstractClassWithMemberCalledTheSameAsItsOwnTypeParam
+  classExtendingAbstractClassWithMemberCalledTheSameAsItsOwnTypeParam.ts: 11 diagnostic(s), first is TS1131 at 35..36: Property or signature expected.
+compiler/classFieldSuperAccessible
+  classFieldSuperAccessible.ts: 14 diagnostic(s), first is TS1005 at 22..26: '{' expected.
+compiler/classImplementingInterfaceIndexer
+  classImplementingInterfaceIndexer.ts: 11 diagnostic(s), first is TS1005 at 24..25: ']' expected.
+compiler/classImplementsMethodWIthTupleArgs
+  classImplementsMethodWIthTupleArgs.ts: 11 diagnostic(s), first is TS1005 at 188..189: ']' expected.
+compiler/classIndexer
+  classIndexer.ts: 4 diagnostic(s), first is TS1005 at 19..20: ']' expected.
+compiler/classNameReferencesInStaticElements
+  classNameReferencesInStaticElements.ts: 10 diagnostic(s), first is TS1131 at 79..80: Property or signature expected.
+compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
+  classReferencedInContextualParameterWithinItsOwnBaseExpression.ts: 16 diagnostic(s), first is TS1131 at 25..26: Property or signature expected.
+compiler/coAndContraVariantInferences2
+  coAndContraVariantInferences2.ts: 41 diagnostic(s), first is TS1005 at 161..163: ')' expected.
+compiler/coAndContraVariantInferences3
+  coAndContraVariantInferences3.ts: 90 diagnostic(s), first is TS1109 at 579..580: Expression expected.
+compiler/coAndContraVariantInferences4
+  coAndContraVariantInferences4.ts: 13 diagnostic(s), first is TS1005 at 273..275: ';' expected.
+compiler/collectionPatternNoError
+  collectionPatternNoError.ts: 6 diagnostic(s), first is TS1110 at 102..106: Type expected.
+compiler/collisionExportsRequireAndAmbientClass
+  collisionExportsRequireAndAmbientClass_externalmodule.ts: 9 diagnostic(s), first is TS1005 at 21..28: '{' expected.
+compiler/collisionExportsRequireAndClass
+  collisionExportsRequireAndClass_externalmodule.ts: 9 diagnostic(s), first is TS1005 at 13..20: '{' expected.
+compiler/collisionExportsRequireAndModule
+  collisionExportsRequireAndModule_externalmodule.ts: 5 diagnostic(s), first is TS1110 at 110..117: Type expected.
+compiler/collisionExportsRequireAndUninstantiatedModule
+  collisionExportsRequireAndUninstantiatedModule.ts: 3 diagnostic(s), first is TS1110 at 96..103: Type expected.
+compiler/collisionRestParameterInType
+  collisionRestParameterInType.ts: 3 diagnostic(s), first is TS1131 at 89..90: Property or signature expected.
+compiler/collisionRestParameterInterfaceMembers
+  collisionRestParameterInterfaceMembers.ts: 7 diagnostic(s), first is TS1131 at 27..28: Property or signature expected.
+compiler/commentOnDecoratedClassDeclaration
+  commentOnDecoratedClassDeclaration.ts: 2 diagnostic(s), first is TS1012 at 71..72: Unexpected token.
+compiler/commentsInterface
+  commentsInterface.ts: 9 diagnostic(s), first is TS1005 at 305..306: ']' expected.
+compiler/commentsOnObjectLiteral3
+  commentsOnObjectLiteral3.ts: 9 diagnostic(s), first is TS1005 at 162..163: '}' expected.
+compiler/commentsOnObjectLiteral4
+  commentsOnObjectLiteral4.ts: 6 diagnostic(s), first is TS1005 at 44..47: '}' expected.
+compiler/commentsOverloads
+  commentsOverloads.ts: 24 diagnostic(s), first is TS1131 at 758..759: Property or signature expected.
+compiler/commentsdoNotEmitComments
+  commentsdoNotEmitComments.ts: 6 diagnostic(s), first is TS1131 at 943..944: Property or signature expected.
+compiler/commentsemitComments
+  commentsemitComments.ts: 6 diagnostic(s), first is TS1131 at 943..944: Property or signature expected.
+compiler/comparisonOfPartialDeepAndIndexedAccessTerminatesWithoutError
+  comparisonOfPartialDeepAndIndexedAccessTerminatesWithoutError.ts: 6 diagnostic(s), first is TS1005 at 35..36: ']' expected.
+compiler/computedEnumTypeWidening
+  computedEnumTypeWidening.ts: 14 diagnostic(s), first is TS1109 at 1004..1005: Expression expected.
+compiler/computedTypesKeyofNoIndexSignatureType
+  computedTypesKeyofNoIndexSignatureType.ts: 13 diagnostic(s), first is TS1005 at 32..33: ']' expected.
+compiler/conditionalEqualityTestingNullability
+  conditionalEqualityTestingNullability.ts: 17 diagnostic(s), first is TS1005 at 22..29: ';' expected.
+compiler/conditionalTypeClassMembers
+  conditionalTypeClassMembers.ts: 3 diagnostic(s), first is TS1005 at 174..175: ']' expected.
+compiler/conditionalTypeContextualTypeSimplificationsSuceeds
+  conditionalTypeContextualTypeSimplificationsSuceeds.ts: 12 diagnostic(s), first is TS1005 at 207..208: ']' expected.
+compiler/conditionalTypeRelaxingConstraintAssignability
+  conditionalTypeRelaxingConstraintAssignability.ts: 7 diagnostic(s), first is TS1109 at 27..28: Expression expected.
+compiler/conditionalTypeSimplification
+  conditionalTypeSimplification.ts: 17 diagnostic(s), first is TS1131 at 59..60: Property or signature expected.
+compiler/conditionalTypesASI
+  conditionalTypesASI.ts: 2 diagnostic(s), first is TS1110 at 68..69: Type expected.
+compiler/constraintOfRecursivelyMappedTypeWithConditionalIsResolvable
+  constraintOfRecursivelyMappedTypeWithConditionalIsResolvable.ts: 37 diagnostic(s), first is TS1109 at 140..141: Expression expected.
+compiler/constraintReferencingTypeParameterFromSameTypeParameterList
+  constraintReferencingTypeParameterFromSameTypeParameterList.ts: 5 diagnostic(s), first is TS1131 at 354..355: Property or signature expected.
+compiler/constructorTypeWithTypeParameters
+  constructorTypeWithTypeParameters.ts: 5 diagnostic(s), first is TS1131 at 25..26: Property or signature expected.

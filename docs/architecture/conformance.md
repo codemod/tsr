@@ -27,15 +27,17 @@ baseline_resolution                 12444/12444   100.00%         0
 parser_reachable_target              5648/11187    50.49%      1257
 scanner_termination                 12444/12444   100.00%         0
 scanner_clean_files                   5646/5648    99.96%      6796
-parser_typescript                       0/12444     0.00%         0
+parser_typescript                     3969/5648    70.27%      6796
 ```
 
 The first two measure the **harness**; `parser_reachable_target` measures the
 **size of the target**; the scanner suites and `parser_typescript` measure the
 **compiler**.
 
-`scanner_clean_files` is the first suite to have found real bugs — three of them,
-none visible by inspection. See [scanner.md](scanner.md).
+`scanner_clean_files` was the first suite to find real bugs — three of them, none
+visible by inspection. See [scanner.md](scanner.md). `parser_typescript` then found
+an exponential blowup in arrow-function lookahead that ran the parser to 16 GB; see
+[parser.md](parser.md).
 
 ### Driving the scanner without a parser
 

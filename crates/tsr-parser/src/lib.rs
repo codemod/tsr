@@ -31,10 +31,12 @@
 //!
 //! # What is not here yet
 //!
-//! Decorators, JSX, and JSDoc parsing are not implemented; see
+//! Decorators, `JSX`, and `JSDoc` parsing are not implemented; see
 //! `docs/architecture/parser.md` for the full list and the conformance number.
 
+mod declaration;
 mod expression;
+mod module;
 mod parser;
 mod statement;
 mod types;

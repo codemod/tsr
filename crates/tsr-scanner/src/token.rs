@@ -67,6 +67,19 @@ impl Token {
     }
 }
 
+impl Token {
+    /// The AST's view of these flags.
+    ///
+    /// `tsr_ast::TokenFlags` is the wider set the parser and checker share; the
+    /// scanner defines only the subset it can determine. Bit positions are
+    /// deliberately identical — asserted below — so this is a reinterpretation
+    /// rather than a mapping that could drift.
+    #[must_use]
+    pub const fn ast_flags(self) -> tsr_ast::TokenFlags {
+        tsr_ast::TokenFlags::from_bits_truncate(self.flags.bits())
+    }
+}
+
 impl GetSpan for Token {
     fn span(&self) -> Span {
         self.span
@@ -76,6 +89,21 @@ impl GetSpan for Token {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scanner_and_ast_flag_bits_agree() {
+        // `ast_flags` reinterprets the bits, so divergence would silently relabel
+        // flags rather than fail to compile.
+        use tsr_ast::TokenFlags as Ast;
+        assert_eq!(TokenFlags::PRECEDING_LINE_BREAK.bits(), Ast::PRECEDING_LINE_BREAK.bits());
+        assert_eq!(TokenFlags::UNTERMINATED.bits(), Ast::UNTERMINATED.bits());
+        assert_eq!(TokenFlags::SCIENTIFIC.bits(), Ast::SCIENTIFIC.bits());
+        assert_eq!(TokenFlags::HEX_SPECIFIER.bits(), Ast::HEX_SPECIFIER.bits());
+        assert_eq!(TokenFlags::BINARY_SPECIFIER.bits(), Ast::BINARY_SPECIFIER.bits());
+        assert_eq!(TokenFlags::OCTAL_SPECIFIER.bits(), Ast::OCTAL_SPECIFIER.bits());
+        assert_eq!(TokenFlags::CONTAINS_SEPARATOR.bits(), Ast::CONTAINS_SEPARATOR.bits());
+        assert_eq!(TokenFlags::UNICODE_ESCAPE.bits(), Ast::UNICODE_ESCAPE.bits());
+    }
 
     #[test]
     fn token_is_small_enough_to_pass_by_value() {

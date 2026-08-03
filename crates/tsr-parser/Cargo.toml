@@ -14,5 +14,8 @@ tsr-ast = { workspace = true }
 tsr-scanner = { workspace = true }
 tsr-diagnostics = { workspace = true }
 
+[dev-dependencies]
+tsr-diagnostics = { workspace = true }
+
 [lints]
 workspace = true

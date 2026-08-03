@@ -220,7 +220,7 @@ fn scan_like_a_parser(scanner: &mut Scanner) {
 }
 
 /// Whether a unit should be scanned as TypeScript.
-fn is_typescript_unit(name: &str) -> bool {
+pub(crate) fn is_typescript_unit(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
         .iter()

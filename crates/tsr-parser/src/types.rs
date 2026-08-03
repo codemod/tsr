@@ -17,7 +17,7 @@ impl<'a> Parser<'a> {
 
     /// Parse a type.
     pub(crate) fn parse_type(&mut self) -> TypeNode<'a> {
-        let Some(type_node) = self.descend(Parser::parse_union_type) else {
+        let Some(type_node) = self.descend(Parser::parse_conditional_type) else {
             // Depth limit reached; a missing node beats a stack overflow.
             self.error_at_current(&messages::TYPE_EXPECTED);
             return self.missing_type();
@@ -25,11 +25,37 @@ impl<'a> Parser<'a> {
         type_node
     }
 
+    /// `T extends U ? X : Y`, the loosest-binding type form.
+    fn parse_conditional_type(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        let check = self.parse_union_type();
+
+        // `extends` here is only a conditional type at the top level of a type;
+        // inside a type parameter list it constrains, and that caller does not
+        // route through here.
+        if !self.at(SyntaxKind::ExtendsKeyword) {
+            return check;
+        }
+        self.next_token();
+        let extends = self.parse_union_type();
+        self.expect(SyntaxKind::QuestionToken);
+        let true_type = self.parse_type();
+        self.expect(SyntaxKind::ColonToken);
+        let false_type = self.parse_type();
+
+        let node = self.finish_node(
+            ConditionalTypeNode::new(Some(check), Some(extends), Some(true_type), Some(false_type)),
+            SyntaxKind::ConditionalType,
+            start,
+        );
+        TypeNode::ConditionalTypeNode(node)
+    }
+
     /// A synthesised type standing in for one the source omitted.
     fn missing_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
         let node = self.finish_node(
-            KeywordTypeNode::new(),
+            KeywordTypeNode::new(SyntaxKind::AnyKeyword),
             SyntaxKind::AnyKeyword,
             start,
         );
@@ -106,10 +132,19 @@ impl<'a> Parser<'a> {
             // Keyword types: `string`, `number`, `any`, `void`, …
             kind if kind.is_keyword_type() => {
                 self.next_token();
-                let node = self.finish_node(KeywordTypeNode::new(), kind, start);
+                let node = self.finish_node(KeywordTypeNode::new(kind), kind, start);
                 TypeNode::KeywordTypeNode(node)
             }
-            SyntaxKind::OpenParenToken => {
+            // `(` opens either a parenthesised type or a function type's parameter
+            // list, and the two diverge only at the `=>`. Speculate, then fall back.
+            SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken => {
+                if let Some(function_type) = self.try_parse_function_type() {
+                    return function_type;
+                }
+                if self.at(SyntaxKind::LessThanToken) {
+                    self.error_at_current(&messages::TYPE_EXPECTED);
+                    return self.missing_type();
+                }
                 self.next_token();
                 let inner = self.parse_type();
                 self.expect(SyntaxKind::CloseParenToken);
@@ -119,6 +154,27 @@ impl<'a> Parser<'a> {
                     start,
                 );
                 TypeNode::ParenthesizedTypeNode(node)
+            }
+            SyntaxKind::NewKeyword => {
+                self.next_token();
+                let type_parameters = self.parse_type_parameters();
+                let parameters = self.parse_parameter_list();
+                self.expect(SyntaxKind::EqualsGreaterThanToken);
+                let return_type = self.parse_type();
+                let type_parameters = self.arena.alloc_slice(&type_parameters);
+                let parameters = self.arena.alloc_slice(&parameters);
+                let node = self.finish_node(
+                    ConstructorTypeNode::new(
+                        &[],
+                        type_parameters,
+                        parameters,
+                        Some(return_type),
+                        None,
+                    ),
+                    SyntaxKind::ConstructorType,
+                    start,
+                );
+                TypeNode::ConstructorTypeNode(node)
             }
             SyntaxKind::OpenBracketToken => self.parse_tuple_type(),
             SyntaxKind::OpenBraceToken => self.parse_type_literal(),
@@ -132,16 +188,30 @@ impl<'a> Parser<'a> {
                 );
                 TypeNode::TypeQueryNode(node)
             }
-            SyntaxKind::KeyOfKeyword | SyntaxKind::ReadonlyKeyword | SyntaxKind::UniqueKeyword => {
-                let operator = self.token.kind;
+            SyntaxKind::InferKeyword => {
                 self.next_token();
+                let parameter_start = self.pos();
+                let name = self.parse_identifier();
+                let parameter = self.finish_node(
+                    TypeParameterDeclaration::new(&[], Some(name), None, None, None),
+                    SyntaxKind::TypeParameter,
+                    parameter_start,
+                );
+                let node = self.finish_node(
+                    InferTypeNode::new(Some(parameter)),
+                    SyntaxKind::InferType,
+                    start,
+                );
+                TypeNode::InferTypeNode(node)
+            }
+            SyntaxKind::KeyOfKeyword | SyntaxKind::ReadonlyKeyword | SyntaxKind::UniqueKeyword => {
+                let operator = self.take_token();
                 let operand = self.parse_postfix_type();
                 let node = self.finish_node(
-                    TypeOperatorNode::new(Some(operand)),
+                    TypeOperatorNode::new(operator, Some(operand)),
                     SyntaxKind::TypeOperator,
                     start,
                 );
-                let _ = operator;
                 TypeNode::TypeOperatorNode(node)
             }
             SyntaxKind::StringLiteral
@@ -173,6 +243,34 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// `(a: T) => R` and `<T>(a: T) => R`, when the lookahead confirms one.
+    fn try_parse_function_type(&mut self) -> Option<TypeNode<'a>> {
+        let start = self.pos();
+        let parsed = self.try_parse(|p| {
+            let type_parameters = p.parse_type_parameters();
+            if !p.at(SyntaxKind::OpenParenToken) {
+                return None;
+            }
+            let parameters = p.parse_parameter_list();
+            if !p.at(SyntaxKind::EqualsGreaterThanToken) {
+                return None;
+            }
+            Some((type_parameters, parameters))
+        })?;
+
+        let (type_parameters, parameters) = parsed;
+        self.expect(SyntaxKind::EqualsGreaterThanToken);
+        let return_type = self.parse_type();
+        let type_parameters = self.arena.alloc_slice(&type_parameters);
+        let parameters = self.arena.alloc_slice(&parameters);
+        let node = self.finish_node(
+            FunctionTypeNode::new(type_parameters, parameters, Some(return_type), &[], None),
+            SyntaxKind::FunctionType,
+            start,
+        );
+        Some(TypeNode::FunctionTypeNode(node))
+    }
+
     fn parse_literal_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
         self.parse_literal_type_from(start)
@@ -182,36 +280,36 @@ impl<'a> Parser<'a> {
         let literal_start = self.pos();
         let kind = self.token.kind;
         let text = self.token_value();
+        let flags = self.token.ast_flags();
         self.next_token();
 
-        let literal: Expression<'a> = match kind {
-            SyntaxKind::StringLiteral => Expression::StringLiteral(self.finish_node(
-                StringLiteral::new(text),
+        // `LiteralTypeNode` holds a `Node`, not an `Expression`, because the
+        // literal may be a keyword (`null`, `true`) rather than a value expression.
+        let literal: Node<'a> = match kind {
+            SyntaxKind::StringLiteral => Node::StringLiteral(self.finish_node(
+                StringLiteral::new(text, flags),
                 SyntaxKind::StringLiteral,
                 literal_start,
             )),
-            SyntaxKind::NumericLiteral => Expression::NumericLiteral(self.finish_node(
-                NumericLiteral::new(text),
+            SyntaxKind::NumericLiteral => Node::NumericLiteral(self.finish_node(
+                NumericLiteral::new(text, flags),
                 SyntaxKind::NumericLiteral,
                 literal_start,
             )),
-            SyntaxKind::BigIntLiteral => Expression::BigIntLiteral(self.finish_node(
-                BigIntLiteral::new(text),
+            SyntaxKind::BigIntLiteral => Node::BigIntLiteral(self.finish_node(
+                BigIntLiteral::new(text, flags),
                 SyntaxKind::BigIntLiteral,
                 literal_start,
             )),
-            other => Expression::KeywordExpression(self.finish_node(
-                KeywordExpression::new(),
+            other => Node::KeywordExpression(self.finish_node(
+                KeywordExpression::new(other),
                 other,
                 literal_start,
             )),
         };
 
-        let node = self.finish_node(
-            LiteralTypeNode::new(Some(literal)),
-            SyntaxKind::LiteralType,
-            start,
-        );
+        let node =
+            self.finish_node(LiteralTypeNode::new(Some(literal)), SyntaxKind::LiteralType, start);
         TypeNode::LiteralTypeNode(node)
     }
 
@@ -242,24 +340,24 @@ impl<'a> Parser<'a> {
         let mut members = Vec::new();
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();
-            match self.parse_type_member() {
-                Some(member) => members.push(member),
-                None => {
-                    self.error_at_current(&messages::PROPERTY_OR_SIGNATURE_EXPECTED);
-                    self.next_token();
-                }
+            if let Some(member) = self.parse_type_member() {
+                members.push(member);
+            } else {
+                self.error_at_current(&messages::PROPERTY_OR_SIGNATURE_EXPECTED);
+                self.next_token();
             }
             // Members are separated by `;` or `,`, either optional before `}`.
-            if !self.eat(SyntaxKind::SemicolonToken) && !self.eat(SyntaxKind::CommaToken) {
-                if self.pos() == before {
-                    break;
-                }
+            // Members are separated by `;` or `,`, both optional before `}`.
+            if !self.eat(SyntaxKind::SemicolonToken)
+                && !self.eat(SyntaxKind::CommaToken)
+                && self.pos() == before
+            {
+                break;
             }
         }
         self.expect(SyntaxKind::CloseBraceToken);
         let members = self.arena.alloc_slice(&members);
-        let node =
-            self.finish_node(TypeLiteralNode::new(members), SyntaxKind::TypeLiteral, start);
+        let node = self.finish_node(TypeLiteralNode::new(members), SyntaxKind::TypeLiteral, start);
         TypeNode::TypeLiteralNode(node)
     }
 
@@ -316,7 +414,7 @@ impl<'a> Parser<'a> {
     }
 
     /// A dotted name: `A`, `A.B`, `A.B.C`.
-    fn parse_entity_name(&mut self) -> EntityName<'a> {
+    pub(crate) fn parse_entity_name(&mut self) -> EntityName<'a> {
         let start = self.pos();
         let mut name = EntityName::Identifier(self.parse_identifier());
         while self.at(SyntaxKind::DotToken) {

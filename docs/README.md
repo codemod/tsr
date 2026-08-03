@@ -24,6 +24,7 @@ Living documents describing how a subsystem works and why it is shaped that way.
 
 - [ast.md](architecture/ast.md) — node representation, ids, side tables, codegen
 - [scanner.md](architecture/scanner.md) — tokenisation, re-scanning, backtracking
+- [parser.md](architecture/parser.md) — recursive descent, recovery, the arrow-function trap
 - [conformance.md](architecture/conformance.md) — the corpus, the oracles, the ratchet
 
 ## Conventions

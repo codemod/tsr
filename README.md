@@ -11,6 +11,7 @@ crates/tsr-core         spans, typed indices, arenas, side tables
 crates/tsr-ast          the TypeScript AST (mostly generated)
 crates/tsr-diagnostics  the diagnostic message catalogue (generated)
 crates/tsr-scanner      the scanner (lexer)
+crates/tsr-parser       the parser
 crates/tsr-conformance  the corpus harness and its committed snapshots
 xtask                   code generation from the vendored upstream definition
 docs/                   decision records and architecture
@@ -67,6 +68,6 @@ explicitly rather than being omitted.
 | `parser_reachable_target` | 5648/11187 | how many cases a parser alone could be judged against |
 | `scanner_termination` | 100% | the scanner consumes every file without stalling |
 | `scanner_clean_files` | 5646/5648 (99.96%) | files TypeScript accepts produce no scan errors |
-| `parser_typescript` | **0%** | the parser — which does not exist yet |
+| `parser_typescript` | 3969/5648 (70.27%) | files TypeScript accepts parse with no diagnostics |
 
 See [docs/architecture/conformance.md](docs/architecture/conformance.md).

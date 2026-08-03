@@ -134,6 +134,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "tsr-ast",
+ "tsr-core",
+ "tsr-parser",
  "tsr-scanner",
 ]
 
@@ -151,6 +153,16 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "tsr-core",
+]
+
+[[package]]
+name = "tsr-parser"
+version = "0.1.0"
+dependencies = [
+ "tsr-ast",
+ "tsr-core",
+ "tsr-diagnostics",
+ "tsr-scanner",
 ]
 
 [[package]]

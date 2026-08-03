@@ -14,21 +14,24 @@ impl<'a> Parser<'a> {
         let mut statements = Vec::new();
         while !self.at(terminator) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();
-            match self.parse_statement() {
-                Some(statement) => statements.push(statement),
-                None => {
-                    // Nothing consumed: report once and skip a token, or the loop
-                    // spins forever on unexpected input.
-                    if self.pos() == before {
-                        self.error_at_current(&messages::UNEXPECTED_TOKEN);
-                        self.next_token();
-                    }
+            let parsed = self.parse_statement();
+
+            // Termination is enforced here rather than assumed. A statement parser
+            // can legitimately produce a node while consuming nothing — an
+            // expression statement whose expression was synthesised from a token
+            // it could not use — and that node covers no text, so keeping it would
+            // add a zero-width statement *and* spin the loop forever.
+            if self.pos() == before {
+                if parsed.is_none() {
+                    self.error_at_current(&messages::UNEXPECTED_TOKEN);
                 }
+                self.next_token();
+                continue;
             }
-            debug_assert!(
-                self.pos() > before || self.at(terminator) || self.at(SyntaxKind::EndOfFile),
-                "statement loop made no progress"
-            );
+
+            if let Some(statement) = parsed {
+                statements.push(statement);
+            }
         }
         statements
     }
@@ -38,25 +41,50 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_statement(&mut self) -> Option<Statement<'a>> {
         let start = self.pos();
 
-        match self.token.kind {
+        // Bound before matching: the guards below need `&mut self` for lookahead,
+        // which a match on `self.token.kind` directly would forbid.
+        let kind = self.token.kind;
+        match kind {
             SyntaxKind::SemicolonToken => {
                 self.next_token();
-                let node = self.finish_node(
-                    EmptyStatement::new(),
-                    SyntaxKind::EmptyStatement,
-                    start,
-                );
+                let node =
+                    self.finish_node(EmptyStatement::new(), SyntaxKind::EmptyStatement, start);
                 Some(Statement::EmptyStatement(node))
             }
             SyntaxKind::OpenBraceToken => Some(Statement::Block(self.parse_block())),
             SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => {
-                // `let` and `const` are contextual: `let` alone is an identifier.
+                // `const enum` is an enum declaration, not a variable named `enum`.
+                if self.at(SyntaxKind::ConstKeyword) && self.next_is_enum() {
+                    let modifiers = self.parse_modifiers();
+                    return Some(self.parse_enum_declaration(start, &modifiers));
+                }
+                // `let` is contextual: `let` alone is an identifier.
                 if self.at(SyntaxKind::LetKeyword) && !self.next_starts_binding() {
                     return self.parse_expression_statement();
                 }
                 Some(self.parse_variable_statement(start, &[]))
             }
             SyntaxKind::FunctionKeyword => Some(self.parse_function_declaration(start, &[])),
+            SyntaxKind::ClassKeyword => Some(self.parse_class_declaration(start, &[])),
+            SyntaxKind::ImportKeyword if self.import_starts_declaration() => {
+                Some(self.parse_import_declaration(start, &[]))
+            }
+            SyntaxKind::ExportKeyword => {
+                self.next_token();
+                Some(self.parse_export(start, &[]))
+            }
+            SyntaxKind::NamespaceKeyword | SyntaxKind::ModuleKeyword
+                if self.next_starts_module_name() =>
+            {
+                Some(self.parse_module_declaration(start, &[]))
+            }
+            SyntaxKind::EnumKeyword => Some(self.parse_enum_declaration(start, &[])),
+            SyntaxKind::InterfaceKeyword if self.next_is_identifier() => {
+                Some(self.parse_interface_declaration(start, &[]))
+            }
+            SyntaxKind::TypeKeyword if self.next_is_identifier() => {
+                Some(self.parse_type_alias_declaration(start, &[]))
+            }
             SyntaxKind::IfKeyword => Some(self.parse_if_statement()),
             SyntaxKind::DoKeyword => Some(self.parse_do_statement()),
             SyntaxKind::WhileKeyword => Some(self.parse_while_statement()),
@@ -81,7 +109,7 @@ impl<'a> Parser<'a> {
             }
             _ if self.at_modifier_starting_declaration() => {
                 let modifiers = self.parse_modifiers();
-                Some(self.parse_declaration_after_modifiers(start, modifiers))
+                Some(self.parse_declaration_after_modifiers(start, &modifiers))
             }
             _ => self.parse_expression_statement(),
         }
@@ -92,15 +120,13 @@ impl<'a> Parser<'a> {
         self.peek_kind(|kind| {
             matches!(
                 kind,
-                SyntaxKind::Identifier
-                    | SyntaxKind::OpenBracketToken
-                    | SyntaxKind::OpenBraceToken
+                SyntaxKind::Identifier | SyntaxKind::OpenBracketToken | SyntaxKind::OpenBraceToken
             ) || is_contextual_keyword(kind)
         })
     }
 
     /// Look at the next token without committing.
-    fn peek_kind(&mut self, predicate: impl Fn(SyntaxKind) -> bool) -> bool {
+    pub(crate) fn peek_kind(&mut self, predicate: impl Fn(SyntaxKind) -> bool) -> bool {
         let mut matched = false;
         // `try_parse` always rewinds when the closure returns `None`, which makes
         // it a lookahead rather than a parse.
@@ -110,6 +136,16 @@ impl<'a> Parser<'a> {
             None::<()>
         });
         matched
+    }
+
+    /// Whether `namespace`/`module` is followed by a name rather than used as one.
+    fn next_starts_module_name(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::Identifier || kind == SyntaxKind::StringLiteral)
+    }
+
+    /// Whether the next token is an identifier, for contextual keywords.
+    fn next_is_identifier(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::Identifier || is_contextual_keyword(kind))
     }
 
     /// Whether the cursor is on a modifier that introduces a declaration.
@@ -130,11 +166,24 @@ impl<'a> Parser<'a> {
     /// Parse a run of modifiers.
     pub(crate) fn parse_modifiers(&mut self) -> Vec<ModifierLike<'a>> {
         let mut modifiers = Vec::new();
-        while is_modifier(self.token.kind) {
-            // A modifier keyword used as a name is not a modifier: `export
-            // default` versus `const declare = 1`.
-            let start = self.pos();
+        loop {
             let kind = self.token.kind;
+            if !is_modifier(kind) {
+                break;
+            }
+            // `const` is a modifier only in `const enum`. Everywhere else it opens
+            // a variable declaration, and consuming it here would leave
+            // `export const a = 1` looking like a bare expression.
+            if kind == SyntaxKind::ConstKeyword && !self.next_is_enum() {
+                break;
+            }
+            // A modifier keyword can also be a member *name*:
+            // `interface I { abstract(): void }` declares a method called
+            // `abstract`. What follows decides.
+            if self.modifier_is_actually_a_name() {
+                break;
+            }
+            let start = self.pos();
             self.next_token();
             let token = self.alloc_token(kind, tsr_core::Span::new(start, self.pos()));
             modifiers.push(ModifierLike::Token(token));
@@ -142,24 +191,59 @@ impl<'a> Parser<'a> {
         modifiers
     }
 
+    /// Whether the modifier at the cursor is really a member name.
+    ///
+    /// A name is followed by something that continues a member — `(`, `:`, `?`,
+    /// `=`, `;`, `,`, `}`, or a line break ending the member — whereas a genuine
+    /// modifier is followed by another modifier or the thing it modifies.
+    fn modifier_is_actually_a_name(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            matches!(
+                kind,
+                SyntaxKind::OpenParenToken
+                    | SyntaxKind::ColonToken
+                    | SyntaxKind::QuestionToken
+                    | SyntaxKind::EqualsToken
+                    | SyntaxKind::SemicolonToken
+                    | SyntaxKind::CommaToken
+                    | SyntaxKind::CloseBraceToken
+                    | SyntaxKind::CloseParenToken
+                    | SyntaxKind::LessThanToken
+            )
+        })
+    }
+
+    /// Whether the token after `const` is `enum`.
+    fn next_is_enum(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::EnumKeyword)
+    }
+
     /// Dispatch to the declaration a modifier list precedes.
-    fn parse_declaration_after_modifiers(
+    pub(crate) fn parse_declaration_after_modifiers(
         &mut self,
         start: u32,
-        modifiers: Vec<ModifierLike<'a>>,
+        modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
         match self.token.kind {
             SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => {
-                self.parse_variable_statement(start, &modifiers)
+                self.parse_variable_statement(start, modifiers)
             }
-            SyntaxKind::FunctionKeyword => self.parse_function_declaration(start, &modifiers),
+            SyntaxKind::FunctionKeyword => self.parse_function_declaration(start, modifiers),
+            SyntaxKind::ClassKeyword => self.parse_class_declaration(start, modifiers),
+            SyntaxKind::InterfaceKeyword => self.parse_interface_declaration(start, modifiers),
+            SyntaxKind::TypeKeyword => self.parse_type_alias_declaration(start, modifiers),
+            SyntaxKind::EnumKeyword => self.parse_enum_declaration(start, modifiers),
+            SyntaxKind::ImportKeyword => self.parse_import_declaration(start, modifiers),
+            SyntaxKind::NamespaceKeyword | SyntaxKind::ModuleKeyword => {
+                self.parse_module_declaration(start, modifiers)
+            }
             _ => {
                 // The modifiers were a false start; treat what follows as an
                 // expression so the tree still covers the text.
                 self.parse_expression_statement().unwrap_or_else(|| {
                     let expression = self.missing_identifier();
                     let node = self.finish_node(
-                        ExpressionStatement::new(Expression::Identifier(expression)),
+                        ExpressionStatement::new(Some(Expression::Identifier(expression))),
                         SyntaxKind::ExpressionStatement,
                         start,
                     );
@@ -189,7 +273,7 @@ impl<'a> Parser<'a> {
         self.parse_semicolon();
         let modifiers = self.arena.alloc_slice(modifiers);
         let node = self.finish_node(
-            VariableStatement::new(modifiers, list),
+            VariableStatement::new(modifiers, Some(list)),
             SyntaxKind::VariableStatement,
             start,
         );
@@ -220,11 +304,8 @@ impl<'a> Parser<'a> {
     fn parse_variable_declaration(&mut self) -> &'a VariableDeclaration<'a> {
         let start = self.pos();
         let name = self.parse_binding_name();
-        let exclamation = if self.at(SyntaxKind::ExclamationToken) {
-            Some(self.take_token())
-        } else {
-            None
-        };
+        let exclamation =
+            if self.at(SyntaxKind::ExclamationToken) { Some(self.take_token()) } else { None };
         let type_node = self.parse_type_annotation();
         let initializer = if self.eat(SyntaxKind::EqualsToken) {
             Some(self.parse_assignment_expression())
@@ -232,7 +313,7 @@ impl<'a> Parser<'a> {
             None
         };
         self.finish_node(
-            VariableDeclaration::new(name, exclamation, type_node, initializer),
+            VariableDeclaration::new(Some(name), exclamation, type_node, initializer),
             SyntaxKind::VariableDeclaration,
             start,
         )
@@ -245,10 +326,13 @@ impl<'a> Parser<'a> {
         let condition = self.parse_expression();
         self.expect(SyntaxKind::CloseParenToken);
         let then_branch = self.parse_statement_or_missing();
-        let else_branch =
-            if self.eat(SyntaxKind::ElseKeyword) { Some(self.parse_statement_or_missing()) } else { None };
+        let else_branch = if self.eat(SyntaxKind::ElseKeyword) {
+            Some(self.parse_statement_or_missing())
+        } else {
+            None
+        };
         let node = self.finish_node(
-            IfStatement::new(condition, then_branch, else_branch),
+            IfStatement::new(Some(condition), Some(then_branch), else_branch),
             SyntaxKind::IfStatement,
             start,
         );
@@ -265,8 +349,11 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::CloseParenToken);
         // A `;` after `do…while(…)` is optional even without ASI.
         self.eat(SyntaxKind::SemicolonToken);
-        let node =
-            self.finish_node(DoStatement::new(body, condition), SyntaxKind::DoStatement, start);
+        let node = self.finish_node(
+            DoStatement::new(body, Some(condition)),
+            SyntaxKind::DoStatement,
+            start,
+        );
         Statement::DoStatement(node)
     }
 
@@ -277,8 +364,11 @@ impl<'a> Parser<'a> {
         let condition = self.parse_expression();
         self.expect(SyntaxKind::CloseParenToken);
         let body = self.parse_statement_or_missing();
-        let node = self
-            .finish_node(WhileStatement::new(condition, body), SyntaxKind::WhileStatement, start);
+        let node = self.finish_node(
+            WhileStatement::new(Some(condition), body),
+            SyntaxKind::WhileStatement,
+            start,
+        );
         Statement::WhileStatement(node)
     }
 
@@ -308,24 +398,20 @@ impl<'a> Parser<'a> {
                 if is_of { self.parse_assignment_expression() } else { self.parse_expression() };
             self.expect(SyntaxKind::CloseParenToken);
             let body = self.parse_statement_or_missing();
-            let kind =
-                if is_of { SyntaxKind::ForOfStatement } else { SyntaxKind::ForInStatement };
+            let kind = if is_of { SyntaxKind::ForOfStatement } else { SyntaxKind::ForInStatement };
             let await_token = if is_await {
                 Some(self.alloc_token(SyntaxKind::AwaitKeyword, tsr_core::Span::at(start)))
             } else {
                 None
             };
-            let initializer = match initializer {
-                Some(initializer) => initializer,
-                None => {
-                    let missing = self.missing_identifier();
-                    ForInitializer::from(Expression::Identifier(missing))
-                }
-            };
+            let initializer = initializer.unwrap_or_else(|| {
+                let missing = self.missing_identifier();
+                ForInitializer::from(Expression::Identifier(missing))
+            });
             let kind_token = self.alloc_token(kind, tsr_core::Span::at(start));
             let node = self.finish_node(
                 ForInOrOfStatement::new(
-                    Some(kind_token),
+                    kind_token,
                     await_token,
                     Some(initializer),
                     Some(expression),
@@ -341,11 +427,8 @@ impl<'a> Parser<'a> {
         let condition =
             if self.at(SyntaxKind::SemicolonToken) { None } else { Some(self.parse_expression()) };
         self.expect(SyntaxKind::SemicolonToken);
-        let incrementor = if self.at(SyntaxKind::CloseParenToken) {
-            None
-        } else {
-            Some(self.parse_expression())
-        };
+        let incrementor =
+            if self.at(SyntaxKind::CloseParenToken) { None } else { Some(self.parse_expression()) };
         self.expect(SyntaxKind::CloseParenToken);
         let body = self.parse_statement_or_missing();
         let node = self.finish_node(
@@ -372,8 +455,11 @@ impl<'a> Parser<'a> {
                 self.finish_node(BreakStatement::new(label), SyntaxKind::BreakStatement, start);
             Statement::BreakStatement(node)
         } else {
-            let node = self
-                .finish_node(ContinueStatement::new(label), SyntaxKind::ContinueStatement, start);
+            let node = self.finish_node(
+                ContinueStatement::new(label),
+                SyntaxKind::ContinueStatement,
+                start,
+            );
             Statement::ContinueStatement(node)
         }
     }
@@ -399,8 +485,11 @@ impl<'a> Parser<'a> {
         let expression = self.parse_expression();
         self.expect(SyntaxKind::CloseParenToken);
         let statement = self.parse_statement_or_missing();
-        let node = self
-            .finish_node(WithStatement::new(expression, statement), SyntaxKind::WithStatement, start);
+        let node = self.finish_node(
+            WithStatement::new(Some(expression), Some(statement)),
+            SyntaxKind::WithStatement,
+            start,
+        );
         Statement::WithStatement(node)
     }
 
@@ -409,8 +498,11 @@ impl<'a> Parser<'a> {
         self.next_token();
         let expression = self.parse_expression();
         self.parse_semicolon();
-        let node =
-            self.finish_node(ThrowStatement::new(expression), SyntaxKind::ThrowStatement, start);
+        let node = self.finish_node(
+            ThrowStatement::new(Some(expression)),
+            SyntaxKind::ThrowStatement,
+            start,
+        );
         Statement::ThrowStatement(node)
     }
 
@@ -426,27 +518,27 @@ impl<'a> Parser<'a> {
         let mut clauses = Vec::new();
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
             let clause_start = self.pos();
-            if self.eat(SyntaxKind::CaseKeyword) {
+            if self.at(SyntaxKind::CaseKeyword) {
+                let kind_token = self.take_token();
                 let test = self.parse_expression();
                 self.expect(SyntaxKind::ColonToken);
                 let statements = self.parse_clause_statements();
                 let statements = self.arena.alloc_slice(&statements);
-                let node = self.finish_node(
-                    CaseClause::new(test, statements),
+                clauses.push(self.finish_node(
+                    CaseOrDefaultClause::new(kind_token, Some(test), statements),
                     SyntaxKind::CaseClause,
                     clause_start,
-                );
-                clauses.push(CaseOrDefaultClause::CaseClause(node));
-            } else if self.eat(SyntaxKind::DefaultKeyword) {
+                ));
+            } else if self.at(SyntaxKind::DefaultKeyword) {
+                let kind_token = self.take_token();
                 self.expect(SyntaxKind::ColonToken);
                 let statements = self.parse_clause_statements();
                 let statements = self.arena.alloc_slice(&statements);
-                let node = self.finish_node(
-                    DefaultClause::new(statements),
+                clauses.push(self.finish_node(
+                    CaseOrDefaultClause::new(kind_token, None, statements),
                     SyntaxKind::DefaultClause,
                     clause_start,
-                );
-                clauses.push(CaseOrDefaultClause::DefaultClause(node));
+                ));
             } else {
                 self.error_at_current(&messages::UNEXPECTED_TOKEN);
                 self.next_token();
@@ -457,7 +549,7 @@ impl<'a> Parser<'a> {
         let case_block =
             self.finish_node(CaseBlock::new(clauses), SyntaxKind::CaseBlock, block_start);
         let node = self.finish_node(
-            SwitchStatement::new(expression, case_block),
+            SwitchStatement::new(Some(expression), Some(case_block)),
             SyntaxKind::SwitchStatement,
             start,
         );
@@ -502,7 +594,7 @@ impl<'a> Parser<'a> {
                 let type_node = self.parse_type_annotation();
                 self.expect(SyntaxKind::CloseParenToken);
                 Some(self.finish_node(
-                    VariableDeclaration::new(name, None, type_node, None),
+                    VariableDeclaration::new(Some(name), None, type_node, None),
                     SyntaxKind::VariableDeclaration,
                     decl_start,
                 ))
@@ -511,7 +603,7 @@ impl<'a> Parser<'a> {
             };
             let body = self.parse_block();
             Some(self.finish_node(
-                CatchClause::new(variable, body),
+                CatchClause::new(variable, Some(body)),
                 SyntaxKind::CatchClause,
                 catch_start,
             ))
@@ -519,14 +611,15 @@ impl<'a> Parser<'a> {
             None
         };
 
-        let finally = if self.eat(SyntaxKind::FinallyKeyword) { Some(self.parse_block()) } else { None };
+        let finally =
+            if self.eat(SyntaxKind::FinallyKeyword) { Some(self.parse_block()) } else { None };
 
         if catch.is_none() && finally.is_none() {
             self.error_at_current(&messages::CATCH_OR_FINALLY_EXPECTED);
         }
 
         let node = self.finish_node(
-            TryStatement::new(block, catch, finally),
+            TryStatement::new(Some(block), catch, finally),
             SyntaxKind::TryStatement,
             start,
         );
@@ -545,7 +638,7 @@ impl<'a> Parser<'a> {
             if self.eat(SyntaxKind::ColonToken) {
                 let statement = self.parse_statement_or_missing();
                 let node = self.finish_node(
-                    LabeledStatement::new(label, statement),
+                    LabeledStatement::new(Some(label), Some(statement)),
                     SyntaxKind::LabeledStatement,
                     start,
                 );
@@ -555,7 +648,7 @@ impl<'a> Parser<'a> {
 
         self.parse_semicolon();
         let node = self.finish_node(
-            ExpressionStatement::new(expression),
+            ExpressionStatement::new(Some(expression)),
             SyntaxKind::ExpressionStatement,
             start,
         );
@@ -567,8 +660,7 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         self.parse_statement().unwrap_or_else(|| {
             self.error_at_current(&messages::STATEMENT_EXPECTED);
-            let node =
-                self.finish_node(EmptyStatement::new(), SyntaxKind::EmptyStatement, start);
+            let node = self.finish_node(EmptyStatement::new(), SyntaxKind::EmptyStatement, start);
             Statement::EmptyStatement(node)
         })
     }
@@ -580,7 +672,8 @@ impl<'a> Parser<'a> {
         modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
         self.expect(SyntaxKind::FunctionKeyword);
-        let asterisk = if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+        let asterisk =
+            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
         let name = if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
             None
         } else {
@@ -673,4 +766,3 @@ pub(crate) fn is_reserved_word(kind: SyntaxKind) -> bool {
     (SyntaxKind::FIRST_RESERVED_WORD as u16..=SyntaxKind::LAST_RESERVED_WORD as u16)
         .contains(&(kind as u16))
 }
-
