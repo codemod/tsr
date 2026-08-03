@@ -48,12 +48,50 @@ pub struct ParseResult<'a> {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// JSDoc comments, keyed by the node they document.
+///
+/// Sparse by construction: only nodes actually preceded by a `/** … */` appear,
+/// which in a typical TypeScript file is a small minority. A sorted `Vec` rather
+/// than a map because it is built in source order and read by lookup far less
+/// often than it is built — see ADR-0003 on side tables.
+#[derive(Debug, Default)]
+pub struct JSDocTable<'a> {
+    entries: Vec<(tsr_ast::NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
+}
+
+impl<'a> JSDocTable<'a> {
+    /// The JSDoc attached to `node`, or an empty slice.
+    #[must_use]
+    pub fn get(&self, node: tsr_ast::NodeId) -> &'a [&'a tsr_ast::JSDoc<'a>] {
+        self.entries.iter().find(|(id, _)| *id == node).map_or(&[], |(_, docs)| *docs)
+    }
+
+    /// How many nodes carry JSDoc.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether no node carries JSDoc.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Every documented node, in source order.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (tsr_ast::NodeId, &'a [&'a tsr_ast::JSDoc<'a>])> + '_ {
+        self.entries.iter().copied()
+    }
+}
+
 /// A recursive-descent parser over one source file.
 pub struct Parser<'a> {
     pub(crate) arena: &'a Arena,
     pub(crate) source: &'a str,
     pub(crate) script_kind: ScriptKind,
-    scanner: Scanner<'a>,
+    pub(crate) scanner: Scanner<'a>,
     /// The token under the cursor.
     pub(crate) token: Token,
     /// Decoded value of [`Self::token`], when it needed decoding.
@@ -66,6 +104,12 @@ pub struct Parser<'a> {
     /// the loop header malformed. A counter rather than a bool because the
     /// restriction nests: `for ((a in b);;)` re-enables it inside the parens.
     pub(crate) no_in: u32,
+    /// JSDoc comments, keyed by the node they document.
+    ///
+    /// A side table rather than a field on each node, per ADR-0003: JSDoc is
+    /// absent from the overwhelming majority of nodes, and a field would cost
+    /// every node a pointer to carry information a handful of them use.
+    pub(crate) jsdoc: Vec<(tsr_ast::NodeId, &'a [&'a tsr_ast::JSDoc<'a>])>,
     /// Guards against runaway recursion on pathological input.
     ///
     /// TypeScript permits arbitrarily nested expressions, and a deeply nested
@@ -109,19 +153,20 @@ impl<'a> Parser<'a> {
             diagnostics: Vec::new(),
             nodes: NodeTable::new(),
             no_in: 0,
+            jsdoc: Vec::new(),
             depth: 0,
         }
     }
 
     /// Consume the parser, returning its diagnostics and node table.
     #[must_use]
-    pub fn finish(mut self) -> (Vec<Diagnostic>, NodeTable) {
+    pub fn finish(mut self) -> (Vec<Diagnostic>, NodeTable, JSDocTable<'a>) {
         // Scanner diagnostics are interleaved by position so a caller sees one
         // ordered list rather than two.
         let mut diagnostics = self.diagnostics;
         diagnostics.extend(self.scanner.take_diagnostics());
         diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
-        (diagnostics, self.nodes)
+        (diagnostics, self.nodes, JSDocTable { entries: self.jsdoc })
     }
 
     // ---- token cursor ---------------------------------------------------
@@ -309,6 +354,24 @@ impl<'a> Parser<'a> {
         allocated
     }
 
+    /// Allocate a node with an explicit end offset.
+    ///
+    /// JSDoc needs this: its nodes end at token boundaries the ordinary
+    /// "previous token's end" rule does not describe, because inside a comment
+    /// layout is tokenised rather than skipped as trivia.
+    pub(crate) fn finish_node_with_end<T: HasNodeId>(
+        &mut self,
+        node: T,
+        kind: SyntaxKind,
+        start: u32,
+        end: u32,
+    ) -> &'a T {
+        let id = self.nodes.push(kind, Span::new(start, end), tsr_ast::NodeFlags::empty());
+        let allocated: &'a T = self.arena.alloc(node);
+        allocated.set_node_id(id);
+        allocated
+    }
+
     /// Where the most recently consumed token ended.
     fn node_end(&self) -> u32 {
         self.scanner.full_start()
@@ -330,8 +393,10 @@ impl<'a> Parser<'a> {
 
     /// Allocate a token node.
     pub(crate) fn alloc_token(&mut self, kind: SyntaxKind, span: Span) -> &'a AstToken<'a> {
-        self.nodes.push(kind, span, tsr_ast::NodeFlags::empty());
-        self.arena.alloc(AstToken::new(kind))
+        let id = self.nodes.push(kind, span, tsr_ast::NodeFlags::empty());
+        let allocated: &'a AstToken<'a> = self.arena.alloc(AstToken::new(kind));
+        allocated.node_id.set(Some(id));
+        allocated
     }
 
     /// Consume the current token and allocate it as a node.

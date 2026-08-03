@@ -557,6 +557,18 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
     }
     out.push_str("}\n\n");
 
+    // Every node carries a `NodeId`, but reaching it through the union needs a
+    // match over all variants — the one thing a hand-written impl would rot on
+    // the next time `ast.json` grows a node. Anything keyed by node identity (the
+    // side tables, JSDoc attachment, the binder's symbol map) goes through here.
+    out.push_str(
+        "impl Node<'_> {\n             /// The id assigned when the parser registered this node.\n             ///\n             /// `None` only for a node that has not been registered, which the parser\n             /// does at construction; in a finished tree this is always `Some`.\n             #[must_use]\n             pub fn node_id(&self) -> Option<crate::NodeId> {\n                 use crate::HasNodeId as _;\n                 match self {\n",
+    );
+    for name in ast.nodes.definitions.keys() {
+        writeln!(out, "            Node::{name}(n) => n.node_id(),")?;
+    }
+    out.push_str("        }\n    }\n}\n\n");
+
     let mut alias_members: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for alias_name in ast.nodes.aliases.keys() {
         let mut seen = BTreeSet::new();

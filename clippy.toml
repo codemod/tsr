@@ -1,0 +1,7 @@
+# Words that look like Rust items to `clippy::doc_markdown` but are proper nouns.
+#
+# `..` keeps clippy's own default list (TypeScript, JavaScript, and friends) and
+# adds ours. Without this, prose about JSDoc has to backtick a word that names a
+# comment convention rather than any item in this codebase — which reads as a code
+# reference and is wrong.
+doc-valid-idents = ["..", "JSDoc", "JSX", "TSX"]

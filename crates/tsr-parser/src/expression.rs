@@ -1630,6 +1630,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_parameter(&mut self) -> &'a ParameterDeclaration<'a> {
+        let docs = self.parse_leading_jsdoc();
+        let parameter = self.parse_parameter_worker();
+        self.attach_jsdoc(tsr_ast::Node::ParameterDeclaration(parameter), docs);
+        parameter
+    }
+
+    fn parse_parameter_worker(&mut self) -> &'a ParameterDeclaration<'a> {
         let start = self.pos();
         let modifiers = self.parse_modifiers();
         let dot_dot_dot =

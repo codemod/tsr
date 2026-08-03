@@ -52,10 +52,15 @@ pub trait HasNodeId {
 /// instantiations (`AsteriskToken`, `QuestionToken`, …). Since the instantiations
 /// differ only in which kinds they admit, they collapse here into one type
 /// carrying its kind — the constraint is documented on each field that uses it.
-#[derive(Debug, Clone, Copy)]
+/// Deliberately not `Copy`, unlike every other single-field node: the
+/// `node_id` cell is what makes a token findable in the side tables, and a
+/// `Copy` token would silently duplicate an id that identifies one position.
+#[derive(Debug, Clone)]
 pub struct Token<'a> {
     /// Which token this is.
     pub kind: SyntaxKind,
+    /// Key into the side tables holding this node's kind, span, and parent.
+    pub node_id: std::cell::Cell<Option<NodeId>>,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -63,7 +68,17 @@ impl Token<'_> {
     /// Create a token of the given kind.
     #[must_use]
     pub const fn new(kind: SyntaxKind) -> Self {
-        Self { kind, _marker: std::marker::PhantomData }
+        Self { kind, node_id: std::cell::Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl HasNodeId for Token<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
     }
 }
 

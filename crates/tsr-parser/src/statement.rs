@@ -39,6 +39,15 @@ impl<'a> Parser<'a> {
     /// Parse one statement, or `None` if the cursor is not on one.
     #[allow(clippy::too_many_lines)]
     pub(crate) fn parse_statement(&mut self) -> Option<Statement<'a>> {
+        let docs = self.parse_leading_jsdoc();
+        let statement = self.parse_statement_worker();
+        if let Some(statement) = statement {
+            self.attach_jsdoc(statement.into(), docs);
+        }
+        statement
+    }
+
+    fn parse_statement_worker(&mut self) -> Option<Statement<'a>> {
         let start = self.pos();
 
         // Bound before matching: the guards below need `&mut self` for lookahead,

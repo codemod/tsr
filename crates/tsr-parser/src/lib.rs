@@ -36,6 +36,7 @@
 
 mod declaration;
 mod expression;
+mod jsdoc;
 mod jsx;
 mod module;
 mod parsed_file;
@@ -44,7 +45,7 @@ mod statement;
 mod types;
 
 pub use parsed_file::ParsedFile;
-pub use parser::{ParseResult, Parser, ScriptKind};
+pub use parser::{JSDocTable, ParseResult, Parser, ScriptKind};
 
 use tsr_ast::SourceFile;
 use tsr_core::Arena;
@@ -79,8 +80,8 @@ pub fn parse_with_script_kind<'a>(
 ) -> ParsedSourceFile<'a> {
     let mut parser = Parser::with_script_kind(arena, source, script_kind);
     let source_file = parser.parse_source_file();
-    let (diagnostics, node_table) = parser.finish();
-    ParsedSourceFile { source_file, diagnostics, nodes: node_table }
+    let (diagnostics, node_table, jsdoc) = parser.finish();
+    ParsedSourceFile { source_file, diagnostics, nodes: node_table, jsdoc }
 }
 
 /// The result of parsing one file.
@@ -91,4 +92,6 @@ pub struct ParsedSourceFile<'a> {
     pub diagnostics: Vec<Diagnostic>,
     /// Kind, span, and parent for every node the parser registered.
     pub nodes: tsr_ast::NodeTable,
+    /// JSDoc comments, keyed by the node they document.
+    pub jsdoc: JSDocTable<'a>,
 }

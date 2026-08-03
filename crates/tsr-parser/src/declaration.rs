@@ -163,6 +163,15 @@ impl<'a> Parser<'a> {
 
     /// One member of a class body.
     fn parse_class_member(&mut self) -> Option<ClassElement<'a>> {
+        let docs = self.parse_leading_jsdoc();
+        let member = self.parse_class_member_worker();
+        if let Some(member) = member {
+            self.attach_jsdoc(member.into(), docs);
+        }
+        member
+    }
+
+    fn parse_class_member_worker(&mut self) -> Option<ClassElement<'a>> {
         let start = self.pos();
 
         if self.at(SyntaxKind::SemicolonToken) {

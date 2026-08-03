@@ -16,6 +16,8 @@ bitflags::bitflags! {
         /// Load-bearing for automatic semicolon insertion, which is why it rides
         /// on the token rather than requiring a separate trivia scan.
         const PRECEDING_LINE_BREAK = 1 << 0;
+        /// Trivia before this token contained a `/** … */` comment.
+        const PRECEDING_JSDOC_COMMENT = 1 << 1;
         /// The literal was not closed before end of file or line.
         const UNTERMINATED = 1 << 2;
         /// An identifier or string contained a `\u` escape.
@@ -30,6 +32,18 @@ bitflags::bitflags! {
         const OCTAL_SPECIFIER = 1 << 8;
         /// A numeric literal contained `_` separators.
         const CONTAINS_SEPARATOR = 1 << 9;
+        /// Leading `*` on a JSDoc continuation line was skipped before this token.
+        const PRECEDING_JSDOC_LEADING_ASTERISKS = 1 << 15;
+        /// The preceding JSDoc comment mentions `@deprecated`.
+        ///
+        /// Found by a cheap substring scan during trivia, not by parsing: it lets
+        /// the parser flag a node as *possibly* deprecated without paying for the
+        /// JSDoc parse. Callers must confirm by looking at the parsed tags.
+        const PRECEDING_JSDOC_WITH_DEPRECATED = 1 << 17;
+        /// The preceding JSDoc comment mentions `@see`, `@link`, `@linkcode`, or
+        /// `@linkplain`. Same cheap scan as
+        /// [`TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED`].
+        const PRECEDING_JSDOC_WITH_SEE_OR_LINK = 1 << 18;
     }
 }
 
@@ -103,6 +117,19 @@ mod tests {
         assert_eq!(TokenFlags::OCTAL_SPECIFIER.bits(), Ast::OCTAL_SPECIFIER.bits());
         assert_eq!(TokenFlags::CONTAINS_SEPARATOR.bits(), Ast::CONTAINS_SEPARATOR.bits());
         assert_eq!(TokenFlags::UNICODE_ESCAPE.bits(), Ast::UNICODE_ESCAPE.bits());
+        assert_eq!(TokenFlags::PRECEDING_JSDOC_COMMENT.bits(), Ast::PRECEDING_JSDOC_COMMENT.bits());
+        assert_eq!(
+            TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS.bits(),
+            Ast::PRECEDING_JSDOC_LEADING_ASTERISKS.bits()
+        );
+        assert_eq!(
+            TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED.bits(),
+            Ast::PRECEDING_JSDOC_WITH_DEPRECATED.bits()
+        );
+        assert_eq!(
+            TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK.bits(),
+            Ast::PRECEDING_JSDOC_WITH_SEE_OR_LINK.bits()
+        );
     }
 
     #[test]

@@ -116,7 +116,8 @@ tokens, so a naive bracket counter never balances `<K extends Key<U>>`, and
 
 ## Not yet built
 
-- **JSDoc** parsing.
+- **The JSDoc reparser** — `@type` and `@param` promoted to real annotations in
+  `.js` files. JSDoc itself parses; see [jsdoc.md](jsdoc.md).
 - **ASI inside type members** — `a?: number` followed by `extends?: string` on the
   next line reads the `extends` as a conditional type.
 - **Import types with attributes** (`import("pkg", { with: … })`).

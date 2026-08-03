@@ -15,8 +15,10 @@
 //! [`tsr_core::Span`].
 
 mod generated;
+mod jsdoc;
 mod token;
 
+pub use jsdoc::{CommentRange, is_jsdoc_like_text, jsdoc_ranges_in};
 pub use token::{Token, TokenFlags};
 
 use tsr_ast::SyntaxKind;
@@ -115,6 +117,7 @@ pub struct ScannerState {
     pos: u32,
     token_start: u32,
     full_start: u32,
+    limit: u32,
     token: Token,
     diagnostic_count: usize,
 }
@@ -128,6 +131,20 @@ pub struct Scanner<'a> {
     token_start: u32,
     /// Start of the current token including leading trivia.
     full_start: u32,
+    /// Byte offset at which scanning stops, as if the source ended there.
+    ///
+    /// Normally `source.len()`. JSDoc parsing narrows it to the comment body so
+    /// the closing `*/` is out of reach: upstream achieves the same by slicing
+    /// `sourceText` and calling `SetText`, which we cannot do without either
+    /// re-borrowing or losing the `'a` lifetime that ties token text to the
+    /// original source.
+    limit: u32,
+    /// Depth of nested "skip leading `*`" requests.
+    ///
+    /// A counter rather than a flag because JSDoc type parsing re-enters the
+    /// normal scanner, and the innermost region must not clear the outer one's
+    /// setting on exit. Upstream counts for the same reason.
+    skip_jsdoc_leading_asterisks: u32,
     token: Token,
     /// Decoded value for identifiers, strings, and numbers.
     ///
@@ -146,6 +163,10 @@ impl<'a> Scanner<'a> {
             pos: 0,
             token_start: 0,
             full_start: 0,
+            // `source.len()` fits in `u32`: the parser rejects larger inputs.
+            #[allow(clippy::cast_possible_truncation)]
+            limit: source.len() as u32,
+            skip_jsdoc_leading_asterisks: 0,
             token: Token::new(SyntaxKind::Unknown, Span::at(0), TokenFlags::empty()),
             value: None,
             diagnostics: Vec::new(),
@@ -205,6 +226,7 @@ impl<'a> Scanner<'a> {
             pos: self.pos,
             token_start: self.token_start,
             full_start: self.full_start,
+            limit: self.limit,
             token: self.token,
             diagnostic_count: self.diagnostics.len(),
         }
@@ -215,6 +237,7 @@ impl<'a> Scanner<'a> {
         self.pos = state.pos;
         self.token_start = state.token_start;
         self.full_start = state.full_start;
+        self.limit = state.limit;
         self.token = state.token;
         self.diagnostics.truncate(state.diagnostic_count);
         // The decoded value belongs to the token we just discarded.
@@ -224,7 +247,9 @@ impl<'a> Scanner<'a> {
     // ---- character access ----------------------------------------------
 
     fn rest(&self) -> &'a str {
-        &self.source[self.pos as usize..]
+        // Everything downstream asks "is there a character here?", so confining
+        // the window is enough to make `limit` behave exactly like end-of-file.
+        &self.source[self.pos as usize..self.limit as usize]
     }
 
     fn peek(&self) -> Option<char> {
@@ -294,6 +319,18 @@ impl<'a> Scanner<'a> {
                 self.bump();
                 continue;
             }
+            // Inside a JSDoc type expression the `*` opening a continuation line
+            // is decoration, not an operator. Only the first one on the line is:
+            // `* *` is a leading asterisk followed by a real token.
+            if ch == '*'
+                && self.skip_jsdoc_leading_asterisks > 0
+                && !flags.contains(TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS)
+                && flags.contains(TokenFlags::PRECEDING_LINE_BREAK)
+            {
+                flags |= TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS;
+                self.bump();
+                continue;
+            }
             if ch == '/' {
                 match self.peek_at(1) {
                     Some('/') => {
@@ -301,8 +338,22 @@ impl<'a> Scanner<'a> {
                         continue;
                     }
                     Some('*') => {
+                        let start = self.pos;
                         if self.skip_block_comment() {
                             flags |= TokenFlags::PRECEDING_LINE_BREAK;
+                        }
+                        let text = &self.source[start as usize..self.pos as usize];
+                        if is_jsdoc_like_text(text) {
+                            flags |= TokenFlags::PRECEDING_JSDOC_COMMENT;
+                            // A substring scan, not a parse: this is what lets the
+                            // parser skip JSDoc entirely for the overwhelming
+                            // majority of nodes that have none of these tags.
+                            if mentions_tag(text, &["deprecated"]) {
+                                flags |= TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED;
+                            }
+                            if mentions_tag(text, &["see", "link", "linkcode", "linkplain"]) {
+                                flags |= TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
+                            }
                         }
                         continue;
                     }
@@ -1287,4 +1338,30 @@ pub fn tokenize(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
     }
     let diagnostics = scanner.take_diagnostics();
     (tokens, diagnostics)
+}
+
+/// Whether a JSDoc comment mentions any of `tags` as `@tag`.
+///
+/// Deliberately approximate — it does not know about backticks, nesting, or code
+/// fences, so it over-reports. That is the safe direction: the flag only causes
+/// the comment to be parsed, and the parse settles the question.
+fn mentions_tag(text: &str, tags: &[&str]) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while let Some(offset) = text[i..].find('@') {
+        let after = i + offset + 1;
+        for tag in tags {
+            if text[after..].starts_with(tag) {
+                let terminator = bytes.get(after + tag.len());
+                // A tag name ends at whitespace, `}` (from `{@link x}`), `*`, or
+                // the end of the comment. Without this check `@seeder` matches
+                // `@see`.
+                if terminator.is_none_or(|&b| b.is_ascii_whitespace() || b == b'}' || b == b'*') {
+                    return true;
+                }
+            }
+        }
+        i = after;
+    }
+    false
 }

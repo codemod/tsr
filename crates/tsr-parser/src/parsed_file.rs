@@ -42,6 +42,10 @@ self_cell::self_cell! {
 /// The parse output that borrows from [`Owner`].
 struct Ast<'a> {
     source_file: &'a SourceFile<'a>,
+    /// Lives inside the cell rather than beside it, because it borrows JSDoc
+    /// nodes from the arena — unlike the diagnostics and node table, which are
+    /// owned data and can be lifted out.
+    jsdoc: crate::JSDocTable<'a>,
 }
 
 /// A parsed file: source, arena, tree, and diagnostics as one owned value.
@@ -78,10 +82,10 @@ impl ParsedFile {
             // into storage the cell keeps alive.
             let mut parser = crate::Parser::new(&owner.arena, &owner.source);
             let source_file = parser.parse_source_file();
-            let (parsed_diagnostics, parsed_nodes) = parser.finish();
+            let (parsed_diagnostics, parsed_nodes, jsdoc) = parser.finish();
             diagnostics = parsed_diagnostics;
             nodes = parsed_nodes;
-            Ast { source_file }
+            Ast { source_file, jsdoc }
         });
 
         Self { cell, diagnostics: diagnostics.into(), nodes: Arc::new(nodes) }
@@ -112,6 +116,17 @@ impl ParsedFile {
     /// which is the thing `self_cell` exists to prevent.
     pub fn with_ast<R>(&self, f: impl for<'a> FnOnce(&'a SourceFile<'a>) -> R) -> R {
         self.cell.with_dependent(|_owner, ast| f(ast.source_file))
+    }
+
+    /// Run `f` over the tree and its JSDoc together.
+    ///
+    /// Separate from [`ParsedFile::with_ast`] so the common caller, which does
+    /// not care about comments, keeps the simpler signature.
+    pub fn with_ast_and_jsdoc<R>(
+        &self,
+        f: impl for<'a> FnOnce(&'a SourceFile<'a>, &'a crate::JSDocTable<'a>) -> R,
+    ) -> R {
+        self.cell.with_dependent(|_owner, ast| f(ast.source_file, &ast.jsdoc))
     }
 
     /// How many statements the file has, without exposing the tree.

@@ -781,6 +781,15 @@ impl<'a> Parser<'a> {
     /// signatures `[k: string]: T`, accessors `get x(): T`, and named
     /// property/method signatures.
     pub(crate) fn parse_type_member(&mut self) -> Option<TypeElement<'a>> {
+        let docs = self.parse_leading_jsdoc();
+        let member = self.parse_type_member_worker();
+        if let Some(member) = member {
+            self.attach_jsdoc(member.into(), docs);
+        }
+        member
+    }
+
+    fn parse_type_member_worker(&mut self) -> Option<TypeElement<'a>> {
         let start = self.pos();
 
         // `(): T` and `<T>(): U` — a call signature has no name.

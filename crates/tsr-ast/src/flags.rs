@@ -115,6 +115,13 @@ bitflags! {
         const UNICODE_ESCAPE = 1 << 10;
         /// Identifier contains an invalid escape sequence.
         const CONTAINS_INVALID_ESCAPE = 1 << 11;
+        /// Leading `*` on a JSDoc continuation line was skipped before this token.
+        const PRECEDING_JSDOC_LEADING_ASTERISKS = 1 << 15;
+        /// The preceding JSDoc comment mentions `@deprecated`.
+        const PRECEDING_JSDOC_WITH_DEPRECATED = 1 << 17;
+        /// The preceding JSDoc comment mentions `@see`, `@link`, `@linkcode`, or
+        /// `@linkplain`.
+        const PRECEDING_JSDOC_WITH_SEE_OR_LINK = 1 << 18;
         /// The literal is a hex, binary or octal specifier.
         const BINARY_OR_OCTAL_SPECIFIER =
             Self::BINARY_SPECIFIER.bits() | Self::OCTAL_SPECIFIER.bits();

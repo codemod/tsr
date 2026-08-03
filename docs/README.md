@@ -17,6 +17,7 @@ holds is *superseded* by a new record that references it, never edited or delete
 | [0005](adr/0005-codegen-from-ast-json.md) | Generate the AST from upstream's `_scripts/ast.json` | Accepted |
 | [0006](adr/0006-conformance-oracle.md) | Assert conformance against generated Go, not against `ast.json` | Accepted |
 | [0007](adr/0007-generated-code-policy.md) | Classify generated code by source of truth; port only Category A | Accepted |
+| [0008](adr/0008-jsdoc-parsed-eagerly.md) | Parse JSDoc during the main parse; upstream's lazy path needs a lifetime we do not have | Accepted |
 
 ## Architecture — `architecture/`
 
@@ -25,6 +26,7 @@ Living documents describing how a subsystem works and why it is shaped that way.
 - [ast.md](architecture/ast.md) — node representation, ids, side tables, codegen
 - [scanner.md](architecture/scanner.md) — tokenisation, re-scanning, backtracking
 - [parser.md](architecture/parser.md) — recursive descent, recovery, the arrow-function trap
+- [jsdoc.md](architecture/jsdoc.md) — two languages in one file, and switching between them
 - [threading.md](architecture/threading.md) — what is `Send`, what is not, and why
 - [conformance.md](architecture/conformance.md) — the corpus, the oracles, the ratchet
 
