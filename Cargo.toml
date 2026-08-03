@@ -24,6 +24,7 @@ bitflags = "2.9"                 # NodeFlags / ModifierFlags / TransformFlags
 hashbrown = { version = "0.15", default-features = false, features = ["allocator-api2", "inline-more"] }
 index_vec = "0.1.4"              # Typed index vectors
 nonmax = "0.5.5"                 # NonMaxU32 ids, so Option<Id> is 4 bytes
+rayon = "1.12"                   # Data parallelism across files
 rustc-hash = "2"                 # Fast non-cryptographic hashing
 self_cell = "1.2"                # Self-referential arena + AST storage
 smallvec = { version = "1.15", features = ["union"] }

@@ -396,3 +396,13 @@ fn out_of_range_code_points_are_still_rejected() {
     let (_, diagnostics) = tokenize(r#""\u{110000}""#);
     assert!(!diagnostics.is_empty());
 }
+
+#[test]
+fn private_identifiers_are_one_token() {
+    // `#x` is a single PrivateIdentifier; scanning `#` and `x` separately makes
+    // every private class member unparseable.
+    assert_eq!(kinds("#x"), vec![PrivateIdentifier]);
+    assert_eq!(kinds("this.#count"), vec![ThisKeyword, DotToken, PrivateIdentifier]);
+    // A lone `#` is not one.
+    assert_eq!(kinds("# x"), vec![HashToken, Identifier]);
+}

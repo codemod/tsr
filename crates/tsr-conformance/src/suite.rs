@@ -5,6 +5,8 @@
 //! number — `0/12445` — rather than being absent from the summary. A missing row
 //! and a zero row look identical at a glance, and only one of them is honest.
 
+use rayon::prelude::*;
+
 use crate::corpus::CaseEntry;
 
 /// What happened when a suite judged one case.
@@ -98,9 +100,16 @@ impl SuiteResult {
 /// truncation never hides the magnitude — only the detail.
 const MAX_REPORTED_FAILURES: usize = 100;
 
-/// Run a suite over the corpus.
+/// Run a suite over the corpus, in parallel.
+///
+/// Cases are independent — each parses into its own arena — so this is a plain
+/// `par_iter`. Results are collected in case order first and tallied afterwards,
+/// so the snapshot is byte-identical regardless of how work was scheduled;
+/// a run whose output depends on thread timing would be useless as a ratchet.
 #[must_use]
-pub fn run_suite(suite: &dyn Suite, cases: &[CaseEntry]) -> SuiteResult {
+pub fn run_suite(suite: &(dyn Suite + Sync), cases: &[CaseEntry]) -> SuiteResult {
+    let outcomes: Vec<Outcome> = cases.par_iter().map(|case| suite.run(case)).collect();
+
     let mut result = SuiteResult {
         name: suite.name().to_string(),
         describes: suite.describes().to_string(),
@@ -108,8 +117,8 @@ pub fn run_suite(suite: &dyn Suite, cases: &[CaseEntry]) -> SuiteResult {
     };
     let mut reasons: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
 
-    for case in cases {
-        match suite.run(case) {
+    for (case, outcome) in cases.iter().zip(outcomes) {
+        match outcome {
             Outcome::Passed => result.passed += 1,
             Outcome::Failed { reason } => {
                 result.failed += 1;

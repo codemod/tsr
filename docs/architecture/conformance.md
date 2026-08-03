@@ -27,7 +27,7 @@ baseline_resolution                 12444/12444   100.00%         0
 parser_reachable_target              5648/11187    50.49%      1257
 scanner_termination                 12444/12444   100.00%         0
 scanner_clean_files                   5646/5648    99.96%      6796
-parser_typescript                     3969/5648    70.27%      6796
+parser_typescript                     5183/5648    91.77%      6796
 ```
 
 The first two measure the **harness**; `parser_reachable_target` measures the
@@ -151,11 +151,16 @@ without a pin is not reproducible. Failure detail is capped at 100 entries so on
 regression stays readable, but the *count* is always reported in full — truncation
 hides detail, never magnitude.
 
+## Parallelism
+
+Suites run with `rayon` over cases. Outcomes are collected in case order and
+tallied afterwards, so snapshots are byte-identical regardless of scheduling —
+verified at 1, 3, and default thread counts. The full run is ~25 s of CPU in
+~4.6 s wall. See [threading.md](threading.md).
+
 ## Not yet built
 
 - **Per-configuration runs** for the 793 varied cases.
-- **Parallelism.** The full run now takes ~58s in a debug build, up from ~0.5s
-  before the scanner suites existed — it is now doing real work per file. `rayon`
-  across cases is the obvious next move.
+- **Per-configuration runs** are still the largest excluded group (793 cases).
 - **`.types` / `.symbols` / `.js` suites** for the binder, checker, and emitter.
 - **fourslash**, needed for the language service (`bd` epic `tsr-5o3`).

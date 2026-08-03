@@ -11,6 +11,17 @@ use tsr_diagnostics::messages;
 
 use crate::parser::Parser;
 
+/// Wrap an optional `async` modifier as an arena slice.
+fn modifier_slice<'a>(
+    arena: &'a tsr_core::Arena,
+    modifier: Option<&'a Token<'a>>,
+) -> &'a [ModifierLike<'a>] {
+    match modifier {
+        Some(token) => arena.alloc_slice(&[ModifierLike::Token(token)]),
+        None => &[],
+    }
+}
+
 /// Binding power of a binary operator, or `None` if `kind` is not one.
 ///
 /// Higher binds tighter. Values mirror TypeScript's `OperatorPrecedence`.
@@ -96,15 +107,17 @@ impl<'a> Parser<'a> {
         expression
     }
 
-    /// Parse an expression where a bare `in` is not an operator.
+    /// Parse a full expression in which a bare `in` is not a binary operator.
     ///
-    /// `for (a in b)` would otherwise consume `a in b` as a comparison and leave
-    /// the loop header malformed.
+    /// Used for a `for` statement's initializer, where `in` introduces the
+    /// `for…in` form. This must still be a *complete* expression — `for (i = 0;
+    /// …)` is an assignment — which an earlier version got wrong by parsing only
+    /// a unary expression.
     pub(crate) fn parse_expression_no_in(&mut self) -> Expression<'a> {
-        // Handled by the caller checking for `in` before recursing; the binary
-        // loop stops at `in` only in that context, which the `for` parser
-        // establishes by parsing a unary expression and inspecting the operator.
-        self.parse_unary_expression()
+        self.no_in += 1;
+        let expression = self.parse_expression();
+        self.no_in -= 1;
+        expression
     }
 
     /// Parse an assignment, conditional, or binary expression.
@@ -168,6 +181,9 @@ impl<'a> Parser<'a> {
 
         while let Some(precedence) = binary_precedence(self.token.kind) {
             if precedence < min_precedence {
+                break;
+            }
+            if self.no_in > 0 && self.at(SyntaxKind::InKeyword) {
                 break;
             }
 
@@ -400,6 +416,25 @@ impl<'a> Parser<'a> {
                     );
                     expression = Expression::CallExpression(node);
                 }
+                // `f<T>(x)`. `<` is also less-than, so the type arguments are
+                // only accepted when a call follows them.
+                SyntaxKind::LessThanToken => {
+                    let Some(type_arguments) = self.try_parse(|p| {
+                        let arguments = p.parse_type_arguments_for_call()?;
+                        p.at(SyntaxKind::OpenParenToken).then_some(arguments)
+                    }) else {
+                        break;
+                    };
+                    let arguments = self.parse_arguments();
+                    let arguments = self.arena.alloc_slice(&arguments);
+                    let type_arguments = self.arena.alloc_slice(&type_arguments);
+                    let node = self.finish_node(
+                        CallExpression::new(Some(expression), None, type_arguments, arguments),
+                        SyntaxKind::CallExpression,
+                        start,
+                    );
+                    expression = Expression::CallExpression(node);
+                }
                 SyntaxKind::ExclamationToken if !self.token.has_preceding_line_break() => {
                     self.next_token();
                     let node = self.finish_node(
@@ -418,7 +453,28 @@ impl<'a> Parser<'a> {
     fn parse_new_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.next_token();
-        let callee = self.parse_primary_expression();
+        let mut callee = self.parse_primary_expression();
+        // `new a.b.C()` — the callee is a member chain, but not a call, since the
+        // parentheses belong to `new`.
+        while self.at(SyntaxKind::DotToken) {
+            self.next_token();
+            let name = self.parse_identifier();
+            let node = self.finish_node(
+                PropertyAccessExpression::new(
+                    Some(callee),
+                    None,
+                    Some(MemberName::Identifier(name)),
+                ),
+                SyntaxKind::PropertyAccessExpression,
+                start,
+            );
+            callee = Expression::PropertyAccessExpression(node);
+        }
+        let type_arguments = if self.at(SyntaxKind::LessThanToken) {
+            self.try_parse(Parser::parse_type_arguments_for_call).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         let arguments = if self.at(SyntaxKind::OpenParenToken) {
             let args = self.parse_arguments();
             self.arena.alloc_slice(&args)
@@ -426,15 +482,16 @@ impl<'a> Parser<'a> {
             // `new Foo` without parentheses is legal.
             &[][..]
         };
+        let type_arguments = self.arena.alloc_slice(&type_arguments);
         let node = self.finish_node(
-            NewExpression::new(Some(callee), &[], arguments),
+            NewExpression::new(Some(callee), type_arguments, arguments),
             SyntaxKind::NewExpression,
             start,
         );
         Expression::NewExpression(node)
     }
 
-    fn parse_arguments(&mut self) -> Vec<Expression<'a>> {
+    pub(crate) fn parse_arguments(&mut self) -> Vec<Expression<'a>> {
         self.expect(SyntaxKind::OpenParenToken);
         let mut arguments = Vec::new();
         while !self.at(SyntaxKind::CloseParenToken) && !self.at(SyntaxKind::EndOfFile) {
@@ -469,7 +526,9 @@ impl<'a> Parser<'a> {
     #[allow(clippy::too_many_lines)]
     fn parse_primary_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
-        match self.token.kind {
+        // Bound before matching: a guard below needs `&mut self` for lookahead.
+        let kind = self.token.kind;
+        match kind {
             SyntaxKind::Identifier => Expression::Identifier(self.parse_identifier()),
             SyntaxKind::NumericLiteral => {
                 let (text, flags) = self.take_literal();
@@ -509,11 +568,18 @@ impl<'a> Parser<'a> {
                 Expression::NoSubstitutionTemplateLiteral(node)
             }
             SyntaxKind::TemplateHead => self.parse_template_expression(),
-            SyntaxKind::FunctionKeyword => self.parse_function_expression(),
+            SyntaxKind::LessThanToken => self.parse_type_assertion(),
+            SyntaxKind::FunctionKeyword => self.parse_function_expression(None),
+            SyntaxKind::AsyncKeyword if self.next_is_function_keyword() => {
+                let modifier = self.take_token();
+                self.parse_function_expression(Some(modifier))
+            }
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
             SyntaxKind::OpenParenToken => {
                 self.next_token();
+                let saved_no_in = std::mem::take(&mut self.no_in);
                 let expression = self.parse_expression();
+                self.no_in = saved_no_in;
                 self.expect(SyntaxKind::CloseParenToken);
                 let node = self.finish_node(
                     ParenthesizedExpression::new(Some(expression)),
@@ -618,7 +684,91 @@ impl<'a> Parser<'a> {
             return ObjectLiteralElementLike::SpreadAssignment(node);
         }
 
+        // `async`, `*`, `get`, and `set` all introduce a member rather than a
+        // name — unless what follows says otherwise, since each is also a legal
+        // property name on its own.
+        let modifiers =
+            if self.at(SyntaxKind::AsyncKeyword) && self.next_starts_property_name_or_star() {
+                vec![ModifierLike::Token(self.take_token())]
+            } else {
+                Vec::new()
+            };
+        let asterisk =
+            if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+
+        if matches!(self.token.kind, SyntaxKind::GetKeyword | SyntaxKind::SetKeyword)
+            && self.next_starts_property_name()
+        {
+            let is_getter = self.at(SyntaxKind::GetKeyword);
+            self.next_token();
+            let name = self.parse_property_name();
+            let parameters = self.parse_parameter_list();
+            let return_type = self.parse_return_type_annotation();
+            let body = FunctionBody::Block(self.parse_block());
+            let modifiers = self.arena.alloc_slice(&modifiers);
+            let parameters = self.arena.alloc_slice(&parameters);
+            return if is_getter {
+                ObjectLiteralElementLike::GetAccessorDeclaration(self.finish_node(
+                    GetAccessorDeclaration::new(
+                        modifiers,
+                        name,
+                        &[],
+                        parameters,
+                        return_type,
+                        None,
+                        Some(body),
+                        None,
+                        None,
+                    ),
+                    SyntaxKind::GetAccessor,
+                    start,
+                ))
+            } else {
+                ObjectLiteralElementLike::SetAccessorDeclaration(self.finish_node(
+                    SetAccessorDeclaration::new(
+                        modifiers,
+                        name,
+                        &[],
+                        parameters,
+                        return_type,
+                        None,
+                        Some(body),
+                        None,
+                        None,
+                    ),
+                    SyntaxKind::SetAccessor,
+                    start,
+                ))
+            };
+        }
+
         let name = self.parse_property_name();
+
+        // `{ m() {} }` and `{ m<T>() {} }` are methods.
+        if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
+            let type_parameters = self.parse_type_parameters();
+            let parameters = self.parse_parameter_list();
+            let return_type = self.parse_return_type_annotation();
+            let body = FunctionBody::Block(self.parse_block());
+            let modifiers = self.arena.alloc_slice(&modifiers);
+            let type_parameters = self.arena.alloc_slice(&type_parameters);
+            let parameters = self.arena.alloc_slice(&parameters);
+            return ObjectLiteralElementLike::MethodDeclaration(self.finish_node(
+                MethodDeclaration::new(
+                    modifiers,
+                    asterisk,
+                    name,
+                    None,
+                    type_parameters,
+                    parameters,
+                    return_type,
+                    None,
+                    Some(body),
+                ),
+                SyntaxKind::MethodDeclaration,
+                start,
+            ));
+        }
 
         if self.eat(SyntaxKind::ColonToken) {
             let initializer = self.parse_assignment_expression();
@@ -645,6 +795,20 @@ impl<'a> Parser<'a> {
         ObjectLiteralElementLike::ShorthandPropertyAssignment(node)
     }
 
+    fn next_starts_property_name_or_star(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            kind == SyntaxKind::AsteriskToken
+                || matches!(
+                    kind,
+                    SyntaxKind::Identifier
+                        | SyntaxKind::StringLiteral
+                        | SyntaxKind::NumericLiteral
+                        | SyntaxKind::OpenBracketToken
+                )
+                || kind.is_keyword()
+        })
+    }
+
     /// Arrow functions, when the lookahead confirms one.
     ///
     /// `(a)` is a parenthesised expression and `(a) => a` is an arrow function;
@@ -652,6 +816,14 @@ impl<'a> Parser<'a> {
     /// every parameter-list shape, this speculatively parses a parameter list and
     /// rewinds if no arrow follows.
     fn try_parse_arrow_function(&mut self) -> Option<Expression<'a>> {
+        // `async` prefixes an arrow but is also an ordinary identifier, so it is
+        // only consumed once the arrow is confirmed.
+        let async_modifier = if self.at(SyntaxKind::AsyncKeyword) && self.async_starts_arrow() {
+            Some(self.take_token())
+        } else {
+            None
+        };
+
         // A bare `x => …` needs no speculation.
         if self.at(SyntaxKind::Identifier) {
             let saved_start = self.pos();
@@ -678,8 +850,18 @@ impl<'a> Parser<'a> {
             let arrow = self.take_token();
             let body = self.parse_arrow_body();
             let parameters = self.arena.alloc_slice(&[parsed]);
+            let modifiers = modifier_slice(self.arena, async_modifier);
             let node = self.finish_node(
-                ArrowFunction::new(&[], &[], parameters, None, None, Some(arrow), Some(body), None),
+                ArrowFunction::new(
+                    modifiers,
+                    &[],
+                    parameters,
+                    None,
+                    None,
+                    Some(arrow),
+                    Some(body),
+                    None,
+                ),
                 SyntaxKind::ArrowFunction,
                 saved_start,
             );
@@ -699,15 +881,16 @@ impl<'a> Parser<'a> {
         let type_parameters = self.parse_type_parameters();
         let parameters = self.parse_parameter_list();
         // A return type may intervene: `(a): number => a`.
-        let return_type = self.parse_type_annotation();
-        let _ = type_parameters;
+        let return_type = self.parse_return_type_annotation();
         let arrow = self.take_token();
         let body = self.parse_arrow_body();
         let parameters = self.arena.alloc_slice(&parameters);
+        let type_parameters = self.arena.alloc_slice(&type_parameters);
+        let modifiers = modifier_slice(self.arena, async_modifier);
         let node = self.finish_node(
             ArrowFunction::new(
-                &[],
-                &[],
+                modifiers,
+                type_parameters,
                 parameters,
                 return_type,
                 None,
@@ -719,6 +902,31 @@ impl<'a> Parser<'a> {
             start,
         );
         Some(Expression::ArrowFunction(node))
+    }
+
+    /// Whether `async` here prefixes an arrow rather than naming something.
+    fn next_is_function_keyword(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::FunctionKeyword)
+    }
+
+    fn async_starts_arrow(&mut self) -> bool {
+        let mut matched = false;
+        self.try_parse(|p| {
+            // A line break ends the statement: `async\nx => y` is two things.
+            p.next_token();
+            if p.token.has_preceding_line_break() {
+                return None::<()>;
+            }
+            matched = match p.token.kind {
+                SyntaxKind::Identifier => p.peek_kind(|k| k == SyntaxKind::EqualsGreaterThanToken),
+                SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken => {
+                    p.is_arrow_function_ahead()
+                }
+                _ => false,
+            };
+            None
+        });
+        matched
     }
 
     /// Whether the parenthesised group at the cursor is an arrow function's
@@ -901,8 +1109,74 @@ impl<'a> Parser<'a> {
         Expression::TemplateExpression(node)
     }
 
+    /// The expression after `@` in a decorator.
+    ///
+    /// Restricted to a call/member chain: parsing a full expression would let a
+    /// following `class` or member be swallowed as an operand.
+    pub(crate) fn parse_decorator_expression(&mut self) -> LeftHandSideExpression<'a> {
+        let start = self.pos();
+        let mut expression = Expression::Identifier(self.parse_identifier());
+        loop {
+            match self.token.kind {
+                SyntaxKind::DotToken => {
+                    self.next_token();
+                    let name = self.parse_identifier();
+                    let node = self.finish_node(
+                        PropertyAccessExpression::new(
+                            Some(expression),
+                            None,
+                            Some(MemberName::Identifier(name)),
+                        ),
+                        SyntaxKind::PropertyAccessExpression,
+                        start,
+                    );
+                    expression = Expression::PropertyAccessExpression(node);
+                }
+                SyntaxKind::OpenParenToken => {
+                    let arguments = self.parse_arguments();
+                    let arguments = self.arena.alloc_slice(&arguments);
+                    let node = self.finish_node(
+                        CallExpression::new(Some(expression), None, &[], arguments),
+                        SyntaxKind::CallExpression,
+                        start,
+                    );
+                    expression = Expression::CallExpression(node);
+                }
+                _ => break,
+            }
+        }
+        LeftHandSideExpression::try_from(tsr_ast::Node::from(expression))
+            .unwrap_or_else(|_| LeftHandSideExpression::Identifier(self.missing_identifier()))
+    }
+
+    /// `<T>expr` — the pre-`as` cast syntax.
+    ///
+    /// Only valid in `.ts`; in `.tsx` the same tokens open a JSX element. The
+    /// parser does not yet distinguish the two, so this always wins — which is
+    /// wrong for `.tsx` and is why JSX support needs the file's script kind
+    /// threaded through.
+    fn parse_type_assertion(&mut self) -> Expression<'a> {
+        let start = self.pos();
+        self.expect(SyntaxKind::LessThanToken);
+        let type_node = self.parse_type();
+        if !self.at(SyntaxKind::GreaterThanToken) {
+            self.rescan_greater_than();
+        }
+        self.expect(SyntaxKind::GreaterThanToken);
+        let expression = self.parse_unary_expression();
+        let node = self.finish_node(
+            TypeAssertion::new(Some(type_node), Some(expression)),
+            SyntaxKind::TypeAssertionExpression,
+            start,
+        );
+        Expression::TypeAssertion(node)
+    }
+
     /// `function [name][<T>](params) { … }` in expression position.
-    fn parse_function_expression(&mut self) -> Expression<'a> {
+    fn parse_function_expression(
+        &mut self,
+        async_modifier: Option<&'a Token<'a>>,
+    ) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::FunctionKeyword);
         let asterisk =
@@ -915,14 +1189,14 @@ impl<'a> Parser<'a> {
         };
         let type_parameters = self.parse_type_parameters();
         let parameters = self.parse_parameter_list();
-        let return_type = self.parse_type_annotation();
+        let return_type = self.parse_return_type_annotation();
         let body = FunctionBody::Block(self.parse_block());
 
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let parameters = self.arena.alloc_slice(&parameters);
         let node = self.finish_node(
             FunctionExpression::new(
-                &[],
+                modifier_slice(self.arena, async_modifier),
                 asterisk,
                 name,
                 type_parameters,
@@ -938,7 +1212,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `class [name] { … }` in expression position.
-    fn parse_class_expression(&mut self) -> Expression<'a> {
+    pub(crate) fn parse_class_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         // Reuse the declaration parser and re-wrap: the grammars are identical
         // apart from the name being optional, which it already handles.

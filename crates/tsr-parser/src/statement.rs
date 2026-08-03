@@ -107,6 +107,10 @@ impl<'a> Parser<'a> {
                 );
                 Some(Statement::DebuggerStatement(node))
             }
+            SyntaxKind::AtToken => {
+                let modifiers = self.parse_modifiers();
+                Some(self.parse_declaration_after_modifiers(start, &modifiers))
+            }
             _ if self.at_modifier_starting_declaration() => {
                 let modifiers = self.parse_modifiers();
                 Some(self.parse_declaration_after_modifiers(start, &modifiers))
@@ -163,10 +167,18 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Parse a run of modifiers.
+    /// Parse a run of modifiers, including decorators.
+    ///
+    /// Decorators are `ModifierLike` in the AST, and may interleave with keyword
+    /// modifiers: `@dec public readonly x` and `public @dec x` are both accepted
+    /// by the grammar.
     pub(crate) fn parse_modifiers(&mut self) -> Vec<ModifierLike<'a>> {
         let mut modifiers = Vec::new();
         loop {
+            if self.at(SyntaxKind::AtToken) {
+                modifiers.push(ModifierLike::Decorator(self.parse_decorator()));
+                continue;
+            }
             let kind = self.token.kind;
             if !is_modifier(kind) {
                 break;
@@ -189,6 +201,14 @@ impl<'a> Parser<'a> {
             modifiers.push(ModifierLike::Token(token));
         }
         modifiers
+    }
+
+    /// `@expr`, where `expr` is a call or member chain.
+    fn parse_decorator(&mut self) -> &'a Decorator<'a> {
+        let start = self.pos();
+        self.expect(SyntaxKind::AtToken);
+        let expression = self.parse_decorator_expression();
+        self.finish_node(Decorator::new(Some(expression)), SyntaxKind::Decorator, start)
     }
 
     /// Whether the modifier at the cursor is really a member name.
@@ -681,7 +701,7 @@ impl<'a> Parser<'a> {
         };
         let type_parameters = self.parse_type_parameters();
         let parameters = self.parse_parameter_list();
-        let return_type = self.parse_type_annotation();
+        let return_type = self.parse_return_type_annotation();
         // An overload signature has no body, just a semicolon.
         let body = if self.at(SyntaxKind::OpenBraceToken) {
             Some(FunctionBody::Block(self.parse_block()))

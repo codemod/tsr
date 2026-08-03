@@ -202,7 +202,10 @@ impl<'a> Parser<'a> {
             return Statement::ExportAssignment(node);
         }
 
-        let is_type_only = self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here();
+        // `export type { A }` and `export type * from "m"` are type-only
+        // re-exports; `export type A = …` is a type alias declaration, and
+        // consuming `type` here would leave it looking like an expression.
+        let is_type_only = self.at(SyntaxKind::TypeKeyword) && self.next_starts_export_clause();
         if is_type_only {
             self.next_token();
         }
@@ -408,6 +411,13 @@ impl<'a> Parser<'a> {
     /// Contextual keywords qualify; reserved words do not.
     fn at_binding_identifier(&self) -> bool {
         self.at(SyntaxKind::Identifier) || crate::statement::is_contextual_keyword(self.token.kind)
+    }
+
+    /// Whether `type` here modifies an export clause rather than naming an alias.
+    fn next_starts_export_clause(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            matches!(kind, SyntaxKind::OpenBraceToken | SyntaxKind::AsteriskToken)
+        })
     }
 
     fn next_is_equals(&mut self) -> bool {

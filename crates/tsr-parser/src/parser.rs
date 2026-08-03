@@ -24,6 +24,12 @@ pub struct Parser<'a> {
     token_value: Option<String>,
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) nodes: NodeTable,
+    /// Non-zero while `in` must not be treated as a binary operator.
+    ///
+    /// `for (a in b)` would otherwise consume `a in b` as a comparison and leave
+    /// the loop header malformed. A counter rather than a bool because the
+    /// restriction nests: `for ((a in b);;)` re-enables it inside the parens.
+    pub(crate) no_in: u32,
     /// Guards against runaway recursion on pathological input.
     ///
     /// TypeScript permits arbitrarily nested expressions, and a deeply nested
@@ -53,6 +59,7 @@ impl<'a> Parser<'a> {
             token_value,
             diagnostics: Vec::new(),
             nodes: NodeTable::new(),
+            no_in: 0,
             depth: 0,
         }
     }

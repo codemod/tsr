@@ -352,6 +352,12 @@ impl<'a> Scanner<'a> {
             '0'..='9' => self.scan_number(flags),
             '"' | '\'' => self.scan_string(flags),
             '`' => self.scan_template(flags),
+            // `#x` is a private identifier: one token, not `#` then `x`.
+            '#' if self.peek_at(1).is_some_and(|c| is_identifier_start(c) || c == '\\') => {
+                self.bump();
+                self.scan_identifier_or_keyword(flags);
+                SyntaxKind::PrivateIdentifier
+            }
             _ if is_identifier_start(ch) || ch == '\\' => self.scan_identifier_or_keyword(flags),
             _ => self.scan_punctuation(),
         }

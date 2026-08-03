@@ -35,7 +35,7 @@ fn main() -> Result<()> {
     let snapshot_dir = root.join("crates/tsr-conformance/snapshots");
     std::fs::create_dir_all(&snapshot_dir).context("creating snapshot directory")?;
 
-    let suites: Vec<Box<dyn Suite>> = vec![
+    let suites: Vec<Box<dyn Suite + Sync>> = vec![
         Box::new(CorpusIngest),
         Box::new(BaselineResolution),
         Box::new(ParserReachable),

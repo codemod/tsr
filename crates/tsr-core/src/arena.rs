@@ -17,6 +17,16 @@
 //! Allocation takes `&self`, not `&mut self`. The parser holds `&'a Arena` while
 //! simultaneously holding `&'a` references to everything it has already
 //! allocated; requiring `&mut` would make that borrow-check impossible.
+//!
+//! # Threading
+//!
+//! An arena is [`Send`] but deliberately **not** [`Sync`]: one thread may own and
+//! allocate from it, and it may move between threads, but two threads may not
+//! allocate concurrently — the bump pointer is a plain [`Cell`].
+//!
+//! That is exactly the shape parallel compilation needs. Files are independent,
+//! so the unit of parallelism is a *file*: one arena per file, parsed on one
+//! thread, then moved. See `docs/architecture/threading.md`.
 
 use std::{
     alloc::{Layout, alloc, dealloc},
@@ -196,6 +206,15 @@ impl Arena {
     }
 }
 
+// SAFETY: an `Arena` exclusively owns its chunks — nothing else holds a pointer
+// into them, and the raw pointers it stores point only into those chunks. Moving
+// the arena moves the memory it owns, so a value allocated on one thread stays
+// valid after the arena is sent to another.
+//
+// It is intentionally **not** `Sync`: `alloc` mutates the bump pointer through
+// `&self`, so concurrent allocation from two threads would race.
+unsafe impl Send for Arena {}
+
 impl Default for Arena {
     fn default() -> Self {
         Self::new()
@@ -282,6 +301,49 @@ mod tests {
         let slice = arena.alloc_slice(&big);
         assert_eq!(slice.len(), MAX_CHUNK * 2);
         assert!(slice.iter().all(|&b| b == 7));
+    }
+
+    #[test]
+    fn an_arena_and_its_contents_can_move_between_threads() {
+        // The unit of parallelism is a file: parse on one thread, hand the result
+        // to another. That requires `Arena: Send`.
+        let arena = Arena::new();
+        let value: &u64 = arena.alloc(7);
+        let copied = *value;
+        let handle = std::thread::spawn(move || {
+            // The arena moved here; earlier allocations are still valid.
+            let another: &u64 = arena.alloc(9);
+            copied + *another
+        });
+        assert_eq!(handle.join().expect("thread panicked"), 16);
+    }
+
+    #[test]
+    fn arena_is_send_but_not_sync() {
+        const fn assert_send<T: Send>() {}
+        assert_send::<Arena>();
+        // `Sync` is deliberately absent: `alloc` mutates the bump pointer through
+        // `&self`. If this ever compiles, concurrent allocation became possible
+        // without anyone auditing it.
+        assert!(!impls_sync::<Arena>());
+    }
+
+    /// Whether `T: Sync`, without requiring it.
+    fn impls_sync<T>() -> bool {
+        trait NotSync {
+            fn is_sync() -> bool {
+                false
+            }
+        }
+        impl<T> NotSync for T {}
+        struct Wrap<T>(std::marker::PhantomData<T>);
+        impl<T: Sync> Wrap<T> {
+            #[allow(dead_code)]
+            fn is_sync() -> bool {
+                true
+            }
+        }
+        <Wrap<T> as NotSync>::is_sync()
     }
 
     #[test]

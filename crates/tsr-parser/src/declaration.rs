@@ -80,26 +80,46 @@ impl<'a> Parser<'a> {
         clauses
     }
 
-    /// A dotted name in a heritage position: `extends a.b.C`.
+    /// The expression after `extends` or `implements`.
     ///
-    /// Deliberately not the full expression grammar — `extends` takes a
-    /// left-hand-side expression, and parsing more would swallow the `{`.
+    /// `extends` takes a *left-hand-side* expression, not a full one — mixin
+    /// factories like `extends Configurable(Base)` and `extends class {}` are
+    /// legal, but parsing further would swallow the class body's `{`.
     fn parse_left_hand_side_for_heritage(&mut self) -> Expression<'a> {
         let start = self.pos();
-        let mut expression = Expression::Identifier(self.parse_identifier());
-        while self.at(SyntaxKind::DotToken) {
-            self.next_token();
-            let name = self.parse_identifier();
-            let node = self.finish_node(
-                PropertyAccessExpression::new(
-                    Some(expression),
-                    None,
-                    Some(MemberName::Identifier(name)),
-                ),
-                SyntaxKind::PropertyAccessExpression,
-                start,
-            );
-            expression = Expression::PropertyAccessExpression(node);
+        let mut expression = match self.token.kind {
+            // `class A extends class {} {}` — an anonymous class expression.
+            SyntaxKind::ClassKeyword => self.parse_class_expression(),
+            _ => Expression::Identifier(self.parse_identifier()),
+        };
+        loop {
+            match self.token.kind {
+                SyntaxKind::DotToken => {
+                    self.next_token();
+                    let name = self.parse_identifier();
+                    let node = self.finish_node(
+                        PropertyAccessExpression::new(
+                            Some(expression),
+                            None,
+                            Some(MemberName::Identifier(name)),
+                        ),
+                        SyntaxKind::PropertyAccessExpression,
+                        start,
+                    );
+                    expression = Expression::PropertyAccessExpression(node);
+                }
+                SyntaxKind::OpenParenToken => {
+                    let arguments = self.parse_arguments();
+                    let arguments = self.arena.alloc_slice(&arguments);
+                    let node = self.finish_node(
+                        CallExpression::new(Some(expression), None, &[], arguments),
+                        SyntaxKind::CallExpression,
+                        start,
+                    );
+                    expression = Expression::CallExpression(node);
+                }
+                _ => break,
+            }
         }
         expression
     }
@@ -118,9 +138,51 @@ impl<'a> Parser<'a> {
             return Some(ClassElement::SemicolonClassElement(node));
         }
 
+        // `static { … }` is a static initialization block; `static` followed by
+        // anything else is a modifier.
+        if self.at(SyntaxKind::StaticKeyword) && self.next_is_open_brace() {
+            self.next_token();
+            let body = self.parse_block();
+            return Some(ClassElement::ClassStaticBlockDeclaration(self.finish_node(
+                ClassStaticBlockDeclaration::new(&[], Some(body)),
+                SyntaxKind::ClassStaticBlockDeclaration,
+                start,
+            )));
+        }
+
         let modifiers = self.parse_modifiers();
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
+
+        // `[key: string]: T` — an index signature on a class.
+        if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
+            self.next_token();
+            let parameter_start = self.pos();
+            let name = self.parse_identifier();
+            let parameter_type = self.parse_type_annotation();
+            let parameter = self.finish_node(
+                ParameterDeclaration::new(
+                    &[],
+                    None,
+                    Some(BindingName::Identifier(name)),
+                    None,
+                    parameter_type,
+                    None,
+                ),
+                SyntaxKind::Parameter,
+                parameter_start,
+            );
+            self.expect(SyntaxKind::CloseBracketToken);
+            let value_type = self.parse_type_annotation();
+            self.parse_semicolon();
+            let modifiers = self.arena.alloc_slice(&modifiers);
+            let parameters = self.arena.alloc_slice(&[parameter]);
+            return Some(ClassElement::IndexSignatureDeclaration(self.finish_node(
+                IndexSignatureDeclaration::new(modifiers, parameters, value_type, None, &[]),
+                SyntaxKind::IndexSignature,
+                start,
+            )));
+        }
 
         // `constructor(...)` is a constructor; `constructor` alone is a property
         // named "constructor".
@@ -147,7 +209,7 @@ impl<'a> Parser<'a> {
             self.next_token();
             let name = self.parse_property_name();
             let parameters = self.parse_parameter_list();
-            let return_type = self.parse_type_annotation();
+            let return_type = self.parse_return_type_annotation();
             let body = self.parse_method_body();
             let modifiers = self.arena.alloc_slice(&modifiers);
             let parameters = self.arena.alloc_slice(&parameters);
@@ -204,7 +266,7 @@ impl<'a> Parser<'a> {
         if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
             let type_parameters = self.parse_type_parameters();
             let parameters = self.parse_parameter_list();
-            let return_type = self.parse_type_annotation();
+            let return_type = self.parse_return_type_annotation();
             let body = self.parse_method_body();
             let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
@@ -262,6 +324,10 @@ impl<'a> Parser<'a> {
         matched
     }
 
+    fn next_is_open_brace(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::OpenBraceToken)
+    }
+
     fn next_is_open_paren(&mut self) -> bool {
         let mut matched = false;
         self.try_parse(|p| {
@@ -273,7 +339,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Whether the cursor can begin a property name.
-    fn at_property_name_start(&self) -> bool {
+    pub(crate) fn at_property_name_start(&self) -> bool {
         matches!(
             self.token.kind,
             SyntaxKind::Identifier

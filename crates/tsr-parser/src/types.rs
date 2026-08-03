@@ -15,6 +15,94 @@ impl<'a> Parser<'a> {
         if self.eat(SyntaxKind::ColonToken) { Some(self.parse_type()) } else { None }
     }
 
+    /// Parse a return type, which may be a type predicate.
+    ///
+    /// `: x is T` and `: asserts x is T` are legal only in return position, which
+    /// is why this is separate from [`Parser::parse_type_annotation`].
+    pub(crate) fn parse_return_type_annotation(&mut self) -> Option<TypeNode<'a>> {
+        if !self.eat(SyntaxKind::ColonToken) {
+            return None;
+        }
+        Some(self.parse_type_or_type_predicate())
+    }
+
+    /// A type, or a type predicate if one is in position.
+    pub(crate) fn parse_type_or_type_predicate(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+
+        // `asserts x` and `asserts x is T`. `asserts` is contextual: `asserts` on
+        // its own is an ordinary type reference.
+        if self.at(SyntaxKind::AssertsKeyword) && self.next_starts_predicate_subject() {
+            let asserts = self.take_token();
+            let parameter = self.parse_type_predicate_parameter();
+            let type_node =
+                if self.eat(SyntaxKind::IsKeyword) { Some(self.parse_type()) } else { None };
+            return TypeNode::TypePredicateNode(self.finish_node(
+                TypePredicateNode::new(Some(asserts), Some(parameter), type_node),
+                SyntaxKind::TypePredicate,
+                start,
+            ));
+        }
+
+        // `x is T`.
+        if (self.at(SyntaxKind::Identifier)
+            || self.at(SyntaxKind::ThisKeyword)
+            || crate::statement::is_contextual_keyword(self.token.kind))
+            && self.next_is_is_keyword()
+        {
+            let parameter = self.parse_type_predicate_parameter();
+            self.expect(SyntaxKind::IsKeyword);
+            let type_node = self.parse_type();
+            return TypeNode::TypePredicateNode(self.finish_node(
+                TypePredicateNode::new(None, Some(parameter), Some(type_node)),
+                SyntaxKind::TypePredicate,
+                start,
+            ));
+        }
+
+        self.parse_type()
+    }
+
+    /// The subject of a type predicate: an identifier or `this`.
+    fn parse_type_predicate_parameter(&mut self) -> TypePredicateParameterName<'a> {
+        if self.at(SyntaxKind::ThisKeyword) {
+            let start = self.pos();
+            self.next_token();
+            return TypePredicateParameterName::ThisTypeNode(self.finish_node(
+                ThisTypeNode::new(),
+                SyntaxKind::ThisType,
+                start,
+            ));
+        }
+        TypePredicateParameterName::Identifier(self.parse_identifier())
+    }
+
+    /// Whether `in`/`out`/`const` here is the parameter's *name* rather than a
+    /// modifier — `<const>` declares a parameter called `const`.
+    fn next_is_type_parameter_terminator(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            matches!(
+                kind,
+                SyntaxKind::GreaterThanToken
+                    | SyntaxKind::CommaToken
+                    | SyntaxKind::EqualsToken
+                    | SyntaxKind::ExtendsKeyword
+            )
+        })
+    }
+
+    fn next_starts_predicate_subject(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            kind == SyntaxKind::Identifier
+                || kind == SyntaxKind::ThisKeyword
+                || crate::statement::is_contextual_keyword(kind)
+        })
+    }
+
+    fn next_is_is_keyword(&mut self) -> bool {
+        self.peek_kind(|kind| kind == SyntaxKind::IsKeyword)
+    }
+
     /// Parse a type.
     pub(crate) fn parse_type(&mut self) -> TypeNode<'a> {
         let Some(type_node) = self.descend(Parser::parse_conditional_type) else {
@@ -160,7 +248,7 @@ impl<'a> Parser<'a> {
                 let type_parameters = self.parse_type_parameters();
                 let parameters = self.parse_parameter_list();
                 self.expect(SyntaxKind::EqualsGreaterThanToken);
-                let return_type = self.parse_type();
+                let return_type = self.parse_type_or_type_predicate();
                 let type_parameters = self.arena.alloc_slice(&type_parameters);
                 let parameters = self.arena.alloc_slice(&parameters);
                 let node = self.finish_node(
@@ -177,7 +265,18 @@ impl<'a> Parser<'a> {
                 TypeNode::ConstructorTypeNode(node)
             }
             SyntaxKind::OpenBracketToken => self.parse_tuple_type(),
-            SyntaxKind::OpenBraceToken => self.parse_type_literal(),
+            SyntaxKind::OpenBraceToken => {
+                if self.brace_holds_mapped_type() {
+                    self.parse_mapped_type()
+                } else {
+                    self.parse_type_literal()
+                }
+            }
+            SyntaxKind::ThisKeyword => {
+                self.next_token();
+                let node = self.finish_node(ThisTypeNode::new(), SyntaxKind::ThisType, start);
+                TypeNode::ThisTypeNode(node)
+            }
             SyntaxKind::TypeOfKeyword => {
                 self.next_token();
                 let name = self.parse_entity_name();
@@ -214,6 +313,9 @@ impl<'a> Parser<'a> {
                 );
                 TypeNode::TypeOperatorNode(node)
             }
+            SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
+                self.parse_template_literal_type()
+            }
             SyntaxKind::StringLiteral
             | SyntaxKind::NumericLiteral
             | SyntaxKind::BigIntLiteral
@@ -225,7 +327,29 @@ impl<'a> Parser<'a> {
                 self.next_token();
                 self.parse_literal_type_from(start)
             }
+            // `x as const` — a const assertion, spelled as a type.
+            SyntaxKind::ConstKeyword => {
+                self.next_token();
+                let node = self.finish_node(
+                    TypeReferenceNode::new(None, &[]),
+                    SyntaxKind::TypeReference,
+                    start,
+                );
+                TypeNode::TypeReferenceNode(node)
+            }
             SyntaxKind::Identifier => {
+                let name = self.parse_entity_name();
+                let type_arguments = self.parse_type_arguments();
+                let type_arguments = self.arena.alloc_slice(&type_arguments);
+                let node = self.finish_node(
+                    TypeReferenceNode::new(Some(name), type_arguments),
+                    SyntaxKind::TypeReference,
+                    start,
+                );
+                TypeNode::TypeReferenceNode(node)
+            }
+            // A contextual keyword can name a type: `require.I`, `type`, `module`.
+            kind if crate::statement::is_contextual_keyword(kind) => {
                 let name = self.parse_entity_name();
                 let type_arguments = self.parse_type_arguments();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
@@ -260,7 +384,8 @@ impl<'a> Parser<'a> {
 
         let (type_parameters, parameters) = parsed;
         self.expect(SyntaxKind::EqualsGreaterThanToken);
-        let return_type = self.parse_type();
+        // `(x: T) => x is U` is a predicate, same as a function's return type.
+        let return_type = self.parse_type_or_type_predicate();
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let parameters = self.arena.alloc_slice(&parameters);
         let node = self.finish_node(
@@ -313,13 +438,128 @@ impl<'a> Parser<'a> {
         TypeNode::LiteralTypeNode(node)
     }
 
+    /// `` `a${T}b` `` as a type.
+    fn parse_template_literal_type(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        if self.at(SyntaxKind::NoSubstitutionTemplateLiteral) {
+            // No substitutions: it is just a string literal type.
+            return self.parse_literal_type();
+        }
+
+        let head_start = self.pos();
+        let raw = self.token_text();
+        let text = self.token_value();
+        let flags = self.token.ast_flags();
+        self.next_token();
+        let head = self.finish_node(
+            TemplateHead::new(text, raw, flags, flags),
+            SyntaxKind::TemplateHead,
+            head_start,
+        );
+
+        let mut spans = Vec::new();
+        loop {
+            let span_start = self.pos();
+            let type_node = self.parse_type();
+            if !self.at(SyntaxKind::CloseBraceToken) {
+                self.error_at_current_with(&messages::_0_EXPECTED, &["}"]);
+                break;
+            }
+            self.rescan_template_continuation();
+            let literal_start = self.pos();
+            let is_tail = self.at(SyntaxKind::TemplateTail);
+            let raw = self.token_text();
+            let text = self.token_value();
+            let flags = self.token.ast_flags();
+            self.next_token();
+            let literal = if is_tail {
+                TemplateMiddleOrTail::TemplateTail(self.finish_node(
+                    TemplateTail::new(text, raw, flags, flags),
+                    SyntaxKind::TemplateTail,
+                    literal_start,
+                ))
+            } else {
+                TemplateMiddleOrTail::TemplateMiddle(self.finish_node(
+                    TemplateMiddle::new(text, raw, flags, flags),
+                    SyntaxKind::TemplateMiddle,
+                    literal_start,
+                ))
+            };
+            spans.push(self.finish_node(
+                TemplateLiteralTypeSpan::new(Some(type_node), Some(literal)),
+                SyntaxKind::TemplateLiteralTypeSpan,
+                span_start,
+            ));
+            if is_tail {
+                break;
+            }
+        }
+
+        let spans = self.arena.alloc_slice(&spans);
+        let node = self.finish_node(
+            TemplateLiteralTypeNode::new(Some(head), spans),
+            SyntaxKind::TemplateLiteralType,
+            start,
+        );
+        TypeNode::TemplateLiteralTypeNode(node)
+    }
+
+    /// One tuple element, which may be rest, optional, or named.
+    fn parse_tuple_element(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+
+        // `...T`
+        if self.at(SyntaxKind::DotDotDotToken) {
+            self.next_token();
+            let inner = self.parse_tuple_element();
+            return TypeNode::RestTypeNode(self.finish_node(
+                RestTypeNode::new(Some(inner)),
+                SyntaxKind::RestType,
+                start,
+            ));
+        }
+
+        // `name: T` and `name?: T` are named members, not annotations.
+        if (self.at(SyntaxKind::Identifier)
+            || crate::statement::is_contextual_keyword(self.token.kind))
+            && self.next_starts_named_tuple_member()
+        {
+            let name = self.parse_identifier();
+            let question =
+                if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
+            self.expect(SyntaxKind::ColonToken);
+            let inner = self.parse_type();
+            return TypeNode::NamedTupleMember(self.finish_node(
+                NamedTupleMember::new(None, Some(name), question, Some(inner)),
+                SyntaxKind::NamedTupleMember,
+                start,
+            ));
+        }
+
+        let inner = self.parse_type();
+        // `T?`
+        if self.at(SyntaxKind::QuestionToken) {
+            self.next_token();
+            return TypeNode::OptionalTypeNode(self.finish_node(
+                OptionalTypeNode::new(Some(inner)),
+                SyntaxKind::OptionalType,
+                start,
+            ));
+        }
+        inner
+    }
+
+    fn next_starts_named_tuple_member(&mut self) -> bool {
+        self.peek_kind(|kind| matches!(kind, SyntaxKind::ColonToken | SyntaxKind::QuestionToken))
+    }
+
     fn parse_tuple_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::OpenBracketToken);
         let mut elements = Vec::new();
         while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();
-            elements.push(self.parse_type());
+            elements.push(self.parse_tuple_element());
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }
@@ -331,6 +571,93 @@ impl<'a> Parser<'a> {
         let elements = self.arena.alloc_slice(&elements);
         let node = self.finish_node(TupleTypeNode::new(elements), SyntaxKind::TupleType, start);
         TypeNode::TupleTypeNode(node)
+    }
+
+    /// Whether `{` opens a mapped type rather than a type literal.
+    ///
+    /// A mapped type is `{ [K in T]: U }`; the distinguishing shape is
+    /// `[ identifier in` (possibly after `readonly`/`+`/`-`).
+    fn brace_holds_mapped_type(&mut self) -> bool {
+        let mut matched = false;
+        self.try_parse(|p| {
+            p.next_token();
+            while matches!(
+                p.token.kind,
+                SyntaxKind::ReadonlyKeyword | SyntaxKind::PlusToken | SyntaxKind::MinusToken
+            ) {
+                p.next_token();
+            }
+            if !p.at(SyntaxKind::OpenBracketToken) {
+                return None::<()>;
+            }
+            p.next_token();
+            if !p.at(SyntaxKind::Identifier)
+                && !crate::statement::is_contextual_keyword(p.token.kind)
+            {
+                return None;
+            }
+            p.next_token();
+            matched = p.at(SyntaxKind::InKeyword);
+            None
+        });
+        matched
+    }
+
+    /// `{ readonly [K in T as U]?: V }`.
+    fn parse_mapped_type(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        self.expect(SyntaxKind::OpenBraceToken);
+
+        // `+readonly` / `-readonly` add or remove the modifier rather than being
+        // one; the AST records only the plain form, so the sign is consumed and
+        // dropped until mapped-modifier fidelity is needed.
+        let readonly = if matches!(self.token.kind, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
+        {
+            self.next_token();
+            self.eat(SyntaxKind::ReadonlyKeyword);
+            None
+        } else if self.at(SyntaxKind::ReadonlyKeyword) {
+            Some(self.take_token())
+        } else {
+            None
+        };
+
+        self.expect(SyntaxKind::OpenBracketToken);
+        let parameter_start = self.pos();
+        let name = self.parse_identifier();
+        self.expect(SyntaxKind::InKeyword);
+        let constraint = self.parse_type();
+        let parameter = self.finish_node(
+            TypeParameterDeclaration::new(&[], Some(name), Some(constraint), None, None),
+            SyntaxKind::TypeParameter,
+            parameter_start,
+        );
+        // `as U` renames the key.
+        let name_type =
+            if self.eat(SyntaxKind::AsKeyword) { Some(self.parse_type()) } else { None };
+        self.expect(SyntaxKind::CloseBracketToken);
+
+        let question = if matches!(self.token.kind, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
+        {
+            self.next_token();
+            self.eat(SyntaxKind::QuestionToken);
+            None
+        } else if self.at(SyntaxKind::QuestionToken) {
+            Some(self.take_token())
+        } else {
+            None
+        };
+
+        let value = self.parse_type_annotation();
+        self.eat(SyntaxKind::SemicolonToken);
+        self.expect(SyntaxKind::CloseBraceToken);
+
+        let node = self.finish_node(
+            MappedTypeNode::new(readonly, Some(parameter), name_type, question, value, &[]),
+            SyntaxKind::MappedType,
+            start,
+        );
+        TypeNode::MappedTypeNode(node)
     }
 
     /// `{ a: string; b(): void }`.
@@ -362,55 +689,197 @@ impl<'a> Parser<'a> {
     }
 
     /// One member of a type literal or interface body.
+    ///
+    /// Five shapes share this position, distinguished by their first tokens:
+    /// call signatures `(): T`, construct signatures `new (): T`, index
+    /// signatures `[k: string]: T`, accessors `get x(): T`, and named
+    /// property/method signatures.
     pub(crate) fn parse_type_member(&mut self) -> Option<TypeElement<'a>> {
         let start = self.pos();
-        if !matches!(
-            self.token.kind,
-            SyntaxKind::Identifier
-                | SyntaxKind::StringLiteral
-                | SyntaxKind::NumericLiteral
-                | SyntaxKind::OpenBracketToken
-                | SyntaxKind::ReadonlyKeyword
-        ) && !self.token.kind.is_keyword()
-        {
-            return None;
+
+        // `(): T` and `<T>(): U` — a call signature has no name.
+        if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
+            let type_parameters = self.parse_type_parameters();
+            let parameters = self.parse_parameter_list();
+            let return_type = self.parse_return_type_annotation();
+            let type_parameters = self.arena.alloc_slice(&type_parameters);
+            let parameters = self.arena.alloc_slice(&parameters);
+            return Some(TypeElement::CallSignatureDeclaration(self.finish_node(
+                CallSignatureDeclaration::new(type_parameters, parameters, return_type, None),
+                SyntaxKind::CallSignature,
+                start,
+            )));
+        }
+
+        // `new (): T` — but `new` can also name a property, so the next token
+        // decides.
+        if self.at(SyntaxKind::NewKeyword) && self.next_starts_signature() {
+            self.next_token();
+            let type_parameters = self.parse_type_parameters();
+            let parameters = self.parse_parameter_list();
+            let return_type = self.parse_return_type_annotation();
+            let type_parameters = self.arena.alloc_slice(&type_parameters);
+            let parameters = self.arena.alloc_slice(&parameters);
+            return Some(TypeElement::ConstructSignatureDeclaration(self.finish_node(
+                ConstructSignatureDeclaration::new(type_parameters, parameters, return_type, None),
+                SyntaxKind::ConstructSignature,
+                start,
+            )));
         }
 
         let modifiers = self.parse_modifiers();
+
+        // `[key: string]: T` is an index signature; `[Symbol.iterator]()` is a
+        // computed property name. Only the former has `identifier :` inside.
+        if self.at(SyntaxKind::OpenBracketToken) && self.bracket_holds_index_signature() {
+            self.next_token();
+            let parameter_start = self.pos();
+            let name = self.parse_identifier();
+            let parameter_type = self.parse_type_annotation();
+            let parameter = self.finish_node(
+                ParameterDeclaration::new(
+                    &[],
+                    None,
+                    Some(BindingName::Identifier(name)),
+                    None,
+                    parameter_type,
+                    None,
+                ),
+                SyntaxKind::Parameter,
+                parameter_start,
+            );
+            self.expect(SyntaxKind::CloseBracketToken);
+            let value_type = self.parse_type_annotation();
+            let modifiers = self.arena.alloc_slice(&modifiers);
+            let parameters = self.arena.alloc_slice(&[parameter]);
+            return Some(TypeElement::IndexSignatureDeclaration(self.finish_node(
+                IndexSignatureDeclaration::new(modifiers, parameters, value_type, None, &[]),
+                SyntaxKind::IndexSignature,
+                start,
+            )));
+        }
+
+        // `get x(): T` / `set x(v: T)`.
+        if matches!(self.token.kind, SyntaxKind::GetKeyword | SyntaxKind::SetKeyword)
+            && self.next_starts_property_name()
+        {
+            let is_getter = self.at(SyntaxKind::GetKeyword);
+            self.next_token();
+            let name = self.parse_property_name();
+            let parameters = self.parse_parameter_list();
+            let return_type = self.parse_return_type_annotation();
+            let modifiers = self.arena.alloc_slice(&modifiers);
+            let parameters = self.arena.alloc_slice(&parameters);
+            return Some(if is_getter {
+                TypeElement::GetAccessorDeclaration(self.finish_node(
+                    GetAccessorDeclaration::new(
+                        modifiers,
+                        name,
+                        &[],
+                        parameters,
+                        return_type,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                    SyntaxKind::GetAccessor,
+                    start,
+                ))
+            } else {
+                TypeElement::SetAccessorDeclaration(self.finish_node(
+                    SetAccessorDeclaration::new(
+                        modifiers,
+                        name,
+                        &[],
+                        parameters,
+                        return_type,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                    SyntaxKind::SetAccessor,
+                    start,
+                ))
+            });
+        }
+
+        if !self.at_property_name_start() {
+            return None;
+        }
+
         let name = self.parse_property_name();
         let question =
             if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
-
         let modifiers = self.arena.alloc_slice(&modifiers);
 
-        // A `(` here makes it a method signature rather than a property.
-        if self.at(SyntaxKind::OpenParenToken) {
+        // `m(): T` and `m<U>(): T` are method signatures.
+        if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
+            let type_parameters = self.parse_type_parameters();
             let parameters = self.parse_parameter_list();
-            let return_type = self.parse_type_annotation();
+            let return_type = self.parse_return_type_annotation();
+            let type_parameters = self.arena.alloc_slice(&type_parameters);
             let parameters = self.arena.alloc_slice(&parameters);
-            let node = self.finish_node(
+            return Some(TypeElement::MethodSignatureDeclaration(self.finish_node(
                 MethodSignatureDeclaration::new(
                     modifiers,
                     name,
                     question,
-                    &[],
+                    type_parameters,
                     parameters,
                     return_type,
                     None,
                 ),
                 SyntaxKind::MethodSignature,
                 start,
-            );
-            return Some(TypeElement::MethodSignatureDeclaration(node));
+            )));
         }
 
         let type_node = self.parse_type_annotation();
-        let node = self.finish_node(
+        Some(TypeElement::PropertySignatureDeclaration(self.finish_node(
             PropertySignatureDeclaration::new(modifiers, name, question, type_node, None),
             SyntaxKind::PropertySignature,
             start,
-        );
-        Some(TypeElement::PropertySignatureDeclaration(node))
+        )))
+    }
+
+    /// Whether `new` or `get`/`set` here introduces a signature rather than a name.
+    fn next_starts_signature(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            matches!(kind, SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken)
+        })
+    }
+
+    pub(crate) fn next_starts_property_name(&mut self) -> bool {
+        self.peek_kind(|kind| {
+            matches!(
+                kind,
+                SyntaxKind::Identifier
+                    | SyntaxKind::StringLiteral
+                    | SyntaxKind::NumericLiteral
+                    | SyntaxKind::OpenBracketToken
+            ) || kind.is_keyword()
+        })
+    }
+
+    /// Whether `[` opens an index signature rather than a computed name.
+    ///
+    /// `[k: string]: T` has `identifier :` inside; `[Symbol.iterator]()` does not.
+    pub(crate) fn bracket_holds_index_signature(&mut self) -> bool {
+        let mut matched = false;
+        self.try_parse(|p| {
+            p.next_token();
+            if !p.at(SyntaxKind::Identifier)
+                && !crate::statement::is_contextual_keyword(p.token.kind)
+            {
+                return None::<()>;
+            }
+            p.next_token();
+            matched = p.at(SyntaxKind::ColonToken);
+            None
+        });
+        matched
     }
 
     /// A dotted name: `A`, `A.B`, `A.B.C`.
@@ -428,6 +897,33 @@ impl<'a> Parser<'a> {
             name = EntityName::QualifiedName(node);
         }
         name
+    }
+
+    /// Type arguments for a call: `f<T>(x)`.
+    ///
+    /// Returns `None` rather than recovering, because the caller uses failure to
+    /// decide that `<` was a comparison after all.
+    pub(crate) fn parse_type_arguments_for_call(&mut self) -> Option<Vec<TypeNode<'a>>> {
+        if !self.eat(SyntaxKind::LessThanToken) {
+            return None;
+        }
+        let before = self.diagnostics.len();
+        let mut arguments = Vec::new();
+        loop {
+            arguments.push(self.parse_type());
+            if !self.eat(SyntaxKind::CommaToken) {
+                break;
+            }
+        }
+        if !self.at(SyntaxKind::GreaterThanToken) {
+            self.rescan_greater_than();
+        }
+        // Any complaint means this was not a type-argument list.
+        if !self.at(SyntaxKind::GreaterThanToken) || self.diagnostics.len() != before {
+            return None;
+        }
+        self.next_token();
+        Some(arguments)
     }
 
     /// `<A, B>` after a type reference, if present.
@@ -460,13 +956,27 @@ impl<'a> Parser<'a> {
         let mut parameters = Vec::new();
         while !self.at(SyntaxKind::GreaterThanToken) && !self.at(SyntaxKind::EndOfFile) {
             let start = self.pos();
+            // Variance annotations (`in`, `out`) and `const` type parameters.
+            let mut modifiers = Vec::new();
+            while matches!(
+                self.token.kind,
+                SyntaxKind::InKeyword | SyntaxKind::OutKeyword | SyntaxKind::ConstKeyword
+            ) && !self.next_is_type_parameter_terminator()
+            {
+                let modifier_start = self.pos();
+                let kind = self.token.kind;
+                self.next_token();
+                let token = self.alloc_token(kind, tsr_core::Span::new(modifier_start, self.pos()));
+                modifiers.push(ModifierLike::Token(token));
+            }
+            let modifiers = self.arena.alloc_slice(&modifiers);
             let name = self.parse_identifier();
             let constraint =
                 if self.eat(SyntaxKind::ExtendsKeyword) { Some(self.parse_type()) } else { None };
             let default =
                 if self.eat(SyntaxKind::EqualsToken) { Some(self.parse_type()) } else { None };
             parameters.push(self.finish_node(
-                TypeParameterDeclaration::new(&[], Some(name), constraint, None, default),
+                TypeParameterDeclaration::new(modifiers, Some(name), constraint, None, default),
                 SyntaxKind::TypeParameter,
                 start,
             ));

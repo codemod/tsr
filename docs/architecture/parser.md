@@ -2,7 +2,7 @@
 
 **Crate:** `tsr-parser`
 **Ported from:** `vendor/typescript-go/internal/parser/parser.go`
-**Conformance:** `parser_typescript` 3,969/5,648 (70.27%)
+**Conformance:** `parser_typescript` 5,183/5,648 (91.77%)
 
 ## Shape
 
@@ -80,13 +80,20 @@ Types: unions, intersections, arrays, tuples, type literals, type references wit
 arguments, `typeof`, `keyof`, indexed access, literal types, function and
 constructor types, conditional types, and `infer`.
 
+## Threading
+
+`ParsedFile` bundles the arena, source, and tree into one owned `Send` value so a
+worker can parse a file and hand the result back. See
+[threading.md](threading.md).
+
 ## Not yet built
 
-- **JSX** — needs the scanner's JSX mode (`bd tsr-pum.1`) first.
-- **Decorators** (`@foo`) and **private names** (`#x`) in expression position.
-- **Mapped types** (`{ [K in T]: U }`) and **template literal types**.
+- **JSX** — the largest remaining class (75 cases), blocked on the scanner's JSX
+  mode (`bd tsr-pum.1`). `<T>expr` type assertions currently always win, which is
+  wrong for `.tsx` and needs the file's script kind threaded through.
+- **Instantiation expressions** (`typeof foo<T>` without a call).
 - **JSDoc** parsing.
-- **`abstract` members, index signatures, call/construct signatures** in type
-  literals.
-- Roughly 30% of clean corpus files still report a diagnostic; the snapshot lists
-  the first failure per case, which is the fastest way to pick the next gap.
+- Roughly 8% of clean corpus files still report a diagnostic; the snapshot lists
+  the first failure per case, and
+  `cargo run -p tsr-conformance --example failure_classes` buckets all of them,
+  which is the fastest way to pick the next gap.

@@ -37,10 +37,12 @@
 mod declaration;
 mod expression;
 mod module;
+mod parsed_file;
 mod parser;
 mod statement;
 mod types;
 
+pub use parsed_file::ParsedFile;
 pub use parser::{ParseResult, Parser};
 
 use tsr_ast::SourceFile;
