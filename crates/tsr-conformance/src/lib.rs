@@ -38,13 +38,37 @@ pub fn repo_root() -> PathBuf {
 /// still more useful than no snapshot, and the fallback is visible in the output.
 #[must_use]
 pub fn upstream_commit(root: &Path) -> String {
+    // The *full* SHA, deliberately. `--short` picks its length from the number of
+    // objects in the repository, so a shallow clone abbreviates further than a
+    // full one: CI produced `5b1047d1` for the same commit this machine calls
+    // `5b1047d10`, and every snapshot diffed on a character of git trivia. A
+    // committed artifact cannot depend on how the repository was cloned.
     let output = std::process::Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .current_dir(root.join("vendor/typescript-go"))
         .output();
 
     match output {
         Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
         _ => "unknown".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_upstream_commit_does_not_depend_on_how_the_repo_was_cloned() {
+        // `git rev-parse --short` scales its length with the repository's object
+        // count, so a shallow CI clone abbreviated one character shorter than a
+        // full local one and every committed snapshot diffed on it. Anything
+        // written into a committed artifact has to be clone-independent.
+        let commit = upstream_commit(&repo_root());
+        assert!(
+            commit == "unknown"
+                || (commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit())),
+            "expected a full 40-character SHA or \"unknown\", got {commit:?}"
+        );
     }
 }

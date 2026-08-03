@@ -5,7 +5,18 @@ typescript-go at the pinned commit, not against our own history.
 **Harness:** `crates/tsr-parser/benches/parse.rs`, mirroring
 `internal/parser/parser_test.go`'s `BenchmarkParse`.
 **Profiles:** `examples/alloc_profile` (scan/parse split, allocation histogram) and
-`perf record` against `examples/parse_loop`, built with `--profile profiling`.
+`perf record` against `examples/parse_loop`:
+
+```bash
+RUSTFLAGS="-C force-frame-pointers=yes" \
+  cargo build --profile profiling -p tsr-parser --example parse_loop
+taskset -c 2 perf record -F 2500 --call-graph fp -- \
+  target/profiling/examples/parse_loop <file> 120
+```
+
+Frame pointers via `RUSTFLAGS`, not the profile: `force-frame-pointers` is a rustc
+codegen flag and Cargo ignores it as a profile key (with a warning that is easy to
+miss). Without them perf's call graph is mostly `[unknown]`.
 
 ## Where we are — 2026-08-03, at equal work
 

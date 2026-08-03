@@ -316,9 +316,11 @@ fn write_artifacts(
 
 /// The submodule commit the comparison is against, so a result file is
 /// interpretable months later — the ratios move when the pin moves.
+///
+/// The full SHA, not `--short`: git scales the abbreviation with the object count,
+/// so a shallow CI clone and a full local one disagree about the same commit.
 fn pinned_commit(root: &Path) -> String {
     Command::new("git")
-        .current_dir(root)
         .args(["rev-parse", "HEAD"])
         .current_dir(root.join("vendor/typescript-go"))
         .output()

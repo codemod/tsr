@@ -64,14 +64,20 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 
-# Release code with symbols, for `perf`. Frame pointers are kept because
-# perf's DWARF unwinding is both slower and less reliable through inlined
-# Rust; without them the call graph is mostly `[unknown]`.
+# Release code with symbols, for `perf`.
+#
+# Frame pointers matter here — perf's DWARF unwinding is slower and less reliable
+# through inlined Rust, and without them the call graph is mostly `[unknown]` —
+# but `force-frame-pointers` is a rustc codegen flag, not a Cargo profile key.
+# Cargo silently ignores unknown keys with a warning, so setting it here did
+# nothing. Pass it through the environment instead:
+#
+#     RUSTFLAGS="-C force-frame-pointers=yes" \
+#       cargo build --profile profiling -p tsr-parser --example parse_loop
 [profile.profiling]
 inherits = "release"
 debug = true
 strip = false
-force-frame-pointers = true
 
 # Codegen and conformance runs are unusably slow in a debug build against a
 # 49k-baseline corpus.

@@ -6,7 +6,7 @@
 //! remember. This is the ratchet described in PLAN.md §6.
 //!
 //! ```text
-//! commit: 5b1047d10
+//! commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 //!
 //! parser_typescript Summary:
 //! What a pass means: source parses and produces the expected parse diagnostics
