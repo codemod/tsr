@@ -425,6 +425,20 @@ impl<'a> From<AccessExpression<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for AccessExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `AccessExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ElementAccessExpression(n) => Ok(AccessExpression::ElementAccessExpression(n)),
+            Node::PropertyAccessExpression(n) => Ok(AccessExpression::PropertyAccessExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `AccessorDeclaration` union.
 ///
 /// Corresponds to typescript-go's `ast.AccessorDeclaration`.
@@ -441,6 +455,20 @@ impl<'a> From<AccessorDeclaration<'a>> for Node<'a> {
         match value {
             AccessorDeclaration::GetAccessorDeclaration(n) => Node::GetAccessorDeclaration(n),
             AccessorDeclaration::SetAccessorDeclaration(n) => Node::SetAccessorDeclaration(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for AccessorDeclaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `AccessorDeclaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::GetAccessorDeclaration(n) => Ok(AccessorDeclaration::GetAccessorDeclaration(n)),
+            Node::SetAccessorDeclaration(n) => Ok(AccessorDeclaration::SetAccessorDeclaration(n)),
+            other => Err(other),
         }
     }
 }
@@ -465,6 +493,20 @@ impl<'a> From<AnyImportSyntax<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for AnyImportSyntax<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `AnyImportSyntax`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ImportDeclaration(n) => Ok(AnyImportSyntax::ImportDeclaration(n)),
+            Node::ImportEqualsDeclaration(n) => Ok(AnyImportSyntax::ImportEqualsDeclaration(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ArrayBindingElement` union.
 ///
 /// Corresponds to typescript-go's `ast.ArrayBindingElement`.
@@ -485,6 +527,20 @@ impl<'a> From<ArrayBindingElement<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ArrayBindingElement<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ArrayBindingElement`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BindingElement(n) => Ok(ArrayBindingElement::BindingElement(n)),
+            Node::OmittedExpression(n) => Ok(ArrayBindingElement::OmittedExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ArrayDestructuringAssignment` union.
 ///
 /// Corresponds to typescript-go's `ast.ArrayDestructuringAssignment`.
@@ -498,6 +554,19 @@ impl<'a> From<ArrayDestructuringAssignment<'a>> for Node<'a> {
     fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
         match value {
             ArrayDestructuringAssignment::BinaryExpression(n) => Node::BinaryExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ArrayDestructuringAssignment<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ArrayDestructuringAssignment`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BinaryExpression(n) => Ok(ArrayDestructuringAssignment::BinaryExpression(n)),
+            other => Err(other),
         }
     }
 }
@@ -522,6 +591,20 @@ impl<'a> From<AssertionExpression<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for AssertionExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `AssertionExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::AsExpression(n) => Ok(AssertionExpression::AsExpression(n)),
+            Node::TypeAssertion(n) => Ok(AssertionExpression::TypeAssertion(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `BindingName` union.
 ///
 /// Corresponds to typescript-go's `ast.BindingName`.
@@ -538,6 +621,20 @@ impl<'a> From<BindingName<'a>> for Node<'a> {
         match value {
             BindingName::BindingPattern(n) => Node::BindingPattern(n),
             BindingName::Identifier(n) => Node::Identifier(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for BindingName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `BindingName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BindingPattern(n) => Ok(BindingName::BindingPattern(n)),
+            Node::Identifier(n) => Ok(BindingName::Identifier(n)),
+            other => Err(other),
         }
     }
 }
@@ -715,6 +812,77 @@ impl<'a> From<BlockOrExpression<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for BlockOrExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `BlockOrExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayLiteralExpression(n) => Ok(BlockOrExpression::ArrayLiteralExpression(n)),
+            Node::ArrowFunction(n) => Ok(BlockOrExpression::ArrowFunction(n)),
+            Node::AsExpression(n) => Ok(BlockOrExpression::AsExpression(n)),
+            Node::AwaitExpression(n) => Ok(BlockOrExpression::AwaitExpression(n)),
+            Node::BigIntLiteral(n) => Ok(BlockOrExpression::BigIntLiteral(n)),
+            Node::BinaryExpression(n) => Ok(BlockOrExpression::BinaryExpression(n)),
+            Node::Block(n) => Ok(BlockOrExpression::Block(n)),
+            Node::CallExpression(n) => Ok(BlockOrExpression::CallExpression(n)),
+            Node::ClassExpression(n) => Ok(BlockOrExpression::ClassExpression(n)),
+            Node::ConditionalExpression(n) => Ok(BlockOrExpression::ConditionalExpression(n)),
+            Node::DeleteExpression(n) => Ok(BlockOrExpression::DeleteExpression(n)),
+            Node::ElementAccessExpression(n) => Ok(BlockOrExpression::ElementAccessExpression(n)),
+            Node::ExpressionWithTypeArguments(n) => {
+                Ok(BlockOrExpression::ExpressionWithTypeArguments(n))
+            }
+            Node::FunctionExpression(n) => Ok(BlockOrExpression::FunctionExpression(n)),
+            Node::Identifier(n) => Ok(BlockOrExpression::Identifier(n)),
+            Node::JsxAttributes(n) => Ok(BlockOrExpression::JsxAttributes(n)),
+            Node::JsxClosingFragment(n) => Ok(BlockOrExpression::JsxClosingFragment(n)),
+            Node::JsxElement(n) => Ok(BlockOrExpression::JsxElement(n)),
+            Node::JsxExpression(n) => Ok(BlockOrExpression::JsxExpression(n)),
+            Node::JsxFragment(n) => Ok(BlockOrExpression::JsxFragment(n)),
+            Node::JsxNamespacedName(n) => Ok(BlockOrExpression::JsxNamespacedName(n)),
+            Node::JsxOpeningElement(n) => Ok(BlockOrExpression::JsxOpeningElement(n)),
+            Node::JsxOpeningFragment(n) => Ok(BlockOrExpression::JsxOpeningFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(BlockOrExpression::JsxSelfClosingElement(n)),
+            Node::JsxText(n) => Ok(BlockOrExpression::JsxText(n)),
+            Node::KeywordExpression(n) => Ok(BlockOrExpression::KeywordExpression(n)),
+            Node::MetaProperty(n) => Ok(BlockOrExpression::MetaProperty(n)),
+            Node::NewExpression(n) => Ok(BlockOrExpression::NewExpression(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(BlockOrExpression::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NonNullExpression(n) => Ok(BlockOrExpression::NonNullExpression(n)),
+            Node::NumericLiteral(n) => Ok(BlockOrExpression::NumericLiteral(n)),
+            Node::ObjectLiteralExpression(n) => Ok(BlockOrExpression::ObjectLiteralExpression(n)),
+            Node::OmittedExpression(n) => Ok(BlockOrExpression::OmittedExpression(n)),
+            Node::ParenthesizedExpression(n) => Ok(BlockOrExpression::ParenthesizedExpression(n)),
+            Node::PartiallyEmittedExpression(n) => {
+                Ok(BlockOrExpression::PartiallyEmittedExpression(n))
+            }
+            Node::PostfixUnaryExpression(n) => Ok(BlockOrExpression::PostfixUnaryExpression(n)),
+            Node::PrefixUnaryExpression(n) => Ok(BlockOrExpression::PrefixUnaryExpression(n)),
+            Node::PrivateIdentifier(n) => Ok(BlockOrExpression::PrivateIdentifier(n)),
+            Node::PropertyAccessExpression(n) => Ok(BlockOrExpression::PropertyAccessExpression(n)),
+            Node::RegularExpressionLiteral(n) => Ok(BlockOrExpression::RegularExpressionLiteral(n)),
+            Node::SatisfiesExpression(n) => Ok(BlockOrExpression::SatisfiesExpression(n)),
+            Node::SpreadElement(n) => Ok(BlockOrExpression::SpreadElement(n)),
+            Node::StringLiteral(n) => Ok(BlockOrExpression::StringLiteral(n)),
+            Node::SyntheticExpression(n) => Ok(BlockOrExpression::SyntheticExpression(n)),
+            Node::SyntheticReferenceExpression(n) => {
+                Ok(BlockOrExpression::SyntheticReferenceExpression(n))
+            }
+            Node::TaggedTemplateExpression(n) => Ok(BlockOrExpression::TaggedTemplateExpression(n)),
+            Node::TemplateExpression(n) => Ok(BlockOrExpression::TemplateExpression(n)),
+            Node::TypeAssertion(n) => Ok(BlockOrExpression::TypeAssertion(n)),
+            Node::TypeOfExpression(n) => Ok(BlockOrExpression::TypeOfExpression(n)),
+            Node::VoidExpression(n) => Ok(BlockOrExpression::VoidExpression(n)),
+            Node::YieldExpression(n) => Ok(BlockOrExpression::YieldExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `BreakOrContinueStatement` union.
 ///
 /// Corresponds to typescript-go's `ast.BreakOrContinueStatement`.
@@ -731,6 +899,20 @@ impl<'a> From<BreakOrContinueStatement<'a>> for Node<'a> {
         match value {
             BreakOrContinueStatement::BreakStatement(n) => Node::BreakStatement(n),
             BreakOrContinueStatement::ContinueStatement(n) => Node::ContinueStatement(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for BreakOrContinueStatement<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `BreakOrContinueStatement`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BreakStatement(n) => Ok(BreakOrContinueStatement::BreakStatement(n)),
+            Node::ContinueStatement(n) => Ok(BreakOrContinueStatement::ContinueStatement(n)),
+            other => Err(other),
         }
     }
 }
@@ -770,6 +952,27 @@ impl<'a> From<CallLikeExpression<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for CallLikeExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `CallLikeExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BinaryExpression(n) => Ok(CallLikeExpression::BinaryExpression(n)),
+            Node::CallExpression(n) => Ok(CallLikeExpression::CallExpression(n)),
+            Node::Decorator(n) => Ok(CallLikeExpression::Decorator(n)),
+            Node::JsxOpeningElement(n) => Ok(CallLikeExpression::JsxOpeningElement(n)),
+            Node::JsxSelfClosingElement(n) => Ok(CallLikeExpression::JsxSelfClosingElement(n)),
+            Node::NewExpression(n) => Ok(CallLikeExpression::NewExpression(n)),
+            Node::TaggedTemplateExpression(n) => {
+                Ok(CallLikeExpression::TaggedTemplateExpression(n))
+            }
+            other => Err(other),
+        }
+    }
+}
+
 /// The `CallOrNewExpression` union.
 ///
 /// Corresponds to typescript-go's `ast.CallOrNewExpression`.
@@ -786,6 +989,20 @@ impl<'a> From<CallOrNewExpression<'a>> for Node<'a> {
         match value {
             CallOrNewExpression::CallExpression(n) => Node::CallExpression(n),
             CallOrNewExpression::NewExpression(n) => Node::NewExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for CallOrNewExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `CallOrNewExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::CallExpression(n) => Ok(CallOrNewExpression::CallExpression(n)),
+            Node::NewExpression(n) => Ok(CallOrNewExpression::NewExpression(n)),
+            other => Err(other),
         }
     }
 }
@@ -828,6 +1045,28 @@ impl<'a> From<ClassElement<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ClassElement<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ClassElement`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ClassStaticBlockDeclaration(n) => {
+                Ok(ClassElement::ClassStaticBlockDeclaration(n))
+            }
+            Node::ConstructorDeclaration(n) => Ok(ClassElement::ConstructorDeclaration(n)),
+            Node::GetAccessorDeclaration(n) => Ok(ClassElement::GetAccessorDeclaration(n)),
+            Node::IndexSignatureDeclaration(n) => Ok(ClassElement::IndexSignatureDeclaration(n)),
+            Node::MethodDeclaration(n) => Ok(ClassElement::MethodDeclaration(n)),
+            Node::PropertyDeclaration(n) => Ok(ClassElement::PropertyDeclaration(n)),
+            Node::SemicolonClassElement(n) => Ok(ClassElement::SemicolonClassElement(n)),
+            Node::SetAccessorDeclaration(n) => Ok(ClassElement::SetAccessorDeclaration(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ClassLikeDeclaration` union.
 ///
 /// Corresponds to typescript-go's `ast.ClassLikeDeclaration`.
@@ -844,6 +1083,20 @@ impl<'a> From<ClassLikeDeclaration<'a>> for Node<'a> {
         match value {
             ClassLikeDeclaration::ClassDeclaration(n) => Node::ClassDeclaration(n),
             ClassLikeDeclaration::ClassExpression(n) => Node::ClassExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ClassLikeDeclaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ClassLikeDeclaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ClassDeclaration(n) => Ok(ClassLikeDeclaration::ClassDeclaration(n)),
+            Node::ClassExpression(n) => Ok(ClassLikeDeclaration::ClassExpression(n)),
+            other => Err(other),
         }
     }
 }
@@ -1011,6 +1264,73 @@ impl<'a> From<ConciseBody<'a>> for Node<'a> {
             ConciseBody::TypeOfExpression(n) => Node::TypeOfExpression(n),
             ConciseBody::VoidExpression(n) => Node::VoidExpression(n),
             ConciseBody::YieldExpression(n) => Node::YieldExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ConciseBody<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ConciseBody`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayLiteralExpression(n) => Ok(ConciseBody::ArrayLiteralExpression(n)),
+            Node::ArrowFunction(n) => Ok(ConciseBody::ArrowFunction(n)),
+            Node::AsExpression(n) => Ok(ConciseBody::AsExpression(n)),
+            Node::AwaitExpression(n) => Ok(ConciseBody::AwaitExpression(n)),
+            Node::BigIntLiteral(n) => Ok(ConciseBody::BigIntLiteral(n)),
+            Node::BinaryExpression(n) => Ok(ConciseBody::BinaryExpression(n)),
+            Node::Block(n) => Ok(ConciseBody::Block(n)),
+            Node::CallExpression(n) => Ok(ConciseBody::CallExpression(n)),
+            Node::ClassExpression(n) => Ok(ConciseBody::ClassExpression(n)),
+            Node::ConditionalExpression(n) => Ok(ConciseBody::ConditionalExpression(n)),
+            Node::DeleteExpression(n) => Ok(ConciseBody::DeleteExpression(n)),
+            Node::ElementAccessExpression(n) => Ok(ConciseBody::ElementAccessExpression(n)),
+            Node::ExpressionWithTypeArguments(n) => Ok(ConciseBody::ExpressionWithTypeArguments(n)),
+            Node::FunctionExpression(n) => Ok(ConciseBody::FunctionExpression(n)),
+            Node::Identifier(n) => Ok(ConciseBody::Identifier(n)),
+            Node::JsxAttributes(n) => Ok(ConciseBody::JsxAttributes(n)),
+            Node::JsxClosingFragment(n) => Ok(ConciseBody::JsxClosingFragment(n)),
+            Node::JsxElement(n) => Ok(ConciseBody::JsxElement(n)),
+            Node::JsxExpression(n) => Ok(ConciseBody::JsxExpression(n)),
+            Node::JsxFragment(n) => Ok(ConciseBody::JsxFragment(n)),
+            Node::JsxNamespacedName(n) => Ok(ConciseBody::JsxNamespacedName(n)),
+            Node::JsxOpeningElement(n) => Ok(ConciseBody::JsxOpeningElement(n)),
+            Node::JsxOpeningFragment(n) => Ok(ConciseBody::JsxOpeningFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(ConciseBody::JsxSelfClosingElement(n)),
+            Node::JsxText(n) => Ok(ConciseBody::JsxText(n)),
+            Node::KeywordExpression(n) => Ok(ConciseBody::KeywordExpression(n)),
+            Node::MetaProperty(n) => Ok(ConciseBody::MetaProperty(n)),
+            Node::NewExpression(n) => Ok(ConciseBody::NewExpression(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(ConciseBody::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NonNullExpression(n) => Ok(ConciseBody::NonNullExpression(n)),
+            Node::NumericLiteral(n) => Ok(ConciseBody::NumericLiteral(n)),
+            Node::ObjectLiteralExpression(n) => Ok(ConciseBody::ObjectLiteralExpression(n)),
+            Node::OmittedExpression(n) => Ok(ConciseBody::OmittedExpression(n)),
+            Node::ParenthesizedExpression(n) => Ok(ConciseBody::ParenthesizedExpression(n)),
+            Node::PartiallyEmittedExpression(n) => Ok(ConciseBody::PartiallyEmittedExpression(n)),
+            Node::PostfixUnaryExpression(n) => Ok(ConciseBody::PostfixUnaryExpression(n)),
+            Node::PrefixUnaryExpression(n) => Ok(ConciseBody::PrefixUnaryExpression(n)),
+            Node::PrivateIdentifier(n) => Ok(ConciseBody::PrivateIdentifier(n)),
+            Node::PropertyAccessExpression(n) => Ok(ConciseBody::PropertyAccessExpression(n)),
+            Node::RegularExpressionLiteral(n) => Ok(ConciseBody::RegularExpressionLiteral(n)),
+            Node::SatisfiesExpression(n) => Ok(ConciseBody::SatisfiesExpression(n)),
+            Node::SpreadElement(n) => Ok(ConciseBody::SpreadElement(n)),
+            Node::StringLiteral(n) => Ok(ConciseBody::StringLiteral(n)),
+            Node::SyntheticExpression(n) => Ok(ConciseBody::SyntheticExpression(n)),
+            Node::SyntheticReferenceExpression(n) => {
+                Ok(ConciseBody::SyntheticReferenceExpression(n))
+            }
+            Node::TaggedTemplateExpression(n) => Ok(ConciseBody::TaggedTemplateExpression(n)),
+            Node::TemplateExpression(n) => Ok(ConciseBody::TemplateExpression(n)),
+            Node::TypeAssertion(n) => Ok(ConciseBody::TypeAssertion(n)),
+            Node::TypeOfExpression(n) => Ok(ConciseBody::TypeOfExpression(n)),
+            Node::VoidExpression(n) => Ok(ConciseBody::VoidExpression(n)),
+            Node::YieldExpression(n) => Ok(ConciseBody::YieldExpression(n)),
+            other => Err(other),
         }
     }
 }
@@ -1191,6 +1511,78 @@ impl<'a> From<Declaration<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for Declaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `Declaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrowFunction(n) => Ok(Declaration::ArrowFunction(n)),
+            Node::BinaryExpression(n) => Ok(Declaration::BinaryExpression(n)),
+            Node::BindingElement(n) => Ok(Declaration::BindingElement(n)),
+            Node::CallExpression(n) => Ok(Declaration::CallExpression(n)),
+            Node::CallSignatureDeclaration(n) => Ok(Declaration::CallSignatureDeclaration(n)),
+            Node::ClassDeclaration(n) => Ok(Declaration::ClassDeclaration(n)),
+            Node::ClassExpression(n) => Ok(Declaration::ClassExpression(n)),
+            Node::ClassStaticBlockDeclaration(n) => Ok(Declaration::ClassStaticBlockDeclaration(n)),
+            Node::ConstructSignatureDeclaration(n) => {
+                Ok(Declaration::ConstructSignatureDeclaration(n))
+            }
+            Node::ConstructorDeclaration(n) => Ok(Declaration::ConstructorDeclaration(n)),
+            Node::ConstructorTypeNode(n) => Ok(Declaration::ConstructorTypeNode(n)),
+            Node::EnumDeclaration(n) => Ok(Declaration::EnumDeclaration(n)),
+            Node::EnumMember(n) => Ok(Declaration::EnumMember(n)),
+            Node::ExportAssignment(n) => Ok(Declaration::ExportAssignment(n)),
+            Node::ExportDeclaration(n) => Ok(Declaration::ExportDeclaration(n)),
+            Node::ExportSpecifier(n) => Ok(Declaration::ExportSpecifier(n)),
+            Node::FunctionDeclaration(n) => Ok(Declaration::FunctionDeclaration(n)),
+            Node::FunctionExpression(n) => Ok(Declaration::FunctionExpression(n)),
+            Node::FunctionTypeNode(n) => Ok(Declaration::FunctionTypeNode(n)),
+            Node::GetAccessorDeclaration(n) => Ok(Declaration::GetAccessorDeclaration(n)),
+            Node::ImportClause(n) => Ok(Declaration::ImportClause(n)),
+            Node::ImportDeclaration(n) => Ok(Declaration::ImportDeclaration(n)),
+            Node::ImportEqualsDeclaration(n) => Ok(Declaration::ImportEqualsDeclaration(n)),
+            Node::ImportSpecifier(n) => Ok(Declaration::ImportSpecifier(n)),
+            Node::IndexSignatureDeclaration(n) => Ok(Declaration::IndexSignatureDeclaration(n)),
+            Node::InterfaceDeclaration(n) => Ok(Declaration::InterfaceDeclaration(n)),
+            Node::JSDocSignature(n) => Ok(Declaration::JSDocSignature(n)),
+            Node::JSDocTypeLiteral(n) => Ok(Declaration::JSDocTypeLiteral(n)),
+            Node::JsxAttribute(n) => Ok(Declaration::JsxAttribute(n)),
+            Node::JsxAttributes(n) => Ok(Declaration::JsxAttributes(n)),
+            Node::MappedTypeNode(n) => Ok(Declaration::MappedTypeNode(n)),
+            Node::MethodDeclaration(n) => Ok(Declaration::MethodDeclaration(n)),
+            Node::MethodSignatureDeclaration(n) => Ok(Declaration::MethodSignatureDeclaration(n)),
+            Node::MissingDeclaration(n) => Ok(Declaration::MissingDeclaration(n)),
+            Node::ModuleDeclaration(n) => Ok(Declaration::ModuleDeclaration(n)),
+            Node::NamedTupleMember(n) => Ok(Declaration::NamedTupleMember(n)),
+            Node::NamespaceExport(n) => Ok(Declaration::NamespaceExport(n)),
+            Node::NamespaceExportDeclaration(n) => Ok(Declaration::NamespaceExportDeclaration(n)),
+            Node::NamespaceImport(n) => Ok(Declaration::NamespaceImport(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(Declaration::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::ObjectLiteralExpression(n) => Ok(Declaration::ObjectLiteralExpression(n)),
+            Node::ParameterDeclaration(n) => Ok(Declaration::ParameterDeclaration(n)),
+            Node::PropertyAssignment(n) => Ok(Declaration::PropertyAssignment(n)),
+            Node::PropertyDeclaration(n) => Ok(Declaration::PropertyDeclaration(n)),
+            Node::PropertySignatureDeclaration(n) => {
+                Ok(Declaration::PropertySignatureDeclaration(n))
+            }
+            Node::SemicolonClassElement(n) => Ok(Declaration::SemicolonClassElement(n)),
+            Node::SetAccessorDeclaration(n) => Ok(Declaration::SetAccessorDeclaration(n)),
+            Node::ShorthandPropertyAssignment(n) => Ok(Declaration::ShorthandPropertyAssignment(n)),
+            Node::SourceFile(n) => Ok(Declaration::SourceFile(n)),
+            Node::SpreadAssignment(n) => Ok(Declaration::SpreadAssignment(n)),
+            Node::TypeAliasDeclaration(n) => Ok(Declaration::TypeAliasDeclaration(n)),
+            Node::TypeLiteralNode(n) => Ok(Declaration::TypeLiteralNode(n)),
+            Node::TypeParameterDeclaration(n) => Ok(Declaration::TypeParameterDeclaration(n)),
+            Node::VariableDeclaration(n) => Ok(Declaration::VariableDeclaration(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `DeclarationName` union.
 ///
 /// Corresponds to typescript-go's `ast.DeclarationName`.
@@ -1234,6 +1626,29 @@ impl<'a> From<DeclarationName<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for DeclarationName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `DeclarationName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BigIntLiteral(n) => Ok(DeclarationName::BigIntLiteral(n)),
+            Node::BindingPattern(n) => Ok(DeclarationName::BindingPattern(n)),
+            Node::ComputedPropertyName(n) => Ok(DeclarationName::ComputedPropertyName(n)),
+            Node::ElementAccessExpression(n) => Ok(DeclarationName::ElementAccessExpression(n)),
+            Node::Identifier(n) => Ok(DeclarationName::Identifier(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(DeclarationName::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NumericLiteral(n) => Ok(DeclarationName::NumericLiteral(n)),
+            Node::PrivateIdentifier(n) => Ok(DeclarationName::PrivateIdentifier(n)),
+            Node::StringLiteral(n) => Ok(DeclarationName::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `DestructuringAssignment` union.
 ///
 /// Corresponds to typescript-go's `ast.DestructuringAssignment`.
@@ -1247,6 +1662,19 @@ impl<'a> From<DestructuringAssignment<'a>> for Node<'a> {
     fn from(value: DestructuringAssignment<'a>) -> Self {
         match value {
             DestructuringAssignment::BinaryExpression(n) => Node::BinaryExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for DestructuringAssignment<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `DestructuringAssignment`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BinaryExpression(n) => Ok(DestructuringAssignment::BinaryExpression(n)),
+            other => Err(other),
         }
     }
 }
@@ -1267,6 +1695,20 @@ impl<'a> From<EntityName<'a>> for Node<'a> {
         match value {
             EntityName::Identifier(n) => Node::Identifier(n),
             EntityName::QualifiedName(n) => Node::QualifiedName(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for EntityName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `EntityName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(EntityName::Identifier(n)),
+            Node::QualifiedName(n) => Ok(EntityName::QualifiedName(n)),
+            other => Err(other),
         }
     }
 }
@@ -1431,6 +1873,72 @@ impl<'a> From<Expression<'a>> for Node<'a> {
             Expression::TypeOfExpression(n) => Node::TypeOfExpression(n),
             Expression::VoidExpression(n) => Node::VoidExpression(n),
             Expression::YieldExpression(n) => Node::YieldExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for Expression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `Expression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayLiteralExpression(n) => Ok(Expression::ArrayLiteralExpression(n)),
+            Node::ArrowFunction(n) => Ok(Expression::ArrowFunction(n)),
+            Node::AsExpression(n) => Ok(Expression::AsExpression(n)),
+            Node::AwaitExpression(n) => Ok(Expression::AwaitExpression(n)),
+            Node::BigIntLiteral(n) => Ok(Expression::BigIntLiteral(n)),
+            Node::BinaryExpression(n) => Ok(Expression::BinaryExpression(n)),
+            Node::CallExpression(n) => Ok(Expression::CallExpression(n)),
+            Node::ClassExpression(n) => Ok(Expression::ClassExpression(n)),
+            Node::ConditionalExpression(n) => Ok(Expression::ConditionalExpression(n)),
+            Node::DeleteExpression(n) => Ok(Expression::DeleteExpression(n)),
+            Node::ElementAccessExpression(n) => Ok(Expression::ElementAccessExpression(n)),
+            Node::ExpressionWithTypeArguments(n) => Ok(Expression::ExpressionWithTypeArguments(n)),
+            Node::FunctionExpression(n) => Ok(Expression::FunctionExpression(n)),
+            Node::Identifier(n) => Ok(Expression::Identifier(n)),
+            Node::JsxAttributes(n) => Ok(Expression::JsxAttributes(n)),
+            Node::JsxClosingFragment(n) => Ok(Expression::JsxClosingFragment(n)),
+            Node::JsxElement(n) => Ok(Expression::JsxElement(n)),
+            Node::JsxExpression(n) => Ok(Expression::JsxExpression(n)),
+            Node::JsxFragment(n) => Ok(Expression::JsxFragment(n)),
+            Node::JsxNamespacedName(n) => Ok(Expression::JsxNamespacedName(n)),
+            Node::JsxOpeningElement(n) => Ok(Expression::JsxOpeningElement(n)),
+            Node::JsxOpeningFragment(n) => Ok(Expression::JsxOpeningFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(Expression::JsxSelfClosingElement(n)),
+            Node::JsxText(n) => Ok(Expression::JsxText(n)),
+            Node::KeywordExpression(n) => Ok(Expression::KeywordExpression(n)),
+            Node::MetaProperty(n) => Ok(Expression::MetaProperty(n)),
+            Node::NewExpression(n) => Ok(Expression::NewExpression(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(Expression::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NonNullExpression(n) => Ok(Expression::NonNullExpression(n)),
+            Node::NumericLiteral(n) => Ok(Expression::NumericLiteral(n)),
+            Node::ObjectLiteralExpression(n) => Ok(Expression::ObjectLiteralExpression(n)),
+            Node::OmittedExpression(n) => Ok(Expression::OmittedExpression(n)),
+            Node::ParenthesizedExpression(n) => Ok(Expression::ParenthesizedExpression(n)),
+            Node::PartiallyEmittedExpression(n) => Ok(Expression::PartiallyEmittedExpression(n)),
+            Node::PostfixUnaryExpression(n) => Ok(Expression::PostfixUnaryExpression(n)),
+            Node::PrefixUnaryExpression(n) => Ok(Expression::PrefixUnaryExpression(n)),
+            Node::PrivateIdentifier(n) => Ok(Expression::PrivateIdentifier(n)),
+            Node::PropertyAccessExpression(n) => Ok(Expression::PropertyAccessExpression(n)),
+            Node::RegularExpressionLiteral(n) => Ok(Expression::RegularExpressionLiteral(n)),
+            Node::SatisfiesExpression(n) => Ok(Expression::SatisfiesExpression(n)),
+            Node::SpreadElement(n) => Ok(Expression::SpreadElement(n)),
+            Node::StringLiteral(n) => Ok(Expression::StringLiteral(n)),
+            Node::SyntheticExpression(n) => Ok(Expression::SyntheticExpression(n)),
+            Node::SyntheticReferenceExpression(n) => {
+                Ok(Expression::SyntheticReferenceExpression(n))
+            }
+            Node::TaggedTemplateExpression(n) => Ok(Expression::TaggedTemplateExpression(n)),
+            Node::TemplateExpression(n) => Ok(Expression::TemplateExpression(n)),
+            Node::TypeAssertion(n) => Ok(Expression::TypeAssertion(n)),
+            Node::TypeOfExpression(n) => Ok(Expression::TypeOfExpression(n)),
+            Node::VoidExpression(n) => Ok(Expression::VoidExpression(n)),
+            Node::YieldExpression(n) => Ok(Expression::YieldExpression(n)),
+            other => Err(other),
         }
     }
 }
@@ -1609,6 +2117,78 @@ impl<'a> From<ForInitializer<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ForInitializer<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ForInitializer`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayLiteralExpression(n) => Ok(ForInitializer::ArrayLiteralExpression(n)),
+            Node::ArrowFunction(n) => Ok(ForInitializer::ArrowFunction(n)),
+            Node::AsExpression(n) => Ok(ForInitializer::AsExpression(n)),
+            Node::AwaitExpression(n) => Ok(ForInitializer::AwaitExpression(n)),
+            Node::BigIntLiteral(n) => Ok(ForInitializer::BigIntLiteral(n)),
+            Node::BinaryExpression(n) => Ok(ForInitializer::BinaryExpression(n)),
+            Node::CallExpression(n) => Ok(ForInitializer::CallExpression(n)),
+            Node::ClassExpression(n) => Ok(ForInitializer::ClassExpression(n)),
+            Node::ConditionalExpression(n) => Ok(ForInitializer::ConditionalExpression(n)),
+            Node::DeleteExpression(n) => Ok(ForInitializer::DeleteExpression(n)),
+            Node::ElementAccessExpression(n) => Ok(ForInitializer::ElementAccessExpression(n)),
+            Node::ExpressionWithTypeArguments(n) => {
+                Ok(ForInitializer::ExpressionWithTypeArguments(n))
+            }
+            Node::FunctionExpression(n) => Ok(ForInitializer::FunctionExpression(n)),
+            Node::Identifier(n) => Ok(ForInitializer::Identifier(n)),
+            Node::JsxAttributes(n) => Ok(ForInitializer::JsxAttributes(n)),
+            Node::JsxClosingFragment(n) => Ok(ForInitializer::JsxClosingFragment(n)),
+            Node::JsxElement(n) => Ok(ForInitializer::JsxElement(n)),
+            Node::JsxExpression(n) => Ok(ForInitializer::JsxExpression(n)),
+            Node::JsxFragment(n) => Ok(ForInitializer::JsxFragment(n)),
+            Node::JsxNamespacedName(n) => Ok(ForInitializer::JsxNamespacedName(n)),
+            Node::JsxOpeningElement(n) => Ok(ForInitializer::JsxOpeningElement(n)),
+            Node::JsxOpeningFragment(n) => Ok(ForInitializer::JsxOpeningFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(ForInitializer::JsxSelfClosingElement(n)),
+            Node::JsxText(n) => Ok(ForInitializer::JsxText(n)),
+            Node::KeywordExpression(n) => Ok(ForInitializer::KeywordExpression(n)),
+            Node::MetaProperty(n) => Ok(ForInitializer::MetaProperty(n)),
+            Node::MissingDeclaration(n) => Ok(ForInitializer::MissingDeclaration(n)),
+            Node::NewExpression(n) => Ok(ForInitializer::NewExpression(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(ForInitializer::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NonNullExpression(n) => Ok(ForInitializer::NonNullExpression(n)),
+            Node::NumericLiteral(n) => Ok(ForInitializer::NumericLiteral(n)),
+            Node::ObjectLiteralExpression(n) => Ok(ForInitializer::ObjectLiteralExpression(n)),
+            Node::OmittedExpression(n) => Ok(ForInitializer::OmittedExpression(n)),
+            Node::ParenthesizedExpression(n) => Ok(ForInitializer::ParenthesizedExpression(n)),
+            Node::PartiallyEmittedExpression(n) => {
+                Ok(ForInitializer::PartiallyEmittedExpression(n))
+            }
+            Node::PostfixUnaryExpression(n) => Ok(ForInitializer::PostfixUnaryExpression(n)),
+            Node::PrefixUnaryExpression(n) => Ok(ForInitializer::PrefixUnaryExpression(n)),
+            Node::PrivateIdentifier(n) => Ok(ForInitializer::PrivateIdentifier(n)),
+            Node::PropertyAccessExpression(n) => Ok(ForInitializer::PropertyAccessExpression(n)),
+            Node::RegularExpressionLiteral(n) => Ok(ForInitializer::RegularExpressionLiteral(n)),
+            Node::SatisfiesExpression(n) => Ok(ForInitializer::SatisfiesExpression(n)),
+            Node::SpreadElement(n) => Ok(ForInitializer::SpreadElement(n)),
+            Node::StringLiteral(n) => Ok(ForInitializer::StringLiteral(n)),
+            Node::SyntheticExpression(n) => Ok(ForInitializer::SyntheticExpression(n)),
+            Node::SyntheticReferenceExpression(n) => {
+                Ok(ForInitializer::SyntheticReferenceExpression(n))
+            }
+            Node::TaggedTemplateExpression(n) => Ok(ForInitializer::TaggedTemplateExpression(n)),
+            Node::TemplateExpression(n) => Ok(ForInitializer::TemplateExpression(n)),
+            Node::TypeAssertion(n) => Ok(ForInitializer::TypeAssertion(n)),
+            Node::TypeOfExpression(n) => Ok(ForInitializer::TypeOfExpression(n)),
+            Node::VariableDeclarationList(n) => Ok(ForInitializer::VariableDeclarationList(n)),
+            Node::VoidExpression(n) => Ok(ForInitializer::VoidExpression(n)),
+            Node::YieldExpression(n) => Ok(ForInitializer::YieldExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `FunctionBody` union.
 ///
 /// Corresponds to typescript-go's `ast.FunctionBody`.
@@ -1622,6 +2202,19 @@ impl<'a> From<FunctionBody<'a>> for Node<'a> {
     fn from(value: FunctionBody<'a>) -> Self {
         match value {
             FunctionBody::Block(n) => Node::Block(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for FunctionBody<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `FunctionBody`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Block(n) => Ok(FunctionBody::Block(n)),
+            other => Err(other),
         }
     }
 }
@@ -1661,6 +2254,31 @@ impl<'a> From<FunctionLikeDeclaration<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for FunctionLikeDeclaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `FunctionLikeDeclaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrowFunction(n) => Ok(FunctionLikeDeclaration::ArrowFunction(n)),
+            Node::ConstructorDeclaration(n) => {
+                Ok(FunctionLikeDeclaration::ConstructorDeclaration(n))
+            }
+            Node::FunctionDeclaration(n) => Ok(FunctionLikeDeclaration::FunctionDeclaration(n)),
+            Node::FunctionExpression(n) => Ok(FunctionLikeDeclaration::FunctionExpression(n)),
+            Node::GetAccessorDeclaration(n) => {
+                Ok(FunctionLikeDeclaration::GetAccessorDeclaration(n))
+            }
+            Node::MethodDeclaration(n) => Ok(FunctionLikeDeclaration::MethodDeclaration(n)),
+            Node::SetAccessorDeclaration(n) => {
+                Ok(FunctionLikeDeclaration::SetAccessorDeclaration(n))
+            }
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ImportAttributeName` union.
 ///
 /// Corresponds to typescript-go's `ast.ImportAttributeName`.
@@ -1681,6 +2299,20 @@ impl<'a> From<ImportAttributeName<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ImportAttributeName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ImportAttributeName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(ImportAttributeName::Identifier(n)),
+            Node::StringLiteral(n) => Ok(ImportAttributeName::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ImportClauseOrBindingPattern` union.
 ///
 /// Corresponds to typescript-go's `ast.ImportClauseOrBindingPattern`.
@@ -1697,6 +2329,20 @@ impl<'a> From<ImportClauseOrBindingPattern<'a>> for Node<'a> {
         match value {
             ImportClauseOrBindingPattern::BindingPattern(n) => Node::BindingPattern(n),
             ImportClauseOrBindingPattern::ImportClause(n) => Node::ImportClause(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ImportClauseOrBindingPattern<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ImportClauseOrBindingPattern`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BindingPattern(n) => Ok(ImportClauseOrBindingPattern::BindingPattern(n)),
+            Node::ImportClause(n) => Ok(ImportClauseOrBindingPattern::ImportClause(n)),
+            other => Err(other),
         }
     }
 }
@@ -1727,6 +2373,22 @@ impl<'a> From<JSDocComment<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for JSDocComment<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JSDocComment`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::JSDocLink(n) => Ok(JSDocComment::JSDocLink(n)),
+            Node::JSDocLinkCode(n) => Ok(JSDocComment::JSDocLinkCode(n)),
+            Node::JSDocLinkPlain(n) => Ok(JSDocComment::JSDocLinkPlain(n)),
+            Node::JSDocText(n) => Ok(JSDocComment::JSDocText(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `JSDocFullName` union.
 ///
 /// Corresponds to typescript-go's `ast.JSDocFullName`.
@@ -1743,6 +2405,20 @@ impl<'a> From<JSDocFullName<'a>> for Node<'a> {
         match value {
             JSDocFullName::Identifier(n) => Node::Identifier(n),
             JSDocFullName::ModuleDeclaration(n) => Node::ModuleDeclaration(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for JSDocFullName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JSDocFullName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(JSDocFullName::Identifier(n)),
+            Node::ModuleDeclaration(n) => Ok(JSDocFullName::ModuleDeclaration(n)),
+            other => Err(other),
         }
     }
 }
@@ -1824,6 +2500,39 @@ impl<'a> From<JSDocTag<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for JSDocTag<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JSDocTag`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::JSDocAugmentsTag(n) => Ok(JSDocTag::JSDocAugmentsTag(n)),
+            Node::JSDocCallbackTag(n) => Ok(JSDocTag::JSDocCallbackTag(n)),
+            Node::JSDocDeprecatedTag(n) => Ok(JSDocTag::JSDocDeprecatedTag(n)),
+            Node::JSDocImplementsTag(n) => Ok(JSDocTag::JSDocImplementsTag(n)),
+            Node::JSDocImportTag(n) => Ok(JSDocTag::JSDocImportTag(n)),
+            Node::JSDocOverloadTag(n) => Ok(JSDocTag::JSDocOverloadTag(n)),
+            Node::JSDocOverrideTag(n) => Ok(JSDocTag::JSDocOverrideTag(n)),
+            Node::JSDocParameterOrPropertyTag(n) => Ok(JSDocTag::JSDocParameterOrPropertyTag(n)),
+            Node::JSDocPrivateTag(n) => Ok(JSDocTag::JSDocPrivateTag(n)),
+            Node::JSDocProtectedTag(n) => Ok(JSDocTag::JSDocProtectedTag(n)),
+            Node::JSDocPublicTag(n) => Ok(JSDocTag::JSDocPublicTag(n)),
+            Node::JSDocReadonlyTag(n) => Ok(JSDocTag::JSDocReadonlyTag(n)),
+            Node::JSDocReturnTag(n) => Ok(JSDocTag::JSDocReturnTag(n)),
+            Node::JSDocSatisfiesTag(n) => Ok(JSDocTag::JSDocSatisfiesTag(n)),
+            Node::JSDocSeeTag(n) => Ok(JSDocTag::JSDocSeeTag(n)),
+            Node::JSDocTemplateTag(n) => Ok(JSDocTag::JSDocTemplateTag(n)),
+            Node::JSDocThisTag(n) => Ok(JSDocTag::JSDocThisTag(n)),
+            Node::JSDocThrowsTag(n) => Ok(JSDocTag::JSDocThrowsTag(n)),
+            Node::JSDocTypeTag(n) => Ok(JSDocTag::JSDocTypeTag(n)),
+            Node::JSDocTypedefTag(n) => Ok(JSDocTag::JSDocTypedefTag(n)),
+            Node::JSDocUnknownTag(n) => Ok(JSDocTag::JSDocUnknownTag(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `JsxAttributeLike` union.
 ///
 /// Corresponds to typescript-go's `ast.JsxAttributeLike`.
@@ -1844,6 +2553,20 @@ impl<'a> From<JsxAttributeLike<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for JsxAttributeLike<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JsxAttributeLike`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::JsxAttribute(n) => Ok(JsxAttributeLike::JsxAttribute(n)),
+            Node::JsxSpreadAttribute(n) => Ok(JsxAttributeLike::JsxSpreadAttribute(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `JsxAttributeName` union.
 ///
 /// Corresponds to typescript-go's `ast.JsxAttributeName`.
@@ -1860,6 +2583,20 @@ impl<'a> From<JsxAttributeName<'a>> for Node<'a> {
         match value {
             JsxAttributeName::Identifier(n) => Node::Identifier(n),
             JsxAttributeName::JsxNamespacedName(n) => Node::JsxNamespacedName(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for JsxAttributeName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JsxAttributeName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(JsxAttributeName::Identifier(n)),
+            Node::JsxNamespacedName(n) => Ok(JsxAttributeName::JsxNamespacedName(n)),
+            other => Err(other),
         }
     }
 }
@@ -1893,6 +2630,23 @@ impl<'a> From<JsxAttributeValue<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for JsxAttributeValue<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JsxAttributeValue`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::JsxElement(n) => Ok(JsxAttributeValue::JsxElement(n)),
+            Node::JsxExpression(n) => Ok(JsxAttributeValue::JsxExpression(n)),
+            Node::JsxFragment(n) => Ok(JsxAttributeValue::JsxFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(JsxAttributeValue::JsxSelfClosingElement(n)),
+            Node::StringLiteral(n) => Ok(JsxAttributeValue::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `JsxChild` union.
 ///
 /// Corresponds to typescript-go's `ast.JsxChild`.
@@ -1922,6 +2676,23 @@ impl<'a> From<JsxChild<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for JsxChild<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JsxChild`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::JsxElement(n) => Ok(JsxChild::JsxElement(n)),
+            Node::JsxExpression(n) => Ok(JsxChild::JsxExpression(n)),
+            Node::JsxFragment(n) => Ok(JsxChild::JsxFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(JsxChild::JsxSelfClosingElement(n)),
+            Node::JsxText(n) => Ok(JsxChild::JsxText(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `JsxOpeningLikeElement` union.
 ///
 /// Corresponds to typescript-go's `ast.JsxOpeningLikeElement`.
@@ -1942,6 +2713,20 @@ impl<'a> From<JsxOpeningLikeElement<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for JsxOpeningLikeElement<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JsxOpeningLikeElement`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::JsxOpeningElement(n) => Ok(JsxOpeningLikeElement::JsxOpeningElement(n)),
+            Node::JsxSelfClosingElement(n) => Ok(JsxOpeningLikeElement::JsxSelfClosingElement(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `JsxTagNameExpression` union.
 ///
 /// Corresponds to typescript-go's `ast.JsxTagNameExpression`.
@@ -1958,6 +2743,20 @@ impl<'a> From<JsxTagNameExpression<'a>> for Node<'a> {
         match value {
             JsxTagNameExpression::Identifier(n) => Node::Identifier(n),
             JsxTagNameExpression::JsxNamespacedName(n) => Node::JsxNamespacedName(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for JsxTagNameExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `JsxTagNameExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(JsxTagNameExpression::Identifier(n)),
+            Node::JsxNamespacedName(n) => Ok(JsxTagNameExpression::JsxNamespacedName(n)),
+            other => Err(other),
         }
     }
 }
@@ -2061,6 +2860,61 @@ impl<'a> From<LeftHandSideExpression<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for LeftHandSideExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `LeftHandSideExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayLiteralExpression(n) => {
+                Ok(LeftHandSideExpression::ArrayLiteralExpression(n))
+            }
+            Node::BigIntLiteral(n) => Ok(LeftHandSideExpression::BigIntLiteral(n)),
+            Node::CallExpression(n) => Ok(LeftHandSideExpression::CallExpression(n)),
+            Node::ClassExpression(n) => Ok(LeftHandSideExpression::ClassExpression(n)),
+            Node::ElementAccessExpression(n) => {
+                Ok(LeftHandSideExpression::ElementAccessExpression(n))
+            }
+            Node::ExpressionWithTypeArguments(n) => {
+                Ok(LeftHandSideExpression::ExpressionWithTypeArguments(n))
+            }
+            Node::FunctionExpression(n) => Ok(LeftHandSideExpression::FunctionExpression(n)),
+            Node::Identifier(n) => Ok(LeftHandSideExpression::Identifier(n)),
+            Node::JsxAttributes(n) => Ok(LeftHandSideExpression::JsxAttributes(n)),
+            Node::JsxElement(n) => Ok(LeftHandSideExpression::JsxElement(n)),
+            Node::JsxFragment(n) => Ok(LeftHandSideExpression::JsxFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(LeftHandSideExpression::JsxSelfClosingElement(n)),
+            Node::MetaProperty(n) => Ok(LeftHandSideExpression::MetaProperty(n)),
+            Node::NewExpression(n) => Ok(LeftHandSideExpression::NewExpression(n)),
+            Node::NonNullExpression(n) => Ok(LeftHandSideExpression::NonNullExpression(n)),
+            Node::NumericLiteral(n) => Ok(LeftHandSideExpression::NumericLiteral(n)),
+            Node::ObjectLiteralExpression(n) => {
+                Ok(LeftHandSideExpression::ObjectLiteralExpression(n))
+            }
+            Node::ParenthesizedExpression(n) => {
+                Ok(LeftHandSideExpression::ParenthesizedExpression(n))
+            }
+            Node::PartiallyEmittedExpression(n) => {
+                Ok(LeftHandSideExpression::PartiallyEmittedExpression(n))
+            }
+            Node::PrivateIdentifier(n) => Ok(LeftHandSideExpression::PrivateIdentifier(n)),
+            Node::PropertyAccessExpression(n) => {
+                Ok(LeftHandSideExpression::PropertyAccessExpression(n))
+            }
+            Node::RegularExpressionLiteral(n) => {
+                Ok(LeftHandSideExpression::RegularExpressionLiteral(n))
+            }
+            Node::StringLiteral(n) => Ok(LeftHandSideExpression::StringLiteral(n)),
+            Node::TaggedTemplateExpression(n) => {
+                Ok(LeftHandSideExpression::TaggedTemplateExpression(n))
+            }
+            Node::TemplateExpression(n) => Ok(LeftHandSideExpression::TemplateExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `LiteralExpression` union.
 ///
 /// Corresponds to typescript-go's `ast.LiteralExpression`.
@@ -2092,6 +2946,25 @@ impl<'a> From<LiteralExpression<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for LiteralExpression<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `LiteralExpression`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BigIntLiteral(n) => Ok(LiteralExpression::BigIntLiteral(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(LiteralExpression::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NumericLiteral(n) => Ok(LiteralExpression::NumericLiteral(n)),
+            Node::RegularExpressionLiteral(n) => Ok(LiteralExpression::RegularExpressionLiteral(n)),
+            Node::StringLiteral(n) => Ok(LiteralExpression::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `LiteralLikeNode` union.
 ///
 /// Corresponds to typescript-go's `ast.LiteralLikeNode`.
@@ -2107,6 +2980,8 @@ pub enum LiteralLikeNode<'a> {
     RegularExpressionLiteral(&'a RegularExpressionLiteral<'a>),
     /// See [`StringLiteral`].
     StringLiteral(&'a StringLiteral<'a>),
+    /// See [`Token`].
+    Token(&'a Token<'a>),
 }
 
 impl<'a> From<LiteralLikeNode<'a>> for Node<'a> {
@@ -2117,6 +2992,25 @@ impl<'a> From<LiteralLikeNode<'a>> for Node<'a> {
             LiteralLikeNode::NumericLiteral(n) => Node::NumericLiteral(n),
             LiteralLikeNode::RegularExpressionLiteral(n) => Node::RegularExpressionLiteral(n),
             LiteralLikeNode::StringLiteral(n) => Node::StringLiteral(n),
+            LiteralLikeNode::Token(n) => Node::Token(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for LiteralLikeNode<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `LiteralLikeNode`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BigIntLiteral(n) => Ok(LiteralLikeNode::BigIntLiteral(n)),
+            Node::JsxText(n) => Ok(LiteralLikeNode::JsxText(n)),
+            Node::NumericLiteral(n) => Ok(LiteralLikeNode::NumericLiteral(n)),
+            Node::RegularExpressionLiteral(n) => Ok(LiteralLikeNode::RegularExpressionLiteral(n)),
+            Node::StringLiteral(n) => Ok(LiteralLikeNode::StringLiteral(n)),
+            Node::Token(n) => Ok(LiteralLikeNode::Token(n)),
+            other => Err(other),
         }
     }
 }
@@ -2155,6 +3049,26 @@ impl<'a> From<LiteralToken<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for LiteralToken<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `LiteralToken`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BigIntLiteral(n) => Ok(LiteralToken::BigIntLiteral(n)),
+            Node::JsxText(n) => Ok(LiteralToken::JsxText(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(LiteralToken::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NumericLiteral(n) => Ok(LiteralToken::NumericLiteral(n)),
+            Node::RegularExpressionLiteral(n) => Ok(LiteralToken::RegularExpressionLiteral(n)),
+            Node::StringLiteral(n) => Ok(LiteralToken::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `MemberName` union.
 ///
 /// Corresponds to typescript-go's `ast.MemberName`.
@@ -2175,6 +3089,50 @@ impl<'a> From<MemberName<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for MemberName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `MemberName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(MemberName::Identifier(n)),
+            Node::PrivateIdentifier(n) => Ok(MemberName::PrivateIdentifier(n)),
+            other => Err(other),
+        }
+    }
+}
+
+/// The `Modifier` union.
+///
+/// Corresponds to typescript-go's `ast.Modifier`.
+#[derive(Debug, Clone, Copy)]
+pub enum Modifier<'a> {
+    /// See [`Token`].
+    Token(&'a Token<'a>),
+}
+
+impl<'a> From<Modifier<'a>> for Node<'a> {
+    fn from(value: Modifier<'a>) -> Self {
+        match value {
+            Modifier::Token(n) => Node::Token(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for Modifier<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `Modifier`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Token(n) => Ok(Modifier::Token(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ModifierLike` union.
 ///
 /// Corresponds to typescript-go's `ast.ModifierLike`.
@@ -2182,12 +3140,29 @@ impl<'a> From<MemberName<'a>> for Node<'a> {
 pub enum ModifierLike<'a> {
     /// See [`Decorator`].
     Decorator(&'a Decorator<'a>),
+    /// See [`Token`].
+    Token(&'a Token<'a>),
 }
 
 impl<'a> From<ModifierLike<'a>> for Node<'a> {
     fn from(value: ModifierLike<'a>) -> Self {
         match value {
             ModifierLike::Decorator(n) => Node::Decorator(n),
+            ModifierLike::Token(n) => Node::Token(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ModifierLike<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ModifierLike`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Decorator(n) => Ok(ModifierLike::Decorator(n)),
+            Node::Token(n) => Ok(ModifierLike::Token(n)),
+            other => Err(other),
         }
     }
 }
@@ -2212,6 +3187,20 @@ impl<'a> From<ModuleBody<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ModuleBody<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ModuleBody`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ModuleBlock(n) => Ok(ModuleBody::ModuleBlock(n)),
+            Node::ModuleDeclaration(n) => Ok(ModuleBody::ModuleDeclaration(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ModuleExportName` union.
 ///
 /// Corresponds to typescript-go's `ast.ModuleExportName`.
@@ -2232,6 +3221,20 @@ impl<'a> From<ModuleExportName<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ModuleExportName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ModuleExportName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(ModuleExportName::Identifier(n)),
+            Node::StringLiteral(n) => Ok(ModuleExportName::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ModuleName` union.
 ///
 /// Corresponds to typescript-go's `ast.ModuleName`.
@@ -2248,6 +3251,20 @@ impl<'a> From<ModuleName<'a>> for Node<'a> {
         match value {
             ModuleName::Identifier(n) => Node::Identifier(n),
             ModuleName::StringLiteral(n) => Node::StringLiteral(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ModuleName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ModuleName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(ModuleName::Identifier(n)),
+            Node::StringLiteral(n) => Ok(ModuleName::StringLiteral(n)),
+            other => Err(other),
         }
     }
 }
@@ -2275,6 +3292,21 @@ impl<'a> From<ModuleReference<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ModuleReference<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ModuleReference`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ExternalModuleReference(n) => Ok(ModuleReference::ExternalModuleReference(n)),
+            Node::Identifier(n) => Ok(ModuleReference::Identifier(n)),
+            Node::QualifiedName(n) => Ok(ModuleReference::QualifiedName(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `NamedExportBindings` union.
 ///
 /// Corresponds to typescript-go's `ast.NamedExportBindings`.
@@ -2291,6 +3323,20 @@ impl<'a> From<NamedExportBindings<'a>> for Node<'a> {
         match value {
             NamedExportBindings::NamedExports(n) => Node::NamedExports(n),
             NamedExportBindings::NamespaceExport(n) => Node::NamespaceExport(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for NamedExportBindings<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `NamedExportBindings`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::NamedExports(n) => Ok(NamedExportBindings::NamedExports(n)),
+            Node::NamespaceExport(n) => Ok(NamedExportBindings::NamespaceExport(n)),
+            other => Err(other),
         }
     }
 }
@@ -2315,6 +3361,20 @@ impl<'a> From<NamedImportBindings<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for NamedImportBindings<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `NamedImportBindings`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::NamedImports(n) => Ok(NamedImportBindings::NamedImports(n)),
+            Node::NamespaceImport(n) => Ok(NamedImportBindings::NamespaceImport(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `NamedImportsOrExports` union.
 ///
 /// Corresponds to typescript-go's `ast.NamedImportsOrExports`.
@@ -2331,6 +3391,20 @@ impl<'a> From<NamedImportsOrExports<'a>> for Node<'a> {
         match value {
             NamedImportsOrExports::NamedExports(n) => Node::NamedExports(n),
             NamedImportsOrExports::NamedImports(n) => Node::NamedImports(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for NamedImportsOrExports<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `NamedImportsOrExports`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::NamedExports(n) => Ok(NamedImportsOrExports::NamedExports(n)),
+            Node::NamedImports(n) => Ok(NamedImportsOrExports::NamedImports(n)),
+            other => Err(other),
         }
     }
 }
@@ -2508,6 +3582,73 @@ impl<'a> From<NodeBody<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for NodeBody<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `NodeBody`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayLiteralExpression(n) => Ok(NodeBody::ArrayLiteralExpression(n)),
+            Node::ArrowFunction(n) => Ok(NodeBody::ArrowFunction(n)),
+            Node::AsExpression(n) => Ok(NodeBody::AsExpression(n)),
+            Node::AwaitExpression(n) => Ok(NodeBody::AwaitExpression(n)),
+            Node::BigIntLiteral(n) => Ok(NodeBody::BigIntLiteral(n)),
+            Node::BinaryExpression(n) => Ok(NodeBody::BinaryExpression(n)),
+            Node::Block(n) => Ok(NodeBody::Block(n)),
+            Node::CallExpression(n) => Ok(NodeBody::CallExpression(n)),
+            Node::ClassExpression(n) => Ok(NodeBody::ClassExpression(n)),
+            Node::ConditionalExpression(n) => Ok(NodeBody::ConditionalExpression(n)),
+            Node::DeleteExpression(n) => Ok(NodeBody::DeleteExpression(n)),
+            Node::ElementAccessExpression(n) => Ok(NodeBody::ElementAccessExpression(n)),
+            Node::ExpressionWithTypeArguments(n) => Ok(NodeBody::ExpressionWithTypeArguments(n)),
+            Node::FunctionExpression(n) => Ok(NodeBody::FunctionExpression(n)),
+            Node::Identifier(n) => Ok(NodeBody::Identifier(n)),
+            Node::JsxAttributes(n) => Ok(NodeBody::JsxAttributes(n)),
+            Node::JsxClosingFragment(n) => Ok(NodeBody::JsxClosingFragment(n)),
+            Node::JsxElement(n) => Ok(NodeBody::JsxElement(n)),
+            Node::JsxExpression(n) => Ok(NodeBody::JsxExpression(n)),
+            Node::JsxFragment(n) => Ok(NodeBody::JsxFragment(n)),
+            Node::JsxNamespacedName(n) => Ok(NodeBody::JsxNamespacedName(n)),
+            Node::JsxOpeningElement(n) => Ok(NodeBody::JsxOpeningElement(n)),
+            Node::JsxOpeningFragment(n) => Ok(NodeBody::JsxOpeningFragment(n)),
+            Node::JsxSelfClosingElement(n) => Ok(NodeBody::JsxSelfClosingElement(n)),
+            Node::JsxText(n) => Ok(NodeBody::JsxText(n)),
+            Node::KeywordExpression(n) => Ok(NodeBody::KeywordExpression(n)),
+            Node::MetaProperty(n) => Ok(NodeBody::MetaProperty(n)),
+            Node::ModuleBlock(n) => Ok(NodeBody::ModuleBlock(n)),
+            Node::ModuleDeclaration(n) => Ok(NodeBody::ModuleDeclaration(n)),
+            Node::NewExpression(n) => Ok(NodeBody::NewExpression(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(NodeBody::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NonNullExpression(n) => Ok(NodeBody::NonNullExpression(n)),
+            Node::NumericLiteral(n) => Ok(NodeBody::NumericLiteral(n)),
+            Node::ObjectLiteralExpression(n) => Ok(NodeBody::ObjectLiteralExpression(n)),
+            Node::OmittedExpression(n) => Ok(NodeBody::OmittedExpression(n)),
+            Node::ParenthesizedExpression(n) => Ok(NodeBody::ParenthesizedExpression(n)),
+            Node::PartiallyEmittedExpression(n) => Ok(NodeBody::PartiallyEmittedExpression(n)),
+            Node::PostfixUnaryExpression(n) => Ok(NodeBody::PostfixUnaryExpression(n)),
+            Node::PrefixUnaryExpression(n) => Ok(NodeBody::PrefixUnaryExpression(n)),
+            Node::PrivateIdentifier(n) => Ok(NodeBody::PrivateIdentifier(n)),
+            Node::PropertyAccessExpression(n) => Ok(NodeBody::PropertyAccessExpression(n)),
+            Node::RegularExpressionLiteral(n) => Ok(NodeBody::RegularExpressionLiteral(n)),
+            Node::SatisfiesExpression(n) => Ok(NodeBody::SatisfiesExpression(n)),
+            Node::SpreadElement(n) => Ok(NodeBody::SpreadElement(n)),
+            Node::StringLiteral(n) => Ok(NodeBody::StringLiteral(n)),
+            Node::SyntheticExpression(n) => Ok(NodeBody::SyntheticExpression(n)),
+            Node::SyntheticReferenceExpression(n) => Ok(NodeBody::SyntheticReferenceExpression(n)),
+            Node::TaggedTemplateExpression(n) => Ok(NodeBody::TaggedTemplateExpression(n)),
+            Node::TemplateExpression(n) => Ok(NodeBody::TemplateExpression(n)),
+            Node::TypeAssertion(n) => Ok(NodeBody::TypeAssertion(n)),
+            Node::TypeOfExpression(n) => Ok(NodeBody::TypeOfExpression(n)),
+            Node::VoidExpression(n) => Ok(NodeBody::VoidExpression(n)),
+            Node::YieldExpression(n) => Ok(NodeBody::YieldExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `NumericOrStringLikeLiteral` union.
 ///
 /// Corresponds to typescript-go's `ast.NumericOrStringLikeLiteral`.
@@ -2533,6 +3674,23 @@ impl<'a> From<NumericOrStringLikeLiteral<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for NumericOrStringLikeLiteral<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `NumericOrStringLikeLiteral`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(NumericOrStringLikeLiteral::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NumericLiteral(n) => Ok(NumericOrStringLikeLiteral::NumericLiteral(n)),
+            Node::StringLiteral(n) => Ok(NumericOrStringLikeLiteral::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ObjectDestructuringAssignment` union.
 ///
 /// Corresponds to typescript-go's `ast.ObjectDestructuringAssignment`.
@@ -2546,6 +3704,19 @@ impl<'a> From<ObjectDestructuringAssignment<'a>> for Node<'a> {
     fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
         match value {
             ObjectDestructuringAssignment::BinaryExpression(n) => Node::BinaryExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ObjectDestructuringAssignment<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ObjectDestructuringAssignment`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BinaryExpression(n) => Ok(ObjectDestructuringAssignment::BinaryExpression(n)),
+            other => Err(other),
         }
     }
 }
@@ -2587,6 +3758,27 @@ impl<'a> From<ObjectLiteralElement<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ObjectLiteralElement<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ObjectLiteralElement`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::GetAccessorDeclaration(n) => Ok(ObjectLiteralElement::GetAccessorDeclaration(n)),
+            Node::JsxSpreadAttribute(n) => Ok(ObjectLiteralElement::JsxSpreadAttribute(n)),
+            Node::MethodDeclaration(n) => Ok(ObjectLiteralElement::MethodDeclaration(n)),
+            Node::PropertyAssignment(n) => Ok(ObjectLiteralElement::PropertyAssignment(n)),
+            Node::SetAccessorDeclaration(n) => Ok(ObjectLiteralElement::SetAccessorDeclaration(n)),
+            Node::ShorthandPropertyAssignment(n) => {
+                Ok(ObjectLiteralElement::ShorthandPropertyAssignment(n))
+            }
+            Node::SpreadAssignment(n) => Ok(ObjectLiteralElement::SpreadAssignment(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ObjectLiteralElementLike` union.
 ///
 /// Corresponds to typescript-go's `ast.ObjectLiteralElementLike`.
@@ -2621,6 +3813,30 @@ impl<'a> From<ObjectLiteralElementLike<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for ObjectLiteralElementLike<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ObjectLiteralElementLike`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::GetAccessorDeclaration(n) => {
+                Ok(ObjectLiteralElementLike::GetAccessorDeclaration(n))
+            }
+            Node::MethodDeclaration(n) => Ok(ObjectLiteralElementLike::MethodDeclaration(n)),
+            Node::PropertyAssignment(n) => Ok(ObjectLiteralElementLike::PropertyAssignment(n)),
+            Node::SetAccessorDeclaration(n) => {
+                Ok(ObjectLiteralElementLike::SetAccessorDeclaration(n))
+            }
+            Node::ShorthandPropertyAssignment(n) => {
+                Ok(ObjectLiteralElementLike::ShorthandPropertyAssignment(n))
+            }
+            Node::SpreadAssignment(n) => Ok(ObjectLiteralElementLike::SpreadAssignment(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `ObjectLiteralLikeNode` union.
 ///
 /// Corresponds to typescript-go's `ast.ObjectLiteralLikeNode`.
@@ -2634,6 +3850,21 @@ impl<'a> From<ObjectLiteralLikeNode<'a>> for Node<'a> {
     fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
         match value {
             ObjectLiteralLikeNode::ObjectLiteralExpression(n) => Node::ObjectLiteralExpression(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ObjectLiteralLikeNode<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ObjectLiteralLikeNode`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ObjectLiteralExpression(n) => {
+                Ok(ObjectLiteralLikeNode::ObjectLiteralExpression(n))
+            }
+            other => Err(other),
         }
     }
 }
@@ -2660,6 +3891,22 @@ impl<'a> From<ObjectTypeDeclaration<'a>> for Node<'a> {
             ObjectTypeDeclaration::ClassExpression(n) => Node::ClassExpression(n),
             ObjectTypeDeclaration::InterfaceDeclaration(n) => Node::InterfaceDeclaration(n),
             ObjectTypeDeclaration::TypeLiteralNode(n) => Node::TypeLiteralNode(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for ObjectTypeDeclaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `ObjectTypeDeclaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ClassDeclaration(n) => Ok(ObjectTypeDeclaration::ClassDeclaration(n)),
+            Node::ClassExpression(n) => Ok(ObjectTypeDeclaration::ClassExpression(n)),
+            Node::InterfaceDeclaration(n) => Ok(ObjectTypeDeclaration::InterfaceDeclaration(n)),
+            Node::TypeLiteralNode(n) => Ok(ObjectTypeDeclaration::TypeLiteralNode(n)),
+            other => Err(other),
         }
     }
 }
@@ -2701,6 +3948,27 @@ impl<'a> From<PropertyName<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for PropertyName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `PropertyName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::BigIntLiteral(n) => Ok(PropertyName::BigIntLiteral(n)),
+            Node::ComputedPropertyName(n) => Ok(PropertyName::ComputedPropertyName(n)),
+            Node::Identifier(n) => Ok(PropertyName::Identifier(n)),
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(PropertyName::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::NumericLiteral(n) => Ok(PropertyName::NumericLiteral(n)),
+            Node::PrivateIdentifier(n) => Ok(PropertyName::PrivateIdentifier(n)),
+            Node::StringLiteral(n) => Ok(PropertyName::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `PropertyNameLiteral` union.
 ///
 /// Corresponds to typescript-go's `ast.PropertyNameLiteral`.
@@ -2720,6 +3988,51 @@ impl<'a> From<PropertyNameLiteral<'a>> for Node<'a> {
             PropertyNameLiteral::Identifier(n) => Node::Identifier(n),
             PropertyNameLiteral::NumericLiteral(n) => Node::NumericLiteral(n),
             PropertyNameLiteral::StringLiteral(n) => Node::StringLiteral(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for PropertyNameLiteral<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `PropertyNameLiteral`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(PropertyNameLiteral::Identifier(n)),
+            Node::NumericLiteral(n) => Ok(PropertyNameLiteral::NumericLiteral(n)),
+            Node::StringLiteral(n) => Ok(PropertyNameLiteral::StringLiteral(n)),
+            other => Err(other),
+        }
+    }
+}
+
+/// The `PseudoLiteralToken` union.
+///
+/// Corresponds to typescript-go's `ast.PseudoLiteralToken`.
+#[derive(Debug, Clone, Copy)]
+pub enum PseudoLiteralToken<'a> {
+    /// See [`Token`].
+    Token(&'a Token<'a>),
+}
+
+impl<'a> From<PseudoLiteralToken<'a>> for Node<'a> {
+    fn from(value: PseudoLiteralToken<'a>) -> Self {
+        match value {
+            PseudoLiteralToken::Token(n) => Node::Token(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for PseudoLiteralToken<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `PseudoLiteralToken`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Token(n) => Ok(PseudoLiteralToken::Token(n)),
+            other => Err(other),
         }
     }
 }
@@ -2779,6 +4092,39 @@ impl<'a> From<SignatureDeclaration<'a>> for Node<'a> {
                 Node::MethodSignatureDeclaration(n)
             }
             SignatureDeclaration::SetAccessorDeclaration(n) => Node::SetAccessorDeclaration(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for SignatureDeclaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `SignatureDeclaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrowFunction(n) => Ok(SignatureDeclaration::ArrowFunction(n)),
+            Node::CallSignatureDeclaration(n) => {
+                Ok(SignatureDeclaration::CallSignatureDeclaration(n))
+            }
+            Node::ConstructSignatureDeclaration(n) => {
+                Ok(SignatureDeclaration::ConstructSignatureDeclaration(n))
+            }
+            Node::ConstructorDeclaration(n) => Ok(SignatureDeclaration::ConstructorDeclaration(n)),
+            Node::ConstructorTypeNode(n) => Ok(SignatureDeclaration::ConstructorTypeNode(n)),
+            Node::FunctionDeclaration(n) => Ok(SignatureDeclaration::FunctionDeclaration(n)),
+            Node::FunctionExpression(n) => Ok(SignatureDeclaration::FunctionExpression(n)),
+            Node::FunctionTypeNode(n) => Ok(SignatureDeclaration::FunctionTypeNode(n)),
+            Node::GetAccessorDeclaration(n) => Ok(SignatureDeclaration::GetAccessorDeclaration(n)),
+            Node::IndexSignatureDeclaration(n) => {
+                Ok(SignatureDeclaration::IndexSignatureDeclaration(n))
+            }
+            Node::MethodDeclaration(n) => Ok(SignatureDeclaration::MethodDeclaration(n)),
+            Node::MethodSignatureDeclaration(n) => {
+                Ok(SignatureDeclaration::MethodSignatureDeclaration(n))
+            }
+            Node::SetAccessorDeclaration(n) => Ok(SignatureDeclaration::SetAccessorDeclaration(n)),
+            other => Err(other),
         }
     }
 }
@@ -2893,6 +4239,50 @@ impl<'a> From<Statement<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for Statement<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `Statement`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Block(n) => Ok(Statement::Block(n)),
+            Node::BreakStatement(n) => Ok(Statement::BreakStatement(n)),
+            Node::ClassDeclaration(n) => Ok(Statement::ClassDeclaration(n)),
+            Node::ContinueStatement(n) => Ok(Statement::ContinueStatement(n)),
+            Node::DebuggerStatement(n) => Ok(Statement::DebuggerStatement(n)),
+            Node::DoStatement(n) => Ok(Statement::DoStatement(n)),
+            Node::EmptyStatement(n) => Ok(Statement::EmptyStatement(n)),
+            Node::EnumDeclaration(n) => Ok(Statement::EnumDeclaration(n)),
+            Node::ExportAssignment(n) => Ok(Statement::ExportAssignment(n)),
+            Node::ExportDeclaration(n) => Ok(Statement::ExportDeclaration(n)),
+            Node::ExpressionStatement(n) => Ok(Statement::ExpressionStatement(n)),
+            Node::ForInOrOfStatement(n) => Ok(Statement::ForInOrOfStatement(n)),
+            Node::ForStatement(n) => Ok(Statement::ForStatement(n)),
+            Node::FunctionDeclaration(n) => Ok(Statement::FunctionDeclaration(n)),
+            Node::IfStatement(n) => Ok(Statement::IfStatement(n)),
+            Node::ImportDeclaration(n) => Ok(Statement::ImportDeclaration(n)),
+            Node::ImportEqualsDeclaration(n) => Ok(Statement::ImportEqualsDeclaration(n)),
+            Node::InterfaceDeclaration(n) => Ok(Statement::InterfaceDeclaration(n)),
+            Node::LabeledStatement(n) => Ok(Statement::LabeledStatement(n)),
+            Node::MissingDeclaration(n) => Ok(Statement::MissingDeclaration(n)),
+            Node::ModuleBlock(n) => Ok(Statement::ModuleBlock(n)),
+            Node::ModuleDeclaration(n) => Ok(Statement::ModuleDeclaration(n)),
+            Node::NamespaceExportDeclaration(n) => Ok(Statement::NamespaceExportDeclaration(n)),
+            Node::NotEmittedStatement(n) => Ok(Statement::NotEmittedStatement(n)),
+            Node::ReturnStatement(n) => Ok(Statement::ReturnStatement(n)),
+            Node::SwitchStatement(n) => Ok(Statement::SwitchStatement(n)),
+            Node::ThrowStatement(n) => Ok(Statement::ThrowStatement(n)),
+            Node::TryStatement(n) => Ok(Statement::TryStatement(n)),
+            Node::TypeAliasDeclaration(n) => Ok(Statement::TypeAliasDeclaration(n)),
+            Node::VariableStatement(n) => Ok(Statement::VariableStatement(n)),
+            Node::WhileStatement(n) => Ok(Statement::WhileStatement(n)),
+            Node::WithStatement(n) => Ok(Statement::WithStatement(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `StringLiteralLikeNode` union.
 ///
 /// Corresponds to typescript-go's `ast.StringLiteralLikeNode`.
@@ -2911,6 +4301,22 @@ impl<'a> From<StringLiteralLikeNode<'a>> for Node<'a> {
                 Node::NoSubstitutionTemplateLiteral(n)
             }
             StringLiteralLikeNode::StringLiteral(n) => Node::StringLiteral(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for StringLiteralLikeNode<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `StringLiteralLikeNode`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(StringLiteralLikeNode::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::StringLiteral(n) => Ok(StringLiteralLikeNode::StringLiteral(n)),
+            other => Err(other),
         }
     }
 }
@@ -2937,6 +4343,52 @@ impl<'a> From<TemplateLiteral<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for TemplateLiteral<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `TemplateLiteral`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(TemplateLiteral::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::TemplateExpression(n) => Ok(TemplateLiteral::TemplateExpression(n)),
+            other => Err(other),
+        }
+    }
+}
+
+/// The `TemplateLiteralLikeNode` union.
+///
+/// Corresponds to typescript-go's `ast.TemplateLiteralLikeNode`.
+#[derive(Debug, Clone, Copy)]
+pub enum TemplateLiteralLikeNode<'a> {
+    /// See [`Token`].
+    Token(&'a Token<'a>),
+}
+
+impl<'a> From<TemplateLiteralLikeNode<'a>> for Node<'a> {
+    fn from(value: TemplateLiteralLikeNode<'a>) -> Self {
+        match value {
+            TemplateLiteralLikeNode::Token(n) => Node::Token(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for TemplateLiteralLikeNode<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `TemplateLiteralLikeNode`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Token(n) => Ok(TemplateLiteralLikeNode::Token(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `TemplateLiteralToken` union.
 ///
 /// Corresponds to typescript-go's `ast.TemplateLiteralToken`.
@@ -2944,6 +4396,8 @@ impl<'a> From<TemplateLiteral<'a>> for Node<'a> {
 pub enum TemplateLiteralToken<'a> {
     /// See [`NoSubstitutionTemplateLiteral`].
     NoSubstitutionTemplateLiteral(&'a NoSubstitutionTemplateLiteral<'a>),
+    /// See [`Token`].
+    Token(&'a Token<'a>),
 }
 
 impl<'a> From<TemplateLiteralToken<'a>> for Node<'a> {
@@ -2952,6 +4406,23 @@ impl<'a> From<TemplateLiteralToken<'a>> for Node<'a> {
             TemplateLiteralToken::NoSubstitutionTemplateLiteral(n) => {
                 Node::NoSubstitutionTemplateLiteral(n)
             }
+            TemplateLiteralToken::Token(n) => Node::Token(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for TemplateLiteralToken<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `TemplateLiteralToken`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::NoSubstitutionTemplateLiteral(n) => {
+                Ok(TemplateLiteralToken::NoSubstitutionTemplateLiteral(n))
+            }
+            Node::Token(n) => Ok(TemplateLiteralToken::Token(n)),
+            other => Err(other),
         }
     }
 }
@@ -2972,6 +4443,20 @@ impl<'a> From<TemplateMiddleOrTail<'a>> for Node<'a> {
         match value {
             TemplateMiddleOrTail::TemplateMiddle(n) => Node::TemplateMiddle(n),
             TemplateMiddleOrTail::TemplateTail(n) => Node::TemplateTail(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for TemplateMiddleOrTail<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `TemplateMiddleOrTail`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::TemplateMiddle(n) => Ok(TemplateMiddleOrTail::TemplateMiddle(n)),
+            Node::TemplateTail(n) => Ok(TemplateMiddleOrTail::TemplateTail(n)),
+            other => Err(other),
         }
     }
 }
@@ -3010,6 +4495,30 @@ impl<'a> From<TypeElement<'a>> for Node<'a> {
             TypeElement::NotEmittedTypeElement(n) => Node::NotEmittedTypeElement(n),
             TypeElement::PropertySignatureDeclaration(n) => Node::PropertySignatureDeclaration(n),
             TypeElement::SetAccessorDeclaration(n) => Node::SetAccessorDeclaration(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for TypeElement<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `TypeElement`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::CallSignatureDeclaration(n) => Ok(TypeElement::CallSignatureDeclaration(n)),
+            Node::ConstructSignatureDeclaration(n) => {
+                Ok(TypeElement::ConstructSignatureDeclaration(n))
+            }
+            Node::GetAccessorDeclaration(n) => Ok(TypeElement::GetAccessorDeclaration(n)),
+            Node::IndexSignatureDeclaration(n) => Ok(TypeElement::IndexSignatureDeclaration(n)),
+            Node::MethodSignatureDeclaration(n) => Ok(TypeElement::MethodSignatureDeclaration(n)),
+            Node::NotEmittedTypeElement(n) => Ok(TypeElement::NotEmittedTypeElement(n)),
+            Node::PropertySignatureDeclaration(n) => {
+                Ok(TypeElement::PropertySignatureDeclaration(n))
+            }
+            Node::SetAccessorDeclaration(n) => Ok(TypeElement::SetAccessorDeclaration(n)),
+            other => Err(other),
         }
     }
 }
@@ -3130,6 +4639,52 @@ impl<'a> From<TypeNode<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for TypeNode<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `TypeNode`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ArrayTypeNode(n) => Ok(TypeNode::ArrayTypeNode(n)),
+            Node::ConditionalTypeNode(n) => Ok(TypeNode::ConditionalTypeNode(n)),
+            Node::ConstructorTypeNode(n) => Ok(TypeNode::ConstructorTypeNode(n)),
+            Node::FunctionTypeNode(n) => Ok(TypeNode::FunctionTypeNode(n)),
+            Node::ImportTypeNode(n) => Ok(TypeNode::ImportTypeNode(n)),
+            Node::IndexedAccessTypeNode(n) => Ok(TypeNode::IndexedAccessTypeNode(n)),
+            Node::InferTypeNode(n) => Ok(TypeNode::InferTypeNode(n)),
+            Node::IntersectionTypeNode(n) => Ok(TypeNode::IntersectionTypeNode(n)),
+            Node::JSDocAllType(n) => Ok(TypeNode::JSDocAllType(n)),
+            Node::JSDocNameReference(n) => Ok(TypeNode::JSDocNameReference(n)),
+            Node::JSDocNonNullableType(n) => Ok(TypeNode::JSDocNonNullableType(n)),
+            Node::JSDocNullableType(n) => Ok(TypeNode::JSDocNullableType(n)),
+            Node::JSDocOptionalType(n) => Ok(TypeNode::JSDocOptionalType(n)),
+            Node::JSDocSignature(n) => Ok(TypeNode::JSDocSignature(n)),
+            Node::JSDocTypeExpression(n) => Ok(TypeNode::JSDocTypeExpression(n)),
+            Node::JSDocTypeLiteral(n) => Ok(TypeNode::JSDocTypeLiteral(n)),
+            Node::JSDocVariadicType(n) => Ok(TypeNode::JSDocVariadicType(n)),
+            Node::KeywordTypeNode(n) => Ok(TypeNode::KeywordTypeNode(n)),
+            Node::LiteralTypeNode(n) => Ok(TypeNode::LiteralTypeNode(n)),
+            Node::MappedTypeNode(n) => Ok(TypeNode::MappedTypeNode(n)),
+            Node::NamedTupleMember(n) => Ok(TypeNode::NamedTupleMember(n)),
+            Node::OptionalTypeNode(n) => Ok(TypeNode::OptionalTypeNode(n)),
+            Node::ParenthesizedTypeNode(n) => Ok(TypeNode::ParenthesizedTypeNode(n)),
+            Node::RestTypeNode(n) => Ok(TypeNode::RestTypeNode(n)),
+            Node::TemplateLiteralTypeNode(n) => Ok(TypeNode::TemplateLiteralTypeNode(n)),
+            Node::TemplateLiteralTypeSpan(n) => Ok(TypeNode::TemplateLiteralTypeSpan(n)),
+            Node::ThisTypeNode(n) => Ok(TypeNode::ThisTypeNode(n)),
+            Node::TupleTypeNode(n) => Ok(TypeNode::TupleTypeNode(n)),
+            Node::TypeLiteralNode(n) => Ok(TypeNode::TypeLiteralNode(n)),
+            Node::TypeOperatorNode(n) => Ok(TypeNode::TypeOperatorNode(n)),
+            Node::TypePredicateNode(n) => Ok(TypeNode::TypePredicateNode(n)),
+            Node::TypeQueryNode(n) => Ok(TypeNode::TypeQueryNode(n)),
+            Node::TypeReferenceNode(n) => Ok(TypeNode::TypeReferenceNode(n)),
+            Node::UnionTypeNode(n) => Ok(TypeNode::UnionTypeNode(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `TypePredicateParameterName` union.
 ///
 /// Corresponds to typescript-go's `ast.TypePredicateParameterName`.
@@ -3150,6 +4705,20 @@ impl<'a> From<TypePredicateParameterName<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for TypePredicateParameterName<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `TypePredicateParameterName`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::Identifier(n) => Ok(TypePredicateParameterName::Identifier(n)),
+            Node::ThisTypeNode(n) => Ok(TypePredicateParameterName::ThisTypeNode(n)),
+            other => Err(other),
+        }
+    }
+}
+
 /// The `UnionOrIntersectionTypeNode` union.
 ///
 /// Corresponds to typescript-go's `ast.UnionOrIntersectionTypeNode`.
@@ -3166,6 +4735,22 @@ impl<'a> From<UnionOrIntersectionTypeNode<'a>> for Node<'a> {
         match value {
             UnionOrIntersectionTypeNode::IntersectionTypeNode(n) => Node::IntersectionTypeNode(n),
             UnionOrIntersectionTypeNode::UnionTypeNode(n) => Node::UnionTypeNode(n),
+        }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for UnionOrIntersectionTypeNode<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `UnionOrIntersectionTypeNode`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::IntersectionTypeNode(n) => {
+                Ok(UnionOrIntersectionTypeNode::IntersectionTypeNode(n))
+            }
+            Node::UnionTypeNode(n) => Ok(UnionOrIntersectionTypeNode::UnionTypeNode(n)),
+            other => Err(other),
         }
     }
 }
@@ -3192,6 +4777,24 @@ impl<'a> From<VariableOrParameterDeclaration<'a>> for Node<'a> {
     }
 }
 
+impl<'a> TryFrom<Node<'a>> for VariableOrParameterDeclaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `VariableOrParameterDeclaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::ParameterDeclaration(n) => {
+                Ok(VariableOrParameterDeclaration::ParameterDeclaration(n))
+            }
+            Node::VariableDeclaration(n) => {
+                Ok(VariableOrParameterDeclaration::VariableDeclaration(n))
+            }
+            other => Err(other),
+        }
+    }
+}
+
 /// The `VariableOrPropertyDeclaration` union.
 ///
 /// Corresponds to typescript-go's `ast.VariableOrPropertyDeclaration`.
@@ -3209,5 +4812,1698 @@ impl<'a> From<VariableOrPropertyDeclaration<'a>> for Node<'a> {
             VariableOrPropertyDeclaration::PropertyDeclaration(n) => Node::PropertyDeclaration(n),
             VariableOrPropertyDeclaration::VariableDeclaration(n) => Node::VariableDeclaration(n),
         }
+    }
+}
+
+impl<'a> TryFrom<Node<'a>> for VariableOrPropertyDeclaration<'a> {
+    type Error = Node<'a>;
+
+    /// Returns the original node as the error when it is not a
+    /// `VariableOrPropertyDeclaration`, so callers can recover it without a second match.
+    fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Node::PropertyDeclaration(n) => {
+                Ok(VariableOrPropertyDeclaration::PropertyDeclaration(n))
+            }
+            Node::VariableDeclaration(n) => {
+                Ok(VariableOrPropertyDeclaration::VariableDeclaration(n))
+            }
+            other => Err(other),
+        }
+    }
+}
+
+impl<'a> From<AccessExpression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `AccessExpression` variant is also a `BlockOrExpression` variant.
+    fn from(value: AccessExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessExpression is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<AccessExpression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `AccessExpression` variant is also a `ConciseBody` variant.
+    fn from(value: AccessExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessExpression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<AccessExpression<'a>> for Expression<'a> {
+    /// Infallible: every `AccessExpression` variant is also a `Expression` variant.
+    fn from(value: AccessExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessExpression is a subset of Expression"))
+    }
+}
+
+impl<'a> From<AccessExpression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `AccessExpression` variant is also a `ForInitializer` variant.
+    fn from(value: AccessExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessExpression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<AccessExpression<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `AccessExpression` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: AccessExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("AccessExpression is a subset of LeftHandSideExpression")
+        })
+    }
+}
+
+impl<'a> From<AccessExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `AccessExpression` variant is also a `NodeBody` variant.
+    fn from(value: AccessExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessExpression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<AccessorDeclaration<'a>> for ClassElement<'a> {
+    /// Infallible: every `AccessorDeclaration` variant is also a `ClassElement` variant.
+    fn from(value: AccessorDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessorDeclaration is a subset of ClassElement"))
+    }
+}
+
+impl<'a> From<AccessorDeclaration<'a>> for Declaration<'a> {
+    /// Infallible: every `AccessorDeclaration` variant is also a `Declaration` variant.
+    fn from(value: AccessorDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessorDeclaration is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<AccessorDeclaration<'a>> for FunctionLikeDeclaration<'a> {
+    /// Infallible: every `AccessorDeclaration` variant is also a `FunctionLikeDeclaration` variant.
+    fn from(value: AccessorDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("AccessorDeclaration is a subset of FunctionLikeDeclaration")
+        })
+    }
+}
+
+impl<'a> From<AccessorDeclaration<'a>> for ObjectLiteralElement<'a> {
+    /// Infallible: every `AccessorDeclaration` variant is also a `ObjectLiteralElement` variant.
+    fn from(value: AccessorDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("AccessorDeclaration is a subset of ObjectLiteralElement")
+        })
+    }
+}
+
+impl<'a> From<AccessorDeclaration<'a>> for ObjectLiteralElementLike<'a> {
+    /// Infallible: every `AccessorDeclaration` variant is also a `ObjectLiteralElementLike` variant.
+    fn from(value: AccessorDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("AccessorDeclaration is a subset of ObjectLiteralElementLike")
+        })
+    }
+}
+
+impl<'a> From<AccessorDeclaration<'a>> for SignatureDeclaration<'a> {
+    /// Infallible: every `AccessorDeclaration` variant is also a `SignatureDeclaration` variant.
+    fn from(value: AccessorDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("AccessorDeclaration is a subset of SignatureDeclaration")
+        })
+    }
+}
+
+impl<'a> From<AccessorDeclaration<'a>> for TypeElement<'a> {
+    /// Infallible: every `AccessorDeclaration` variant is also a `TypeElement` variant.
+    fn from(value: AccessorDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AccessorDeclaration is a subset of TypeElement"))
+    }
+}
+
+impl<'a> From<AnyImportSyntax<'a>> for Declaration<'a> {
+    /// Infallible: every `AnyImportSyntax` variant is also a `Declaration` variant.
+    fn from(value: AnyImportSyntax<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AnyImportSyntax is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<AnyImportSyntax<'a>> for Statement<'a> {
+    /// Infallible: every `AnyImportSyntax` variant is also a `Statement` variant.
+    fn from(value: AnyImportSyntax<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AnyImportSyntax is a subset of Statement"))
+    }
+}
+
+impl<'a> From<ArrayDestructuringAssignment<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `ArrayDestructuringAssignment` variant is also a `BlockOrExpression` variant.
+    fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ArrayDestructuringAssignment is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<ArrayDestructuringAssignment<'a>> for CallLikeExpression<'a> {
+    /// Infallible: every `ArrayDestructuringAssignment` variant is also a `CallLikeExpression` variant.
+    fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ArrayDestructuringAssignment is a subset of CallLikeExpression")
+        })
+    }
+}
+
+impl<'a> From<ArrayDestructuringAssignment<'a>> for ConciseBody<'a> {
+    /// Infallible: every `ArrayDestructuringAssignment` variant is also a `ConciseBody` variant.
+    fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ArrayDestructuringAssignment is a subset of ConciseBody")
+        })
+    }
+}
+
+impl<'a> From<ArrayDestructuringAssignment<'a>> for Declaration<'a> {
+    /// Infallible: every `ArrayDestructuringAssignment` variant is also a `Declaration` variant.
+    fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ArrayDestructuringAssignment is a subset of Declaration")
+        })
+    }
+}
+
+impl<'a> From<ArrayDestructuringAssignment<'a>> for Expression<'a> {
+    /// Infallible: every `ArrayDestructuringAssignment` variant is also a `Expression` variant.
+    fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ArrayDestructuringAssignment is a subset of Expression")
+        })
+    }
+}
+
+impl<'a> From<ArrayDestructuringAssignment<'a>> for ForInitializer<'a> {
+    /// Infallible: every `ArrayDestructuringAssignment` variant is also a `ForInitializer` variant.
+    fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ArrayDestructuringAssignment is a subset of ForInitializer")
+        })
+    }
+}
+
+impl<'a> From<ArrayDestructuringAssignment<'a>> for NodeBody<'a> {
+    /// Infallible: every `ArrayDestructuringAssignment` variant is also a `NodeBody` variant.
+    fn from(value: ArrayDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ArrayDestructuringAssignment is a subset of NodeBody")
+        })
+    }
+}
+
+impl<'a> From<AssertionExpression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `AssertionExpression` variant is also a `BlockOrExpression` variant.
+    fn from(value: AssertionExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("AssertionExpression is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<AssertionExpression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `AssertionExpression` variant is also a `ConciseBody` variant.
+    fn from(value: AssertionExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AssertionExpression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<AssertionExpression<'a>> for Expression<'a> {
+    /// Infallible: every `AssertionExpression` variant is also a `Expression` variant.
+    fn from(value: AssertionExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AssertionExpression is a subset of Expression"))
+    }
+}
+
+impl<'a> From<AssertionExpression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `AssertionExpression` variant is also a `ForInitializer` variant.
+    fn from(value: AssertionExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AssertionExpression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<AssertionExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `AssertionExpression` variant is also a `NodeBody` variant.
+    fn from(value: AssertionExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("AssertionExpression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<BindingName<'a>> for DeclarationName<'a> {
+    /// Infallible: every `BindingName` variant is also a `DeclarationName` variant.
+    fn from(value: BindingName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BindingName is a subset of DeclarationName"))
+    }
+}
+
+impl<'a> From<BlockOrExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `BlockOrExpression` variant is also a `NodeBody` variant.
+    fn from(value: BlockOrExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BlockOrExpression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<BreakOrContinueStatement<'a>> for Statement<'a> {
+    /// Infallible: every `BreakOrContinueStatement` variant is also a `Statement` variant.
+    fn from(value: BreakOrContinueStatement<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("BreakOrContinueStatement is a subset of Statement"))
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `BlockOrExpression` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("CallOrNewExpression is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for CallLikeExpression<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `CallLikeExpression` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("CallOrNewExpression is a subset of CallLikeExpression")
+        })
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `ConciseBody` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("CallOrNewExpression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for Expression<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `Expression` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("CallOrNewExpression is a subset of Expression"))
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `ForInitializer` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("CallOrNewExpression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("CallOrNewExpression is a subset of LeftHandSideExpression")
+        })
+    }
+}
+
+impl<'a> From<CallOrNewExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `CallOrNewExpression` variant is also a `NodeBody` variant.
+    fn from(value: CallOrNewExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("CallOrNewExpression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<ClassElement<'a>> for Declaration<'a> {
+    /// Infallible: every `ClassElement` variant is also a `Declaration` variant.
+    fn from(value: ClassElement<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ClassElement is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<ClassLikeDeclaration<'a>> for Declaration<'a> {
+    /// Infallible: every `ClassLikeDeclaration` variant is also a `Declaration` variant.
+    fn from(value: ClassLikeDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ClassLikeDeclaration is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<ClassLikeDeclaration<'a>> for ObjectTypeDeclaration<'a> {
+    /// Infallible: every `ClassLikeDeclaration` variant is also a `ObjectTypeDeclaration` variant.
+    fn from(value: ClassLikeDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ClassLikeDeclaration is a subset of ObjectTypeDeclaration")
+        })
+    }
+}
+
+impl<'a> From<ConciseBody<'a>> for NodeBody<'a> {
+    /// Infallible: every `ConciseBody` variant is also a `NodeBody` variant.
+    fn from(value: ConciseBody<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ConciseBody is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<DestructuringAssignment<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `DestructuringAssignment` variant is also a `BlockOrExpression` variant.
+    fn from(value: DestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("DestructuringAssignment is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<DestructuringAssignment<'a>> for CallLikeExpression<'a> {
+    /// Infallible: every `DestructuringAssignment` variant is also a `CallLikeExpression` variant.
+    fn from(value: DestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("DestructuringAssignment is a subset of CallLikeExpression")
+        })
+    }
+}
+
+impl<'a> From<DestructuringAssignment<'a>> for ConciseBody<'a> {
+    /// Infallible: every `DestructuringAssignment` variant is also a `ConciseBody` variant.
+    fn from(value: DestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("DestructuringAssignment is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<DestructuringAssignment<'a>> for Declaration<'a> {
+    /// Infallible: every `DestructuringAssignment` variant is also a `Declaration` variant.
+    fn from(value: DestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("DestructuringAssignment is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<DestructuringAssignment<'a>> for Expression<'a> {
+    /// Infallible: every `DestructuringAssignment` variant is also a `Expression` variant.
+    fn from(value: DestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("DestructuringAssignment is a subset of Expression"))
+    }
+}
+
+impl<'a> From<DestructuringAssignment<'a>> for ForInitializer<'a> {
+    /// Infallible: every `DestructuringAssignment` variant is also a `ForInitializer` variant.
+    fn from(value: DestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("DestructuringAssignment is a subset of ForInitializer")
+        })
+    }
+}
+
+impl<'a> From<DestructuringAssignment<'a>> for NodeBody<'a> {
+    /// Infallible: every `DestructuringAssignment` variant is also a `NodeBody` variant.
+    fn from(value: DestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("DestructuringAssignment is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<EntityName<'a>> for ModuleReference<'a> {
+    /// Infallible: every `EntityName` variant is also a `ModuleReference` variant.
+    fn from(value: EntityName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("EntityName is a subset of ModuleReference"))
+    }
+}
+
+impl<'a> From<Expression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `Expression` variant is also a `BlockOrExpression` variant.
+    fn from(value: Expression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("Expression is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<Expression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `Expression` variant is also a `ConciseBody` variant.
+    fn from(value: Expression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("Expression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<Expression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `Expression` variant is also a `ForInitializer` variant.
+    fn from(value: Expression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("Expression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<Expression<'a>> for NodeBody<'a> {
+    /// Infallible: every `Expression` variant is also a `NodeBody` variant.
+    fn from(value: Expression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("Expression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<FunctionBody<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `FunctionBody` variant is also a `BlockOrExpression` variant.
+    fn from(value: FunctionBody<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("FunctionBody is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<FunctionBody<'a>> for ConciseBody<'a> {
+    /// Infallible: every `FunctionBody` variant is also a `ConciseBody` variant.
+    fn from(value: FunctionBody<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("FunctionBody is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<FunctionBody<'a>> for NodeBody<'a> {
+    /// Infallible: every `FunctionBody` variant is also a `NodeBody` variant.
+    fn from(value: FunctionBody<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("FunctionBody is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<FunctionBody<'a>> for Statement<'a> {
+    /// Infallible: every `FunctionBody` variant is also a `Statement` variant.
+    fn from(value: FunctionBody<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("FunctionBody is a subset of Statement"))
+    }
+}
+
+impl<'a> From<FunctionLikeDeclaration<'a>> for Declaration<'a> {
+    /// Infallible: every `FunctionLikeDeclaration` variant is also a `Declaration` variant.
+    fn from(value: FunctionLikeDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("FunctionLikeDeclaration is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<FunctionLikeDeclaration<'a>> for SignatureDeclaration<'a> {
+    /// Infallible: every `FunctionLikeDeclaration` variant is also a `SignatureDeclaration` variant.
+    fn from(value: FunctionLikeDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("FunctionLikeDeclaration is a subset of SignatureDeclaration")
+        })
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `BlockOrExpression` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ImportAttributeName is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for ConciseBody<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `ConciseBody` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ImportAttributeName is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for DeclarationName<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `DeclarationName` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ImportAttributeName is a subset of DeclarationName"))
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for Expression<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `Expression` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ImportAttributeName is a subset of Expression"))
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for ForInitializer<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `ForInitializer` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ImportAttributeName is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ImportAttributeName is a subset of LeftHandSideExpression")
+        })
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for NodeBody<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `NodeBody` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ImportAttributeName is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for PropertyName<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `PropertyName` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ImportAttributeName is a subset of PropertyName"))
+    }
+}
+
+impl<'a> From<ImportAttributeName<'a>> for PropertyNameLiteral<'a> {
+    /// Infallible: every `ImportAttributeName` variant is also a `PropertyNameLiteral` variant.
+    fn from(value: ImportAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ImportAttributeName is a subset of PropertyNameLiteral")
+        })
+    }
+}
+
+impl<'a> From<JSDocFullName<'a>> for NodeBody<'a> {
+    /// Infallible: every `JSDocFullName` variant is also a `NodeBody` variant.
+    fn from(value: JSDocFullName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JSDocFullName is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<JsxAttributeName<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `JsxAttributeName` variant is also a `BlockOrExpression` variant.
+    fn from(value: JsxAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeName is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<JsxAttributeName<'a>> for ConciseBody<'a> {
+    /// Infallible: every `JsxAttributeName` variant is also a `ConciseBody` variant.
+    fn from(value: JsxAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeName is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<JsxAttributeName<'a>> for Expression<'a> {
+    /// Infallible: every `JsxAttributeName` variant is also a `Expression` variant.
+    fn from(value: JsxAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeName is a subset of Expression"))
+    }
+}
+
+impl<'a> From<JsxAttributeName<'a>> for ForInitializer<'a> {
+    /// Infallible: every `JsxAttributeName` variant is also a `ForInitializer` variant.
+    fn from(value: JsxAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeName is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<JsxAttributeName<'a>> for NodeBody<'a> {
+    /// Infallible: every `JsxAttributeName` variant is also a `NodeBody` variant.
+    fn from(value: JsxAttributeName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeName is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<JsxAttributeValue<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `JsxAttributeValue` variant is also a `BlockOrExpression` variant.
+    fn from(value: JsxAttributeValue<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeValue is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<JsxAttributeValue<'a>> for ConciseBody<'a> {
+    /// Infallible: every `JsxAttributeValue` variant is also a `ConciseBody` variant.
+    fn from(value: JsxAttributeValue<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeValue is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<JsxAttributeValue<'a>> for Expression<'a> {
+    /// Infallible: every `JsxAttributeValue` variant is also a `Expression` variant.
+    fn from(value: JsxAttributeValue<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeValue is a subset of Expression"))
+    }
+}
+
+impl<'a> From<JsxAttributeValue<'a>> for ForInitializer<'a> {
+    /// Infallible: every `JsxAttributeValue` variant is also a `ForInitializer` variant.
+    fn from(value: JsxAttributeValue<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeValue is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<JsxAttributeValue<'a>> for NodeBody<'a> {
+    /// Infallible: every `JsxAttributeValue` variant is also a `NodeBody` variant.
+    fn from(value: JsxAttributeValue<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxAttributeValue is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<JsxChild<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `JsxChild` variant is also a `BlockOrExpression` variant.
+    fn from(value: JsxChild<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxChild is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<JsxChild<'a>> for ConciseBody<'a> {
+    /// Infallible: every `JsxChild` variant is also a `ConciseBody` variant.
+    fn from(value: JsxChild<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxChild is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<JsxChild<'a>> for Expression<'a> {
+    /// Infallible: every `JsxChild` variant is also a `Expression` variant.
+    fn from(value: JsxChild<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxChild is a subset of Expression"))
+    }
+}
+
+impl<'a> From<JsxChild<'a>> for ForInitializer<'a> {
+    /// Infallible: every `JsxChild` variant is also a `ForInitializer` variant.
+    fn from(value: JsxChild<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxChild is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<JsxChild<'a>> for NodeBody<'a> {
+    /// Infallible: every `JsxChild` variant is also a `NodeBody` variant.
+    fn from(value: JsxChild<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxChild is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<JsxOpeningLikeElement<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `JsxOpeningLikeElement` variant is also a `BlockOrExpression` variant.
+    fn from(value: JsxOpeningLikeElement<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("JsxOpeningLikeElement is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<JsxOpeningLikeElement<'a>> for CallLikeExpression<'a> {
+    /// Infallible: every `JsxOpeningLikeElement` variant is also a `CallLikeExpression` variant.
+    fn from(value: JsxOpeningLikeElement<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("JsxOpeningLikeElement is a subset of CallLikeExpression")
+        })
+    }
+}
+
+impl<'a> From<JsxOpeningLikeElement<'a>> for ConciseBody<'a> {
+    /// Infallible: every `JsxOpeningLikeElement` variant is also a `ConciseBody` variant.
+    fn from(value: JsxOpeningLikeElement<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxOpeningLikeElement is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<JsxOpeningLikeElement<'a>> for Expression<'a> {
+    /// Infallible: every `JsxOpeningLikeElement` variant is also a `Expression` variant.
+    fn from(value: JsxOpeningLikeElement<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxOpeningLikeElement is a subset of Expression"))
+    }
+}
+
+impl<'a> From<JsxOpeningLikeElement<'a>> for ForInitializer<'a> {
+    /// Infallible: every `JsxOpeningLikeElement` variant is also a `ForInitializer` variant.
+    fn from(value: JsxOpeningLikeElement<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxOpeningLikeElement is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<JsxOpeningLikeElement<'a>> for NodeBody<'a> {
+    /// Infallible: every `JsxOpeningLikeElement` variant is also a `NodeBody` variant.
+    fn from(value: JsxOpeningLikeElement<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxOpeningLikeElement is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<JsxTagNameExpression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `JsxTagNameExpression` variant is also a `BlockOrExpression` variant.
+    fn from(value: JsxTagNameExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("JsxTagNameExpression is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<JsxTagNameExpression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `JsxTagNameExpression` variant is also a `ConciseBody` variant.
+    fn from(value: JsxTagNameExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxTagNameExpression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<JsxTagNameExpression<'a>> for Expression<'a> {
+    /// Infallible: every `JsxTagNameExpression` variant is also a `Expression` variant.
+    fn from(value: JsxTagNameExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxTagNameExpression is a subset of Expression"))
+    }
+}
+
+impl<'a> From<JsxTagNameExpression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `JsxTagNameExpression` variant is also a `ForInitializer` variant.
+    fn from(value: JsxTagNameExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxTagNameExpression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<JsxTagNameExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `JsxTagNameExpression` variant is also a `NodeBody` variant.
+    fn from(value: JsxTagNameExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("JsxTagNameExpression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<LeftHandSideExpression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `LeftHandSideExpression` variant is also a `BlockOrExpression` variant.
+    fn from(value: LeftHandSideExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("LeftHandSideExpression is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<LeftHandSideExpression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `LeftHandSideExpression` variant is also a `ConciseBody` variant.
+    fn from(value: LeftHandSideExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LeftHandSideExpression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<LeftHandSideExpression<'a>> for Expression<'a> {
+    /// Infallible: every `LeftHandSideExpression` variant is also a `Expression` variant.
+    fn from(value: LeftHandSideExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LeftHandSideExpression is a subset of Expression"))
+    }
+}
+
+impl<'a> From<LeftHandSideExpression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `LeftHandSideExpression` variant is also a `ForInitializer` variant.
+    fn from(value: LeftHandSideExpression<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("LeftHandSideExpression is a subset of ForInitializer")
+        })
+    }
+}
+
+impl<'a> From<LeftHandSideExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `LeftHandSideExpression` variant is also a `NodeBody` variant.
+    fn from(value: LeftHandSideExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LeftHandSideExpression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<LiteralExpression<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `LiteralExpression` variant is also a `BlockOrExpression` variant.
+    fn from(value: LiteralExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralExpression is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<LiteralExpression<'a>> for ConciseBody<'a> {
+    /// Infallible: every `LiteralExpression` variant is also a `ConciseBody` variant.
+    fn from(value: LiteralExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralExpression is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<LiteralExpression<'a>> for Expression<'a> {
+    /// Infallible: every `LiteralExpression` variant is also a `Expression` variant.
+    fn from(value: LiteralExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralExpression is a subset of Expression"))
+    }
+}
+
+impl<'a> From<LiteralExpression<'a>> for ForInitializer<'a> {
+    /// Infallible: every `LiteralExpression` variant is also a `ForInitializer` variant.
+    fn from(value: LiteralExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralExpression is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<LiteralExpression<'a>> for LiteralToken<'a> {
+    /// Infallible: every `LiteralExpression` variant is also a `LiteralToken` variant.
+    fn from(value: LiteralExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralExpression is a subset of LiteralToken"))
+    }
+}
+
+impl<'a> From<LiteralExpression<'a>> for NodeBody<'a> {
+    /// Infallible: every `LiteralExpression` variant is also a `NodeBody` variant.
+    fn from(value: LiteralExpression<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralExpression is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<LiteralToken<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `LiteralToken` variant is also a `BlockOrExpression` variant.
+    fn from(value: LiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralToken is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<LiteralToken<'a>> for ConciseBody<'a> {
+    /// Infallible: every `LiteralToken` variant is also a `ConciseBody` variant.
+    fn from(value: LiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralToken is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<LiteralToken<'a>> for Expression<'a> {
+    /// Infallible: every `LiteralToken` variant is also a `Expression` variant.
+    fn from(value: LiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralToken is a subset of Expression"))
+    }
+}
+
+impl<'a> From<LiteralToken<'a>> for ForInitializer<'a> {
+    /// Infallible: every `LiteralToken` variant is also a `ForInitializer` variant.
+    fn from(value: LiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralToken is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<LiteralToken<'a>> for NodeBody<'a> {
+    /// Infallible: every `LiteralToken` variant is also a `NodeBody` variant.
+    fn from(value: LiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("LiteralToken is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `MemberName` variant is also a `BlockOrExpression` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for ConciseBody<'a> {
+    /// Infallible: every `MemberName` variant is also a `ConciseBody` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for DeclarationName<'a> {
+    /// Infallible: every `MemberName` variant is also a `DeclarationName` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of DeclarationName"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for Expression<'a> {
+    /// Infallible: every `MemberName` variant is also a `Expression` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of Expression"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for ForInitializer<'a> {
+    /// Infallible: every `MemberName` variant is also a `ForInitializer` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `MemberName` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of LeftHandSideExpression"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for NodeBody<'a> {
+    /// Infallible: every `MemberName` variant is also a `NodeBody` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<MemberName<'a>> for PropertyName<'a> {
+    /// Infallible: every `MemberName` variant is also a `PropertyName` variant.
+    fn from(value: MemberName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("MemberName is a subset of PropertyName"))
+    }
+}
+
+impl<'a> From<Modifier<'a>> for LiteralLikeNode<'a> {
+    /// Infallible: every `Modifier` variant is also a `LiteralLikeNode` variant.
+    fn from(value: Modifier<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("Modifier is a subset of LiteralLikeNode"))
+    }
+}
+
+impl<'a> From<Modifier<'a>> for ModifierLike<'a> {
+    /// Infallible: every `Modifier` variant is also a `ModifierLike` variant.
+    fn from(value: Modifier<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("Modifier is a subset of ModifierLike"))
+    }
+}
+
+impl<'a> From<Modifier<'a>> for TemplateLiteralToken<'a> {
+    /// Infallible: every `Modifier` variant is also a `TemplateLiteralToken` variant.
+    fn from(value: Modifier<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("Modifier is a subset of TemplateLiteralToken"))
+    }
+}
+
+impl<'a> From<ModuleBody<'a>> for NodeBody<'a> {
+    /// Infallible: every `ModuleBody` variant is also a `NodeBody` variant.
+    fn from(value: ModuleBody<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleBody is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<ModuleBody<'a>> for Statement<'a> {
+    /// Infallible: every `ModuleBody` variant is also a `Statement` variant.
+    fn from(value: ModuleBody<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleBody is a subset of Statement"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `BlockOrExpression` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for ConciseBody<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `ConciseBody` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for DeclarationName<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `DeclarationName` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of DeclarationName"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for Expression<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `Expression` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of Expression"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for ForInitializer<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `ForInitializer` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ModuleExportName is a subset of LeftHandSideExpression")
+        })
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for NodeBody<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `NodeBody` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for PropertyName<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `PropertyName` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of PropertyName"))
+    }
+}
+
+impl<'a> From<ModuleExportName<'a>> for PropertyNameLiteral<'a> {
+    /// Infallible: every `ModuleExportName` variant is also a `PropertyNameLiteral` variant.
+    fn from(value: ModuleExportName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleExportName is a subset of PropertyNameLiteral"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `ModuleName` variant is also a `BlockOrExpression` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for ConciseBody<'a> {
+    /// Infallible: every `ModuleName` variant is also a `ConciseBody` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for DeclarationName<'a> {
+    /// Infallible: every `ModuleName` variant is also a `DeclarationName` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of DeclarationName"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for Expression<'a> {
+    /// Infallible: every `ModuleName` variant is also a `Expression` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of Expression"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for ForInitializer<'a> {
+    /// Infallible: every `ModuleName` variant is also a `ForInitializer` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `ModuleName` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of LeftHandSideExpression"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for NodeBody<'a> {
+    /// Infallible: every `ModuleName` variant is also a `NodeBody` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for PropertyName<'a> {
+    /// Infallible: every `ModuleName` variant is also a `PropertyName` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of PropertyName"))
+    }
+}
+
+impl<'a> From<ModuleName<'a>> for PropertyNameLiteral<'a> {
+    /// Infallible: every `ModuleName` variant is also a `PropertyNameLiteral` variant.
+    fn from(value: ModuleName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ModuleName is a subset of PropertyNameLiteral"))
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `BlockOrExpression` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for ConciseBody<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `ConciseBody` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of ConciseBody")
+        })
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for DeclarationName<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `DeclarationName` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of DeclarationName")
+        })
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for Expression<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `Expression` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of Expression")
+        })
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for ForInitializer<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `ForInitializer` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of ForInitializer")
+        })
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for LiteralExpression<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `LiteralExpression` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of LiteralExpression")
+        })
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for LiteralToken<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `LiteralToken` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of LiteralToken")
+        })
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for NodeBody<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `NodeBody` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("NumericOrStringLikeLiteral is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<NumericOrStringLikeLiteral<'a>> for PropertyName<'a> {
+    /// Infallible: every `NumericOrStringLikeLiteral` variant is also a `PropertyName` variant.
+    fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("NumericOrStringLikeLiteral is a subset of PropertyName")
+        })
+    }
+}
+
+impl<'a> From<ObjectDestructuringAssignment<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `ObjectDestructuringAssignment` variant is also a `BlockOrExpression` variant.
+    fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectDestructuringAssignment is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<ObjectDestructuringAssignment<'a>> for CallLikeExpression<'a> {
+    /// Infallible: every `ObjectDestructuringAssignment` variant is also a `CallLikeExpression` variant.
+    fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectDestructuringAssignment is a subset of CallLikeExpression")
+        })
+    }
+}
+
+impl<'a> From<ObjectDestructuringAssignment<'a>> for ConciseBody<'a> {
+    /// Infallible: every `ObjectDestructuringAssignment` variant is also a `ConciseBody` variant.
+    fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectDestructuringAssignment is a subset of ConciseBody")
+        })
+    }
+}
+
+impl<'a> From<ObjectDestructuringAssignment<'a>> for Declaration<'a> {
+    /// Infallible: every `ObjectDestructuringAssignment` variant is also a `Declaration` variant.
+    fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectDestructuringAssignment is a subset of Declaration")
+        })
+    }
+}
+
+impl<'a> From<ObjectDestructuringAssignment<'a>> for Expression<'a> {
+    /// Infallible: every `ObjectDestructuringAssignment` variant is also a `Expression` variant.
+    fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectDestructuringAssignment is a subset of Expression")
+        })
+    }
+}
+
+impl<'a> From<ObjectDestructuringAssignment<'a>> for ForInitializer<'a> {
+    /// Infallible: every `ObjectDestructuringAssignment` variant is also a `ForInitializer` variant.
+    fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectDestructuringAssignment is a subset of ForInitializer")
+        })
+    }
+}
+
+impl<'a> From<ObjectDestructuringAssignment<'a>> for NodeBody<'a> {
+    /// Infallible: every `ObjectDestructuringAssignment` variant is also a `NodeBody` variant.
+    fn from(value: ObjectDestructuringAssignment<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectDestructuringAssignment is a subset of NodeBody")
+        })
+    }
+}
+
+impl<'a> From<ObjectLiteralElementLike<'a>> for Declaration<'a> {
+    /// Infallible: every `ObjectLiteralElementLike` variant is also a `Declaration` variant.
+    fn from(value: ObjectLiteralElementLike<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ObjectLiteralElementLike is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<ObjectLiteralElementLike<'a>> for ObjectLiteralElement<'a> {
+    /// Infallible: every `ObjectLiteralElementLike` variant is also a `ObjectLiteralElement` variant.
+    fn from(value: ObjectLiteralElementLike<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectLiteralElementLike is a subset of ObjectLiteralElement")
+        })
+    }
+}
+
+impl<'a> From<ObjectLiteralLikeNode<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `BlockOrExpression` variant.
+    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectLiteralLikeNode is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<ObjectLiteralLikeNode<'a>> for ConciseBody<'a> {
+    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `ConciseBody` variant.
+    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<ObjectLiteralLikeNode<'a>> for Declaration<'a> {
+    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `Declaration` variant.
+    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<ObjectLiteralLikeNode<'a>> for Expression<'a> {
+    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `Expression` variant.
+    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of Expression"))
+    }
+}
+
+impl<'a> From<ObjectLiteralLikeNode<'a>> for ForInitializer<'a> {
+    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `ForInitializer` variant.
+    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<ObjectLiteralLikeNode<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("ObjectLiteralLikeNode is a subset of LeftHandSideExpression")
+        })
+    }
+}
+
+impl<'a> From<ObjectLiteralLikeNode<'a>> for NodeBody<'a> {
+    /// Infallible: every `ObjectLiteralLikeNode` variant is also a `NodeBody` variant.
+    fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ObjectLiteralLikeNode is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<ObjectTypeDeclaration<'a>> for Declaration<'a> {
+    /// Infallible: every `ObjectTypeDeclaration` variant is also a `Declaration` variant.
+    fn from(value: ObjectTypeDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("ObjectTypeDeclaration is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<PropertyName<'a>> for DeclarationName<'a> {
+    /// Infallible: every `PropertyName` variant is also a `DeclarationName` variant.
+    fn from(value: PropertyName<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PropertyName is a subset of DeclarationName"))
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `BlockOrExpression` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("PropertyNameLiteral is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for ConciseBody<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `ConciseBody` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PropertyNameLiteral is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for DeclarationName<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `DeclarationName` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PropertyNameLiteral is a subset of DeclarationName"))
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for Expression<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `Expression` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PropertyNameLiteral is a subset of Expression"))
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for ForInitializer<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `ForInitializer` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PropertyNameLiteral is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for LeftHandSideExpression<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `LeftHandSideExpression` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("PropertyNameLiteral is a subset of LeftHandSideExpression")
+        })
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for NodeBody<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `NodeBody` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PropertyNameLiteral is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<PropertyNameLiteral<'a>> for PropertyName<'a> {
+    /// Infallible: every `PropertyNameLiteral` variant is also a `PropertyName` variant.
+    fn from(value: PropertyNameLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PropertyNameLiteral is a subset of PropertyName"))
+    }
+}
+
+impl<'a> From<PseudoLiteralToken<'a>> for LiteralLikeNode<'a> {
+    /// Infallible: every `PseudoLiteralToken` variant is also a `LiteralLikeNode` variant.
+    fn from(value: PseudoLiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PseudoLiteralToken is a subset of LiteralLikeNode"))
+    }
+}
+
+impl<'a> From<PseudoLiteralToken<'a>> for ModifierLike<'a> {
+    /// Infallible: every `PseudoLiteralToken` variant is also a `ModifierLike` variant.
+    fn from(value: PseudoLiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("PseudoLiteralToken is a subset of ModifierLike"))
+    }
+}
+
+impl<'a> From<PseudoLiteralToken<'a>> for TemplateLiteralToken<'a> {
+    /// Infallible: every `PseudoLiteralToken` variant is also a `TemplateLiteralToken` variant.
+    fn from(value: PseudoLiteralToken<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("PseudoLiteralToken is a subset of TemplateLiteralToken")
+        })
+    }
+}
+
+impl<'a> From<SignatureDeclaration<'a>> for Declaration<'a> {
+    /// Infallible: every `SignatureDeclaration` variant is also a `Declaration` variant.
+    fn from(value: SignatureDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("SignatureDeclaration is a subset of Declaration"))
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `BlockOrExpression` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("StringLiteralLikeNode is a subset of BlockOrExpression")
+        })
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for ConciseBody<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `ConciseBody` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("StringLiteralLikeNode is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for DeclarationName<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `DeclarationName` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("StringLiteralLikeNode is a subset of DeclarationName")
+        })
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for Expression<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `Expression` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("StringLiteralLikeNode is a subset of Expression"))
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for ForInitializer<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `ForInitializer` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("StringLiteralLikeNode is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for LiteralExpression<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `LiteralExpression` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("StringLiteralLikeNode is a subset of LiteralExpression")
+        })
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for LiteralToken<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `LiteralToken` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("StringLiteralLikeNode is a subset of LiteralToken"))
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for NodeBody<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `NodeBody` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("StringLiteralLikeNode is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for NumericOrStringLikeLiteral<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `NumericOrStringLikeLiteral` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("StringLiteralLikeNode is a subset of NumericOrStringLikeLiteral")
+        })
+    }
+}
+
+impl<'a> From<StringLiteralLikeNode<'a>> for PropertyName<'a> {
+    /// Infallible: every `StringLiteralLikeNode` variant is also a `PropertyName` variant.
+    fn from(value: StringLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("StringLiteralLikeNode is a subset of PropertyName"))
+    }
+}
+
+impl<'a> From<TemplateLiteral<'a>> for BlockOrExpression<'a> {
+    /// Infallible: every `TemplateLiteral` variant is also a `BlockOrExpression` variant.
+    fn from(value: TemplateLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("TemplateLiteral is a subset of BlockOrExpression"))
+    }
+}
+
+impl<'a> From<TemplateLiteral<'a>> for ConciseBody<'a> {
+    /// Infallible: every `TemplateLiteral` variant is also a `ConciseBody` variant.
+    fn from(value: TemplateLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("TemplateLiteral is a subset of ConciseBody"))
+    }
+}
+
+impl<'a> From<TemplateLiteral<'a>> for Expression<'a> {
+    /// Infallible: every `TemplateLiteral` variant is also a `Expression` variant.
+    fn from(value: TemplateLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("TemplateLiteral is a subset of Expression"))
+    }
+}
+
+impl<'a> From<TemplateLiteral<'a>> for ForInitializer<'a> {
+    /// Infallible: every `TemplateLiteral` variant is also a `ForInitializer` variant.
+    fn from(value: TemplateLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("TemplateLiteral is a subset of ForInitializer"))
+    }
+}
+
+impl<'a> From<TemplateLiteral<'a>> for NodeBody<'a> {
+    /// Infallible: every `TemplateLiteral` variant is also a `NodeBody` variant.
+    fn from(value: TemplateLiteral<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("TemplateLiteral is a subset of NodeBody"))
+    }
+}
+
+impl<'a> From<TemplateLiteralLikeNode<'a>> for LiteralLikeNode<'a> {
+    /// Infallible: every `TemplateLiteralLikeNode` variant is also a `LiteralLikeNode` variant.
+    fn from(value: TemplateLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("TemplateLiteralLikeNode is a subset of LiteralLikeNode")
+        })
+    }
+}
+
+impl<'a> From<TemplateLiteralLikeNode<'a>> for ModifierLike<'a> {
+    /// Infallible: every `TemplateLiteralLikeNode` variant is also a `ModifierLike` variant.
+    fn from(value: TemplateLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("TemplateLiteralLikeNode is a subset of ModifierLike"))
+    }
+}
+
+impl<'a> From<TemplateLiteralLikeNode<'a>> for TemplateLiteralToken<'a> {
+    /// Infallible: every `TemplateLiteralLikeNode` variant is also a `TemplateLiteralToken` variant.
+    fn from(value: TemplateLiteralLikeNode<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("TemplateLiteralLikeNode is a subset of TemplateLiteralToken")
+        })
+    }
+}
+
+impl<'a> From<UnionOrIntersectionTypeNode<'a>> for TypeNode<'a> {
+    /// Infallible: every `UnionOrIntersectionTypeNode` variant is also a `TypeNode` variant.
+    fn from(value: UnionOrIntersectionTypeNode<'a>) -> Self {
+        Self::try_from(Node::from(value))
+            .unwrap_or_else(|_| unreachable!("UnionOrIntersectionTypeNode is a subset of TypeNode"))
+    }
+}
+
+impl<'a> From<VariableOrParameterDeclaration<'a>> for Declaration<'a> {
+    /// Infallible: every `VariableOrParameterDeclaration` variant is also a `Declaration` variant.
+    fn from(value: VariableOrParameterDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("VariableOrParameterDeclaration is a subset of Declaration")
+        })
+    }
+}
+
+impl<'a> From<VariableOrPropertyDeclaration<'a>> for Declaration<'a> {
+    /// Infallible: every `VariableOrPropertyDeclaration` variant is also a `Declaration` variant.
+    fn from(value: VariableOrPropertyDeclaration<'a>) -> Self {
+        Self::try_from(Node::from(value)).unwrap_or_else(|_| {
+            unreachable!("VariableOrPropertyDeclaration is a subset of Declaration")
+        })
     }
 }

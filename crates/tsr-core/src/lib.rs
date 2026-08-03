@@ -12,10 +12,12 @@
 //! It links no `oxc_*` crate. The designs are borrowed; the code is ours. See
 //! PLAN.md §3.1 for why.
 
+pub mod arena;
 pub mod index;
 pub mod side_table;
 pub mod span;
 
+pub use arena::Arena;
 pub use index::{Idx, IndexVec};
 pub use side_table::PagedTable;
 pub use span::{GetSpan, Span};

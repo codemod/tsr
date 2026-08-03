@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+# tsr-parser is written but does not compile yet; see its lib.rs header and
+# `bd tsr-pum.2`. Excluding it keeps `cargo build --workspace` honest rather than
+# permanently red.
+exclude = ["crates/tsr-parser"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,6 +19,7 @@ tsr-core = { path = "crates/tsr-core" }
 tsr-ast = { path = "crates/tsr-ast" }
 tsr-diagnostics = { path = "crates/tsr-diagnostics" }
 tsr-scanner = { path = "crates/tsr-scanner" }
+tsr-parser = { path = "crates/tsr-parser" }
 
 # Foundations. These mirror oxc's dependency choices (see PLAN.md §3.1); we take
 # oxc's bill of materials, not oxc's crates.

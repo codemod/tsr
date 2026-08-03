@@ -9,20 +9,59 @@
 //! `NextContainer`, `facts` — are intentionally absent. They are binder and
 //! checker state, and live in id-keyed side tables here (PLAN.md §3.2).
 
-#![allow(clippy::struct_excessive_bools, clippy::doc_markdown)]
+#![allow(
+    clippy::struct_excessive_bools,
+    clippy::doc_markdown,
+    // Node constructors take one parameter per syntax child; some nodes
+    // genuinely have nine. Splitting them would obscure the shape.
+    clippy::too_many_arguments,
+    // `Foo<'a>` is written uniformly even where the lifetime is elidable.
+    clippy::needless_lifetimes,
+    // A node with no children still gets `new()`; `Default` would imply
+    // these are meaningful standalone values, which they are not.
+    clippy::new_without_default,
+)]
+
+use std::cell::Cell;
 
 use super::alias::*;
-use crate::{SyntaxKind, Token};
+use crate::{NodeId, SyntaxKind, Token};
 
 /// The `ArrayLiteralExpression` node.
 ///
 /// Corresponds to typescript-go's `ast.ArrayLiteralExpression`.
 #[derive(Debug)]
 pub struct ArrayLiteralExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Elements`: `Expression`
     pub elements: &'a [Expression<'a>],
     /// `MultiLine`: `bool`
     pub multi_line: bool,
+}
+
+impl<'a> ArrayLiteralExpression<'a> {
+    /// Construct a `ArrayLiteralExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(elements: &'a [Expression<'a>], multi_line: bool) -> Self {
+        Self { node_id: Cell::new(None), elements, multi_line }
+    }
+}
+
+impl crate::HasNodeId for ArrayLiteralExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ArrayTypeNode` node.
@@ -30,8 +69,34 @@ pub struct ArrayLiteralExpression<'a> {
 /// Corresponds to typescript-go's `ast.ArrayTypeNode`.
 #[derive(Debug)]
 pub struct ArrayTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `ElementType`: `TypeNode`
-    pub element_type: TypeNode<'a>,
+    pub element_type: Option<TypeNode<'a>>,
+}
+
+impl<'a> ArrayTypeNode<'a> {
+    /// Construct a `ArrayTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(element_type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), element_type }
+    }
+}
+
+impl crate::HasNodeId for ArrayTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ArrowFunction` node.
@@ -39,6 +104,11 @@ pub struct ArrayTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.ArrowFunction`.
 #[derive(Debug)]
 pub struct ArrowFunction<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -50,11 +120,51 @@ pub struct ArrowFunction<'a> {
     /// `FullSignature`: `TypeNode`
     pub full_signature: Option<TypeNode<'a>>,
     /// `EqualsGreaterThanToken`: `EqualsGreaterThanToken`
-    pub equals_greater_than_token: &'a Token<'a>,
+    pub equals_greater_than_token: Option<&'a Token<'a>>,
     /// `Body`: `ConciseBody`
-    pub body: ConciseBody<'a>,
+    pub body: Option<ConciseBody<'a>>,
     /// `AsteriskToken`: `AsteriskToken`
     pub asterisk_token: Option<&'a Token<'a>>,
+}
+
+impl<'a> ArrowFunction<'a> {
+    /// Construct a `ArrowFunction`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        equals_greater_than_token: Option<&'a Token<'a>>,
+        body: Option<ConciseBody<'a>>,
+        asterisk_token: Option<&'a Token<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+            equals_greater_than_token,
+            body,
+            asterisk_token,
+        }
+    }
+}
+
+impl crate::HasNodeId for ArrowFunction<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `AsExpression` node.
@@ -62,10 +172,36 @@ pub struct ArrowFunction<'a> {
 /// Corresponds to typescript-go's `ast.AsExpression`.
 #[derive(Debug)]
 pub struct AsExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> AsExpression<'a> {
+    /// Construct a `AsExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>, r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression, r#type }
+    }
+}
+
+impl crate::HasNodeId for AsExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `AwaitExpression` node.
@@ -73,8 +209,34 @@ pub struct AsExpression<'a> {
 /// Corresponds to typescript-go's `ast.AwaitExpression`.
 #[derive(Debug)]
 pub struct AwaitExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> AwaitExpression<'a> {
+    /// Construct a `AwaitExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for AwaitExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `BigIntLiteral` node.
@@ -82,10 +244,36 @@ pub struct AwaitExpression<'a> {
 /// Corresponds to typescript-go's `ast.BigIntLiteral`.
 #[derive(Debug)]
 pub struct BigIntLiteral<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
     pub token_flags: crate::TokenFlags,
+}
+
+impl<'a> BigIntLiteral<'a> {
+    /// Construct a `BigIntLiteral`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
+        Self { node_id: Cell::new(None), text, token_flags }
+    }
+}
+
+impl crate::HasNodeId for BigIntLiteral<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `BinaryExpression` node.
@@ -93,16 +281,48 @@ pub struct BigIntLiteral<'a> {
 /// Corresponds to typescript-go's `ast.BinaryExpression`.
 #[derive(Debug)]
 pub struct BinaryExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Left`: `Expression`
-    pub left: Expression<'a>,
+    pub left: Option<Expression<'a>>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
     /// `OperatorToken`: `BinaryOperatorToken`
-    pub operator_token: &'a Token<'a>,
+    pub operator_token: Option<&'a Token<'a>>,
     /// `Right`: `Expression`
-    pub right: Expression<'a>,
+    pub right: Option<Expression<'a>>,
+}
+
+impl<'a> BinaryExpression<'a> {
+    /// Construct a `BinaryExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        left: Option<Expression<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        operator_token: Option<&'a Token<'a>>,
+        right: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, left, r#type, operator_token, right }
+    }
+}
+
+impl crate::HasNodeId for BinaryExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `BindingElement` node.
@@ -110,6 +330,11 @@ pub struct BinaryExpression<'a> {
 /// Corresponds to typescript-go's `ast.BindingElement`.
 #[derive(Debug)]
 pub struct BindingElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `PropertyName`: `PropertyName`
@@ -120,15 +345,67 @@ pub struct BindingElement<'a> {
     pub initializer: Option<Expression<'a>>,
 }
 
+impl<'a> BindingElement<'a> {
+    /// Construct a `BindingElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        dot_dot_dot_token: Option<&'a Token<'a>>,
+        property_name: Option<PropertyName<'a>>,
+        name: Option<BindingName<'a>>,
+        initializer: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), dot_dot_dot_token, property_name, name, initializer }
+    }
+}
+
+impl crate::HasNodeId for BindingElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `BindingPattern` node.
 ///
 /// Corresponds to typescript-go's `ast.BindingPattern`.
 #[derive(Debug)]
 pub struct BindingPattern<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Kind`: `SyntaxKind.ObjectBindingPattern | SyntaxKind.ArrayBindingPattern`
     pub kind: &'a Token<'a>,
     /// `Elements`: `BindingElement`
     pub elements: &'a [&'a BindingElement<'a>],
+}
+
+impl<'a> BindingPattern<'a> {
+    /// Construct a `BindingPattern`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(kind: &'a Token<'a>, elements: &'a [&'a BindingElement<'a>]) -> Self {
+        Self { node_id: Cell::new(None), kind, elements }
+    }
+}
+
+impl crate::HasNodeId for BindingPattern<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `Block` node.
@@ -136,10 +413,36 @@ pub struct BindingPattern<'a> {
 /// Corresponds to typescript-go's `ast.Block`.
 #[derive(Debug)]
 pub struct Block<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
     /// `MultiLine`: `bool`
     pub multi_line: bool,
+}
+
+impl<'a> Block<'a> {
+    /// Construct a `Block`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(statements: &'a [Statement<'a>], multi_line: bool) -> Self {
+        Self { node_id: Cell::new(None), statements, multi_line }
+    }
+}
+
+impl crate::HasNodeId for Block<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `BreakStatement` node.
@@ -147,8 +450,34 @@ pub struct Block<'a> {
 /// Corresponds to typescript-go's `ast.BreakStatement`.
 #[derive(Debug)]
 pub struct BreakStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> BreakStatement<'a> {
+    /// Construct a `BreakStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(label: Option<&'a Identifier<'a>>) -> Self {
+        Self { node_id: Cell::new(None), label }
+    }
+}
+
+impl crate::HasNodeId for BreakStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `CallExpression` node.
@@ -156,8 +485,13 @@ pub struct BreakStatement<'a> {
 /// Corresponds to typescript-go's `ast.CallExpression`.
 #[derive(Debug)]
 pub struct CallExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
     pub question_dot_token: Option<&'a Token<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -166,11 +500,42 @@ pub struct CallExpression<'a> {
     pub arguments: &'a [Expression<'a>],
 }
 
+impl<'a> CallExpression<'a> {
+    /// Construct a `CallExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        expression: Option<Expression<'a>>,
+        question_dot_token: Option<&'a Token<'a>>,
+        type_arguments: &'a [TypeNode<'a>],
+        arguments: &'a [Expression<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), expression, question_dot_token, type_arguments, arguments }
+    }
+}
+
+impl crate::HasNodeId for CallExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `CallSignatureDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.CallSignatureDeclaration`.
 #[derive(Debug)]
 pub struct CallSignatureDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -179,6 +544,32 @@ pub struct CallSignatureDeclaration<'a> {
     pub r#type: Option<TypeNode<'a>>,
     /// `FullSignature`: `TypeNode`
     pub full_signature: Option<TypeNode<'a>>,
+}
+
+impl<'a> CallSignatureDeclaration<'a> {
+    /// Construct a `CallSignatureDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), type_parameters, parameters, r#type, full_signature }
+    }
+}
+
+impl crate::HasNodeId for CallSignatureDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `CaseBlock` node.
@@ -186,8 +577,34 @@ pub struct CallSignatureDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.CaseBlock`.
 #[derive(Debug)]
 pub struct CaseBlock<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Clauses`: `CaseOrDefaultClause`
     pub clauses: &'a [&'a CaseOrDefaultClause<'a>],
+}
+
+impl<'a> CaseBlock<'a> {
+    /// Construct a `CaseBlock`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(clauses: &'a [&'a CaseOrDefaultClause<'a>]) -> Self {
+        Self { node_id: Cell::new(None), clauses }
+    }
+}
+
+impl crate::HasNodeId for CaseBlock<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `CaseOrDefaultClause` node.
@@ -195,12 +612,42 @@ pub struct CaseBlock<'a> {
 /// Corresponds to typescript-go's `ast.CaseOrDefaultClause`.
 #[derive(Debug)]
 pub struct CaseOrDefaultClause<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Kind`: `SyntaxKind.CaseClause | SyntaxKind.DefaultClause`
     pub kind: &'a Token<'a>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
+}
+
+impl<'a> CaseOrDefaultClause<'a> {
+    /// Construct a `CaseOrDefaultClause`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        kind: &'a Token<'a>,
+        expression: Option<Expression<'a>>,
+        statements: &'a [Statement<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), kind, expression, statements }
+    }
+}
+
+impl crate::HasNodeId for CaseOrDefaultClause<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `CatchClause` node.
@@ -208,10 +655,39 @@ pub struct CaseOrDefaultClause<'a> {
 /// Corresponds to typescript-go's `ast.CatchClause`.
 #[derive(Debug)]
 pub struct CatchClause<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `VariableDeclaration`: `VariableDeclaration`
     pub variable_declaration: Option<&'a VariableDeclaration<'a>>,
     /// `Block`: `Block`
-    pub block: &'a Block<'a>,
+    pub block: Option<&'a Block<'a>>,
+}
+
+impl<'a> CatchClause<'a> {
+    /// Construct a `CatchClause`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        variable_declaration: Option<&'a VariableDeclaration<'a>>,
+        block: Option<&'a Block<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), variable_declaration, block }
+    }
+}
+
+impl crate::HasNodeId for CatchClause<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ClassDeclaration` node.
@@ -219,6 +695,11 @@ pub struct CatchClause<'a> {
 /// Corresponds to typescript-go's `ast.ClassDeclaration`.
 #[derive(Debug)]
 pub struct ClassDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -229,6 +710,40 @@ pub struct ClassDeclaration<'a> {
     pub heritage_clauses: &'a [&'a HeritageClause<'a>],
     /// `Members`: `ClassElement`
     pub members: &'a [ClassElement<'a>],
+}
+
+impl<'a> ClassDeclaration<'a> {
+    /// Construct a `ClassDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: Option<&'a Identifier<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        heritage_clauses: &'a [&'a HeritageClause<'a>],
+        members: &'a [ClassElement<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            name,
+            type_parameters,
+            heritage_clauses,
+            members,
+        }
+    }
+}
+
+impl crate::HasNodeId for ClassDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ClassExpression` node.
@@ -236,6 +751,11 @@ pub struct ClassDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.ClassExpression`.
 #[derive(Debug)]
 pub struct ClassExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -248,15 +768,75 @@ pub struct ClassExpression<'a> {
     pub members: &'a [ClassElement<'a>],
 }
 
+impl<'a> ClassExpression<'a> {
+    /// Construct a `ClassExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: Option<&'a Identifier<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        heritage_clauses: &'a [&'a HeritageClause<'a>],
+        members: &'a [ClassElement<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            name,
+            type_parameters,
+            heritage_clauses,
+            members,
+        }
+    }
+}
+
+impl crate::HasNodeId for ClassExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ClassStaticBlockDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.ClassStaticBlockDeclaration`.
 #[derive(Debug)]
 pub struct ClassStaticBlockDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Body`: `Block`
-    pub body: &'a Block<'a>,
+    pub body: Option<&'a Block<'a>>,
+}
+
+impl<'a> ClassStaticBlockDeclaration<'a> {
+    /// Construct a `ClassStaticBlockDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(modifiers: &'a [ModifierLike<'a>], body: Option<&'a Block<'a>>) -> Self {
+        Self { node_id: Cell::new(None), modifiers, body }
+    }
+}
+
+impl crate::HasNodeId for ClassStaticBlockDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ComputedPropertyName` node.
@@ -264,8 +844,34 @@ pub struct ClassStaticBlockDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.ComputedPropertyName`.
 #[derive(Debug)]
 pub struct ComputedPropertyName<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> ComputedPropertyName<'a> {
+    /// Construct a `ComputedPropertyName`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for ComputedPropertyName<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ConditionalExpression` node.
@@ -273,16 +879,55 @@ pub struct ComputedPropertyName<'a> {
 /// Corresponds to typescript-go's `ast.ConditionalExpression`.
 #[derive(Debug)]
 pub struct ConditionalExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Condition`: `Expression`
-    pub condition: Expression<'a>,
+    pub condition: Option<Expression<'a>>,
     /// `QuestionToken`: `QuestionToken`
-    pub question_token: &'a Token<'a>,
+    pub question_token: Option<&'a Token<'a>>,
     /// `WhenTrue`: `Expression`
-    pub when_true: Expression<'a>,
+    pub when_true: Option<Expression<'a>>,
     /// `ColonToken`: `ColonToken`
-    pub colon_token: &'a Token<'a>,
+    pub colon_token: Option<&'a Token<'a>>,
     /// `WhenFalse`: `Expression`
-    pub when_false: Expression<'a>,
+    pub when_false: Option<Expression<'a>>,
+}
+
+impl<'a> ConditionalExpression<'a> {
+    /// Construct a `ConditionalExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        condition: Option<Expression<'a>>,
+        question_token: Option<&'a Token<'a>>,
+        when_true: Option<Expression<'a>>,
+        colon_token: Option<&'a Token<'a>>,
+        when_false: Option<Expression<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            condition,
+            question_token,
+            when_true,
+            colon_token,
+            when_false,
+        }
+    }
+}
+
+impl crate::HasNodeId for ConditionalExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ConditionalTypeNode` node.
@@ -290,14 +935,45 @@ pub struct ConditionalExpression<'a> {
 /// Corresponds to typescript-go's `ast.ConditionalTypeNode`.
 #[derive(Debug)]
 pub struct ConditionalTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `CheckType`: `TypeNode`
-    pub check_type: TypeNode<'a>,
+    pub check_type: Option<TypeNode<'a>>,
     /// `ExtendsType`: `TypeNode`
-    pub extends_type: TypeNode<'a>,
+    pub extends_type: Option<TypeNode<'a>>,
     /// `TrueType`: `TypeNode`
-    pub true_type: TypeNode<'a>,
+    pub true_type: Option<TypeNode<'a>>,
     /// `FalseType`: `TypeNode`
-    pub false_type: TypeNode<'a>,
+    pub false_type: Option<TypeNode<'a>>,
+}
+
+impl<'a> ConditionalTypeNode<'a> {
+    /// Construct a `ConditionalTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        check_type: Option<TypeNode<'a>>,
+        extends_type: Option<TypeNode<'a>>,
+        true_type: Option<TypeNode<'a>>,
+        false_type: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), check_type, extends_type, true_type, false_type }
+    }
+}
+
+impl crate::HasNodeId for ConditionalTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ConstructSignatureDeclaration` node.
@@ -305,6 +981,11 @@ pub struct ConditionalTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.ConstructSignatureDeclaration`.
 #[derive(Debug)]
 pub struct ConstructSignatureDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -315,11 +996,42 @@ pub struct ConstructSignatureDeclaration<'a> {
     pub full_signature: Option<TypeNode<'a>>,
 }
 
+impl<'a> ConstructSignatureDeclaration<'a> {
+    /// Construct a `ConstructSignatureDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), type_parameters, parameters, r#type, full_signature }
+    }
+}
+
+impl crate::HasNodeId for ConstructSignatureDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ConstructorDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.ConstructorDeclaration`.
 #[derive(Debug)]
 pub struct ConstructorDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -336,11 +1048,54 @@ pub struct ConstructorDeclaration<'a> {
     pub asterisk_token: Option<&'a Token<'a>>,
 }
 
+impl<'a> ConstructorDeclaration<'a> {
+    /// Construct a `ConstructorDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        body: Option<FunctionBody<'a>>,
+        asterisk_token: Option<&'a Token<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+            body,
+            asterisk_token,
+        }
+    }
+}
+
+impl crate::HasNodeId for ConstructorDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ConstructorTypeNode` node.
 ///
 /// Corresponds to typescript-go's `ast.ConstructorTypeNode`.
 #[derive(Debug)]
 pub struct ConstructorTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -353,13 +1108,73 @@ pub struct ConstructorTypeNode<'a> {
     pub full_signature: Option<TypeNode<'a>>,
 }
 
+impl<'a> ConstructorTypeNode<'a> {
+    /// Construct a `ConstructorTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+        }
+    }
+}
+
+impl crate::HasNodeId for ConstructorTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ContinueStatement` node.
 ///
 /// Corresponds to typescript-go's `ast.ContinueStatement`.
 #[derive(Debug)]
 pub struct ContinueStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> ContinueStatement<'a> {
+    /// Construct a `ContinueStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(label: Option<&'a Identifier<'a>>) -> Self {
+        Self { node_id: Cell::new(None), label }
+    }
+}
+
+impl crate::HasNodeId for ContinueStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `DebuggerStatement` node.
@@ -367,9 +1182,35 @@ pub struct ContinueStatement<'a> {
 /// Corresponds to typescript-go's `ast.DebuggerStatement`.
 #[derive(Debug)]
 pub struct DebuggerStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl DebuggerStatement<'_> {
+    /// Construct a `DebuggerStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for DebuggerStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `Decorator` node.
@@ -377,8 +1218,34 @@ pub struct DebuggerStatement<'a> {
 /// Corresponds to typescript-go's `ast.Decorator`.
 #[derive(Debug)]
 pub struct Decorator<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `LeftHandSideExpression`
-    pub expression: LeftHandSideExpression<'a>,
+    pub expression: Option<LeftHandSideExpression<'a>>,
+}
+
+impl<'a> Decorator<'a> {
+    /// Construct a `Decorator`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<LeftHandSideExpression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for Decorator<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `DeleteExpression` node.
@@ -386,8 +1253,34 @@ pub struct Decorator<'a> {
 /// Corresponds to typescript-go's `ast.DeleteExpression`.
 #[derive(Debug)]
 pub struct DeleteExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> DeleteExpression<'a> {
+    /// Construct a `DeleteExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for DeleteExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `DoStatement` node.
@@ -395,10 +1288,36 @@ pub struct DeleteExpression<'a> {
 /// Corresponds to typescript-go's `ast.DoStatement`.
 #[derive(Debug)]
 pub struct DoStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Statement`: `Statement`
     pub statement: Statement<'a>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> DoStatement<'a> {
+    /// Construct a `DoStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(statement: Statement<'a>, expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), statement, expression }
+    }
+}
+
+impl crate::HasNodeId for DoStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ElementAccessExpression` node.
@@ -406,12 +1325,42 @@ pub struct DoStatement<'a> {
 /// Corresponds to typescript-go's `ast.ElementAccessExpression`.
 #[derive(Debug)]
 pub struct ElementAccessExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
     pub question_dot_token: Option<&'a Token<'a>>,
     /// `ArgumentExpression`: `Expression`
-    pub argument_expression: Expression<'a>,
+    pub argument_expression: Option<Expression<'a>>,
+}
+
+impl<'a> ElementAccessExpression<'a> {
+    /// Construct a `ElementAccessExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        expression: Option<Expression<'a>>,
+        question_dot_token: Option<&'a Token<'a>>,
+        argument_expression: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), expression, question_dot_token, argument_expression }
+    }
+}
+
+impl crate::HasNodeId for ElementAccessExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `EmptyStatement` node.
@@ -419,9 +1368,35 @@ pub struct ElementAccessExpression<'a> {
 /// Corresponds to typescript-go's `ast.EmptyStatement`.
 #[derive(Debug)]
 pub struct EmptyStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl EmptyStatement<'_> {
+    /// Construct a `EmptyStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for EmptyStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `EnumDeclaration` node.
@@ -429,12 +1404,42 @@ pub struct EmptyStatement<'a> {
 /// Corresponds to typescript-go's `ast.EnumDeclaration`.
 #[derive(Debug)]
 pub struct EnumDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
     /// `Members`: `EnumMember`
     pub members: &'a [&'a EnumMember<'a>],
+}
+
+impl<'a> EnumDeclaration<'a> {
+    /// Construct a `EnumDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: Option<&'a Identifier<'a>>,
+        members: &'a [&'a EnumMember<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, name, members }
+    }
+}
+
+impl crate::HasNodeId for EnumDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `EnumMember` node.
@@ -442,6 +1447,11 @@ pub struct EnumDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.EnumMember`.
 #[derive(Debug)]
 pub struct EnumMember<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `PropertyName`
     pub name: PropertyName<'a>,
     /// `Initializer`: `Expression`
@@ -452,19 +1462,76 @@ pub struct EnumMember<'a> {
     pub postfix_token: Option<&'a Token<'a>>,
 }
 
+impl<'a> EnumMember<'a> {
+    /// Construct a `EnumMember`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        name: PropertyName<'a>,
+        initializer: Option<Expression<'a>>,
+        modifiers: &'a [ModifierLike<'a>],
+        postfix_token: Option<&'a Token<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), name, initializer, modifiers, postfix_token }
+    }
+}
+
+impl crate::HasNodeId for EnumMember<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ExportAssignment` node.
 ///
 /// Corresponds to typescript-go's `ast.ExportAssignment`.
 #[derive(Debug)]
 pub struct ExportAssignment<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsExportEquals`: `bool`
     pub is_export_equals: bool,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> ExportAssignment<'a> {
+    /// Construct a `ExportAssignment`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        is_export_equals: bool,
+        r#type: Option<TypeNode<'a>>,
+        expression: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, is_export_equals, r#type, expression }
+    }
+}
+
+impl crate::HasNodeId for ExportAssignment<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ExportDeclaration` node.
@@ -472,6 +1539,11 @@ pub struct ExportAssignment<'a> {
 /// Corresponds to typescript-go's `ast.ExportDeclaration`.
 #[derive(Debug)]
 pub struct ExportDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsTypeOnly`: `bool`
@@ -484,17 +1556,81 @@ pub struct ExportDeclaration<'a> {
     pub attributes: Option<&'a ImportAttributes<'a>>,
 }
 
+impl<'a> ExportDeclaration<'a> {
+    /// Construct a `ExportDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        is_type_only: bool,
+        export_clause: Option<NamedExportBindings<'a>>,
+        module_specifier: Option<Expression<'a>>,
+        attributes: Option<&'a ImportAttributes<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            is_type_only,
+            export_clause,
+            module_specifier,
+            attributes,
+        }
+    }
+}
+
+impl crate::HasNodeId for ExportDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ExportSpecifier` node.
 ///
 /// Corresponds to typescript-go's `ast.ExportSpecifier`.
 #[derive(Debug)]
 pub struct ExportSpecifier<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `IsTypeOnly`: `bool`
     pub is_type_only: bool,
     /// `PropertyName`: `ModuleExportName`
     pub property_name: Option<ModuleExportName<'a>>,
     /// `name`: `ModuleExportName`
-    pub name: ModuleExportName<'a>,
+    pub name: Option<ModuleExportName<'a>>,
+}
+
+impl<'a> ExportSpecifier<'a> {
+    /// Construct a `ExportSpecifier`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        is_type_only: bool,
+        property_name: Option<ModuleExportName<'a>>,
+        name: Option<ModuleExportName<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), is_type_only, property_name, name }
+    }
+}
+
+impl crate::HasNodeId for ExportSpecifier<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ExpressionStatement` node.
@@ -502,8 +1638,34 @@ pub struct ExportSpecifier<'a> {
 /// Corresponds to typescript-go's `ast.ExpressionStatement`.
 #[derive(Debug)]
 pub struct ExpressionStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> ExpressionStatement<'a> {
+    /// Construct a `ExpressionStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for ExpressionStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ExpressionWithTypeArguments` node.
@@ -511,10 +1673,36 @@ pub struct ExpressionStatement<'a> {
 /// Corresponds to typescript-go's `ast.ExpressionWithTypeArguments`.
 #[derive(Debug)]
 pub struct ExpressionWithTypeArguments<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `TypeArguments`: `TypeNode`
     pub type_arguments: &'a [TypeNode<'a>],
+}
+
+impl<'a> ExpressionWithTypeArguments<'a> {
+    /// Construct a `ExpressionWithTypeArguments`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
+        Self { node_id: Cell::new(None), expression, type_arguments }
+    }
+}
+
+impl crate::HasNodeId for ExpressionWithTypeArguments<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ExternalModuleReference` node.
@@ -522,8 +1710,34 @@ pub struct ExpressionWithTypeArguments<'a> {
 /// Corresponds to typescript-go's `ast.ExternalModuleReference`.
 #[derive(Debug)]
 pub struct ExternalModuleReference<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> ExternalModuleReference<'a> {
+    /// Construct a `ExternalModuleReference`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for ExternalModuleReference<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ForInOrOfStatement` node.
@@ -531,16 +1745,48 @@ pub struct ExternalModuleReference<'a> {
 /// Corresponds to typescript-go's `ast.ForInOrOfStatement`.
 #[derive(Debug)]
 pub struct ForInOrOfStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Kind`: `SyntaxKind.ForInStatement | SyntaxKind.ForOfStatement`
     pub kind: &'a Token<'a>,
     /// `AwaitModifier`: `AwaitKeyword`
     pub await_modifier: Option<&'a Token<'a>>,
     /// `Initializer`: `ForInitializer`
-    pub initializer: ForInitializer<'a>,
+    pub initializer: Option<ForInitializer<'a>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `Statement`: `Statement`
-    pub statement: Statement<'a>,
+    pub statement: Option<Statement<'a>>,
+}
+
+impl<'a> ForInOrOfStatement<'a> {
+    /// Construct a `ForInOrOfStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        kind: &'a Token<'a>,
+        await_modifier: Option<&'a Token<'a>>,
+        initializer: Option<ForInitializer<'a>>,
+        expression: Option<Expression<'a>>,
+        statement: Option<Statement<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), kind, await_modifier, initializer, expression, statement }
+    }
+}
+
+impl crate::HasNodeId for ForInOrOfStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ForStatement` node.
@@ -548,6 +1794,11 @@ pub struct ForInOrOfStatement<'a> {
 /// Corresponds to typescript-go's `ast.ForStatement`.
 #[derive(Debug)]
 pub struct ForStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Initializer`: `ForInitializer`
     pub initializer: Option<ForInitializer<'a>>,
     /// `Condition`: `Expression`
@@ -558,11 +1809,42 @@ pub struct ForStatement<'a> {
     pub statement: Statement<'a>,
 }
 
+impl<'a> ForStatement<'a> {
+    /// Construct a `ForStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        initializer: Option<ForInitializer<'a>>,
+        condition: Option<Expression<'a>>,
+        incrementor: Option<Expression<'a>>,
+        statement: Statement<'a>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), initializer, condition, incrementor, statement }
+    }
+}
+
+impl crate::HasNodeId for ForStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `FunctionDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.FunctionDeclaration`.
 #[derive(Debug)]
 pub struct FunctionDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -581,11 +1863,56 @@ pub struct FunctionDeclaration<'a> {
     pub body: Option<FunctionBody<'a>>,
 }
 
+impl<'a> FunctionDeclaration<'a> {
+    /// Construct a `FunctionDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        asterisk_token: Option<&'a Token<'a>>,
+        name: Option<&'a Identifier<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        body: Option<FunctionBody<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            asterisk_token,
+            name,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+            body,
+        }
+    }
+}
+
+impl crate::HasNodeId for FunctionDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `FunctionExpression` node.
 ///
 /// Corresponds to typescript-go's `ast.FunctionExpression`.
 #[derive(Debug)]
 pub struct FunctionExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -601,7 +1928,47 @@ pub struct FunctionExpression<'a> {
     /// `FullSignature`: `TypeNode`
     pub full_signature: Option<TypeNode<'a>>,
     /// `Body`: `FunctionBody`
-    pub body: FunctionBody<'a>,
+    pub body: Option<FunctionBody<'a>>,
+}
+
+impl<'a> FunctionExpression<'a> {
+    /// Construct a `FunctionExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        asterisk_token: Option<&'a Token<'a>>,
+        name: Option<&'a Identifier<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        body: Option<FunctionBody<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            asterisk_token,
+            name,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+            body,
+        }
+    }
+}
+
+impl crate::HasNodeId for FunctionExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `FunctionTypeNode` node.
@@ -609,6 +1976,11 @@ pub struct FunctionExpression<'a> {
 /// Corresponds to typescript-go's `ast.FunctionTypeNode`.
 #[derive(Debug)]
 pub struct FunctionTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -621,11 +1993,50 @@ pub struct FunctionTypeNode<'a> {
     pub full_signature: Option<TypeNode<'a>>,
 }
 
+impl<'a> FunctionTypeNode<'a> {
+    /// Construct a `FunctionTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        modifiers: &'a [ModifierLike<'a>],
+        full_signature: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            type_parameters,
+            parameters,
+            r#type,
+            modifiers,
+            full_signature,
+        }
+    }
+}
+
+impl crate::HasNodeId for FunctionTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `GetAccessorDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.GetAccessorDeclaration`.
 #[derive(Debug)]
 pub struct GetAccessorDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -646,15 +2057,83 @@ pub struct GetAccessorDeclaration<'a> {
     pub asterisk_token: Option<&'a Token<'a>>,
 }
 
+impl<'a> GetAccessorDeclaration<'a> {
+    /// Construct a `GetAccessorDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        body: Option<FunctionBody<'a>>,
+        postfix_token: Option<&'a Token<'a>>,
+        asterisk_token: Option<&'a Token<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            name,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+            body,
+            postfix_token,
+            asterisk_token,
+        }
+    }
+}
+
+impl crate::HasNodeId for GetAccessorDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `HeritageClause` node.
 ///
 /// Corresponds to typescript-go's `ast.HeritageClause`.
 #[derive(Debug)]
 pub struct HeritageClause<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Token`: `SyntaxKind.ExtendsKeyword | SyntaxKind.ImplementsKeyword`
     pub token: &'a Token<'a>,
     /// `Types`: `ExpressionWithTypeArguments`
     pub types: &'a [&'a ExpressionWithTypeArguments<'a>],
+}
+
+impl<'a> HeritageClause<'a> {
+    /// Construct a `HeritageClause`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(token: &'a Token<'a>, types: &'a [&'a ExpressionWithTypeArguments<'a>]) -> Self {
+        Self { node_id: Cell::new(None), token, types }
+    }
+}
+
+impl crate::HasNodeId for HeritageClause<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `Identifier` node.
@@ -662,8 +2141,34 @@ pub struct HeritageClause<'a> {
 /// Corresponds to typescript-go's `ast.Identifier`.
 #[derive(Debug)]
 pub struct Identifier<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
+}
+
+impl<'a> Identifier<'a> {
+    /// Construct a `Identifier`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(text: &'a str) -> Self {
+        Self { node_id: Cell::new(None), text }
+    }
+}
+
+impl crate::HasNodeId for Identifier<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `IfStatement` node.
@@ -671,12 +2176,42 @@ pub struct Identifier<'a> {
 /// Corresponds to typescript-go's `ast.IfStatement`.
 #[derive(Debug)]
 pub struct IfStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `ThenStatement`: `Statement`
-    pub then_statement: Statement<'a>,
+    pub then_statement: Option<Statement<'a>>,
     /// `ElseStatement`: `Statement`
     pub else_statement: Option<Statement<'a>>,
+}
+
+impl<'a> IfStatement<'a> {
+    /// Construct a `IfStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        expression: Option<Expression<'a>>,
+        then_statement: Option<Statement<'a>>,
+        else_statement: Option<Statement<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), expression, then_statement, else_statement }
+    }
+}
+
+impl crate::HasNodeId for IfStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ImportAttribute` node.
@@ -684,10 +2219,36 @@ pub struct IfStatement<'a> {
 /// Corresponds to typescript-go's `ast.ImportAttribute`.
 #[derive(Debug)]
 pub struct ImportAttribute<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `ImportAttributeName`
-    pub name: ImportAttributeName<'a>,
+    pub name: Option<ImportAttributeName<'a>>,
     /// `Value`: `Expression`
-    pub value: Expression<'a>,
+    pub value: Option<Expression<'a>>,
+}
+
+impl<'a> ImportAttribute<'a> {
+    /// Construct a `ImportAttribute`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(name: Option<ImportAttributeName<'a>>, value: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), name, value }
+    }
+}
+
+impl crate::HasNodeId for ImportAttribute<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ImportAttributes` node.
@@ -695,6 +2256,11 @@ pub struct ImportAttribute<'a> {
 /// Corresponds to typescript-go's `ast.ImportAttributes`.
 #[derive(Debug)]
 pub struct ImportAttributes<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Token`: `SyntaxKind.WithKeyword | SyntaxKind.AssertKeyword`
     pub token: &'a Token<'a>,
     /// `Attributes`: `ImportAttribute`
@@ -703,11 +2269,41 @@ pub struct ImportAttributes<'a> {
     pub multi_line: bool,
 }
 
+impl<'a> ImportAttributes<'a> {
+    /// Construct a `ImportAttributes`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        token: &'a Token<'a>,
+        attributes: &'a [&'a ImportAttribute<'a>],
+        multi_line: bool,
+    ) -> Self {
+        Self { node_id: Cell::new(None), token, attributes, multi_line }
+    }
+}
+
+impl crate::HasNodeId for ImportAttributes<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ImportClause` node.
 ///
 /// Corresponds to typescript-go's `ast.ImportClause`.
 #[derive(Debug)]
 pub struct ImportClause<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `PhaseModifier`: `ImportPhaseModifierSyntaxKind`
     pub phase_modifier: Option<&'a Token<'a>>,
     /// `name`: `Identifier`
@@ -716,19 +2312,75 @@ pub struct ImportClause<'a> {
     pub named_bindings: Option<NamedImportBindings<'a>>,
 }
 
+impl<'a> ImportClause<'a> {
+    /// Construct a `ImportClause`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        phase_modifier: Option<&'a Token<'a>>,
+        name: Option<&'a Identifier<'a>>,
+        named_bindings: Option<NamedImportBindings<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), phase_modifier, name, named_bindings }
+    }
+}
+
+impl crate::HasNodeId for ImportClause<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ImportDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.ImportDeclaration`.
 #[derive(Debug)]
 pub struct ImportDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `ImportClause`: `ImportClause`
     pub import_clause: Option<&'a ImportClause<'a>>,
     /// `ModuleSpecifier`: `Expression`
-    pub module_specifier: Expression<'a>,
+    pub module_specifier: Option<Expression<'a>>,
     /// `Attributes`: `ImportAttributes`
     pub attributes: Option<&'a ImportAttributes<'a>>,
+}
+
+impl<'a> ImportDeclaration<'a> {
+    /// Construct a `ImportDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        import_clause: Option<&'a ImportClause<'a>>,
+        module_specifier: Option<Expression<'a>>,
+        attributes: Option<&'a ImportAttributes<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, import_clause, module_specifier, attributes }
+    }
+}
+
+impl crate::HasNodeId for ImportDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ImportEqualsDeclaration` node.
@@ -736,14 +2388,45 @@ pub struct ImportDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.ImportEqualsDeclaration`.
 #[derive(Debug)]
 pub struct ImportEqualsDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsTypeOnly`: `bool`
     pub is_type_only: bool,
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
     /// `ModuleReference`: `ModuleReference`
-    pub module_reference: ModuleReference<'a>,
+    pub module_reference: Option<ModuleReference<'a>>,
+}
+
+impl<'a> ImportEqualsDeclaration<'a> {
+    /// Construct a `ImportEqualsDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        is_type_only: bool,
+        name: Option<&'a Identifier<'a>>,
+        module_reference: Option<ModuleReference<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, is_type_only, name, module_reference }
+    }
+}
+
+impl crate::HasNodeId for ImportEqualsDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ImportSpecifier` node.
@@ -751,12 +2434,42 @@ pub struct ImportEqualsDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.ImportSpecifier`.
 #[derive(Debug)]
 pub struct ImportSpecifier<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `IsTypeOnly`: `bool`
     pub is_type_only: bool,
     /// `PropertyName`: `ModuleExportName`
     pub property_name: Option<ModuleExportName<'a>>,
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> ImportSpecifier<'a> {
+    /// Construct a `ImportSpecifier`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        is_type_only: bool,
+        property_name: Option<ModuleExportName<'a>>,
+        name: Option<&'a Identifier<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), is_type_only, property_name, name }
+    }
+}
+
+impl crate::HasNodeId for ImportSpecifier<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ImportTypeNode` node.
@@ -764,10 +2477,15 @@ pub struct ImportSpecifier<'a> {
 /// Corresponds to typescript-go's `ast.ImportTypeNode`.
 #[derive(Debug)]
 pub struct ImportTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `IsTypeOf`: `bool`
     pub is_type_of: bool,
     /// `Argument`: `TypeNode`
-    pub argument: TypeNode<'a>,
+    pub argument: Option<TypeNode<'a>>,
     /// `Attributes`: `ImportAttributes`
     pub attributes: Option<&'a ImportAttributes<'a>>,
     /// `Qualifier`: `EntityName`
@@ -776,11 +2494,50 @@ pub struct ImportTypeNode<'a> {
     pub type_arguments: &'a [TypeNode<'a>],
 }
 
+impl<'a> ImportTypeNode<'a> {
+    /// Construct a `ImportTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        is_type_of: bool,
+        argument: Option<TypeNode<'a>>,
+        attributes: Option<&'a ImportAttributes<'a>>,
+        qualifier: Option<EntityName<'a>>,
+        type_arguments: &'a [TypeNode<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            is_type_of,
+            argument,
+            attributes,
+            qualifier,
+            type_arguments,
+        }
+    }
+}
+
+impl crate::HasNodeId for ImportTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `IndexSignatureDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.IndexSignatureDeclaration`.
 #[derive(Debug)]
 pub struct IndexSignatureDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -793,15 +2550,75 @@ pub struct IndexSignatureDeclaration<'a> {
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
 }
 
+impl<'a> IndexSignatureDeclaration<'a> {
+    /// Construct a `IndexSignatureDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            parameters,
+            r#type,
+            full_signature,
+            type_parameters,
+        }
+    }
+}
+
+impl crate::HasNodeId for IndexSignatureDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `IndexedAccessTypeNode` node.
 ///
 /// Corresponds to typescript-go's `ast.IndexedAccessTypeNode`.
 #[derive(Debug)]
 pub struct IndexedAccessTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `ObjectType`: `TypeNode`
-    pub object_type: TypeNode<'a>,
+    pub object_type: Option<TypeNode<'a>>,
     /// `IndexType`: `TypeNode`
-    pub index_type: TypeNode<'a>,
+    pub index_type: Option<TypeNode<'a>>,
+}
+
+impl<'a> IndexedAccessTypeNode<'a> {
+    /// Construct a `IndexedAccessTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(object_type: Option<TypeNode<'a>>, index_type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), object_type, index_type }
+    }
+}
+
+impl crate::HasNodeId for IndexedAccessTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `InferTypeNode` node.
@@ -809,8 +2626,34 @@ pub struct IndexedAccessTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.InferTypeNode`.
 #[derive(Debug)]
 pub struct InferTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TypeParameter`: `TypeParameterDeclaration`
-    pub type_parameter: &'a TypeParameterDeclaration<'a>,
+    pub type_parameter: Option<&'a TypeParameterDeclaration<'a>>,
+}
+
+impl<'a> InferTypeNode<'a> {
+    /// Construct a `InferTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(type_parameter: Option<&'a TypeParameterDeclaration<'a>>) -> Self {
+        Self { node_id: Cell::new(None), type_parameter }
+    }
+}
+
+impl crate::HasNodeId for InferTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `InterfaceDeclaration` node.
@@ -818,10 +2661,15 @@ pub struct InferTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.InterfaceDeclaration`.
 #[derive(Debug)]
 pub struct InterfaceDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `HeritageClauses`: `HeritageClause`
@@ -830,13 +2678,73 @@ pub struct InterfaceDeclaration<'a> {
     pub members: &'a [TypeElement<'a>],
 }
 
+impl<'a> InterfaceDeclaration<'a> {
+    /// Construct a `InterfaceDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: Option<&'a Identifier<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        heritage_clauses: &'a [&'a HeritageClause<'a>],
+        members: &'a [TypeElement<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            name,
+            type_parameters,
+            heritage_clauses,
+            members,
+        }
+    }
+}
+
+impl crate::HasNodeId for InterfaceDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `IntersectionTypeNode` node.
 ///
 /// Corresponds to typescript-go's `ast.IntersectionTypeNode`.
 #[derive(Debug)]
 pub struct IntersectionTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Types`: `TypeNode`
     pub types: &'a [TypeNode<'a>],
+}
+
+impl<'a> IntersectionTypeNode<'a> {
+    /// Construct a `IntersectionTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(types: &'a [TypeNode<'a>]) -> Self {
+        Self { node_id: Cell::new(None), types }
+    }
+}
+
+impl crate::HasNodeId for IntersectionTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDoc` node.
@@ -844,10 +2752,36 @@ pub struct IntersectionTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.JSDoc`.
 #[derive(Debug)]
 pub struct JSDoc<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
     /// `Tags`: `JSDocTag`
     pub tags: &'a [JSDocTag<'a>],
+}
+
+impl<'a> JSDoc<'a> {
+    /// Construct a `JSDoc`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(comment: &'a [JSDocComment<'a>], tags: &'a [JSDocTag<'a>]) -> Self {
+        Self { node_id: Cell::new(None), comment, tags }
+    }
+}
+
+impl crate::HasNodeId for JSDoc<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocAllType` node.
@@ -855,9 +2789,35 @@ pub struct JSDoc<'a> {
 /// Corresponds to typescript-go's `ast.JSDocAllType`.
 #[derive(Debug)]
 pub struct JSDocAllType<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl JSDocAllType<'_> {
+    /// Construct a `JSDocAllType`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for JSDocAllType<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocAugmentsTag` node.
@@ -865,12 +2825,42 @@ pub struct JSDocAllType<'a> {
 /// Corresponds to typescript-go's `ast.JSDocAugmentsTag`.
 #[derive(Debug)]
 pub struct JSDocAugmentsTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ClassName`: `ExpressionWithTypeArguments`
-    pub class_name: &'a ExpressionWithTypeArguments<'a>,
+    pub class_name: Option<&'a ExpressionWithTypeArguments<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocAugmentsTag<'a> {
+    /// Construct a `JSDocAugmentsTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        class_name: Option<&'a ExpressionWithTypeArguments<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, class_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocAugmentsTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocCallbackTag` node.
@@ -878,14 +2868,45 @@ pub struct JSDocAugmentsTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocCallbackTag`.
 #[derive(Debug)]
 pub struct JSDocCallbackTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
-    pub type_expression: TypeNode<'a>,
+    pub type_expression: Option<TypeNode<'a>>,
     /// `name`: `JSDocFullName`
     pub name: Option<JSDocFullName<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocCallbackTag<'a> {
+    /// Construct a `JSDocCallbackTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<TypeNode<'a>>,
+        name: Option<JSDocFullName<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocCallbackTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocDeprecatedTag` node.
@@ -893,10 +2914,36 @@ pub struct JSDocCallbackTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocDeprecatedTag`.
 #[derive(Debug)]
 pub struct JSDocDeprecatedTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocDeprecatedTag<'a> {
+    /// Construct a `JSDocDeprecatedTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
+        Self { node_id: Cell::new(None), tag_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocDeprecatedTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocImplementsTag` node.
@@ -904,12 +2951,42 @@ pub struct JSDocDeprecatedTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocImplementsTag`.
 #[derive(Debug)]
 pub struct JSDocImplementsTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ClassName`: `ExpressionWithTypeArguments`
-    pub class_name: &'a ExpressionWithTypeArguments<'a>,
+    pub class_name: Option<&'a ExpressionWithTypeArguments<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocImplementsTag<'a> {
+    /// Construct a `JSDocImplementsTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        class_name: Option<&'a ExpressionWithTypeArguments<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, class_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocImplementsTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocImportTag` node.
@@ -917,16 +2994,55 @@ pub struct JSDocImplementsTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocImportTag`.
 #[derive(Debug)]
 pub struct JSDocImportTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ImportClause`: `ImportClause`
     pub import_clause: Option<&'a ImportClause<'a>>,
     /// `ModuleSpecifier`: `Expression`
-    pub module_specifier: Expression<'a>,
+    pub module_specifier: Option<Expression<'a>>,
     /// `Attributes`: `ImportAttributes`
     pub attributes: Option<&'a ImportAttributes<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocImportTag<'a> {
+    /// Construct a `JSDocImportTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        import_clause: Option<&'a ImportClause<'a>>,
+        module_specifier: Option<Expression<'a>>,
+        attributes: Option<&'a ImportAttributes<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            tag_name,
+            import_clause,
+            module_specifier,
+            attributes,
+            comment,
+        }
+    }
+}
+
+impl crate::HasNodeId for JSDocImportTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocLink` node.
@@ -934,10 +3050,36 @@ pub struct JSDocImportTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocLink`.
 #[derive(Debug)]
 pub struct JSDocLink<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
     pub text: &'a [&'a str],
+}
+
+impl<'a> JSDocLink<'a> {
+    /// Construct a `JSDocLink`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
+        Self { node_id: Cell::new(None), name, text }
+    }
+}
+
+impl crate::HasNodeId for JSDocLink<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocLinkCode` node.
@@ -945,10 +3087,36 @@ pub struct JSDocLink<'a> {
 /// Corresponds to typescript-go's `ast.JSDocLinkCode`.
 #[derive(Debug)]
 pub struct JSDocLinkCode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
     pub text: &'a [&'a str],
+}
+
+impl<'a> JSDocLinkCode<'a> {
+    /// Construct a `JSDocLinkCode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
+        Self { node_id: Cell::new(None), name, text }
+    }
+}
+
+impl crate::HasNodeId for JSDocLinkCode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocLinkPlain` node.
@@ -956,10 +3124,36 @@ pub struct JSDocLinkCode<'a> {
 /// Corresponds to typescript-go's `ast.JSDocLinkPlain`.
 #[derive(Debug)]
 pub struct JSDocLinkPlain<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
     pub text: &'a [&'a str],
+}
+
+impl<'a> JSDocLinkPlain<'a> {
+    /// Construct a `JSDocLinkPlain`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
+        Self { node_id: Cell::new(None), name, text }
+    }
+}
+
+impl crate::HasNodeId for JSDocLinkPlain<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocNameReference` node.
@@ -967,8 +3161,34 @@ pub struct JSDocLinkPlain<'a> {
 /// Corresponds to typescript-go's `ast.JSDocNameReference`.
 #[derive(Debug)]
 pub struct JSDocNameReference<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `EntityName`
-    pub name: EntityName<'a>,
+    pub name: Option<EntityName<'a>>,
+}
+
+impl<'a> JSDocNameReference<'a> {
+    /// Construct a `JSDocNameReference`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(name: Option<EntityName<'a>>) -> Self {
+        Self { node_id: Cell::new(None), name }
+    }
+}
+
+impl crate::HasNodeId for JSDocNameReference<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocNonNullableType` node.
@@ -976,8 +3196,34 @@ pub struct JSDocNameReference<'a> {
 /// Corresponds to typescript-go's `ast.JSDocNonNullableType`.
 #[derive(Debug)]
 pub struct JSDocNonNullableType<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> JSDocNonNullableType<'a> {
+    /// Construct a `JSDocNonNullableType`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for JSDocNonNullableType<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocNullableType` node.
@@ -985,8 +3231,34 @@ pub struct JSDocNonNullableType<'a> {
 /// Corresponds to typescript-go's `ast.JSDocNullableType`.
 #[derive(Debug)]
 pub struct JSDocNullableType<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> JSDocNullableType<'a> {
+    /// Construct a `JSDocNullableType`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for JSDocNullableType<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocOptionalType` node.
@@ -994,8 +3266,34 @@ pub struct JSDocNullableType<'a> {
 /// Corresponds to typescript-go's `ast.JSDocOptionalType`.
 #[derive(Debug)]
 pub struct JSDocOptionalType<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> JSDocOptionalType<'a> {
+    /// Construct a `JSDocOptionalType`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for JSDocOptionalType<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocOverloadTag` node.
@@ -1003,12 +3301,42 @@ pub struct JSDocOptionalType<'a> {
 /// Corresponds to typescript-go's `ast.JSDocOverloadTag`.
 #[derive(Debug)]
 pub struct JSDocOverloadTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
-    pub type_expression: TypeNode<'a>,
+    pub type_expression: Option<TypeNode<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocOverloadTag<'a> {
+    /// Construct a `JSDocOverloadTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<TypeNode<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocOverloadTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocOverrideTag` node.
@@ -1016,10 +3344,36 @@ pub struct JSDocOverloadTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocOverrideTag`.
 #[derive(Debug)]
 pub struct JSDocOverrideTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocOverrideTag<'a> {
+    /// Construct a `JSDocOverrideTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
+        Self { node_id: Cell::new(None), tag_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocOverrideTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocParameterOrPropertyTag` node.
@@ -1027,12 +3381,17 @@ pub struct JSDocOverrideTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocParameterOrPropertyTag`.
 #[derive(Debug)]
 pub struct JSDocParameterOrPropertyTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Kind`: `SyntaxKind.JSDocParameterTag | SyntaxKind.JSDocPropertyTag`
     pub kind: &'a Token<'a>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `name`: `EntityName`
-    pub name: EntityName<'a>,
+    pub name: Option<EntityName<'a>>,
     /// `IsBracketed`: `bool`
     pub is_bracketed: bool,
     /// `TypeExpression`: `TypeNode`
@@ -1043,15 +3402,79 @@ pub struct JSDocParameterOrPropertyTag<'a> {
     pub comment: &'a [JSDocComment<'a>],
 }
 
+impl<'a> JSDocParameterOrPropertyTag<'a> {
+    /// Construct a `JSDocParameterOrPropertyTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        kind: &'a Token<'a>,
+        tag_name: &'a Identifier<'a>,
+        name: Option<EntityName<'a>>,
+        is_bracketed: bool,
+        type_expression: Option<TypeNode<'a>>,
+        is_name_first: bool,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            kind,
+            tag_name,
+            name,
+            is_bracketed,
+            type_expression,
+            is_name_first,
+            comment,
+        }
+    }
+}
+
+impl crate::HasNodeId for JSDocParameterOrPropertyTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `JSDocPrivateTag` node.
 ///
 /// Corresponds to typescript-go's `ast.JSDocPrivateTag`.
 #[derive(Debug)]
 pub struct JSDocPrivateTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocPrivateTag<'a> {
+    /// Construct a `JSDocPrivateTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
+        Self { node_id: Cell::new(None), tag_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocPrivateTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocProtectedTag` node.
@@ -1059,10 +3482,36 @@ pub struct JSDocPrivateTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocProtectedTag`.
 #[derive(Debug)]
 pub struct JSDocProtectedTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocProtectedTag<'a> {
+    /// Construct a `JSDocProtectedTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
+        Self { node_id: Cell::new(None), tag_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocProtectedTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocPublicTag` node.
@@ -1070,10 +3519,36 @@ pub struct JSDocProtectedTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocPublicTag`.
 #[derive(Debug)]
 pub struct JSDocPublicTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocPublicTag<'a> {
+    /// Construct a `JSDocPublicTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
+        Self { node_id: Cell::new(None), tag_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocPublicTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocReadonlyTag` node.
@@ -1081,10 +3556,36 @@ pub struct JSDocPublicTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocReadonlyTag`.
 #[derive(Debug)]
 pub struct JSDocReadonlyTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocReadonlyTag<'a> {
+    /// Construct a `JSDocReadonlyTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
+        Self { node_id: Cell::new(None), tag_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocReadonlyTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocReturnTag` node.
@@ -1092,6 +3593,11 @@ pub struct JSDocReadonlyTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocReturnTag`.
 #[derive(Debug)]
 pub struct JSDocReturnTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -1100,17 +3606,72 @@ pub struct JSDocReturnTag<'a> {
     pub comment: &'a [JSDocComment<'a>],
 }
 
+impl<'a> JSDocReturnTag<'a> {
+    /// Construct a `JSDocReturnTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<TypeNode<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocReturnTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `JSDocSatisfiesTag` node.
 ///
 /// Corresponds to typescript-go's `ast.JSDocSatisfiesTag`.
 #[derive(Debug)]
 pub struct JSDocSatisfiesTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
-    pub type_expression: TypeNode<'a>,
+    pub type_expression: Option<TypeNode<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocSatisfiesTag<'a> {
+    /// Construct a `JSDocSatisfiesTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<TypeNode<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocSatisfiesTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocSeeTag` node.
@@ -1118,12 +3679,42 @@ pub struct JSDocSatisfiesTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocSeeTag`.
 #[derive(Debug)]
 pub struct JSDocSeeTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `NameExpression`: `TypeNode`
-    pub name_expression: TypeNode<'a>,
+    pub name_expression: Option<TypeNode<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocSeeTag<'a> {
+    /// Construct a `JSDocSeeTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        name_expression: Option<TypeNode<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, name_expression, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocSeeTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocSignature` node.
@@ -1131,6 +3722,11 @@ pub struct JSDocSeeTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocSignature`.
 #[derive(Debug)]
 pub struct JSDocSignature<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -1141,19 +3737,76 @@ pub struct JSDocSignature<'a> {
     pub full_signature: Option<TypeNode<'a>>,
 }
 
+impl<'a> JSDocSignature<'a> {
+    /// Construct a `JSDocSignature`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), type_parameters, parameters, r#type, full_signature }
+    }
+}
+
+impl crate::HasNodeId for JSDocSignature<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `JSDocTemplateTag` node.
 ///
 /// Corresponds to typescript-go's `ast.JSDocTemplateTag`.
 #[derive(Debug)]
 pub struct JSDocTemplateTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Constraint`: `Node`
-    pub constraint: Node<'a>,
+    pub constraint: Option<Node<'a>>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocTemplateTag<'a> {
+    /// Construct a `JSDocTemplateTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        constraint: Option<Node<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, constraint, type_parameters, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocTemplateTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocText` node.
@@ -1161,8 +3814,34 @@ pub struct JSDocTemplateTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocText`.
 #[derive(Debug)]
 pub struct JSDocText<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `text`: `string`
     pub text: &'a [&'a str],
+}
+
+impl<'a> JSDocText<'a> {
+    /// Construct a `JSDocText`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(text: &'a [&'a str]) -> Self {
+        Self { node_id: Cell::new(None), text }
+    }
+}
+
+impl crate::HasNodeId for JSDocText<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocThisTag` node.
@@ -1170,19 +3849,11 @@ pub struct JSDocText<'a> {
 /// Corresponds to typescript-go's `ast.JSDocThisTag`.
 #[derive(Debug)]
 pub struct JSDocThisTag<'a> {
-    /// `TagName`: `Identifier`
-    pub tag_name: &'a Identifier<'a>,
-    /// `TypeExpression`: `TypeNode`
-    pub type_expression: TypeNode<'a>,
-    /// `Comment`: `JSDocComment`
-    pub comment: &'a [JSDocComment<'a>],
-}
-
-/// The `JSDocThrowsTag` node.
-///
-/// Corresponds to typescript-go's `ast.JSDocThrowsTag`.
-#[derive(Debug)]
-pub struct JSDocThrowsTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -1191,13 +3862,107 @@ pub struct JSDocThrowsTag<'a> {
     pub comment: &'a [JSDocComment<'a>],
 }
 
+impl<'a> JSDocThisTag<'a> {
+    /// Construct a `JSDocThisTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<TypeNode<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocThisTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
+/// The `JSDocThrowsTag` node.
+///
+/// Corresponds to typescript-go's `ast.JSDocThrowsTag`.
+#[derive(Debug)]
+pub struct JSDocThrowsTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
+    /// `TagName`: `Identifier`
+    pub tag_name: &'a Identifier<'a>,
+    /// `TypeExpression`: `TypeNode`
+    pub type_expression: Option<TypeNode<'a>>,
+    /// `Comment`: `JSDocComment`
+    pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocThrowsTag<'a> {
+    /// Construct a `JSDocThrowsTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<TypeNode<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocThrowsTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `JSDocTypeExpression` node.
 ///
 /// Corresponds to typescript-go's `ast.JSDocTypeExpression`.
 #[derive(Debug)]
 pub struct JSDocTypeExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> JSDocTypeExpression<'a> {
+    /// Construct a `JSDocTypeExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for JSDocTypeExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocTypeLiteral` node.
@@ -1205,10 +3970,36 @@ pub struct JSDocTypeExpression<'a> {
 /// Corresponds to typescript-go's `ast.JSDocTypeLiteral`.
 #[derive(Debug)]
 pub struct JSDocTypeLiteral<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `JSDocPropertyTags`: `JSDocTag`
     pub js_doc_property_tags: &'a [JSDocTag<'a>],
     /// `IsArrayType`: `bool`
     pub is_array_type: bool,
+}
+
+impl<'a> JSDocTypeLiteral<'a> {
+    /// Construct a `JSDocTypeLiteral`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(js_doc_property_tags: &'a [JSDocTag<'a>], is_array_type: bool) -> Self {
+        Self { node_id: Cell::new(None), js_doc_property_tags, is_array_type }
+    }
+}
+
+impl crate::HasNodeId for JSDocTypeLiteral<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocTypeTag` node.
@@ -1216,12 +4007,42 @@ pub struct JSDocTypeLiteral<'a> {
 /// Corresponds to typescript-go's `ast.JSDocTypeTag`.
 #[derive(Debug)]
 pub struct JSDocTypeTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `Node`
-    pub type_expression: Node<'a>,
+    pub type_expression: Option<Node<'a>>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocTypeTag<'a> {
+    /// Construct a `JSDocTypeTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<Node<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocTypeTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocTypedefTag` node.
@@ -1229,6 +4050,11 @@ pub struct JSDocTypeTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocTypedefTag`.
 #[derive(Debug)]
 pub struct JSDocTypedefTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `Node`
@@ -1239,15 +4065,67 @@ pub struct JSDocTypedefTag<'a> {
     pub comment: &'a [JSDocComment<'a>],
 }
 
+impl<'a> JSDocTypedefTag<'a> {
+    /// Construct a `JSDocTypedefTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: &'a Identifier<'a>,
+        type_expression: Option<Node<'a>>,
+        name: Option<JSDocFullName<'a>>,
+        comment: &'a [JSDocComment<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_expression, name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocTypedefTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `JSDocUnknownTag` node.
 ///
 /// Corresponds to typescript-go's `ast.JSDocUnknownTag`.
 #[derive(Debug)]
 pub struct JSDocUnknownTag<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
+}
+
+impl<'a> JSDocUnknownTag<'a> {
+    /// Construct a `JSDocUnknownTag`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
+        Self { node_id: Cell::new(None), tag_name, comment }
+    }
+}
+
+impl crate::HasNodeId for JSDocUnknownTag<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JSDocVariadicType` node.
@@ -1255,8 +4133,34 @@ pub struct JSDocUnknownTag<'a> {
 /// Corresponds to typescript-go's `ast.JSDocVariadicType`.
 #[derive(Debug)]
 pub struct JSDocVariadicType<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> JSDocVariadicType<'a> {
+    /// Construct a `JSDocVariadicType`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for JSDocVariadicType<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxAttribute` node.
@@ -1264,10 +4168,39 @@ pub struct JSDocVariadicType<'a> {
 /// Corresponds to typescript-go's `ast.JsxAttribute`.
 #[derive(Debug)]
 pub struct JsxAttribute<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `JsxAttributeName`
-    pub name: JsxAttributeName<'a>,
+    pub name: Option<JsxAttributeName<'a>>,
     /// `Initializer`: `JsxAttributeValue`
     pub initializer: Option<JsxAttributeValue<'a>>,
+}
+
+impl<'a> JsxAttribute<'a> {
+    /// Construct a `JsxAttribute`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        name: Option<JsxAttributeName<'a>>,
+        initializer: Option<JsxAttributeValue<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), name, initializer }
+    }
+}
+
+impl crate::HasNodeId for JsxAttribute<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxAttributes` node.
@@ -1275,8 +4208,34 @@ pub struct JsxAttribute<'a> {
 /// Corresponds to typescript-go's `ast.JsxAttributes`.
 #[derive(Debug)]
 pub struct JsxAttributes<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Properties`: `JsxAttributeLike`
     pub properties: &'a [JsxAttributeLike<'a>],
+}
+
+impl<'a> JsxAttributes<'a> {
+    /// Construct a `JsxAttributes`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(properties: &'a [JsxAttributeLike<'a>]) -> Self {
+        Self { node_id: Cell::new(None), properties }
+    }
+}
+
+impl crate::HasNodeId for JsxAttributes<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxClosingElement` node.
@@ -1284,8 +4243,34 @@ pub struct JsxAttributes<'a> {
 /// Corresponds to typescript-go's `ast.JsxClosingElement`.
 #[derive(Debug)]
 pub struct JsxClosingElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `JsxTagNameExpression`
-    pub tag_name: JsxTagNameExpression<'a>,
+    pub tag_name: Option<JsxTagNameExpression<'a>>,
+}
+
+impl<'a> JsxClosingElement<'a> {
+    /// Construct a `JsxClosingElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(tag_name: Option<JsxTagNameExpression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), tag_name }
+    }
+}
+
+impl crate::HasNodeId for JsxClosingElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxClosingFragment` node.
@@ -1293,9 +4278,35 @@ pub struct JsxClosingElement<'a> {
 /// Corresponds to typescript-go's `ast.JsxClosingFragment`.
 #[derive(Debug)]
 pub struct JsxClosingFragment<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl JsxClosingFragment<'_> {
+    /// Construct a `JsxClosingFragment`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for JsxClosingFragment<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxElement` node.
@@ -1303,12 +4314,42 @@ pub struct JsxClosingFragment<'a> {
 /// Corresponds to typescript-go's `ast.JsxElement`.
 #[derive(Debug)]
 pub struct JsxElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `OpeningElement`: `JsxOpeningElement`
-    pub opening_element: &'a JsxOpeningElement<'a>,
+    pub opening_element: Option<&'a JsxOpeningElement<'a>>,
     /// `Children`: `JsxChild`
     pub children: &'a [JsxChild<'a>],
     /// `ClosingElement`: `JsxClosingElement`
-    pub closing_element: &'a JsxClosingElement<'a>,
+    pub closing_element: Option<&'a JsxClosingElement<'a>>,
+}
+
+impl<'a> JsxElement<'a> {
+    /// Construct a `JsxElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        opening_element: Option<&'a JsxOpeningElement<'a>>,
+        children: &'a [JsxChild<'a>],
+        closing_element: Option<&'a JsxClosingElement<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), opening_element, children, closing_element }
+    }
+}
+
+impl crate::HasNodeId for JsxElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxExpression` node.
@@ -1316,10 +4357,39 @@ pub struct JsxElement<'a> {
 /// Corresponds to typescript-go's `ast.JsxExpression`.
 #[derive(Debug)]
 pub struct JsxExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> JsxExpression<'a> {
+    /// Construct a `JsxExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        dot_dot_dot_token: Option<&'a Token<'a>>,
+        expression: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), dot_dot_dot_token, expression }
+    }
+}
+
+impl crate::HasNodeId for JsxExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxFragment` node.
@@ -1327,12 +4397,42 @@ pub struct JsxExpression<'a> {
 /// Corresponds to typescript-go's `ast.JsxFragment`.
 #[derive(Debug)]
 pub struct JsxFragment<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `OpeningFragment`: `JsxOpeningFragment`
-    pub opening_fragment: &'a JsxOpeningFragment<'a>,
+    pub opening_fragment: Option<&'a JsxOpeningFragment<'a>>,
     /// `Children`: `JsxChild`
     pub children: &'a [JsxChild<'a>],
     /// `ClosingFragment`: `JsxClosingFragment`
-    pub closing_fragment: &'a JsxClosingFragment<'a>,
+    pub closing_fragment: Option<&'a JsxClosingFragment<'a>>,
+}
+
+impl<'a> JsxFragment<'a> {
+    /// Construct a `JsxFragment`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        opening_fragment: Option<&'a JsxOpeningFragment<'a>>,
+        children: &'a [JsxChild<'a>],
+        closing_fragment: Option<&'a JsxClosingFragment<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), opening_fragment, children, closing_fragment }
+    }
+}
+
+impl crate::HasNodeId for JsxFragment<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxNamespacedName` node.
@@ -1340,10 +4440,36 @@ pub struct JsxFragment<'a> {
 /// Corresponds to typescript-go's `ast.JsxNamespacedName`.
 #[derive(Debug)]
 pub struct JsxNamespacedName<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Namespace`: `Identifier`
-    pub namespace: &'a Identifier<'a>,
+    pub namespace: Option<&'a Identifier<'a>>,
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> JsxNamespacedName<'a> {
+    /// Construct a `JsxNamespacedName`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(namespace: Option<&'a Identifier<'a>>, name: Option<&'a Identifier<'a>>) -> Self {
+        Self { node_id: Cell::new(None), namespace, name }
+    }
+}
+
+impl crate::HasNodeId for JsxNamespacedName<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxOpeningElement` node.
@@ -1351,12 +4477,42 @@ pub struct JsxNamespacedName<'a> {
 /// Corresponds to typescript-go's `ast.JsxOpeningElement`.
 #[derive(Debug)]
 pub struct JsxOpeningElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `JsxTagNameExpression`
-    pub tag_name: JsxTagNameExpression<'a>,
+    pub tag_name: Option<JsxTagNameExpression<'a>>,
     /// `TypeArguments`: `TypeNode`
     pub type_arguments: &'a [TypeNode<'a>],
     /// `Attributes`: `JsxAttributes`
-    pub attributes: &'a JsxAttributes<'a>,
+    pub attributes: Option<&'a JsxAttributes<'a>>,
+}
+
+impl<'a> JsxOpeningElement<'a> {
+    /// Construct a `JsxOpeningElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: Option<JsxTagNameExpression<'a>>,
+        type_arguments: &'a [TypeNode<'a>],
+        attributes: Option<&'a JsxAttributes<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_arguments, attributes }
+    }
+}
+
+impl crate::HasNodeId for JsxOpeningElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxOpeningFragment` node.
@@ -1364,9 +4520,35 @@ pub struct JsxOpeningElement<'a> {
 /// Corresponds to typescript-go's `ast.JsxOpeningFragment`.
 #[derive(Debug)]
 pub struct JsxOpeningFragment<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl JsxOpeningFragment<'_> {
+    /// Construct a `JsxOpeningFragment`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for JsxOpeningFragment<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxSelfClosingElement` node.
@@ -1374,12 +4556,42 @@ pub struct JsxOpeningFragment<'a> {
 /// Corresponds to typescript-go's `ast.JsxSelfClosingElement`.
 #[derive(Debug)]
 pub struct JsxSelfClosingElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TagName`: `JsxTagNameExpression`
-    pub tag_name: JsxTagNameExpression<'a>,
+    pub tag_name: Option<JsxTagNameExpression<'a>>,
     /// `TypeArguments`: `TypeNode`
     pub type_arguments: &'a [TypeNode<'a>],
     /// `Attributes`: `JsxAttributes`
-    pub attributes: &'a JsxAttributes<'a>,
+    pub attributes: Option<&'a JsxAttributes<'a>>,
+}
+
+impl<'a> JsxSelfClosingElement<'a> {
+    /// Construct a `JsxSelfClosingElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag_name: Option<JsxTagNameExpression<'a>>,
+        type_arguments: &'a [TypeNode<'a>],
+        attributes: Option<&'a JsxAttributes<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag_name, type_arguments, attributes }
+    }
+}
+
+impl crate::HasNodeId for JsxSelfClosingElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxSpreadAttribute` node.
@@ -1387,8 +4599,34 @@ pub struct JsxSelfClosingElement<'a> {
 /// Corresponds to typescript-go's `ast.JsxSpreadAttribute`.
 #[derive(Debug)]
 pub struct JsxSpreadAttribute<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> JsxSpreadAttribute<'a> {
+    /// Construct a `JsxSpreadAttribute`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for JsxSpreadAttribute<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `JsxText` node.
@@ -1396,6 +4634,11 @@ pub struct JsxSpreadAttribute<'a> {
 /// Corresponds to typescript-go's `ast.JsxText`.
 #[derive(Debug)]
 pub struct JsxText<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `ContainsOnlyTriviaWhiteSpaces`: `bool`
@@ -1404,16 +4647,67 @@ pub struct JsxText<'a> {
     pub token_flags: crate::TokenFlags,
 }
 
+impl<'a> JsxText<'a> {
+    /// Construct a `JsxText`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        text: &'a str,
+        contains_only_trivia_white_spaces: bool,
+        token_flags: crate::TokenFlags,
+    ) -> Self {
+        Self { node_id: Cell::new(None), text, contains_only_trivia_white_spaces, token_flags }
+    }
+}
+
+impl crate::HasNodeId for JsxText<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `KeywordExpression` node.
 ///
 /// Corresponds to typescript-go's `ast.KeywordExpression`.
 #[derive(Debug)]
 pub struct KeywordExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
     /// `Kind`: `TKind`
     pub kind: SyntaxKind,
+}
+
+impl KeywordExpression<'_> {
+    /// Construct a `KeywordExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(kind: SyntaxKind) -> Self {
+        Self { node_id: Cell::new(None), kind, _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for KeywordExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `KeywordTypeNode` node.
@@ -1421,6 +4715,11 @@ pub struct KeywordExpression<'a> {
 /// Corresponds to typescript-go's `ast.KeywordTypeNode`.
 #[derive(Debug)]
 pub struct KeywordTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -1428,15 +4727,62 @@ pub struct KeywordTypeNode<'a> {
     pub kind: SyntaxKind,
 }
 
+impl KeywordTypeNode<'_> {
+    /// Construct a `KeywordTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(kind: SyntaxKind) -> Self {
+        Self { node_id: Cell::new(None), kind, _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for KeywordTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `LabeledStatement` node.
 ///
 /// Corresponds to typescript-go's `ast.LabeledStatement`.
 #[derive(Debug)]
 pub struct LabeledStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Label`: `Identifier`
-    pub label: &'a Identifier<'a>,
+    pub label: Option<&'a Identifier<'a>>,
     /// `Statement`: `Statement`
-    pub statement: Statement<'a>,
+    pub statement: Option<Statement<'a>>,
+}
+
+impl<'a> LabeledStatement<'a> {
+    /// Construct a `LabeledStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(label: Option<&'a Identifier<'a>>, statement: Option<Statement<'a>>) -> Self {
+        Self { node_id: Cell::new(None), label, statement }
+    }
+}
+
+impl crate::HasNodeId for LabeledStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `LiteralTypeNode` node.
@@ -1444,8 +4790,34 @@ pub struct LabeledStatement<'a> {
 /// Corresponds to typescript-go's `ast.LiteralTypeNode`.
 #[derive(Debug)]
 pub struct LiteralTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Literal`: `Node`
-    pub literal: Node<'a>,
+    pub literal: Option<Node<'a>>,
+}
+
+impl<'a> LiteralTypeNode<'a> {
+    /// Construct a `LiteralTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(literal: Option<Node<'a>>) -> Self {
+        Self { node_id: Cell::new(None), literal }
+    }
+}
+
+impl crate::HasNodeId for LiteralTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `MappedTypeNode` node.
@@ -1453,10 +4825,15 @@ pub struct LiteralTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.MappedTypeNode`.
 #[derive(Debug)]
 pub struct MappedTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `ReadonlyToken`: `ReadonlyKeyword | PlusToken | MinusToken`
     pub readonly_token: Option<&'a Token<'a>>,
     /// `TypeParameter`: `TypeParameterDeclaration`
-    pub type_parameter: &'a TypeParameterDeclaration<'a>,
+    pub type_parameter: Option<&'a TypeParameterDeclaration<'a>>,
     /// `NameType`: `TypeNode`
     pub name_type: Option<TypeNode<'a>>,
     /// `QuestionToken`: `QuestionToken | PlusToken | MinusToken`
@@ -1467,15 +4844,77 @@ pub struct MappedTypeNode<'a> {
     pub members: &'a [TypeElement<'a>],
 }
 
+impl<'a> MappedTypeNode<'a> {
+    /// Construct a `MappedTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        readonly_token: Option<&'a Token<'a>>,
+        type_parameter: Option<&'a TypeParameterDeclaration<'a>>,
+        name_type: Option<TypeNode<'a>>,
+        question_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        members: &'a [TypeElement<'a>],
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            readonly_token,
+            type_parameter,
+            name_type,
+            question_token,
+            r#type,
+            members,
+        }
+    }
+}
+
+impl crate::HasNodeId for MappedTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `MetaProperty` node.
 ///
 /// Corresponds to typescript-go's `ast.MetaProperty`.
 #[derive(Debug)]
 pub struct MetaProperty<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `KeywordToken`: `SyntaxKind.ImportKeyword | SyntaxKind.NewKeyword`
     pub keyword_token: &'a Token<'a>,
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> MetaProperty<'a> {
+    /// Construct a `MetaProperty`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(keyword_token: &'a Token<'a>, name: Option<&'a Identifier<'a>>) -> Self {
+        Self { node_id: Cell::new(None), keyword_token, name }
+    }
+}
+
+impl crate::HasNodeId for MetaProperty<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `MethodDeclaration` node.
@@ -1483,6 +4922,11 @@ pub struct MetaProperty<'a> {
 /// Corresponds to typescript-go's `ast.MethodDeclaration`.
 #[derive(Debug)]
 pub struct MethodDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -1503,11 +4947,58 @@ pub struct MethodDeclaration<'a> {
     pub body: Option<FunctionBody<'a>>,
 }
 
+impl<'a> MethodDeclaration<'a> {
+    /// Construct a `MethodDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        asterisk_token: Option<&'a Token<'a>>,
+        name: PropertyName<'a>,
+        postfix_token: Option<&'a Token<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        body: Option<FunctionBody<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            asterisk_token,
+            name,
+            postfix_token,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+            body,
+        }
+    }
+}
+
+impl crate::HasNodeId for MethodDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `MethodSignatureDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.MethodSignatureDeclaration`.
 #[derive(Debug)]
 pub struct MethodSignatureDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -1524,13 +5015,77 @@ pub struct MethodSignatureDeclaration<'a> {
     pub full_signature: Option<TypeNode<'a>>,
 }
 
+impl<'a> MethodSignatureDeclaration<'a> {
+    /// Construct a `MethodSignatureDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        postfix_token: Option<&'a Token<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            name,
+            postfix_token,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+        }
+    }
+}
+
+impl crate::HasNodeId for MethodSignatureDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `MissingDeclaration` node.
 ///
 /// Corresponds to typescript-go's `ast.MissingDeclaration`.
 #[derive(Debug)]
 pub struct MissingDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
+}
+
+impl<'a> MissingDeclaration<'a> {
+    /// Construct a `MissingDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(modifiers: &'a [ModifierLike<'a>]) -> Self {
+        Self { node_id: Cell::new(None), modifiers }
+    }
+}
+
+impl crate::HasNodeId for MissingDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ModuleBlock` node.
@@ -1538,8 +5093,34 @@ pub struct MissingDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.ModuleBlock`.
 #[derive(Debug)]
 pub struct ModuleBlock<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
+}
+
+impl<'a> ModuleBlock<'a> {
+    /// Construct a `ModuleBlock`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(statements: &'a [Statement<'a>]) -> Self {
+        Self { node_id: Cell::new(None), statements }
+    }
+}
+
+impl crate::HasNodeId for ModuleBlock<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ModuleDeclaration` node.
@@ -1547,16 +5128,48 @@ pub struct ModuleBlock<'a> {
 /// Corresponds to typescript-go's `ast.ModuleDeclaration`.
 #[derive(Debug)]
 pub struct ModuleDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Keyword`: `SyntaxKind.ModuleKeyword | SyntaxKind.NamespaceKeyword`
     pub keyword: &'a Token<'a>,
     /// `name`: `ModuleName`
-    pub name: ModuleName<'a>,
+    pub name: Option<ModuleName<'a>>,
     /// `Body`: `ModuleBody`
-    pub body: ModuleBody<'a>,
+    pub body: Option<ModuleBody<'a>>,
     /// `AsteriskToken`: `AsteriskToken`
     pub asterisk_token: Option<&'a Token<'a>>,
+}
+
+impl<'a> ModuleDeclaration<'a> {
+    /// Construct a `ModuleDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        keyword: &'a Token<'a>,
+        name: Option<ModuleName<'a>>,
+        body: Option<ModuleBody<'a>>,
+        asterisk_token: Option<&'a Token<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, keyword, name, body, asterisk_token }
+    }
+}
+
+impl crate::HasNodeId for ModuleDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NamedExports` node.
@@ -1564,8 +5177,34 @@ pub struct ModuleDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.NamedExports`.
 #[derive(Debug)]
 pub struct NamedExports<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Elements`: `ExportSpecifier`
     pub elements: &'a [&'a ExportSpecifier<'a>],
+}
+
+impl<'a> NamedExports<'a> {
+    /// Construct a `NamedExports`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(elements: &'a [&'a ExportSpecifier<'a>]) -> Self {
+        Self { node_id: Cell::new(None), elements }
+    }
+}
+
+impl crate::HasNodeId for NamedExports<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NamedImports` node.
@@ -1573,8 +5212,34 @@ pub struct NamedExports<'a> {
 /// Corresponds to typescript-go's `ast.NamedImports`.
 #[derive(Debug)]
 pub struct NamedImports<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Elements`: `ImportSpecifier`
     pub elements: &'a [&'a ImportSpecifier<'a>],
+}
+
+impl<'a> NamedImports<'a> {
+    /// Construct a `NamedImports`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(elements: &'a [&'a ImportSpecifier<'a>]) -> Self {
+        Self { node_id: Cell::new(None), elements }
+    }
+}
+
+impl crate::HasNodeId for NamedImports<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NamedTupleMember` node.
@@ -1582,14 +5247,45 @@ pub struct NamedImports<'a> {
 /// Corresponds to typescript-go's `ast.NamedTupleMember`.
 #[derive(Debug)]
 pub struct NamedTupleMember<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
     /// `QuestionToken`: `QuestionToken`
     pub question_token: Option<&'a Token<'a>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> NamedTupleMember<'a> {
+    /// Construct a `NamedTupleMember`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        dot_dot_dot_token: Option<&'a Token<'a>>,
+        name: Option<&'a Identifier<'a>>,
+        question_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), dot_dot_dot_token, name, question_token, r#type }
+    }
+}
+
+impl crate::HasNodeId for NamedTupleMember<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NamespaceExport` node.
@@ -1597,8 +5293,34 @@ pub struct NamedTupleMember<'a> {
 /// Corresponds to typescript-go's `ast.NamespaceExport`.
 #[derive(Debug)]
 pub struct NamespaceExport<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `ModuleExportName`
-    pub name: ModuleExportName<'a>,
+    pub name: Option<ModuleExportName<'a>>,
+}
+
+impl<'a> NamespaceExport<'a> {
+    /// Construct a `NamespaceExport`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(name: Option<ModuleExportName<'a>>) -> Self {
+        Self { node_id: Cell::new(None), name }
+    }
+}
+
+impl crate::HasNodeId for NamespaceExport<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NamespaceExportDeclaration` node.
@@ -1606,10 +5328,36 @@ pub struct NamespaceExport<'a> {
 /// Corresponds to typescript-go's `ast.NamespaceExportDeclaration`.
 #[derive(Debug)]
 pub struct NamespaceExportDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> NamespaceExportDeclaration<'a> {
+    /// Construct a `NamespaceExportDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(modifiers: &'a [ModifierLike<'a>], name: Option<&'a Identifier<'a>>) -> Self {
+        Self { node_id: Cell::new(None), modifiers, name }
+    }
+}
+
+impl crate::HasNodeId for NamespaceExportDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NamespaceImport` node.
@@ -1617,8 +5365,34 @@ pub struct NamespaceExportDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.NamespaceImport`.
 #[derive(Debug)]
 pub struct NamespaceImport<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> NamespaceImport<'a> {
+    /// Construct a `NamespaceImport`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(name: Option<&'a Identifier<'a>>) -> Self {
+        Self { node_id: Cell::new(None), name }
+    }
+}
+
+impl crate::HasNodeId for NamespaceImport<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NewExpression` node.
@@ -1626,12 +5400,42 @@ pub struct NamespaceImport<'a> {
 /// Corresponds to typescript-go's `ast.NewExpression`.
 #[derive(Debug)]
 pub struct NewExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `TypeArguments`: `TypeNode`
     pub type_arguments: &'a [TypeNode<'a>],
     /// `Arguments`: `Expression`
     pub arguments: &'a [Expression<'a>],
+}
+
+impl<'a> NewExpression<'a> {
+    /// Construct a `NewExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        expression: Option<Expression<'a>>,
+        type_arguments: &'a [TypeNode<'a>],
+        arguments: &'a [Expression<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), expression, type_arguments, arguments }
+    }
+}
+
+impl crate::HasNodeId for NewExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NoSubstitutionTemplateLiteral` node.
@@ -1639,6 +5443,11 @@ pub struct NewExpression<'a> {
 /// Corresponds to typescript-go's `ast.NoSubstitutionTemplateLiteral`.
 #[derive(Debug)]
 pub struct NoSubstitutionTemplateLiteral<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TemplateFlags`: `TokenFlags`
@@ -1649,13 +5458,65 @@ pub struct NoSubstitutionTemplateLiteral<'a> {
     pub raw_text: &'a str,
 }
 
+impl<'a> NoSubstitutionTemplateLiteral<'a> {
+    /// Construct a `NoSubstitutionTemplateLiteral`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        text: &'a str,
+        template_flags: crate::TokenFlags,
+        token_flags: crate::TokenFlags,
+        raw_text: &'a str,
+    ) -> Self {
+        Self { node_id: Cell::new(None), text, template_flags, token_flags, raw_text }
+    }
+}
+
+impl crate::HasNodeId for NoSubstitutionTemplateLiteral<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `NonNullExpression` node.
 ///
 /// Corresponds to typescript-go's `ast.NonNullExpression`.
 #[derive(Debug)]
 pub struct NonNullExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> NonNullExpression<'a> {
+    /// Construct a `NonNullExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for NonNullExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NotEmittedStatement` node.
@@ -1663,9 +5524,35 @@ pub struct NonNullExpression<'a> {
 /// Corresponds to typescript-go's `ast.NotEmittedStatement`.
 #[derive(Debug)]
 pub struct NotEmittedStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl NotEmittedStatement<'_> {
+    /// Construct a `NotEmittedStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for NotEmittedStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NotEmittedTypeElement` node.
@@ -1673,9 +5560,35 @@ pub struct NotEmittedStatement<'a> {
 /// Corresponds to typescript-go's `ast.NotEmittedTypeElement`.
 #[derive(Debug)]
 pub struct NotEmittedTypeElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl NotEmittedTypeElement<'_> {
+    /// Construct a `NotEmittedTypeElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for NotEmittedTypeElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `NumericLiteral` node.
@@ -1683,10 +5596,36 @@ pub struct NotEmittedTypeElement<'a> {
 /// Corresponds to typescript-go's `ast.NumericLiteral`.
 #[derive(Debug)]
 pub struct NumericLiteral<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
     pub token_flags: crate::TokenFlags,
+}
+
+impl<'a> NumericLiteral<'a> {
+    /// Construct a `NumericLiteral`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
+        Self { node_id: Cell::new(None), text, token_flags }
+    }
+}
+
+impl crate::HasNodeId for NumericLiteral<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ObjectLiteralExpression` node.
@@ -1694,10 +5633,36 @@ pub struct NumericLiteral<'a> {
 /// Corresponds to typescript-go's `ast.ObjectLiteralExpression`.
 #[derive(Debug)]
 pub struct ObjectLiteralExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Properties`: `ObjectLiteralElementLike`
     pub properties: &'a [ObjectLiteralElementLike<'a>],
     /// `MultiLine`: `bool`
     pub multi_line: bool,
+}
+
+impl<'a> ObjectLiteralExpression<'a> {
+    /// Construct a `ObjectLiteralExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(properties: &'a [ObjectLiteralElementLike<'a>], multi_line: bool) -> Self {
+        Self { node_id: Cell::new(None), properties, multi_line }
+    }
+}
+
+impl crate::HasNodeId for ObjectLiteralExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `OmittedExpression` node.
@@ -1705,9 +5670,35 @@ pub struct ObjectLiteralExpression<'a> {
 /// Corresponds to typescript-go's `ast.OmittedExpression`.
 #[derive(Debug)]
 pub struct OmittedExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl OmittedExpression<'_> {
+    /// Construct a `OmittedExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for OmittedExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `OptionalTypeNode` node.
@@ -1715,8 +5706,34 @@ pub struct OmittedExpression<'a> {
 /// Corresponds to typescript-go's `ast.OptionalTypeNode`.
 #[derive(Debug)]
 pub struct OptionalTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> OptionalTypeNode<'a> {
+    /// Construct a `OptionalTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for OptionalTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ParameterDeclaration` node.
@@ -1724,12 +5741,17 @@ pub struct OptionalTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.ParameterDeclaration`.
 #[derive(Debug)]
 pub struct ParameterDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `name`: `BindingName`
-    pub name: BindingName<'a>,
+    pub name: Option<BindingName<'a>>,
     /// `QuestionToken`: `QuestionToken`
     pub question_token: Option<&'a Token<'a>>,
     /// `Type`: `TypeNode`
@@ -1738,13 +5760,75 @@ pub struct ParameterDeclaration<'a> {
     pub initializer: Option<Expression<'a>>,
 }
 
+impl<'a> ParameterDeclaration<'a> {
+    /// Construct a `ParameterDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        dot_dot_dot_token: Option<&'a Token<'a>>,
+        name: Option<BindingName<'a>>,
+        question_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        initializer: Option<Expression<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            dot_dot_dot_token,
+            name,
+            question_token,
+            r#type,
+            initializer,
+        }
+    }
+}
+
+impl crate::HasNodeId for ParameterDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ParenthesizedExpression` node.
 ///
 /// Corresponds to typescript-go's `ast.ParenthesizedExpression`.
 #[derive(Debug)]
 pub struct ParenthesizedExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> ParenthesizedExpression<'a> {
+    /// Construct a `ParenthesizedExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for ParenthesizedExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ParenthesizedTypeNode` node.
@@ -1752,8 +5836,34 @@ pub struct ParenthesizedExpression<'a> {
 /// Corresponds to typescript-go's `ast.ParenthesizedTypeNode`.
 #[derive(Debug)]
 pub struct ParenthesizedTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> ParenthesizedTypeNode<'a> {
+    /// Construct a `ParenthesizedTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for ParenthesizedTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `PartiallyEmittedExpression` node.
@@ -1761,8 +5871,34 @@ pub struct ParenthesizedTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.PartiallyEmittedExpression`.
 #[derive(Debug)]
 pub struct PartiallyEmittedExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> PartiallyEmittedExpression<'a> {
+    /// Construct a `PartiallyEmittedExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for PartiallyEmittedExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `PostfixUnaryExpression` node.
@@ -1770,10 +5906,36 @@ pub struct PartiallyEmittedExpression<'a> {
 /// Corresponds to typescript-go's `ast.PostfixUnaryExpression`.
 #[derive(Debug)]
 pub struct PostfixUnaryExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Operand`: `Expression`
-    pub operand: Expression<'a>,
+    pub operand: Option<Expression<'a>>,
     /// `Operator`: `SyntaxKind.PlusPlusToken | SyntaxKind.MinusMinusToken`
     pub operator: &'a Token<'a>,
+}
+
+impl<'a> PostfixUnaryExpression<'a> {
+    /// Construct a `PostfixUnaryExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(operand: Option<Expression<'a>>, operator: &'a Token<'a>) -> Self {
+        Self { node_id: Cell::new(None), operand, operator }
+    }
+}
+
+impl crate::HasNodeId for PostfixUnaryExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `PrefixUnaryExpression` node.
@@ -1781,10 +5943,36 @@ pub struct PostfixUnaryExpression<'a> {
 /// Corresponds to typescript-go's `ast.PrefixUnaryExpression`.
 #[derive(Debug)]
 pub struct PrefixUnaryExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Operator`: `SyntaxKind.PlusToken | SyntaxKind.MinusToken | SyntaxKind.TildeToken | SyntaxKind.ExclamationToken | SyntaxKind.PlusPlusToken | SyntaxKind.MinusMinusToken`
     pub operator: &'a Token<'a>,
     /// `Operand`: `Expression`
-    pub operand: Expression<'a>,
+    pub operand: Option<Expression<'a>>,
+}
+
+impl<'a> PrefixUnaryExpression<'a> {
+    /// Construct a `PrefixUnaryExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(operator: &'a Token<'a>, operand: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), operator, operand }
+    }
+}
+
+impl crate::HasNodeId for PrefixUnaryExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `PrivateIdentifier` node.
@@ -1792,8 +5980,34 @@ pub struct PrefixUnaryExpression<'a> {
 /// Corresponds to typescript-go's `ast.PrivateIdentifier`.
 #[derive(Debug)]
 pub struct PrivateIdentifier<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
+}
+
+impl<'a> PrivateIdentifier<'a> {
+    /// Construct a `PrivateIdentifier`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(text: &'a str) -> Self {
+        Self { node_id: Cell::new(None), text }
+    }
+}
+
+impl crate::HasNodeId for PrivateIdentifier<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `PropertyAccessExpression` node.
@@ -1801,12 +6015,42 @@ pub struct PrivateIdentifier<'a> {
 /// Corresponds to typescript-go's `ast.PropertyAccessExpression`.
 #[derive(Debug)]
 pub struct PropertyAccessExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
     pub question_dot_token: Option<&'a Token<'a>>,
     /// `name`: `MemberName`
-    pub name: MemberName<'a>,
+    pub name: Option<MemberName<'a>>,
+}
+
+impl<'a> PropertyAccessExpression<'a> {
+    /// Construct a `PropertyAccessExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        expression: Option<Expression<'a>>,
+        question_dot_token: Option<&'a Token<'a>>,
+        name: Option<MemberName<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), expression, question_dot_token, name }
+    }
+}
+
+impl crate::HasNodeId for PropertyAccessExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `PropertyAssignment` node.
@@ -1814,23 +6058,11 @@ pub struct PropertyAccessExpression<'a> {
 /// Corresponds to typescript-go's `ast.PropertyAssignment`.
 #[derive(Debug)]
 pub struct PropertyAssignment<'a> {
-    /// `modifiers`: `ModifierLike`
-    pub modifiers: &'a [ModifierLike<'a>],
-    /// `name`: `PropertyName`
-    pub name: PropertyName<'a>,
-    /// `PostfixToken`: `QuestionToken | ExclamationToken`
-    pub postfix_token: Option<&'a Token<'a>>,
-    /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
-    /// `Initializer`: `Expression`
-    pub initializer: Expression<'a>,
-}
-
-/// The `PropertyDeclaration` node.
-///
-/// Corresponds to typescript-go's `ast.PropertyDeclaration`.
-#[derive(Debug)]
-pub struct PropertyDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -1843,11 +6075,43 @@ pub struct PropertyDeclaration<'a> {
     pub initializer: Option<Expression<'a>>,
 }
 
-/// The `PropertySignatureDeclaration` node.
+impl<'a> PropertyAssignment<'a> {
+    /// Construct a `PropertyAssignment`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        postfix_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        initializer: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, name, postfix_token, r#type, initializer }
+    }
+}
+
+impl crate::HasNodeId for PropertyAssignment<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
+/// The `PropertyDeclaration` node.
 ///
-/// Corresponds to typescript-go's `ast.PropertySignatureDeclaration`.
+/// Corresponds to typescript-go's `ast.PropertyDeclaration`.
 #[derive(Debug)]
-pub struct PropertySignatureDeclaration<'a> {
+pub struct PropertyDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -1855,9 +6119,85 @@ pub struct PropertySignatureDeclaration<'a> {
     /// `PostfixToken`: `QuestionToken | ExclamationToken`
     pub postfix_token: Option<&'a Token<'a>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
     /// `Initializer`: `Expression`
-    pub initializer: Expression<'a>,
+    pub initializer: Option<Expression<'a>>,
+}
+
+impl<'a> PropertyDeclaration<'a> {
+    /// Construct a `PropertyDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        postfix_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        initializer: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, name, postfix_token, r#type, initializer }
+    }
+}
+
+impl crate::HasNodeId for PropertyDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
+/// The `PropertySignatureDeclaration` node.
+///
+/// Corresponds to typescript-go's `ast.PropertySignatureDeclaration`.
+#[derive(Debug)]
+pub struct PropertySignatureDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
+    /// `modifiers`: `ModifierLike`
+    pub modifiers: &'a [ModifierLike<'a>],
+    /// `name`: `PropertyName`
+    pub name: PropertyName<'a>,
+    /// `PostfixToken`: `QuestionToken | ExclamationToken`
+    pub postfix_token: Option<&'a Token<'a>>,
+    /// `Type`: `TypeNode`
+    pub r#type: Option<TypeNode<'a>>,
+    /// `Initializer`: `Expression`
+    pub initializer: Option<Expression<'a>>,
+}
+
+impl<'a> PropertySignatureDeclaration<'a> {
+    /// Construct a `PropertySignatureDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        postfix_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        initializer: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, name, postfix_token, r#type, initializer }
+    }
+}
+
+impl crate::HasNodeId for PropertySignatureDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `QualifiedName` node.
@@ -1865,10 +6205,36 @@ pub struct PropertySignatureDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.QualifiedName`.
 #[derive(Debug)]
 pub struct QualifiedName<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Left`: `EntityName`
-    pub left: EntityName<'a>,
+    pub left: Option<EntityName<'a>>,
     /// `Right`: `Identifier`
-    pub right: &'a Identifier<'a>,
+    pub right: Option<&'a Identifier<'a>>,
+}
+
+impl<'a> QualifiedName<'a> {
+    /// Construct a `QualifiedName`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(left: Option<EntityName<'a>>, right: Option<&'a Identifier<'a>>) -> Self {
+        Self { node_id: Cell::new(None), left, right }
+    }
+}
+
+impl crate::HasNodeId for QualifiedName<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `RegularExpressionLiteral` node.
@@ -1876,10 +6242,36 @@ pub struct QualifiedName<'a> {
 /// Corresponds to typescript-go's `ast.RegularExpressionLiteral`.
 #[derive(Debug)]
 pub struct RegularExpressionLiteral<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
     pub token_flags: crate::TokenFlags,
+}
+
+impl<'a> RegularExpressionLiteral<'a> {
+    /// Construct a `RegularExpressionLiteral`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
+        Self { node_id: Cell::new(None), text, token_flags }
+    }
+}
+
+impl crate::HasNodeId for RegularExpressionLiteral<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `RestTypeNode` node.
@@ -1887,8 +6279,34 @@ pub struct RegularExpressionLiteral<'a> {
 /// Corresponds to typescript-go's `ast.RestTypeNode`.
 #[derive(Debug)]
 pub struct RestTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> RestTypeNode<'a> {
+    /// Construct a `RestTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type }
+    }
+}
+
+impl crate::HasNodeId for RestTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ReturnStatement` node.
@@ -1896,8 +6314,34 @@ pub struct RestTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.ReturnStatement`.
 #[derive(Debug)]
 pub struct ReturnStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> ReturnStatement<'a> {
+    /// Construct a `ReturnStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for ReturnStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SatisfiesExpression` node.
@@ -1905,10 +6349,36 @@ pub struct ReturnStatement<'a> {
 /// Corresponds to typescript-go's `ast.SatisfiesExpression`.
 #[derive(Debug)]
 pub struct SatisfiesExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> SatisfiesExpression<'a> {
+    /// Construct a `SatisfiesExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>, r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression, r#type }
+    }
+}
+
+impl crate::HasNodeId for SatisfiesExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SemicolonClassElement` node.
@@ -1916,9 +6386,35 @@ pub struct SatisfiesExpression<'a> {
 /// Corresponds to typescript-go's `ast.SemicolonClassElement`.
 #[derive(Debug)]
 pub struct SemicolonClassElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl SemicolonClassElement<'_> {
+    /// Construct a `SemicolonClassElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for SemicolonClassElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SetAccessorDeclaration` node.
@@ -1926,6 +6422,11 @@ pub struct SemicolonClassElement<'a> {
 /// Corresponds to typescript-go's `ast.SetAccessorDeclaration`.
 #[derive(Debug)]
 pub struct SetAccessorDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -1946,11 +6447,58 @@ pub struct SetAccessorDeclaration<'a> {
     pub asterisk_token: Option<&'a Token<'a>>,
 }
 
+impl<'a> SetAccessorDeclaration<'a> {
+    /// Construct a `SetAccessorDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        parameters: &'a [&'a ParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+        full_signature: Option<TypeNode<'a>>,
+        body: Option<FunctionBody<'a>>,
+        postfix_token: Option<&'a Token<'a>>,
+        asterisk_token: Option<&'a Token<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            name,
+            type_parameters,
+            parameters,
+            r#type,
+            full_signature,
+            body,
+            postfix_token,
+            asterisk_token,
+        }
+    }
+}
+
+impl crate::HasNodeId for SetAccessorDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ShorthandPropertyAssignment` node.
 ///
 /// Corresponds to typescript-go's `ast.ShorthandPropertyAssignment`.
 #[derive(Debug)]
 pub struct ShorthandPropertyAssignment<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -1958,11 +6506,47 @@ pub struct ShorthandPropertyAssignment<'a> {
     /// `PostfixToken`: `QuestionToken | ExclamationToken`
     pub postfix_token: Option<&'a Token<'a>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
     /// `EqualsToken`: `EqualsToken`
     pub equals_token: Option<&'a Token<'a>>,
     /// `ObjectAssignmentInitializer`: `Expression`
     pub object_assignment_initializer: Option<Expression<'a>>,
+}
+
+impl<'a> ShorthandPropertyAssignment<'a> {
+    /// Construct a `ShorthandPropertyAssignment`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: PropertyName<'a>,
+        postfix_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        equals_token: Option<&'a Token<'a>>,
+        object_assignment_initializer: Option<Expression<'a>>,
+    ) -> Self {
+        Self {
+            node_id: Cell::new(None),
+            modifiers,
+            name,
+            postfix_token,
+            r#type,
+            equals_token,
+            object_assignment_initializer,
+        }
+    }
+}
+
+impl crate::HasNodeId for ShorthandPropertyAssignment<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SourceFile` node.
@@ -1970,10 +6554,36 @@ pub struct ShorthandPropertyAssignment<'a> {
 /// Corresponds to typescript-go's `ast.SourceFile`.
 #[derive(Debug)]
 pub struct SourceFile<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
     /// `EndOfFileToken`: `EndOfFile`
     pub end_of_file_token: &'a Token<'a>,
+}
+
+impl<'a> SourceFile<'a> {
+    /// Construct a `SourceFile`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(statements: &'a [Statement<'a>], end_of_file_token: &'a Token<'a>) -> Self {
+        Self { node_id: Cell::new(None), statements, end_of_file_token }
+    }
+}
+
+impl crate::HasNodeId for SourceFile<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SpreadAssignment` node.
@@ -1981,8 +6591,34 @@ pub struct SourceFile<'a> {
 /// Corresponds to typescript-go's `ast.SpreadAssignment`.
 #[derive(Debug)]
 pub struct SpreadAssignment<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> SpreadAssignment<'a> {
+    /// Construct a `SpreadAssignment`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for SpreadAssignment<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SpreadElement` node.
@@ -1990,8 +6626,34 @@ pub struct SpreadAssignment<'a> {
 /// Corresponds to typescript-go's `ast.SpreadElement`.
 #[derive(Debug)]
 pub struct SpreadElement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> SpreadElement<'a> {
+    /// Construct a `SpreadElement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for SpreadElement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `StringLiteral` node.
@@ -1999,10 +6661,36 @@ pub struct SpreadElement<'a> {
 /// Corresponds to typescript-go's `ast.StringLiteral`.
 #[derive(Debug)]
 pub struct StringLiteral<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
     pub token_flags: crate::TokenFlags,
+}
+
+impl<'a> StringLiteral<'a> {
+    /// Construct a `StringLiteral`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
+        Self { node_id: Cell::new(None), text, token_flags }
+    }
+}
+
+impl crate::HasNodeId for StringLiteral<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SwitchStatement` node.
@@ -2010,10 +6698,36 @@ pub struct StringLiteral<'a> {
 /// Corresponds to typescript-go's `ast.SwitchStatement`.
 #[derive(Debug)]
 pub struct SwitchStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `CaseBlock`: `CaseBlock`
-    pub case_block: &'a CaseBlock<'a>,
+    pub case_block: Option<&'a CaseBlock<'a>>,
+}
+
+impl<'a> SwitchStatement<'a> {
+    /// Construct a `SwitchStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>, case_block: Option<&'a CaseBlock<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression, case_block }
+    }
+}
+
+impl crate::HasNodeId for SwitchStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SyntaxList` node.
@@ -2021,8 +6735,34 @@ pub struct SwitchStatement<'a> {
 /// Corresponds to typescript-go's `ast.SyntaxList`.
 #[derive(Debug)]
 pub struct SyntaxList<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Children`: `Node`
     pub children: &'a [Node<'a>],
+}
+
+impl<'a> SyntaxList<'a> {
+    /// Construct a `SyntaxList`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(children: &'a [Node<'a>]) -> Self {
+        Self { node_id: Cell::new(None), children }
+    }
+}
+
+impl crate::HasNodeId for SyntaxList<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `SyntheticExpression` node.
@@ -2030,6 +6770,11 @@ pub struct SyntaxList<'a> {
 /// Corresponds to typescript-go's `ast.SyntheticExpression`.
 #[derive(Debug)]
 pub struct SyntheticExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `any`
     pub r#type: Node<'a>,
     /// `IsSpread`: `bool`
@@ -2038,15 +6783,62 @@ pub struct SyntheticExpression<'a> {
     pub tuple_name_source: Option<Node<'a>>,
 }
 
+impl<'a> SyntheticExpression<'a> {
+    /// Construct a `SyntheticExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Node<'a>, is_spread: bool, tuple_name_source: Option<Node<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type, is_spread, tuple_name_source }
+    }
+}
+
+impl crate::HasNodeId for SyntheticExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `SyntheticReferenceExpression` node.
 ///
 /// Corresponds to typescript-go's `ast.SyntheticReferenceExpression`.
 #[derive(Debug)]
 pub struct SyntheticReferenceExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `ThisArg`: `Expression`
-    pub this_arg: Expression<'a>,
+    pub this_arg: Option<Expression<'a>>,
+}
+
+impl<'a> SyntheticReferenceExpression<'a> {
+    /// Construct a `SyntheticReferenceExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>, this_arg: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression, this_arg }
+    }
+}
+
+impl crate::HasNodeId for SyntheticReferenceExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TaggedTemplateExpression` node.
@@ -2054,14 +6846,45 @@ pub struct SyntheticReferenceExpression<'a> {
 /// Corresponds to typescript-go's `ast.TaggedTemplateExpression`.
 #[derive(Debug)]
 pub struct TaggedTemplateExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Tag`: `Expression`
-    pub tag: Expression<'a>,
+    pub tag: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
-    pub question_dot_token: &'a Token<'a>,
+    pub question_dot_token: Option<&'a Token<'a>>,
     /// `TypeArguments`: `TypeNode`
     pub type_arguments: &'a [TypeNode<'a>],
     /// `Template`: `TemplateLiteral`
-    pub template: TemplateLiteral<'a>,
+    pub template: Option<TemplateLiteral<'a>>,
+}
+
+impl<'a> TaggedTemplateExpression<'a> {
+    /// Construct a `TaggedTemplateExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        tag: Option<Expression<'a>>,
+        question_dot_token: Option<&'a Token<'a>>,
+        type_arguments: &'a [TypeNode<'a>],
+        template: Option<TemplateLiteral<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), tag, question_dot_token, type_arguments, template }
+    }
+}
+
+impl crate::HasNodeId for TaggedTemplateExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TemplateExpression` node.
@@ -2069,10 +6892,39 @@ pub struct TaggedTemplateExpression<'a> {
 /// Corresponds to typescript-go's `ast.TemplateExpression`.
 #[derive(Debug)]
 pub struct TemplateExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Head`: `TemplateHead`
-    pub head: &'a TemplateHead<'a>,
+    pub head: Option<&'a TemplateHead<'a>>,
     /// `TemplateSpans`: `TemplateSpan`
     pub template_spans: &'a [&'a TemplateSpan<'a>],
+}
+
+impl<'a> TemplateExpression<'a> {
+    /// Construct a `TemplateExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        head: Option<&'a TemplateHead<'a>>,
+        template_spans: &'a [&'a TemplateSpan<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), head, template_spans }
+    }
+}
+
+impl crate::HasNodeId for TemplateExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TemplateHead` node.
@@ -2080,6 +6932,11 @@ pub struct TemplateExpression<'a> {
 /// Corresponds to typescript-go's `ast.TemplateHead`.
 #[derive(Debug)]
 pub struct TemplateHead<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -2088,6 +6945,32 @@ pub struct TemplateHead<'a> {
     pub template_flags: crate::TokenFlags,
     /// `TokenFlags`: `TokenFlags`
     pub token_flags: crate::TokenFlags,
+}
+
+impl<'a> TemplateHead<'a> {
+    /// Construct a `TemplateHead`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        text: &'a str,
+        raw_text: &'a str,
+        template_flags: crate::TokenFlags,
+        token_flags: crate::TokenFlags,
+    ) -> Self {
+        Self { node_id: Cell::new(None), text, raw_text, template_flags, token_flags }
+    }
+}
+
+impl crate::HasNodeId for TemplateHead<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TemplateLiteralTypeNode` node.
@@ -2095,10 +6978,39 @@ pub struct TemplateHead<'a> {
 /// Corresponds to typescript-go's `ast.TemplateLiteralTypeNode`.
 #[derive(Debug)]
 pub struct TemplateLiteralTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Head`: `TemplateHead`
-    pub head: &'a TemplateHead<'a>,
+    pub head: Option<&'a TemplateHead<'a>>,
     /// `TemplateSpans`: `TemplateLiteralTypeSpan`
     pub template_spans: &'a [&'a TemplateLiteralTypeSpan<'a>],
+}
+
+impl<'a> TemplateLiteralTypeNode<'a> {
+    /// Construct a `TemplateLiteralTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        head: Option<&'a TemplateHead<'a>>,
+        template_spans: &'a [&'a TemplateLiteralTypeSpan<'a>],
+    ) -> Self {
+        Self { node_id: Cell::new(None), head, template_spans }
+    }
+}
+
+impl crate::HasNodeId for TemplateLiteralTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TemplateLiteralTypeSpan` node.
@@ -2106,10 +7018,36 @@ pub struct TemplateLiteralTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.TemplateLiteralTypeSpan`.
 #[derive(Debug)]
 pub struct TemplateLiteralTypeSpan<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
     /// `Literal`: `TemplateMiddleOrTail`
-    pub literal: TemplateMiddleOrTail<'a>,
+    pub literal: Option<TemplateMiddleOrTail<'a>>,
+}
+
+impl<'a> TemplateLiteralTypeSpan<'a> {
+    /// Construct a `TemplateLiteralTypeSpan`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>, literal: Option<TemplateMiddleOrTail<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type, literal }
+    }
+}
+
+impl crate::HasNodeId for TemplateLiteralTypeSpan<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TemplateMiddle` node.
@@ -2117,6 +7055,11 @@ pub struct TemplateLiteralTypeSpan<'a> {
 /// Corresponds to typescript-go's `ast.TemplateMiddle`.
 #[derive(Debug)]
 pub struct TemplateMiddle<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -2125,6 +7068,32 @@ pub struct TemplateMiddle<'a> {
     pub template_flags: crate::TokenFlags,
     /// `TokenFlags`: `TokenFlags`
     pub token_flags: crate::TokenFlags,
+}
+
+impl<'a> TemplateMiddle<'a> {
+    /// Construct a `TemplateMiddle`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        text: &'a str,
+        raw_text: &'a str,
+        template_flags: crate::TokenFlags,
+        token_flags: crate::TokenFlags,
+    ) -> Self {
+        Self { node_id: Cell::new(None), text, raw_text, template_flags, token_flags }
+    }
+}
+
+impl crate::HasNodeId for TemplateMiddle<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TemplateSpan` node.
@@ -2132,10 +7101,39 @@ pub struct TemplateMiddle<'a> {
 /// Corresponds to typescript-go's `ast.TemplateSpan`.
 #[derive(Debug)]
 pub struct TemplateSpan<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `Literal`: `TemplateMiddleOrTail`
-    pub literal: TemplateMiddleOrTail<'a>,
+    pub literal: Option<TemplateMiddleOrTail<'a>>,
+}
+
+impl<'a> TemplateSpan<'a> {
+    /// Construct a `TemplateSpan`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        expression: Option<Expression<'a>>,
+        literal: Option<TemplateMiddleOrTail<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), expression, literal }
+    }
+}
+
+impl crate::HasNodeId for TemplateSpan<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TemplateTail` node.
@@ -2143,6 +7141,11 @@ pub struct TemplateSpan<'a> {
 /// Corresponds to typescript-go's `ast.TemplateTail`.
 #[derive(Debug)]
 pub struct TemplateTail<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -2153,14 +7156,66 @@ pub struct TemplateTail<'a> {
     pub token_flags: crate::TokenFlags,
 }
 
+impl<'a> TemplateTail<'a> {
+    /// Construct a `TemplateTail`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        text: &'a str,
+        raw_text: &'a str,
+        template_flags: crate::TokenFlags,
+        token_flags: crate::TokenFlags,
+    ) -> Self {
+        Self { node_id: Cell::new(None), text, raw_text, template_flags, token_flags }
+    }
+}
+
+impl crate::HasNodeId for TemplateTail<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `ThisTypeNode` node.
 ///
 /// Corresponds to typescript-go's `ast.ThisTypeNode`.
 #[derive(Debug)]
 pub struct ThisTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl ThisTypeNode<'_> {
+    /// Construct a `ThisTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+    }
+}
+
+impl crate::HasNodeId for ThisTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `ThrowStatement` node.
@@ -2168,8 +7223,34 @@ pub struct ThisTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.ThrowStatement`.
 #[derive(Debug)]
 pub struct ThrowStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> ThrowStatement<'a> {
+    /// Construct a `ThrowStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for ThrowStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TryStatement` node.
@@ -2177,12 +7258,42 @@ pub struct ThrowStatement<'a> {
 /// Corresponds to typescript-go's `ast.TryStatement`.
 #[derive(Debug)]
 pub struct TryStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TryBlock`: `Block`
-    pub try_block: &'a Block<'a>,
+    pub try_block: Option<&'a Block<'a>>,
     /// `CatchClause`: `CatchClause`
     pub catch_clause: Option<&'a CatchClause<'a>>,
     /// `FinallyBlock`: `Block`
     pub finally_block: Option<&'a Block<'a>>,
+}
+
+impl<'a> TryStatement<'a> {
+    /// Construct a `TryStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        try_block: Option<&'a Block<'a>>,
+        catch_clause: Option<&'a CatchClause<'a>>,
+        finally_block: Option<&'a Block<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), try_block, catch_clause, finally_block }
+    }
+}
+
+impl crate::HasNodeId for TryStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TupleTypeNode` node.
@@ -2190,8 +7301,34 @@ pub struct TryStatement<'a> {
 /// Corresponds to typescript-go's `ast.TupleTypeNode`.
 #[derive(Debug)]
 pub struct TupleTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Elements`: `TypeNode`
     pub elements: &'a [TypeNode<'a>],
+}
+
+impl<'a> TupleTypeNode<'a> {
+    /// Construct a `TupleTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(elements: &'a [TypeNode<'a>]) -> Self {
+        Self { node_id: Cell::new(None), elements }
+    }
+}
+
+impl crate::HasNodeId for TupleTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeAliasDeclaration` node.
@@ -2199,14 +7336,45 @@ pub struct TupleTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.TypeAliasDeclaration`.
 #[derive(Debug)]
 pub struct TypeAliasDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> TypeAliasDeclaration<'a> {
+    /// Construct a `TypeAliasDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: Option<&'a Identifier<'a>>,
+        type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
+        r#type: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, name, type_parameters, r#type }
+    }
+}
+
+impl crate::HasNodeId for TypeAliasDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeAssertion` node.
@@ -2214,10 +7382,36 @@ pub struct TypeAliasDeclaration<'a> {
 /// Corresponds to typescript-go's `ast.TypeAssertion`.
 #[derive(Debug)]
 pub struct TypeAssertion<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> TypeAssertion<'a> {
+    /// Construct a `TypeAssertion`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(r#type: Option<TypeNode<'a>>, expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), r#type, expression }
+    }
+}
+
+impl crate::HasNodeId for TypeAssertion<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeLiteralNode` node.
@@ -2225,8 +7419,34 @@ pub struct TypeAssertion<'a> {
 /// Corresponds to typescript-go's `ast.TypeLiteralNode`.
 #[derive(Debug)]
 pub struct TypeLiteralNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Members`: `TypeElement`
     pub members: &'a [TypeElement<'a>],
+}
+
+impl<'a> TypeLiteralNode<'a> {
+    /// Construct a `TypeLiteralNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(members: &'a [TypeElement<'a>]) -> Self {
+        Self { node_id: Cell::new(None), members }
+    }
+}
+
+impl crate::HasNodeId for TypeLiteralNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeOfExpression` node.
@@ -2234,8 +7454,34 @@ pub struct TypeLiteralNode<'a> {
 /// Corresponds to typescript-go's `ast.TypeOfExpression`.
 #[derive(Debug)]
 pub struct TypeOfExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> TypeOfExpression<'a> {
+    /// Construct a `TypeOfExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for TypeOfExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeOperatorNode` node.
@@ -2243,10 +7489,36 @@ pub struct TypeOfExpression<'a> {
 /// Corresponds to typescript-go's `ast.TypeOperatorNode`.
 #[derive(Debug)]
 pub struct TypeOperatorNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Operator`: `SyntaxKind.KeyOfKeyword | SyntaxKind.ReadonlyKeyword | SyntaxKind.UniqueKeyword`
     pub operator: &'a Token<'a>,
     /// `Type`: `TypeNode`
-    pub r#type: TypeNode<'a>,
+    pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> TypeOperatorNode<'a> {
+    /// Construct a `TypeOperatorNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(operator: &'a Token<'a>, r#type: Option<TypeNode<'a>>) -> Self {
+        Self { node_id: Cell::new(None), operator, r#type }
+    }
+}
+
+impl crate::HasNodeId for TypeOperatorNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeParameterDeclaration` node.
@@ -2254,10 +7526,15 @@ pub struct TypeOperatorNode<'a> {
 /// Corresponds to typescript-go's `ast.TypeParameterDeclaration`.
 #[derive(Debug)]
 pub struct TypeParameterDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
-    pub name: &'a Identifier<'a>,
+    pub name: Option<&'a Identifier<'a>>,
     /// `Constraint`: `TypeNode`
     pub constraint: Option<TypeNode<'a>>,
     /// `Expression`: `Expression`
@@ -2266,17 +7543,74 @@ pub struct TypeParameterDeclaration<'a> {
     pub default_type: Option<TypeNode<'a>>,
 }
 
+impl<'a> TypeParameterDeclaration<'a> {
+    /// Construct a `TypeParameterDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        name: Option<&'a Identifier<'a>>,
+        constraint: Option<TypeNode<'a>>,
+        expression: Option<Expression<'a>>,
+        default_type: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, name, constraint, expression, default_type }
+    }
+}
+
+impl crate::HasNodeId for TypeParameterDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `TypePredicateNode` node.
 ///
 /// Corresponds to typescript-go's `ast.TypePredicateNode`.
 #[derive(Debug)]
 pub struct TypePredicateNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `AssertsModifier`: `AssertsKeyword`
     pub asserts_modifier: Option<&'a Token<'a>>,
     /// `ParameterName`: `TypePredicateParameterName`
-    pub parameter_name: TypePredicateParameterName<'a>,
+    pub parameter_name: Option<TypePredicateParameterName<'a>>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
+}
+
+impl<'a> TypePredicateNode<'a> {
+    /// Construct a `TypePredicateNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        asserts_modifier: Option<&'a Token<'a>>,
+        parameter_name: Option<TypePredicateParameterName<'a>>,
+        r#type: Option<TypeNode<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), asserts_modifier, parameter_name, r#type }
+    }
+}
+
+impl crate::HasNodeId for TypePredicateNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeQueryNode` node.
@@ -2284,10 +7618,36 @@ pub struct TypePredicateNode<'a> {
 /// Corresponds to typescript-go's `ast.TypeQueryNode`.
 #[derive(Debug)]
 pub struct TypeQueryNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `ExprName`: `EntityName`
-    pub expr_name: EntityName<'a>,
+    pub expr_name: Option<EntityName<'a>>,
     /// `TypeArguments`: `TypeNode`
     pub type_arguments: &'a [TypeNode<'a>],
+}
+
+impl<'a> TypeQueryNode<'a> {
+    /// Construct a `TypeQueryNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expr_name: Option<EntityName<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
+        Self { node_id: Cell::new(None), expr_name, type_arguments }
+    }
+}
+
+impl crate::HasNodeId for TypeQueryNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `TypeReferenceNode` node.
@@ -2295,10 +7655,36 @@ pub struct TypeQueryNode<'a> {
 /// Corresponds to typescript-go's `ast.TypeReferenceNode`.
 #[derive(Debug)]
 pub struct TypeReferenceNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `TypeName`: `EntityName`
-    pub type_name: EntityName<'a>,
+    pub type_name: Option<EntityName<'a>>,
     /// `TypeArguments`: `TypeNode`
     pub type_arguments: &'a [TypeNode<'a>],
+}
+
+impl<'a> TypeReferenceNode<'a> {
+    /// Construct a `TypeReferenceNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(type_name: Option<EntityName<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
+        Self { node_id: Cell::new(None), type_name, type_arguments }
+    }
+}
+
+impl crate::HasNodeId for TypeReferenceNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `UnionTypeNode` node.
@@ -2306,8 +7692,34 @@ pub struct TypeReferenceNode<'a> {
 /// Corresponds to typescript-go's `ast.UnionTypeNode`.
 #[derive(Debug)]
 pub struct UnionTypeNode<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Types`: `TypeNode`
     pub types: &'a [TypeNode<'a>],
+}
+
+impl<'a> UnionTypeNode<'a> {
+    /// Construct a `UnionTypeNode`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(types: &'a [TypeNode<'a>]) -> Self {
+        Self { node_id: Cell::new(None), types }
+    }
+}
+
+impl crate::HasNodeId for UnionTypeNode<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `VariableDeclaration` node.
@@ -2315,8 +7727,13 @@ pub struct UnionTypeNode<'a> {
 /// Corresponds to typescript-go's `ast.VariableDeclaration`.
 #[derive(Debug)]
 pub struct VariableDeclaration<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `name`: `BindingName`
-    pub name: BindingName<'a>,
+    pub name: Option<BindingName<'a>>,
     /// `ExclamationToken`: `ExclamationToken`
     pub exclamation_token: Option<&'a Token<'a>>,
     /// `Type`: `TypeNode`
@@ -2325,13 +7742,65 @@ pub struct VariableDeclaration<'a> {
     pub initializer: Option<Expression<'a>>,
 }
 
+impl<'a> VariableDeclaration<'a> {
+    /// Construct a `VariableDeclaration`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        name: Option<BindingName<'a>>,
+        exclamation_token: Option<&'a Token<'a>>,
+        r#type: Option<TypeNode<'a>>,
+        initializer: Option<Expression<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), name, exclamation_token, r#type, initializer }
+    }
+}
+
+impl crate::HasNodeId for VariableDeclaration<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
+}
+
 /// The `VariableDeclarationList` node.
 ///
 /// Corresponds to typescript-go's `ast.VariableDeclarationList`.
 #[derive(Debug)]
 pub struct VariableDeclarationList<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Declarations`: `VariableDeclaration`
     pub declarations: &'a [&'a VariableDeclaration<'a>],
+}
+
+impl<'a> VariableDeclarationList<'a> {
+    /// Construct a `VariableDeclarationList`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(declarations: &'a [&'a VariableDeclaration<'a>]) -> Self {
+        Self { node_id: Cell::new(None), declarations }
+    }
+}
+
+impl crate::HasNodeId for VariableDeclarationList<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `VariableStatement` node.
@@ -2339,10 +7808,39 @@ pub struct VariableDeclarationList<'a> {
 /// Corresponds to typescript-go's `ast.VariableStatement`.
 #[derive(Debug)]
 pub struct VariableStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `DeclarationList`: `VariableDeclarationList`
-    pub declaration_list: &'a VariableDeclarationList<'a>,
+    pub declaration_list: Option<&'a VariableDeclarationList<'a>>,
+}
+
+impl<'a> VariableStatement<'a> {
+    /// Construct a `VariableStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(
+        modifiers: &'a [ModifierLike<'a>],
+        declaration_list: Option<&'a VariableDeclarationList<'a>>,
+    ) -> Self {
+        Self { node_id: Cell::new(None), modifiers, declaration_list }
+    }
+}
+
+impl crate::HasNodeId for VariableStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `VoidExpression` node.
@@ -2350,8 +7848,34 @@ pub struct VariableStatement<'a> {
 /// Corresponds to typescript-go's `ast.VoidExpression`.
 #[derive(Debug)]
 pub struct VoidExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> VoidExpression<'a> {
+    /// Construct a `VoidExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression }
+    }
+}
+
+impl crate::HasNodeId for VoidExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `WhileStatement` node.
@@ -2359,10 +7883,36 @@ pub struct VoidExpression<'a> {
 /// Corresponds to typescript-go's `ast.WhileStatement`.
 #[derive(Debug)]
 pub struct WhileStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `Statement`: `Statement`
     pub statement: Statement<'a>,
+}
+
+impl<'a> WhileStatement<'a> {
+    /// Construct a `WhileStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>, statement: Statement<'a>) -> Self {
+        Self { node_id: Cell::new(None), expression, statement }
+    }
+}
+
+impl crate::HasNodeId for WhileStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `WithStatement` node.
@@ -2370,10 +7920,36 @@ pub struct WhileStatement<'a> {
 /// Corresponds to typescript-go's `ast.WithStatement`.
 #[derive(Debug)]
 pub struct WithStatement<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `Expression`: `Expression`
-    pub expression: Expression<'a>,
+    pub expression: Option<Expression<'a>>,
     /// `Statement`: `Statement`
-    pub statement: Statement<'a>,
+    pub statement: Option<Statement<'a>>,
+}
+
+impl<'a> WithStatement<'a> {
+    /// Construct a `WithStatement`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(expression: Option<Expression<'a>>, statement: Option<Statement<'a>>) -> Self {
+        Self { node_id: Cell::new(None), expression, statement }
+    }
+}
+
+impl crate::HasNodeId for WithStatement<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }
 
 /// The `YieldExpression` node.
@@ -2381,8 +7957,34 @@ pub struct WithStatement<'a> {
 /// Corresponds to typescript-go's `ast.YieldExpression`.
 #[derive(Debug)]
 pub struct YieldExpression<'a> {
+    /// Key into the side tables holding this node's kind, span, and parent.
+    ///
+    /// `None` until the parser registers the node. A `Cell` so registration
+    /// does not need `&mut` on a tree the parser is still building.
+    pub node_id: Cell<Option<NodeId>>,
     /// `AsteriskToken`: `AsteriskToken`
     pub asterisk_token: Option<&'a Token<'a>>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
+}
+
+impl<'a> YieldExpression<'a> {
+    /// Construct a `YieldExpression`, unregistered.
+    ///
+    /// [`Self::node_id`] stays `None` until the parser records the node's
+    /// kind and span in the side tables.
+    #[must_use]
+    pub fn new(asterisk_token: Option<&'a Token<'a>>, expression: Option<Expression<'a>>) -> Self {
+        Self { node_id: Cell::new(None), asterisk_token, expression }
+    }
+}
+
+impl crate::HasNodeId for YieldExpression<'_> {
+    fn set_node_id(&self, id: NodeId) {
+        self.node_id.set(Some(id));
+    }
+
+    fn node_id(&self) -> Option<NodeId> {
+        self.node_id.get()
+    }
 }

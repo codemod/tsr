@@ -1202,7 +1202,9 @@ pub fn walk_array_literal_expression<'a, V: Visit<'a>>(
 
 /// Walk the children of a [`ArrayTypeNode`].
 pub fn walk_array_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a ArrayTypeNode<'a>) {
-    visitor.visit_node(Node::from(node.element_type));
+    if let Some(child) = node.element_type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ArrowFunction`].
@@ -1222,18 +1224,26 @@ pub fn walk_arrow_function<'a, V: Visit<'a>>(visitor: &mut V, node: &'a ArrowFun
     if let Some(child) = node.full_signature {
         visitor.visit_node(Node::from(child));
     }
-    visitor.visit_node(Node::from(node.body));
+    if let Some(child) = node.body {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`AsExpression`].
 pub fn walk_as_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a AsExpression<'a>) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`AwaitExpression`].
 pub fn walk_await_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a AwaitExpression<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`BigIntLiteral`].
@@ -1246,11 +1256,15 @@ pub fn walk_binary_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Binar
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_node(Node::from(node.left));
+    if let Some(child) = node.left {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.r#type {
         visitor.visit_node(Node::from(child));
     }
-    visitor.visit_node(Node::from(node.right));
+    if let Some(child) = node.right {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`BindingElement`].
@@ -1289,7 +1303,9 @@ pub fn walk_break_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a BreakSt
 
 /// Walk the children of a [`CallExpression`].
 pub fn walk_call_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a CallExpression<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
@@ -1329,7 +1345,9 @@ pub fn walk_case_or_default_clause<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a CaseOrDefaultClause<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.statements {
         visitor.visit_node(Node::from(*child));
     }
@@ -1340,7 +1358,9 @@ pub fn walk_catch_clause<'a, V: Visit<'a>>(visitor: &mut V, node: &'a CatchClaus
     if let Some(child) = node.variable_declaration {
         visitor.visit_variable_declaration(child);
     }
-    visitor.visit_block(node.block);
+    if let Some(child) = node.block {
+        visitor.visit_block(child);
+    }
 }
 
 /// Walk the children of a [`ClassDeclaration`].
@@ -1389,7 +1409,9 @@ pub fn walk_class_static_block_declaration<'a, V: Visit<'a>>(
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_block(node.body);
+    if let Some(child) = node.body {
+        visitor.visit_block(child);
+    }
 }
 
 /// Walk the children of a [`ComputedPropertyName`].
@@ -1397,7 +1419,9 @@ pub fn walk_computed_property_name<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ComputedPropertyName<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ConditionalExpression`].
@@ -1405,9 +1429,15 @@ pub fn walk_conditional_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ConditionalExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.condition));
-    visitor.visit_node(Node::from(node.when_true));
-    visitor.visit_node(Node::from(node.when_false));
+    if let Some(child) = node.condition {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.when_true {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.when_false {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ConditionalTypeNode`].
@@ -1415,10 +1445,18 @@ pub fn walk_conditional_type_node<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ConditionalTypeNode<'a>,
 ) {
-    visitor.visit_node(Node::from(node.check_type));
-    visitor.visit_node(Node::from(node.extends_type));
-    visitor.visit_node(Node::from(node.true_type));
-    visitor.visit_node(Node::from(node.false_type));
+    if let Some(child) = node.check_type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.extends_type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.true_type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.false_type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ConstructSignatureDeclaration`].
@@ -1501,18 +1539,24 @@ pub fn walk_debugger_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Debu
 
 /// Walk the children of a [`Decorator`].
 pub fn walk_decorator<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Decorator<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`DeleteExpression`].
 pub fn walk_delete_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a DeleteExpression<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`DoStatement`].
 pub fn walk_do_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a DoStatement<'a>) {
     visitor.visit_node(Node::from(node.statement));
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ElementAccessExpression`].
@@ -1520,8 +1564,12 @@ pub fn walk_element_access_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ElementAccessExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.argument_expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.argument_expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`EmptyStatement`].
@@ -1534,7 +1582,9 @@ pub fn walk_enum_declaration<'a, V: Visit<'a>>(visitor: &mut V, node: &'a EnumDe
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
     for child in node.members {
         visitor.visit_enum_member(child);
     }
@@ -1556,8 +1606,12 @@ pub fn walk_export_assignment<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Expor
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_node(Node::from(node.r#type));
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ExportDeclaration`].
@@ -1581,7 +1635,9 @@ pub fn walk_export_specifier<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Export
     if let Some(child) = node.property_name {
         visitor.visit_node(Node::from(child));
     }
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ExpressionStatement`].
@@ -1589,7 +1645,9 @@ pub fn walk_expression_statement<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ExpressionStatement<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ExpressionWithTypeArguments`].
@@ -1597,7 +1655,9 @@ pub fn walk_expression_with_type_arguments<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ExpressionWithTypeArguments<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
@@ -1608,7 +1668,9 @@ pub fn walk_external_module_reference<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ExternalModuleReference<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ForInOrOfStatement`].
@@ -1616,9 +1678,15 @@ pub fn walk_for_in_or_of_statement<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ForInOrOfStatement<'a>,
 ) {
-    visitor.visit_node(Node::from(node.initializer));
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.statement));
+    if let Some(child) = node.initializer {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.statement {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ForStatement`].
@@ -1686,7 +1754,9 @@ pub fn walk_function_expression<'a, V: Visit<'a>>(
     if let Some(child) = node.full_signature {
         visitor.visit_node(Node::from(child));
     }
-    visitor.visit_node(Node::from(node.body));
+    if let Some(child) = node.body {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`FunctionTypeNode`].
@@ -1748,8 +1818,12 @@ pub fn walk_identifier<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Identifier<'
 
 /// Walk the children of a [`IfStatement`].
 pub fn walk_if_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a IfStatement<'a>) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.then_statement));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.then_statement {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.else_statement {
         visitor.visit_node(Node::from(child));
     }
@@ -1757,8 +1831,12 @@ pub fn walk_if_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a IfStatemen
 
 /// Walk the children of a [`ImportAttribute`].
 pub fn walk_import_attribute<'a, V: Visit<'a>>(visitor: &mut V, node: &'a ImportAttribute<'a>) {
-    visitor.visit_node(Node::from(node.name));
-    visitor.visit_node(Node::from(node.value));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.value {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ImportAttributes`].
@@ -1786,7 +1864,9 @@ pub fn walk_import_declaration<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Impo
     if let Some(child) = node.import_clause {
         visitor.visit_import_clause(child);
     }
-    visitor.visit_node(Node::from(node.module_specifier));
+    if let Some(child) = node.module_specifier {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.attributes {
         visitor.visit_import_attributes(child);
     }
@@ -1800,8 +1880,12 @@ pub fn walk_import_equals_declaration<'a, V: Visit<'a>>(
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_identifier(node.name);
-    visitor.visit_node(Node::from(node.module_reference));
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
+    if let Some(child) = node.module_reference {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ImportSpecifier`].
@@ -1809,12 +1893,16 @@ pub fn walk_import_specifier<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Import
     if let Some(child) = node.property_name {
         visitor.visit_node(Node::from(child));
     }
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
 }
 
 /// Walk the children of a [`ImportTypeNode`].
 pub fn walk_import_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a ImportTypeNode<'a>) {
-    visitor.visit_node(Node::from(node.argument));
+    if let Some(child) = node.argument {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.attributes {
         visitor.visit_import_attributes(child);
     }
@@ -1853,13 +1941,19 @@ pub fn walk_indexed_access_type_node<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a IndexedAccessTypeNode<'a>,
 ) {
-    visitor.visit_node(Node::from(node.object_type));
-    visitor.visit_node(Node::from(node.index_type));
+    if let Some(child) = node.object_type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.index_type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`InferTypeNode`].
 pub fn walk_infer_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a InferTypeNode<'a>) {
-    visitor.visit_type_parameter_declaration(node.type_parameter);
+    if let Some(child) = node.type_parameter {
+        visitor.visit_type_parameter_declaration(child);
+    }
 }
 
 /// Walk the children of a [`InterfaceDeclaration`].
@@ -1870,7 +1964,9 @@ pub fn walk_interface_declaration<'a, V: Visit<'a>>(
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
     for child in node.type_parameters {
         visitor.visit_type_parameter_declaration(child);
     }
@@ -1910,7 +2006,9 @@ pub fn walk_js_doc_all_type<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocAl
 /// Walk the children of a [`JSDocAugmentsTag`].
 pub fn walk_js_doc_augments_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocAugmentsTag<'a>) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_expression_with_type_arguments(node.class_name);
+    if let Some(child) = node.class_name {
+        visitor.visit_expression_with_type_arguments(child);
+    }
     for child in node.comment {
         visitor.visit_node(Node::from(*child));
     }
@@ -1919,7 +2017,9 @@ pub fn walk_js_doc_augments_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSD
 /// Walk the children of a [`JSDocCallbackTag`].
 pub fn walk_js_doc_callback_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocCallbackTag<'a>) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(Node::from(node.type_expression));
+    if let Some(child) = node.type_expression {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.name {
         visitor.visit_node(Node::from(child));
     }
@@ -1945,7 +2045,9 @@ pub fn walk_js_doc_implements_tag<'a, V: Visit<'a>>(
     node: &'a JSDocImplementsTag<'a>,
 ) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_expression_with_type_arguments(node.class_name);
+    if let Some(child) = node.class_name {
+        visitor.visit_expression_with_type_arguments(child);
+    }
     for child in node.comment {
         visitor.visit_node(Node::from(*child));
     }
@@ -1957,7 +2059,9 @@ pub fn walk_js_doc_import_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDoc
     if let Some(child) = node.import_clause {
         visitor.visit_import_clause(child);
     }
-    visitor.visit_node(Node::from(node.module_specifier));
+    if let Some(child) = node.module_specifier {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.attributes {
         visitor.visit_import_attributes(child);
     }
@@ -1992,7 +2096,9 @@ pub fn walk_js_doc_name_reference<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JSDocNameReference<'a>,
 ) {
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JSDocNonNullableType`].
@@ -2000,7 +2106,9 @@ pub fn walk_js_doc_non_nullable_type<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JSDocNonNullableType<'a>,
 ) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JSDocNullableType`].
@@ -2008,7 +2116,9 @@ pub fn walk_js_doc_nullable_type<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JSDocNullableType<'a>,
 ) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JSDocOptionalType`].
@@ -2016,13 +2126,17 @@ pub fn walk_js_doc_optional_type<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JSDocOptionalType<'a>,
 ) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JSDocOverloadTag`].
 pub fn walk_js_doc_overload_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocOverloadTag<'a>) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(Node::from(node.type_expression));
+    if let Some(child) = node.type_expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.comment {
         visitor.visit_node(Node::from(*child));
     }
@@ -2042,7 +2156,9 @@ pub fn walk_js_doc_parameter_or_property_tag<'a, V: Visit<'a>>(
     node: &'a JSDocParameterOrPropertyTag<'a>,
 ) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.type_expression {
         visitor.visit_node(Node::from(child));
     }
@@ -2103,7 +2219,9 @@ pub fn walk_js_doc_satisfies_tag<'a, V: Visit<'a>>(
     node: &'a JSDocSatisfiesTag<'a>,
 ) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(Node::from(node.type_expression));
+    if let Some(child) = node.type_expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.comment {
         visitor.visit_node(Node::from(*child));
     }
@@ -2112,7 +2230,9 @@ pub fn walk_js_doc_satisfies_tag<'a, V: Visit<'a>>(
 /// Walk the children of a [`JSDocSeeTag`].
 pub fn walk_js_doc_see_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocSeeTag<'a>) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(Node::from(node.name_expression));
+    if let Some(child) = node.name_expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.comment {
         visitor.visit_node(Node::from(*child));
     }
@@ -2137,7 +2257,9 @@ pub fn walk_js_doc_signature<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocS
 /// Walk the children of a [`JSDocTemplateTag`].
 pub fn walk_js_doc_template_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocTemplateTag<'a>) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(node.constraint);
+    if let Some(child) = node.constraint {
+        visitor.visit_node(child);
+    }
     for child in node.type_parameters {
         visitor.visit_type_parameter_declaration(child);
     }
@@ -2154,7 +2276,9 @@ pub fn walk_js_doc_text<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocText<'
 /// Walk the children of a [`JSDocThisTag`].
 pub fn walk_js_doc_this_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocThisTag<'a>) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(Node::from(node.type_expression));
+    if let Some(child) = node.type_expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.comment {
         visitor.visit_node(Node::from(*child));
     }
@@ -2176,7 +2300,9 @@ pub fn walk_js_doc_type_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JSDocTypeExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JSDocTypeLiteral`].
@@ -2189,7 +2315,9 @@ pub fn walk_js_doc_type_literal<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSD
 /// Walk the children of a [`JSDocTypeTag`].
 pub fn walk_js_doc_type_tag<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JSDocTypeTag<'a>) {
     visitor.visit_identifier(node.tag_name);
-    visitor.visit_node(node.type_expression);
+    if let Some(child) = node.type_expression {
+        visitor.visit_node(child);
+    }
     for child in node.comment {
         visitor.visit_node(Node::from(*child));
     }
@@ -2222,12 +2350,16 @@ pub fn walk_js_doc_variadic_type<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JSDocVariadicType<'a>,
 ) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JsxAttribute`].
 pub fn walk_jsx_attribute<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JsxAttribute<'a>) {
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.initializer {
         visitor.visit_node(Node::from(child));
     }
@@ -2245,7 +2377,9 @@ pub fn walk_jsx_closing_element<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JsxClosingElement<'a>,
 ) {
-    visitor.visit_node(Node::from(node.tag_name));
+    if let Some(child) = node.tag_name {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JsxClosingFragment`].
@@ -2258,11 +2392,15 @@ pub fn walk_jsx_closing_fragment<'a, V: Visit<'a>>(
 
 /// Walk the children of a [`JsxElement`].
 pub fn walk_jsx_element<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JsxElement<'a>) {
-    visitor.visit_jsx_opening_element(node.opening_element);
+    if let Some(child) = node.opening_element {
+        visitor.visit_jsx_opening_element(child);
+    }
     for child in node.children {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_jsx_closing_element(node.closing_element);
+    if let Some(child) = node.closing_element {
+        visitor.visit_jsx_closing_element(child);
+    }
 }
 
 /// Walk the children of a [`JsxExpression`].
@@ -2274,11 +2412,15 @@ pub fn walk_jsx_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JsxExpre
 
 /// Walk the children of a [`JsxFragment`].
 pub fn walk_jsx_fragment<'a, V: Visit<'a>>(visitor: &mut V, node: &'a JsxFragment<'a>) {
-    visitor.visit_jsx_opening_fragment(node.opening_fragment);
+    if let Some(child) = node.opening_fragment {
+        visitor.visit_jsx_opening_fragment(child);
+    }
     for child in node.children {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_jsx_closing_fragment(node.closing_fragment);
+    if let Some(child) = node.closing_fragment {
+        visitor.visit_jsx_closing_fragment(child);
+    }
 }
 
 /// Walk the children of a [`JsxNamespacedName`].
@@ -2286,8 +2428,12 @@ pub fn walk_jsx_namespaced_name<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JsxNamespacedName<'a>,
 ) {
-    visitor.visit_identifier(node.namespace);
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.namespace {
+        visitor.visit_identifier(child);
+    }
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
 }
 
 /// Walk the children of a [`JsxOpeningElement`].
@@ -2295,11 +2441,15 @@ pub fn walk_jsx_opening_element<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JsxOpeningElement<'a>,
 ) {
-    visitor.visit_node(Node::from(node.tag_name));
+    if let Some(child) = node.tag_name {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_jsx_attributes(node.attributes);
+    if let Some(child) = node.attributes {
+        visitor.visit_jsx_attributes(child);
+    }
 }
 
 /// Walk the children of a [`JsxOpeningFragment`].
@@ -2315,11 +2465,15 @@ pub fn walk_jsx_self_closing_element<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JsxSelfClosingElement<'a>,
 ) {
-    visitor.visit_node(Node::from(node.tag_name));
+    if let Some(child) = node.tag_name {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_jsx_attributes(node.attributes);
+    if let Some(child) = node.attributes {
+        visitor.visit_jsx_attributes(child);
+    }
 }
 
 /// Walk the children of a [`JsxSpreadAttribute`].
@@ -2327,7 +2481,9 @@ pub fn walk_jsx_spread_attribute<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a JsxSpreadAttribute<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`JsxText`].
@@ -2347,18 +2503,26 @@ pub fn walk_keyword_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Keywo
 
 /// Walk the children of a [`LabeledStatement`].
 pub fn walk_labeled_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a LabeledStatement<'a>) {
-    visitor.visit_identifier(node.label);
-    visitor.visit_node(Node::from(node.statement));
+    if let Some(child) = node.label {
+        visitor.visit_identifier(child);
+    }
+    if let Some(child) = node.statement {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`LiteralTypeNode`].
 pub fn walk_literal_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a LiteralTypeNode<'a>) {
-    visitor.visit_node(node.literal);
+    if let Some(child) = node.literal {
+        visitor.visit_node(child);
+    }
 }
 
 /// Walk the children of a [`MappedTypeNode`].
 pub fn walk_mapped_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a MappedTypeNode<'a>) {
-    visitor.visit_type_parameter_declaration(node.type_parameter);
+    if let Some(child) = node.type_parameter {
+        visitor.visit_type_parameter_declaration(child);
+    }
     if let Some(child) = node.name_type {
         visitor.visit_node(Node::from(child));
     }
@@ -2372,7 +2536,9 @@ pub fn walk_mapped_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Mapped
 
 /// Walk the children of a [`MetaProperty`].
 pub fn walk_meta_property<'a, V: Visit<'a>>(visitor: &mut V, node: &'a MetaProperty<'a>) {
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
 }
 
 /// Walk the children of a [`MethodDeclaration`].
@@ -2443,8 +2609,12 @@ pub fn walk_module_declaration<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Modu
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_node(Node::from(node.name));
-    visitor.visit_node(Node::from(node.body));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.body {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`NamedExports`].
@@ -2463,13 +2633,19 @@ pub fn walk_named_imports<'a, V: Visit<'a>>(visitor: &mut V, node: &'a NamedImpo
 
 /// Walk the children of a [`NamedTupleMember`].
 pub fn walk_named_tuple_member<'a, V: Visit<'a>>(visitor: &mut V, node: &'a NamedTupleMember<'a>) {
-    visitor.visit_identifier(node.name);
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`NamespaceExport`].
 pub fn walk_namespace_export<'a, V: Visit<'a>>(visitor: &mut V, node: &'a NamespaceExport<'a>) {
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`NamespaceExportDeclaration`].
@@ -2480,17 +2656,23 @@ pub fn walk_namespace_export_declaration<'a, V: Visit<'a>>(
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
 }
 
 /// Walk the children of a [`NamespaceImport`].
 pub fn walk_namespace_import<'a, V: Visit<'a>>(visitor: &mut V, node: &'a NamespaceImport<'a>) {
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
 }
 
 /// Walk the children of a [`NewExpression`].
 pub fn walk_new_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a NewExpression<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
@@ -2512,7 +2694,9 @@ pub fn walk_non_null_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a NonNullExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`NotEmittedStatement`].
@@ -2553,7 +2737,9 @@ pub fn walk_omitted_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Omit
 
 /// Walk the children of a [`OptionalTypeNode`].
 pub fn walk_optional_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a OptionalTypeNode<'a>) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ParameterDeclaration`].
@@ -2564,7 +2750,9 @@ pub fn walk_parameter_declaration<'a, V: Visit<'a>>(
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.r#type {
         visitor.visit_node(Node::from(child));
     }
@@ -2578,7 +2766,9 @@ pub fn walk_parenthesized_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ParenthesizedExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ParenthesizedTypeNode`].
@@ -2586,7 +2776,9 @@ pub fn walk_parenthesized_type_node<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a ParenthesizedTypeNode<'a>,
 ) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`PartiallyEmittedExpression`].
@@ -2594,7 +2786,9 @@ pub fn walk_partially_emitted_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a PartiallyEmittedExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`PostfixUnaryExpression`].
@@ -2602,7 +2796,9 @@ pub fn walk_postfix_unary_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a PostfixUnaryExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.operand));
+    if let Some(child) = node.operand {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`PrefixUnaryExpression`].
@@ -2610,7 +2806,9 @@ pub fn walk_prefix_unary_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a PrefixUnaryExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.operand));
+    if let Some(child) = node.operand {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`PrivateIdentifier`].
@@ -2623,8 +2821,12 @@ pub fn walk_property_access_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a PropertyAccessExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`PropertyAssignment`].
@@ -2636,8 +2838,12 @@ pub fn walk_property_assignment<'a, V: Visit<'a>>(
         visitor.visit_node(Node::from(*child));
     }
     visitor.visit_node(Node::from(node.name));
-    visitor.visit_node(Node::from(node.r#type));
-    visitor.visit_node(Node::from(node.initializer));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.initializer {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`PropertyDeclaration`].
@@ -2666,14 +2872,22 @@ pub fn walk_property_signature_declaration<'a, V: Visit<'a>>(
         visitor.visit_node(Node::from(*child));
     }
     visitor.visit_node(Node::from(node.name));
-    visitor.visit_node(Node::from(node.r#type));
-    visitor.visit_node(Node::from(node.initializer));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.initializer {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`QualifiedName`].
 pub fn walk_qualified_name<'a, V: Visit<'a>>(visitor: &mut V, node: &'a QualifiedName<'a>) {
-    visitor.visit_node(Node::from(node.left));
-    visitor.visit_identifier(node.right);
+    if let Some(child) = node.left {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.right {
+        visitor.visit_identifier(child);
+    }
 }
 
 /// Walk the children of a [`RegularExpressionLiteral`].
@@ -2686,7 +2900,9 @@ pub fn walk_regular_expression_literal<'a, V: Visit<'a>>(
 
 /// Walk the children of a [`RestTypeNode`].
 pub fn walk_rest_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a RestTypeNode<'a>) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`ReturnStatement`].
@@ -2701,8 +2917,12 @@ pub fn walk_satisfies_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a SatisfiesExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`SemicolonClassElement`].
@@ -2748,7 +2968,9 @@ pub fn walk_shorthand_property_assignment<'a, V: Visit<'a>>(
         visitor.visit_node(Node::from(*child));
     }
     visitor.visit_node(Node::from(node.name));
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.object_assignment_initializer {
         visitor.visit_node(Node::from(child));
     }
@@ -2763,12 +2985,16 @@ pub fn walk_source_file<'a, V: Visit<'a>>(visitor: &mut V, node: &'a SourceFile<
 
 /// Walk the children of a [`SpreadAssignment`].
 pub fn walk_spread_assignment<'a, V: Visit<'a>>(visitor: &mut V, node: &'a SpreadAssignment<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`SpreadElement`].
 pub fn walk_spread_element<'a, V: Visit<'a>>(visitor: &mut V, node: &'a SpreadElement<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`StringLiteral`].
@@ -2778,8 +3004,12 @@ pub fn walk_string_literal<'a, V: Visit<'a>>(visitor: &mut V, node: &'a StringLi
 
 /// Walk the children of a [`SwitchStatement`].
 pub fn walk_switch_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a SwitchStatement<'a>) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_case_block(node.case_block);
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.case_block {
+        visitor.visit_case_block(child);
+    }
 }
 
 /// Walk the children of a [`SyntaxList`].
@@ -2805,8 +3035,12 @@ pub fn walk_synthetic_reference_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a SyntheticReferenceExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.this_arg));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.this_arg {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TaggedTemplateExpression`].
@@ -2814,11 +3048,15 @@ pub fn walk_tagged_template_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a TaggedTemplateExpression<'a>,
 ) {
-    visitor.visit_node(Node::from(node.tag));
+    if let Some(child) = node.tag {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_node(Node::from(node.template));
+    if let Some(child) = node.template {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TemplateExpression`].
@@ -2826,7 +3064,9 @@ pub fn walk_template_expression<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a TemplateExpression<'a>,
 ) {
-    visitor.visit_template_head(node.head);
+    if let Some(child) = node.head {
+        visitor.visit_template_head(child);
+    }
     for child in node.template_spans {
         visitor.visit_template_span(child);
     }
@@ -2842,7 +3082,9 @@ pub fn walk_template_literal_type_node<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a TemplateLiteralTypeNode<'a>,
 ) {
-    visitor.visit_template_head(node.head);
+    if let Some(child) = node.head {
+        visitor.visit_template_head(child);
+    }
     for child in node.template_spans {
         visitor.visit_template_literal_type_span(child);
     }
@@ -2853,8 +3095,12 @@ pub fn walk_template_literal_type_span<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a TemplateLiteralTypeSpan<'a>,
 ) {
-    visitor.visit_node(Node::from(node.r#type));
-    visitor.visit_node(Node::from(node.literal));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.literal {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TemplateMiddle`].
@@ -2864,8 +3110,12 @@ pub fn walk_template_middle<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Templat
 
 /// Walk the children of a [`TemplateSpan`].
 pub fn walk_template_span<'a, V: Visit<'a>>(visitor: &mut V, node: &'a TemplateSpan<'a>) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.literal));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.literal {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TemplateTail`].
@@ -2880,7 +3130,9 @@ pub fn walk_this_type_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a ThisType
 
 /// Walk the children of a [`ThrowStatement`].
 pub fn walk_throw_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a ThrowStatement<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`Token`].
@@ -2890,7 +3142,9 @@ pub fn walk_token<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Token<'a>) {
 
 /// Walk the children of a [`TryStatement`].
 pub fn walk_try_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a TryStatement<'a>) {
-    visitor.visit_block(node.try_block);
+    if let Some(child) = node.try_block {
+        visitor.visit_block(child);
+    }
     if let Some(child) = node.catch_clause {
         visitor.visit_catch_clause(child);
     }
@@ -2914,17 +3168,25 @@ pub fn walk_type_alias_declaration<'a, V: Visit<'a>>(
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
     for child in node.type_parameters {
         visitor.visit_type_parameter_declaration(child);
     }
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TypeAssertion`].
 pub fn walk_type_assertion<'a, V: Visit<'a>>(visitor: &mut V, node: &'a TypeAssertion<'a>) {
-    visitor.visit_node(Node::from(node.r#type));
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TypeLiteralNode`].
@@ -2936,12 +3198,16 @@ pub fn walk_type_literal_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a TypeL
 
 /// Walk the children of a [`TypeOfExpression`].
 pub fn walk_type_of_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a TypeOfExpression<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TypeOperatorNode`].
 pub fn walk_type_operator_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a TypeOperatorNode<'a>) {
-    visitor.visit_node(Node::from(node.r#type));
+    if let Some(child) = node.r#type {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`TypeParameterDeclaration`].
@@ -2952,7 +3218,9 @@ pub fn walk_type_parameter_declaration<'a, V: Visit<'a>>(
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_identifier(node.name);
+    if let Some(child) = node.name {
+        visitor.visit_identifier(child);
+    }
     if let Some(child) = node.constraint {
         visitor.visit_node(Node::from(child));
     }
@@ -2969,7 +3237,9 @@ pub fn walk_type_predicate_node<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a TypePredicateNode<'a>,
 ) {
-    visitor.visit_node(Node::from(node.parameter_name));
+    if let Some(child) = node.parameter_name {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.r#type {
         visitor.visit_node(Node::from(child));
     }
@@ -2977,7 +3247,9 @@ pub fn walk_type_predicate_node<'a, V: Visit<'a>>(
 
 /// Walk the children of a [`TypeQueryNode`].
 pub fn walk_type_query_node<'a, V: Visit<'a>>(visitor: &mut V, node: &'a TypeQueryNode<'a>) {
-    visitor.visit_node(Node::from(node.expr_name));
+    if let Some(child) = node.expr_name {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
@@ -2988,7 +3260,9 @@ pub fn walk_type_reference_node<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a TypeReferenceNode<'a>,
 ) {
-    visitor.visit_node(Node::from(node.type_name));
+    if let Some(child) = node.type_name {
+        visitor.visit_node(Node::from(child));
+    }
     for child in node.type_arguments {
         visitor.visit_node(Node::from(*child));
     }
@@ -3006,7 +3280,9 @@ pub fn walk_variable_declaration<'a, V: Visit<'a>>(
     visitor: &mut V,
     node: &'a VariableDeclaration<'a>,
 ) {
-    visitor.visit_node(Node::from(node.name));
+    if let Some(child) = node.name {
+        visitor.visit_node(Node::from(child));
+    }
     if let Some(child) = node.r#type {
         visitor.visit_node(Node::from(child));
     }
@@ -3030,24 +3306,34 @@ pub fn walk_variable_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a Vari
     for child in node.modifiers {
         visitor.visit_node(Node::from(*child));
     }
-    visitor.visit_variable_declaration_list(node.declaration_list);
+    if let Some(child) = node.declaration_list {
+        visitor.visit_variable_declaration_list(child);
+    }
 }
 
 /// Walk the children of a [`VoidExpression`].
 pub fn walk_void_expression<'a, V: Visit<'a>>(visitor: &mut V, node: &'a VoidExpression<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`WhileStatement`].
 pub fn walk_while_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a WhileStatement<'a>) {
-    visitor.visit_node(Node::from(node.expression));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
     visitor.visit_node(Node::from(node.statement));
 }
 
 /// Walk the children of a [`WithStatement`].
 pub fn walk_with_statement<'a, V: Visit<'a>>(visitor: &mut V, node: &'a WithStatement<'a>) {
-    visitor.visit_node(Node::from(node.expression));
-    visitor.visit_node(Node::from(node.statement));
+    if let Some(child) = node.expression {
+        visitor.visit_node(Node::from(child));
+    }
+    if let Some(child) = node.statement {
+        visitor.visit_node(Node::from(child));
+    }
 }
 
 /// Walk the children of a [`YieldExpression`].

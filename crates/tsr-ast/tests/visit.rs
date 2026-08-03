@@ -30,25 +30,25 @@ impl<'a> Visit<'a> for Recorder {
 #[test]
 fn walk_reaches_nested_children() {
     // `a + b` nested as `(a + b) + c`.
-    let a = Identifier { text: "a" };
-    let b = Identifier { text: "b" };
-    let c = Identifier { text: "c" };
+    let a = Identifier::new("a");
+    let b = Identifier::new("b");
+    let c = Identifier::new("c");
     let plus = Token::new(SyntaxKind::PlusToken);
 
-    let inner = BinaryExpression {
-        modifiers: &[],
-        left: Expression::Identifier(&a),
-        r#type: None,
-        operator_token: &plus,
-        right: Expression::Identifier(&b),
-    };
-    let outer = BinaryExpression {
-        modifiers: &[],
-        left: Expression::BinaryExpression(&inner),
-        r#type: None,
-        operator_token: &plus,
-        right: Expression::Identifier(&c),
-    };
+    let inner = BinaryExpression::new(
+        &[],
+        Some(Expression::Identifier(&a)),
+        None,
+        Some(&plus),
+        Some(Expression::Identifier(&b)),
+    );
+    let outer = BinaryExpression::new(
+        &[],
+        Some(Expression::BinaryExpression(&inner)),
+        None,
+        Some(&plus),
+        Some(Expression::Identifier(&c)),
+    );
 
     let mut recorder = Recorder::default();
     walk_node(&mut recorder, Node::BinaryExpression(&outer));
@@ -78,16 +78,16 @@ fn not_calling_walk_prunes_the_subtree() {
         }
     }
 
-    let a = Identifier { text: "a" };
-    let b = Identifier { text: "b" };
+    let a = Identifier::new("a");
+    let b = Identifier::new("b");
     let plus = Token::new(SyntaxKind::PlusToken);
-    let expr = BinaryExpression {
-        modifiers: &[],
-        left: Expression::Identifier(&a),
-        r#type: None,
-        operator_token: &plus,
-        right: Expression::Identifier(&b),
-    };
+    let expr = BinaryExpression::new(
+        &[],
+        Some(Expression::Identifier(&a)),
+        None,
+        Some(&plus),
+        Some(Expression::Identifier(&b)),
+    );
 
     let mut shallow = Shallow::default();
     walk_node(&mut shallow, Node::BinaryExpression(&expr));

@@ -133,6 +133,14 @@ fn resolve_alias(ast: &AstDefinition, name: &str, seen: &mut BTreeSet<String>) -
             for m in members {
                 if ast.nodes.definitions.contains_key(m) {
                     out.insert(m.clone());
+                } else if ast.kinds.aliases.contains_key(m) {
+                    // The member names a set of *token kinds*, not a node — as in
+                    // `Modifier = ["ModifierSyntaxKind"]`. Such a member admits a
+                    // `Token` carrying one of those kinds.
+                    //
+                    // Dropping this silently left `ModifierLike` holding only
+                    // `Decorator`, so no modifier list could hold a modifier.
+                    out.insert("Token".to_string());
                 } else {
                     out.extend(resolve_alias(ast, m, seen));
                 }
@@ -191,8 +199,65 @@ fn rust_type(
     Ok(Some(if optional && list.is_none() { format!("Option<{wrapped}>") } else { wrapped }))
 }
 
+/// Fields upstream's generated Go declares as nullable pointers.
+///
+/// `ast.json`'s `optional` flag describes TypeScript's *public API* — whether the
+/// property is written `foo?:` in the `.d.ts`. It does not describe whether the
+/// field can be absent at runtime, because Go expresses that with a pointer and
+/// every node-typed field is a pointer.
+///
+/// Trusting `optional` alone made fields mandatory that nothing supplies:
+/// `PropertyAssignment` came out requiring a `TypeNode`, which no property
+/// assignment has. So nullability is read from `ast_generated.go`, which is the
+/// authority on what the compiler actually permits — the same principle as
+/// [ADR-0006](../../docs/adr/0006-conformance-oracle.md).
+#[derive(Debug, Default)]
+pub struct GoNullability {
+    /// `(struct name, field name)` pairs declared as `*T`.
+    pointers: BTreeSet<(String, String)>,
+}
+
+impl GoNullability {
+    /// Parse struct field declarations out of upstream's generated Go.
+    pub fn parse(source: &str) -> Self {
+        let mut pointers = BTreeSet::new();
+        let mut current: Option<String> = None;
+        for line in source.lines() {
+            if let Some(rest) = line.strip_prefix("type ") {
+                current = rest
+                    .split_whitespace()
+                    .next()
+                    .filter(|_| rest.contains("struct {"))
+                    .map(str::to_string);
+                continue;
+            }
+            if line == "}" {
+                current = None;
+                continue;
+            }
+            let Some(struct_name) = current.as_deref() else { continue };
+            let trimmed = line.trim();
+            let mut parts = trimmed.split_whitespace();
+            let (Some(field), Some(ty)) = (parts.next(), parts.next()) else { continue };
+            if ty.starts_with('*') {
+                pointers.insert((struct_name.to_string(), field.to_string()));
+            }
+        }
+        Self { pointers }
+    }
+
+    /// Whether `node.field` is a nullable pointer upstream.
+    fn is_nullable(&self, node: &str, field: &str) -> bool {
+        self.pointers.contains(&(node.to_string(), field.to_string()))
+    }
+}
+
 /// Build the ordered field list for a node definition.
-fn resolve_fields(ast: &AstDefinition, def_name: &str) -> Result<Vec<ResolvedField>> {
+fn resolve_fields(
+    ast: &AstDefinition,
+    nullability: &GoNullability,
+    def_name: &str,
+) -> Result<Vec<ResolvedField>> {
     let def = ast
         .nodes
         .definitions
@@ -248,8 +313,12 @@ fn resolve_fields(ast: &AstDefinition, def_name: &str) -> Result<Vec<ResolvedFie
             }
         }
         let ty = member.r#type.as_ref().or_else(|| base.and_then(|b| b.r#type.as_ref()));
-        let optional =
-            member.optional || base.is_some_and(|b| b.optional && member.r#type.is_none());
+        // Optionality is inherited even when the member overrides the *type*.
+        // Requiring it back would make `PropertyAssignment.type` mandatory, which
+        // no real property assignment supplies.
+        let optional = member.optional
+            || base.is_some_and(|b| b.optional)
+            || nullability.is_nullable(def_name, &member.name);
         let list = member.list.as_deref().or_else(|| base.and_then(|b| b.list.as_deref()));
         push(&member.name, ty, optional, list, &mut fields, &mut emitted)?;
     }
@@ -274,7 +343,7 @@ fn resolve_fields(ast: &AstDefinition, def_name: &str) -> Result<Vec<ResolvedFie
 }
 
 /// Generate the node structs.
-pub fn generate_nodes(ast: &AstDefinition) -> Result<String> {
+pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Result<String> {
     let mut out = String::with_capacity(256 * 1024);
     out.push_str(
         "//! Concrete AST node types.\n\
@@ -287,9 +356,21 @@ pub fn generate_nodes(ast: &AstDefinition) -> Result<String> {
          //! Fields upstream marks `goOnly` — `Symbol`, `Locals`, `FlowNode`,\n\
          //! `NextContainer`, `facts` — are intentionally absent. They are binder and\n\
          //! checker state, and live in id-keyed side tables here (PLAN.md §3.2).\n\n\
-         #![allow(clippy::struct_excessive_bools, clippy::doc_markdown)]\n\n\
+         #![allow(\n\
+         \x20   clippy::struct_excessive_bools,\n\
+         \x20   clippy::doc_markdown,\n\
+         \x20   // Node constructors take one parameter per syntax child; some nodes\n\
+         \x20   // genuinely have nine. Splitting them would obscure the shape.\n\
+         \x20   clippy::too_many_arguments,\n\
+         \x20   // `Foo<'a>` is written uniformly even where the lifetime is elidable.\n\
+         \x20   clippy::needless_lifetimes,\n\
+         \x20   // A node with no children still gets `new()`; `Default` would imply\n\
+         \x20   // these are meaningful standalone values, which they are not.\n\
+         \x20   clippy::new_without_default,\n\
+         )]\n\n\
+         use std::cell::Cell;\n\n\
          use super::alias::*;\n\
-         use crate::{SyntaxKind, Token};\n\n",
+         use crate::{NodeId, SyntaxKind, Token};\n\n",
     );
 
     for name in ast.nodes.definitions.keys() {
@@ -298,14 +379,19 @@ pub fn generate_nodes(ast: &AstDefinition) -> Result<String> {
             // distinct shape per instantiation, so it collapses to one type.
             continue;
         }
-        let fields = resolve_fields(ast, name)?;
+        let fields = resolve_fields(ast, nullability, name)?;
         writeln!(
             out,
             "/// The `{name}` node.\n\
              ///\n\
              /// Corresponds to typescript-go's `ast.{name}`.\n\
              #[derive(Debug)]\n\
-             pub struct {name}<'a> {{"
+             pub struct {name}<'a> {{\n    \
+             /// Key into the side tables holding this node's kind, span, and parent.\n    \
+             ///\n    \
+             /// `None` until the parser registers the node. A `Cell` so registration\n    \
+             /// does not need `&mut` on a tree the parser is still building.\n    \
+             pub node_id: Cell<Option<NodeId>>,"
         )?;
         // Nodes such as `KeywordExpression` carry only a kind, so nothing in the
         // struct mentions `'a`. Keep the parameter for uniformity — every node is
@@ -325,6 +411,50 @@ pub fn generate_nodes(ast: &AstDefinition) -> Result<String> {
             )?;
         }
         out.push_str("}\n\n");
+
+        // A constructor per node, so callers never spell out `node_id`. Without
+        // this the parser would repeat the same placeholder at ~200 sites.
+        let params = fields
+            .iter()
+            .map(|f| format!("{}: {}", f.rust_name, f.rust_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let inits = fields.iter().map(|f| f.rust_name.clone()).collect::<Vec<_>>().join(", ");
+        let marker = if fields.iter().any(|f| f.rust_type.contains("'a")) {
+            String::new()
+        } else {
+            ", _marker: std::marker::PhantomData".to_string()
+        };
+        // A node with no arena-borrowing fields does not use `'a` in its impl, and
+        // spelling it would be an elidable lifetime.
+        let impl_header = if marker.is_empty() {
+            format!("impl<'a> {name}<'a>")
+        } else {
+            format!("impl {name}<'_>")
+        };
+        writeln!(
+            out,
+            "{impl_header} {{\n    \
+             /// Construct a `{name}`, unregistered.\n    \
+             ///\n    \
+             /// [`Self::node_id`] stays `None` until the parser records the node's\n    \
+             /// kind and span in the side tables.\n    \
+             #[must_use]\n    \
+             pub fn new({params}) -> Self {{\n        \
+             Self {{ node_id: Cell::new(None){}{} }}\n    }}\n}}\n",
+            if inits.is_empty() { String::new() } else { format!(", {inits}") },
+            marker,
+        )?;
+
+        // Lets the parser register any node generically.
+        writeln!(
+            out,
+            "impl crate::HasNodeId for {name}<'_> {{\n    \
+             fn set_node_id(&self, id: NodeId) {{\n        \
+             self.node_id.set(Some(id));\n    }}\n\n    \
+             fn node_id(&self) -> Option<NodeId> {{\n        \
+             self.node_id.get()\n    }}\n}}\n"
+        )?;
     }
 
     Ok(out)
@@ -362,6 +492,7 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
     }
     out.push_str("}\n\n");
 
+    let mut alias_members: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for alias_name in ast.nodes.aliases.keys() {
         let mut seen = BTreeSet::new();
         let members = resolve_alias(ast, alias_name, &mut seen);
@@ -393,7 +524,51 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
             writeln!(out, "            {alias_name}::{m}(n) => Node::{m}(n),")?;
         }
         out.push_str("        }\n    }\n}\n\n");
+
+        // Narrowing from the universal union. Fallible, because a `Node` may hold
+        // a variant outside this alias.
+        writeln!(
+            out,
+            "impl<'a> TryFrom<Node<'a>> for {alias_name}<'a> {{\n    \
+             type Error = Node<'a>;\n\n    \
+             /// Returns the original node as the error when it is not a\n    \
+             /// `{alias_name}`, so callers can recover it without a second match.\n    \
+             fn try_from(value: Node<'a>) -> Result<Self, Self::Error> {{\n        \
+             match value {{"
+        )?;
+        for m in &members {
+            writeln!(out, "            Node::{m}(n) => Ok({alias_name}::{m}(n)),")?;
+        }
+        out.push_str("            other => Err(other),\n        }\n    }\n}\n\n");
+
+        alias_members.insert(alias_name.clone(), members);
     }
+
+    // Widening between aliases, where one union's members are a subset of
+    // another's — `Expression` into `ForInitializer`, say. Delegating through
+    // `Node` keeps this to one small impl per pair instead of re-emitting a full
+    // match, which at 280 pairs would be tens of thousands of lines.
+    let mut pairs = 0usize;
+    for (narrow, narrow_members) in &alias_members {
+        for (wide, wide_members) in &alias_members {
+            if narrow == wide || narrow_members.is_empty() || wide == "Node" {
+                continue;
+            }
+            if !narrow_members.is_subset(wide_members) || narrow_members == wide_members {
+                continue;
+            }
+            writeln!(
+                out,
+                "impl<'a> From<{narrow}<'a>> for {wide}<'a> {{\n    \
+                 /// Infallible: every `{narrow}` variant is also a `{wide}` variant.\n    \
+                 fn from(value: {narrow}<'a>) -> Self {{\n        \
+                 Self::try_from(Node::from(value))\n            \
+                 .unwrap_or_else(|_| unreachable!(\"{narrow} is a subset of {wide}\"))\n    }}\n}}\n"
+            )?;
+            pairs += 1;
+        }
+    }
+    let _ = pairs;
 
     Ok(out)
 }
@@ -408,7 +583,7 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
 /// across a moving upstream is how traversal silently misses new syntax. oxc
 /// reaches the same conclusion — its `tasks/ast_tools` is ~20k LOC for the same
 /// reason.
-pub fn generate_visit(ast: &AstDefinition) -> Result<String> {
+pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Result<String> {
     let mut out = String::with_capacity(256 * 1024);
     out.push_str(
         "//! AST traversal.\n\
@@ -462,7 +637,8 @@ pub fn generate_visit(ast: &AstDefinition) -> Result<String> {
     // ---- per-node walkers ----------------------------------------------
     for name in ast.nodes.definitions.keys() {
         let snake = name.to_case(Case::Snake);
-        let fields = if name == "Token" { Vec::new() } else { resolve_fields(ast, name)? };
+        let fields =
+            if name == "Token" { Vec::new() } else { resolve_fields(ast, nullability, name)? };
 
         writeln!(
             out,

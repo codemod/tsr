@@ -34,6 +34,18 @@ define_index! {
     pub struct NodeId;
 }
 
+/// Nodes that carry a [`NodeId`] slot.
+///
+/// Implemented for every generated node, so the parser can register any of them
+/// through one generic path instead of repeating the assignment per node type.
+pub trait HasNodeId {
+    /// Record the id assigned by the parser.
+    fn set_node_id(&self, id: NodeId);
+
+    /// The id, or `None` if the node has not been registered.
+    fn node_id(&self) -> Option<NodeId>;
+}
+
 /// A token node.
 ///
 /// Upstream models tokens as a generic `Token[TKind]` with 33 named
@@ -154,6 +166,18 @@ impl NodeTable {
     /// Panics if `id` is out of bounds.
     pub fn set_parent(&mut self, id: NodeId, parent: NodeId) {
         self.parent[id.as_u32() as usize] = Some(parent);
+    }
+
+    /// Discard rows from `len` onward.
+    ///
+    /// Used by speculative parsing: a rejected attempt registers nodes that never
+    /// enter the tree. Sound only because ids are handed out sequentially and a
+    /// discarded node's id is not yet referenced anywhere.
+    pub fn truncate(&mut self, len: usize) {
+        self.parent.truncate(len);
+        self.kind.truncate(len);
+        self.span.truncate(len);
+        self.flags.truncate(len);
     }
 
     /// Walk from `id` up to the root.

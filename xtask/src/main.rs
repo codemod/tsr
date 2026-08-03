@@ -64,10 +64,16 @@ fn codegen() -> Result<()> {
     let out_dir = root.join("crates/tsr-ast/src/generated");
     fs::create_dir_all(&out_dir).context("creating generated output directory")?;
 
+    // Node-typed fields are nullable pointers in Go; `ast.json` does not say so.
+    let go_ast = root.join("vendor/typescript-go/internal/ast/ast_generated.go");
+    let nullability = gen_nodes::GoNullability::parse(
+        &fs::read_to_string(&go_ast).with_context(|| format!("reading {}", go_ast.display()))?,
+    );
+
     write_generated(&out_dir.join("kind.rs"), &gen_kind::generate(&ast)?)?;
-    write_generated(&out_dir.join("nodes.rs"), &gen_nodes::generate_nodes(&ast)?)?;
+    write_generated(&out_dir.join("nodes.rs"), &gen_nodes::generate_nodes(&ast, &nullability)?)?;
     write_generated(&out_dir.join("alias.rs"), &gen_nodes::generate_aliases(&ast)?)?;
-    write_generated(&out_dir.join("visit.rs"), &gen_nodes::generate_visit(&ast)?)?;
+    write_generated(&out_dir.join("visit.rs"), &gen_nodes::generate_visit(&ast, &nullability)?)?;
 
     // A machine-readable record of what the generator saw, so the conformance test
     // can assert against upstream without re-parsing ast.json at test time.
