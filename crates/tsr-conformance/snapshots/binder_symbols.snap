@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 5305/7621 (69.61%)
-Failed         : 2316
+Passed         : 6676/7621 (87.60%)
+Failed         : 945
 Skipped        : 4823 (excluded from the denominator)
 
   1153  skipped: multi-file case; needs per-file symbol attribution
@@ -12,204 +12,204 @@ Skipped        : 4823 (excluded from the denominator)
   520  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 2316 failures:
-compiler/DeclarationErrorsNoEmitOnError
-  1 symbol(s): x: no symbol
-compiler/ParameterList7
-  3 symbol(s): C1.p1: no symbol; C1.p2: no symbol; C1.p3: no symbol
-compiler/ParameterList8
-  3 symbol(s): C2.p1: no symbol; C2.p2: no symbol; C2.p3: no symbol
-compiler/abstractPropertyInConstructor
-  3 symbol(s): x: no symbol; y: no symbol; y1: no symbol
-compiler/acceptableAlias1
-  1 symbol(s): M.X: no symbol
-compiler/accessOverriddenBaseClassMember1
-  3 symbol(s): ColoredPoint.color: no symbol; Point.x: no symbol; Point.y: no symbol
+First 100 of 945 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
-compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
-  1 symbol(s): x: no symbol
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
-compiler/ambientModuleExports
-  3 symbol(s): Foo.C: no symbol; Foo.a: no symbol; Foo.b: no symbol
-compiler/ambientModuleWithTemplateLiterals
-  3 symbol(s): Foo.a: no symbol; Foo.b: no symbol; Foo.c: no symbol
 compiler/ambientModules
   3 symbol(s): Foo: no symbol; Foo.Bar: no symbol; Foo.Bar.foo: no symbol
-compiler/anonterface
-  2 symbol(s): M.C: no symbol; M.C.m: no symbol
-compiler/anonymousClassDeclarationDoesntPrintWithReadonly
-  1 symbol(s): X.a: no symbol
-compiler/argumentsAsPropertyName
-  1 symbol(s): arguments: no symbol
-compiler/argumentsObjectIterator03_ES6
-  3 symbol(s): x: no symbol; y: no symbol; z: no symbol
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
-  3 symbol(s): (Anonymous class).bar: no symbol; (Anonymous class).foo: no symbol; (Anonymous class)[Symbol.iterator]: no symbol
-compiler/argumentsUsedInObjectLiteralProperty
-  1 symbol(s): selectedValue: declared on {1}, expected to include {1, 2}
+  1 symbol(s): (Anonymous class)[Symbol.iterator]: no symbol
 compiler/arithmeticOnInvalidTypes2
   1 symbol(s): f: no symbol
-compiler/arityErrorRelatedSpanBindingPattern
-  1 symbol(s): c: no symbol
-compiler/arrayAssignmentTest3
-  2 symbol(s): a.x: no symbol; a.y: no symbol
-compiler/arrayBestCommonTypes
-  2 symbol(s): x: declared on {8, 9, 10, 11, 61, 62, 63, 64}, expected to include {8, 9, 10, 11, 31, 32, 33, 37, 38, 39, 61, 62, 63, 64, 84, 85, 86, 90, 91, 92}; y: declared on {8, 9, 10, 11, 61, 62, 63, 64}, expected to include {8, 9, 10, 11, 31, 32, 33, 37, 38, 39, 61, 62, 63, 64, 84, 85, 86, 90, 91, 92}
-compiler/arrayBindingPatternOmittedExpressions
-  3 symbol(s): a: declared on {4}, expected to include {3, 4, 11}; b: declared on {5}, expected to include {3, 5, 11}; s: no symbol
-compiler/arrayDestructuringInSwitch1
-  2 symbol(s): operands: no symbol; operator: no symbol
-compiler/arrayDestructuringInSwitch2
-  3 symbol(s): a: no symbol; kind: no symbol; n: no symbol
-compiler/arrayFakeFlatNoCrashInferenceDeclarations
-  3 symbol(s): done: no symbol; obj: no symbol; recur: no symbol
-compiler/arrayFrom
-  2 symbol(s): a: declared on {20}, expected to include {20, 23, 25, 27}; b: declared on {23, 25, 27}, expected to include {20, 23, 25, 27}
-compiler/arrayTypeInSignatureOfInterfaceAndClass
-  1 symbol(s): WinJS.Promise: no symbol
 compiler/asiAbstract
   2 symbol(s): C2.abstract: no symbol; C2.nonAbstractFunction: declared on {5}, expected to include {6}
-compiler/asiInES6Classes
-  1 symbol(s): done: no symbol
-compiler/assertionFunctionsCanNarrowByDiscriminant
-  1 symbol(s): type: declared on {12, 14, 19}, expected to include {0, 5, 12, 14, 19}
-compiler/assign1
-  2 symbol(s): pepper: no symbol; salt: no symbol
-compiler/assignToExistingClass
-  1 symbol(s): myProp: no symbol
-compiler/assignToFn
-  1 symbol(s): f: no symbol
-compiler/assignmentCompatability1
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability10
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x4: no symbol; classWithPublicAndOptional.one: no symbol
-compiler/assignmentCompatability11
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability12
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability13
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability14
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability15
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability16
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability17
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability18
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability19
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability2
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability20
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability21
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability22
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability23
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
 compiler/assignmentCompatability24
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; f: no symbol
-compiler/assignmentCompatability25
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability26
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability27
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability28
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability29
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability3
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability30
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability31
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability32
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability33
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability34
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj: no symbol; one: no symbol
-compiler/assignmentCompatability35
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability36
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability37
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability38
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability39
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x2: no symbol; classWithTwoPublic.one: no symbol
-compiler/assignmentCompatability4
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__aa: no symbol; one: no symbol
-compiler/assignmentCompatability40
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x5: no symbol; classWithPrivate.one: no symbol
-compiler/assignmentCompatability41
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x6: no symbol; classWithTwoPrivate.one: no symbol
-compiler/assignmentCompatability42
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x7: no symbol; classWithPublicPrivate.one: no symbol
-compiler/assignmentCompatability43
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj2: no symbol; one: no symbol
-compiler/assignmentCompatability5
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj1: no symbol; one: no symbol
-compiler/assignmentCompatability6
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj3: no symbol; one: no symbol
-compiler/assignmentCompatability7
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__obj4: no symbol; one: no symbol
-compiler/assignmentCompatability8
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x1: no symbol; classWithPublic.one: no symbol
-compiler/assignmentCompatability9
-  3 symbol(s): __test1__.__val__obj4: no symbol; __test2__.__val__x3: no symbol; classWithOptional.one: no symbol
-compiler/asyncFunctionReturnExpressionErrorSpans
-  3 symbol(s): baz: declared on {12}, expected to include {1, 12}; inner: declared on {13}, expected to include {2, 13}; thing: declared on {14}, expected to include {3, 14}
+  1 symbol(s): f: no symbol
 compiler/asyncFunctionsAndStrictNullChecks
   3 symbol(s): Windows: no symbol; Windows.Foundation: no symbol; Windows.Foundation.IPromise: no symbol
 compiler/asyncYieldStarContextualType
-  3 symbol(s): Result[Symbol.iterator]: no symbol; author: no symbol; authorId: no symbol
-compiler/autolift3
-  1 symbol(s): readFile: no symbol
-compiler/autolift4
-  3 symbol(s): Point.x: no symbol; Point.y: no symbol; Point3D.z: no symbol
-compiler/avoidCycleWithVoidExpressionReturnedFromArrow
-  1 symbol(s): Howl.options: no symbol
-compiler/avoidNarrowingUsingConstVariableFromBindingElementWithLiteralInitializer
-  1 symbol(s): index: declared on {2}, expected to include {2, 3}
-compiler/awaitInClassInAsyncFunction
-  1 symbol(s): (Anonymous class).baz: no symbol
-compiler/awaitUnionPromise
-  1 symbol(s): x: declared on {12}, expected to include {8, 12}
-compiler/awaitedType
-  3 symbol(s): include: declared on {207, 212, 220, 225}, expected to include {189, 195, 207, 212, 220, 225}; select: declared on {207, 212, 219, 224}, expected to include {188, 192, 207, 212, 219, 224}; then: declared on {116, 148, 155}, expected to include {4, 5, 6, 7, 28, 116, 148, 155}
-compiler/awaitedTypeStrictNull
-  1 symbol(s): then: no symbol
-compiler/baseCheck
-  3 symbol(s): D.z: no symbol; E.z: no symbol; F.z: no symbol
-compiler/bindingPatternCannotBeOnlyInferenceSource
-  3 symbol(s): e1: no symbol; e2: no symbol; p1: no symbol
-compiler/bindingPatternInParameter01
-  2 symbol(s): a: no symbol; b: no symbol
-compiler/blockScopedBindingUsedBeforeDef
-  2 symbol(s): a: no symbol; b: no symbol
-compiler/blockScopedBindingsReassignedInLoop6
-  2 symbol(s): x: no symbol; y: no symbol
-compiler/bluebirdStaticThis
-  1 symbol(s): Promise.Thenable: no symbol
+  1 symbol(s): Result[Symbol.iterator]: no symbol
 compiler/booleanLiteralsContextuallyTypedFromUnion
-  2 symbol(s): mandatoryFn: declared on {23}, expected to include {10, 19, 20, 22, 23}; optionalBool: declared on {23}, expected to include {9, 13, 19, 20, 22, 23}
-compiler/builtinIterator
-  2 symbol(s): done: declared on {13}, expected to include {13, 32, 45, 47, 54, 61, 63}; value: declared on {14}, expected to include {14, 32, 45, 47, 54, 61, 63}
-compiler/cachedContextualTypes
-  1 symbol(s): foo: declared on {17}, expected to include {5, 17}
+  2 symbol(s): mandatoryFn: declared on {10, 23}, expected to include {10, 19, 20, 22, 23}; optionalBool: declared on {9, 13, 23}, expected to include {9, 13, 19, 20, 22, 23}
 compiler/callsOnComplexSignatures
-  3 symbol(s): a: declared on {33, 42, 43, 44, 45, 46, 100}, expected to include {24, 33, 42, 43, 44, 45, 46, 100}; b: declared on {33, 42, 44, 45, 46}, expected to include {23, 33, 42, 44, 45, 46}; getValue: no symbol
-compiler/captureThisInSuperCall
-  1 symbol(s): test: no symbol
+  1 symbol(s): p: declared on {88, 92}, expected to include {100}
 compiler/capturedLetConstInLoop13
   1 symbol(s): [name + ".a"]: no symbol
+compiler/capturedParametersInInitializers1
+  1 symbol(s): [z]: no symbol
+compiler/castExpressionParentheses
+  1 symbol(s): foo: no symbol
+compiler/castFunctionExpressionShouldBeParenthesized
+  1 symbol(s): a: no symbol
+compiler/checkDestructuringShorthandAssigment2
+  1 symbol(s): [k]: no symbol
+compiler/checkJsFiles7
+  1 symbol(s): C.a: no symbol
+compiler/checkJsFiles_noErrorLocation
+  1 symbol(s): B.foo: no symbol
+compiler/checkJsObjectLiteralIndexSignatures
+  2 symbol(s): [n]: no symbol; [s]: no symbol
+compiler/checkSuperCallBeforeThisAccessing9
+  1 symbol(s): Derived.x: no symbol
+compiler/checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1
+  1 symbol(s): composed.name: no symbol
+compiler/checkingObjectWithThisInNamePositionNoCrash
+  1 symbol(s): [this.a]: no symbol
+compiler/circularlyConstrainedMappedTypeContainingConditionalNoInfiniteInstantiationDepth
+  1 symbol(s): Validator[nominalTypeHack]: no symbol
+compiler/classDeclarationShouldBeOutOfScopeInComputedNames
+  2 symbol(s): A[A.p1]: no symbol; A[A.p2]: no symbol
+compiler/classFieldSuperAccessibleJs1
+  1 symbol(s): C.blah2: no symbol
+compiler/classFieldSuperNotAccessibleJs
+  2 symbol(s): YaddaBase.foo: no symbol; YaddaBase.roots: no symbol
+compiler/classImplementsImportedInterface
+  1 symbol(s): T: declared on {6}, expected to include {0, 6}
+compiler/classMergedWithInterfaceMultipleBasesNoError
+  3 symbol(s): default: no symbol; default.handleIntersection: no symbol; default.observer: no symbol
+compiler/classNonUniqueSymbolMethodHasSymbolIndexer
+  2 symbol(s): (Anonymous class)[a]: no symbol; A[a]: no symbol
+compiler/clodulesDerivedClasses
+  3 symbol(s): Path: declared on {6}, expected to include {6, 11}; Shape: declared on {0}, expected to include {0, 2}; Utils: declared on {2, 11}, expected to include {4, 13}
+compiler/collisionExportsRequireAndInternalModuleAliasInGlobalFile
+  1 symbol(s): exports: declared on {3, 9, 16}, expected to include {0, 3, 9, 16}
+compiler/commaOperatorInConditionalExpression
+  1 symbol(s): [m]: no symbol
+compiler/commentInNamespaceDeclarationWithIdentifierPathName
+  2 symbol(s): hello: no symbol; hi: no symbol
+compiler/computedPropertiesInDestructuring1
+  3 symbol(s): [(1 + {})]: no symbol; [foo()]: no symbol; [foo2()]: no symbol
+compiler/computedPropertiesInDestructuring1_ES6
+  3 symbol(s): [(1 + {})]: no symbol; [foo()]: no symbol; [foo2()]: no symbol
+compiler/computedPropertiesNarrowed
+  3 symbol(s): 1: no symbol; 1-1: no symbol; [-1]: no symbol
+compiler/computedPropertiesTransformedInOtherwiseNonTSClasses
+  1 symbol(s): NotTransformed[NS.x]: no symbol
+compiler/computedPropertyBindingElementDeclarationNoCrash1
+  1 symbol(s): [key]: no symbol
+compiler/computedPropertyNameAndTypeParameterConflict
+  1 symbol(s): Bar[O]: no symbol
+compiler/constEnumOnlyModuleMerging
+  3 symbol(s): O: declared on {8}, expected to include {0, 2, 8}; O.A: no symbol; O.A.X: no symbol
+compiler/constEnums
+  3 symbol(s): I: declared on {13, 95}, expected to include {51, 62, 95}; I.V1: no symbol; I.V2: no symbol
+compiler/contextualComputedNonBindablePropertyType
+  2 symbol(s): [propSelector('bar')]: no symbol; [testD()]: no symbol
+compiler/contextualOuterTypeParameters
+  1 symbol(s): test: no symbol
+compiler/contextualTypeArrayReturnType
+  1 symbol(s): 'ry': no symbol
+compiler/contextualTypingOfOptionalMembers
+  2 symbol(s): foo: declared on {14, 23, 42}, expected to include {14, 23, 42, 72}; state: declared on {1, 4, 6, 12, 32, 34, 40, 49, 53, 67, 70}, expected to include {1, 6, 12, 34, 40, 49, 53, 67, 70, 72}
+compiler/contextuallyTypedJsxAttribute
+  2 symbol(s): as: declared on {5, 13}, expected to include {5, 8, 13, 18}; callback: declared on {1, 2, 14}, expected to include {1, 2, 9, 14, 19}
+compiler/contextuallyTypedJsxAttribute2
+  2 symbol(s): as: declared on {14}, expected to include {14, 22}; onClick: no symbol
+compiler/contextuallyTypedJsxChildren
+  3 symbol(s): children: declared on {10, 15}, expected to include {35}; icon: declared on {6}, expected to include {25, 33}; label: declared on {7}, expected to include {25, 34}
+compiler/contextuallyTypedJsxChildren2
+  3 symbol(s): notChildren: declared on {14}, expected to include {14, 27}; selector: declared on {7, 13, 40}, expected to include {7, 13, 21, 26, 40, 46}; state: declared on {6, 8, 9, 12, 14, 15, 21, 27, 41, 42, 47}, expected to include {6, 8, 9, 12, 14, 15, 21, 25, 27, 41, 42, 47}
+compiler/contextuallyTypedParametersOptionalInJSDoc
+  1 symbol(s): self: no symbol
+compiler/contextuallyTypedParametersWithInitializers1
+  1 symbol(s): getFoo: declared on {44}, expected to include {44, 51}
+compiler/contextuallyTypedParametersWithQuestionToken
+  1 symbol(s): self: no symbol
+compiler/contextuallyTypedSymbolNamedProperties
+  2 symbol(s): [A]: no symbol; [B]: no symbol
+compiler/controlFlowInstanceofWithSymbolHasInstance
+  3 symbol(s): A[Symbol.hasInstance]: no symbol; PromiseConstructor[Symbol.hasInstance]: no symbol; SetConstructor[Symbol.hasInstance]: no symbol
+compiler/crashInYieldStarInAsyncFunction
+  1 symbol(s): [Symbol.asyncIterator]: no symbol
+compiler/crashRegressionTest
+  2 symbol(s): MsPortal: no symbol; Util: no symbol
+compiler/declFileAliasUseBeforeDeclaration2
+  1 symbol(s): E: declared on {6}, expected to include {1, 6}
+compiler/declFileGenericType2
+  3 symbol(s): composite: declared on {11, 29}, expected to include {12, 31}; dom: no symbol; mvc: declared on {0, 3, 7, 16, 20}, expected to include {0, 4, 8, 12, 17, 22, 31}
+compiler/declFileImportedTypeUseInTypeArgPosition
+  1 symbol(s): x.Foo: no symbol
+compiler/declFileInternalAliases
+  1 symbol(s): x: declared on {4, 8}, expected to include {0, 4, 8}
+compiler/declFileModuleContinuation
+  3 symbol(s): A: no symbol; A.C.Z: no symbol; B: no symbol
+compiler/declFileWithClassNameConflictingWithClassReferredByExtendsClause
+  3 symbol(s): A: no symbol; A.B: no symbol; A.B.Base: no symbol
+compiler/declFileWithExtendsClauseThatHasItsContainerNameConflict
+  3 symbol(s): A: no symbol; B: declared on {0, 3}, expected to include {0, 5, 12}; C: declared on {0, 10}, expected to include {0, 12}
+compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
+  3 symbol(s): A: declared on {4}, expected to include {0, 4}; B: no symbol; C: declared on {0, 3}, expected to include {0, 4}
+compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
+  3 symbol(s): A: declared on {9}, expected to include {0, 4, 9}; A.C.Z: no symbol; B: no symbol
+compiler/declFileWithInternalModuleNameConflictsInExtendsClause3
+  3 symbol(s): A: declared on {9}, expected to include {0, 4, 9}; B: no symbol; C: declared on {0, 3, 7}, expected to include {0, 4, 9}
+compiler/declarationEmitClassMemberWithComputedPropertyName
+  3 symbol(s): Foo[k1]: no symbol; Foo[k2]: no symbol; Foo[k3]: no symbol
+compiler/declarationEmitComputedNameWithQuestionToken
+  1 symbol(s): WithData[dataSomething]: no symbol
+compiler/declarationEmitComputedNamesInaccessible
+  3 symbol(s): ParameterizedHolder[localClassFieldName]: no symbol; ParameterizedHolder[localOtherField]: no symbol; ParameterizedHolder[localStaticField]: no symbol
+compiler/declarationEmitComputedPropertyName1
+  3 symbol(s): IData.a_b_c: no symbol; a_b_c: no symbol; d_e_f: no symbol
+compiler/declarationEmitExpandoWithGenericConstraint
+  1 symbol(s): Point.zero: no symbol
+compiler/declarationEmitFunctionKeywordProp
+  3 symbol(s): bar.async: no symbol; bar.normal: no symbol; baz.class: no symbol
+compiler/declarationEmitLateBoundAssignments
+  1 symbol(s): foo.bar: no symbol
+compiler/declarationEmitLateBoundAssignments2
+  3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
+compiler/declarationEmitLateBoundJSAssignments
+  1 symbol(s): foo.bar: no symbol
+compiler/declarationEmitMappedTypePropertyFromNumericStringKey
+  1 symbol(s): '0': no symbol
+compiler/declarationEmitMultipleComputedNamesSameDomain
+  2 symbol(s): Test[x]: no symbol; Test[y]: no symbol
+compiler/declarationEmitNameConflicts2
+  3 symbol(s): X: no symbol; Y: no symbol; Z: declared on {7}, expected to include {9}
+compiler/declarationEmitNameConflicts3
+  2 symbol(s): M: declared on {0}, expected to include {0, 11}; P: declared on {11}, expected to include {13}
+compiler/declarationEmitNameConflictsWithAlias
+  1 symbol(s): v.I: no symbol
+compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
+  1 symbol(s): User[_data]: no symbol
+compiler/declarationEmitPropertyNumericStringKey
+  3 symbol(s): 404: no symbol; [hundredNum]: no symbol; [hundredStr]: no symbol
+compiler/declarationEmitShadowing
+  1 symbol(s): O: no symbol
+compiler/declarationEmitSimpleComputedNames1
+  3 symbol(s): Holder[classFieldName]: no symbol; Holder[otherField]: no symbol; Holder[staticField]: no symbol
+compiler/declarationTypecheckNoUseBeforeReferenceCheck
+  1 symbol(s): C[C.p]: no symbol
+compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
+  1 symbol(s): [key]: no symbol
+compiler/declareDottedExtend
+  3 symbol(s): A: no symbol; ab: declared on {3}, expected to include {0, 3}; ab.C: no symbol
+compiler/declareDottedModuleName
+  3 symbol(s): P: no symbol; Q: declared on {0}, expected to include {1}; R: no symbol
+compiler/decoratorsOnComputedProperties
+  3 symbol(s): A.property: no symbol; A.property2: no symbol; A.property3: no symbol
+compiler/deeplyNestedMappedTypes
+  3 symbol(s): Input: declared on {46, 49}, expected to include {44, 49}; TKind[Kind]: no symbol; TObject[Kind]: no symbol
+compiler/deleteReadonly
+  1 symbol(s): 'test': no symbol
+compiler/destructuringAssignment_private
+  2 symbol(s): [nameO]: no symbol; [nameX]: no symbol
+compiler/destructuringInitializerContextualTypeFromContext
+  1 symbol(s): f: declared on {20}, expected to include {18}
+compiler/discriminatedUnionJsxElement
+  1 symbol(s): variant: declared on {11}, expected to include {8, 11}
+compiler/duplicateIdentifierComputedName
+  1 symbol(s): C.a: no symbol
+compiler/duplicateIdentifierDifferentSpelling
+  1 symbol(s): A.0b11: declared on {0}, expected to include {0, 1}
+compiler/duplicateObjectLiteralProperty_computedName1
+  3 symbol(s): +1: declared on {15, 20}, expected to include {15, 16, 20, 21}; -1: declared on {25, 30}, expected to include {25, 26, 30, 31}; 1: declared on {0, 5, 10}, expected to include {0, 1, 5, 10}
+compiler/duplicateObjectLiteralProperty_computedName2
+  3 symbol(s): [E1.A]: no symbol; [E2.B]: no symbol; [n]: no symbol
+compiler/duplicateObjectLiteralProperty_computedNameNegative1
+  2 symbol(s): [x]: no symbol; [y]: no symbol
+compiler/dynamicNamesErrors
+  3 symbol(s): ClassMemberVisibility[w]: no symbol; ClassMemberVisibility[x]: no symbol; ClassMemberVisibility[y]: no symbol

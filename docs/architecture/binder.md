@@ -253,45 +253,55 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 5,305/7,621
-(**69.61%**). See [ADR-0006](../adr/0006-conformance-oracle.md) for why the
-baselines are the right oracle and
-[`docs/architecture/conformance.md`](conformance.md) for what the suite does and
-does not compare.
-
-### What the remaining failures are
-
-Measured 2026-08-04 by capturing all 2,316 failing cases and bucketing every
-individual complaint. Worth doing before choosing what to fix: the first
-bucketing, at 62.05%, found that **40% of failures were the oracle, not the
-binder** — and fixing the oracle moved the number 7.6 points without touching a
-line of `tsr-binder`.
-
-| Bucket | Complaints | Cases failing on this alone | Cause |
-|---|---:|---:|---|
-| Bare name missing | 1,833 | 699 | destructuring patterns declare no symbols |
-| Qualified `A.b` missing | 1,161 | 494 | namespace members, parameter properties |
-| Wrong declaration lines | 960 | 336 | a symbol found with fewer declaration sites than upstream — mostly the two above, surfacing as a merge shortfall |
-| Computed name | 563 | 274 | genuinely late-bound `[expr]` names |
-| Private identifier | 17 | — | |
-
-Two things were fixed in the harness on the way, and both were the *measuring
-instrument* rather than the binder:
-
-- **Full starts were recovered by walking backwards** over trivia from the token
-  start, which cannot see a `//` comment. That mis-attributed 2,015 declaration
-  positions; the expected line was two above ours in 860 of them — a `//` comment
-  plus a blank line. Now recovered by scanning the file *forwards* with the
-  scanner, which already computes this quantity for the parser.
-- **Name spelling was compared literally.** Upstream prints `C["foo"]` for a
-  string-literal member and `"fs"` for an ambient module; we store the value
-  `foo` and `fs`. Those spellings are properties of the source, not of the
-  binder, so the baseline side is normalised to dotted form. Computed names are
-  deliberately *not* normalised, because we genuinely create no symbol for them.
+own `.symbols` baselines over the 12,444-case corpus. Currently 6,676/7,621
+(**87.60%**), up from 62.05% on 2026-08-04. See
+[ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
+oracle and [conformance.md](conformance.md) for what the suite does and does not
+compare.
 
 The flow graph has **no conformance oracle at all**: upstream publishes no
 baseline of it, and the checker that would exercise it does not exist. That is a
 real gap, and it is why `tests/flow.rs` is written as carefully as it is.
+
+### How the number moved, and what it cost
+
+Every step was chosen by capturing all failing cases and bucketing each
+individual complaint, not by guessing. That mattered: the first bucketing found
+that **40% of failures were the oracle rather than the binder**, and two of the
+five biggest wins turned out to be in the harness.
+
+| | rate | what changed |
+|---|---:|---|
+| start | 62.05% | |
+| forward-scanning full starts, name spelling normalised | 69.61% | harness — see [conformance.md](conformance.md) |
+| destructuring patterns declare their names; catch variables block-scoped | 72.94% | binder |
+| parameter properties; namespace exports | 73.95% | binder |
+| `export` modifier kept by the parser | 71.04% | **regression** |
+| exported members get a local *and* an export | 75.42% | binder |
+| anonymous containers own their members | 83.15% | binder + harness |
+| symbols indexed by every dotted suffix | 87.60% | harness |
+
+The regression is the instructive one. Preserving the `export` modifier let
+namespace members route into the namespace's `exports` — correct, and it broke
+223 cases, because upstream's `declareModuleMember` deliberately creates **two**
+symbols for an exported member: a local and an export. Its comment explains why
+at length, and the reason it is not an optimisation is exactly what the failures
+showed: an unqualified reference inside the namespace resolves to the local, so
+creating only the export loses every one of them.
+
+### What the remaining 945 failures are
+
+| Bucket | Complaints | Cases failing on this alone | Cause |
+|---|---:|---:|---|
+| Computed name | 488 | 331 | `tsr-y4u.11` — half is static (`{ ['a']: 1 }`), half needs the checker |
+| Wrong declaration lines | 437 | 206 | a symbol found with fewer declaration sites than upstream: declaration merging across module blocks |
+| Bare name | 347 | 164 | mixed remainder |
+| Qualified `A.b` | 271 | 108 | `tsr-y4u.10` — `namespace Foo.Bar` is not desugared by the parser |
+| Private identifier | 15 | — | |
+
+Two of these are parser gaps rather than binder gaps, which is the same pattern
+as the oracle: the binder is now often correct about things the tree cannot
+express yet.
 
 ---
 

@@ -88,8 +88,18 @@ impl<'a> Parser<'a> {
                 Some(self.parse_import_declaration(start, &[]))
             }
             SyntaxKind::ExportKeyword => {
+                // Keep the `export` token rather than discarding it. It is a
+                // modifier on whatever declaration follows, and the binder reads
+                // it to route a namespace member into the namespace's exports
+                // instead of its locals — without it, `namespace M { export const
+                // X = 1 }` declares `X` rather than `M.X`.
+                let modifier_start = self.pos();
                 self.next_token();
-                Some(self.parse_export(start, &[]))
+                let token = self.alloc_token(
+                    SyntaxKind::ExportKeyword,
+                    tsr_core::Span::new(modifier_start, self.pos()),
+                );
+                Some(self.parse_export(start, token))
             }
             SyntaxKind::NamespaceKeyword | SyntaxKind::ModuleKeyword
                 if self.next_starts_module_name() =>

@@ -253,3 +253,70 @@ fn the_bind_result_can_be_read_from_several_threads() {
     });
     assert!(counts.iter().all(|c| *c == counts[0]), "threads disagreed: {counts:?}");
 }
+
+#[test]
+fn a_destructuring_declaration_declares_one_symbol_per_name() {
+    let arena = Arena::new();
+    let bound =
+        bind(&arena, "const { a, b: renamed } = { a: 1, b: 2 };\nconst [first, second] = [1, 2];");
+    // The pattern declares nothing; each element does.
+    for name in ["a", "renamed", "first", "second"] {
+        assert!(
+            bound.top_level(name).is_some(),
+            "{name} should be declared by the pattern, got {:?}",
+            bound.top_level_names()
+        );
+    }
+    assert_eq!(
+        bound.top_level("a"),
+        Some(SymbolFlags::BLOCK_SCOPED_VARIABLE),
+        "a `const` pattern declares block-scoped names"
+    );
+}
+
+#[test]
+fn a_catch_clause_variable_is_scoped_to_the_clause() {
+    let arena = Arena::new();
+    let bound = bind(&arena, "function f() {\n  try { 1; } catch (e) { e; }\n}");
+    // `catch (e)` is neither `let` nor `var`; upstream still block-scopes it, and
+    // reading only the declaration list's flags made it function-scoped.
+    assert!(bound.top_level("e").is_none(), "the catch variable must not escape to the file scope");
+}
+
+#[test]
+fn an_exported_namespace_member_is_declared_twice() {
+    let arena = Arena::new();
+    let bound = bind(&arena, "namespace M { export const X = 1; const Y = 2; }");
+    let module = bound.result.lookup_local(bound.root(), "M").expect("M is declared");
+    let symbols = bound.result.symbols();
+
+    // The export, reachable as `M.X` …
+    let exported = symbols.get(module).exports.get("X").copied().expect("M exports X");
+    assert_eq!(symbols.get(exported).parent, Some(module));
+    assert_eq!(symbols.get(exported).name, "X");
+    // An unexported member stays local only.
+    assert!(!symbols.get(module).exports.contains_key("Y"), "`Y` is not exported");
+}
+
+#[test]
+fn a_parameter_property_also_declares_a_class_member() {
+    let arena = Arena::new();
+    let bound = bind(&arena, "class C { constructor(public p: number, q: number) {} }");
+    let class = bound.result.lookup_local(bound.root(), "C").expect("C is declared");
+    let members = &bound.result.symbols().get(class).members;
+    assert!(members.contains_key("p"), "`public p` is a property of C");
+    assert!(!members.contains_key("q"), "a plain parameter is not");
+}
+
+#[test]
+fn an_object_literal_does_not_put_its_properties_on_the_enclosing_symbol() {
+    let arena = Arena::new();
+    let bound = bind(&arena, "interface I { salt: number; }\nconst x: I = { salt: 2, pepper: 0 };");
+    let interface = bound.result.lookup_local(bound.root(), "I").expect("I is declared");
+    let members = &bound.result.symbols().get(interface).members;
+    assert!(members.contains_key("salt"), "the interface declares `salt`");
+    assert!(
+        !members.contains_key("pepper"),
+        "the object literal's properties belong to the literal, not to `I`"
+    );
+}

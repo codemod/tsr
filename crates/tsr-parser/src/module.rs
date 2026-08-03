@@ -162,12 +162,19 @@ impl<'a> Parser<'a> {
     }
 
     /// `export …` in all its forms.
+    /// Everything after a leading `export`.
+    ///
+    /// `export_token` is that keyword. It becomes a modifier on a *declaration*
+    /// — `export const x = 1` is a `VariableStatement` modified by `export` —
+    /// but not on an `ExportDeclaration` or `ExportAssignment`, where the keyword
+    /// is part of the node's own syntax rather than a modifier of it. That is
+    /// upstream's split too.
     pub(crate) fn parse_export(
         &mut self,
         start: u32,
-        modifiers: &[ModifierLike<'a>],
+        export_token: &'a Token<'a>,
     ) -> Statement<'a> {
-        let modifiers_slice = self.arena.alloc_slice(modifiers);
+        let modifiers_slice: &'a [ModifierLike<'a>] = &[];
 
         // `export as namespace N;` declares a UMD global. It has no dedicated
         // node here, so it is recorded as an export assignment of the name.
@@ -220,7 +227,10 @@ impl<'a> Parser<'a> {
                     | SyntaxKind::EnumKeyword
                     | SyntaxKind::AsyncKeyword
             ) {
-                return self.parse_declaration_after_modifiers(start, modifiers);
+                return self.parse_declaration_after_modifiers(
+                    start,
+                    &[ModifierLike::Token(export_token)],
+                );
             }
             let expression = self.parse_assignment_expression();
             self.parse_semicolon();
@@ -332,7 +342,7 @@ impl<'a> Parser<'a> {
         }
 
         // Anything else is a modifier on a declaration: `export const x = 1`.
-        let mut all = modifiers.to_vec();
+        let mut all = vec![ModifierLike::Token(export_token)];
         all.extend(self.parse_modifiers());
         self.parse_declaration_after_modifiers(start, &all)
     }

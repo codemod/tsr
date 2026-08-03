@@ -28,17 +28,12 @@
 //!
 //! Named here rather than left to be discovered:
 //!
-//! - **Destructuring patterns declare no symbols.** `const { a, b } = x` should
-//!   declare two; [`declaration_name`](binder) returns `None` for a binding
-//!   pattern. The *flow* side does handle patterns — an assignment node per
-//!   name — so narrowing is ready for the symbols when they arrive.
-//! - **Computed property names.** `{ [k]: 1 }` declares a symbol with a
-//!   late-bound name; skipped for the same reason.
-//! - **Module vs script.** Every file binds as a script, so top-level
-//!   declarations are locals rather than exports of a module symbol.
-//!   Distinguishing them needs module resolution.
-//! - **`export` handling.** An `export` modifier does not yet route a declaration
-//!   into an exports table.
+//! - **Computed property names.** `{ ['a']: 1 }` names a symbol statically and
+//!   should declare `a`; `[Symbol.iterator]` is late-bound and needs the checker.
+//! - **Module vs script.** A *namespace* routes its exported members into its own
+//!   symbol, but a source file still binds as a script, so top-level declarations
+//!   are locals rather than exports of a module symbol. Telling the two apart
+//!   needs module resolution.
 //! - **Optional chains.** The flow shapes are ported in full, but the parser does
 //!   not set [`tsr_ast::NodeFlags::OPTIONAL_CHAIN`], so `a?.b` currently gets the
 //!   graph of `a.b` and loses the narrowing that the `?.` implies.

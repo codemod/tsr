@@ -70,11 +70,10 @@ enum Destination {
     Members,
     /// The container symbol's `exports` — module or namespace.
     ///
-    /// Not yet constructed: routing an `export`ed declaration here needs module
-    /// versus script detection, which needs module resolution. Kept because the
-    /// table it targets already exists on `Symbol` and the destination is where
-    /// that decision will land.
-    #[expect(dead_code, reason = "awaiting export handling; see lib.rs")]
+    /// Reached by a namespace member: explicitly, with `export`, or implicitly
+    /// inside an ambient module. A *source file's* exports still route to
+    /// `Locals`, because telling a module from a script needs module resolution;
+    /// see `lib.rs`.
     Exports,
 }
 
@@ -131,6 +130,16 @@ pub(crate) struct Binder<'a, 'n> {
     labels_base: usize,
     has_explicit_return: bool,
     has_flow_effects: bool,
+    /// Whether declarations in the current container are implicitly exported.
+    ///
+    /// Upstream keeps this as `NodeFlagsExportContext`, set by
+    /// `setExportContextFlag` on an ambient module with no `export`
+    /// declarations. Our parser does not record ambience on nodes, so the binder
+    /// tracks it the way the parser would have: set on entering a `declare`
+    /// module or one named by a string literal, and inherited by nested ones.
+    export_context: bool,
+    /// Whether we are inside a `declare` module.
+    in_ambient_module: bool,
     in_assignment_pattern: bool,
     seen_this_keyword: bool,
 
@@ -185,6 +194,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             labels_base: 0,
             has_explicit_return: false,
             has_flow_effects: false,
+            export_context: false,
+            in_ambient_module: false,
             in_assignment_pattern: false,
             seen_this_keyword: false,
             facts: rustc_hash::FxHashMap::default(),
@@ -335,6 +346,18 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
         }
 
+        let saved_export_context = self.export_context;
+        let saved_in_ambient = self.in_ambient_module;
+        if let Node::ModuleDeclaration(module) = node {
+            // An ambient module exports everything it declares — unless it uses
+            // `export` explicitly somewhere, in which case only what it names.
+            let ambient = self.in_ambient_module
+                || has_declare(module.modifiers)
+                || matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)));
+            self.in_ambient_module = ambient;
+            self.export_context = ambient && !has_export_declarations(module);
+        }
+
         if flags.contains(ContainerFlags::IS_CONTROL_FLOW_CONTAINER) {
             self.bind_flow_container(node, id, flags);
         } else if flags.contains(ContainerFlags::IS_INTERFACE) {
@@ -350,6 +373,8 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.container = saved_container;
         self.block = saved_block;
         self.owner = saved_owner;
+        self.export_context = saved_export_context;
+        self.in_ambient_module = saved_in_ambient;
     }
 
     /// The control-flow half of `bindContainer`: start a fresh graph, bind, and
@@ -1744,19 +1769,18 @@ impl<'a, 'n> Binder<'a, 'n> {
 
     /// What kind of symbol `node` declares, and where it belongs.
     ///
-    /// Wraps the kind-only [`classify`] with the one case that needs more than
-    /// the node: a variable's scope depends on whether it was written `var`,
-    /// `let`, or `const`, and all three produce the same node kind. Upstream keeps
-    /// that in node flags and so do we, so it is reached through the side table
-    /// rather than the tree.
+    /// Wraps the kind-only [`classify`] with the cases that need more than the
+    /// node. A variable's scope depends on whether it was written `var`, `let`,
+    /// or `const`, and all three produce the same node kind; upstream keeps that
+    /// in node flags and so do we, so it is reached through the side table rather
+    /// than the tree.
     fn classify(&self, node: Node<'a>, id: NodeId) -> Option<(SymbolFlags, Destination)> {
-        if matches!(node, Node::VariableDeclaration(_)) {
-            let list_flags =
-                self.nodes.parent(id).map_or_else(NodeFlags::empty, |list| self.nodes.flags(list));
-            let block_scoped =
-                list_flags.intersects(NodeFlags::LET | NodeFlags::CONST | NodeFlags::USING);
+        // A binding element declares whatever its root declaration would have:
+        // `const { a } = x` is a `const` declaration of `a`, and `function f({ a })`
+        // makes `a` a parameter.
+        if matches!(node, Node::VariableDeclaration(_) | Node::BindingElement(_)) {
             return Some((
-                if block_scoped {
+                if self.is_block_or_catch_scoped(id) {
                     SymbolFlags::BLOCK_SCOPED_VARIABLE
                 } else {
                     SymbolFlags::FUNCTION_SCOPED_VARIABLE
@@ -1767,27 +1791,205 @@ impl<'a, 'n> Binder<'a, 'n> {
         classify(node)
     }
 
+    /// Whether a declaration is scoped to the nearest block rather than the
+    /// nearest function.
+    ///
+    /// Upstream: `ast.IsBlockOrCatchScoped`. The catch half is not an
+    /// afterthought — `catch (e)` binds `e` to the clause and nothing else, and
+    /// reading only the immediate parent's flags (which is what this used to do)
+    /// put it in the enclosing function instead.
+    fn is_block_or_catch_scoped(&self, id: NodeId) -> bool {
+        if self.combined_node_flags(id).intersects(NodeFlags::BLOCK_SCOPED) {
+            return true;
+        }
+        let root = self.root_declaration(id);
+        self.nodes.kind(root) == SyntaxKind::VariableDeclaration
+            && self
+                .nodes
+                .parent(root)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+    }
+
+    /// A declaration's own flags, plus those of the `var`/`let`/`const` list and
+    /// statement it belongs to.
+    ///
+    /// Upstream: `ast.GetCombinedNodeFlags`. `let`-ness is recorded on the
+    /// declaration *list*, not on each declaration, so a declaration read in
+    /// isolation looks function-scoped.
+    fn combined_node_flags(&self, id: NodeId) -> NodeFlags {
+        let root = self.root_declaration(id);
+        let mut flags = self.nodes.flags(root);
+        let mut current = root;
+        if self.nodes.kind(current) == SyntaxKind::VariableDeclaration {
+            let Some(parent) = self.nodes.parent(current) else { return flags };
+            current = parent;
+        }
+        if self.nodes.kind(current) == SyntaxKind::VariableDeclarationList {
+            flags |= self.nodes.flags(current);
+            let Some(parent) = self.nodes.parent(current) else { return flags };
+            current = parent;
+        }
+        if self.nodes.kind(current) == SyntaxKind::VariableStatement {
+            flags |= self.nodes.flags(current);
+        }
+        flags
+    }
+
+    /// The declaration a binding element ultimately belongs to.
+    ///
+    /// Upstream: `ast.GetRootDeclaration`. Each step is two levels, because a
+    /// binding element's parent is the pattern that contains it.
+    fn root_declaration(&self, id: NodeId) -> NodeId {
+        let mut current = id;
+        while self.nodes.kind(current) == SyntaxKind::BindingElement {
+            let Some(pattern) = self.nodes.parent(current) else { break };
+            let Some(parent) = self.nodes.parent(pattern) else { break };
+            current = parent;
+        }
+        current
+    }
+
+    /// Which node's `locals` a declaration with these flags belongs in.
+    ///
+    /// `var` and functions go to the nearest *function* scope; `let`, `const`,
+    /// and classes go to the nearest block. This is the whole of `var` hoisting.
+    fn locals_owner(&self, flags: SymbolFlags) -> NodeId {
+        if flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE | SymbolFlags::CLASS) {
+            self.block
+        } else {
+            self.container
+        }
+    }
+
+    /// Whether `node` is `constructor(public x)` and so declares a class member.
+    ///
+    /// Upstream: `ast.IsParameterPropertyDeclaration`. The accessibility,
+    /// `readonly`, and `override` modifiers are the ones that promote a parameter
+    /// to a property; `constructor(x)` alone does not.
+    fn is_parameter_property(&self, node: Node<'a>) -> bool {
+        let Node::ParameterDeclaration(parameter) = node else { return false };
+        if !parameter.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token) if matches!(
+                token.kind,
+                SyntaxKind::PublicKeyword
+                    | SyntaxKind::PrivateKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::ReadonlyKeyword
+                    | SyntaxKind::OverrideKeyword
+            ))
+        }) {
+            return false;
+        }
+        matches!(self.ancestors.last(), Some((_, Node::ConstructorDeclaration(_))))
+    }
+
+    /// Whether declarations in the current container are exported from it.
+    ///
+    /// Upstream: the `hasExportModifier || container.Flags&NodeFlagsExportContext`
+    /// test in `declareModuleMember`. Two ways to be exported from a namespace —
+    /// say so, or be inside an ambient one that exports everything implicitly.
+    fn is_exported_from_container(&self, node: Node<'a>) -> bool {
+        if self.nodes.kind(self.container) != SyntaxKind::ModuleDeclaration {
+            // A source file's exports need the module-versus-script decision,
+            // which needs module resolution; see `lib.rs`.
+            return false;
+        }
+        self.export_context || self.has_export_modifier(node)
+    }
+
+    /// Whether `node` carries `export`, including on the statement that owns it.
+    ///
+    /// `export const a = 1` puts the modifier on the `VariableStatement`, two
+    /// levels above the declaration that gets the symbol, so a declaration read
+    /// on its own never looks exported. Upstream reaches it with
+    /// `GetCombinedModifierFlags`; here the ancestor chain already holds the
+    /// nodes, so it is a short walk rather than a second traversal.
+    fn has_export_modifier(&self, node: Node<'a>) -> bool {
+        if modifiers_of(node).is_some_and(has_export) {
+            return true;
+        }
+        for (_, ancestor) in self.ancestors.iter().rev() {
+            match ancestor {
+                Node::VariableStatement(statement) => return has_export(statement.modifiers),
+                // Everything between a binding and its statement is transparent.
+                Node::VariableDeclarationList(_)
+                | Node::VariableDeclaration(_)
+                | Node::BindingPattern(_)
+                | Node::BindingElement(_) => {}
+                _ => return false,
+            }
+        }
+        false
+    }
+
     /// Create a symbol for `node` if it declares one.
     fn declare(&mut self, node: Node<'a>, id: NodeId) -> Option<SymbolId> {
+        // An object literal, a type literal, or an unnamed class expression has
+        // members but no name to file them under. Upstream gives each an
+        // *anonymous* symbol (`bindAnonymousDeclaration`) that goes into no
+        // table; without one, the members are added to whatever symbol happened
+        // to be the enclosing owner — so `interface I { salt: number }` followed
+        // by `{ salt: 2 }` put the object literal's property on `I`.
+        if let Some((internal, flags)) = anonymous_declaration(node) {
+            let symbol = self.symbols.create(internal, flags);
+            self.symbols.get_mut(symbol).declarations.push(id);
+            self.node_symbols[id.index()] = Some(symbol);
+            return Some(symbol);
+        }
+
         let (flags, destination) = self.classify(node, id)?;
         let name = declaration_name(node)?;
 
+        // An exported namespace member gets **two** symbols, as upstream's
+        // `declareModuleMember` explains at length: a local, and an export on the
+        // namespace's own symbol. Both are needed — locals and exports of the
+        // same name are mutually exclusive within a container, so the local is
+        // what makes a duplicate a duplicate, while the export is what makes the
+        // member reachable as `M.X`. Creating only the export loses every
+        // unqualified reference to it, which is a 223-case regression measured
+        // 2026-08-04.
+        if destination == Destination::Locals
+            && self.owner.is_some()
+            && self.is_exported_from_container(node)
+        {
+            let local_owner = self.locals_owner(flags);
+            let export_value = if flags.intersects(SymbolFlags::VALUE) {
+                SymbolFlags::EXPORT_VALUE
+            } else {
+                SymbolFlags::empty()
+            };
+            self.declare_into(Destination::Locals, local_owner, name, export_value, id);
+            let container = self.container;
+            let exported = self.declare_into(Destination::Exports, container, name, flags, id);
+            // The export symbol is the node's symbol, so a class's members land
+            // on the thing `M.C` names rather than on the shadow local.
+            self.node_symbols[id.index()] = Some(exported);
+            return Some(exported);
+        }
+
         let table_owner = match destination {
-            // `var` and functions go to the nearest *function* scope; `let`,
-            // `const`, and classes go to the nearest block. This is the whole of
-            // `var` hoisting.
-            Destination::Locals => {
-                if flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE | SymbolFlags::CLASS) {
-                    self.block
-                } else {
-                    self.container
-                }
-            }
+            Destination::Locals => self.locals_owner(flags),
             Destination::Members | Destination::Exports => self.container,
         };
 
         let symbol = self.declare_into(destination, table_owner, name, flags, id);
         self.node_symbols[id.index()] = Some(symbol);
+
+        // `constructor(public x: T)` declares twice: a parameter in the
+        // constructor's scope and a property on the class. Upstream declares the
+        // parameter first and lets the property win as the node's symbol, which
+        // is what the checker wants when it asks what `x` is from outside.
+        if self.is_parameter_property(node) {
+            let property = self.declare_into(
+                Destination::Members,
+                table_owner,
+                name,
+                SymbolFlags::PROPERTY,
+                id,
+            );
+            self.node_symbols[id.index()] = Some(property);
+            return Some(property);
+        }
         Some(symbol)
     }
 
@@ -1929,6 +2131,77 @@ fn has_async_modifier(node: Node<'_>) -> bool {
     })
 }
 
+/// The internal name and flags of a declaration that has members but no name.
+///
+/// Upstream's `bindAnonymousDeclaration` with the `InternalSymbolName*`
+/// constants. The symbol goes into no symbol table — nothing can look it up by
+/// name — but it owns the members declared inside it, which is the entire point.
+fn anonymous_declaration(node: Node<'_>) -> Option<(&'static str, SymbolFlags)> {
+    Some(match node {
+        Node::ObjectLiteralExpression(_) => (INTERNAL_OBJECT, SymbolFlags::OBJECT_LITERAL),
+        Node::TypeLiteralNode(_) | Node::MappedTypeNode(_) => {
+            (INTERNAL_TYPE, SymbolFlags::TYPE_LITERAL)
+        }
+        Node::JsxAttributes(_) => (INTERNAL_JSX_ATTRIBUTES, SymbolFlags::OBJECT_LITERAL),
+        // A *named* class expression declares its name; only an unnamed one is
+        // anonymous.
+        Node::ClassExpression(class) if class.name.is_none() => {
+            (INTERNAL_CLASS, SymbolFlags::CLASS)
+        }
+        _ => return None,
+    })
+}
+
+/// Upstream's `ast.InternalSymbolNameObject` and friends.
+///
+/// The leading `__` is upstream's marker for a name no source can spell, and the
+/// conformance harness reads it to decide whether a member is reachable by a
+/// qualified name at all.
+pub(crate) const INTERNAL_OBJECT: &str = "__object";
+pub(crate) const INTERNAL_TYPE: &str = "__type";
+pub(crate) const INTERNAL_CLASS: &str = "__class";
+pub(crate) const INTERNAL_JSX_ATTRIBUTES: &str = "__jsxAttributes";
+
+/// The modifier list of a declaration that can carry `export`.
+fn modifiers_of(node: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
+    Some(match node {
+        Node::FunctionDeclaration(n) => n.modifiers,
+        Node::ClassDeclaration(n) => n.modifiers,
+        Node::InterfaceDeclaration(n) => n.modifiers,
+        Node::TypeAliasDeclaration(n) => n.modifiers,
+        Node::EnumDeclaration(n) => n.modifiers,
+        Node::ModuleDeclaration(n) => n.modifiers,
+        Node::VariableStatement(n) => n.modifiers,
+        Node::ImportEqualsDeclaration(n) => n.modifiers,
+        _ => return None,
+    })
+}
+
+fn has_export(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
+    has_modifier(modifiers, SyntaxKind::ExportKeyword)
+}
+
+fn has_declare(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
+    has_modifier(modifiers, SyntaxKind::DeclareKeyword)
+}
+
+fn has_modifier(modifiers: &[tsr_ast::ModifierLike<'_>], kind: SyntaxKind) -> bool {
+    modifiers.iter().any(
+        |modifier| matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == kind),
+    )
+}
+
+/// Whether a module body contains an `export … ` or `export =` statement.
+///
+/// Upstream: `hasExportDeclarations`. An ambient module that names its exports
+/// is not an export context — only one that names none exports everything.
+fn has_export_declarations(module: &tsr_ast::ModuleDeclaration<'_>) -> bool {
+    let Some(tsr_ast::ModuleBody::ModuleBlock(block)) = module.body else { return false };
+    block.statements.iter().any(|statement| {
+        matches!(statement, Statement::ExportDeclaration(_) | Statement::ExportAssignment(_))
+    })
+}
+
 /// Upstream: `isGeneratorFunctionExpression`.
 fn is_generator_function_expression(node: Node<'_>) -> bool {
     matches!(node, Node::FunctionExpression(function) if function.asterisk_token.is_some())
@@ -2001,6 +2274,8 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
         Node::ModuleDeclaration(n) => n.name.map(module_name),
         Node::ParameterDeclaration(n) => n.name.and_then(binding_name),
         Node::VariableDeclaration(n) => n.name.and_then(binding_name),
+        // The elements of a pattern declare; the pattern itself does not.
+        Node::BindingElement(n) => n.name.and_then(binding_name),
         Node::PropertyDeclaration(n) => from_property_name(n.name),
         Node::PropertySignatureDeclaration(n) => from_property_name(n.name),
         Node::MethodDeclaration(n) => from_property_name(n.name),
@@ -2026,10 +2301,14 @@ fn module_name(name: tsr_ast::ModuleName<'_>) -> &str {
     }
 }
 
+/// The name a binding introduces, or `None` for a pattern.
+///
+/// A pattern declares nothing itself — `const { a, b } = x` declares `a` and
+/// `b`, and those are the `BindingElement`s inside it, each of which reaches
+/// this function with an identifier.
 fn binding_name(name: BindingName<'_>) -> Option<&str> {
     match name {
         BindingName::Identifier(i) => Some(i.text),
-        // Destructuring declares one symbol per element; not handled yet.
         BindingName::BindingPattern(_) => None,
     }
 }

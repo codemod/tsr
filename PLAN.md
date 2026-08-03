@@ -290,8 +290,9 @@ Symbol tables, scopes, declaration merging, flow graph.
 `symbols_typescript` at 21.1% — this is harder than it looks).
 
 Symbols, scopes, and declaration merging landed 2026-08-03; the control-flow
-graph 2026-08-04. `binder_symbols` conformance is 69.61%. Destructuring symbols,
-`export` routing, module-vs-script, and the strict-mode diagnostics remain — see
+graph 2026-08-04. `binder_symbols` conformance is 87.60%, up from 62.05% the same
+day. Computed property names, module-vs-script, dotted namespace names, and the
+strict-mode diagnostics remain — see
 [docs/architecture/binder.md](docs/architecture/binder.md) and
 [ADR-0014](docs/adr/0014-flow-graph-representation.md).
 

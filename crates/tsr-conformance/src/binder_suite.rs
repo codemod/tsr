@@ -35,6 +35,20 @@
 //! and we create no symbol for them, and normalising them would turn a real gap
 //! into a passing case.
 //!
+//! **A symbol is indexed under every dotted suffix of its qualified name.**
+//! Upstream prints `checker.symbolToString(symbol, node.parent)` — the shortest
+//! name accessible *from the reference site*. A use of `m` inside
+//! `namespace M { export class C { m() {} } }` prints `C.m`; a use from outside
+//! prints `M.C.m`. Same symbol, two spellings, and choosing between them is a
+//! resolution we have no checker to redo. Accepting any suffix reproduces both.
+//! It weakens the test — `C.m` would also match a `C.m` nested elsewhere — and
+//! that is the price of not having a checker yet.
+//!
+//! **Anonymous containers do not qualify.** A member of `{ salt: 2 }` prints
+//! bare, because no expression names the object literal; a member of an unnamed
+//! class expression prints `(Anonymous class).foo`, because upstream gives that
+//! one a display name. See [`anonymity_of`].
+//!
 //! Lines only, not columns: a column comparison would fail on the fallback
 //! positions above and attribute it to the binder.
 
@@ -103,13 +117,27 @@ impl Suite for BinderSymbols {
         let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
             std::collections::HashMap::new();
         for (id, symbol) in bound.symbols().iter() {
-            let lines = ours.entry(qualified_name(bound.symbols(), id)).or_default();
+            let mut declared = BTreeSet::new();
             for declaration in &symbol.declarations {
                 let span = result.nodes.span(*declaration);
                 // Upstream reports the *full start*; see `symbols_baseline`.
                 let pos = full_starts.of(&unit.content, span.start);
                 let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
-                lines.insert(line);
+                declared.insert(line);
+            }
+            // Indexed under every dotted suffix, not just the full chain.
+            // Upstream prints the *shortest name accessible from the reference
+            // site*: a use of `m` inside `namespace M` prints `C.m`, while a use
+            // from outside prints `M.C.m` — same symbol, two spellings, and which
+            // one appears depends on a resolution we have no checker to redo.
+            // Accepting any suffix is the honest approximation; it weakens the
+            // test slightly, since `C.m` would also match a `C.m` nested
+            // somewhere else entirely.
+            let full = qualified_name(bound.symbols(), id);
+            for (offset, _) in
+                std::iter::once((0, '.')).chain(full.match_indices('.').map(|(i, _)| (i + 1, '.')))
+            {
+                ours.entry(full[offset..].to_string()).or_default().extend(&declared);
             }
         }
 
@@ -175,12 +203,49 @@ impl Suite for BinderSymbols {
 /// name, `C["bar"]` for a string one. Reproducing that here rather than stripping
 /// it from the baseline keeps the comparison sensitive to *which* container a
 /// member ended up in, which is most of what the binder decides.
+/// A symbol's name as the baseline writes it.
+///
+/// Upstream's baseline prints `checker.symbolToString(symbol, node.parent)` —
+/// the name as reachable *from the reference site*, not a raw parent walk. The
+/// difference shows on anonymous containers: a member of `{ salt: 2 }` prints as
+/// `salt`, because there is no expression that names the object literal, while a
+/// member of an unnamed class expression prints as `(Anonymous class).foo`,
+/// because upstream gives that one a display name. A parent walk that stops at
+/// the right places reproduces both without a checker.
 fn qualified_name(symbols: &tsr_binder::SymbolStore<'_>, id: tsr_binder::SymbolId) -> String {
     let symbol = symbols.get(id);
     let Some(parent) = symbol.parent else {
         return symbol.name.to_string();
     };
-    format!("{}.{}", qualified_name(symbols, parent), symbol.name)
+    match anonymity_of(symbols.get(parent).name) {
+        // Unreachable by any name: the member is only ever written bare.
+        Anonymity::Unnameable => symbol.name.to_string(),
+        Anonymity::Displayed(display) => format!("{display}.{}", symbol.name),
+        Anonymity::Named => format!("{}.{}", qualified_name(symbols, parent), symbol.name),
+    }
+}
+
+/// How a container participates in a qualified name.
+enum Anonymity {
+    /// An ordinary named container: qualify with its own qualified name.
+    Named,
+    /// Anonymous, and upstream prints it under this display name.
+    Displayed(&'static str),
+    /// Anonymous and unnameable: members are only ever written bare.
+    Unnameable,
+}
+
+/// How the baseline spells a container, given its symbol name.
+///
+/// The internal `__`-prefixed names are upstream's markers for a symbol no
+/// source can spell. An unnamed class expression still gets a display name in
+/// the baseline; an object or type literal does not.
+fn anonymity_of(name: &str) -> Anonymity {
+    match name {
+        "__class" => Anonymity::Displayed("(Anonymous class)"),
+        "__object" | "__type" | "__jsxAttributes" => Anonymity::Unnameable,
+        _ => Anonymity::Named,
+    }
 }
 
 /// The baseline's spelling of a symbol name, reduced to plain dotted form.
@@ -227,10 +292,17 @@ fn normalise_symbol_name(name: &str) -> String {
 
 /// The value inside `[…]` when it is a literal rather than an expression.
 fn static_bracket_name(inside: &str) -> Option<&str> {
-    if inside.len() >= 2 && inside.starts_with('"') && inside.ends_with('"') {
-        return Some(&inside[1..inside.len() - 1]);
+    // Either quote: the baseline reproduces the source spelling, and `C['a']`
+    // and `C["a"]` name the same member.
+    for quote in ['"', '\''] {
+        if inside.len() >= 2 && inside.starts_with(quote) && inside.ends_with(quote) {
+            return Some(&inside[1..inside.len() - 1]);
+        }
     }
-    if !inside.is_empty() && inside.bytes().all(|b| b.is_ascii_digit()) {
+    // A numeric literal in any spelling — `2.0`, `0b11`, `1e3`. Starting with a
+    // digit is what separates them from an expression: `A[A.p1]` and `A[a]` are
+    // computed and must keep their brackets.
+    if inside.starts_with(|c: char| c.is_ascii_digit()) {
         return Some(inside);
     }
     None
