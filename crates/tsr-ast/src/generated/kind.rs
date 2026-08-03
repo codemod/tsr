@@ -1227,10 +1227,25 @@ impl SyntaxKind {
     /// Convert from a raw discriminant, returning `None` if out of range.
     #[must_use]
     pub const fn from_u16(value: u16) -> Option<Self> {
+        const {
+            // `from_u16` indexes `ALL` by discriminant, which is only correct
+            // while `ALL` is in discriminant order. Checked here so a
+            // reordering or a gap upstream fails the build rather than
+            // silently returning the wrong kind.
+            let mut i = 0;
+            while i < Self::ALL.len() {
+                assert!(Self::ALL[i] as usize == i);
+                i += 1;
+            }
+        }
         if value < Self::COUNT {
-            // SAFETY: `SyntaxKind` is `repr(u16)` with contiguous discriminants
-            // `0..COUNT`, and `value` was just bounds-checked against `COUNT`.
-            Some(unsafe { std::mem::transmute::<u16, Self>(value) })
+            // Indexing `ALL` rather than transmuting. The transmute was sound —
+            // the discriminants are contiguous `0..COUNT` today — but its
+            // soundness depended on that staying true, and nothing enforced it:
+            // a gap introduced upstream would have turned this into undefined
+            // behaviour with no diagnostic. The assertion below makes the
+            // invariant a compile error instead, and the index is free.
+            Some(Self::ALL[value as usize])
         } else {
             None
         }

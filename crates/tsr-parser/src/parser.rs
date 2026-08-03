@@ -457,8 +457,12 @@ impl<'a> Parser<'a> {
         &'a T: Into<tsr_ast::Node<'a>>,
     {
         let id = self.nodes.push(kind, Span::new(start, end), tsr_ast::NodeFlags::empty());
-        let allocated: &'a T = self.arena.alloc(node);
+        // `alloc` hands back `&mut` for a block nothing else can reference yet, so
+        // the id is written before any shared reference exists. That is why nodes
+        // need no interior mutability and the finished tree is `Sync`.
+        let allocated: &'a mut T = self.arena.alloc(node);
         allocated.set_node_id(id);
+        let allocated: &'a T = allocated;
         if self.assign_parents {
             self.record_parent_of_children(allocated.into(), id);
         }
@@ -479,16 +483,16 @@ impl<'a> Parser<'a> {
         let node = Identifier::new("");
         let id =
             self.nodes.push(SyntaxKind::Identifier, Span::at(start), tsr_ast::NodeFlags::empty());
-        let allocated: &'a Identifier<'a> = self.arena.alloc(node);
-        allocated.node_id.set(Some(id));
+        let allocated = self.arena.alloc(node);
+        allocated.node_id = Some(id);
         allocated
     }
 
     /// Allocate a token node.
     pub(crate) fn alloc_token(&mut self, kind: SyntaxKind, span: Span) -> &'a AstToken<'a> {
         let id = self.nodes.push(kind, span, tsr_ast::NodeFlags::empty());
-        let allocated: &'a AstToken<'a> = self.arena.alloc(AstToken::new(kind));
-        allocated.node_id.set(Some(id));
+        let allocated = self.arena.alloc(AstToken::new(kind));
+        allocated.node_id = Some(id);
         allocated
     }
 

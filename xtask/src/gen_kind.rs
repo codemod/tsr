@@ -123,10 +123,25 @@ pub fn generate(ast: &AstDefinition) -> Result<String> {
         "    /// Convert from a raw discriminant, returning `None` if out of range.\n    \
          #[must_use]\n    \
          pub const fn from_u16(value: u16) -> Option<Self> {\n        \
+         const {\n            \
+             // `from_u16` indexes `ALL` by discriminant, which is only correct\n            \
+             // while `ALL` is in discriminant order. Checked here so a\n            \
+             // reordering or a gap upstream fails the build rather than\n            \
+             // silently returning the wrong kind.\n            \
+             let mut i = 0;\n            \
+             while i < Self::ALL.len() {\n                \
+                 assert!(Self::ALL[i] as usize == i);\n                \
+                 i += 1;\n            \
+             }\n        \
+         }\n        \
          if value < Self::COUNT {\n            \
-         // SAFETY: `SyntaxKind` is `repr(u16)` with contiguous discriminants\n            \
-         // `0..COUNT`, and `value` was just bounds-checked against `COUNT`.\n            \
-         Some(unsafe { std::mem::transmute::<u16, Self>(value) })\n        \
+         // Indexing `ALL` rather than transmuting. The transmute was sound —\n            \
+         // the discriminants are contiguous `0..COUNT` today — but its\n            \
+         // soundness depended on that staying true, and nothing enforced it:\n            \
+         // a gap introduced upstream would have turned this into undefined\n            \
+         // behaviour with no diagnostic. The assertion below makes the\n            \
+         // invariant a compile error instead, and the index is free.\n            \
+         Some(Self::ALL[value as usize])\n        \
          } else {\n            None\n        }\n    }\n\n",
     );
 

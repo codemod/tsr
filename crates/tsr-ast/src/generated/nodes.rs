@@ -22,8 +22,6 @@
     clippy::new_without_default,
 )]
 
-use std::cell::Cell;
-
 use super::alias::*;
 use crate::{NodeId, SyntaxKind, Token};
 
@@ -34,9 +32,16 @@ use crate::{NodeId, SyntaxKind, Token};
 pub struct ArrayLiteralExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Elements`: `Expression`
     pub elements: &'a [Expression<'a>],
     /// `MultiLine`: `bool`
@@ -50,17 +55,17 @@ impl<'a> ArrayLiteralExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(elements: &'a [Expression<'a>], multi_line: bool) -> Self {
-        Self { node_id: Cell::new(None), elements, multi_line }
+        Self { node_id: None, elements, multi_line }
     }
 }
 
 impl crate::HasNodeId for ArrayLiteralExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -71,9 +76,16 @@ impl crate::HasNodeId for ArrayLiteralExpression<'_> {
 pub struct ArrayTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `ElementType`: `TypeNode`
     pub element_type: Option<TypeNode<'a>>,
 }
@@ -85,17 +97,17 @@ impl<'a> ArrayTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(element_type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), element_type }
+        Self { node_id: None, element_type }
     }
 }
 
 impl crate::HasNodeId for ArrayTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -106,9 +118,16 @@ impl crate::HasNodeId for ArrayTypeNode<'_> {
 pub struct ArrowFunction<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -144,7 +163,7 @@ impl<'a> ArrowFunction<'a> {
         asterisk_token: Option<&'a Token<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             type_parameters,
             parameters,
@@ -158,12 +177,12 @@ impl<'a> ArrowFunction<'a> {
 }
 
 impl crate::HasNodeId for ArrowFunction<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -174,9 +193,16 @@ impl crate::HasNodeId for ArrowFunction<'_> {
 pub struct AsExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Type`: `TypeNode`
@@ -190,17 +216,17 @@ impl<'a> AsExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression, r#type }
+        Self { node_id: None, expression, r#type }
     }
 }
 
 impl crate::HasNodeId for AsExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -211,9 +237,16 @@ impl crate::HasNodeId for AsExpression<'_> {
 pub struct AwaitExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -225,17 +258,17 @@ impl<'a> AwaitExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for AwaitExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -246,9 +279,16 @@ impl crate::HasNodeId for AwaitExpression<'_> {
 pub struct BigIntLiteral<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -262,17 +302,17 @@ impl<'a> BigIntLiteral<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
-        Self { node_id: Cell::new(None), text, token_flags }
+        Self { node_id: None, text, token_flags }
     }
 }
 
 impl crate::HasNodeId for BigIntLiteral<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -283,9 +323,16 @@ impl crate::HasNodeId for BigIntLiteral<'_> {
 pub struct BinaryExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Left`: `Expression`
@@ -311,17 +358,17 @@ impl<'a> BinaryExpression<'a> {
         operator_token: Option<&'a Token<'a>>,
         right: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, left, r#type, operator_token, right }
+        Self { node_id: None, modifiers, left, r#type, operator_token, right }
     }
 }
 
 impl crate::HasNodeId for BinaryExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -332,9 +379,16 @@ impl crate::HasNodeId for BinaryExpression<'_> {
 pub struct BindingElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `PropertyName`: `PropertyName`
@@ -357,17 +411,17 @@ impl<'a> BindingElement<'a> {
         name: Option<BindingName<'a>>,
         initializer: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), dot_dot_dot_token, property_name, name, initializer }
+        Self { node_id: None, dot_dot_dot_token, property_name, name, initializer }
     }
 }
 
 impl crate::HasNodeId for BindingElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -378,9 +432,16 @@ impl crate::HasNodeId for BindingElement<'_> {
 pub struct BindingPattern<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.ObjectBindingPattern | SyntaxKind.ArrayBindingPattern`
     pub kind: &'a Token<'a>,
     /// `Elements`: `BindingElement`
@@ -394,17 +455,17 @@ impl<'a> BindingPattern<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(kind: &'a Token<'a>, elements: &'a [&'a BindingElement<'a>]) -> Self {
-        Self { node_id: Cell::new(None), kind, elements }
+        Self { node_id: None, kind, elements }
     }
 }
 
 impl crate::HasNodeId for BindingPattern<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -415,9 +476,16 @@ impl crate::HasNodeId for BindingPattern<'_> {
 pub struct Block<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
     /// `MultiLine`: `bool`
@@ -431,17 +499,17 @@ impl<'a> Block<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(statements: &'a [Statement<'a>], multi_line: bool) -> Self {
-        Self { node_id: Cell::new(None), statements, multi_line }
+        Self { node_id: None, statements, multi_line }
     }
 }
 
 impl crate::HasNodeId for Block<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -452,9 +520,16 @@ impl crate::HasNodeId for Block<'_> {
 pub struct BreakStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
 }
@@ -466,17 +541,17 @@ impl<'a> BreakStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(label: Option<&'a Identifier<'a>>) -> Self {
-        Self { node_id: Cell::new(None), label }
+        Self { node_id: None, label }
     }
 }
 
 impl crate::HasNodeId for BreakStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -487,9 +562,16 @@ impl crate::HasNodeId for BreakStatement<'_> {
 pub struct CallExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -512,17 +594,17 @@ impl<'a> CallExpression<'a> {
         type_arguments: &'a [TypeNode<'a>],
         arguments: &'a [Expression<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), expression, question_dot_token, type_arguments, arguments }
+        Self { node_id: None, expression, question_dot_token, type_arguments, arguments }
     }
 }
 
 impl crate::HasNodeId for CallExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -533,9 +615,16 @@ impl crate::HasNodeId for CallExpression<'_> {
 pub struct CallSignatureDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -558,17 +647,17 @@ impl<'a> CallSignatureDeclaration<'a> {
         r#type: Option<TypeNode<'a>>,
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), type_parameters, parameters, r#type, full_signature }
+        Self { node_id: None, type_parameters, parameters, r#type, full_signature }
     }
 }
 
 impl crate::HasNodeId for CallSignatureDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -579,9 +668,16 @@ impl crate::HasNodeId for CallSignatureDeclaration<'_> {
 pub struct CaseBlock<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Clauses`: `CaseOrDefaultClause`
     pub clauses: &'a [&'a CaseOrDefaultClause<'a>],
 }
@@ -593,17 +689,17 @@ impl<'a> CaseBlock<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(clauses: &'a [&'a CaseOrDefaultClause<'a>]) -> Self {
-        Self { node_id: Cell::new(None), clauses }
+        Self { node_id: None, clauses }
     }
 }
 
 impl crate::HasNodeId for CaseBlock<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -614,9 +710,16 @@ impl crate::HasNodeId for CaseBlock<'_> {
 pub struct CaseOrDefaultClause<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.CaseClause | SyntaxKind.DefaultClause`
     pub kind: &'a Token<'a>,
     /// `Expression`: `Expression`
@@ -636,17 +739,17 @@ impl<'a> CaseOrDefaultClause<'a> {
         expression: Option<Expression<'a>>,
         statements: &'a [Statement<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), kind, expression, statements }
+        Self { node_id: None, kind, expression, statements }
     }
 }
 
 impl crate::HasNodeId for CaseOrDefaultClause<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -657,9 +760,16 @@ impl crate::HasNodeId for CaseOrDefaultClause<'_> {
 pub struct CatchClause<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `VariableDeclaration`: `VariableDeclaration`
     pub variable_declaration: Option<&'a VariableDeclaration<'a>>,
     /// `Block`: `Block`
@@ -676,17 +786,17 @@ impl<'a> CatchClause<'a> {
         variable_declaration: Option<&'a VariableDeclaration<'a>>,
         block: Option<&'a Block<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), variable_declaration, block }
+        Self { node_id: None, variable_declaration, block }
     }
 }
 
 impl crate::HasNodeId for CatchClause<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -697,9 +807,16 @@ impl crate::HasNodeId for CatchClause<'_> {
 pub struct ClassDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -725,24 +842,17 @@ impl<'a> ClassDeclaration<'a> {
         heritage_clauses: &'a [&'a HeritageClause<'a>],
         members: &'a [ClassElement<'a>],
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            modifiers,
-            name,
-            type_parameters,
-            heritage_clauses,
-            members,
-        }
+        Self { node_id: None, modifiers, name, type_parameters, heritage_clauses, members }
     }
 }
 
 impl crate::HasNodeId for ClassDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -753,9 +863,16 @@ impl crate::HasNodeId for ClassDeclaration<'_> {
 pub struct ClassExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -781,24 +898,17 @@ impl<'a> ClassExpression<'a> {
         heritage_clauses: &'a [&'a HeritageClause<'a>],
         members: &'a [ClassElement<'a>],
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            modifiers,
-            name,
-            type_parameters,
-            heritage_clauses,
-            members,
-        }
+        Self { node_id: None, modifiers, name, type_parameters, heritage_clauses, members }
     }
 }
 
 impl crate::HasNodeId for ClassExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -809,9 +919,16 @@ impl crate::HasNodeId for ClassExpression<'_> {
 pub struct ClassStaticBlockDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Body`: `Block`
@@ -825,17 +942,17 @@ impl<'a> ClassStaticBlockDeclaration<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(modifiers: &'a [ModifierLike<'a>], body: Option<&'a Block<'a>>) -> Self {
-        Self { node_id: Cell::new(None), modifiers, body }
+        Self { node_id: None, modifiers, body }
     }
 }
 
 impl crate::HasNodeId for ClassStaticBlockDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -846,9 +963,16 @@ impl crate::HasNodeId for ClassStaticBlockDeclaration<'_> {
 pub struct ComputedPropertyName<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -860,17 +984,17 @@ impl<'a> ComputedPropertyName<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for ComputedPropertyName<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -881,9 +1005,16 @@ impl crate::HasNodeId for ComputedPropertyName<'_> {
 pub struct ConditionalExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Condition`: `Expression`
     pub condition: Option<Expression<'a>>,
     /// `QuestionToken`: `QuestionToken`
@@ -909,24 +1040,17 @@ impl<'a> ConditionalExpression<'a> {
         colon_token: Option<&'a Token<'a>>,
         when_false: Option<Expression<'a>>,
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            condition,
-            question_token,
-            when_true,
-            colon_token,
-            when_false,
-        }
+        Self { node_id: None, condition, question_token, when_true, colon_token, when_false }
     }
 }
 
 impl crate::HasNodeId for ConditionalExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -937,9 +1061,16 @@ impl crate::HasNodeId for ConditionalExpression<'_> {
 pub struct ConditionalTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `CheckType`: `TypeNode`
     pub check_type: Option<TypeNode<'a>>,
     /// `ExtendsType`: `TypeNode`
@@ -962,17 +1093,17 @@ impl<'a> ConditionalTypeNode<'a> {
         true_type: Option<TypeNode<'a>>,
         false_type: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), check_type, extends_type, true_type, false_type }
+        Self { node_id: None, check_type, extends_type, true_type, false_type }
     }
 }
 
 impl crate::HasNodeId for ConditionalTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -983,9 +1114,16 @@ impl crate::HasNodeId for ConditionalTypeNode<'_> {
 pub struct ConstructSignatureDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -1008,17 +1146,17 @@ impl<'a> ConstructSignatureDeclaration<'a> {
         r#type: Option<TypeNode<'a>>,
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), type_parameters, parameters, r#type, full_signature }
+        Self { node_id: None, type_parameters, parameters, r#type, full_signature }
     }
 }
 
 impl crate::HasNodeId for ConstructSignatureDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1029,9 +1167,16 @@ impl crate::HasNodeId for ConstructSignatureDeclaration<'_> {
 pub struct ConstructorDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -1064,7 +1209,7 @@ impl<'a> ConstructorDeclaration<'a> {
         asterisk_token: Option<&'a Token<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             type_parameters,
             parameters,
@@ -1077,12 +1222,12 @@ impl<'a> ConstructorDeclaration<'a> {
 }
 
 impl crate::HasNodeId for ConstructorDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1093,9 +1238,16 @@ impl crate::HasNodeId for ConstructorDeclaration<'_> {
 pub struct ConstructorTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `TypeParameters`: `TypeParameterDeclaration`
@@ -1121,24 +1273,17 @@ impl<'a> ConstructorTypeNode<'a> {
         r#type: Option<TypeNode<'a>>,
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            modifiers,
-            type_parameters,
-            parameters,
-            r#type,
-            full_signature,
-        }
+        Self { node_id: None, modifiers, type_parameters, parameters, r#type, full_signature }
     }
 }
 
 impl crate::HasNodeId for ConstructorTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1149,9 +1294,16 @@ impl crate::HasNodeId for ConstructorTypeNode<'_> {
 pub struct ContinueStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
 }
@@ -1163,17 +1315,17 @@ impl<'a> ContinueStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(label: Option<&'a Identifier<'a>>) -> Self {
-        Self { node_id: Cell::new(None), label }
+        Self { node_id: None, label }
     }
 }
 
 impl crate::HasNodeId for ContinueStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1184,9 +1336,16 @@ impl crate::HasNodeId for ContinueStatement<'_> {
 pub struct DebuggerStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -1199,17 +1358,17 @@ impl DebuggerStatement<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for DebuggerStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1220,9 +1379,16 @@ impl crate::HasNodeId for DebuggerStatement<'_> {
 pub struct Decorator<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `LeftHandSideExpression`
     pub expression: Option<LeftHandSideExpression<'a>>,
 }
@@ -1234,17 +1400,17 @@ impl<'a> Decorator<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<LeftHandSideExpression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for Decorator<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1255,9 +1421,16 @@ impl crate::HasNodeId for Decorator<'_> {
 pub struct DeleteExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -1269,17 +1442,17 @@ impl<'a> DeleteExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for DeleteExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1290,9 +1463,16 @@ impl crate::HasNodeId for DeleteExpression<'_> {
 pub struct DoStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Statement`: `Statement`
     pub statement: Statement<'a>,
     /// `Expression`: `Expression`
@@ -1306,17 +1486,17 @@ impl<'a> DoStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(statement: Statement<'a>, expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), statement, expression }
+        Self { node_id: None, statement, expression }
     }
 }
 
 impl crate::HasNodeId for DoStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1327,9 +1507,16 @@ impl crate::HasNodeId for DoStatement<'_> {
 pub struct ElementAccessExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -1349,17 +1536,17 @@ impl<'a> ElementAccessExpression<'a> {
         question_dot_token: Option<&'a Token<'a>>,
         argument_expression: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), expression, question_dot_token, argument_expression }
+        Self { node_id: None, expression, question_dot_token, argument_expression }
     }
 }
 
 impl crate::HasNodeId for ElementAccessExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1370,9 +1557,16 @@ impl crate::HasNodeId for ElementAccessExpression<'_> {
 pub struct EmptyStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -1385,17 +1579,17 @@ impl EmptyStatement<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for EmptyStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1406,9 +1600,16 @@ impl crate::HasNodeId for EmptyStatement<'_> {
 pub struct EnumDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -1428,17 +1629,17 @@ impl<'a> EnumDeclaration<'a> {
         name: Option<&'a Identifier<'a>>,
         members: &'a [&'a EnumMember<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, name, members }
+        Self { node_id: None, modifiers, name, members }
     }
 }
 
 impl crate::HasNodeId for EnumDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1449,9 +1650,16 @@ impl crate::HasNodeId for EnumDeclaration<'_> {
 pub struct EnumMember<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `PropertyName`
     pub name: PropertyName<'a>,
     /// `Initializer`: `Expression`
@@ -1474,17 +1682,17 @@ impl<'a> EnumMember<'a> {
         modifiers: &'a [ModifierLike<'a>],
         postfix_token: Option<&'a Token<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), name, initializer, modifiers, postfix_token }
+        Self { node_id: None, name, initializer, modifiers, postfix_token }
     }
 }
 
 impl crate::HasNodeId for EnumMember<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1495,9 +1703,16 @@ impl crate::HasNodeId for EnumMember<'_> {
 pub struct ExportAssignment<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsExportEquals`: `bool`
@@ -1520,17 +1735,17 @@ impl<'a> ExportAssignment<'a> {
         r#type: Option<TypeNode<'a>>,
         expression: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, is_export_equals, r#type, expression }
+        Self { node_id: None, modifiers, is_export_equals, r#type, expression }
     }
 }
 
 impl crate::HasNodeId for ExportAssignment<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1541,9 +1756,16 @@ impl crate::HasNodeId for ExportAssignment<'_> {
 pub struct ExportDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsTypeOnly`: `bool`
@@ -1569,24 +1791,17 @@ impl<'a> ExportDeclaration<'a> {
         module_specifier: Option<Expression<'a>>,
         attributes: Option<&'a ImportAttributes<'a>>,
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            modifiers,
-            is_type_only,
-            export_clause,
-            module_specifier,
-            attributes,
-        }
+        Self { node_id: None, modifiers, is_type_only, export_clause, module_specifier, attributes }
     }
 }
 
 impl crate::HasNodeId for ExportDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1597,9 +1812,16 @@ impl crate::HasNodeId for ExportDeclaration<'_> {
 pub struct ExportSpecifier<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `IsTypeOnly`: `bool`
     pub is_type_only: bool,
     /// `PropertyName`: `ModuleExportName`
@@ -1619,17 +1841,17 @@ impl<'a> ExportSpecifier<'a> {
         property_name: Option<ModuleExportName<'a>>,
         name: Option<ModuleExportName<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), is_type_only, property_name, name }
+        Self { node_id: None, is_type_only, property_name, name }
     }
 }
 
 impl crate::HasNodeId for ExportSpecifier<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1640,9 +1862,16 @@ impl crate::HasNodeId for ExportSpecifier<'_> {
 pub struct ExpressionStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -1654,17 +1883,17 @@ impl<'a> ExpressionStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for ExpressionStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1675,9 +1904,16 @@ impl crate::HasNodeId for ExpressionStatement<'_> {
 pub struct ExpressionWithTypeArguments<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -1691,17 +1927,17 @@ impl<'a> ExpressionWithTypeArguments<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
-        Self { node_id: Cell::new(None), expression, type_arguments }
+        Self { node_id: None, expression, type_arguments }
     }
 }
 
 impl crate::HasNodeId for ExpressionWithTypeArguments<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1712,9 +1948,16 @@ impl crate::HasNodeId for ExpressionWithTypeArguments<'_> {
 pub struct ExternalModuleReference<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -1726,17 +1969,17 @@ impl<'a> ExternalModuleReference<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for ExternalModuleReference<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1747,9 +1990,16 @@ impl crate::HasNodeId for ExternalModuleReference<'_> {
 pub struct ForInOrOfStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.ForInStatement | SyntaxKind.ForOfStatement`
     pub kind: &'a Token<'a>,
     /// `AwaitModifier`: `AwaitKeyword`
@@ -1775,17 +2025,17 @@ impl<'a> ForInOrOfStatement<'a> {
         expression: Option<Expression<'a>>,
         statement: Option<Statement<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), kind, await_modifier, initializer, expression, statement }
+        Self { node_id: None, kind, await_modifier, initializer, expression, statement }
     }
 }
 
 impl crate::HasNodeId for ForInOrOfStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1796,9 +2046,16 @@ impl crate::HasNodeId for ForInOrOfStatement<'_> {
 pub struct ForStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Initializer`: `ForInitializer`
     pub initializer: Option<ForInitializer<'a>>,
     /// `Condition`: `Expression`
@@ -1821,17 +2078,17 @@ impl<'a> ForStatement<'a> {
         incrementor: Option<Expression<'a>>,
         statement: Statement<'a>,
     ) -> Self {
-        Self { node_id: Cell::new(None), initializer, condition, incrementor, statement }
+        Self { node_id: None, initializer, condition, incrementor, statement }
     }
 }
 
 impl crate::HasNodeId for ForStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1842,9 +2099,16 @@ impl crate::HasNodeId for ForStatement<'_> {
 pub struct FunctionDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -1880,7 +2144,7 @@ impl<'a> FunctionDeclaration<'a> {
         body: Option<FunctionBody<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             asterisk_token,
             name,
@@ -1894,12 +2158,12 @@ impl<'a> FunctionDeclaration<'a> {
 }
 
 impl crate::HasNodeId for FunctionDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1910,9 +2174,16 @@ impl crate::HasNodeId for FunctionDeclaration<'_> {
 pub struct FunctionExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -1948,7 +2219,7 @@ impl<'a> FunctionExpression<'a> {
         body: Option<FunctionBody<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             asterisk_token,
             name,
@@ -1962,12 +2233,12 @@ impl<'a> FunctionExpression<'a> {
 }
 
 impl crate::HasNodeId for FunctionExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -1978,9 +2249,16 @@ impl crate::HasNodeId for FunctionExpression<'_> {
 pub struct FunctionTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -2006,24 +2284,17 @@ impl<'a> FunctionTypeNode<'a> {
         modifiers: &'a [ModifierLike<'a>],
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            type_parameters,
-            parameters,
-            r#type,
-            modifiers,
-            full_signature,
-        }
+        Self { node_id: None, type_parameters, parameters, r#type, modifiers, full_signature }
     }
 }
 
 impl crate::HasNodeId for FunctionTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2034,9 +2305,16 @@ impl crate::HasNodeId for FunctionTypeNode<'_> {
 pub struct GetAccessorDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -2075,7 +2353,7 @@ impl<'a> GetAccessorDeclaration<'a> {
         asterisk_token: Option<&'a Token<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             name,
             type_parameters,
@@ -2090,12 +2368,12 @@ impl<'a> GetAccessorDeclaration<'a> {
 }
 
 impl crate::HasNodeId for GetAccessorDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2106,9 +2384,16 @@ impl crate::HasNodeId for GetAccessorDeclaration<'_> {
 pub struct HeritageClause<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Token`: `SyntaxKind.ExtendsKeyword | SyntaxKind.ImplementsKeyword`
     pub token: &'a Token<'a>,
     /// `Types`: `ExpressionWithTypeArguments`
@@ -2122,17 +2407,17 @@ impl<'a> HeritageClause<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(token: &'a Token<'a>, types: &'a [&'a ExpressionWithTypeArguments<'a>]) -> Self {
-        Self { node_id: Cell::new(None), token, types }
+        Self { node_id: None, token, types }
     }
 }
 
 impl crate::HasNodeId for HeritageClause<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2143,9 +2428,16 @@ impl crate::HasNodeId for HeritageClause<'_> {
 pub struct Identifier<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
 }
@@ -2157,17 +2449,17 @@ impl<'a> Identifier<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(text: &'a str) -> Self {
-        Self { node_id: Cell::new(None), text }
+        Self { node_id: None, text }
     }
 }
 
 impl crate::HasNodeId for Identifier<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2178,9 +2470,16 @@ impl crate::HasNodeId for Identifier<'_> {
 pub struct IfStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `ThenStatement`: `Statement`
@@ -2200,17 +2499,17 @@ impl<'a> IfStatement<'a> {
         then_statement: Option<Statement<'a>>,
         else_statement: Option<Statement<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), expression, then_statement, else_statement }
+        Self { node_id: None, expression, then_statement, else_statement }
     }
 }
 
 impl crate::HasNodeId for IfStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2221,9 +2520,16 @@ impl crate::HasNodeId for IfStatement<'_> {
 pub struct ImportAttribute<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `ImportAttributeName`
     pub name: Option<ImportAttributeName<'a>>,
     /// `Value`: `Expression`
@@ -2237,17 +2543,17 @@ impl<'a> ImportAttribute<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(name: Option<ImportAttributeName<'a>>, value: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), name, value }
+        Self { node_id: None, name, value }
     }
 }
 
 impl crate::HasNodeId for ImportAttribute<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2258,9 +2564,16 @@ impl crate::HasNodeId for ImportAttribute<'_> {
 pub struct ImportAttributes<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Token`: `SyntaxKind.WithKeyword | SyntaxKind.AssertKeyword`
     pub token: &'a Token<'a>,
     /// `Attributes`: `ImportAttribute`
@@ -2280,17 +2593,17 @@ impl<'a> ImportAttributes<'a> {
         attributes: &'a [&'a ImportAttribute<'a>],
         multi_line: bool,
     ) -> Self {
-        Self { node_id: Cell::new(None), token, attributes, multi_line }
+        Self { node_id: None, token, attributes, multi_line }
     }
 }
 
 impl crate::HasNodeId for ImportAttributes<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2301,9 +2614,16 @@ impl crate::HasNodeId for ImportAttributes<'_> {
 pub struct ImportClause<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `PhaseModifier`: `ImportPhaseModifierSyntaxKind`
     pub phase_modifier: Option<&'a Token<'a>>,
     /// `name`: `Identifier`
@@ -2323,17 +2643,17 @@ impl<'a> ImportClause<'a> {
         name: Option<&'a Identifier<'a>>,
         named_bindings: Option<NamedImportBindings<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), phase_modifier, name, named_bindings }
+        Self { node_id: None, phase_modifier, name, named_bindings }
     }
 }
 
 impl crate::HasNodeId for ImportClause<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2344,9 +2664,16 @@ impl crate::HasNodeId for ImportClause<'_> {
 pub struct ImportDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `ImportClause`: `ImportClause`
@@ -2369,17 +2696,17 @@ impl<'a> ImportDeclaration<'a> {
         module_specifier: Option<Expression<'a>>,
         attributes: Option<&'a ImportAttributes<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, import_clause, module_specifier, attributes }
+        Self { node_id: None, modifiers, import_clause, module_specifier, attributes }
     }
 }
 
 impl crate::HasNodeId for ImportDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2390,9 +2717,16 @@ impl crate::HasNodeId for ImportDeclaration<'_> {
 pub struct ImportEqualsDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `IsTypeOnly`: `bool`
@@ -2415,17 +2749,17 @@ impl<'a> ImportEqualsDeclaration<'a> {
         name: Option<&'a Identifier<'a>>,
         module_reference: Option<ModuleReference<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, is_type_only, name, module_reference }
+        Self { node_id: None, modifiers, is_type_only, name, module_reference }
     }
 }
 
 impl crate::HasNodeId for ImportEqualsDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2436,9 +2770,16 @@ impl crate::HasNodeId for ImportEqualsDeclaration<'_> {
 pub struct ImportSpecifier<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `IsTypeOnly`: `bool`
     pub is_type_only: bool,
     /// `PropertyName`: `ModuleExportName`
@@ -2458,17 +2799,17 @@ impl<'a> ImportSpecifier<'a> {
         property_name: Option<ModuleExportName<'a>>,
         name: Option<&'a Identifier<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), is_type_only, property_name, name }
+        Self { node_id: None, is_type_only, property_name, name }
     }
 }
 
 impl crate::HasNodeId for ImportSpecifier<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2479,9 +2820,16 @@ impl crate::HasNodeId for ImportSpecifier<'_> {
 pub struct ImportTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `IsTypeOf`: `bool`
     pub is_type_of: bool,
     /// `Argument`: `TypeNode`
@@ -2507,24 +2855,17 @@ impl<'a> ImportTypeNode<'a> {
         qualifier: Option<EntityName<'a>>,
         type_arguments: &'a [TypeNode<'a>],
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            is_type_of,
-            argument,
-            attributes,
-            qualifier,
-            type_arguments,
-        }
+        Self { node_id: None, is_type_of, argument, attributes, qualifier, type_arguments }
     }
 }
 
 impl crate::HasNodeId for ImportTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2535,9 +2876,16 @@ impl crate::HasNodeId for ImportTypeNode<'_> {
 pub struct IndexSignatureDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -2563,24 +2911,17 @@ impl<'a> IndexSignatureDeclaration<'a> {
         full_signature: Option<TypeNode<'a>>,
         type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            modifiers,
-            parameters,
-            r#type,
-            full_signature,
-            type_parameters,
-        }
+        Self { node_id: None, modifiers, parameters, r#type, full_signature, type_parameters }
     }
 }
 
 impl crate::HasNodeId for IndexSignatureDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2591,9 +2932,16 @@ impl crate::HasNodeId for IndexSignatureDeclaration<'_> {
 pub struct IndexedAccessTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `ObjectType`: `TypeNode`
     pub object_type: Option<TypeNode<'a>>,
     /// `IndexType`: `TypeNode`
@@ -2607,17 +2955,17 @@ impl<'a> IndexedAccessTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(object_type: Option<TypeNode<'a>>, index_type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), object_type, index_type }
+        Self { node_id: None, object_type, index_type }
     }
 }
 
 impl crate::HasNodeId for IndexedAccessTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2628,9 +2976,16 @@ impl crate::HasNodeId for IndexedAccessTypeNode<'_> {
 pub struct InferTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TypeParameter`: `TypeParameterDeclaration`
     pub type_parameter: Option<&'a TypeParameterDeclaration<'a>>,
 }
@@ -2642,17 +2997,17 @@ impl<'a> InferTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(type_parameter: Option<&'a TypeParameterDeclaration<'a>>) -> Self {
-        Self { node_id: Cell::new(None), type_parameter }
+        Self { node_id: None, type_parameter }
     }
 }
 
 impl crate::HasNodeId for InferTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2663,9 +3018,16 @@ impl crate::HasNodeId for InferTypeNode<'_> {
 pub struct InterfaceDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -2691,24 +3053,17 @@ impl<'a> InterfaceDeclaration<'a> {
         heritage_clauses: &'a [&'a HeritageClause<'a>],
         members: &'a [TypeElement<'a>],
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            modifiers,
-            name,
-            type_parameters,
-            heritage_clauses,
-            members,
-        }
+        Self { node_id: None, modifiers, name, type_parameters, heritage_clauses, members }
     }
 }
 
 impl crate::HasNodeId for InterfaceDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2719,9 +3074,16 @@ impl crate::HasNodeId for InterfaceDeclaration<'_> {
 pub struct IntersectionTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Types`: `TypeNode`
     pub types: &'a [TypeNode<'a>],
 }
@@ -2733,17 +3095,17 @@ impl<'a> IntersectionTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(types: &'a [TypeNode<'a>]) -> Self {
-        Self { node_id: Cell::new(None), types }
+        Self { node_id: None, types }
     }
 }
 
 impl crate::HasNodeId for IntersectionTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2754,9 +3116,16 @@ impl crate::HasNodeId for IntersectionTypeNode<'_> {
 pub struct JSDoc<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Comment`: `JSDocComment`
     pub comment: &'a [JSDocComment<'a>],
     /// `Tags`: `JSDocTag`
@@ -2770,17 +3139,17 @@ impl<'a> JSDoc<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(comment: &'a [JSDocComment<'a>], tags: &'a [JSDocTag<'a>]) -> Self {
-        Self { node_id: Cell::new(None), comment, tags }
+        Self { node_id: None, comment, tags }
     }
 }
 
 impl crate::HasNodeId for JSDoc<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2791,9 +3160,16 @@ impl crate::HasNodeId for JSDoc<'_> {
 pub struct JSDocAllType<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -2806,17 +3182,17 @@ impl JSDocAllType<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for JSDocAllType<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2827,9 +3203,16 @@ impl crate::HasNodeId for JSDocAllType<'_> {
 pub struct JSDocAugmentsTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ClassName`: `ExpressionWithTypeArguments`
@@ -2849,17 +3232,17 @@ impl<'a> JSDocAugmentsTag<'a> {
         class_name: Option<&'a ExpressionWithTypeArguments<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, class_name, comment }
+        Self { node_id: None, tag_name, class_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocAugmentsTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2870,9 +3253,16 @@ impl crate::HasNodeId for JSDocAugmentsTag<'_> {
 pub struct JSDocCallbackTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -2895,17 +3285,17 @@ impl<'a> JSDocCallbackTag<'a> {
         name: Option<JSDocFullName<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, name, comment }
+        Self { node_id: None, tag_name, type_expression, name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocCallbackTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2916,9 +3306,16 @@ impl crate::HasNodeId for JSDocCallbackTag<'_> {
 pub struct JSDocDeprecatedTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -2932,17 +3329,17 @@ impl<'a> JSDocDeprecatedTag<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
-        Self { node_id: Cell::new(None), tag_name, comment }
+        Self { node_id: None, tag_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocDeprecatedTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2953,9 +3350,16 @@ impl crate::HasNodeId for JSDocDeprecatedTag<'_> {
 pub struct JSDocImplementsTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ClassName`: `ExpressionWithTypeArguments`
@@ -2975,17 +3379,17 @@ impl<'a> JSDocImplementsTag<'a> {
         class_name: Option<&'a ExpressionWithTypeArguments<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, class_name, comment }
+        Self { node_id: None, tag_name, class_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocImplementsTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -2996,9 +3400,16 @@ impl crate::HasNodeId for JSDocImplementsTag<'_> {
 pub struct JSDocImportTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `ImportClause`: `ImportClause`
@@ -3024,24 +3435,17 @@ impl<'a> JSDocImportTag<'a> {
         attributes: Option<&'a ImportAttributes<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self {
-            node_id: Cell::new(None),
-            tag_name,
-            import_clause,
-            module_specifier,
-            attributes,
-            comment,
-        }
+        Self { node_id: None, tag_name, import_clause, module_specifier, attributes, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocImportTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3052,9 +3456,16 @@ impl crate::HasNodeId for JSDocImportTag<'_> {
 pub struct JSDocLink<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
@@ -3068,17 +3479,17 @@ impl<'a> JSDocLink<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
-        Self { node_id: Cell::new(None), name, text }
+        Self { node_id: None, name, text }
     }
 }
 
 impl crate::HasNodeId for JSDocLink<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3089,9 +3500,16 @@ impl crate::HasNodeId for JSDocLink<'_> {
 pub struct JSDocLinkCode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
@@ -3105,17 +3523,17 @@ impl<'a> JSDocLinkCode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
-        Self { node_id: Cell::new(None), name, text }
+        Self { node_id: None, name, text }
     }
 }
 
 impl crate::HasNodeId for JSDocLinkCode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3126,9 +3544,16 @@ impl crate::HasNodeId for JSDocLinkCode<'_> {
 pub struct JSDocLinkPlain<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
     /// `text`: `string`
@@ -3142,17 +3567,17 @@ impl<'a> JSDocLinkPlain<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(name: Option<EntityName<'a>>, text: &'a [&'a str]) -> Self {
-        Self { node_id: Cell::new(None), name, text }
+        Self { node_id: None, name, text }
     }
 }
 
 impl crate::HasNodeId for JSDocLinkPlain<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3163,9 +3588,16 @@ impl crate::HasNodeId for JSDocLinkPlain<'_> {
 pub struct JSDocNameReference<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `EntityName`
     pub name: Option<EntityName<'a>>,
 }
@@ -3177,17 +3609,17 @@ impl<'a> JSDocNameReference<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(name: Option<EntityName<'a>>) -> Self {
-        Self { node_id: Cell::new(None), name }
+        Self { node_id: None, name }
     }
 }
 
 impl crate::HasNodeId for JSDocNameReference<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3198,9 +3630,16 @@ impl crate::HasNodeId for JSDocNameReference<'_> {
 pub struct JSDocNonNullableType<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -3212,17 +3651,17 @@ impl<'a> JSDocNonNullableType<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for JSDocNonNullableType<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3233,9 +3672,16 @@ impl crate::HasNodeId for JSDocNonNullableType<'_> {
 pub struct JSDocNullableType<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -3247,17 +3693,17 @@ impl<'a> JSDocNullableType<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for JSDocNullableType<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3268,9 +3714,16 @@ impl crate::HasNodeId for JSDocNullableType<'_> {
 pub struct JSDocOptionalType<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -3282,17 +3735,17 @@ impl<'a> JSDocOptionalType<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for JSDocOptionalType<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3303,9 +3756,16 @@ impl crate::HasNodeId for JSDocOptionalType<'_> {
 pub struct JSDocOverloadTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -3325,17 +3785,17 @@ impl<'a> JSDocOverloadTag<'a> {
         type_expression: Option<TypeNode<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+        Self { node_id: None, tag_name, type_expression, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocOverloadTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3346,9 +3806,16 @@ impl crate::HasNodeId for JSDocOverloadTag<'_> {
 pub struct JSDocOverrideTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -3362,17 +3829,17 @@ impl<'a> JSDocOverrideTag<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
-        Self { node_id: Cell::new(None), tag_name, comment }
+        Self { node_id: None, tag_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocOverrideTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3383,9 +3850,16 @@ impl crate::HasNodeId for JSDocOverrideTag<'_> {
 pub struct JSDocParameterOrPropertyTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Kind`: `SyntaxKind.JSDocParameterTag | SyntaxKind.JSDocPropertyTag`
     pub kind: &'a Token<'a>,
     /// `TagName`: `Identifier`
@@ -3418,7 +3892,7 @@ impl<'a> JSDocParameterOrPropertyTag<'a> {
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             kind,
             tag_name,
             name,
@@ -3431,12 +3905,12 @@ impl<'a> JSDocParameterOrPropertyTag<'a> {
 }
 
 impl crate::HasNodeId for JSDocParameterOrPropertyTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3447,9 +3921,16 @@ impl crate::HasNodeId for JSDocParameterOrPropertyTag<'_> {
 pub struct JSDocPrivateTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -3463,17 +3944,17 @@ impl<'a> JSDocPrivateTag<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
-        Self { node_id: Cell::new(None), tag_name, comment }
+        Self { node_id: None, tag_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocPrivateTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3484,9 +3965,16 @@ impl crate::HasNodeId for JSDocPrivateTag<'_> {
 pub struct JSDocProtectedTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -3500,17 +3988,17 @@ impl<'a> JSDocProtectedTag<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
-        Self { node_id: Cell::new(None), tag_name, comment }
+        Self { node_id: None, tag_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocProtectedTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3521,9 +4009,16 @@ impl crate::HasNodeId for JSDocProtectedTag<'_> {
 pub struct JSDocPublicTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -3537,17 +4032,17 @@ impl<'a> JSDocPublicTag<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
-        Self { node_id: Cell::new(None), tag_name, comment }
+        Self { node_id: None, tag_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocPublicTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3558,9 +4053,16 @@ impl crate::HasNodeId for JSDocPublicTag<'_> {
 pub struct JSDocReadonlyTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -3574,17 +4076,17 @@ impl<'a> JSDocReadonlyTag<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
-        Self { node_id: Cell::new(None), tag_name, comment }
+        Self { node_id: None, tag_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocReadonlyTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3595,9 +4097,16 @@ impl crate::HasNodeId for JSDocReadonlyTag<'_> {
 pub struct JSDocReturnTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -3617,17 +4126,17 @@ impl<'a> JSDocReturnTag<'a> {
         type_expression: Option<TypeNode<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+        Self { node_id: None, tag_name, type_expression, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocReturnTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3638,9 +4147,16 @@ impl crate::HasNodeId for JSDocReturnTag<'_> {
 pub struct JSDocSatisfiesTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -3660,17 +4176,17 @@ impl<'a> JSDocSatisfiesTag<'a> {
         type_expression: Option<TypeNode<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+        Self { node_id: None, tag_name, type_expression, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocSatisfiesTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3681,9 +4197,16 @@ impl crate::HasNodeId for JSDocSatisfiesTag<'_> {
 pub struct JSDocSeeTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `NameExpression`: `TypeNode`
@@ -3703,17 +4226,17 @@ impl<'a> JSDocSeeTag<'a> {
         name_expression: Option<TypeNode<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, name_expression, comment }
+        Self { node_id: None, tag_name, name_expression, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocSeeTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3724,9 +4247,16 @@ impl crate::HasNodeId for JSDocSeeTag<'_> {
 pub struct JSDocSignature<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TypeParameters`: `TypeParameterDeclaration`
     pub type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     /// `Parameters`: `ParameterDeclaration`
@@ -3749,17 +4279,17 @@ impl<'a> JSDocSignature<'a> {
         r#type: Option<TypeNode<'a>>,
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), type_parameters, parameters, r#type, full_signature }
+        Self { node_id: None, type_parameters, parameters, r#type, full_signature }
     }
 }
 
 impl crate::HasNodeId for JSDocSignature<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3770,9 +4300,16 @@ impl crate::HasNodeId for JSDocSignature<'_> {
 pub struct JSDocTemplateTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Constraint`: `Node`
@@ -3795,17 +4332,17 @@ impl<'a> JSDocTemplateTag<'a> {
         type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, constraint, type_parameters, comment }
+        Self { node_id: None, tag_name, constraint, type_parameters, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocTemplateTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3816,9 +4353,16 @@ impl crate::HasNodeId for JSDocTemplateTag<'_> {
 pub struct JSDocText<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `text`: `string`
     pub text: &'a [&'a str],
 }
@@ -3830,17 +4374,17 @@ impl<'a> JSDocText<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(text: &'a [&'a str]) -> Self {
-        Self { node_id: Cell::new(None), text }
+        Self { node_id: None, text }
     }
 }
 
 impl crate::HasNodeId for JSDocText<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3851,9 +4395,16 @@ impl crate::HasNodeId for JSDocText<'_> {
 pub struct JSDocThisTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -3873,17 +4424,17 @@ impl<'a> JSDocThisTag<'a> {
         type_expression: Option<TypeNode<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+        Self { node_id: None, tag_name, type_expression, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocThisTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3894,9 +4445,16 @@ impl crate::HasNodeId for JSDocThisTag<'_> {
 pub struct JSDocThrowsTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `TypeNode`
@@ -3916,17 +4474,17 @@ impl<'a> JSDocThrowsTag<'a> {
         type_expression: Option<TypeNode<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+        Self { node_id: None, tag_name, type_expression, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocThrowsTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3937,9 +4495,16 @@ impl crate::HasNodeId for JSDocThrowsTag<'_> {
 pub struct JSDocTypeExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -3951,17 +4516,17 @@ impl<'a> JSDocTypeExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for JSDocTypeExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -3972,9 +4537,16 @@ impl crate::HasNodeId for JSDocTypeExpression<'_> {
 pub struct JSDocTypeLiteral<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `JSDocPropertyTags`: `JSDocTag`
     pub js_doc_property_tags: &'a [JSDocTag<'a>],
     /// `IsArrayType`: `bool`
@@ -3988,17 +4560,17 @@ impl<'a> JSDocTypeLiteral<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(js_doc_property_tags: &'a [JSDocTag<'a>], is_array_type: bool) -> Self {
-        Self { node_id: Cell::new(None), js_doc_property_tags, is_array_type }
+        Self { node_id: None, js_doc_property_tags, is_array_type }
     }
 }
 
 impl crate::HasNodeId for JSDocTypeLiteral<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4009,9 +4581,16 @@ impl crate::HasNodeId for JSDocTypeLiteral<'_> {
 pub struct JSDocTypeTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `Node`
@@ -4031,17 +4610,17 @@ impl<'a> JSDocTypeTag<'a> {
         type_expression: Option<Node<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, comment }
+        Self { node_id: None, tag_name, type_expression, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocTypeTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4052,9 +4631,16 @@ impl crate::HasNodeId for JSDocTypeTag<'_> {
 pub struct JSDocTypedefTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `TypeExpression`: `Node`
@@ -4077,17 +4663,17 @@ impl<'a> JSDocTypedefTag<'a> {
         name: Option<JSDocFullName<'a>>,
         comment: &'a [JSDocComment<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_expression, name, comment }
+        Self { node_id: None, tag_name, type_expression, name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocTypedefTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4098,9 +4684,16 @@ impl crate::HasNodeId for JSDocTypedefTag<'_> {
 pub struct JSDocUnknownTag<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `Identifier`
     pub tag_name: &'a Identifier<'a>,
     /// `Comment`: `JSDocComment`
@@ -4114,17 +4707,17 @@ impl<'a> JSDocUnknownTag<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: &'a Identifier<'a>, comment: &'a [JSDocComment<'a>]) -> Self {
-        Self { node_id: Cell::new(None), tag_name, comment }
+        Self { node_id: None, tag_name, comment }
     }
 }
 
 impl crate::HasNodeId for JSDocUnknownTag<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4135,9 +4728,16 @@ impl crate::HasNodeId for JSDocUnknownTag<'_> {
 pub struct JSDocVariadicType<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -4149,17 +4749,17 @@ impl<'a> JSDocVariadicType<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for JSDocVariadicType<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4170,9 +4770,16 @@ impl crate::HasNodeId for JSDocVariadicType<'_> {
 pub struct JsxAttribute<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `JsxAttributeName`
     pub name: Option<JsxAttributeName<'a>>,
     /// `Initializer`: `JsxAttributeValue`
@@ -4189,17 +4796,17 @@ impl<'a> JsxAttribute<'a> {
         name: Option<JsxAttributeName<'a>>,
         initializer: Option<JsxAttributeValue<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), name, initializer }
+        Self { node_id: None, name, initializer }
     }
 }
 
 impl crate::HasNodeId for JsxAttribute<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4210,9 +4817,16 @@ impl crate::HasNodeId for JsxAttribute<'_> {
 pub struct JsxAttributes<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Properties`: `JsxAttributeLike`
     pub properties: &'a [JsxAttributeLike<'a>],
 }
@@ -4224,17 +4838,17 @@ impl<'a> JsxAttributes<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(properties: &'a [JsxAttributeLike<'a>]) -> Self {
-        Self { node_id: Cell::new(None), properties }
+        Self { node_id: None, properties }
     }
 }
 
 impl crate::HasNodeId for JsxAttributes<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4245,9 +4859,16 @@ impl crate::HasNodeId for JsxAttributes<'_> {
 pub struct JsxClosingElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `JsxTagNameExpression`
     pub tag_name: Option<JsxTagNameExpression<'a>>,
 }
@@ -4259,17 +4880,17 @@ impl<'a> JsxClosingElement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(tag_name: Option<JsxTagNameExpression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), tag_name }
+        Self { node_id: None, tag_name }
     }
 }
 
 impl crate::HasNodeId for JsxClosingElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4280,9 +4901,16 @@ impl crate::HasNodeId for JsxClosingElement<'_> {
 pub struct JsxClosingFragment<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -4295,17 +4923,17 @@ impl JsxClosingFragment<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for JsxClosingFragment<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4316,9 +4944,16 @@ impl crate::HasNodeId for JsxClosingFragment<'_> {
 pub struct JsxElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `OpeningElement`: `JsxOpeningElement`
     pub opening_element: Option<&'a JsxOpeningElement<'a>>,
     /// `Children`: `JsxChild`
@@ -4338,17 +4973,17 @@ impl<'a> JsxElement<'a> {
         children: &'a [JsxChild<'a>],
         closing_element: Option<&'a JsxClosingElement<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), opening_element, children, closing_element }
+        Self { node_id: None, opening_element, children, closing_element }
     }
 }
 
 impl crate::HasNodeId for JsxElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4359,9 +4994,16 @@ impl crate::HasNodeId for JsxElement<'_> {
 pub struct JsxExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `Expression`: `Expression`
@@ -4378,17 +5020,17 @@ impl<'a> JsxExpression<'a> {
         dot_dot_dot_token: Option<&'a Token<'a>>,
         expression: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), dot_dot_dot_token, expression }
+        Self { node_id: None, dot_dot_dot_token, expression }
     }
 }
 
 impl crate::HasNodeId for JsxExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4399,9 +5041,16 @@ impl crate::HasNodeId for JsxExpression<'_> {
 pub struct JsxFragment<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `OpeningFragment`: `JsxOpeningFragment`
     pub opening_fragment: Option<&'a JsxOpeningFragment<'a>>,
     /// `Children`: `JsxChild`
@@ -4421,17 +5070,17 @@ impl<'a> JsxFragment<'a> {
         children: &'a [JsxChild<'a>],
         closing_fragment: Option<&'a JsxClosingFragment<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), opening_fragment, children, closing_fragment }
+        Self { node_id: None, opening_fragment, children, closing_fragment }
     }
 }
 
 impl crate::HasNodeId for JsxFragment<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4442,9 +5091,16 @@ impl crate::HasNodeId for JsxFragment<'_> {
 pub struct JsxNamespacedName<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Namespace`: `Identifier`
     pub namespace: Option<&'a Identifier<'a>>,
     /// `name`: `Identifier`
@@ -4458,17 +5114,17 @@ impl<'a> JsxNamespacedName<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(namespace: Option<&'a Identifier<'a>>, name: Option<&'a Identifier<'a>>) -> Self {
-        Self { node_id: Cell::new(None), namespace, name }
+        Self { node_id: None, namespace, name }
     }
 }
 
 impl crate::HasNodeId for JsxNamespacedName<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4479,9 +5135,16 @@ impl crate::HasNodeId for JsxNamespacedName<'_> {
 pub struct JsxOpeningElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `JsxTagNameExpression`
     pub tag_name: Option<JsxTagNameExpression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -4501,17 +5164,17 @@ impl<'a> JsxOpeningElement<'a> {
         type_arguments: &'a [TypeNode<'a>],
         attributes: Option<&'a JsxAttributes<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_arguments, attributes }
+        Self { node_id: None, tag_name, type_arguments, attributes }
     }
 }
 
 impl crate::HasNodeId for JsxOpeningElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4522,9 +5185,16 @@ impl crate::HasNodeId for JsxOpeningElement<'_> {
 pub struct JsxOpeningFragment<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -4537,17 +5207,17 @@ impl JsxOpeningFragment<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for JsxOpeningFragment<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4558,9 +5228,16 @@ impl crate::HasNodeId for JsxOpeningFragment<'_> {
 pub struct JsxSelfClosingElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TagName`: `JsxTagNameExpression`
     pub tag_name: Option<JsxTagNameExpression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -4580,17 +5257,17 @@ impl<'a> JsxSelfClosingElement<'a> {
         type_arguments: &'a [TypeNode<'a>],
         attributes: Option<&'a JsxAttributes<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), tag_name, type_arguments, attributes }
+        Self { node_id: None, tag_name, type_arguments, attributes }
     }
 }
 
 impl crate::HasNodeId for JsxSelfClosingElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4601,9 +5278,16 @@ impl crate::HasNodeId for JsxSelfClosingElement<'_> {
 pub struct JsxSpreadAttribute<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -4615,17 +5299,17 @@ impl<'a> JsxSpreadAttribute<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for JsxSpreadAttribute<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4636,9 +5320,16 @@ impl crate::HasNodeId for JsxSpreadAttribute<'_> {
 pub struct JsxText<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `ContainsOnlyTriviaWhiteSpaces`: `bool`
@@ -4658,17 +5349,17 @@ impl<'a> JsxText<'a> {
         contains_only_trivia_white_spaces: bool,
         token_flags: crate::TokenFlags,
     ) -> Self {
-        Self { node_id: Cell::new(None), text, contains_only_trivia_white_spaces, token_flags }
+        Self { node_id: None, text, contains_only_trivia_white_spaces, token_flags }
     }
 }
 
 impl crate::HasNodeId for JsxText<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4679,9 +5370,16 @@ impl crate::HasNodeId for JsxText<'_> {
 pub struct KeywordExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -4696,17 +5394,17 @@ impl KeywordExpression<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(kind: SyntaxKind) -> Self {
-        Self { node_id: Cell::new(None), kind, _marker: std::marker::PhantomData }
+        Self { node_id: None, kind, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for KeywordExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4717,9 +5415,16 @@ impl crate::HasNodeId for KeywordExpression<'_> {
 pub struct KeywordTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -4734,17 +5439,17 @@ impl KeywordTypeNode<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(kind: SyntaxKind) -> Self {
-        Self { node_id: Cell::new(None), kind, _marker: std::marker::PhantomData }
+        Self { node_id: None, kind, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for KeywordTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4755,9 +5460,16 @@ impl crate::HasNodeId for KeywordTypeNode<'_> {
 pub struct LabeledStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Label`: `Identifier`
     pub label: Option<&'a Identifier<'a>>,
     /// `Statement`: `Statement`
@@ -4771,17 +5483,17 @@ impl<'a> LabeledStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(label: Option<&'a Identifier<'a>>, statement: Option<Statement<'a>>) -> Self {
-        Self { node_id: Cell::new(None), label, statement }
+        Self { node_id: None, label, statement }
     }
 }
 
 impl crate::HasNodeId for LabeledStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4792,9 +5504,16 @@ impl crate::HasNodeId for LabeledStatement<'_> {
 pub struct LiteralTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Literal`: `Node`
     pub literal: Option<Node<'a>>,
 }
@@ -4806,17 +5525,17 @@ impl<'a> LiteralTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(literal: Option<Node<'a>>) -> Self {
-        Self { node_id: Cell::new(None), literal }
+        Self { node_id: None, literal }
     }
 }
 
 impl crate::HasNodeId for LiteralTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4827,9 +5546,16 @@ impl crate::HasNodeId for LiteralTypeNode<'_> {
 pub struct MappedTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `ReadonlyToken`: `ReadonlyKeyword | PlusToken | MinusToken`
     pub readonly_token: Option<&'a Token<'a>>,
     /// `TypeParameter`: `TypeParameterDeclaration`
@@ -4859,7 +5585,7 @@ impl<'a> MappedTypeNode<'a> {
         members: &'a [TypeElement<'a>],
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             readonly_token,
             type_parameter,
             name_type,
@@ -4871,12 +5597,12 @@ impl<'a> MappedTypeNode<'a> {
 }
 
 impl crate::HasNodeId for MappedTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4887,9 +5613,16 @@ impl crate::HasNodeId for MappedTypeNode<'_> {
 pub struct MetaProperty<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `KeywordToken`: `SyntaxKind.ImportKeyword | SyntaxKind.NewKeyword`
     pub keyword_token: &'a Token<'a>,
     /// `name`: `Identifier`
@@ -4903,17 +5636,17 @@ impl<'a> MetaProperty<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(keyword_token: &'a Token<'a>, name: Option<&'a Identifier<'a>>) -> Self {
-        Self { node_id: Cell::new(None), keyword_token, name }
+        Self { node_id: None, keyword_token, name }
     }
 }
 
 impl crate::HasNodeId for MetaProperty<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4924,9 +5657,16 @@ impl crate::HasNodeId for MetaProperty<'_> {
 pub struct MethodDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `AsteriskToken`: `AsteriskToken`
@@ -4965,7 +5705,7 @@ impl<'a> MethodDeclaration<'a> {
         body: Option<FunctionBody<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             asterisk_token,
             name,
@@ -4980,12 +5720,12 @@ impl<'a> MethodDeclaration<'a> {
 }
 
 impl crate::HasNodeId for MethodDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -4996,9 +5736,16 @@ impl crate::HasNodeId for MethodDeclaration<'_> {
 pub struct MethodSignatureDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -5031,7 +5778,7 @@ impl<'a> MethodSignatureDeclaration<'a> {
         full_signature: Option<TypeNode<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             name,
             postfix_token,
@@ -5044,12 +5791,12 @@ impl<'a> MethodSignatureDeclaration<'a> {
 }
 
 impl crate::HasNodeId for MethodSignatureDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5060,9 +5807,16 @@ impl crate::HasNodeId for MethodSignatureDeclaration<'_> {
 pub struct MissingDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
 }
@@ -5074,17 +5828,17 @@ impl<'a> MissingDeclaration<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(modifiers: &'a [ModifierLike<'a>]) -> Self {
-        Self { node_id: Cell::new(None), modifiers }
+        Self { node_id: None, modifiers }
     }
 }
 
 impl crate::HasNodeId for MissingDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5095,9 +5849,16 @@ impl crate::HasNodeId for MissingDeclaration<'_> {
 pub struct ModuleBlock<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
 }
@@ -5109,17 +5870,17 @@ impl<'a> ModuleBlock<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(statements: &'a [Statement<'a>]) -> Self {
-        Self { node_id: Cell::new(None), statements }
+        Self { node_id: None, statements }
     }
 }
 
 impl crate::HasNodeId for ModuleBlock<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5130,9 +5891,16 @@ impl crate::HasNodeId for ModuleBlock<'_> {
 pub struct ModuleDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `Keyword`: `SyntaxKind.ModuleKeyword | SyntaxKind.NamespaceKeyword`
@@ -5158,17 +5926,17 @@ impl<'a> ModuleDeclaration<'a> {
         body: Option<ModuleBody<'a>>,
         asterisk_token: Option<&'a Token<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, keyword, name, body, asterisk_token }
+        Self { node_id: None, modifiers, keyword, name, body, asterisk_token }
     }
 }
 
 impl crate::HasNodeId for ModuleDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5179,9 +5947,16 @@ impl crate::HasNodeId for ModuleDeclaration<'_> {
 pub struct NamedExports<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Elements`: `ExportSpecifier`
     pub elements: &'a [&'a ExportSpecifier<'a>],
 }
@@ -5193,17 +5968,17 @@ impl<'a> NamedExports<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(elements: &'a [&'a ExportSpecifier<'a>]) -> Self {
-        Self { node_id: Cell::new(None), elements }
+        Self { node_id: None, elements }
     }
 }
 
 impl crate::HasNodeId for NamedExports<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5214,9 +5989,16 @@ impl crate::HasNodeId for NamedExports<'_> {
 pub struct NamedImports<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Elements`: `ImportSpecifier`
     pub elements: &'a [&'a ImportSpecifier<'a>],
 }
@@ -5228,17 +6010,17 @@ impl<'a> NamedImports<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(elements: &'a [&'a ImportSpecifier<'a>]) -> Self {
-        Self { node_id: Cell::new(None), elements }
+        Self { node_id: None, elements }
     }
 }
 
 impl crate::HasNodeId for NamedImports<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5249,9 +6031,16 @@ impl crate::HasNodeId for NamedImports<'_> {
 pub struct NamedTupleMember<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `DotDotDotToken`: `DotDotDotToken`
     pub dot_dot_dot_token: Option<&'a Token<'a>>,
     /// `name`: `Identifier`
@@ -5274,17 +6063,17 @@ impl<'a> NamedTupleMember<'a> {
         question_token: Option<&'a Token<'a>>,
         r#type: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), dot_dot_dot_token, name, question_token, r#type }
+        Self { node_id: None, dot_dot_dot_token, name, question_token, r#type }
     }
 }
 
 impl crate::HasNodeId for NamedTupleMember<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5295,9 +6084,16 @@ impl crate::HasNodeId for NamedTupleMember<'_> {
 pub struct NamespaceExport<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `ModuleExportName`
     pub name: Option<ModuleExportName<'a>>,
 }
@@ -5309,17 +6105,17 @@ impl<'a> NamespaceExport<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(name: Option<ModuleExportName<'a>>) -> Self {
-        Self { node_id: Cell::new(None), name }
+        Self { node_id: None, name }
     }
 }
 
 impl crate::HasNodeId for NamespaceExport<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5330,9 +6126,16 @@ impl crate::HasNodeId for NamespaceExport<'_> {
 pub struct NamespaceExportDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -5346,17 +6149,17 @@ impl<'a> NamespaceExportDeclaration<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(modifiers: &'a [ModifierLike<'a>], name: Option<&'a Identifier<'a>>) -> Self {
-        Self { node_id: Cell::new(None), modifiers, name }
+        Self { node_id: None, modifiers, name }
     }
 }
 
 impl crate::HasNodeId for NamespaceExportDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5367,9 +6170,16 @@ impl crate::HasNodeId for NamespaceExportDeclaration<'_> {
 pub struct NamespaceImport<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `Identifier`
     pub name: Option<&'a Identifier<'a>>,
 }
@@ -5381,17 +6191,17 @@ impl<'a> NamespaceImport<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(name: Option<&'a Identifier<'a>>) -> Self {
-        Self { node_id: Cell::new(None), name }
+        Self { node_id: None, name }
     }
 }
 
 impl crate::HasNodeId for NamespaceImport<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5402,9 +6212,16 @@ impl crate::HasNodeId for NamespaceImport<'_> {
 pub struct NewExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -5424,17 +6241,17 @@ impl<'a> NewExpression<'a> {
         type_arguments: &'a [TypeNode<'a>],
         arguments: &'a [Expression<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), expression, type_arguments, arguments }
+        Self { node_id: None, expression, type_arguments, arguments }
     }
 }
 
 impl crate::HasNodeId for NewExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5445,9 +6262,16 @@ impl crate::HasNodeId for NewExpression<'_> {
 pub struct NoSubstitutionTemplateLiteral<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TemplateFlags`: `TokenFlags`
@@ -5470,17 +6294,17 @@ impl<'a> NoSubstitutionTemplateLiteral<'a> {
         token_flags: crate::TokenFlags,
         raw_text: &'a str,
     ) -> Self {
-        Self { node_id: Cell::new(None), text, template_flags, token_flags, raw_text }
+        Self { node_id: None, text, template_flags, token_flags, raw_text }
     }
 }
 
 impl crate::HasNodeId for NoSubstitutionTemplateLiteral<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5491,9 +6315,16 @@ impl crate::HasNodeId for NoSubstitutionTemplateLiteral<'_> {
 pub struct NonNullExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -5505,17 +6336,17 @@ impl<'a> NonNullExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for NonNullExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5526,9 +6357,16 @@ impl crate::HasNodeId for NonNullExpression<'_> {
 pub struct NotEmittedStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -5541,17 +6379,17 @@ impl NotEmittedStatement<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for NotEmittedStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5562,9 +6400,16 @@ impl crate::HasNodeId for NotEmittedStatement<'_> {
 pub struct NotEmittedTypeElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -5577,17 +6422,17 @@ impl NotEmittedTypeElement<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for NotEmittedTypeElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5598,9 +6443,16 @@ impl crate::HasNodeId for NotEmittedTypeElement<'_> {
 pub struct NumericLiteral<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -5614,17 +6466,17 @@ impl<'a> NumericLiteral<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
-        Self { node_id: Cell::new(None), text, token_flags }
+        Self { node_id: None, text, token_flags }
     }
 }
 
 impl crate::HasNodeId for NumericLiteral<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5635,9 +6487,16 @@ impl crate::HasNodeId for NumericLiteral<'_> {
 pub struct ObjectLiteralExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Properties`: `ObjectLiteralElementLike`
     pub properties: &'a [ObjectLiteralElementLike<'a>],
     /// `MultiLine`: `bool`
@@ -5651,17 +6510,17 @@ impl<'a> ObjectLiteralExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(properties: &'a [ObjectLiteralElementLike<'a>], multi_line: bool) -> Self {
-        Self { node_id: Cell::new(None), properties, multi_line }
+        Self { node_id: None, properties, multi_line }
     }
 }
 
 impl crate::HasNodeId for ObjectLiteralExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5672,9 +6531,16 @@ impl crate::HasNodeId for ObjectLiteralExpression<'_> {
 pub struct OmittedExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -5687,17 +6553,17 @@ impl OmittedExpression<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for OmittedExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5708,9 +6574,16 @@ impl crate::HasNodeId for OmittedExpression<'_> {
 pub struct OptionalTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -5722,17 +6595,17 @@ impl<'a> OptionalTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for OptionalTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5743,9 +6616,16 @@ impl crate::HasNodeId for OptionalTypeNode<'_> {
 pub struct ParameterDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `DotDotDotToken`: `DotDotDotToken`
@@ -5775,7 +6655,7 @@ impl<'a> ParameterDeclaration<'a> {
         initializer: Option<Expression<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             dot_dot_dot_token,
             name,
@@ -5787,12 +6667,12 @@ impl<'a> ParameterDeclaration<'a> {
 }
 
 impl crate::HasNodeId for ParameterDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5803,9 +6683,16 @@ impl crate::HasNodeId for ParameterDeclaration<'_> {
 pub struct ParenthesizedExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -5817,17 +6704,17 @@ impl<'a> ParenthesizedExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for ParenthesizedExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5838,9 +6725,16 @@ impl crate::HasNodeId for ParenthesizedExpression<'_> {
 pub struct ParenthesizedTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -5852,17 +6746,17 @@ impl<'a> ParenthesizedTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for ParenthesizedTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5873,9 +6767,16 @@ impl crate::HasNodeId for ParenthesizedTypeNode<'_> {
 pub struct PartiallyEmittedExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -5887,17 +6788,17 @@ impl<'a> PartiallyEmittedExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for PartiallyEmittedExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5908,9 +6809,16 @@ impl crate::HasNodeId for PartiallyEmittedExpression<'_> {
 pub struct PostfixUnaryExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Operand`: `Expression`
     pub operand: Option<Expression<'a>>,
     /// `Operator`: `SyntaxKind.PlusPlusToken | SyntaxKind.MinusMinusToken`
@@ -5924,17 +6832,17 @@ impl<'a> PostfixUnaryExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(operand: Option<Expression<'a>>, operator: &'a Token<'a>) -> Self {
-        Self { node_id: Cell::new(None), operand, operator }
+        Self { node_id: None, operand, operator }
     }
 }
 
 impl crate::HasNodeId for PostfixUnaryExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5945,9 +6853,16 @@ impl crate::HasNodeId for PostfixUnaryExpression<'_> {
 pub struct PrefixUnaryExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Operator`: `SyntaxKind.PlusToken | SyntaxKind.MinusToken | SyntaxKind.TildeToken | SyntaxKind.ExclamationToken | SyntaxKind.PlusPlusToken | SyntaxKind.MinusMinusToken`
     pub operator: &'a Token<'a>,
     /// `Operand`: `Expression`
@@ -5961,17 +6876,17 @@ impl<'a> PrefixUnaryExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(operator: &'a Token<'a>, operand: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), operator, operand }
+        Self { node_id: None, operator, operand }
     }
 }
 
 impl crate::HasNodeId for PrefixUnaryExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -5982,9 +6897,16 @@ impl crate::HasNodeId for PrefixUnaryExpression<'_> {
 pub struct PrivateIdentifier<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
 }
@@ -5996,17 +6918,17 @@ impl<'a> PrivateIdentifier<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(text: &'a str) -> Self {
-        Self { node_id: Cell::new(None), text }
+        Self { node_id: None, text }
     }
 }
 
 impl crate::HasNodeId for PrivateIdentifier<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6017,9 +6939,16 @@ impl crate::HasNodeId for PrivateIdentifier<'_> {
 pub struct PropertyAccessExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -6039,17 +6968,17 @@ impl<'a> PropertyAccessExpression<'a> {
         question_dot_token: Option<&'a Token<'a>>,
         name: Option<MemberName<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), expression, question_dot_token, name }
+        Self { node_id: None, expression, question_dot_token, name }
     }
 }
 
 impl crate::HasNodeId for PropertyAccessExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6060,9 +6989,16 @@ impl crate::HasNodeId for PropertyAccessExpression<'_> {
 pub struct PropertyAssignment<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -6088,17 +7024,17 @@ impl<'a> PropertyAssignment<'a> {
         r#type: Option<TypeNode<'a>>,
         initializer: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, name, postfix_token, r#type, initializer }
+        Self { node_id: None, modifiers, name, postfix_token, r#type, initializer }
     }
 }
 
 impl crate::HasNodeId for PropertyAssignment<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6109,9 +7045,16 @@ impl crate::HasNodeId for PropertyAssignment<'_> {
 pub struct PropertyDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -6137,17 +7080,17 @@ impl<'a> PropertyDeclaration<'a> {
         r#type: Option<TypeNode<'a>>,
         initializer: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, name, postfix_token, r#type, initializer }
+        Self { node_id: None, modifiers, name, postfix_token, r#type, initializer }
     }
 }
 
 impl crate::HasNodeId for PropertyDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6158,9 +7101,16 @@ impl crate::HasNodeId for PropertyDeclaration<'_> {
 pub struct PropertySignatureDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -6186,17 +7136,17 @@ impl<'a> PropertySignatureDeclaration<'a> {
         r#type: Option<TypeNode<'a>>,
         initializer: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, name, postfix_token, r#type, initializer }
+        Self { node_id: None, modifiers, name, postfix_token, r#type, initializer }
     }
 }
 
 impl crate::HasNodeId for PropertySignatureDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6207,9 +7157,16 @@ impl crate::HasNodeId for PropertySignatureDeclaration<'_> {
 pub struct QualifiedName<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Left`: `EntityName`
     pub left: Option<EntityName<'a>>,
     /// `Right`: `Identifier`
@@ -6223,17 +7180,17 @@ impl<'a> QualifiedName<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(left: Option<EntityName<'a>>, right: Option<&'a Identifier<'a>>) -> Self {
-        Self { node_id: Cell::new(None), left, right }
+        Self { node_id: None, left, right }
     }
 }
 
 impl crate::HasNodeId for QualifiedName<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6244,9 +7201,16 @@ impl crate::HasNodeId for QualifiedName<'_> {
 pub struct RegularExpressionLiteral<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -6260,17 +7224,17 @@ impl<'a> RegularExpressionLiteral<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
-        Self { node_id: Cell::new(None), text, token_flags }
+        Self { node_id: None, text, token_flags }
     }
 }
 
 impl crate::HasNodeId for RegularExpressionLiteral<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6281,9 +7245,16 @@ impl crate::HasNodeId for RegularExpressionLiteral<'_> {
 pub struct RestTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
 }
@@ -6295,17 +7266,17 @@ impl<'a> RestTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type }
+        Self { node_id: None, r#type }
     }
 }
 
 impl crate::HasNodeId for RestTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6316,9 +7287,16 @@ impl crate::HasNodeId for RestTypeNode<'_> {
 pub struct ReturnStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -6330,17 +7308,17 @@ impl<'a> ReturnStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for ReturnStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6351,9 +7329,16 @@ impl crate::HasNodeId for ReturnStatement<'_> {
 pub struct SatisfiesExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Type`: `TypeNode`
@@ -6367,17 +7352,17 @@ impl<'a> SatisfiesExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression, r#type }
+        Self { node_id: None, expression, r#type }
     }
 }
 
 impl crate::HasNodeId for SatisfiesExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6388,9 +7373,16 @@ impl crate::HasNodeId for SatisfiesExpression<'_> {
 pub struct SemicolonClassElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -6403,17 +7395,17 @@ impl SemicolonClassElement<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for SemicolonClassElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6424,9 +7416,16 @@ impl crate::HasNodeId for SemicolonClassElement<'_> {
 pub struct SetAccessorDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -6465,7 +7464,7 @@ impl<'a> SetAccessorDeclaration<'a> {
         asterisk_token: Option<&'a Token<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             name,
             type_parameters,
@@ -6480,12 +7479,12 @@ impl<'a> SetAccessorDeclaration<'a> {
 }
 
 impl crate::HasNodeId for SetAccessorDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6496,9 +7495,16 @@ impl crate::HasNodeId for SetAccessorDeclaration<'_> {
 pub struct ShorthandPropertyAssignment<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `PropertyName`
@@ -6528,7 +7534,7 @@ impl<'a> ShorthandPropertyAssignment<'a> {
         object_assignment_initializer: Option<Expression<'a>>,
     ) -> Self {
         Self {
-            node_id: Cell::new(None),
+            node_id: None,
             modifiers,
             name,
             postfix_token,
@@ -6540,12 +7546,12 @@ impl<'a> ShorthandPropertyAssignment<'a> {
 }
 
 impl crate::HasNodeId for ShorthandPropertyAssignment<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6556,9 +7562,16 @@ impl crate::HasNodeId for ShorthandPropertyAssignment<'_> {
 pub struct SourceFile<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Statements`: `Statement`
     pub statements: &'a [Statement<'a>],
     /// `EndOfFileToken`: `EndOfFile`
@@ -6572,17 +7585,17 @@ impl<'a> SourceFile<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(statements: &'a [Statement<'a>], end_of_file_token: &'a Token<'a>) -> Self {
-        Self { node_id: Cell::new(None), statements, end_of_file_token }
+        Self { node_id: None, statements, end_of_file_token }
     }
 }
 
 impl crate::HasNodeId for SourceFile<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6593,9 +7606,16 @@ impl crate::HasNodeId for SourceFile<'_> {
 pub struct SpreadAssignment<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -6607,17 +7627,17 @@ impl<'a> SpreadAssignment<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for SpreadAssignment<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6628,9 +7648,16 @@ impl crate::HasNodeId for SpreadAssignment<'_> {
 pub struct SpreadElement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -6642,17 +7669,17 @@ impl<'a> SpreadElement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for SpreadElement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6663,9 +7690,16 @@ impl crate::HasNodeId for SpreadElement<'_> {
 pub struct StringLiteral<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `TokenFlags`: `TokenFlags`
@@ -6679,17 +7713,17 @@ impl<'a> StringLiteral<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(text: &'a str, token_flags: crate::TokenFlags) -> Self {
-        Self { node_id: Cell::new(None), text, token_flags }
+        Self { node_id: None, text, token_flags }
     }
 }
 
 impl crate::HasNodeId for StringLiteral<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6700,9 +7734,16 @@ impl crate::HasNodeId for StringLiteral<'_> {
 pub struct SwitchStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `CaseBlock`: `CaseBlock`
@@ -6716,17 +7757,17 @@ impl<'a> SwitchStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, case_block: Option<&'a CaseBlock<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression, case_block }
+        Self { node_id: None, expression, case_block }
     }
 }
 
 impl crate::HasNodeId for SwitchStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6737,9 +7778,16 @@ impl crate::HasNodeId for SwitchStatement<'_> {
 pub struct SyntaxList<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Children`: `Node`
     pub children: &'a [Node<'a>],
 }
@@ -6751,17 +7799,17 @@ impl<'a> SyntaxList<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(children: &'a [Node<'a>]) -> Self {
-        Self { node_id: Cell::new(None), children }
+        Self { node_id: None, children }
     }
 }
 
 impl crate::HasNodeId for SyntaxList<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6772,9 +7820,16 @@ impl crate::HasNodeId for SyntaxList<'_> {
 pub struct SyntheticExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `any`
     pub r#type: Node<'a>,
     /// `IsSpread`: `bool`
@@ -6790,17 +7845,17 @@ impl<'a> SyntheticExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Node<'a>, is_spread: bool, tuple_name_source: Option<Node<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type, is_spread, tuple_name_source }
+        Self { node_id: None, r#type, is_spread, tuple_name_source }
     }
 }
 
 impl crate::HasNodeId for SyntheticExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6811,9 +7866,16 @@ impl crate::HasNodeId for SyntheticExpression<'_> {
 pub struct SyntheticReferenceExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `ThisArg`: `Expression`
@@ -6827,17 +7889,17 @@ impl<'a> SyntheticReferenceExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, this_arg: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression, this_arg }
+        Self { node_id: None, expression, this_arg }
     }
 }
 
 impl crate::HasNodeId for SyntheticReferenceExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6848,9 +7910,16 @@ impl crate::HasNodeId for SyntheticReferenceExpression<'_> {
 pub struct TaggedTemplateExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Tag`: `Expression`
     pub tag: Option<Expression<'a>>,
     /// `QuestionDotToken`: `QuestionDotToken`
@@ -6873,17 +7942,17 @@ impl<'a> TaggedTemplateExpression<'a> {
         type_arguments: &'a [TypeNode<'a>],
         template: Option<TemplateLiteral<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), tag, question_dot_token, type_arguments, template }
+        Self { node_id: None, tag, question_dot_token, type_arguments, template }
     }
 }
 
 impl crate::HasNodeId for TaggedTemplateExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6894,9 +7963,16 @@ impl crate::HasNodeId for TaggedTemplateExpression<'_> {
 pub struct TemplateExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Head`: `TemplateHead`
     pub head: Option<&'a TemplateHead<'a>>,
     /// `TemplateSpans`: `TemplateSpan`
@@ -6913,17 +7989,17 @@ impl<'a> TemplateExpression<'a> {
         head: Option<&'a TemplateHead<'a>>,
         template_spans: &'a [&'a TemplateSpan<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), head, template_spans }
+        Self { node_id: None, head, template_spans }
     }
 }
 
 impl crate::HasNodeId for TemplateExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6934,9 +8010,16 @@ impl crate::HasNodeId for TemplateExpression<'_> {
 pub struct TemplateHead<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -6959,17 +8042,17 @@ impl<'a> TemplateHead<'a> {
         template_flags: crate::TokenFlags,
         token_flags: crate::TokenFlags,
     ) -> Self {
-        Self { node_id: Cell::new(None), text, raw_text, template_flags, token_flags }
+        Self { node_id: None, text, raw_text, template_flags, token_flags }
     }
 }
 
 impl crate::HasNodeId for TemplateHead<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -6980,9 +8063,16 @@ impl crate::HasNodeId for TemplateHead<'_> {
 pub struct TemplateLiteralTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Head`: `TemplateHead`
     pub head: Option<&'a TemplateHead<'a>>,
     /// `TemplateSpans`: `TemplateLiteralTypeSpan`
@@ -6999,17 +8089,17 @@ impl<'a> TemplateLiteralTypeNode<'a> {
         head: Option<&'a TemplateHead<'a>>,
         template_spans: &'a [&'a TemplateLiteralTypeSpan<'a>],
     ) -> Self {
-        Self { node_id: Cell::new(None), head, template_spans }
+        Self { node_id: None, head, template_spans }
     }
 }
 
 impl crate::HasNodeId for TemplateLiteralTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7020,9 +8110,16 @@ impl crate::HasNodeId for TemplateLiteralTypeNode<'_> {
 pub struct TemplateLiteralTypeSpan<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
     /// `Literal`: `TemplateMiddleOrTail`
@@ -7036,17 +8133,17 @@ impl<'a> TemplateLiteralTypeSpan<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>, literal: Option<TemplateMiddleOrTail<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type, literal }
+        Self { node_id: None, r#type, literal }
     }
 }
 
 impl crate::HasNodeId for TemplateLiteralTypeSpan<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7057,9 +8154,16 @@ impl crate::HasNodeId for TemplateLiteralTypeSpan<'_> {
 pub struct TemplateMiddle<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -7082,17 +8186,17 @@ impl<'a> TemplateMiddle<'a> {
         template_flags: crate::TokenFlags,
         token_flags: crate::TokenFlags,
     ) -> Self {
-        Self { node_id: Cell::new(None), text, raw_text, template_flags, token_flags }
+        Self { node_id: None, text, raw_text, template_flags, token_flags }
     }
 }
 
 impl crate::HasNodeId for TemplateMiddle<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7103,9 +8207,16 @@ impl crate::HasNodeId for TemplateMiddle<'_> {
 pub struct TemplateSpan<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Literal`: `TemplateMiddleOrTail`
@@ -7122,17 +8233,17 @@ impl<'a> TemplateSpan<'a> {
         expression: Option<Expression<'a>>,
         literal: Option<TemplateMiddleOrTail<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), expression, literal }
+        Self { node_id: None, expression, literal }
     }
 }
 
 impl crate::HasNodeId for TemplateSpan<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7143,9 +8254,16 @@ impl crate::HasNodeId for TemplateSpan<'_> {
 pub struct TemplateTail<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Text`: `string`
     pub text: &'a str,
     /// `RawText`: `string`
@@ -7168,17 +8286,17 @@ impl<'a> TemplateTail<'a> {
         template_flags: crate::TokenFlags,
         token_flags: crate::TokenFlags,
     ) -> Self {
-        Self { node_id: Cell::new(None), text, raw_text, template_flags, token_flags }
+        Self { node_id: None, text, raw_text, template_flags, token_flags }
     }
 }
 
 impl crate::HasNodeId for TemplateTail<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7189,9 +8307,16 @@ impl crate::HasNodeId for TemplateTail<'_> {
 pub struct ThisTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// No field borrows from the arena; anchors the `'a` parameter
     /// so every node type is spelled uniformly as `Node<'a>`.
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -7204,17 +8329,17 @@ impl ThisTypeNode<'_> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new() -> Self {
-        Self { node_id: Cell::new(None), _marker: std::marker::PhantomData }
+        Self { node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl crate::HasNodeId for ThisTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7225,9 +8350,16 @@ impl crate::HasNodeId for ThisTypeNode<'_> {
 pub struct ThrowStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -7239,17 +8371,17 @@ impl<'a> ThrowStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for ThrowStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7260,9 +8392,16 @@ impl crate::HasNodeId for ThrowStatement<'_> {
 pub struct TryStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TryBlock`: `Block`
     pub try_block: Option<&'a Block<'a>>,
     /// `CatchClause`: `CatchClause`
@@ -7282,17 +8421,17 @@ impl<'a> TryStatement<'a> {
         catch_clause: Option<&'a CatchClause<'a>>,
         finally_block: Option<&'a Block<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), try_block, catch_clause, finally_block }
+        Self { node_id: None, try_block, catch_clause, finally_block }
     }
 }
 
 impl crate::HasNodeId for TryStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7303,9 +8442,16 @@ impl crate::HasNodeId for TryStatement<'_> {
 pub struct TupleTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Elements`: `TypeNode`
     pub elements: &'a [TypeNode<'a>],
 }
@@ -7317,17 +8463,17 @@ impl<'a> TupleTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(elements: &'a [TypeNode<'a>]) -> Self {
-        Self { node_id: Cell::new(None), elements }
+        Self { node_id: None, elements }
     }
 }
 
 impl crate::HasNodeId for TupleTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7338,9 +8484,16 @@ impl crate::HasNodeId for TupleTypeNode<'_> {
 pub struct TypeAliasDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -7363,17 +8516,17 @@ impl<'a> TypeAliasDeclaration<'a> {
         type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
         r#type: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, name, type_parameters, r#type }
+        Self { node_id: None, modifiers, name, type_parameters, r#type }
     }
 }
 
 impl crate::HasNodeId for TypeAliasDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7384,9 +8537,16 @@ impl crate::HasNodeId for TypeAliasDeclaration<'_> {
 pub struct TypeAssertion<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Type`: `TypeNode`
     pub r#type: Option<TypeNode<'a>>,
     /// `Expression`: `Expression`
@@ -7400,17 +8560,17 @@ impl<'a> TypeAssertion<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(r#type: Option<TypeNode<'a>>, expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), r#type, expression }
+        Self { node_id: None, r#type, expression }
     }
 }
 
 impl crate::HasNodeId for TypeAssertion<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7421,9 +8581,16 @@ impl crate::HasNodeId for TypeAssertion<'_> {
 pub struct TypeLiteralNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Members`: `TypeElement`
     pub members: &'a [TypeElement<'a>],
 }
@@ -7435,17 +8602,17 @@ impl<'a> TypeLiteralNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(members: &'a [TypeElement<'a>]) -> Self {
-        Self { node_id: Cell::new(None), members }
+        Self { node_id: None, members }
     }
 }
 
 impl crate::HasNodeId for TypeLiteralNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7456,9 +8623,16 @@ impl crate::HasNodeId for TypeLiteralNode<'_> {
 pub struct TypeOfExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -7470,17 +8644,17 @@ impl<'a> TypeOfExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for TypeOfExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7491,9 +8665,16 @@ impl crate::HasNodeId for TypeOfExpression<'_> {
 pub struct TypeOperatorNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Operator`: `SyntaxKind.KeyOfKeyword | SyntaxKind.ReadonlyKeyword | SyntaxKind.UniqueKeyword`
     pub operator: &'a Token<'a>,
     /// `Type`: `TypeNode`
@@ -7507,17 +8688,17 @@ impl<'a> TypeOperatorNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(operator: &'a Token<'a>, r#type: Option<TypeNode<'a>>) -> Self {
-        Self { node_id: Cell::new(None), operator, r#type }
+        Self { node_id: None, operator, r#type }
     }
 }
 
 impl crate::HasNodeId for TypeOperatorNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7528,9 +8709,16 @@ impl crate::HasNodeId for TypeOperatorNode<'_> {
 pub struct TypeParameterDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `name`: `Identifier`
@@ -7556,17 +8744,17 @@ impl<'a> TypeParameterDeclaration<'a> {
         expression: Option<Expression<'a>>,
         default_type: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, name, constraint, expression, default_type }
+        Self { node_id: None, modifiers, name, constraint, expression, default_type }
     }
 }
 
 impl crate::HasNodeId for TypeParameterDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7577,9 +8765,16 @@ impl crate::HasNodeId for TypeParameterDeclaration<'_> {
 pub struct TypePredicateNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `AssertsModifier`: `AssertsKeyword`
     pub asserts_modifier: Option<&'a Token<'a>>,
     /// `ParameterName`: `TypePredicateParameterName`
@@ -7599,17 +8794,17 @@ impl<'a> TypePredicateNode<'a> {
         parameter_name: Option<TypePredicateParameterName<'a>>,
         r#type: Option<TypeNode<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), asserts_modifier, parameter_name, r#type }
+        Self { node_id: None, asserts_modifier, parameter_name, r#type }
     }
 }
 
 impl crate::HasNodeId for TypePredicateNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7620,9 +8815,16 @@ impl crate::HasNodeId for TypePredicateNode<'_> {
 pub struct TypeQueryNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `ExprName`: `EntityName`
     pub expr_name: Option<EntityName<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -7636,17 +8838,17 @@ impl<'a> TypeQueryNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expr_name: Option<EntityName<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
-        Self { node_id: Cell::new(None), expr_name, type_arguments }
+        Self { node_id: None, expr_name, type_arguments }
     }
 }
 
 impl crate::HasNodeId for TypeQueryNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7657,9 +8859,16 @@ impl crate::HasNodeId for TypeQueryNode<'_> {
 pub struct TypeReferenceNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `TypeName`: `EntityName`
     pub type_name: Option<EntityName<'a>>,
     /// `TypeArguments`: `TypeNode`
@@ -7673,17 +8882,17 @@ impl<'a> TypeReferenceNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(type_name: Option<EntityName<'a>>, type_arguments: &'a [TypeNode<'a>]) -> Self {
-        Self { node_id: Cell::new(None), type_name, type_arguments }
+        Self { node_id: None, type_name, type_arguments }
     }
 }
 
 impl crate::HasNodeId for TypeReferenceNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7694,9 +8903,16 @@ impl crate::HasNodeId for TypeReferenceNode<'_> {
 pub struct UnionTypeNode<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Types`: `TypeNode`
     pub types: &'a [TypeNode<'a>],
 }
@@ -7708,17 +8924,17 @@ impl<'a> UnionTypeNode<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(types: &'a [TypeNode<'a>]) -> Self {
-        Self { node_id: Cell::new(None), types }
+        Self { node_id: None, types }
     }
 }
 
 impl crate::HasNodeId for UnionTypeNode<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7729,9 +8945,16 @@ impl crate::HasNodeId for UnionTypeNode<'_> {
 pub struct VariableDeclaration<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `name`: `BindingName`
     pub name: Option<BindingName<'a>>,
     /// `ExclamationToken`: `ExclamationToken`
@@ -7754,17 +8977,17 @@ impl<'a> VariableDeclaration<'a> {
         r#type: Option<TypeNode<'a>>,
         initializer: Option<Expression<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), name, exclamation_token, r#type, initializer }
+        Self { node_id: None, name, exclamation_token, r#type, initializer }
     }
 }
 
 impl crate::HasNodeId for VariableDeclaration<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7775,9 +8998,16 @@ impl crate::HasNodeId for VariableDeclaration<'_> {
 pub struct VariableDeclarationList<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Declarations`: `VariableDeclaration`
     pub declarations: &'a [&'a VariableDeclaration<'a>],
 }
@@ -7789,17 +9019,17 @@ impl<'a> VariableDeclarationList<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(declarations: &'a [&'a VariableDeclaration<'a>]) -> Self {
-        Self { node_id: Cell::new(None), declarations }
+        Self { node_id: None, declarations }
     }
 }
 
 impl crate::HasNodeId for VariableDeclarationList<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7810,9 +9040,16 @@ impl crate::HasNodeId for VariableDeclarationList<'_> {
 pub struct VariableStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `modifiers`: `ModifierLike`
     pub modifiers: &'a [ModifierLike<'a>],
     /// `DeclarationList`: `VariableDeclarationList`
@@ -7829,17 +9066,17 @@ impl<'a> VariableStatement<'a> {
         modifiers: &'a [ModifierLike<'a>],
         declaration_list: Option<&'a VariableDeclarationList<'a>>,
     ) -> Self {
-        Self { node_id: Cell::new(None), modifiers, declaration_list }
+        Self { node_id: None, modifiers, declaration_list }
     }
 }
 
 impl crate::HasNodeId for VariableStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7850,9 +9087,16 @@ impl crate::HasNodeId for VariableStatement<'_> {
 pub struct VoidExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
 }
@@ -7864,17 +9108,17 @@ impl<'a> VoidExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression }
+        Self { node_id: None, expression }
     }
 }
 
 impl crate::HasNodeId for VoidExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7885,9 +9129,16 @@ impl crate::HasNodeId for VoidExpression<'_> {
 pub struct WhileStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Statement`: `Statement`
@@ -7901,17 +9152,17 @@ impl<'a> WhileStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, statement: Statement<'a>) -> Self {
-        Self { node_id: Cell::new(None), expression, statement }
+        Self { node_id: None, expression, statement }
     }
 }
 
 impl crate::HasNodeId for WhileStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7922,9 +9173,16 @@ impl crate::HasNodeId for WhileStatement<'_> {
 pub struct WithStatement<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `Expression`: `Expression`
     pub expression: Option<Expression<'a>>,
     /// `Statement`: `Statement`
@@ -7938,17 +9196,17 @@ impl<'a> WithStatement<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(expression: Option<Expression<'a>>, statement: Option<Statement<'a>>) -> Self {
-        Self { node_id: Cell::new(None), expression, statement }
+        Self { node_id: None, expression, statement }
     }
 }
 
 impl crate::HasNodeId for WithStatement<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 
@@ -7959,9 +9217,16 @@ impl crate::HasNodeId for WithStatement<'_> {
 pub struct YieldExpression<'a> {
     /// Key into the side tables holding this node's kind, span, and parent.
     ///
-    /// `None` until the parser registers the node. A `Cell` so registration
-    /// does not need `&mut` on a tree the parser is still building.
-    pub node_id: Cell<Option<NodeId>>,
+    /// `None` until the parser registers the node, which it does
+    /// immediately after allocating it, so a finished tree has `Some`
+    /// everywhere.
+    ///
+    /// A plain field rather than a `Cell`: the arena hands back `&mut`
+    /// for a freshly allocated value, so registration never needs
+    /// interior mutability. That is what makes every node `Sync` and the
+    /// tree shareable across threads — see
+    /// `docs/adr/0012-ast-is-sync.md`.
+    pub node_id: Option<NodeId>,
     /// `AsteriskToken`: `AsteriskToken`
     pub asterisk_token: Option<&'a Token<'a>>,
     /// `Expression`: `Expression`
@@ -7975,16 +9240,16 @@ impl<'a> YieldExpression<'a> {
     /// kind and span in the side tables.
     #[must_use]
     pub fn new(asterisk_token: Option<&'a Token<'a>>, expression: Option<Expression<'a>>) -> Self {
-        Self { node_id: Cell::new(None), asterisk_token, expression }
+        Self { node_id: None, asterisk_token, expression }
     }
 }
 
 impl crate::HasNodeId for YieldExpression<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }

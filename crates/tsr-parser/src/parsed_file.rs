@@ -68,6 +68,11 @@ pub struct ParsedFile {
 //
 // This is not `Sync`, and must not become so: the arena's bump pointer is a
 // `Cell`.
+// The workspace denies `unsafe_code`; this is one of two exceptions, and the
+// only one outside the arena. `self_cell` produces a type holding a pointer into
+// its own storage, which suppresses the automatic `Send` derive even though every
+// part is `Send`. See docs/adr/0011-unsafe-is-opt-in.md.
+#[allow(unsafe_code)]
 unsafe impl Send for ParsedFile {}
 
 impl ParsedFile {

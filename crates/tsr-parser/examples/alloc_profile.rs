@@ -14,6 +14,11 @@
 //! 3. How much do the allocations actually cost? (Re-run with the counting
 //!    allocator's own overhead subtracted, and against a no-op parse.)
 
+// A counting allocator has to implement `GlobalAlloc`, which is an unsafe trait;
+// there is no safe way to observe allocation. Confined to this diagnostic tool, which
+// ships in no binary. See docs/adr/0011-unsafe-is-opt-in.md.
+#![allow(unsafe_code)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicU64, Ordering};

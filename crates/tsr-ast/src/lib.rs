@@ -43,7 +43,11 @@ define_index! {
 /// through one generic path instead of repeating the assignment per node type.
 pub trait HasNodeId {
     /// Record the id assigned by the parser.
-    fn set_node_id(&self, id: NodeId);
+    ///
+    /// Takes `&mut`: the arena returns `&mut` for a freshly allocated value, so
+    /// registration happens before any shared reference exists and no interior
+    /// mutability is needed. Keeping it that way is what makes the AST `Sync`.
+    fn set_node_id(&mut self, id: NodeId);
 
     /// The id, or `None` if the node has not been registered.
     fn node_id(&self) -> Option<NodeId>;
@@ -56,14 +60,14 @@ pub trait HasNodeId {
 /// differ only in which kinds they admit, they collapse here into one type
 /// carrying its kind — the constraint is documented on each field that uses it.
 /// Deliberately not `Copy`, unlike every other single-field node: the
-/// `node_id` cell is what makes a token findable in the side tables, and a
-/// `Copy` token would silently duplicate an id that identifies one position.
+/// `node_id` is what makes a token findable in the side tables, and a `Copy`
+/// token would silently duplicate an id that identifies one position.
 #[derive(Debug, Clone)]
 pub struct Token<'a> {
     /// Which token this is.
     pub kind: SyntaxKind,
     /// Key into the side tables holding this node's kind, span, and parent.
-    pub node_id: std::cell::Cell<Option<NodeId>>,
+    pub node_id: Option<NodeId>,
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
@@ -71,17 +75,17 @@ impl Token<'_> {
     /// Create a token of the given kind.
     #[must_use]
     pub const fn new(kind: SyntaxKind) -> Self {
-        Self { kind, node_id: std::cell::Cell::new(None), _marker: std::marker::PhantomData }
+        Self { kind, node_id: None, _marker: std::marker::PhantomData }
     }
 }
 
 impl HasNodeId for Token<'_> {
-    fn set_node_id(&self, id: NodeId) {
-        self.node_id.set(Some(id));
+    fn set_node_id(&mut self, id: NodeId) {
+        self.node_id = Some(id);
     }
 
     fn node_id(&self) -> Option<NodeId> {
-        self.node_id.get()
+        self.node_id
     }
 }
 

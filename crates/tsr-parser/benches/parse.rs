@@ -27,6 +27,11 @@
 //!
 //! Run with `cargo bench -p tsr-parser`, or `--bench parse -- --json` for CI.
 
+// A counting allocator has to implement `GlobalAlloc`, which is an unsafe trait;
+// there is no safe way to observe allocation. Confined to this benchmark, which
+// ships in no binary. See docs/adr/0011-unsafe-is-opt-in.md.
+#![allow(unsafe_code)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::path::PathBuf;

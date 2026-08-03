@@ -28,6 +28,14 @@
 //! so the unit of parallelism is a *file*: one arena per file, parsed on one
 //! thread, then moved. See `docs/architecture/threading.md`.
 
+// The one place in the workspace where `unsafe` is unavoidable: a bump allocator
+// hands out typed references into raw memory it manages itself, and no safe
+// abstraction expresses that without giving up the property the arena exists for.
+// Every block below carries a `SAFETY` comment stating the invariant it relies
+// on. See docs/adr/0011-unsafe-is-opt-in.md — the workspace denies `unsafe_code`,
+// and this module and one `Send` impl are the entire set of exceptions.
+#![allow(unsafe_code)]
+
 use std::{
     alloc::{Layout, alloc, dealloc},
     cell::{Cell, RefCell},

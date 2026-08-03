@@ -43,6 +43,14 @@ syn = { version = "2", features = ["full", "parsing"] }
 insta = "1"
 
 [workspace.lints.rust]
+# `unsafe` is the reason to use Rust rather than Zig or C, so it is denied by
+# default and allowed only where it is genuinely unavoidable — currently the bump
+# allocator and one `Send` impl, both of which carry a written justification. See
+# docs/adr/0011-unsafe-is-opt-in.md.
+#
+# `deny` rather than `forbid`: `forbid` cannot be lifted even with a documented
+# `#[allow]`, which would push the arena into a separate crate for no benefit.
+unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 missing_docs = "warn"
 

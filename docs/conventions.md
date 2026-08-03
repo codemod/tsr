@@ -60,3 +60,21 @@ upstream.
 A conformance suite whose subject does not exist reports **0%**, loudly, with the
 reason stated. It does not skip, and it does not omit the row. A missing number
 and a zero look identical in a summary table, and only one of them is honest.
+
+## `unsafe` needs a reason and a `SAFETY` comment
+
+The workspace sets `unsafe_code = "deny"`. Using it means an explicit
+`#[allow(unsafe_code)]` with a comment saying why no safe design works, and a
+`SAFETY` comment on each block stating the invariant it relies on. An `#[allow]`
+without that is a review failure. The full argument and the current exception list
+are in [ADR-0011](adr/0011-unsafe-is-opt-in.md); there are three exceptions and the
+list is meant to stay short enough to read.
+
+## Per-node mutable state goes in a side table, never in the node
+
+A `Cell` or `RefCell` in a node makes the whole tree non-`Sync` and silently
+removes the ability to bind or check in parallel. State that varies per node lives
+in a side table keyed by `NodeId` ([ADR-0003](adr/0003-tree-plus-side-tables.md)),
+which can be locked or sharded independently of the tree. See
+[ADR-0012](adr/0012-ast-is-sync.md); there is a compile-time assertion, and it is
+the only thing keeping the property true.

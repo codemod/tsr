@@ -16,6 +16,38 @@ model is the simplest one that exists — `par_iter` over files.
 This is also what oxc does, and why: a shared arena would need locking on the
 allocation hot path, which is a pointer bump.
 
+## What is shareable today
+
+Updated 2026-08-03, when the AST became `Sync`
+([ADR-0012](../adr/0012-ast-is-sync.md)).
+
+| Type | `Send` | `Sync` | Note |
+|---|:--:|:--:|---|
+| every node, `Node`, alias unions, `Token` | ✅ | ✅ | no interior mutability |
+| `SourceFile` | ✅ | ✅ | a parsed tree can be read by any number of threads |
+| `NodeTable` | ✅ | ✅ | plain vectors |
+| `Arena` | ✅ | ❌ | `alloc` bumps a pointer through `&self`; one per thread |
+| `ParsedFile` | ✅ | ❌ | owns an `Arena` |
+
+The line to remember: **the tree is shareable, the allocator is not.** That is
+enough for parallel binding and checking over an already-parsed file — the case
+that motivates parallelism at all — and it is not enough to share one `ParsedFile`
+between threads, which would need a `Sync` arena or a frozen view. Neither exists.
+
+Both properties are asserted at compile time in `crates/tsr-parser/tests/parse.rs`
+and exercised by a test that walks one tree from four threads. The assertions are
+the only thing keeping them true: a `Cell` added to a generated node would break
+that test and nothing else.
+
+### The rule this implies for later passes
+
+The binder will want to memoise and the checker will want to cache, and the
+shortest path to both is a `Cell` or a `RefCell` on the node. That would silently
+undo this. Per-node mutable state goes in a side table keyed by `NodeId`
+([ADR-0003](../adr/0003-tree-plus-side-tables.md)), which can be locked, sharded,
+or made thread-local independently of the tree.
+
+
 ## `Arena` is `Send`, deliberately not `Sync`
 
 ```rust

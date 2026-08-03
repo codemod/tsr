@@ -433,7 +433,6 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
          \x20   // these are meaningful standalone values, which they are not.\n\
          \x20   clippy::new_without_default,\n\
          )]\n\n\
-         use std::cell::Cell;\n\n\
          use super::alias::*;\n\
          use crate::{NodeId, SyntaxKind, Token};\n\n",
     );
@@ -454,9 +453,16 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
              pub struct {name}<'a> {{\n    \
              /// Key into the side tables holding this node's kind, span, and parent.\n    \
              ///\n    \
-             /// `None` until the parser registers the node. A `Cell` so registration\n    \
-             /// does not need `&mut` on a tree the parser is still building.\n    \
-             pub node_id: Cell<Option<NodeId>>,"
+             /// `None` until the parser registers the node, which it does\n    \
+             /// immediately after allocating it, so a finished tree has `Some`\n    \
+             /// everywhere.\n    \
+             ///\n    \
+             /// A plain field rather than a `Cell`: the arena hands back `&mut`\n    \
+             /// for a freshly allocated value, so registration never needs\n    \
+             /// interior mutability. That is what makes every node `Sync` and the\n    \
+             /// tree shareable across threads — see\n    \
+             /// `docs/adr/0012-ast-is-sync.md`.\n    \
+             pub node_id: Option<NodeId>,"
         )?;
         // Nodes such as `KeywordExpression` carry only a kind, so nothing in the
         // struct mentions `'a`. Keep the parameter for uniformity — every node is
@@ -506,7 +512,7 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
              /// kind and span in the side tables.\n    \
              #[must_use]\n    \
              pub fn new({params}) -> Self {{\n        \
-             Self {{ node_id: Cell::new(None){}{} }}\n    }}\n}}\n",
+             Self {{ node_id: None{}{} }}\n    }}\n}}\n",
             if inits.is_empty() { String::new() } else { format!(", {inits}") },
             marker,
         )?;
@@ -515,10 +521,10 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
         writeln!(
             out,
             "impl crate::HasNodeId for {name}<'_> {{\n    \
-             fn set_node_id(&self, id: NodeId) {{\n        \
-             self.node_id.set(Some(id));\n    }}\n\n    \
+             fn set_node_id(&mut self, id: NodeId) {{\n        \
+             self.node_id = Some(id);\n    }}\n\n    \
              fn node_id(&self) -> Option<NodeId> {{\n        \
-             self.node_id.get()\n    }}\n}}\n"
+             self.node_id\n    }}\n}}\n"
         )?;
     }
 

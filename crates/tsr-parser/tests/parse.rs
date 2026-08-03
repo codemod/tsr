@@ -268,7 +268,7 @@ fn nodes_are_registered_with_kinds_and_spans() {
     assert!(result.nodes.len() > 3, "every node should be registered");
 
     let root = result.source_file;
-    let id = root.node_id.get().expect("the source file is registered");
+    let id = root.node_id.expect("the source file is registered");
     assert_eq!(result.nodes.kind(id), SyntaxKind::SourceFile);
     assert_eq!(result.nodes.span(id).start, 0);
 }
@@ -281,7 +281,7 @@ fn spans_cover_the_construct_they_describe() {
     let Statement::VariableStatement(statement) = result.source_file.statements[0] else {
         panic!()
     };
-    let id = statement.node_id.get().expect("registered");
+    let id = statement.node_id.expect("registered");
     let span = result.nodes.span(id);
     assert_eq!(span.start, 2, "the span starts after leading trivia");
     assert_eq!(&source[span.start as usize..span.end as usize], "const x = 1;");
@@ -796,4 +796,61 @@ fn deeply_nested_input_does_not_overflow_the_parent_pass() {
     let source = format!("let x = {}1{};", "(".repeat(2000), ")".repeat(2000));
     let parsed = tsr_parser::parse(&arena, &source);
     assert!(!parsed.nodes.is_empty());
+}
+
+// ---- thread-safety of the finished tree -----------------------------------
+
+#[test]
+fn a_parsed_tree_is_send_and_sync() {
+    // The property the parallel binder and checker will need: once parsing is
+    // done, `&SourceFile` can be handed to any number of threads. It holds only
+    // because nodes carry no interior mutability — the arena returns `&mut` for a
+    // fresh allocation, so the parser writes each node's id before any shared
+    // reference exists. See docs/adr/0012-ast-is-sync.md.
+    //
+    // A compile-time assertion, not a runtime one: if a `Cell` reappears in a
+    // node, this stops compiling, which is the only way to keep the property from
+    // being lost silently.
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<tsr_ast::SourceFile<'static>>();
+    assert_send_sync::<tsr_ast::Node<'static>>();
+    assert_send_sync::<tsr_ast::Statement<'static>>();
+    assert_send_sync::<tsr_ast::Expression<'static>>();
+    assert_send_sync::<tsr_ast::NodeTable>();
+    assert_send_sync::<tsr_ast::Token<'static>>();
+}
+
+#[test]
+fn the_tree_can_actually_be_read_from_several_threads() {
+    // The assertion above is a type-level claim; this is it being used. Every
+    // thread walks the whole tree and counts nodes, and they must agree.
+    let arena = Arena::new();
+    let source = "class C { m(a: number) { return [a, {b: 1}]; } }\n\
+                  export const f = <T,>(y: T) => y;\n\
+                  interface I { x: string }";
+    let parsed = tsr_parser::parse(&arena, source);
+    let root = tsr_ast::Node::SourceFile(parsed.source_file);
+
+    let counts: Vec<usize> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(move || {
+                    let mut seen = 0;
+                    let mut stack = vec![root];
+                    let mut children = Vec::new();
+                    while let Some(node) = stack.pop() {
+                        seen += 1;
+                        children.clear();
+                        tsr_ast::push_children(node, &mut children);
+                        stack.extend(children.iter().copied());
+                    }
+                    seen
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().expect("thread panicked")).collect()
+    });
+
+    assert!(counts[0] > 20, "walked {} nodes, expected more", counts[0]);
+    assert!(counts.iter().all(|c| *c == counts[0]), "threads disagreed: {counts:?}");
 }
