@@ -35,6 +35,17 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      # Conformance snapshots are committed so a regression shows up as a
+      # reviewable diff. CI reruns the corpus and fails if the checked-in numbers
+      # no longer match — that is the ratchet.
+      - name: Conformance snapshots are up to date
+        run: |
+          cargo run -p tsr-conformance --bin coverage
+          if ! git diff --exit-code -- crates/tsr-conformance/snapshots; then
+            echo "::error::Conformance numbers changed. Review the diff and commit it."
+            exit 1
+          fi
+
       # The generated AST is checked in so that a plain `cargo build` works without
       # the submodule. That only stays honest if CI proves the checked-in output
       # still matches what the generator produces.

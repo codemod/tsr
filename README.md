@@ -7,10 +7,12 @@ See [PLAN.md](PLAN.md) for scope, architecture, and phasing.
 ## Layout
 
 ```
-crates/tsr-core     spans, typed indices, arenas, side tables
-crates/tsr-ast      the TypeScript AST (mostly generated)
-xtask               code generation from the vendored upstream definition
-vendor/typescript-go  upstream, pinned as a submodule
+crates/tsr-core         spans, typed indices, arenas, side tables
+crates/tsr-ast          the TypeScript AST (mostly generated)
+crates/tsr-conformance  the corpus harness and its committed snapshots
+xtask                   code generation from the vendored upstream definition
+docs/                   decision records and architecture
+vendor/typescript-go    upstream, pinned as a submodule
 ```
 
 ## Getting started
@@ -45,3 +47,22 @@ falsifiable:
 | `tsr-ast/tests/visit.rs` | The generated visitor actually descends into children, and pruning works. |
 
 Tests that read the submodule skip when it is absent rather than failing.
+
+### Corpus conformance
+
+```bash
+cargo run -p tsr-conformance --bin coverage
+```
+
+Runs the 12,444-case TypeScript corpus and writes committed snapshots to
+`crates/tsr-conformance/snapshots/`. Stages that do not exist yet report 0%
+explicitly rather than being omitted.
+
+| Suite | Now | Measures |
+|---|---|---|
+| `corpus_ingest` | 100% | the harness reads and splits every case |
+| `baseline_resolution` | 100% | every case maps to its baselines |
+| `parser_reachable_target` | 5648/11187 | how many cases a parser alone could be judged against |
+| `parser_typescript` | **0%** | the parser — which does not exist yet |
+
+See [docs/architecture/conformance.md](docs/architecture/conformance.md).

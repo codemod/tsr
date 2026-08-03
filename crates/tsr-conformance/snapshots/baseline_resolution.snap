@@ -1,0 +1,5 @@
+commit: 5b1047d10
+
+baseline_resolution Summary:
+What a pass means: the case maps to a baseline directory that exists on disk
+Passed         : 12444/12444 (100.00%)

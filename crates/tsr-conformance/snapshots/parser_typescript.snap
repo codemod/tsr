@@ -1,0 +1,8 @@
+commit: 5b1047d10
+
+parser_typescript Summary:
+What a pass means: the source parses and produces the expected parse diagnostics
+Passed         : 0/12444 (0.00%)
+Unsupported    : 12444
+
+  12444  no scanner or parser implemented yet (bd tsr-pum)

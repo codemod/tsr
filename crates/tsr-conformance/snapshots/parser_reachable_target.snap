@@ -1,0 +1,212 @@
+commit: 5b1047d10
+
+parser_reachable_target Summary:
+What a pass means: the case expects zero diagnostics, so a parser alone can be judged against it
+Passed         : 5648/11187 (50.49%)
+Failed         : 5539
+Skipped        : 1257 (excluded from the denominator)
+
+  757  skipped: configuration-varied baselines; needs per-configuration runs
+  500  skipped: upstream records a known divergence from TypeScript (.diff baseline)
+
+First 100 of 5539 failures:
+compiler/ArrowFunctionExpression1
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration10
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration11
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration13
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration14
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration15
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration21
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration22
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration24
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration25
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration26
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration8
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclaration9
+  expects diagnostics; needs the checker to judge
+compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
+  expects diagnostics; needs the checker to judge
+compiler/ExportAssignment7
+  expects diagnostics; needs the checker to judge
+compiler/ExportAssignment8
+  expects diagnostics; needs the checker to judge
+compiler/FunctionDeclaration3
+  expects diagnostics; needs the checker to judge
+compiler/FunctionDeclaration4
+  expects diagnostics; needs the checker to judge
+compiler/FunctionDeclaration6
+  expects diagnostics; needs the checker to judge
+compiler/FunctionDeclaration7
+  expects diagnostics; needs the checker to judge
+compiler/InterfaceDeclaration8
+  expects diagnostics; needs the checker to judge
+compiler/MemberAccessorDeclaration15
+  expects diagnostics; needs the checker to judge
+compiler/ParameterList13
+  expects diagnostics; needs the checker to judge
+compiler/ParameterList4
+  expects diagnostics; needs the checker to judge
+compiler/ParameterList5
+  expects diagnostics; needs the checker to judge
+compiler/ParameterList6
+  expects diagnostics; needs the checker to judge
+compiler/ParameterList7
+  expects diagnostics; needs the checker to judge
+compiler/ParameterList8
+  expects diagnostics; needs the checker to judge
+compiler/TransportStream
+  expects diagnostics; needs the checker to judge
+compiler/abstractClassInLocalScopeIsAbstract
+  expects diagnostics; needs the checker to judge
+compiler/abstractClassUnionInstantiation
+  expects diagnostics; needs the checker to judge
+compiler/abstractPropertyInConstructor
+  expects diagnostics; needs the checker to judge
+compiler/accessInstanceMemberFromStaticMethod01
+  expects diagnostics; needs the checker to judge
+compiler/accessStaticMemberFromInstanceMethod01
+  expects diagnostics; needs the checker to judge
+compiler/accessorBodyInTypeContext
+  expects diagnostics; needs the checker to judge
+compiler/accessorDeclarationEmitVisibilityErrors
+  expects diagnostics; needs the checker to judge
+compiler/accessorDeclarationOrder
+  expects diagnostics; needs the checker to judge
+compiler/accessorInferredReturnTypeErrorInReturnStatement
+  expects diagnostics; needs the checker to judge
+compiler/accessors_spec_section-4.5_error-cases
+  expects diagnostics; needs the checker to judge
+compiler/addMoreCallSignaturesToBaseSignature
+  expects diagnostics; needs the checker to judge
+compiler/addMoreCallSignaturesToBaseSignature2
+  expects diagnostics; needs the checker to judge
+compiler/addMoreOverloadsToBaseSignature
+  expects diagnostics; needs the checker to judge
+compiler/aliasAssignments
+  expects diagnostics; needs the checker to judge
+compiler/aliasBug
+  expects diagnostics; needs the checker to judge
+compiler/aliasDoesNotDuplicateSignatures
+  expects diagnostics; needs the checker to judge
+compiler/aliasErrors
+  expects diagnostics; needs the checker to judge
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
+  expects diagnostics; needs the checker to judge
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
+  expects diagnostics; needs the checker to judge
+compiler/aliasOnMergedModuleInterface
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInArray
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInFunctionExpression
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInGenericFunction
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInIndexerOfClass
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInObjectLiteral
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInOrExpression
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInTypeArgumentOfExtendsClause
+  expects diagnostics; needs the checker to judge
+compiler/aliasUsageInVarAssignment
+  expects diagnostics; needs the checker to judge
+compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
+  expects diagnostics; needs the checker to judge
+compiler/allowImportClausesToMergeWithTypes
+  expects diagnostics; needs the checker to judge
+compiler/allowJscheckJsTypeParameterNoCrash
+  expects diagnostics; needs the checker to judge
+compiler/allowSyntheticDefaultImports10
+  expects diagnostics; needs the checker to judge
+compiler/alwaysStrict
+  expects diagnostics; needs the checker to judge
+compiler/alwaysStrictES6
+  expects diagnostics; needs the checker to judge
+compiler/alwaysStrictModule
+  expects diagnostics; needs the checker to judge
+compiler/ambientEnum1
+  expects diagnostics; needs the checker to judge
+compiler/ambientErrors1
+  expects diagnostics; needs the checker to judge
+compiler/ambientExportDefaultErrors
+  expects diagnostics; needs the checker to judge
+compiler/ambientExternalModuleInAnotherExternalModule
+  expects diagnostics; needs the checker to judge
+compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
+  expects diagnostics; needs the checker to judge
+compiler/ambientExternalModuleWithRelativeModuleName
+  expects diagnostics; needs the checker to judge
+compiler/ambientPropertyDeclarationInJs
+  expects diagnostics; needs the checker to judge
+compiler/ambientStatement1
+  expects diagnostics; needs the checker to judge
+compiler/ambiguousGenericAssertion1
+  expects diagnostics; needs the checker to judge
+compiler/ambiguousOverload
+  expects diagnostics; needs the checker to judge
+compiler/amdDependencyComment1
+  expects diagnostics; needs the checker to judge
+compiler/amdDependencyCommentName1
+  expects diagnostics; needs the checker to judge
+compiler/anonymousClassExpression2
+  expects diagnostics; needs the checker to judge
+compiler/anonymousModules
+  expects diagnostics; needs the checker to judge
+compiler/anyDeclare
+  expects diagnostics; needs the checker to judge
+compiler/anyIdenticalToItself
+  expects diagnostics; needs the checker to judge
+compiler/anyIndexedAccessArrayNoException
+  expects diagnostics; needs the checker to judge
+compiler/anyInferenceAnonymousFunctions
+  expects diagnostics; needs the checker to judge
+compiler/anyMappedTypesError
+  expects diagnostics; needs the checker to judge
+compiler/arguments
+  expects diagnostics; needs the checker to judge
+compiler/argumentsObjectCreatesRestForJs
+  expects diagnostics; needs the checker to judge
+compiler/argumentsPropertyNameInJsMode1
+  expects diagnostics; needs the checker to judge
+compiler/argumentsPropertyNameInJsMode2
+  expects diagnostics; needs the checker to judge
+compiler/argumentsReferenceInConstructor4_Js
+  expects diagnostics; needs the checker to judge
+compiler/argumentsReferenceInFunction1_Js
+  expects diagnostics; needs the checker to judge
+compiler/argumentsReferenceInMethod4_Js
+  expects diagnostics; needs the checker to judge
+compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
+  expects diagnostics; needs the checker to judge
+compiler/arithAssignTyping
+  expects diagnostics; needs the checker to judge
+compiler/arithmeticOnInvalidTypes
+  expects diagnostics; needs the checker to judge
+compiler/arithmeticOnInvalidTypes2
+  expects diagnostics; needs the checker to judge
+compiler/arityErrorRelatedSpanBindingPattern
+  expects diagnostics; needs the checker to judge
+compiler/arrayAssignmentTest1
+  expects diagnostics; needs the checker to judge
+compiler/arrayAssignmentTest2
+  expects diagnostics; needs the checker to judge
+compiler/arrayAssignmentTest3
+  expects diagnostics; needs the checker to judge
+compiler/arrayAssignmentTest4
+  expects diagnostics; needs the checker to judge
+compiler/arrayAssignmentTest5
+  expects diagnostics; needs the checker to judge

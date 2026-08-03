@@ -129,6 +129,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsr-conformance"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "tsr-core"
 version = "0.1.0"
 dependencies = [
