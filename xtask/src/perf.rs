@@ -29,6 +29,18 @@ use anyhow::{Context, Result, bail};
 /// The number to watch is the trend in `perf-results.json`, not this threshold.
 const MAX_WALL_RATIO: f64 = 1.10;
 
+/// Fixtures whose parse+bind numbers are reported but **not gated**.
+///
+/// Every one of them, for now. Our binder does not build the control-flow graph
+/// and upstream's does, so a parse+bind ratio compares our partial binder against
+/// their complete one and flatters us by exactly the amount of work we have not
+/// written. Gating on it would lock in a number that must get worse as the binder
+/// is finished, and a gate whose correct response to real progress is "override"
+/// is the failure mode ADR-0009 exists to avoid.
+///
+/// This becomes a gate when `bd tsr-y4u.2` lands the flow graph.
+const BIND_IS_GATED: bool = false;
+
 /// Ceiling on peak-RSS ratio (ours ÷ typescript-go's).
 ///
 /// Tight, because peak RSS is close to deterministic: it is a high-water mark over
@@ -70,13 +82,39 @@ pub fn run(root: &Path) -> Result<()> {
         bail!("no fixtures were compared; both benchmarks produced nothing");
     }
 
+    // Parse+bind, reported rather than gated; see `BIND_IS_GATED`.
+    let bind_rows = match (rust_bind_ns(root), go_bind_ns(root)) {
+        (Ok(ours), Ok(theirs)) => theirs
+            .iter()
+            .filter_map(|(fixture, tsgo_ns)| {
+                ours.get(fixture).map(|tsr_ns| Row {
+                    fixture: fixture.clone(),
+                    tsgo_ns: *tsgo_ns,
+                    tsr_ns: *tsr_ns,
+                    gated: BIND_IS_GATED && !NOT_GATED.contains(&fixture.as_str()),
+                })
+            })
+            .collect(),
+        // A missing Go toolchain or a fixture drift should not fail the parser
+        // gate, which is the part that is actually enforced.
+        (ours, theirs) => {
+            if let Err(error) = ours {
+                println!("parse+bind (ours) unavailable: {error:#}");
+            }
+            if let Err(error) = theirs {
+                println!("parse+bind (typescript-go) unavailable: {error:#}");
+            }
+            Vec::new()
+        }
+    };
+
     let rss_ratio = our_rss as f64 / their_rss as f64;
-    write_artifacts(root, &rows, our_rss, their_rss, rss_ratio)?;
+    write_artifacts(root, &rows, &bind_rows, our_rss, their_rss, rss_ratio)?;
 
     // Report everything before failing, so one run tells you about every breach
     // rather than only the first.
     let mut failures = Vec::new();
-    for row in &rows {
+    for row in rows.iter().chain(&bind_rows) {
         if row.gated && row.ratio() > MAX_WALL_RATIO {
             failures.push(format!(
                 "{}: wall-clock ratio {:.3} exceeds {MAX_WALL_RATIO:.2} ({:.3} ms vs {:.3} ms)",
@@ -172,11 +210,19 @@ fn go_parse_ns(root: &Path) -> Result<BTreeMap<String, f64>> {
         bail!("typescript-go's benchmark failed:\n{}", String::from_utf8_lossy(&output.stderr));
     }
 
-    let text = String::from_utf8_lossy(&output.stdout);
+    let out = parse_go_bench(&String::from_utf8_lossy(&output.stdout), "BenchmarkParse/");
+    if out.is_empty() {
+        bail!("parsed no benchmark results from Go's output");
+    }
+    Ok(out)
+}
+
+/// Pull `name -> ns/op` out of `go test -bench` output.
+fn parse_go_bench(text: &str, prefix: &str) -> BTreeMap<String, f64> {
     let mut out = BTreeMap::new();
     for line in text.lines() {
         // `BenchmarkParse/checker.ts    109   32721718 ns/op   ...`
-        let Some(rest) = line.strip_prefix("BenchmarkParse/") else { continue };
+        let Some(rest) = line.strip_prefix(prefix) else { continue };
         let mut fields = rest.split_whitespace();
         let Some(name) = fields.next() else { continue };
         // Go appends `-1` for `-cpu 1`.
@@ -188,10 +234,64 @@ fn go_parse_ns(root: &Path) -> Result<BTreeMap<String, f64>> {
             out.insert(name.to_string(), ns);
         }
     }
-    if out.is_empty() {
-        bail!("parsed no benchmark results from Go's output:\n{text}");
+    out
+}
+
+/// Our parse+bind benchmark, JSON mode.
+fn rust_bind_ns(root: &Path) -> Result<BTreeMap<String, f64>> {
+    let output = Command::new("cargo")
+        .current_dir(root)
+        .args(["bench", "-q", "-p", "tsr-binder", "--bench", "bind", "--", "--json"])
+        .output()
+        .context("running the Rust parse+bind benchmark")?;
+    if !output.status.success() {
+        bail!("the Rust parse+bind benchmark failed:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let start = text.find('[').context("no JSON array in the benchmark output")?;
+    let end = text.rfind(']').context("unterminated JSON array in the benchmark output")? + 1;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text[start..end]).context("parsing the benchmark's JSON")?;
+    let mut out = BTreeMap::new();
+    for entry in parsed.as_array().context("benchmark JSON is not an array")? {
+        let name = entry["name"].as_str().context("benchmark entry has no name")?;
+        let ns = entry["ns_per_op_parse_and_bind"]
+            .as_f64()
+            .context("benchmark entry has no ns_per_op_parse_and_bind")?;
+        out.insert(name.to_string(), ns);
     }
     Ok(out)
+}
+
+/// typescript-go's parse+bind, from the harness we keep outside the submodule.
+fn go_bind_ns(root: &Path) -> Result<BTreeMap<String, f64>> {
+    let source = root.join("benches/go/bind_test.go");
+    let destination = root.join("vendor/typescript-go/internal/binder/zz_tsr_bind_test.go");
+    fs::copy(&source, &destination)
+        .with_context(|| format!("copying {} into the submodule", source.display()))?;
+    let result = Command::new("go")
+        .current_dir(root.join("vendor/typescript-go"))
+        .args([
+            "test",
+            "-run",
+            "^$",
+            "-bench",
+            "BenchmarkTsrParseBind",
+            "-cpu",
+            "1",
+            "-benchtime",
+            "2s",
+            "./internal/binder/",
+        ])
+        .output()
+        .context("running the Go parse+bind benchmark");
+    // Removed whatever happened, so a failure does not leave the pin dirty.
+    let _ = fs::remove_file(&destination);
+    let output = result?;
+    if !output.status.success() {
+        bail!("the Go parse+bind benchmark failed:\n{}", String::from_utf8_lossy(&output.stdout));
+    }
+    Ok(parse_go_bench(&String::from_utf8_lossy(&output.stdout), "BenchmarkTsrParseBind/"))
 }
 
 /// Peak RSS in KiB, ours.
@@ -246,6 +346,7 @@ fn parse_labelled(text: &str, label: &str) -> Result<u64> {
 fn write_artifacts(
     root: &Path,
     rows: &[Row],
+    bind_rows: &[Row],
     our_rss: u64,
     their_rss: u64,
     rss_ratio: f64,
@@ -263,9 +364,28 @@ fn write_artifacts(
         })
         .collect();
 
+    let bind_fixtures: Vec<serde_json::Value> = bind_rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "fixture": row.fixture,
+                "tsgo_ns_per_op": row.tsgo_ns,
+                "tsr_ns_per_op": row.tsr_ns,
+                "ratio": row.ratio(),
+                "gated": row.gated,
+            })
+        })
+        .collect();
+
     let json = serde_json::json!({
         "pinned_commit": pinned_commit(root),
         "wall_clock": { "max_ratio": MAX_WALL_RATIO, "fixtures": fixtures },
+        "parse_and_bind": {
+            "gated": BIND_IS_GATED,
+            "note": "our binder has no control-flow graph and upstream's does, so \
+                     this compares a partial binder against a complete one",
+            "fixtures": bind_fixtures,
+        },
         "peak_rss_kib": {
             "max_ratio": MAX_RSS_RATIO,
             "tsgo": their_rss,
@@ -310,6 +430,25 @@ fn write_artifacts(
          peak RSS ≤ {MAX_RSS_RATIO:.2}× (tight — RSS is near-deterministic). \
          See [ADR-0009](docs/adr/0009-performance-gate.md).\n"
     )?;
+    if !bind_rows.is_empty() {
+        md.push_str("\n| Parse + bind | tsgo | tsr | ratio |\n|---|---:|---:|---:|\n");
+        for row in bind_rows {
+            writeln!(
+                md,
+                "| `{}` | {:.3} ms | {:.3} ms | {:.3}× |",
+                row.fixture,
+                row.tsgo_ns / 1e6,
+                row.tsr_ns / 1e6,
+                row.ratio()
+            )?;
+        }
+        md.push_str(
+            "\n**Parse+bind is reported, not gated.** Our binder does not build the \
+             control-flow graph and upstream's does, so this compares a partial binder \
+             against a complete one and flatters us by the amount of work we have not \
+             written. It becomes a gate when the flow graph lands.\n",
+        );
+    }
     fs::write(root.join("perf-summary.md"), md).context("writing perf-summary.md")?;
     Ok(())
 }

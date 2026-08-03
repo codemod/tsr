@@ -41,6 +41,46 @@ The large-file numbers are the ones that matter, and they went from **parity
 (1.01×) to 1.37–1.41× faster** in one round of profile-directed work: `checker.ts`
 33.2 ms → 23.9 ms, `dom.generated.d.ts` 12.0 ms → 9.2 ms.
 
+## Parse + bind — reported, not gated
+
+Added 2026-08-03 with the binder. Both sides parse a fresh file and bind it on
+every iteration:
+
+| Fixture | tsgo | tsr | ratio |
+|---|---:|---:|---:|
+| `empty.ts` | 0.5 µs | 0.2 µs | 0.31× |
+| `Herebyfile.mjs` | 777 µs | 288 µs | 0.37× |
+| `checker.ts` | 48.5 ms | 23.5 ms | 0.49× |
+| `jsxComplexSignature….tsx` | 223 µs | 112 µs | 0.50× |
+| `dom.generated.d.ts` | 18.3 ms | 10.1 ms | 0.55× |
+
+**Do not quote these as a binder result.** Our binder does not build the
+control-flow graph and upstream's does, so this compares a partial binder against
+a complete one and flatters us by exactly the amount of work we have not written.
+Deriving the binder's own cost — parse+bind minus parse-only — gives ~0.7 ms for us
+against ~15.6 ms for upstream on `checker.ts`, and that 20× is almost entirely the
+flow graph.
+
+It is reported rather than gated for the same reason. Gating now would lock in a
+number that *must* get worse as the binder is finished, and a gate whose correct
+response to real progress is "override" is precisely the failure mode
+[ADR-0009](../adr/0009-performance-gate.md) exists to avoid. `BIND_IS_GATED` in
+`xtask/src/perf.rs` flips when the flow graph lands.
+
+### The trap in benchmarking a binder
+
+`BindSourceFile` upstream is idempotent: it checks `file.IsBound()` and returns.
+A loop that binds the same file repeatedly binds once and then measures a boolean
+check, reporting typescript-go as effectively infinitely fast. Both sides
+therefore parse a fresh file each iteration, which removes the possibility rather
+than working around it, and costs nothing because the parse-only number is already
+known.
+
+There is no upstream binder benchmark — `func Benchmark` across `internal/` finds
+none for binder or checker — so unlike `BenchmarkParse` this is one we wrote.
+ADR-0009's warning applies: `benches/go/bind_test.go` is an artifact we control
+both halves of and should be read adversarially.
+
 ## Memory — peak RSS
 
 The axis [ADR-0009](../adr/0009-performance-gate.md) gates alongside wall clock,
