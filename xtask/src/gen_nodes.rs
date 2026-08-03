@@ -589,6 +589,24 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
         }
         out.push_str("}\n\n");
 
+        // Reaching a node's id without widening to `Node` first. `Node::node_id`
+        // is a match over all 192 variants and shows up in profiles at ~1.8%;
+        // an alias match is a handful of arms, and the caller usually has the
+        // narrow type already.
+        writeln!(
+            out,
+            "impl {alias_name}<'_> {{\n    \
+             /// The id assigned when the parser registered this node.\n    \
+             #[must_use]\n    \
+             pub fn node_id(&self) -> Option<crate::NodeId> {{\n        \
+             use crate::HasNodeId as _;\n        \
+             match self {{"
+        )?;
+        for m in &members {
+            writeln!(out, "            {alias_name}::{m}(n) => n.node_id(),")?;
+        }
+        out.push_str("        }\n    }\n}\n\n");
+
         // Widening into the universal node union is needed constantly by the
         // visitor and by the language service.
         writeln!(
@@ -766,6 +784,46 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
     }
     out.push_str("    }\n}\n\n");
 
+    // Visiting children *as ids*, without materialising them.
+    //
+    // `push_children` into a `Vec<Node>` then reading ids back out costs a push
+    // per child plus a 192-arm `Node::node_id` match per child. Recording parents
+    // — which happens for every node the parser finishes — wants neither: it only
+    // ever needs the id, and at each field the concrete or alias type is known, so
+    // the dispatch collapses to a direct `Cell` read or a handful of arms.
+    out.push_str(
+        "/// Call `f` with the id of each immediate child of `node`.\n\
+         ///\n\
+         /// Children that were never registered are skipped. Does not recurse, and\n\
+         /// does not build an intermediate collection.\n\
+         pub fn for_each_child_id(node: Node<'_>, mut f: impl FnMut(crate::NodeId)) {\n    \
+         // Concrete nodes carry a `node_id` *field*; without the trait in scope\n    \
+         // `child.node_id()` resolves to that field rather than the accessor.\n    \
+         use crate::HasNodeId as _;\n    \
+         match node {\n",
+    );
+    let mut idless: Vec<String> = Vec::new();
+    for name in ast.nodes.definitions.keys() {
+        let fields =
+            if name == "Token" { Vec::new() } else { resolve_fields(ast, nullability, name)? };
+        let calls: Vec<String> =
+            fields.iter().filter_map(|field| child_id_call(ast, field)).collect();
+        if calls.is_empty() {
+            idless.push(name.clone());
+        } else {
+            writeln!(out, "        Node::{name}(n) => {{")?;
+            for call in calls {
+                out.push_str(&call);
+            }
+            out.push_str("        }\n");
+        }
+    }
+    if !idless.is_empty() {
+        let arms: Vec<String> = idless.iter().map(|name| format!("Node::{name}(_)")).collect();
+        writeln!(out, "        {} => {{}}", arms.join("\n        | "))?;
+    }
+    out.push_str("    }\n}\n\n");
+
     // ---- per-node walkers ----------------------------------------------
     for name in ast.nodes.definitions.keys() {
         let snake = name.to_case(Case::Snake);
@@ -794,6 +852,50 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
 }
 
 /// Emit the traversal statement for one field, or `None` for non-node fields.
+/// How to visit one field's children as ids, for `for_each_child_id`.
+///
+/// Uses the narrowest `node_id` available at the field's static type: a concrete
+/// node reads its `Cell` directly, an alias matches a handful of arms, and only a
+/// field typed as `Node` pays the full dispatch.
+fn child_id_call(ast: &AstDefinition, field: &ResolvedField) -> Option<String> {
+    let ty = &field.rust_type;
+    let name = &field.rust_name;
+
+    if !ty.contains("'a") || ty.contains("str") {
+        return None;
+    }
+    let inner = ty
+        .trim_start_matches("Option<")
+        .trim_end_matches('>')
+        .trim_start_matches("&'a [")
+        .trim_end_matches(']')
+        .trim_start_matches("&'a ");
+    let base = inner.split('<').next().unwrap_or(inner);
+    let is_list = ty.contains("&'a [");
+    let is_option = ty.starts_with("Option<");
+    let is_alias = ast.nodes.aliases.contains_key(base) || base == "Node";
+    let is_node = ast.nodes.definitions.contains_key(base);
+    if !is_alias && !is_node && base != "Token" {
+        return None;
+    }
+
+    // `Token` is a concrete node with a `node_id` cell like any other; `Node` and
+    // the aliases each have their own `node_id`, generated above.
+    let visit = |expr: &str| format!("if let Some(id) = {expr}.node_id() {{ f(id); }}");
+
+    Some(match (is_list, is_option) {
+        (true, _) => format!(
+            "            for child in n.{name} {{\n                {}\n            }}\n",
+            visit("child")
+        ),
+        (false, true) => format!(
+            "            if let Some(child) = n.{name} {{\n                {}\n            }}\n",
+            visit("child")
+        ),
+        (false, false) => format!("            {}\n", visit(&format!("n.{name}"))),
+    })
+}
+
 /// How to push one field's children as `Node`, for `push_children`.
 ///
 /// Mirrors [`child_visit_call`]'s type analysis but always widens to `Node`,

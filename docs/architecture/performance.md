@@ -27,13 +27,15 @@ assignment on, JSDoc off in the ratio column (see
 
 | Fixture | Size | tsgo ns/op | tsr `-jsdoc` | ratio | speedup |
 |---|---:|---:|---:|---:|---:|
-| `empty.ts` | 0 B | 438 | 125 | 0.29× | 3.5× |
-| `Herebyfile.mjs` | 37 KB | 551,711 | 207,242 | 0.38× | 2.7× |
-| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 79,707 | 0.54× | 1.9× |
-| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 9,500,392 | 0.73× | **1.36×** |
-| `checker.ts` | 3.1 MB | 32,721,718 | 23,627,543 | 0.72× | **1.38×** |
+| `empty.ts` | 0 B | 438 | 114 | 0.26× | 3.8× |
+| `Herebyfile.mjs` | 37 KB | 551,711 | 195,557 | 0.35× | 2.8× |
+| `jsxComplexSignature….tsx` | 19 KB | 148,520 | 73,467 | 0.49× | 2.0× |
+| `dom.generated.d.ts` | 2.3 MB | 12,962,213 | 8,970,830 | 0.69× | **1.45×** |
+| `checker.ts` | 3.1 MB | 32,721,718 | 22,496,149 | 0.69× | **1.45×** |
 
-Peak RSS is **1.74× lower** (32.0 MB against 57.0 MB) — see the memory section.
+Peak RSS is **1.74× lower** (32.3 MB against 57.0 MB) — see the memory section.
+
+`checker.ts` started this sequence of work at 49.3 ms.
 
 The large-file numbers are the ones that matter, and they went from **parity
 (1.01×) to 1.37–1.41× faster** in one round of profile-directed work: `checker.ts`
@@ -96,6 +98,18 @@ rm vendor/typescript-go/internal/parser/rss_test.go
 The Go half is ours, not upstream's — there is no upstream RSS benchmark — so
 ADR-0009's warning applies: it is an artifact we control both halves of and should
 be read adversarially. `benches/go/rss_test.go` says what to check.
+
+### Recording parents without materialising children
+
+`record_parent_of_children` collected a node's children into a `Vec<Node>` and
+then read each id back out through `Node::node_id`, a match over all 192 variants
+that showed up at 1.8% on its own. Both were avoidable: the caller only ever wants
+the id, and at each field the concrete or alias type is statically known.
+
+`for_each_child_id` is generated to dispatch at that static type — a direct `Cell`
+read for a concretely-typed field, a handful of arms for an alias — and passes ids
+to a closure with no intermediate collection. Alias enums gained their own
+`node_id` for the same reason. Worth 5–6% of the parse.
 
 ### Parent assignment moved into `finish_node`
 

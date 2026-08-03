@@ -275,7 +275,7 @@ tracker files issues; CI publishes coverage and benchmark numbers.
 **Status (2026-08-03):** both ratchets shipped. `.github/workflows/perf.yml` runs
 `cargo xtask perf` on every PR, gates wall clock and peak RSS against
 typescript-go at the pin, and uploads `perf-results.json` and `perf-summary.md`.
-Currently parse throughput is 1.36-1.38x on large files and peak RSS is 1.74x lower — see
+Currently parse throughput is 1.45x on large files and peak RSS is 1.74x lower — see
 [docs/architecture/performance.md](docs/architecture/performance.md) for the
 method and the caveats, and [ADR-0009](docs/adr/0009-performance-gate.md) for why
 the comparison is against upstream rather than our own history.

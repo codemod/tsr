@@ -169,11 +169,7 @@ pub struct Parser<'a> {
     pub(crate) parse_jsdoc: bool,
     /// Whether to record parents as nodes are finished.
     assign_parents: bool,
-    /// Reused buffer for a node's immediate children.
-    ///
-    /// Lives on the parser rather than in `finish_node` so the allocation happens
-    /// once per file instead of once per node.
-    children: Vec<tsr_ast::Node<'a>>,
+
     /// Guards against runaway recursion on pathological input.
     ///
     /// TypeScript permits arbitrarily nested expressions, and a deeply nested
@@ -231,7 +227,6 @@ impl<'a> Parser<'a> {
             jsdoc: Vec::new(),
             parse_jsdoc: options.jsdoc,
             assign_parents: options.parents,
-            children: Vec::with_capacity(16),
             depth: 0,
         }
     }
@@ -436,17 +431,13 @@ impl<'a> Parser<'a> {
     /// `checker.ts` parse. typescript-go does the same thing in `finishNode` for
     /// what is presumably the same reason.
     fn record_parent_of_children(&mut self, node: tsr_ast::Node<'a>, id: tsr_ast::NodeId) {
-        let mut children = std::mem::take(&mut self.children);
-        children.clear();
-        tsr_ast::push_children(node, &mut children);
-        for child in &children {
-            if let Some(child_id) = child.node_id() {
-                self.nodes.set_parent(child_id, id);
-            }
-        }
-        // Put the buffer back so its capacity is reused; `take` was only needed to
-        // satisfy the borrow checker while `self.nodes` is mutated above.
-        self.children = children;
+        // Ids directly, without materialising the children. Collecting them into a
+        // `Vec<Node>` first cost a push per child and then a 192-arm
+        // `Node::node_id` match to read each id back out; `for_each_child_id`
+        // dispatches at the field's static type, which is usually a direct `Cell`
+        // read.
+        let nodes = &mut self.nodes;
+        tsr_ast::for_each_child_id(node, |child_id| nodes.set_parent(child_id, id));
     }
 
     /// Allocate a node with an explicit end offset.

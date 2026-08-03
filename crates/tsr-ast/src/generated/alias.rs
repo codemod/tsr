@@ -621,6 +621,18 @@ pub enum AccessExpression<'a> {
     PropertyAccessExpression(&'a PropertyAccessExpression<'a>),
 }
 
+impl AccessExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            AccessExpression::ElementAccessExpression(n) => n.node_id(),
+            AccessExpression::PropertyAccessExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<AccessExpression<'a>> for Node<'a> {
     fn from(value: AccessExpression<'a>) -> Self {
         match value {
@@ -653,6 +665,18 @@ pub enum AccessorDeclaration<'a> {
     GetAccessorDeclaration(&'a GetAccessorDeclaration<'a>),
     /// See [`SetAccessorDeclaration`].
     SetAccessorDeclaration(&'a SetAccessorDeclaration<'a>),
+}
+
+impl AccessorDeclaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            AccessorDeclaration::GetAccessorDeclaration(n) => n.node_id(),
+            AccessorDeclaration::SetAccessorDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<AccessorDeclaration<'a>> for Node<'a> {
@@ -689,6 +713,18 @@ pub enum AnyImportSyntax<'a> {
     ImportEqualsDeclaration(&'a ImportEqualsDeclaration<'a>),
 }
 
+impl AnyImportSyntax<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            AnyImportSyntax::ImportDeclaration(n) => n.node_id(),
+            AnyImportSyntax::ImportEqualsDeclaration(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<AnyImportSyntax<'a>> for Node<'a> {
     fn from(value: AnyImportSyntax<'a>) -> Self {
         match value {
@@ -723,6 +759,18 @@ pub enum ArrayBindingElement<'a> {
     OmittedExpression(&'a OmittedExpression<'a>),
 }
 
+impl ArrayBindingElement<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ArrayBindingElement::BindingElement(n) => n.node_id(),
+            ArrayBindingElement::OmittedExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ArrayBindingElement<'a>> for Node<'a> {
     fn from(value: ArrayBindingElement<'a>) -> Self {
         match value {
@@ -753,6 +801,17 @@ impl<'a> TryFrom<Node<'a>> for ArrayBindingElement<'a> {
 pub enum ArrayDestructuringAssignment<'a> {
     /// See [`BinaryExpression`].
     BinaryExpression(&'a BinaryExpression<'a>),
+}
+
+impl ArrayDestructuringAssignment<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ArrayDestructuringAssignment::BinaryExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ArrayDestructuringAssignment<'a>> for Node<'a> {
@@ -787,6 +846,18 @@ pub enum AssertionExpression<'a> {
     TypeAssertion(&'a TypeAssertion<'a>),
 }
 
+impl AssertionExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            AssertionExpression::AsExpression(n) => n.node_id(),
+            AssertionExpression::TypeAssertion(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<AssertionExpression<'a>> for Node<'a> {
     fn from(value: AssertionExpression<'a>) -> Self {
         match value {
@@ -819,6 +890,18 @@ pub enum BindingName<'a> {
     BindingPattern(&'a BindingPattern<'a>),
     /// See [`Identifier`].
     Identifier(&'a Identifier<'a>),
+}
+
+impl BindingName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            BindingName::BindingPattern(n) => n.node_id(),
+            BindingName::Identifier(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<BindingName<'a>> for Node<'a> {
@@ -951,6 +1034,67 @@ pub enum BlockOrExpression<'a> {
     VoidExpression(&'a VoidExpression<'a>),
     /// See [`YieldExpression`].
     YieldExpression(&'a YieldExpression<'a>),
+}
+
+impl BlockOrExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            BlockOrExpression::ArrayLiteralExpression(n) => n.node_id(),
+            BlockOrExpression::ArrowFunction(n) => n.node_id(),
+            BlockOrExpression::AsExpression(n) => n.node_id(),
+            BlockOrExpression::AwaitExpression(n) => n.node_id(),
+            BlockOrExpression::BigIntLiteral(n) => n.node_id(),
+            BlockOrExpression::BinaryExpression(n) => n.node_id(),
+            BlockOrExpression::Block(n) => n.node_id(),
+            BlockOrExpression::CallExpression(n) => n.node_id(),
+            BlockOrExpression::ClassExpression(n) => n.node_id(),
+            BlockOrExpression::ConditionalExpression(n) => n.node_id(),
+            BlockOrExpression::DeleteExpression(n) => n.node_id(),
+            BlockOrExpression::ElementAccessExpression(n) => n.node_id(),
+            BlockOrExpression::ExpressionWithTypeArguments(n) => n.node_id(),
+            BlockOrExpression::FunctionExpression(n) => n.node_id(),
+            BlockOrExpression::Identifier(n) => n.node_id(),
+            BlockOrExpression::JsxAttributes(n) => n.node_id(),
+            BlockOrExpression::JsxClosingFragment(n) => n.node_id(),
+            BlockOrExpression::JsxElement(n) => n.node_id(),
+            BlockOrExpression::JsxExpression(n) => n.node_id(),
+            BlockOrExpression::JsxFragment(n) => n.node_id(),
+            BlockOrExpression::JsxNamespacedName(n) => n.node_id(),
+            BlockOrExpression::JsxOpeningElement(n) => n.node_id(),
+            BlockOrExpression::JsxOpeningFragment(n) => n.node_id(),
+            BlockOrExpression::JsxSelfClosingElement(n) => n.node_id(),
+            BlockOrExpression::JsxText(n) => n.node_id(),
+            BlockOrExpression::KeywordExpression(n) => n.node_id(),
+            BlockOrExpression::MetaProperty(n) => n.node_id(),
+            BlockOrExpression::NewExpression(n) => n.node_id(),
+            BlockOrExpression::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            BlockOrExpression::NonNullExpression(n) => n.node_id(),
+            BlockOrExpression::NumericLiteral(n) => n.node_id(),
+            BlockOrExpression::ObjectLiteralExpression(n) => n.node_id(),
+            BlockOrExpression::OmittedExpression(n) => n.node_id(),
+            BlockOrExpression::ParenthesizedExpression(n) => n.node_id(),
+            BlockOrExpression::PartiallyEmittedExpression(n) => n.node_id(),
+            BlockOrExpression::PostfixUnaryExpression(n) => n.node_id(),
+            BlockOrExpression::PrefixUnaryExpression(n) => n.node_id(),
+            BlockOrExpression::PrivateIdentifier(n) => n.node_id(),
+            BlockOrExpression::PropertyAccessExpression(n) => n.node_id(),
+            BlockOrExpression::RegularExpressionLiteral(n) => n.node_id(),
+            BlockOrExpression::SatisfiesExpression(n) => n.node_id(),
+            BlockOrExpression::SpreadElement(n) => n.node_id(),
+            BlockOrExpression::StringLiteral(n) => n.node_id(),
+            BlockOrExpression::SyntheticExpression(n) => n.node_id(),
+            BlockOrExpression::SyntheticReferenceExpression(n) => n.node_id(),
+            BlockOrExpression::TaggedTemplateExpression(n) => n.node_id(),
+            BlockOrExpression::TemplateExpression(n) => n.node_id(),
+            BlockOrExpression::TypeAssertion(n) => n.node_id(),
+            BlockOrExpression::TypeOfExpression(n) => n.node_id(),
+            BlockOrExpression::VoidExpression(n) => n.node_id(),
+            BlockOrExpression::YieldExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<BlockOrExpression<'a>> for Node<'a> {
@@ -1097,6 +1241,17 @@ pub enum BooleanLiteral<'a> {
     KeywordExpression(&'a KeywordExpression<'a>),
 }
 
+impl BooleanLiteral<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            BooleanLiteral::KeywordExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<BooleanLiteral<'a>> for Node<'a> {
     fn from(value: BooleanLiteral<'a>) -> Self {
         match value {
@@ -1127,6 +1282,18 @@ pub enum BreakOrContinueStatement<'a> {
     BreakStatement(&'a BreakStatement<'a>),
     /// See [`ContinueStatement`].
     ContinueStatement(&'a ContinueStatement<'a>),
+}
+
+impl BreakOrContinueStatement<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            BreakOrContinueStatement::BreakStatement(n) => n.node_id(),
+            BreakOrContinueStatement::ContinueStatement(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<BreakOrContinueStatement<'a>> for Node<'a> {
@@ -1171,6 +1338,23 @@ pub enum CallLikeExpression<'a> {
     NewExpression(&'a NewExpression<'a>),
     /// See [`TaggedTemplateExpression`].
     TaggedTemplateExpression(&'a TaggedTemplateExpression<'a>),
+}
+
+impl CallLikeExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            CallLikeExpression::BinaryExpression(n) => n.node_id(),
+            CallLikeExpression::CallExpression(n) => n.node_id(),
+            CallLikeExpression::Decorator(n) => n.node_id(),
+            CallLikeExpression::JsxOpeningElement(n) => n.node_id(),
+            CallLikeExpression::JsxSelfClosingElement(n) => n.node_id(),
+            CallLikeExpression::NewExpression(n) => n.node_id(),
+            CallLikeExpression::TaggedTemplateExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<CallLikeExpression<'a>> for Node<'a> {
@@ -1219,6 +1403,18 @@ pub enum CallOrNewExpression<'a> {
     NewExpression(&'a NewExpression<'a>),
 }
 
+impl CallOrNewExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            CallOrNewExpression::CallExpression(n) => n.node_id(),
+            CallOrNewExpression::NewExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<CallOrNewExpression<'a>> for Node<'a> {
     fn from(value: CallOrNewExpression<'a>) -> Self {
         match value {
@@ -1263,6 +1459,24 @@ pub enum ClassElement<'a> {
     SemicolonClassElement(&'a SemicolonClassElement<'a>),
     /// See [`SetAccessorDeclaration`].
     SetAccessorDeclaration(&'a SetAccessorDeclaration<'a>),
+}
+
+impl ClassElement<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ClassElement::ClassStaticBlockDeclaration(n) => n.node_id(),
+            ClassElement::ConstructorDeclaration(n) => n.node_id(),
+            ClassElement::GetAccessorDeclaration(n) => n.node_id(),
+            ClassElement::IndexSignatureDeclaration(n) => n.node_id(),
+            ClassElement::MethodDeclaration(n) => n.node_id(),
+            ClassElement::PropertyDeclaration(n) => n.node_id(),
+            ClassElement::SemicolonClassElement(n) => n.node_id(),
+            ClassElement::SetAccessorDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ClassElement<'a>> for Node<'a> {
@@ -1311,6 +1525,18 @@ pub enum ClassLikeDeclaration<'a> {
     ClassDeclaration(&'a ClassDeclaration<'a>),
     /// See [`ClassExpression`].
     ClassExpression(&'a ClassExpression<'a>),
+}
+
+impl ClassLikeDeclaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ClassLikeDeclaration::ClassDeclaration(n) => n.node_id(),
+            ClassLikeDeclaration::ClassExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ClassLikeDeclaration<'a>> for Node<'a> {
@@ -1443,6 +1669,67 @@ pub enum ConciseBody<'a> {
     VoidExpression(&'a VoidExpression<'a>),
     /// See [`YieldExpression`].
     YieldExpression(&'a YieldExpression<'a>),
+}
+
+impl ConciseBody<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ConciseBody::ArrayLiteralExpression(n) => n.node_id(),
+            ConciseBody::ArrowFunction(n) => n.node_id(),
+            ConciseBody::AsExpression(n) => n.node_id(),
+            ConciseBody::AwaitExpression(n) => n.node_id(),
+            ConciseBody::BigIntLiteral(n) => n.node_id(),
+            ConciseBody::BinaryExpression(n) => n.node_id(),
+            ConciseBody::Block(n) => n.node_id(),
+            ConciseBody::CallExpression(n) => n.node_id(),
+            ConciseBody::ClassExpression(n) => n.node_id(),
+            ConciseBody::ConditionalExpression(n) => n.node_id(),
+            ConciseBody::DeleteExpression(n) => n.node_id(),
+            ConciseBody::ElementAccessExpression(n) => n.node_id(),
+            ConciseBody::ExpressionWithTypeArguments(n) => n.node_id(),
+            ConciseBody::FunctionExpression(n) => n.node_id(),
+            ConciseBody::Identifier(n) => n.node_id(),
+            ConciseBody::JsxAttributes(n) => n.node_id(),
+            ConciseBody::JsxClosingFragment(n) => n.node_id(),
+            ConciseBody::JsxElement(n) => n.node_id(),
+            ConciseBody::JsxExpression(n) => n.node_id(),
+            ConciseBody::JsxFragment(n) => n.node_id(),
+            ConciseBody::JsxNamespacedName(n) => n.node_id(),
+            ConciseBody::JsxOpeningElement(n) => n.node_id(),
+            ConciseBody::JsxOpeningFragment(n) => n.node_id(),
+            ConciseBody::JsxSelfClosingElement(n) => n.node_id(),
+            ConciseBody::JsxText(n) => n.node_id(),
+            ConciseBody::KeywordExpression(n) => n.node_id(),
+            ConciseBody::MetaProperty(n) => n.node_id(),
+            ConciseBody::NewExpression(n) => n.node_id(),
+            ConciseBody::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            ConciseBody::NonNullExpression(n) => n.node_id(),
+            ConciseBody::NumericLiteral(n) => n.node_id(),
+            ConciseBody::ObjectLiteralExpression(n) => n.node_id(),
+            ConciseBody::OmittedExpression(n) => n.node_id(),
+            ConciseBody::ParenthesizedExpression(n) => n.node_id(),
+            ConciseBody::PartiallyEmittedExpression(n) => n.node_id(),
+            ConciseBody::PostfixUnaryExpression(n) => n.node_id(),
+            ConciseBody::PrefixUnaryExpression(n) => n.node_id(),
+            ConciseBody::PrivateIdentifier(n) => n.node_id(),
+            ConciseBody::PropertyAccessExpression(n) => n.node_id(),
+            ConciseBody::RegularExpressionLiteral(n) => n.node_id(),
+            ConciseBody::SatisfiesExpression(n) => n.node_id(),
+            ConciseBody::SpreadElement(n) => n.node_id(),
+            ConciseBody::StringLiteral(n) => n.node_id(),
+            ConciseBody::SyntheticExpression(n) => n.node_id(),
+            ConciseBody::SyntheticReferenceExpression(n) => n.node_id(),
+            ConciseBody::TaggedTemplateExpression(n) => n.node_id(),
+            ConciseBody::TemplateExpression(n) => n.node_id(),
+            ConciseBody::TypeAssertion(n) => n.node_id(),
+            ConciseBody::TypeOfExpression(n) => n.node_id(),
+            ConciseBody::VoidExpression(n) => n.node_id(),
+            ConciseBody::YieldExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ConciseBody<'a>> for Node<'a> {
@@ -1685,6 +1972,70 @@ pub enum Declaration<'a> {
     VariableDeclaration(&'a VariableDeclaration<'a>),
 }
 
+impl Declaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            Declaration::ArrowFunction(n) => n.node_id(),
+            Declaration::BinaryExpression(n) => n.node_id(),
+            Declaration::BindingElement(n) => n.node_id(),
+            Declaration::CallExpression(n) => n.node_id(),
+            Declaration::CallSignatureDeclaration(n) => n.node_id(),
+            Declaration::ClassDeclaration(n) => n.node_id(),
+            Declaration::ClassExpression(n) => n.node_id(),
+            Declaration::ClassStaticBlockDeclaration(n) => n.node_id(),
+            Declaration::ConstructSignatureDeclaration(n) => n.node_id(),
+            Declaration::ConstructorDeclaration(n) => n.node_id(),
+            Declaration::ConstructorTypeNode(n) => n.node_id(),
+            Declaration::EnumDeclaration(n) => n.node_id(),
+            Declaration::EnumMember(n) => n.node_id(),
+            Declaration::ExportAssignment(n) => n.node_id(),
+            Declaration::ExportDeclaration(n) => n.node_id(),
+            Declaration::ExportSpecifier(n) => n.node_id(),
+            Declaration::FunctionDeclaration(n) => n.node_id(),
+            Declaration::FunctionExpression(n) => n.node_id(),
+            Declaration::FunctionTypeNode(n) => n.node_id(),
+            Declaration::GetAccessorDeclaration(n) => n.node_id(),
+            Declaration::ImportClause(n) => n.node_id(),
+            Declaration::ImportDeclaration(n) => n.node_id(),
+            Declaration::ImportEqualsDeclaration(n) => n.node_id(),
+            Declaration::ImportSpecifier(n) => n.node_id(),
+            Declaration::IndexSignatureDeclaration(n) => n.node_id(),
+            Declaration::InterfaceDeclaration(n) => n.node_id(),
+            Declaration::JSDocSignature(n) => n.node_id(),
+            Declaration::JSDocTypeLiteral(n) => n.node_id(),
+            Declaration::JsxAttribute(n) => n.node_id(),
+            Declaration::JsxAttributes(n) => n.node_id(),
+            Declaration::MappedTypeNode(n) => n.node_id(),
+            Declaration::MethodDeclaration(n) => n.node_id(),
+            Declaration::MethodSignatureDeclaration(n) => n.node_id(),
+            Declaration::MissingDeclaration(n) => n.node_id(),
+            Declaration::ModuleDeclaration(n) => n.node_id(),
+            Declaration::NamedTupleMember(n) => n.node_id(),
+            Declaration::NamespaceExport(n) => n.node_id(),
+            Declaration::NamespaceExportDeclaration(n) => n.node_id(),
+            Declaration::NamespaceImport(n) => n.node_id(),
+            Declaration::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            Declaration::ObjectLiteralExpression(n) => n.node_id(),
+            Declaration::ParameterDeclaration(n) => n.node_id(),
+            Declaration::PropertyAssignment(n) => n.node_id(),
+            Declaration::PropertyDeclaration(n) => n.node_id(),
+            Declaration::PropertySignatureDeclaration(n) => n.node_id(),
+            Declaration::SemicolonClassElement(n) => n.node_id(),
+            Declaration::SetAccessorDeclaration(n) => n.node_id(),
+            Declaration::ShorthandPropertyAssignment(n) => n.node_id(),
+            Declaration::SourceFile(n) => n.node_id(),
+            Declaration::SpreadAssignment(n) => n.node_id(),
+            Declaration::TypeAliasDeclaration(n) => n.node_id(),
+            Declaration::TypeLiteralNode(n) => n.node_id(),
+            Declaration::TypeParameterDeclaration(n) => n.node_id(),
+            Declaration::VariableDeclaration(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<Declaration<'a>> for Node<'a> {
     fn from(value: Declaration<'a>) -> Self {
         match value {
@@ -1843,6 +2194,25 @@ pub enum DeclarationName<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl DeclarationName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            DeclarationName::BigIntLiteral(n) => n.node_id(),
+            DeclarationName::BindingPattern(n) => n.node_id(),
+            DeclarationName::ComputedPropertyName(n) => n.node_id(),
+            DeclarationName::ElementAccessExpression(n) => n.node_id(),
+            DeclarationName::Identifier(n) => n.node_id(),
+            DeclarationName::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            DeclarationName::NumericLiteral(n) => n.node_id(),
+            DeclarationName::PrivateIdentifier(n) => n.node_id(),
+            DeclarationName::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<DeclarationName<'a>> for Node<'a> {
     fn from(value: DeclarationName<'a>) -> Self {
         match value {
@@ -1893,6 +2263,17 @@ pub enum DestructuringAssignment<'a> {
     BinaryExpression(&'a BinaryExpression<'a>),
 }
 
+impl DestructuringAssignment<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            DestructuringAssignment::BinaryExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<DestructuringAssignment<'a>> for Node<'a> {
     fn from(value: DestructuringAssignment<'a>) -> Self {
         match value {
@@ -1923,6 +2304,18 @@ pub enum EntityName<'a> {
     Identifier(&'a Identifier<'a>),
     /// See [`QualifiedName`].
     QualifiedName(&'a QualifiedName<'a>),
+}
+
+impl EntityName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            EntityName::Identifier(n) => n.node_id(),
+            EntityName::QualifiedName(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<EntityName<'a>> for Node<'a> {
@@ -2053,6 +2446,66 @@ pub enum Expression<'a> {
     VoidExpression(&'a VoidExpression<'a>),
     /// See [`YieldExpression`].
     YieldExpression(&'a YieldExpression<'a>),
+}
+
+impl Expression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            Expression::ArrayLiteralExpression(n) => n.node_id(),
+            Expression::ArrowFunction(n) => n.node_id(),
+            Expression::AsExpression(n) => n.node_id(),
+            Expression::AwaitExpression(n) => n.node_id(),
+            Expression::BigIntLiteral(n) => n.node_id(),
+            Expression::BinaryExpression(n) => n.node_id(),
+            Expression::CallExpression(n) => n.node_id(),
+            Expression::ClassExpression(n) => n.node_id(),
+            Expression::ConditionalExpression(n) => n.node_id(),
+            Expression::DeleteExpression(n) => n.node_id(),
+            Expression::ElementAccessExpression(n) => n.node_id(),
+            Expression::ExpressionWithTypeArguments(n) => n.node_id(),
+            Expression::FunctionExpression(n) => n.node_id(),
+            Expression::Identifier(n) => n.node_id(),
+            Expression::JsxAttributes(n) => n.node_id(),
+            Expression::JsxClosingFragment(n) => n.node_id(),
+            Expression::JsxElement(n) => n.node_id(),
+            Expression::JsxExpression(n) => n.node_id(),
+            Expression::JsxFragment(n) => n.node_id(),
+            Expression::JsxNamespacedName(n) => n.node_id(),
+            Expression::JsxOpeningElement(n) => n.node_id(),
+            Expression::JsxOpeningFragment(n) => n.node_id(),
+            Expression::JsxSelfClosingElement(n) => n.node_id(),
+            Expression::JsxText(n) => n.node_id(),
+            Expression::KeywordExpression(n) => n.node_id(),
+            Expression::MetaProperty(n) => n.node_id(),
+            Expression::NewExpression(n) => n.node_id(),
+            Expression::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            Expression::NonNullExpression(n) => n.node_id(),
+            Expression::NumericLiteral(n) => n.node_id(),
+            Expression::ObjectLiteralExpression(n) => n.node_id(),
+            Expression::OmittedExpression(n) => n.node_id(),
+            Expression::ParenthesizedExpression(n) => n.node_id(),
+            Expression::PartiallyEmittedExpression(n) => n.node_id(),
+            Expression::PostfixUnaryExpression(n) => n.node_id(),
+            Expression::PrefixUnaryExpression(n) => n.node_id(),
+            Expression::PrivateIdentifier(n) => n.node_id(),
+            Expression::PropertyAccessExpression(n) => n.node_id(),
+            Expression::RegularExpressionLiteral(n) => n.node_id(),
+            Expression::SatisfiesExpression(n) => n.node_id(),
+            Expression::SpreadElement(n) => n.node_id(),
+            Expression::StringLiteral(n) => n.node_id(),
+            Expression::SyntheticExpression(n) => n.node_id(),
+            Expression::SyntheticReferenceExpression(n) => n.node_id(),
+            Expression::TaggedTemplateExpression(n) => n.node_id(),
+            Expression::TemplateExpression(n) => n.node_id(),
+            Expression::TypeAssertion(n) => n.node_id(),
+            Expression::TypeOfExpression(n) => n.node_id(),
+            Expression::VoidExpression(n) => n.node_id(),
+            Expression::YieldExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<Expression<'a>> for Node<'a> {
@@ -2289,6 +2742,68 @@ pub enum ForInitializer<'a> {
     YieldExpression(&'a YieldExpression<'a>),
 }
 
+impl ForInitializer<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ForInitializer::ArrayLiteralExpression(n) => n.node_id(),
+            ForInitializer::ArrowFunction(n) => n.node_id(),
+            ForInitializer::AsExpression(n) => n.node_id(),
+            ForInitializer::AwaitExpression(n) => n.node_id(),
+            ForInitializer::BigIntLiteral(n) => n.node_id(),
+            ForInitializer::BinaryExpression(n) => n.node_id(),
+            ForInitializer::CallExpression(n) => n.node_id(),
+            ForInitializer::ClassExpression(n) => n.node_id(),
+            ForInitializer::ConditionalExpression(n) => n.node_id(),
+            ForInitializer::DeleteExpression(n) => n.node_id(),
+            ForInitializer::ElementAccessExpression(n) => n.node_id(),
+            ForInitializer::ExpressionWithTypeArguments(n) => n.node_id(),
+            ForInitializer::FunctionExpression(n) => n.node_id(),
+            ForInitializer::Identifier(n) => n.node_id(),
+            ForInitializer::JsxAttributes(n) => n.node_id(),
+            ForInitializer::JsxClosingFragment(n) => n.node_id(),
+            ForInitializer::JsxElement(n) => n.node_id(),
+            ForInitializer::JsxExpression(n) => n.node_id(),
+            ForInitializer::JsxFragment(n) => n.node_id(),
+            ForInitializer::JsxNamespacedName(n) => n.node_id(),
+            ForInitializer::JsxOpeningElement(n) => n.node_id(),
+            ForInitializer::JsxOpeningFragment(n) => n.node_id(),
+            ForInitializer::JsxSelfClosingElement(n) => n.node_id(),
+            ForInitializer::JsxText(n) => n.node_id(),
+            ForInitializer::KeywordExpression(n) => n.node_id(),
+            ForInitializer::MetaProperty(n) => n.node_id(),
+            ForInitializer::MissingDeclaration(n) => n.node_id(),
+            ForInitializer::NewExpression(n) => n.node_id(),
+            ForInitializer::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            ForInitializer::NonNullExpression(n) => n.node_id(),
+            ForInitializer::NumericLiteral(n) => n.node_id(),
+            ForInitializer::ObjectLiteralExpression(n) => n.node_id(),
+            ForInitializer::OmittedExpression(n) => n.node_id(),
+            ForInitializer::ParenthesizedExpression(n) => n.node_id(),
+            ForInitializer::PartiallyEmittedExpression(n) => n.node_id(),
+            ForInitializer::PostfixUnaryExpression(n) => n.node_id(),
+            ForInitializer::PrefixUnaryExpression(n) => n.node_id(),
+            ForInitializer::PrivateIdentifier(n) => n.node_id(),
+            ForInitializer::PropertyAccessExpression(n) => n.node_id(),
+            ForInitializer::RegularExpressionLiteral(n) => n.node_id(),
+            ForInitializer::SatisfiesExpression(n) => n.node_id(),
+            ForInitializer::SpreadElement(n) => n.node_id(),
+            ForInitializer::StringLiteral(n) => n.node_id(),
+            ForInitializer::SyntheticExpression(n) => n.node_id(),
+            ForInitializer::SyntheticReferenceExpression(n) => n.node_id(),
+            ForInitializer::TaggedTemplateExpression(n) => n.node_id(),
+            ForInitializer::TemplateExpression(n) => n.node_id(),
+            ForInitializer::TypeAssertion(n) => n.node_id(),
+            ForInitializer::TypeOfExpression(n) => n.node_id(),
+            ForInitializer::VariableDeclarationList(n) => n.node_id(),
+            ForInitializer::VoidExpression(n) => n.node_id(),
+            ForInitializer::YieldExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ForInitializer<'a>> for Node<'a> {
     fn from(value: ForInitializer<'a>) -> Self {
         match value {
@@ -2433,6 +2948,17 @@ pub enum FunctionBody<'a> {
     Block(&'a Block<'a>),
 }
 
+impl FunctionBody<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            FunctionBody::Block(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<FunctionBody<'a>> for Node<'a> {
     fn from(value: FunctionBody<'a>) -> Self {
         match value {
@@ -2473,6 +2999,23 @@ pub enum FunctionLikeDeclaration<'a> {
     MethodDeclaration(&'a MethodDeclaration<'a>),
     /// See [`SetAccessorDeclaration`].
     SetAccessorDeclaration(&'a SetAccessorDeclaration<'a>),
+}
+
+impl FunctionLikeDeclaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            FunctionLikeDeclaration::ArrowFunction(n) => n.node_id(),
+            FunctionLikeDeclaration::ConstructorDeclaration(n) => n.node_id(),
+            FunctionLikeDeclaration::FunctionDeclaration(n) => n.node_id(),
+            FunctionLikeDeclaration::FunctionExpression(n) => n.node_id(),
+            FunctionLikeDeclaration::GetAccessorDeclaration(n) => n.node_id(),
+            FunctionLikeDeclaration::MethodDeclaration(n) => n.node_id(),
+            FunctionLikeDeclaration::SetAccessorDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<FunctionLikeDeclaration<'a>> for Node<'a> {
@@ -2525,6 +3068,18 @@ pub enum ImportAttributeName<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl ImportAttributeName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ImportAttributeName::Identifier(n) => n.node_id(),
+            ImportAttributeName::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ImportAttributeName<'a>> for Node<'a> {
     fn from(value: ImportAttributeName<'a>) -> Self {
         match value {
@@ -2557,6 +3112,18 @@ pub enum ImportClauseOrBindingPattern<'a> {
     BindingPattern(&'a BindingPattern<'a>),
     /// See [`ImportClause`].
     ImportClause(&'a ImportClause<'a>),
+}
+
+impl ImportClauseOrBindingPattern<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ImportClauseOrBindingPattern::BindingPattern(n) => n.node_id(),
+            ImportClauseOrBindingPattern::ImportClause(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ImportClauseOrBindingPattern<'a>> for Node<'a> {
@@ -2641,6 +3208,43 @@ pub enum IncrementExpression<'a> {
     TaggedTemplateExpression(&'a TaggedTemplateExpression<'a>),
     /// See [`TemplateExpression`].
     TemplateExpression(&'a TemplateExpression<'a>),
+}
+
+impl IncrementExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            IncrementExpression::ArrayLiteralExpression(n) => n.node_id(),
+            IncrementExpression::BigIntLiteral(n) => n.node_id(),
+            IncrementExpression::CallExpression(n) => n.node_id(),
+            IncrementExpression::ClassExpression(n) => n.node_id(),
+            IncrementExpression::ElementAccessExpression(n) => n.node_id(),
+            IncrementExpression::ExpressionWithTypeArguments(n) => n.node_id(),
+            IncrementExpression::FunctionExpression(n) => n.node_id(),
+            IncrementExpression::Identifier(n) => n.node_id(),
+            IncrementExpression::JsxAttributes(n) => n.node_id(),
+            IncrementExpression::JsxElement(n) => n.node_id(),
+            IncrementExpression::JsxFragment(n) => n.node_id(),
+            IncrementExpression::JsxSelfClosingElement(n) => n.node_id(),
+            IncrementExpression::MetaProperty(n) => n.node_id(),
+            IncrementExpression::NewExpression(n) => n.node_id(),
+            IncrementExpression::NonNullExpression(n) => n.node_id(),
+            IncrementExpression::NumericLiteral(n) => n.node_id(),
+            IncrementExpression::ObjectLiteralExpression(n) => n.node_id(),
+            IncrementExpression::ParenthesizedExpression(n) => n.node_id(),
+            IncrementExpression::PartiallyEmittedExpression(n) => n.node_id(),
+            IncrementExpression::PostfixUnaryExpression(n) => n.node_id(),
+            IncrementExpression::PrefixUnaryExpression(n) => n.node_id(),
+            IncrementExpression::PrivateIdentifier(n) => n.node_id(),
+            IncrementExpression::PropertyAccessExpression(n) => n.node_id(),
+            IncrementExpression::RegularExpressionLiteral(n) => n.node_id(),
+            IncrementExpression::StringLiteral(n) => n.node_id(),
+            IncrementExpression::TaggedTemplateExpression(n) => n.node_id(),
+            IncrementExpression::TemplateExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<IncrementExpression<'a>> for Node<'a> {
@@ -2745,6 +3349,20 @@ pub enum JSDocComment<'a> {
     JSDocText(&'a JSDocText<'a>),
 }
 
+impl JSDocComment<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JSDocComment::JSDocLink(n) => n.node_id(),
+            JSDocComment::JSDocLinkCode(n) => n.node_id(),
+            JSDocComment::JSDocLinkPlain(n) => n.node_id(),
+            JSDocComment::JSDocText(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<JSDocComment<'a>> for Node<'a> {
     fn from(value: JSDocComment<'a>) -> Self {
         match value {
@@ -2781,6 +3399,18 @@ pub enum JSDocFullName<'a> {
     Identifier(&'a Identifier<'a>),
     /// See [`ModuleDeclaration`].
     ModuleDeclaration(&'a ModuleDeclaration<'a>),
+}
+
+impl JSDocFullName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JSDocFullName::Identifier(n) => n.node_id(),
+            JSDocFullName::ModuleDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<JSDocFullName<'a>> for Node<'a> {
@@ -2855,6 +3485,37 @@ pub enum JSDocTag<'a> {
     JSDocUnknownTag(&'a JSDocUnknownTag<'a>),
 }
 
+impl JSDocTag<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JSDocTag::JSDocAugmentsTag(n) => n.node_id(),
+            JSDocTag::JSDocCallbackTag(n) => n.node_id(),
+            JSDocTag::JSDocDeprecatedTag(n) => n.node_id(),
+            JSDocTag::JSDocImplementsTag(n) => n.node_id(),
+            JSDocTag::JSDocImportTag(n) => n.node_id(),
+            JSDocTag::JSDocOverloadTag(n) => n.node_id(),
+            JSDocTag::JSDocOverrideTag(n) => n.node_id(),
+            JSDocTag::JSDocParameterOrPropertyTag(n) => n.node_id(),
+            JSDocTag::JSDocPrivateTag(n) => n.node_id(),
+            JSDocTag::JSDocProtectedTag(n) => n.node_id(),
+            JSDocTag::JSDocPublicTag(n) => n.node_id(),
+            JSDocTag::JSDocReadonlyTag(n) => n.node_id(),
+            JSDocTag::JSDocReturnTag(n) => n.node_id(),
+            JSDocTag::JSDocSatisfiesTag(n) => n.node_id(),
+            JSDocTag::JSDocSeeTag(n) => n.node_id(),
+            JSDocTag::JSDocTemplateTag(n) => n.node_id(),
+            JSDocTag::JSDocThisTag(n) => n.node_id(),
+            JSDocTag::JSDocThrowsTag(n) => n.node_id(),
+            JSDocTag::JSDocTypeTag(n) => n.node_id(),
+            JSDocTag::JSDocTypedefTag(n) => n.node_id(),
+            JSDocTag::JSDocUnknownTag(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<JSDocTag<'a>> for Node<'a> {
     fn from(value: JSDocTag<'a>) -> Self {
         match value {
@@ -2927,6 +3588,18 @@ pub enum JsxAttributeLike<'a> {
     JsxSpreadAttribute(&'a JsxSpreadAttribute<'a>),
 }
 
+impl JsxAttributeLike<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JsxAttributeLike::JsxAttribute(n) => n.node_id(),
+            JsxAttributeLike::JsxSpreadAttribute(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<JsxAttributeLike<'a>> for Node<'a> {
     fn from(value: JsxAttributeLike<'a>) -> Self {
         match value {
@@ -2959,6 +3632,18 @@ pub enum JsxAttributeName<'a> {
     Identifier(&'a Identifier<'a>),
     /// See [`JsxNamespacedName`].
     JsxNamespacedName(&'a JsxNamespacedName<'a>),
+}
+
+impl JsxAttributeName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JsxAttributeName::Identifier(n) => n.node_id(),
+            JsxAttributeName::JsxNamespacedName(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<JsxAttributeName<'a>> for Node<'a> {
@@ -2999,6 +3684,21 @@ pub enum JsxAttributeValue<'a> {
     JsxSelfClosingElement(&'a JsxSelfClosingElement<'a>),
     /// See [`StringLiteral`].
     StringLiteral(&'a StringLiteral<'a>),
+}
+
+impl JsxAttributeValue<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JsxAttributeValue::JsxElement(n) => n.node_id(),
+            JsxAttributeValue::JsxExpression(n) => n.node_id(),
+            JsxAttributeValue::JsxFragment(n) => n.node_id(),
+            JsxAttributeValue::JsxSelfClosingElement(n) => n.node_id(),
+            JsxAttributeValue::StringLiteral(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<JsxAttributeValue<'a>> for Node<'a> {
@@ -3047,6 +3747,21 @@ pub enum JsxChild<'a> {
     JsxText(&'a JsxText<'a>),
 }
 
+impl JsxChild<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JsxChild::JsxElement(n) => n.node_id(),
+            JsxChild::JsxExpression(n) => n.node_id(),
+            JsxChild::JsxFragment(n) => n.node_id(),
+            JsxChild::JsxSelfClosingElement(n) => n.node_id(),
+            JsxChild::JsxText(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<JsxChild<'a>> for Node<'a> {
     fn from(value: JsxChild<'a>) -> Self {
         match value {
@@ -3087,6 +3802,18 @@ pub enum JsxOpeningLikeElement<'a> {
     JsxSelfClosingElement(&'a JsxSelfClosingElement<'a>),
 }
 
+impl JsxOpeningLikeElement<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JsxOpeningLikeElement::JsxOpeningElement(n) => n.node_id(),
+            JsxOpeningLikeElement::JsxSelfClosingElement(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<JsxOpeningLikeElement<'a>> for Node<'a> {
     fn from(value: JsxOpeningLikeElement<'a>) -> Self {
         match value {
@@ -3123,6 +3850,20 @@ pub enum JsxTagNameExpression<'a> {
     KeywordExpression(&'a KeywordExpression<'a>),
     /// See [`PropertyAccessExpression`].
     PropertyAccessExpression(&'a PropertyAccessExpression<'a>),
+}
+
+impl JsxTagNameExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            JsxTagNameExpression::Identifier(n) => n.node_id(),
+            JsxTagNameExpression::JsxNamespacedName(n) => n.node_id(),
+            JsxTagNameExpression::KeywordExpression(n) => n.node_id(),
+            JsxTagNameExpression::PropertyAccessExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<JsxTagNameExpression<'a>> for Node<'a> {
@@ -3209,6 +3950,41 @@ pub enum LeftHandSideExpression<'a> {
     TaggedTemplateExpression(&'a TaggedTemplateExpression<'a>),
     /// See [`TemplateExpression`].
     TemplateExpression(&'a TemplateExpression<'a>),
+}
+
+impl LeftHandSideExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            LeftHandSideExpression::ArrayLiteralExpression(n) => n.node_id(),
+            LeftHandSideExpression::BigIntLiteral(n) => n.node_id(),
+            LeftHandSideExpression::CallExpression(n) => n.node_id(),
+            LeftHandSideExpression::ClassExpression(n) => n.node_id(),
+            LeftHandSideExpression::ElementAccessExpression(n) => n.node_id(),
+            LeftHandSideExpression::ExpressionWithTypeArguments(n) => n.node_id(),
+            LeftHandSideExpression::FunctionExpression(n) => n.node_id(),
+            LeftHandSideExpression::Identifier(n) => n.node_id(),
+            LeftHandSideExpression::JsxAttributes(n) => n.node_id(),
+            LeftHandSideExpression::JsxElement(n) => n.node_id(),
+            LeftHandSideExpression::JsxFragment(n) => n.node_id(),
+            LeftHandSideExpression::JsxSelfClosingElement(n) => n.node_id(),
+            LeftHandSideExpression::MetaProperty(n) => n.node_id(),
+            LeftHandSideExpression::NewExpression(n) => n.node_id(),
+            LeftHandSideExpression::NonNullExpression(n) => n.node_id(),
+            LeftHandSideExpression::NumericLiteral(n) => n.node_id(),
+            LeftHandSideExpression::ObjectLiteralExpression(n) => n.node_id(),
+            LeftHandSideExpression::ParenthesizedExpression(n) => n.node_id(),
+            LeftHandSideExpression::PartiallyEmittedExpression(n) => n.node_id(),
+            LeftHandSideExpression::PrivateIdentifier(n) => n.node_id(),
+            LeftHandSideExpression::PropertyAccessExpression(n) => n.node_id(),
+            LeftHandSideExpression::RegularExpressionLiteral(n) => n.node_id(),
+            LeftHandSideExpression::StringLiteral(n) => n.node_id(),
+            LeftHandSideExpression::TaggedTemplateExpression(n) => n.node_id(),
+            LeftHandSideExpression::TemplateExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<LeftHandSideExpression<'a>> for Node<'a> {
@@ -3325,6 +4101,21 @@ pub enum LiteralExpression<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl LiteralExpression<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            LiteralExpression::BigIntLiteral(n) => n.node_id(),
+            LiteralExpression::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            LiteralExpression::NumericLiteral(n) => n.node_id(),
+            LiteralExpression::RegularExpressionLiteral(n) => n.node_id(),
+            LiteralExpression::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<LiteralExpression<'a>> for Node<'a> {
     fn from(value: LiteralExpression<'a>) -> Self {
         match value {
@@ -3377,6 +4168,22 @@ pub enum LiteralLikeNode<'a> {
     Token(&'a Token<'a>),
 }
 
+impl LiteralLikeNode<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            LiteralLikeNode::BigIntLiteral(n) => n.node_id(),
+            LiteralLikeNode::JsxText(n) => n.node_id(),
+            LiteralLikeNode::NumericLiteral(n) => n.node_id(),
+            LiteralLikeNode::RegularExpressionLiteral(n) => n.node_id(),
+            LiteralLikeNode::StringLiteral(n) => n.node_id(),
+            LiteralLikeNode::Token(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<LiteralLikeNode<'a>> for Node<'a> {
     fn from(value: LiteralLikeNode<'a>) -> Self {
         match value {
@@ -3427,6 +4234,22 @@ pub enum LiteralToken<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl LiteralToken<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            LiteralToken::BigIntLiteral(n) => n.node_id(),
+            LiteralToken::JsxText(n) => n.node_id(),
+            LiteralToken::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            LiteralToken::NumericLiteral(n) => n.node_id(),
+            LiteralToken::RegularExpressionLiteral(n) => n.node_id(),
+            LiteralToken::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<LiteralToken<'a>> for Node<'a> {
     fn from(value: LiteralToken<'a>) -> Self {
         match value {
@@ -3473,6 +4296,18 @@ pub enum MemberName<'a> {
     PrivateIdentifier(&'a PrivateIdentifier<'a>),
 }
 
+impl MemberName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            MemberName::Identifier(n) => n.node_id(),
+            MemberName::PrivateIdentifier(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<MemberName<'a>> for Node<'a> {
     fn from(value: MemberName<'a>) -> Self {
         match value {
@@ -3505,6 +4340,17 @@ pub enum Modifier<'a> {
     Token(&'a Token<'a>),
 }
 
+impl Modifier<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            Modifier::Token(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<Modifier<'a>> for Node<'a> {
     fn from(value: Modifier<'a>) -> Self {
         match value {
@@ -3535,6 +4381,18 @@ pub enum ModifierLike<'a> {
     Decorator(&'a Decorator<'a>),
     /// See [`Token`].
     Token(&'a Token<'a>),
+}
+
+impl ModifierLike<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ModifierLike::Decorator(n) => n.node_id(),
+            ModifierLike::Token(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ModifierLike<'a>> for Node<'a> {
@@ -3571,6 +4429,18 @@ pub enum ModuleBody<'a> {
     ModuleDeclaration(&'a ModuleDeclaration<'a>),
 }
 
+impl ModuleBody<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ModuleBody::ModuleBlock(n) => n.node_id(),
+            ModuleBody::ModuleDeclaration(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ModuleBody<'a>> for Node<'a> {
     fn from(value: ModuleBody<'a>) -> Self {
         match value {
@@ -3605,6 +4475,18 @@ pub enum ModuleExportName<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl ModuleExportName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ModuleExportName::Identifier(n) => n.node_id(),
+            ModuleExportName::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ModuleExportName<'a>> for Node<'a> {
     fn from(value: ModuleExportName<'a>) -> Self {
         match value {
@@ -3637,6 +4519,18 @@ pub enum ModuleName<'a> {
     Identifier(&'a Identifier<'a>),
     /// See [`StringLiteral`].
     StringLiteral(&'a StringLiteral<'a>),
+}
+
+impl ModuleName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ModuleName::Identifier(n) => n.node_id(),
+            ModuleName::StringLiteral(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ModuleName<'a>> for Node<'a> {
@@ -3675,6 +4569,19 @@ pub enum ModuleReference<'a> {
     QualifiedName(&'a QualifiedName<'a>),
 }
 
+impl ModuleReference<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ModuleReference::ExternalModuleReference(n) => n.node_id(),
+            ModuleReference::Identifier(n) => n.node_id(),
+            ModuleReference::QualifiedName(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ModuleReference<'a>> for Node<'a> {
     fn from(value: ModuleReference<'a>) -> Self {
         match value {
@@ -3711,6 +4618,18 @@ pub enum NamedExportBindings<'a> {
     NamespaceExport(&'a NamespaceExport<'a>),
 }
 
+impl NamedExportBindings<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            NamedExportBindings::NamedExports(n) => n.node_id(),
+            NamedExportBindings::NamespaceExport(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<NamedExportBindings<'a>> for Node<'a> {
     fn from(value: NamedExportBindings<'a>) -> Self {
         match value {
@@ -3745,6 +4664,18 @@ pub enum NamedImportBindings<'a> {
     NamespaceImport(&'a NamespaceImport<'a>),
 }
 
+impl NamedImportBindings<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            NamedImportBindings::NamedImports(n) => n.node_id(),
+            NamedImportBindings::NamespaceImport(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<NamedImportBindings<'a>> for Node<'a> {
     fn from(value: NamedImportBindings<'a>) -> Self {
         match value {
@@ -3777,6 +4708,18 @@ pub enum NamedImportsOrExports<'a> {
     NamedExports(&'a NamedExports<'a>),
     /// See [`NamedImports`].
     NamedImports(&'a NamedImports<'a>),
+}
+
+impl NamedImportsOrExports<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            NamedImportsOrExports::NamedExports(n) => n.node_id(),
+            NamedImportsOrExports::NamedImports(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<NamedImportsOrExports<'a>> for Node<'a> {
@@ -3913,6 +4856,69 @@ pub enum NodeBody<'a> {
     VoidExpression(&'a VoidExpression<'a>),
     /// See [`YieldExpression`].
     YieldExpression(&'a YieldExpression<'a>),
+}
+
+impl NodeBody<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            NodeBody::ArrayLiteralExpression(n) => n.node_id(),
+            NodeBody::ArrowFunction(n) => n.node_id(),
+            NodeBody::AsExpression(n) => n.node_id(),
+            NodeBody::AwaitExpression(n) => n.node_id(),
+            NodeBody::BigIntLiteral(n) => n.node_id(),
+            NodeBody::BinaryExpression(n) => n.node_id(),
+            NodeBody::Block(n) => n.node_id(),
+            NodeBody::CallExpression(n) => n.node_id(),
+            NodeBody::ClassExpression(n) => n.node_id(),
+            NodeBody::ConditionalExpression(n) => n.node_id(),
+            NodeBody::DeleteExpression(n) => n.node_id(),
+            NodeBody::ElementAccessExpression(n) => n.node_id(),
+            NodeBody::ExpressionWithTypeArguments(n) => n.node_id(),
+            NodeBody::FunctionExpression(n) => n.node_id(),
+            NodeBody::Identifier(n) => n.node_id(),
+            NodeBody::JsxAttributes(n) => n.node_id(),
+            NodeBody::JsxClosingFragment(n) => n.node_id(),
+            NodeBody::JsxElement(n) => n.node_id(),
+            NodeBody::JsxExpression(n) => n.node_id(),
+            NodeBody::JsxFragment(n) => n.node_id(),
+            NodeBody::JsxNamespacedName(n) => n.node_id(),
+            NodeBody::JsxOpeningElement(n) => n.node_id(),
+            NodeBody::JsxOpeningFragment(n) => n.node_id(),
+            NodeBody::JsxSelfClosingElement(n) => n.node_id(),
+            NodeBody::JsxText(n) => n.node_id(),
+            NodeBody::KeywordExpression(n) => n.node_id(),
+            NodeBody::MetaProperty(n) => n.node_id(),
+            NodeBody::ModuleBlock(n) => n.node_id(),
+            NodeBody::ModuleDeclaration(n) => n.node_id(),
+            NodeBody::NewExpression(n) => n.node_id(),
+            NodeBody::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            NodeBody::NonNullExpression(n) => n.node_id(),
+            NodeBody::NumericLiteral(n) => n.node_id(),
+            NodeBody::ObjectLiteralExpression(n) => n.node_id(),
+            NodeBody::OmittedExpression(n) => n.node_id(),
+            NodeBody::ParenthesizedExpression(n) => n.node_id(),
+            NodeBody::PartiallyEmittedExpression(n) => n.node_id(),
+            NodeBody::PostfixUnaryExpression(n) => n.node_id(),
+            NodeBody::PrefixUnaryExpression(n) => n.node_id(),
+            NodeBody::PrivateIdentifier(n) => n.node_id(),
+            NodeBody::PropertyAccessExpression(n) => n.node_id(),
+            NodeBody::RegularExpressionLiteral(n) => n.node_id(),
+            NodeBody::SatisfiesExpression(n) => n.node_id(),
+            NodeBody::SpreadElement(n) => n.node_id(),
+            NodeBody::StringLiteral(n) => n.node_id(),
+            NodeBody::SyntheticExpression(n) => n.node_id(),
+            NodeBody::SyntheticReferenceExpression(n) => n.node_id(),
+            NodeBody::TaggedTemplateExpression(n) => n.node_id(),
+            NodeBody::TemplateExpression(n) => n.node_id(),
+            NodeBody::TypeAssertion(n) => n.node_id(),
+            NodeBody::TypeOfExpression(n) => n.node_id(),
+            NodeBody::VoidExpression(n) => n.node_id(),
+            NodeBody::YieldExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<NodeBody<'a>> for Node<'a> {
@@ -4055,6 +5061,19 @@ pub enum NumericOrStringLikeLiteral<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl NumericOrStringLikeLiteral<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            NumericOrStringLikeLiteral::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            NumericOrStringLikeLiteral::NumericLiteral(n) => n.node_id(),
+            NumericOrStringLikeLiteral::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<NumericOrStringLikeLiteral<'a>> for Node<'a> {
     fn from(value: NumericOrStringLikeLiteral<'a>) -> Self {
         match value {
@@ -4091,6 +5110,17 @@ impl<'a> TryFrom<Node<'a>> for NumericOrStringLikeLiteral<'a> {
 pub enum ObjectDestructuringAssignment<'a> {
     /// See [`BinaryExpression`].
     BinaryExpression(&'a BinaryExpression<'a>),
+}
+
+impl ObjectDestructuringAssignment<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ObjectDestructuringAssignment::BinaryExpression(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ObjectDestructuringAssignment<'a>> for Node<'a> {
@@ -4133,6 +5163,23 @@ pub enum ObjectLiteralElement<'a> {
     ShorthandPropertyAssignment(&'a ShorthandPropertyAssignment<'a>),
     /// See [`SpreadAssignment`].
     SpreadAssignment(&'a SpreadAssignment<'a>),
+}
+
+impl ObjectLiteralElement<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ObjectLiteralElement::GetAccessorDeclaration(n) => n.node_id(),
+            ObjectLiteralElement::JsxSpreadAttribute(n) => n.node_id(),
+            ObjectLiteralElement::MethodDeclaration(n) => n.node_id(),
+            ObjectLiteralElement::PropertyAssignment(n) => n.node_id(),
+            ObjectLiteralElement::SetAccessorDeclaration(n) => n.node_id(),
+            ObjectLiteralElement::ShorthandPropertyAssignment(n) => n.node_id(),
+            ObjectLiteralElement::SpreadAssignment(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ObjectLiteralElement<'a>> for Node<'a> {
@@ -4191,6 +5238,22 @@ pub enum ObjectLiteralElementLike<'a> {
     SpreadAssignment(&'a SpreadAssignment<'a>),
 }
 
+impl ObjectLiteralElementLike<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ObjectLiteralElementLike::GetAccessorDeclaration(n) => n.node_id(),
+            ObjectLiteralElementLike::MethodDeclaration(n) => n.node_id(),
+            ObjectLiteralElementLike::PropertyAssignment(n) => n.node_id(),
+            ObjectLiteralElementLike::SetAccessorDeclaration(n) => n.node_id(),
+            ObjectLiteralElementLike::ShorthandPropertyAssignment(n) => n.node_id(),
+            ObjectLiteralElementLike::SpreadAssignment(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ObjectLiteralElementLike<'a>> for Node<'a> {
     fn from(value: ObjectLiteralElementLike<'a>) -> Self {
         match value {
@@ -4241,6 +5304,18 @@ pub enum ObjectLiteralLikeNode<'a> {
     ObjectLiteralExpression(&'a ObjectLiteralExpression<'a>),
 }
 
+impl ObjectLiteralLikeNode<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ObjectLiteralLikeNode::BindingPattern(n) => n.node_id(),
+            ObjectLiteralLikeNode::ObjectLiteralExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<ObjectLiteralLikeNode<'a>> for Node<'a> {
     fn from(value: ObjectLiteralLikeNode<'a>) -> Self {
         match value {
@@ -4279,6 +5354,20 @@ pub enum ObjectTypeDeclaration<'a> {
     InterfaceDeclaration(&'a InterfaceDeclaration<'a>),
     /// See [`TypeLiteralNode`].
     TypeLiteralNode(&'a TypeLiteralNode<'a>),
+}
+
+impl ObjectTypeDeclaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            ObjectTypeDeclaration::ClassDeclaration(n) => n.node_id(),
+            ObjectTypeDeclaration::ClassExpression(n) => n.node_id(),
+            ObjectTypeDeclaration::InterfaceDeclaration(n) => n.node_id(),
+            ObjectTypeDeclaration::TypeLiteralNode(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<ObjectTypeDeclaration<'a>> for Node<'a> {
@@ -4327,6 +5416,23 @@ pub enum PropertyName<'a> {
     PrivateIdentifier(&'a PrivateIdentifier<'a>),
     /// See [`StringLiteral`].
     StringLiteral(&'a StringLiteral<'a>),
+}
+
+impl PropertyName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            PropertyName::BigIntLiteral(n) => n.node_id(),
+            PropertyName::ComputedPropertyName(n) => n.node_id(),
+            PropertyName::Identifier(n) => n.node_id(),
+            PropertyName::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            PropertyName::NumericLiteral(n) => n.node_id(),
+            PropertyName::PrivateIdentifier(n) => n.node_id(),
+            PropertyName::StringLiteral(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<PropertyName<'a>> for Node<'a> {
@@ -4379,6 +5485,19 @@ pub enum PropertyNameLiteral<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl PropertyNameLiteral<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            PropertyNameLiteral::Identifier(n) => n.node_id(),
+            PropertyNameLiteral::NumericLiteral(n) => n.node_id(),
+            PropertyNameLiteral::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<PropertyNameLiteral<'a>> for Node<'a> {
     fn from(value: PropertyNameLiteral<'a>) -> Self {
         match value {
@@ -4411,6 +5530,17 @@ impl<'a> TryFrom<Node<'a>> for PropertyNameLiteral<'a> {
 pub enum PseudoLiteralToken<'a> {
     /// See [`Token`].
     Token(&'a Token<'a>),
+}
+
+impl PseudoLiteralToken<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            PseudoLiteralToken::Token(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<PseudoLiteralToken<'a>> for Node<'a> {
@@ -4465,6 +5595,29 @@ pub enum SignatureDeclaration<'a> {
     MethodSignatureDeclaration(&'a MethodSignatureDeclaration<'a>),
     /// See [`SetAccessorDeclaration`].
     SetAccessorDeclaration(&'a SetAccessorDeclaration<'a>),
+}
+
+impl SignatureDeclaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            SignatureDeclaration::ArrowFunction(n) => n.node_id(),
+            SignatureDeclaration::CallSignatureDeclaration(n) => n.node_id(),
+            SignatureDeclaration::ConstructSignatureDeclaration(n) => n.node_id(),
+            SignatureDeclaration::ConstructorDeclaration(n) => n.node_id(),
+            SignatureDeclaration::ConstructorTypeNode(n) => n.node_id(),
+            SignatureDeclaration::FunctionDeclaration(n) => n.node_id(),
+            SignatureDeclaration::FunctionExpression(n) => n.node_id(),
+            SignatureDeclaration::FunctionTypeNode(n) => n.node_id(),
+            SignatureDeclaration::GetAccessorDeclaration(n) => n.node_id(),
+            SignatureDeclaration::IndexSignatureDeclaration(n) => n.node_id(),
+            SignatureDeclaration::MethodDeclaration(n) => n.node_id(),
+            SignatureDeclaration::MethodSignatureDeclaration(n) => n.node_id(),
+            SignatureDeclaration::SetAccessorDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<SignatureDeclaration<'a>> for Node<'a> {
@@ -4597,6 +5750,48 @@ pub enum Statement<'a> {
     WithStatement(&'a WithStatement<'a>),
 }
 
+impl Statement<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            Statement::Block(n) => n.node_id(),
+            Statement::BreakStatement(n) => n.node_id(),
+            Statement::ClassDeclaration(n) => n.node_id(),
+            Statement::ContinueStatement(n) => n.node_id(),
+            Statement::DebuggerStatement(n) => n.node_id(),
+            Statement::DoStatement(n) => n.node_id(),
+            Statement::EmptyStatement(n) => n.node_id(),
+            Statement::EnumDeclaration(n) => n.node_id(),
+            Statement::ExportAssignment(n) => n.node_id(),
+            Statement::ExportDeclaration(n) => n.node_id(),
+            Statement::ExpressionStatement(n) => n.node_id(),
+            Statement::ForInOrOfStatement(n) => n.node_id(),
+            Statement::ForStatement(n) => n.node_id(),
+            Statement::FunctionDeclaration(n) => n.node_id(),
+            Statement::IfStatement(n) => n.node_id(),
+            Statement::ImportDeclaration(n) => n.node_id(),
+            Statement::ImportEqualsDeclaration(n) => n.node_id(),
+            Statement::InterfaceDeclaration(n) => n.node_id(),
+            Statement::LabeledStatement(n) => n.node_id(),
+            Statement::MissingDeclaration(n) => n.node_id(),
+            Statement::ModuleBlock(n) => n.node_id(),
+            Statement::ModuleDeclaration(n) => n.node_id(),
+            Statement::NamespaceExportDeclaration(n) => n.node_id(),
+            Statement::NotEmittedStatement(n) => n.node_id(),
+            Statement::ReturnStatement(n) => n.node_id(),
+            Statement::SwitchStatement(n) => n.node_id(),
+            Statement::ThrowStatement(n) => n.node_id(),
+            Statement::TryStatement(n) => n.node_id(),
+            Statement::TypeAliasDeclaration(n) => n.node_id(),
+            Statement::VariableStatement(n) => n.node_id(),
+            Statement::WhileStatement(n) => n.node_id(),
+            Statement::WithStatement(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<Statement<'a>> for Node<'a> {
     fn from(value: Statement<'a>) -> Self {
         match value {
@@ -4691,6 +5886,18 @@ pub enum StringLiteralLikeNode<'a> {
     StringLiteral(&'a StringLiteral<'a>),
 }
 
+impl StringLiteralLikeNode<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            StringLiteralLikeNode::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            StringLiteralLikeNode::StringLiteral(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<StringLiteralLikeNode<'a>> for Node<'a> {
     fn from(value: StringLiteralLikeNode<'a>) -> Self {
         match value {
@@ -4729,6 +5936,18 @@ pub enum TemplateLiteral<'a> {
     TemplateExpression(&'a TemplateExpression<'a>),
 }
 
+impl TemplateLiteral<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            TemplateLiteral::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            TemplateLiteral::TemplateExpression(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<TemplateLiteral<'a>> for Node<'a> {
     fn from(value: TemplateLiteral<'a>) -> Self {
         match value {
@@ -4765,6 +5984,17 @@ pub enum TemplateLiteralLikeNode<'a> {
     Token(&'a Token<'a>),
 }
 
+impl TemplateLiteralLikeNode<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            TemplateLiteralLikeNode::Token(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<TemplateLiteralLikeNode<'a>> for Node<'a> {
     fn from(value: TemplateLiteralLikeNode<'a>) -> Self {
         match value {
@@ -4795,6 +6025,18 @@ pub enum TemplateLiteralToken<'a> {
     NoSubstitutionTemplateLiteral(&'a NoSubstitutionTemplateLiteral<'a>),
     /// See [`Token`].
     Token(&'a Token<'a>),
+}
+
+impl TemplateLiteralToken<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            TemplateLiteralToken::NoSubstitutionTemplateLiteral(n) => n.node_id(),
+            TemplateLiteralToken::Token(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<TemplateLiteralToken<'a>> for Node<'a> {
@@ -4833,6 +6075,18 @@ pub enum TemplateMiddleOrTail<'a> {
     TemplateMiddle(&'a TemplateMiddle<'a>),
     /// See [`TemplateTail`].
     TemplateTail(&'a TemplateTail<'a>),
+}
+
+impl TemplateMiddleOrTail<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            TemplateMiddleOrTail::TemplateMiddle(n) => n.node_id(),
+            TemplateMiddleOrTail::TemplateTail(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<TemplateMiddleOrTail<'a>> for Node<'a> {
@@ -4879,6 +6133,24 @@ pub enum TypeElement<'a> {
     PropertySignatureDeclaration(&'a PropertySignatureDeclaration<'a>),
     /// See [`SetAccessorDeclaration`].
     SetAccessorDeclaration(&'a SetAccessorDeclaration<'a>),
+}
+
+impl TypeElement<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            TypeElement::CallSignatureDeclaration(n) => n.node_id(),
+            TypeElement::ConstructSignatureDeclaration(n) => n.node_id(),
+            TypeElement::GetAccessorDeclaration(n) => n.node_id(),
+            TypeElement::IndexSignatureDeclaration(n) => n.node_id(),
+            TypeElement::MethodSignatureDeclaration(n) => n.node_id(),
+            TypeElement::NotEmittedTypeElement(n) => n.node_id(),
+            TypeElement::PropertySignatureDeclaration(n) => n.node_id(),
+            TypeElement::SetAccessorDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<TypeElement<'a>> for Node<'a> {
@@ -4995,6 +6267,50 @@ pub enum TypeNode<'a> {
     UnionTypeNode(&'a UnionTypeNode<'a>),
 }
 
+impl TypeNode<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            TypeNode::ArrayTypeNode(n) => n.node_id(),
+            TypeNode::ConditionalTypeNode(n) => n.node_id(),
+            TypeNode::ConstructorTypeNode(n) => n.node_id(),
+            TypeNode::FunctionTypeNode(n) => n.node_id(),
+            TypeNode::ImportTypeNode(n) => n.node_id(),
+            TypeNode::IndexedAccessTypeNode(n) => n.node_id(),
+            TypeNode::InferTypeNode(n) => n.node_id(),
+            TypeNode::IntersectionTypeNode(n) => n.node_id(),
+            TypeNode::JSDocAllType(n) => n.node_id(),
+            TypeNode::JSDocNameReference(n) => n.node_id(),
+            TypeNode::JSDocNonNullableType(n) => n.node_id(),
+            TypeNode::JSDocNullableType(n) => n.node_id(),
+            TypeNode::JSDocOptionalType(n) => n.node_id(),
+            TypeNode::JSDocSignature(n) => n.node_id(),
+            TypeNode::JSDocTypeExpression(n) => n.node_id(),
+            TypeNode::JSDocTypeLiteral(n) => n.node_id(),
+            TypeNode::JSDocVariadicType(n) => n.node_id(),
+            TypeNode::KeywordTypeNode(n) => n.node_id(),
+            TypeNode::LiteralTypeNode(n) => n.node_id(),
+            TypeNode::MappedTypeNode(n) => n.node_id(),
+            TypeNode::NamedTupleMember(n) => n.node_id(),
+            TypeNode::OptionalTypeNode(n) => n.node_id(),
+            TypeNode::ParenthesizedTypeNode(n) => n.node_id(),
+            TypeNode::RestTypeNode(n) => n.node_id(),
+            TypeNode::TemplateLiteralTypeNode(n) => n.node_id(),
+            TypeNode::TemplateLiteralTypeSpan(n) => n.node_id(),
+            TypeNode::ThisTypeNode(n) => n.node_id(),
+            TypeNode::TupleTypeNode(n) => n.node_id(),
+            TypeNode::TypeLiteralNode(n) => n.node_id(),
+            TypeNode::TypeOperatorNode(n) => n.node_id(),
+            TypeNode::TypePredicateNode(n) => n.node_id(),
+            TypeNode::TypeQueryNode(n) => n.node_id(),
+            TypeNode::TypeReferenceNode(n) => n.node_id(),
+            TypeNode::UnionTypeNode(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<TypeNode<'a>> for Node<'a> {
     fn from(value: TypeNode<'a>) -> Self {
         match value {
@@ -5093,6 +6409,18 @@ pub enum TypePredicateParameterName<'a> {
     ThisTypeNode(&'a ThisTypeNode<'a>),
 }
 
+impl TypePredicateParameterName<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            TypePredicateParameterName::Identifier(n) => n.node_id(),
+            TypePredicateParameterName::ThisTypeNode(n) => n.node_id(),
+        }
+    }
+}
+
 impl<'a> From<TypePredicateParameterName<'a>> for Node<'a> {
     fn from(value: TypePredicateParameterName<'a>) -> Self {
         match value {
@@ -5125,6 +6453,18 @@ pub enum UnionOrIntersectionTypeNode<'a> {
     IntersectionTypeNode(&'a IntersectionTypeNode<'a>),
     /// See [`UnionTypeNode`].
     UnionTypeNode(&'a UnionTypeNode<'a>),
+}
+
+impl UnionOrIntersectionTypeNode<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            UnionOrIntersectionTypeNode::IntersectionTypeNode(n) => n.node_id(),
+            UnionOrIntersectionTypeNode::UnionTypeNode(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<UnionOrIntersectionTypeNode<'a>> for Node<'a> {
@@ -5161,6 +6501,18 @@ pub enum VariableOrParameterDeclaration<'a> {
     ParameterDeclaration(&'a ParameterDeclaration<'a>),
     /// See [`VariableDeclaration`].
     VariableDeclaration(&'a VariableDeclaration<'a>),
+}
+
+impl VariableOrParameterDeclaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            VariableOrParameterDeclaration::ParameterDeclaration(n) => n.node_id(),
+            VariableOrParameterDeclaration::VariableDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<VariableOrParameterDeclaration<'a>> for Node<'a> {
@@ -5201,6 +6553,18 @@ pub enum VariableOrPropertyDeclaration<'a> {
     PropertyDeclaration(&'a PropertyDeclaration<'a>),
     /// See [`VariableDeclaration`].
     VariableDeclaration(&'a VariableDeclaration<'a>),
+}
+
+impl VariableOrPropertyDeclaration<'_> {
+    /// The id assigned when the parser registered this node.
+    #[must_use]
+    pub fn node_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            VariableOrPropertyDeclaration::PropertyDeclaration(n) => n.node_id(),
+            VariableOrPropertyDeclaration::VariableDeclaration(n) => n.node_id(),
+        }
+    }
 }
 
 impl<'a> From<VariableOrPropertyDeclaration<'a>> for Node<'a> {
