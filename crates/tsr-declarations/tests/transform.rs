@@ -1,0 +1,344 @@
+//! The transform, one construct at a time.
+//!
+//! # Why these exist when the corpus already covers 96% of the transform
+//!
+//! `docs/conventions.md`: *tests that depend on the submodule skip, not fail*. So
+//! a checkout without `vendor/typescript-go` runs the unit suite alone — and
+//! measured with `cargo llvm-cov`, that suite reached **51.59%** of
+//! `transform.rs`. The 96% is real, and it is not what a contributor sees before
+//! pushing, nor what CI sees when the submodule is unavailable.
+//!
+//! These are therefore aimed at the arms the *corpus* reaches and the *unit suite*
+//! did not: namespaces and the three-way scope-marker choice, accessors, parameter
+//! properties, private members, and the import elision rules. Each asserts the
+//! emitted text, because that is what ships.
+//!
+//! They are also the regression net for findings the corpus can only see
+//! indirectly. Every case below marked with an upstream anchor corresponds to a
+//! real defect found during slice 4 — the elided namespace bodies, the dropped
+//! side-effect import, the spurious scope marker — and each of those printed
+//! output that *parsed*, which is why a structural gate did not catch them.
+
+use tsr_core::Arena;
+
+/// Emit `source` and return the `.d.ts` text.
+fn emit(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "test source must parse cleanly: {source:?} — {:?}",
+        parsed.diagnostics.first().map(tsr_diagnostics::Diagnostic::text)
+    );
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit(&arena, &mut nodes, parsed.source_file);
+    assert!(result.unsupported.is_empty(), "printer gap {:?} in {source:?}", result.unsupported);
+    result.text
+}
+
+/// Assert the emitted text exactly, so spacing and ordering are covered too.
+#[track_caller]
+fn assert_emits(source: &str, expected: &str) {
+    assert_eq!(emit(source).trim_end(), expected.trim_end(), "\nfrom: {source}");
+}
+
+// ----- `declare`, and where it must not go ---------------------------------
+
+#[test]
+fn a_top_level_declaration_gains_declare_and_an_interface_does_not() {
+    // `ensureModifierFlags` + `isAlwaysType` (`transform.go:2333`, `util.go`). An
+    // interface has no runtime existence to declare.
+    assert_emits("export declare const a: number;", "export declare const a: number;");
+    assert_emits("export const a: number = 1;", "export declare const a: number;");
+    assert_emits(
+        "export interface I {\n    a: number;\n}",
+        "export interface I {\n    a: number;\n}",
+    );
+    assert_emits("export type T = number;", "export type T = number;");
+}
+
+#[test]
+fn a_declaration_inside_a_namespace_does_not_gain_declare() {
+    // `ensureModifierFlags`'s `parentIsFile` branch: inside a namespace body the
+    // mask clears `AMBIENT` outright, because the enclosing `declare` covers it.
+    // `declare namespace M { declare const x: number; }` does not parse.
+    assert_emits(
+        "export namespace M {\n    export const x: number = 1;\n}",
+        "export declare namespace M {\n    const x: number;\n}",
+    );
+}
+
+#[test]
+fn export_default_keeps_its_export_and_never_gains_declare() {
+    // `maskModifierFlags`'s two corrections (`util.go`): a non-exported `default`
+    // is a nonsequitur, and `declare` beside `default` is an error rather than a
+    // redundancy.
+    let text = emit("export default class C {\n    x: number = 1;\n}");
+    assert!(text.contains("export default class C"), "{text}");
+    assert!(!text.contains("declare"), "declare must not appear beside default:\n{text}");
+}
+
+// ----- namespaces, and the three-way scope-marker choice -------------------
+
+#[test]
+fn a_namespace_body_survives() {
+    // The defect this is a regression test for: `is_declaration_visible` had no
+    // opinion about nested declarations and the transform read that as "not
+    // visible", emptying **every** namespace body in the corpus. The output —
+    // `declare namespace M {}` — parses, so only a byte comparison saw it.
+    assert_emits(
+        "namespace M {\n    export interface I {\n        a: number;\n    }\n}",
+        "declare namespace M {\n    interface I {\n        a: number;\n    }\n}",
+    );
+}
+
+#[test]
+fn an_ambient_namespace_needs_no_scope_marker() {
+    // `transform.go:1846`. Everything in a `declare namespace` is exported already.
+    // Upstream tests `NodeFlagsAmbient`, which this parser never sets
+    // (`bd tsr-qc3`), so the transform tests the `declare` modifier too — this is
+    // the test that pins that workaround.
+    let text = emit("declare namespace M {\n    interface I {\n    }\n}");
+    assert!(!text.contains("export {}"), "an ambient namespace gained a scope marker:\n{text}");
+}
+
+#[test]
+fn a_namespace_whose_members_are_all_exported_has_its_export_modifiers_stripped() {
+    // `transformModuleDeclaration`'s second branch (`:1849`): everything in an
+    // ambient namespace is exported, so restating `export` is noise upstream does
+    // not emit.
+    assert_emits(
+        "namespace M {\n    export const a: number = 1;\n    export const b: string = \"\";\n}",
+        "declare namespace M {\n    const a: number;\n    const b: string;\n}",
+    );
+}
+
+#[test]
+fn a_dotted_namespace_emits_as_one_header() {
+    // `namespace A.B {}` is two nested `ModuleDeclaration`s in the tree, and the
+    // printer restates only the inner *name* — writing both headers produced
+    // `namespace A. export namespace B {}` (`docs/architecture/printer.md`). The
+    // emitted text is one dotted header, which is what upstream writes.
+    assert_emits(
+        "namespace A.B {\n    export const x: number = 1;\n}",
+        "declare namespace A.B {\n    const x: number;\n}",
+    );
+}
+
+// ----- the file-level scope marker -----------------------------------------
+
+#[test]
+fn a_module_that_would_lose_its_moduleness_gains_an_export_marker() {
+    // `transformSourceFile`'s scope-marker block. Without the marker the emitted
+    // declarations would leak into the global scope — a change of meaning, not of
+    // spelling.
+    let text = emit("import { x } from \"./m\";\nconst hidden: number = 1;\n");
+    assert_eq!(text.trim_end(), "export {};", "\ngot:\n{text}");
+}
+
+#[test]
+fn a_script_gains_no_marker() {
+    // Not a module: there is no export list to be reachable from, and nothing to
+    // preserve.
+    let text = emit("const a: number = 1;\n");
+    assert!(!text.contains("export {}"), "a script gained a scope marker:\n{text}");
+}
+
+#[test]
+fn the_empty_export_marker_has_no_space_in_it() {
+    // `LFNamedImportsOrExportsElements` carries `LFNoSpaceIfEmpty`. Written by hand
+    // at the call site instead of through `emit_list`, this printed `export {  };`
+    // — the most common line in a `.d.ts`, wrong in every file that had one.
+    let text = emit("import { x } from \"./m\";\nconst hidden: number = 1;\n");
+    assert!(text.contains("export {};"), "expected `export {{}};`, got:\n{text}");
+    assert!(!text.contains("export {  }"), "{text}");
+}
+
+// ----- imports --------------------------------------------------------------
+
+#[test]
+fn an_unreferenced_import_is_elided_and_a_referenced_one_is_not() {
+    // `transformImportDeclaration` (`:2471`): upstream keeps an import only when
+    // something in the output still refers to it.
+    let unused = emit("import { T } from \"./m\";\nexport const a: number = 1;\n");
+    assert!(!unused.contains("import"), "an unreferenced import survived:\n{unused}");
+
+    let used = emit("import { T } from \"./m\";\nexport const a: T = 1 as T;\n");
+    assert!(
+        used.contains("import { T } from \"./m\";"),
+        "a referenced import was dropped:\n{used}"
+    );
+}
+
+#[test]
+fn a_side_effect_import_is_never_elided() {
+    // It binds no name, so reachability has nothing to say about it — and dropping
+    // it changes what an importer of the `.d.ts` loads. `transform.go:2474`.
+    let text = emit("import \"./polyfill\";\nexport const a: number = 1;\n");
+    assert!(text.contains("import \"./polyfill\";"), "a side-effect import was dropped:\n{text}");
+}
+
+// ----- class members --------------------------------------------------------
+
+#[test]
+fn a_private_member_keeps_its_name_and_loses_its_type() {
+    // `omitPrivateMethodType` (`:1090`) and `ensureType`'s private guard (`:1630`):
+    // a private member is not part of the class's public shape, but its *presence*
+    // is, because it makes the class nominally distinct.
+    assert_emits(
+        "export class C {\n    private a: number = 1;\n    private m(x: number): void {}\n}",
+        "export declare class C {\n    private a;\n    private m;\n}",
+    );
+}
+
+#[test]
+fn a_hash_private_member_becomes_a_single_marker() {
+    // `buildClassMembers` (`:1918`): a class with any `#name` carries one
+    // `#private` marker, and the members themselves are not named — emitting them
+    // would leak a private name.
+    let text =
+        emit("export class C {\n    #a: number = 1;\n    #b: number = 2;\n    c: number = 3;\n}");
+    assert_eq!(text.matches("#private").count(), 1, "expected exactly one marker:\n{text}");
+    assert!(!text.contains("#a"), "a private name leaked:\n{text}");
+}
+
+#[test]
+fn a_parameter_property_becomes_a_property() {
+    // `buildClassMembers`'s parameter-property pass: `constructor(public x: T)`
+    // declares a property, and the `.d.ts` has to restate it as one.
+    assert_emits(
+        "export class C {\n    constructor(public a: number, private b: string) {}\n}",
+        "export declare class C {\n    a: number;\n    private b;\n    constructor(a: number, b: string);\n}",
+    );
+}
+
+#[test]
+fn a_definite_assignment_assertion_is_dropped_but_an_optional_marker_is_not() {
+    // `transformPropertyDeclaration` (`:979`): `!` is not legal in a `.d.ts`; `?`
+    // is, and dropping it would change the type.
+    assert_emits(
+        "export class C {\n    a!: number;\n    b?: number;\n}",
+        "export declare class C {\n    a: number;\n    b?: number;\n}",
+    );
+}
+
+#[test]
+fn a_setter_with_no_parameter_gets_a_synthesized_one() {
+    // `updateAccessorParamList` (`:1031`): "emit `value: any` for non-private
+    // accessors to match TypeScript's declaration emit behavior".
+    let text =
+        emit("export class C {\n    get a(): number { return 1; }\n    set a(v: number) {}\n}");
+    assert!(text.contains("get a(): number;"), "{text}");
+    assert!(text.contains("set a(v: number);"), "{text}");
+}
+
+#[test]
+fn a_static_block_and_a_stray_semicolon_emit_nothing() {
+    // `visitDeclarationSubtree`'s elision arms: a static block is runtime, and a
+    // `SemicolonClassElement` is punctuation.
+    assert_emits(
+        "export class C {\n    static { }\n    ;\n    a: number = 1;\n}",
+        "export declare class C {\n    a: number;\n}",
+    );
+}
+
+// ----- parameters -----------------------------------------------------------
+
+#[test]
+fn a_parameter_with_an_initializer_becomes_optional() {
+    // `ensureParameter` (`:2395`). The initializer cannot be emitted, so without
+    // the `?` the signature would require an argument that used to be optional —
+    // the same fact stated two ways.
+    assert_emits(
+        "export declare function f(a: number, b: number): void;",
+        "export declare function f(a: number, b: number): void;",
+    );
+    assert_emits(
+        "export function f(a: number = 1): void {}",
+        "export declare function f(a?: number): void;",
+    );
+}
+
+#[test]
+fn a_rest_parameter_keeps_its_dots() {
+    assert_emits(
+        "export function f(...rest: number[]): void {}",
+        "export declare function f(...rest: number[]): void;",
+    );
+}
+
+// ----- enums ----------------------------------------------------------------
+
+#[test]
+fn enum_members_emit_their_folded_values() {
+    // `transformEnumDeclaration` (`:2262`) rewrites every member to its constant.
+    // `enum E { A }` and `enum E { A = 0 }` are the same type and not the same
+    // text, and this gate compares text.
+    assert_emits(
+        "export enum E {\n    A,\n    B,\n    C = 10,\n    D,\n}",
+        "export declare enum E {\n    A = 0,\n    B = 1,\n    C = 10,\n    D = 11\n}",
+    );
+}
+
+#[test]
+fn an_enum_member_with_no_constant_value_emits_no_value() {
+    // Upstream sets `newInitializer = nil` when the evaluator has nothing, which is
+    // legal and is what a computed member emits.
+    let text = emit("declare function f(): number;\nexport enum E {\n    A = f(),\n}");
+    assert!(text.contains("A\n") || text.trim_end().ends_with('A'), "expected a bare `A`:\n{text}");
+    assert!(!text.contains("f()"), "a call reached the .d.ts:\n{text}");
+}
+
+#[test]
+fn enum_members_fold_through_their_siblings() {
+    assert_emits(
+        "export enum F {\n    A = 1,\n    B = 2,\n    C = A | B,\n}",
+        "export declare enum F {\n    A = 1,\n    B = 2,\n    C = 3\n}",
+    );
+}
+
+// ----- literal consts -------------------------------------------------------
+
+#[test]
+fn a_literal_const_emits_its_value_re_spelled() {
+    // `CreateLiteralConstValue`. Upstream rebuilds the literal from the checker's
+    // *value*, so `0x1` comes back as `1` and a template as a string.
+    assert_emits("export const a = 0x1;", "export declare const a = 1;");
+    assert_emits("export const b = 0o17;", "export declare const b = 15;");
+    assert_emits("export const c = 1_000;", "export declare const c = 1000;");
+    assert_emits("export const d = `s`;", "export declare const d = \"s\";");
+    assert_emits("export const e = -1;", "export declare const e = -1;");
+    assert_emits("export const f = +1;", "export declare const f = 1;");
+}
+
+#[test]
+fn an_annotated_const_emits_its_annotation_not_its_value() {
+    // `isLiteralConstDeclaration` is about a *fresh literal type*. An annotation
+    // means the declared type is the annotation, so `= 42` would be a different
+    // type — and would parse, which is why this needed a test rather than a gate.
+    assert_emits("export const a: number = 42;", "export declare const a: number;");
+}
+
+#[test]
+fn a_let_widens_and_a_const_object_widens_too() {
+    // A `const` *declaration* is not a const *assertion*. Only `as const` produces
+    // `readonly` members and literal types — `bd tsr-49v.2.6`.
+    assert_emits("export let a = 1;", "export declare let a: number;");
+    assert_emits("export const b = { c: 1 };", "export declare const b: {\n    c: number;\n};");
+    assert_emits(
+        "export const d = { e: 1 } as const;",
+        "export declare const d: {\n    readonly e: 1;\n};",
+    );
+}
+
+// ----- statements that are not declarations ---------------------------------
+
+#[test]
+fn runtime_statements_are_elided() {
+    // `visit`'s elision list (`transform.go:247`). Nothing with a runtime effect
+    // survives, and nothing that survives has a body.
+    assert_emits(
+        "export const a: number = 1;\nconsole.log(a);\nif (a) { }\nfor (;;) { }\nwhile (a) { }\ntry { } catch { }\n",
+        "export declare const a: number;",
+    );
+}

@@ -391,19 +391,23 @@ before P4 completes.
 > SHA before anything else rests on it (`bd tsr-49v.5`).
 
 **Slice 4 shipped the artifact.** `tsr-declarations` is the AST→AST transform
-between the analysis and the printer, at **36.89%** byte-exact against upstream's
-`.d.ts` baselines over the reachable population (`dts_emit` 180/488;
+between the analysis and the printer, at **47.06%** byte-exact against upstream's
+`.d.ts` baselines over the reachable population (`dts_emit` 160/340) and **67.76%**
+on the declaration structure over a population 2.7× larger (`dts_shape` 618/912;
 `dts_reachable_target` 496/1,162). It *is* a port of
 `internal/transformers/declarations`, around a named `EmitResolver` seam that
 Phase 4's checker plugs into — see
 [ADR-0022](docs/adr/0022-the-declaration-transform-is-a-port-around-a-resolver-seam.md)
 and [docs/architecture/declaration-emit.md](docs/architecture/declaration-emit.md).
 
-> **Corrected 2026-08-04.** `dts_reachable_target` was published at 575/1,289.
-> Both `.d.ts` suites read declaration output from the `.js` baseline's sections
-> and were counting *echoed input units* as emitted output; 127 cases were that
-> shape. The corrected figure is 496/1,162, and ADR-0021's first falsifier still
-> does not fire.
+> **Corrected 2026-08-04, three times over.** `dts_reachable_target` was published
+> at 575/1,289: the `.d.ts` suites read declaration output from the `.js`
+> baseline's sections and counted *echoed input units* as emitted output, 127 cases
+> of it. `dts_emit` was published at 180/488 for two further reasons — it decided
+> which unit paired with which section while emitting, and it short-circuited on
+> the first failing unit, so in both cases the denominator depended on the
+> component under test. All three are fixed and the denominators are now shown to
+> hold across eight mutations. ADR-0021's first falsifier still does not fire.
 
 **Upstream's declaration transform is not checker-free, and neither is its error
 path** — `isolatedDeclarations` is a flag on the checker-driven transform, not a

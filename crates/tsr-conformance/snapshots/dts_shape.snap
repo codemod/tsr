@@ -1,0 +1,217 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+dts_shape Summary:
+What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
+Passed         : 618/912 (67.76%)
+Failed         : 292
+Unsupported    : 2
+Skipped        : 11532 (excluded from the denominator)
+
+  2  printer: NoSubstitutionTemplateLiteral
+  10  skipped: a unit of this case does not parse cleanly
+  8418  skipped: the emit baseline has no emitted .d.ts section
+  2477  skipped: upstream recorded no .js emit baseline
+  617  skipped: upstream recorded no output for this case
+  10  skipped: upstream's .d.ts baseline does not reparse
+
+First 100 of 292 failures:
+compiler/aliasInaccessibleModule2
+  #2: want `  import= R`, got `    class C`
+compiler/amdLikeInputDeclarationEmit
+  #0: missing `var ExtendedClass`
+compiler/anonClassDeclarationEmitIsAnon
+  #0: want `var _default`, got `export=`
+compiler/bindingPatternOmittedExpressionNesting
+  #0: want `export{}`, got `var <pattern>`
+compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
+  #0: want `interface Pretty`, got `class A`
+compiler/conflictingDeclarationsImportFromNamespace1
+  #0: want `export=`, got `var pick`
+compiler/conflictingDeclarationsImportFromNamespace2
+  #0: want `export=`, got `var pick`
+compiler/declFileAliasUseBeforeDeclaration2
+  #3: want `  class B`, got `    export{}`
+compiler/declFileAmbientExternalModuleWithSingleExportedModule
+  #4: extra `      export{}`
+compiler/declFileGenericType2
+  #3: want `namespace templa`, got `    export{}`
+compiler/declFileImportModuleWithExportAssignment
+  #0: want `namespace m2`, got `var m2`
+compiler/declFileTypeofFunction
+  #2: want `function g`, got `function f`
+compiler/declFileWithExtendsClauseThatHasItsContainerNameConflict
+  #4: want `namespace A`, got `      export{}`
+compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
+  #8: want `        class W`, got `        namespace A`
+compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
+  #13: extra `        namespace A`
+compiler/declInput4
+  #1: want `  class E`, got `  class C`
+compiler/declarationEmitAliasExportStar
+  #0: want `import`, got `var thing2`
+compiler/declarationEmitAliasFromIndirectFile
+  #0: want `var _default`, got `var fp`
+compiler/declarationEmitAliasInlineing
+  #0: want `type O`, got `var fn`
+compiler/declarationEmitClassMemberWithComputedPropertyName
+  #0: want `var k1`, got `var t1`
+compiler/declarationEmitClassMixinLocalClassDeclaration
+  #5: want `var XmlElement2_base`, got `class XmlElement2`
+compiler/declarationEmitComputedNameConstEnumAlias
+  #0: want `var _default`, got `export=`
+compiler/declarationEmitComputedPropertyNameSymbol1
+  emitted index.d.ts, upstream emitted no declaration file
+compiler/declarationEmitComputedPropertyNameSymbol2
+  emitted index.d.ts, upstream emitted no declaration file
+compiler/declarationEmitDefaultExport5
+  #0: want `var _default`, got `export=`
+compiler/declarationEmitDefaultExport6
+  #1: want `var _default`, got `export=`
+compiler/declarationEmitDefaultExport7
+  #0: want `class A`, got `export=`
+compiler/declarationEmitDefaultExport8
+  #2: want `var _default_1`, got `export=`
+compiler/declarationEmitDefaultExportWithStaticAssignment
+  #0: want `import`, got `function Example`
+compiler/declarationEmitDestructuringArrayPattern1
+  #3: want `var a`, got `var <pattern>`
+compiler/declarationEmitDestructuringArrayPattern2
+  #1: want `var x11, y11`, got `var <pattern>`
+compiler/declarationEmitDestructuringObjectLiteralPattern
+  #7: want `function f15`, got `var <pattern>`
+compiler/declarationEmitDestructuringObjectLiteralPattern1
+  #6: extra `var <pattern>`
+compiler/declarationEmitDestructuringOptionalBindingParametersInOverloads
+  #1: want `function foo2`, got `function foo`
+compiler/declarationEmitEnumReferenceViaImportEquals
+  #0: want `import`, got `class Test`
+compiler/declarationEmitExpandoPropertyPrivateName
+  emitted b.d.ts, upstream emitted no declaration file
+compiler/declarationEmitExpandoWithGenericConstraint
+  #2: want `function Point`, got `var Point`
+compiler/declarationEmitExportAliasVisibiilityMarking
+  #0: want `import`, got `export=`
+compiler/declarationEmitExpressionInExtends2
+  #2: want `var MyClass_base`, got `class MyClass`
+compiler/declarationEmitExpressionInExtends3
+  #1: want `class LocalClass`, got `interface ExportedInterface`
+compiler/declarationEmitExpressionInExtends4
+  #1: want `var C_base`, got `class C`
+compiler/declarationEmitExpressionInExtends5
+  #3: want `  var Derived_base`, got `  class Derived`
+compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
+  emitted b.d.ts, upstream emitted no declaration file
+compiler/declarationEmitForDefaultExportClassExtendingExpression01
+  #0: want `interface Greeter`, got `class <anonymous>`
+compiler/declarationEmitForModuleImportingModuleAugmentationRetainsImport
+  #1: want `module "./parent"`, got `function child1`
+compiler/declarationEmitFunctionDuplicateNamespace
+  #1: want `namespace f`, got `function f`
+compiler/declarationEmitFunctionKeywordProp
+  #1: want `namespace foo`, got `function bar`
+compiler/declarationEmitInferredDefaultExportType
+  #0: want `var _default`, got `export=`
+compiler/declarationEmitInferredDefaultExportType2
+  #0: want `var _default`, got `export=`
+compiler/declarationEmitInferredTypeAlias9
+  #0: want `type Foo`, got `function returnSomeGlobalValue`
+compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
+  #0: want `import`, got `var middleware`
+compiler/declarationEmitLateBoundAssignments
+  #1: missing `namespace foo`
+compiler/declarationEmitLateBoundAssignments2
+  #1: want `namespace decl`, got `function decl2`
+compiler/declarationEmitLateBoundJSAssignments
+  #1: missing `namespace foo`
+compiler/declarationEmitLocalClassDeclarationMixin
+  #2: want `var FilteredThing_base`, got `class FilteredThing`
+compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
+  #0: want `type Fns`, got `export=`
+compiler/declarationEmitMultipleComputedNamesSameDomain
+  #0: want `var x`, got `class Test`
+compiler/declarationEmitNamespaceMergedWithInterfaceNestedFunction
+  #1: want `interface Bar`, got `namespace Bar`
+compiler/declarationEmitNoInvalidCommentReuse3
+  #0: want `import`, got `var _`
+compiler/declarationEmitNonExportedBindingPattern
+  #0: want `var <pattern>`, got `type AliasType`
+compiler/declarationEmitObjectAssignedDefaultExport
+  #0: want `interface Statics`, got `var C`
+compiler/declarationEmitPartialNodeReuseTypeOf
+  #2: want `var nPrivate`, got `var o`
+compiler/declarationEmitPartialNodeReuseTypeReferences
+  #1: want `type PrivateSpecialString`, got `namespace N`
+compiler/declarationEmitPartialReuseComputedProperty
+  #0: want `import`, got `var g`
+compiler/declarationEmitPreserveReferencedImports
+  #0: want `import`, got `var f`
+compiler/declarationEmitPrivateNameCausesError
+  #0: want `var IGNORE_EXTRA_VARIABLES`, got `function ignoreExtraVariables`
+compiler/declarationEmitPrivatePromiseLikeInterface
+  #0: want `type TPromise`, got `interface HttpResponse`
+compiler/declarationEmitPrivateSymbolCausesVarDeclarationEmit2
+  #0: want `import`, got `class C`
+compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
+  #0: want `var _data`, got `class User`
+compiler/declarationEmitQualifiedAliasTypeArgument
+  #0: want `import`, got `var fun`
+compiler/declarationEmitReadonlyComputedProperty
+  emitted index.d.ts, upstream emitted no declaration file
+compiler/declarationEmitRecursiveConditionalAliasPreserved
+  #0: want `import`, got `var power`
+compiler/declarationEmitResolveTypesIfNotReusable
+  #0: want `var u`, got `var o1`
+compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
+  #0: want `type Whatever`, got `var run`
+compiler/declarationEmitRetainsJsdocyComments
+  #3: missing `namespace global`
+compiler/declarationEmitReusesLambdaParameterNodes
+  #0: want `type Whatever`, got `import`
+compiler/declarationEmitScopeConsistency
+  #0: want `import`, got `interface A`
+compiler/declarationEmitShadowingInferNotRenamed
+  #0: want `type Client`, got `var createClient`
+compiler/declarationEmitSpreadStringlyKeyedEnum
+  #0: want `enum AgeGroups`, got `var SpotifyAgeGroupEnum`
+compiler/declarationEmitTransitiveImportOfHtmlDeclarationItem
+  #0: want `import`, got `function func`
+compiler/declarationEmitTypeAliasWithTypeParameters5
+  #2: want `export{}`, got `function foo`
+compiler/declarationEmitTypeofRest
+  #0: want `var n`, got `var v2`
+compiler/declarationMaps
+  #0: want `namespace m2`, got `var m2`
+compiler/declarationMapsMultifile
+  #1: missing `import`
+compiler/declarationNoDanglingGenerics
+  #0: want `var AKind_base`, got `class AKind`
+compiler/declarationsForFileShadowingGlobalNoError
+  #0: want `import`, got `var mixin`
+compiler/declarationsForIndirectTypeAliasReference
+  #0: want `import`, got `export{}`
+compiler/declarationsIndirectGeneratedAliasReference
+  #0: want `import`, got `var MyComp`
+compiler/declareDottedModuleName
+  #1: want `namespace M`, got `  namespace P`
+compiler/declareFileExportAssignment
+  #0: want `namespace m2`, got `var m2`
+compiler/declareFileExportAssignmentWithVarFromVariableStatement
+  #0: want `namespace m2`, got `var x, m2`
+compiler/defaultDeclarationEmitDefaultImport
+  #0: want `import`, got `var instance`
+compiler/defaultDeclarationEmitShadowedNamedCorrectly
+  #0: want `import`, got `interface Things`
+compiler/destructuredDeclarationEmit
+  #2: want `var <pattern>`, got `export{}`
+compiler/duplicateIdentifiersAcrossFileBoundaries
+  #8: extra `    var t`
+compiler/emitClassExpressionInDeclarationFile
+  #5: want `var Test_base`, got `class Test`
+compiler/enumDeclarationEmitInitializerHasImport
+  #0: want `import= provider`, got `var value`
+compiler/es6ExportDefaultExpression
+  #0: want `var _default`, got `export=`
+compiler/es6ImportDefaultBindingFollowedWithNamedImport
+  #3: want `var _default`, got `export=`
+compiler/es6ImportDefaultBindingFollowedWithNamedImportDts
+  #0: want `import`, got `var x1`

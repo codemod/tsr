@@ -636,8 +636,16 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         };
         let span = self.span_of(parameter.node_id);
         let modifiers = self.ensure_modifiers(parameter.modifiers, parameter.node_id, false, false);
-        let r#type =
-            self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id);
+        // `ensureType(param, /*ignorePrivate*/ false)` (`transform.go:1933`). The
+        // *property* a private parameter property declares emits no type, while
+        // the constructor parameter it came from keeps one — `ensureParameter`
+        // passes `ignorePrivate: true` for exactly that reason. Emitting the type
+        // in both places leaks a private member's shape, and parses.
+        let r#type = if has_modifier(parameter.modifiers, SyntaxKind::PrivateKeyword) {
+            None
+        } else {
+            self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id)
+        };
         Some(ClassElement::PropertyDeclaration(self.factory.alloc(
             tsr_ast::PropertyDeclaration::new(
                 modifiers,

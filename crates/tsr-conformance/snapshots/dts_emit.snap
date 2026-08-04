@@ -2,51 +2,29 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 180/488 (36.89%)
-Failed         : 307
+Passed         : 161/340 (47.35%)
+Failed         : 178
 Unsupported    : 1
-Skipped        : 11956 (excluded from the denominator)
+Skipped        : 12104 (excluded from the denominator)
 
   1  printer: NoSubstitutionTemplateLiteral
-  650  skipped: a declaration in this case needs inference (see dts_reachable_target)
-  24  skipped: a unit of this case does not parse cleanly
-  8188  skipped: the emit baseline's .d.ts sections are all echoed inputs
+  576  skipped: a declaration in this case needs inference (see dts_reachable_target)
+  16  skipped: a unit of this case does not parse cleanly
+  8418  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 307 failures:
+First 100 of 178 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
   line 3: want `    }`, got `        class C {`
 compiler/amdLikeInputDeclarationEmit
   line 1: missing `declare const ExtendedClass: new () => {`
-compiler/argumentsReferenceInConstructor1_Js
-  emitted /a.d.ts, upstream did not
-compiler/argumentsReferenceInConstructor2_Js
-  emitted /a.d.ts, upstream did not
-compiler/argumentsReferenceInConstructor5_Js
-  emitted /a.d.ts, upstream did not
-compiler/argumentsReferenceInConstructor6_Js
-  emitted /a.d.ts, upstream did not
-compiler/argumentsReferenceInConstructor7_Js
-  emitted /a.d.ts, upstream did not
 compiler/bindingPatternOmittedExpressionNesting
   line 1: want `export {};`, got `export declare let [[[], []]]: any;`
-compiler/cachedModuleResolution1
-  emitted /a/b/c/d/e/app.d.ts, upstream did not
-compiler/cachedModuleResolution2
-  emitted /a/b/c/lib.d.ts, upstream did not
-compiler/cachedModuleResolution5
-  emitted /a/b/c/d/e/app.d.ts, upstream did not
-compiler/checkerInitializationCrash
-  emitted /index.d.ts, upstream did not
 compiler/commentsVariableStatement1
   line 1: want `/** Comment */`, got `declare var v: number;`
-compiler/commonSourceDirectory
-  emitted /node_modules/foo/index.d.ts, upstream did not
-compiler/compositeWithNodeModulesSourceFile
-  emitted /foo/node_modules/myModule/index.d.ts, upstream did not
 compiler/conflictingDeclarationsImportFromNamespace1
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
 compiler/conflictingDeclarationsImportFromNamespace2
@@ -95,20 +73,16 @@ compiler/declarationEmitDistributiveConditionalWithInfer
   line 1: want `export declare const fun: (subFun: <Collection, Field extends keyof Collection>() => FlatArray<Collection[Field], 0>[]) => void;`, got `export declare const fun: any;`
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
+compiler/declarationEmitExpandoPropertyPrivateName
+  emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitExpandoWithGenericConstraint
   line 9: want `export declare function Point(x: number, y: number): Point;`, got `export declare const Point: (x: number, y: number) => Point;`
 compiler/declarationEmitExportAliasVisibiilityMarking
   line 1: want `type Suit = 'Hearts' | 'Spades' | 'Clubs' | 'Diamonds';`, got `type Suit = "Hearts" | "Spades" | "Clubs" | "Diamonds";`
-compiler/declarationEmitExpressionInExtends6
-  emitted /a.d.ts, upstream did not
-compiler/declarationEmitHasTypesRefOnNamespaceUse
-  emitted /src/index.d.ts, upstream did not
+compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
+  emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
-compiler/declarationEmitJsReExportDefault
-  emitted /index.d.mts, upstream did not
-compiler/declarationEmitMappedPrivateTypeTypeParameter
-  emitted /Helpers.d.ts, upstream did not
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
   line 1: want `declare type requiredKeys<T extends object> = {`, got `declare type requiredKeys<T extends object> = { [k in keyof T]: undefined extends T[k] ? never : k; }[keyof T];`
 compiler/declarationEmitNameConflicts2
@@ -129,18 +103,12 @@ compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
   line 1: want `declare const _data: unique symbol;`, got `export declare class User {`
 compiler/declarationEmitRecursiveConditionalAliasPreserved
   line 1: want `import { Power } from "./input";`, got `export declare const power: <Num extends number, PowerOf extends number>(num: Num, powerOf: PowerOf) => Power<Num, PowerOf>;`
-compiler/declarationEmitRedundantTripleSlashModuleAugmentation
-  emitted /augmentation.d.ts, upstream did not
 compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
   line 1: want `export type Whatever<T> = {x: T};`, got `export declare const run: <E>(i: () => E.Whatever<E>) => E.Whatever<E>;`
 compiler/declarationEmitScopeConsistency3
   line 1: want `export declare const g: (v: "outer") => () => "inner";`, got `export declare const g: any;`
 compiler/declarationEmitShadowingInferNotRenamed
   line 1: want `type Client = string;`, got `export declare const createClient: <D extends (new (...args: any[]) => Client) | Record<string, new (...args: any[]) => Client> >(clientDef: D) => D extends new (...args: any[]) => infer C ? UpdatedClient<C> : { [K in keyof D]: D[K] extends new (...args: any[]) => infer C ? UpdatedClient<C> : never; };`
-compiler/declarationEmitToDeclarationDirWithCompositeOption
-  emitted /foo/test.d.ts, upstream did not
-compiler/declarationEmitToDeclarationDirWithDeclarationOption
-  emitted /foo/test.d.ts, upstream did not
 compiler/declarationEmitTypeAliasWithTypeParameters1
   line 3: want `export declare const y: (x: Foo<string>) => number;`, got `export declare const y: any;`
 compiler/declarationEmitTypeAliasWithTypeParameters2
@@ -149,24 +117,6 @@ compiler/declarationEmitTypeParameterNameShadowedInternally
   line 1: want `export declare const foo: <T>(x: T) => <T_1>(y: T_1) => readonly [T, T_1];`, got `export declare const foo: any;`
 compiler/declarationEmitTypeofRest
   line 2: want `    /** r rest param */`, got `    a: typeof a;`
-compiler/declarationEmitUsingAlternativeContainingModules1
-  emitted src/index.d.mts, upstream did not
-compiler/declarationEmitUsingAlternativeContainingModules2
-  emitted src/index.d.mts, upstream did not
-compiler/declarationEmitUsingTypeAlias1
-  emitted src/index.d.ts, upstream did not
-compiler/declarationEmitWithComposite
-  emitted /foo/test.d.ts, upstream did not
-compiler/declarationEmitWithInvalidPackageJsonTypings
-  emitted /p1/index.d.ts, upstream did not
-compiler/declarationFilesWithTypeReferences1
-  emitted /app.d.ts, upstream did not
-compiler/declarationFilesWithTypeReferences2
-  emitted /app.d.ts, upstream did not
-compiler/declarationFilesWithTypeReferences3
-  emitted /a/app.d.ts, upstream did not
-compiler/declarationFilesWithTypeReferences4
-  emitted /a/app.d.ts, upstream did not
 compiler/declarationMaps
   line 1: want `declare namespace m2 {`, got `declare var m2: {`
 compiler/declarationsForFileShadowingGlobalNoError
@@ -185,33 +135,83 @@ compiler/deferredLookupTypeResolution2
   line 1: want `type StringContains<S extends string, L extends string> = ({`, got `type StringContains<S extends string, L extends string> = ({ [K in S]: "true"; } & {`
 compiler/destructuredDeclarationEmit
   line 11: want `declare const arr: [0, 1, 2, ['a', 'b', 'c', [{`, got `declare const arr: [0, 1, 2, ["a", "b", "c", [{`
-compiler/dtsEmitTripleSlashAvoidUnnecessaryResolutionMode
-  emitted /app.d.mts, upstream did not
-compiler/duplicatePackage
-  emitted /src/a.d.ts, upstream did not
-compiler/duplicatePackage_globalMerge
-  emitted /src/index.d.ts, upstream did not
-compiler/duplicatePackage_packageIdIncludesSubModule
-  emitted /index.d.ts, upstream did not
-compiler/duplicatePackage_referenceTypes
-  emitted /index.d.ts, upstream did not
-compiler/duplicatePackage_relativeImportWithinPackage
-  emitted /index.d.ts, upstream did not
-compiler/duplicatePackage_relativeImportWithinPackage_scoped
-  emitted /index.d.ts, upstream did not
-compiler/duplicatePackage_subModule
-  emitted /index.d.ts, upstream did not
-compiler/duplicatePackage_withErrors
-  emitted /src/a.d.ts, upstream did not
-compiler/elidedJSImport1
-  emitted caller.d.ts, upstream did not
 compiler/enumDecl1
   line 3: want `        x,`, got `        x = 0,`
-compiler/esModuleInterop
-  emitted mjts.d.ts, upstream did not
 compiler/expandoFunctionExpressionsWithDynamicNames
   line 1: want `export declare function expr(): void;`, got `export declare const expr: any;`
-compiler/exportAsNamespace_augment
-  emitted /b.d.ts, upstream did not
-compiler/exportAssignmentMembersVisibleInAugmentation
-  emitted /a.d.ts, upstream did not
+compiler/exportNamespaceDeclarationRetainsVisibility
+  line 3: want `        kind: 'a';`, got `        kind: "a";`
+compiler/fakeInfinity1
+  line 2: want `export type NegativeInfinity = -1e999;`, got `export type NegativeInfinity = 1e999;`
+compiler/functionExpressionReturningItself
+  line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
+compiler/importAliasFromNamespace
+  line 1: want `/// <reference path="internal.d.ts" preserve="true" />`, got `declare namespace SomeOther.Thing {`
+compiler/importDeclarationUsedAsTypeQuery
+  line 1: want `import a = require('./importDeclarationUsedAsTypeQuery_require');`, got `import a = require("./importDeclarationUsedAsTypeQuery_require");`
+compiler/importedAliasedConditionalTypeInstantiation
+  line 1: want `export type Handler<TEvent = any, TResult = any> = (`, got `export {};`
+compiler/internalAliasWithDottedNameEmit
+  line 5: want `}`, got `    import g = b.c;`
+compiler/isolatedDeclarationErrorTypes1
+  line 1: want `import { Unresolved } from "foo";`, got `export declare const foo1: (type?: Unresolved) => void;`
+compiler/isolatedDeclarationErrorsDefault
+  emitted a.d.ts, upstream emitted no declaration file
+compiler/isolatedDeclarationsAddUndefined
+  line 1: want `type N = 1;`, got `export declare class Bar {`
+compiler/isolatedDeclarationsLiterals
+  line 2: want `    /** Value Of 1 */`, got `    readonly one: 1;`
+compiler/jsDeclarationEmitExportAssignedArray
+  line 1: missing `declare const _exports: {`
+compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
+  line 1: missing `/**`
+compiler/jsDeclarationEmitExportedClassWithExtends
+  line 1: want `export * from "lit-element/lit-element.js";`, got `import { LitElement, LitElement as LitElement2 } from "lit";`
+compiler/lateBoundAssignmentCandidateJS3
+  line 3: want `    /**`, got `    prop: string;`
+compiler/letDeclarations2
+  line 2: want `    let l2: number;`, got `    let l1: string;`
+compiler/libTypeScriptOverrideSimple
+  line 1: want `interface ABC { abc: string }`, got `declare const a: ABC;`
+compiler/libTypeScriptSubfileResolving
+  line 1: want `// NOOP`, got `declare const a: DOMIterable;`
+compiler/mappedTypeGenericInstantiationPreservesHomomorphism
+  line 2: want `type PrivateMapped<Obj> = {`, got `type PrivateMapped<Obj> = { [K in keyof Obj]: Obj[K]; };`
+compiler/mappedTypeNoTypeNoCrash
+  line 1: want `type T0<T> = ({`, got `type T0<T> = ({ [K in keyof T]; }) extends ({ [key in K]: T[K]; }) ? number : never;`
+compiler/mappedTypeWithAsClauseAndLateBoundProperty2
+  line 1: want `export declare const thing: {`, got `export declare const thing: { [K in keyof number[] as Exclude<K, "length">]: (number[])[K]; };`
+compiler/methodSignatureDeclarationEmit1
+  line 4: want `}`, got `    foo(a: any): void;`
+compiler/missingImportAfterModuleImport
+  line 1: want `/// <reference path="missingImportAfterModuleImport_0.d.ts" preserve="true" />`, got `import SubModule = require("SubModule");`
+compiler/moduleAugmentationDeclarationEmit1
+  line 1: want `declare module "./observable" {`, got `export {};`
+compiler/moduleAugmentationDeclarationEmit2
+  line 1: want `declare module "./observable" {`, got `export {};`
+compiler/moduleAugmentationExtendAmbientModule2
+  line 1: want `declare module "observable" {`, got `export {};`
+compiler/moduleAugmentationGlobal1
+  line 1: want `import { A } from "./f1";`, got `export {};`
+compiler/moduleAugmentationGlobal2
+  line 1: want `declare global {`, got `export {};`
+compiler/moduleAugmentationGlobal3
+  line 1: want `declare global {`, got `export {};`
+compiler/moduleAugmentationGlobal4
+  line 1: want `declare global {`, got `export {};`
+compiler/moduleAugmentationImportsAndExports1
+  line 1: want `import { B } from "./f2";`, got `export {};`
+compiler/moduleAugmentationImportsAndExports2
+  line 1: want `declare namespace N {`, got `export {};`
+compiler/moduleAugmentationImportsAndExports3
+  line 1: want `declare namespace N {`, got `export {};`
+compiler/moduleAugmentationImportsAndExports5
+  line 1: want `import { B } from "./f2";`, got `export {};`
+compiler/moduleAugmentationImportsAndExports6
+  line 1: want `import { B } from "./f2";`, got `export declare namespace N {`
+compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
+  line 1: want `export * from "./account";`, got `export declare const func: any;`
+compiler/moduleDetectionIsolatedModulesCjsFileScope
+  line 1: want `export {};`, got `declare const a = 2;`
+compiler/moduleLocalImportNotIncorrectlyRedirected
+  line 1: want `import { Position } from './utilities/positioning';`, got `export {};`

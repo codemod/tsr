@@ -1,8 +1,8 @@
 # Declaration emit (`tsr-declarations`)
 
-**Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **36.89%** on the byte-exact
-emit gate. This is the artifact the phase exists to ship: the first `.d.ts` this
-port has ever produced.
+**Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.35%** on the byte-exact
+emit gate and **67.76%** on the structural one. This is the artifact the phase
+exists to ship: the first `.d.ts` this port has ever produced.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 **Upstream counterpart:** `internal/transformers/declarations/` (4,160 lines).
@@ -50,27 +50,47 @@ builder returns nothing — and records the position in
 `DeclarationEmit::inference_required`, so "the emitter guessed" is counted rather
 than silent.
 
-## The gate
+## The gates, and why there are two of them
 
 ```
-dts_reachable_target   496/1162   42.69%    the population
-dts_emit               180/488    36.89%    of which we reproduce byte for byte
+dts_reachable_target   496/1162   42.69%    the population a checker-free emitter can aim at
+dts_emit               161/340    47.35%    of which the text is byte-identical
+dts_shape              618/912    67.76%    the declarations are right, ignoring types
 ```
 
-A pass is **byte-identical output for every unit of the case**. Not whitespace
-normalised, not comment-insensitive: the text is the product.
+`dts_emit` is the real gate: **byte-identical output for every unit of the case**,
+not whitespace normalised and not comment-insensitive, because the text is the
+product. Its denominator is the *reachable* set, because a case that draws a
+`TS9xxx` has a `.d.ts` naming types written nowhere in its source. Counting those
+as failures would bury the emitter's rate under 666 cases it was never in reach
+of, and would make the number move whenever the *analysis* changed.
 
-The denominator is the *reachable* set — cases where nothing needs inference —
-because a case that draws a `TS9xxx` has a `.d.ts` naming types written nowhere in
-its source. Counting those as failures would bury the emitter's rate under 666
-cases it was never in reach of, and would make this number move whenever the
-*analysis* changed. The stacking is the point: `dts_reachable_target` says what
-could be aimed at, `dts_emit` says what was hit.
+That exclusion is also its limitation, and it is why `dts_shape` exists. What
+those 545 skipped cases need a checker for is the **types**; which declarations
+survive and in what order is decidable from syntax — and visibility, elision and
+ordering are precisely where this port approximates. `dts_shape` compares the kind
+and name of every declaration, in order, recursing into namespace bodies and
+stopping at class bodies. It judges **912** cases against `dts_emit`'s 340.
 
-### The denominator was wrong, and by more than a rounding
+Its denominator depends on nothing but the corpus, unlike `dts_emit`'s, so a
+regression there is always a regression in the transform.
 
-`dts_reachable_target` was published at **575/1,289 (44.61%)**. It is **496/1,162
-(42.69%)**.
+### The two gates are complementary, and the mutation table proves it rather than
+asserting it
+
+Read the table at the end of this document by column. Four mutations move
+`dts_emit` and leave `dts_shape` at exactly 618 — `declare`, initializers, enum
+values, the optional `?`, all of which are type or text. The other four move both.
+Neither number is a proxy for the other, which is the whole justification for
+carrying two.
+
+### Three denominators were wrong, in three different ways
+
+Each was found by a different means, and the third only because a mutation was
+run for an unrelated reason.
+
+**1. An echoed input is not an output.** `dts_reachable_target` was published at
+**575/1,289 (44.61%)**. It is **496/1,162 (42.69%)**.
 
 Both suites read declaration output from the `//// [x.d.ts]` sections of the `.js`
 baseline. A baseline echoes every **input** unit before the emitted files, so a
@@ -81,7 +101,36 @@ made the emitter appear to produce files upstream did not: 215 failures reading
 "emitted `x.d.ts`, upstream did not", every one of them the harness's fault.
 
 The discriminator is exact rather than heuristic — a declaration section is output
-iff no input unit has that name — and both suites now apply it.
+iff no input unit has that name — and all three suites now apply it.
+
+**2. The pairing was decided while emitting.** `dts_emit` was published at
+**180/488 (36.89%)**. It is **160/340 (47.06%)**. The suite walked the source
+units and looked for a matching baseline section as it went, so a unit whose
+output happened to be empty fell through to a skip: improving the transform moved
+cases between judged and skipped. The pairing is now computed from the baseline
+alone, in `output_units`, before anything is emitted.
+
+The rate went *up* by nine points, which is the uncomfortable direction for a
+correction to move. It is not a loosening — the comparison is unchanged and still
+byte-exact. The old denominator was inflated with unit/section pairs that were
+never comparable.
+
+**3. The suite short-circuited on the first failing unit.** Even with the pairing
+fixed, a case whose *second* unit needs inference is a skip only if the first unit
+has not already failed — so the denominator still depended on the output, one
+level down. Removing `declare` moved 18 cases out of the skip bucket and into the
+judged set (371 → 390).
+
+This one was found by a mutation run for a different purpose, which is worth
+recording: the mutation's *rate* was the thing being measured and the *denominator*
+was the thing that turned out to be broken. Both suites now emit every unit and
+decide every skip before comparing anything, and the denominator is fixed at 340
+and 912 across all eight mutations below.
+
+The same lesson as the round-trip suite, where the parse-cleanliness check had to
+be hoisted ahead of all printing (`docs/architecture/printer.md`). Three times
+now, in three suites: **anything that decides the denominator must run before the
+component under test does.**
 
 **[ADR-0021](../adr/0021-isolated-declarations-is-not-a-port.md)'s first falsifier
 still does not fire.** It asked whether "fewer than a few hundred" of the
@@ -95,6 +144,10 @@ Three defects in `tsr-printer` were found by pointing a byte comparison at it, a
 three invisible to 11,726 round-trip cases because none of them is in the tree.
 They are the strongest evidence in this repository for what a structural gate does
 not cover.
+
+(The percentages below were measured against the pre-correction `dts_emit`
+denominator of 488 and are left as measured. They are evidence about the *size* of
+each defect, and are not comparable to the 47.06% above.)
 
 | Defect | Effect | `dts_emit` |
 |---|---|---|
@@ -198,32 +251,81 @@ distribution: the residue is *text*. It is filed as `bd tsr-49v.6.1`. That is al
 second falsifier — if raising the printer's fidelity stops moving the number, the
 reachable target was measuring something other than what the emitter can do.
 
+## Two gates are not two test suites
+
+The corpus exercises **96%** of `transform.rs`. The unit suite, on its own,
+reached **51.59%** — and `docs/conventions.md` says submodule-dependent tests
+*skip* rather than fail, so the unit suite alone is what a contributor sees before
+pushing and what CI sees without the submodule. Measured with `cargo llvm-cov`:
+
+| | corpus run | unit tests, before | unit tests, after |
+|---|---:|---:|---:|
+| `transform.rs` | 96.35% | 51.59% | **83.53%** |
+| `type_builder.rs` | 93.21% | 78.91% | 82.65% |
+| `enum_value.rs` | 83.02% | 44.74% | 61.40% |
+| `modifiers.rs` | 95.79% | 86.44% | 89.83% |
+| `tsr-dts/rules.rs` | 98.14% | 79.86% | 81.56% |
+| `tsr-dts/visibility.rs` | 92.25% | 67.83% | 74.03% |
+
+`tests/transform.rs` closed most of that gap, and it is not only a coverage
+exercise: it found a real defect on its first run. `buildClassMembers` passes
+`ignorePrivate: false` to `ensureType` (`transform.go:1933`), so the *property* a
+private parameter property declares emits no type — while the constructor
+parameter it came from keeps one, because `ensureParameter` passes `true`. This
+port emitted the type in both places, leaking a private member's shape. It parses,
+so nothing structural saw it; it is one corpus case, so the byte gate barely saw
+it either.
+
 ## Mutations
 
-Five, applied to the code under test and re-measured over the corpus, against a
-baseline of **180/488**.
+Eight, applied to the code under test and re-measured over the corpus, against a
+baseline of **160/340** and **618/912**. (The `dts_emit` baseline is 161 after the
+private-parameter-property fix above, which landed later; the eight deltas are
+otherwise unaffected.)
 
-| Mutation | Rate |
-|---|---|
-| `declare` never added (`ensureModifierFlags` drops the `AMBIENT` addition) | **59/488** |
-| Initializers kept on every declaration (`ensureNoInitializer` neutered) | 150/488 |
-| Visibility pass disabled — every declaration visible | 163/488 |
-| Enum values not folded, initializers emitted as written | 175/488 |
-| Optional-parameter `?` never added | 179/488 |
-| — baseline — | 180/488 |
+| Mutation | `dts_emit` | `dts_shape` |
+|---|---:|---:|
+| `declare` never added (`ensureModifierFlags` drops the `AMBIENT` addition) | **39** | 618 |
+| Namespace bodies elided again (nested declarations read as invisible) | 130 | **546** |
+| Initializers kept on every declaration (`ensureNoInitializer` neutered) | 130 | 618 |
+| Visibility pass disabled — every declaration visible | 143 | 565 |
+| Scope-fix marker never appended | 143 | 577 |
+| Enum values not folded, initializers emitted as written | 155 | 618 |
+| Side-effect imports elided | 152 | 610 |
+| Optional-parameter `?` never added | 159 | 618 |
+| — baseline — | 160/340 | 618/912 |
 
-All five move it, which was not a given: an exact-match gate is a poor gradient
-until it is nearly satisfied, and `isolated_declarations` sat at 5/15 for a while
-with four mutations moving it by zero. At 36.89% this one already discriminates.
+Every mutation moves at least one gate, and **the denominators do not move at
+all** — 340 and 912 in all sixteen runs. That is the property the third
+denominator correction above was made to establish, and it is checked here rather
+than asserted.
 
-The last row is the honest one to keep: **one case**. The optional-`?` rule is
-real — dropping an initializer without adding the `?` changes the signature — and
-the corpus barely exercises it in the reachable set. A mutation that moves the
-rate by one is a rule the gate can *technically* see and would not protect. It is
-covered by `tests/analysis_agreement.rs` instead.
+The column of unchanged 618s is the useful half. `dts_shape` is blind to exactly
+the four mutations that change types or text and sensitive to exactly the four
+that change structure. A shape gate that moved under "initializers kept" would be
+byte-comparing by accident, and would stop being able to judge the cases it exists
+for.
 
-The first three of these were run twice. The first pass was wrong: this crate's
-files are untracked in git, so the `git checkout` meant to revert each mutation
-failed silently and they accumulated — the "restored" baseline read 49/488. Every
-number above is from the second pass, which restores from a copy. A mutation
-harness that cannot revert is measuring the sum of everything it has done so far.
+Two mutations are worth their own line. `declare` never added takes `dts_emit`
+from 160 to **39**: nearly every declaration in a `.d.ts` carries it, so this is
+the single most load-bearing line in `modifiers.rs`. And the optional-`?` mutation
+moves it by **one case** — a real rule the corpus barely exercises in the reachable
+set, covered by `tests/analysis_agreement.rs` instead.
+
+### Two mutations silently did nothing, twice
+
+The first run of this table reported "declare never added" and "enum values
+unfolded" as moving the rate by **zero**. Both were `str::replace` calls whose
+target text no longer existed: `cargo fmt` had reformatted both sites after the
+mutation strings were written. The code compiled, the corpus ran, and the result
+was indistinguishable from a rule the gate cannot see.
+
+The harness now asserts the target substring is present before writing, and fails
+loudly if it is not. A mutation that cannot be shown to have applied is not
+evidence of anything — and the failure mode is *silence*, which is the same shape
+as the finding it was meant to produce.
+
+An earlier attempt had a coarser version of the same problem: this crate's files
+were untracked, so the `git checkout` meant to revert each mutation failed and
+they accumulated. Every number here is from a run that restores from a copy and
+verifies the restore.

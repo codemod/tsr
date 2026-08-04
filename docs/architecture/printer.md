@@ -11,6 +11,14 @@ gate. Not yet an emit printer — see "What this is not" below.
 > — a leading blank line on every file, `{}` where upstream writes two lines,
 > `export {  };`, and `typeof c1 .foo`. All four parse identically to the correct
 > output. All four survived 11,726 cases. None is in the tree.
+>
+> A fifth, found the same way: `LFNamedImportsOrExportsElements` was written into
+> the `ListFormat` table without `LFBraces`, matching upstream — but this printer
+> then wrote the braces by hand at the call site instead of at
+> `emitNamedImports`/`emitNamedExports`, so the format's `LFNoSpaceIfEmpty` never
+> applied. The crate docs' claim that "every child list is emitted through
+> `emit_list`" was not quite true, and the two places it was not were the two most
+> common lines in a `.d.ts`.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 **Upstream counterpart:** `internal/printer/printer.go` (6,280 lines; 14,827 for

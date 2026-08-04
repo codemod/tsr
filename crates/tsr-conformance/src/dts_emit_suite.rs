@@ -77,44 +77,28 @@ impl Suite for DtsEmit {
         // **A `.d.ts` section is not necessarily declaration output.** A baseline
         // echoes every *input* unit before the emitted files, so a case with a
         // `foo.d.ts` input — an ambient library, a `node_modules` stub — carries a
-        // `//// [foo.d.ts]` section that upstream never emitted. 215 cases in this
+        // `//// [foo.d.ts]` section that upstream never emitted. 127 cases in this
         // corpus are that shape, and reading the echo as output made the emitter
-        // look like it was producing files upstream did not.
-        //
-        // The discriminator is exact rather than heuristic: a declaration section
-        // is output iff no input unit has that name.
-        let inputs: std::collections::HashSet<&str> =
-            parsed_case.files.iter().map(|file| file.name.as_str()).collect();
-        let has_output = baseline
-            .sections
-            .iter()
-            .any(|section| section.is_declaration() && !inputs.contains(section.name.as_str()));
-        if !has_output {
+        // look like it was producing files upstream did not. The discriminator is
+        // exact rather than heuristic, and lives in [`output_units`].
+        let units = output_units(&baseline, &parsed_case);
+        if units.is_empty() {
             return Outcome::Skipped {
-                reason: "the emit baseline's .d.ts sections are all echoed inputs".into(),
+                reason: "the emit baseline has no emitted .d.ts section".into(),
             };
         }
 
-        // Emit every unit first, then judge. Doing it lazily is what let the
-        // printer's round-trip denominator move as the printer improved
-        // (`docs/architecture/printer.md`), and the same trap is here: a case whose
-        // first unit is unreachable and whose second is not must be one skip, not a
-        // skip that becomes a judgement when the analysis changes.
-        let mut emitted: Vec<(String, String)> = Vec::new();
-        for unit in &parsed_case.files {
+        // **Emit every unit before judging any of them.** Returning on the first
+        // unit that disagrees looks equivalent and is not: a case whose second unit
+        // needs inference is a skip, but only if the first unit did not already
+        // fail. Short-circuiting therefore made the *denominator* depend on the
+        // emitter's output — removing `declare` moved 18 cases out of the skip
+        // bucket and into the judged set. Same lesson as the round-trip suite,
+        // where the parse-cleanliness check had to be hoisted ahead of all
+        // printing (`docs/architecture/printer.md`).
+        let mut produced = Vec::with_capacity(units.len());
+        for (unit, expected) in &units {
             let kind = ScriptKind::from_file_name(&unit.name);
-            if kind == ScriptKind::Json {
-                continue;
-            }
-            // A `.d.ts` input **is** a declaration file. Upstream's transform
-            // returns it untouched (`visitSourceFile`, `transform.go:281`) and its
-            // emitter writes no declaration output for it at all, so there is
-            // nothing to compare. 201 cases in this corpus carry one — ambient
-            // library units, `node_modules` stubs — and asking the emitter for
-            // `foo.d.d.ts` was a question upstream never answers.
-            if is_declaration_file_name(&unit.name) {
-                continue;
-            }
             let arena = Arena::new();
             let parsed = tsr_parser::parse_with_script_kind(&arena, &unit.content, kind);
             if !parsed.diagnostics.is_empty() {
@@ -136,38 +120,70 @@ impl Suite for DtsEmit {
             if let Some(kind) = result.unsupported.first() {
                 return Outcome::Unsupported { reason: format!("printer: {kind}") };
             }
-            emitted.push((declaration_name(&unit.name), result.text));
+            produced.push((result.text, *expected));
         }
 
-        if emitted.is_empty() {
-            return Outcome::Skipped { reason: "the case has no unit to emit".into() };
+        for (text, expected) in &produced {
+            if normalise(text) != normalise(&expected.content) {
+                return Outcome::Failed { reason: first_difference(&expected.content, text) };
+            }
         }
 
-        for (name, produced) in &emitted {
-            let Some(expected) = baseline.sections.iter().find(|section| &section.name == name)
-            else {
-                // Upstream emitted no declaration file for this unit — usually
-                // because the unit is a `.js` input echo, or is not part of the
-                // program. Producing text where upstream produced none is a real
-                // disagreement only if we produced something.
-                if produced.trim().is_empty() {
-                    continue;
-                }
-                return Outcome::Failed { reason: format!("emitted {name}, upstream did not") };
-            };
-            if normalise(produced) != normalise(&expected.content) {
-                return Outcome::Failed { reason: first_difference(&expected.content, produced) };
+        // Over-emission: a unit upstream produced no declaration file for, that
+        // this port emits into anyway. Checked after the comparisons so a genuine
+        // text difference is reported in preference to it.
+        for unit in unemitted_units(&baseline, &parsed_case) {
+            if emits_anything(unit) {
+                return Outcome::Failed {
+                    reason: format!(
+                        "emitted {}, upstream emitted no declaration file",
+                        declaration_name(&unit.name)
+                    ),
+                };
             }
         }
         Outcome::Passed
     }
 }
 
+/// The units this case has declaration output for, paired with it.
+///
+/// **Computed before anything is emitted.** Deciding case-by-case *while* emitting
+/// makes the denominator depend on the emitter: a unit whose output happened to be
+/// empty fell through to a skip, so improving the transform silently moved cases
+/// between judged and skipped. `docs/architecture/printer.md` records the same
+/// trap in the round-trip suite, where the parse-cleanliness check had to be
+/// hoisted ahead of all printing for exactly this reason. It was found here by a
+/// mutation: removing the scope-fix marker moved 44 cases out of the denominator.
+pub(crate) fn output_units<'a>(
+    baseline: &'a JsBaseline,
+    case: &'a crate::TestCase,
+) -> Vec<(&'a crate::TestFile, &'a crate::js_baseline::Section)> {
+    let inputs: std::collections::HashSet<&str> =
+        case.files.iter().map(|file| file.name.as_str()).collect();
+    case.files
+        .iter()
+        .filter(|unit| {
+            ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
+                && !is_declaration_file_name(&unit.name)
+        })
+        .filter_map(|unit| {
+            let name = declaration_name(&unit.name);
+            let section = baseline.sections.iter().find(|section| {
+                section.name == name
+                    && section.is_declaration()
+                    && !inputs.contains(section.name.as_str())
+            })?;
+            Some((unit, section))
+        })
+        .collect()
+}
+
 /// The declaration file name for a source unit.
 ///
 /// `.mts` and `.cts` emit `.d.mts` and `.d.cts`; the corpus has 495 such sections
 /// and reading them all as `.d.ts` would silently miss every ESM/CJS case.
-fn declaration_name(unit: &str) -> String {
+pub(crate) fn declaration_name(unit: &str) -> String {
     for (source, declaration) in [
         (".mts", ".d.mts"),
         (".cts", ".d.cts"),
@@ -186,7 +202,7 @@ fn declaration_name(unit: &str) -> String {
 }
 
 /// Ported from `tspath.IsDeclarationFileName`.
-fn is_declaration_file_name(unit: &str) -> bool {
+pub(crate) fn is_declaration_file_name(unit: &str) -> bool {
     let lower = unit.to_ascii_lowercase();
     lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts")
 }
@@ -222,6 +238,58 @@ fn first_difference(expected: &str, produced: &str) -> String {
     }
     let extra = produced.lines().nth(want_lines).unwrap_or_default();
     format!("line {}: extra `{extra}`", want_lines + 1)
+}
+
+/// Units of a judged case that upstream emitted **no** declaration file for.
+///
+/// Emitting into one of these is a real defect — the `.d.ts` names a file the
+/// compiler never produced — so it is a failure. It is deliberately *not* part of
+/// the denominator: a case is judged because upstream emitted at least one
+/// declaration section for it, and whether we also over-emit into a sibling unit
+/// is a property of that already-judged case. Keeping the two apart is what lets
+/// this be caught without the denominator depending on the emitter again.
+///
+/// About 35 of these need the `Program` to decide (a unit excluded from the
+/// compilation emits nothing), so the count is not expected to reach zero in
+/// Phase 3.5. It is reported rather than hidden.
+pub(crate) fn unemitted_units<'a>(
+    baseline: &'a JsBaseline,
+    case: &'a crate::TestCase,
+) -> Vec<&'a crate::TestFile> {
+    let inputs: std::collections::HashSet<&str> =
+        case.files.iter().map(|file| file.name.as_str()).collect();
+    case.files
+        .iter()
+        .filter(|unit| {
+            ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
+                && !is_declaration_file_name(&unit.name)
+        })
+        .filter(|unit| {
+            let name = declaration_name(&unit.name);
+            !baseline.sections.iter().any(|section| {
+                section.name == name
+                    && section.is_declaration()
+                    && !inputs.contains(section.name.as_str())
+            })
+        })
+        .collect()
+}
+
+/// Whether this port emits anything at all for a unit.
+///
+/// Used only to decide whether an over-emission has happened, so parse failures
+/// and unsupported nodes answer "no": neither is evidence of over-emission, and
+/// both are already reported by the caller's own checks.
+pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
+    let kind = ScriptKind::from_file_name(&unit.name);
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse_with_script_kind(&arena, &unit.content, kind);
+    if !parsed.diagnostics.is_empty() {
+        return false;
+    }
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit(&arena, &mut nodes, parsed.source_file);
+    result.unsupported.is_empty() && !result.text.trim().is_empty()
 }
 
 #[cfg(test)]

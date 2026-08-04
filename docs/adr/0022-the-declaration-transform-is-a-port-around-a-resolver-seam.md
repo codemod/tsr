@@ -106,14 +106,30 @@ report one is invisible there.
 
 **The emitter is measured on a population the analysis defines.** `dts_emit`'s
 denominator is the reachable set, so a change to `tsr-dts` moves this suite's
-denominator. That coupling is deliberate — the alternative, counting the 666
+denominator. That coupling is deliberate — the alternative, counting the 545
 inference-needing cases as failures, buries the emitter's own rate under cases it
 was never in reach of — but it means the two numbers must always be read together.
 
-**The rate is 36.89%, and the residue is mostly text rather than rules.** Comments
-are dropped (the printer emits none), module specifiers are re-quoted, and
-visibility is approximated. Each is recorded in
-[declaration-emit.md](../architecture/declaration-emit.md) with its case count.
+It is also why a second gate was added rather than this one widened. `dts_shape`
+compares the declaration *sequence* — kind, name and order — so it can judge the
+cases `dts_emit` must skip, and its denominator depends on nothing but the corpus.
+The two are complementary rather than redundant, and the mutation table in
+[declaration-emit.md](../architecture/declaration-emit.md#mutations) demonstrates
+it: four mutations move only `dts_emit`, four move both, none moves only
+`dts_shape`.
+
+**The rate is 47.06% byte-exact (160/340) and 67.76% structural (618/912), and the
+residue is mostly text rather than rules.** Comments are dropped (the printer emits
+none), module specifiers are re-quoted, and visibility is approximated. Each is
+recorded in [declaration-emit.md](../architecture/declaration-emit.md) with its
+case count.
+
+> **Corrected.** This ADR first stated 36.89% (180/488). Both parts of that figure
+> were wrong: the suite decided which unit paired with which baseline section
+> *while* emitting, so the denominator depended on the emitter, and it
+> short-circuited on the first failing unit, so a later unit's skip was never
+> reached. The comparison itself is unchanged and still byte-exact. See
+> [declaration-emit.md](../architecture/declaration-emit.md#three-denominators-were-wrong-in-three-different-ways).
 
 **We now hold two `.d.ts` type builders in mind at once.** `tsr_dts::rules::infer`
 decides *whether* a type is apparent and `tsr_declarations::type_builder` decides
