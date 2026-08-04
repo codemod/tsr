@@ -23,7 +23,11 @@ fn bind<'a>(arena: &'a Arena, source: &'a str) -> Bound<'a> {
     );
     // SAFETY-free: `result` borrows the same arena as `parsed`, and both live
     // as long as the caller's `arena`.
-    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes, "test.ts");
+    let result = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
     Bound { parsed, result }
 }
 
@@ -372,13 +376,14 @@ fn a_late_bound_computed_name_declares_nothing() {
 #[test]
 fn a_jsx_attribute_declares_a_property_on_the_attributes_object() {
     let arena = Arena::new();
-    let parsed = tsr_parser::parse_with_script_kind(
-        &arena,
-        "declare const X: any;\nconst e = <X icon={1} label=\"a\" />;",
-        tsr_parser::ScriptKind::Tsx,
-    );
+    let source = "declare const X: any;\nconst e = <X icon={1} label=\"a\" ns:href={2} />;";
+    let parsed = tsr_parser::parse_with_script_kind(&arena, source, tsr_parser::ScriptKind::Tsx);
     assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
-    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes, "test.ts");
+    let result = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.tsx", text: source },
+    );
 
     // The attributes object is anonymous — no expression names it — so the
     // attributes hang off an internal symbol rather than off anything in scope.
@@ -391,6 +396,9 @@ fn a_jsx_attribute_declares_a_property_on_the_attributes_object() {
     let members = &result.symbols().get(attributes).members;
     assert!(members.contains_key("icon"), "`icon` is a property of the attributes");
     assert!(members.contains_key("label"), "`label` is too");
+    // A namespaced name is one name upstream, spelled with the colon. No node
+    // holds the whole of it, so it is the source range the two halves span.
+    assert!(members.contains_key("ns:href"), "and so is `ns:href`: {:?}", members.keys());
 }
 
 /// Bind under a chosen file name, which is what decides module-vs-script naming
@@ -398,7 +406,11 @@ fn a_jsx_attribute_declares_a_property_on_the_attributes_object() {
 fn bind_as<'a>(arena: &'a Arena, source: &'a str, file_name: &'a str) -> Bound<'a> {
     let parsed = tsr_parser::parse(arena, source);
     assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
-    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes, file_name);
+    let result = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: file_name, text: source },
+    );
     Bound { parsed, result }
 }
 

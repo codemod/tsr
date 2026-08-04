@@ -33,7 +33,11 @@ fn bind<'a>(arena: &'a Arena, source: &'a str) -> Bound<'a> {
         "the source should parse cleanly: {:?}",
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
-    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes, "test.ts");
+    let result = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
     Bound { source, parsed, result }
 }
 

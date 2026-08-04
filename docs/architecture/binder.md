@@ -11,8 +11,9 @@ The binder walks a parsed file once and produces two things:
 Ported from `internal/binder/binder.go` (2,773 lines) at the pinned commit. The
 flow half is roughly two thirds of that file.
 
-Crate: `crates/tsr-binder`. Entry point: `tsr_binder::bind(file, nodes, file_name)
--> BindResult`.
+Crate: `crates/tsr-binder`. Entry point: `tsr_binder::bind(file, nodes, info) ->
+BindResult`, where `info` carries the file's name and text —
+[ADR-0016](../adr/0016-file-info-not-a-file-name.md).
 
 ---
 
@@ -450,8 +451,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 8,265/8,449
-(**97.82%**). See
+own `.symbols` baselines over the 12,444-case corpus. Currently 8,278/8,449
+(**97.98%**). See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -491,6 +492,7 @@ five biggest wins turned out to be in the harness.
 | late-bound names get a `__computed` symbol | 97.13% | binder + harness |
 | line comments counted as leading trivia; bracket spellings not over-reduced; escaped identifiers decoded | 97.67% | harness |
 | a second `static` is a member name, not a modifier | 97.82% | **parser** — *denominator −6* |
+| anonymous classes and functions display as upstream writes them; unreadable names get a symbol; JSX namespaced names declare | 97.98% | binder + harness |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -615,19 +617,48 @@ rule ("a file we cannot parse tells us nothing about the binder") is right, but
 it means a parser that becomes *more* faithful can shrink the denominator. The
 6 cases were failing before, so nothing that passed was lost.
 
-### What the remaining 184 failures are
+### What alias resolution actually needs, and why it is not a session's work
+
+The previous revision of this section called alias resolution "the only bucket
+worth a session", which implied it was actionable. Reading the baselines says
+otherwise, and the mechanism is worth writing down because the issue that tracks
+it (`tsr-y4u.12`) described it wrongly.
+
+```ts
+export namespace m { export class c {} }
+import a = m.c;
+```
+
+```
+>a : Symbol(a, Decl(…, 3, 1))
+>c : Symbol(a, Decl(…, 0, 20))     <- the class, printed as `a`
+```
+
+The alias symbol `a` is exactly what we produce: one declaration, the import.
+What we do not produce is the second line — upstream resolved the reference `c`
+to the **class**, and then printed the class under the name **`a`**, because
+`symbolToString` names a symbol by the shortest chain accessible *from the
+reference site* (`getAccessibleSymbolChain`), and one identifier beats `m.c`.
+Since the suite keys by name, the expected lines for `a` are the union of the
+alias's and the class's.
+
+So the bucket needs two things, and the second is the expensive one: alias
+resolution *and* accessible-name computation. Neither is binder work. It is
+~73 cases and it moves when the checker does.
+
+### What the remaining 171 failures are
 
 | Cause | Cases | Status |
 |---|---:|---|
-| `import X = Y` alias resolution | ~73 | **blocked on a resolver** (`tsr-y4u.12`) |
+| `import X = Y` alias resolution | ~73 | **blocked on the checker** (`tsr-y4u.12`) |
 | Module-shaped, various | ~34 | mostly cross-file, blocked on module resolution |
+| JSDoc declarations | ~9 | `@typedef`, `@overload`, `@template` — the reparser |
 | Late-bound *merging* | 4 | **blocked on the checker** (`tsr-y4u.11`) |
-| JavaScript / JSDoc | ~5 | `@overload`, `@typedef` |
-| Long tail, many distinct causes | ~68 | each below ~5 cases |
+| Numeric name normalisation | ~5 | needs a *synthesised* name; see [ADR-0016](../adr/0016-file-info-not-a-file-name.md) |
+| Long tail, many distinct causes | ~46 | each below ~5 cases |
 
-Alias resolution is now 40% of everything left and is the only bucket worth a
-session. Note also that **547 cases are skipped for parse errors** — a larger
-pool than the failures, and binder coverage the parser is currently hiding.
+Note also that **547 cases are skipped for parse errors** — a larger pool than
+the failures, and binder coverage the parser is currently hiding (`tsr-y4u.17`).
 
 Two module-shaped things are known to be available and small. `export default x`
 where `x` is an identifier should display under `x`'s name, because upstream's

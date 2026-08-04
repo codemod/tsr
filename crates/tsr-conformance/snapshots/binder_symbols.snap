@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8265/8449 (97.82%)
-Failed         : 184
+Passed         : 8278/8449 (97.98%)
+Failed         : 171
 Skipped        : 3995 (excluded from the denominator)
 
   2321  skipped: no .symbols baseline
@@ -11,7 +11,7 @@ Skipped        : 3995 (excluded from the denominator)
   553  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 184 failures:
+First 100 of 171 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/aliasDoesNotDuplicateSignatures
@@ -172,12 +172,6 @@ compiler/jsDeclarationEmitDoesNotRenameImport
   1 symbol(s): index.js: test: declared on {13}, expected to include {4}
 compiler/jsFileMethodOverloads
   2 symbol(s): Example.getTypeName: declared on {9}, expected to include {9, 12, 17}; Example.transform: declared on {26}, expected to include {26, 30, 35}
-compiler/jsxNamespacePrefixIntrinsics
-  2 symbol(s): ns:attribute: declared on {2}, expected to include {2, 10}; ns:invalid: no symbol
-compiler/jsxNamespacedNameNotComparedToNonMatchingIndexSignature
-  1 symbol(s): ns:thing: declared on {4}, expected to include {9}
-compiler/missingPropertiesOfClassExpression
-  1 symbol(s): (Anonymous class): no symbol
 compiler/moduleAliasInterface
   3 symbol(s): A1Alias1: declared on {48}, expected to include {41, 48}; A1Alias1.A1C1: no symbol; A1Alias1.A1I1: no symbol
 compiler/moduleAugmentationDoesInterfaceMergeOfReexport
@@ -212,3 +206,9 @@ compiler/moduleVisibilityTest1
   2 symbol(s): OuterInnerAlias: declared on {6}, expected to include {1, 6}; OuterInnerAlias.someExportedOuterInnerFunc: no symbol
 compiler/moduleVisibilityTest2
   2 symbol(s): OuterInnerAlias: declared on {6}, expected to include {1, 6}; OuterInnerAlias.someExportedOuterInnerFunc: no symbol
+compiler/moduleVisibilityTest3
+  2 symbol(s): modes: declared on {12}, expected to include {0, 12}; modes.IMode: no symbol
+compiler/module_augmentUninstantiatedModule
+  1 symbol(s): M: declared on {0, 2}, expected to include {0, 2, 6}
+compiler/namespacesWithTypeAliasOnlyExportsMerge
+  3 symbol(s): constAndNS.ts: Q.A: no symbol; constAndNS.ts: Q2.Q: no symbol; constAndNS.ts: Q3.B: no symbol

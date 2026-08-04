@@ -94,8 +94,12 @@ fn main() {
     let bound: Vec<_> = parsed
         .iter()
         .zip(&sources)
-        .map(|(file, (name, _))| {
-            let result = tsr_binder::bind(file.source_file, &file.nodes, name);
+        .map(|(file, (name, text))| {
+            let result = tsr_binder::bind(
+                file.source_file,
+                &file.nodes,
+                tsr_binder::FileInfo { name, text },
+            );
             symbols += result.symbols().len();
             flow_nodes += result.flow().len();
             reported_heap += result.heap_bytes();

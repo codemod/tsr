@@ -46,7 +46,7 @@ use tsr_core::Idx as _;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{
-    BindResult, NodeFacts,
+    BindResult, FileInfo, NodeFacts,
     container::{ContainerFlags, container_flags},
     flow::{FlowFlags, FlowId, FlowStore},
     narrowing::{
@@ -127,6 +127,11 @@ pub(crate) struct Binder<'a, 'n> {
     block: NodeId,
     /// Symbol of the nearest container that owns members or exports.
     owner: Option<SymbolId>,
+    /// The file's source text.
+    ///
+    /// Read only where a name is a *range* of the source that no single node
+    /// holds; see [`FileInfo`].
+    source: &'a str,
     /// Whether the file being bound is a JavaScript file.
     ///
     /// Upstream reads `node.Flags & NodeFlagsJavaScriptFile`, which the parser
@@ -266,6 +271,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             container: NodeId::ZERO,
             block: NodeId::ZERO,
             owner: None,
+            source: "",
             in_js_file: false,
             file_node: NodeId::ZERO,
             file_symbol_name: "",
@@ -307,8 +313,10 @@ impl<'a, 'n> Binder<'a, 'n> {
     pub(crate) fn bind_source_file(
         mut self,
         file: &'a SourceFile<'a>,
-        file_name: &'a str,
+        info: FileInfo<'a>,
     ) -> BindResult<'a> {
+        let file_name = info.name;
+        self.source = info.text;
         let root = Node::SourceFile(file);
         let root_id = root.node_id().expect("the source file is registered");
 
@@ -2541,6 +2549,11 @@ impl<'a, 'n> Binder<'a, 'n> {
         Some(symbol)
     }
 
+    /// The declared name, threading the file text the JSX case needs.
+    fn declaration_name(&self, node: Node<'a>) -> Option<&'a str> {
+        declaration_name(node, self.nodes, self.source)
+    }
+
     /// Create a symbol for `node` if it declares one.
     fn declare(&mut self, node: Node<'a>, id: NodeId) -> Option<SymbolId> {
         // In a JavaScript file an assignment to a property can *be* a
@@ -2593,7 +2606,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             return Some(symbol);
         }
 
-        let name = declaration_name(node);
+        let name = self.declaration_name(node);
 
         if destination == Destination::Locals
             && self.owner.is_some()
@@ -2668,7 +2681,16 @@ impl<'a, 'n> Binder<'a, 'n> {
             return Some(exported);
         }
 
-        let name = name?;
+        // A declaration whose name the parser could not read still gets a symbol
+        // — `declareSymbolEx` creates one called `__missing`, in no symbol table.
+        // Without it the declaration has none at all, and anything nested inside
+        // it is filed on whatever container happened to be enclosing.
+        let Some(name) = name else {
+            let symbol = self.symbols.create(INTERNAL_MISSING, SymbolFlags::empty());
+            self.symbols.get_mut(symbol).declarations.push(id);
+            self.node_symbols[id.index()] = Some(symbol);
+            return Some(symbol);
+        };
         let table_owner = match destination {
             Destination::Locals => self.locals_owner(flags),
             Destination::Members | Destination::Exports | Destination::GlobalExports => {
@@ -2898,6 +2920,10 @@ pub(crate) const INTERNAL_INDEX: &str = "__index";
 /// deliberately *not* a key in any symbol table: two `[k]`s in one class are two
 /// symbols, and which — if either — ends up reachable is the checker's answer.
 pub(crate) const INTERNAL_COMPUTED: &str = "__computed";
+/// The name a declaration gets when the parser could not read one
+/// (`ast.InternalSymbolNameMissing`). Like `__computed`, it is in no symbol
+/// table: two unreadable names are two declarations, not one symbol.
+pub(crate) const INTERNAL_MISSING: &str = "__missing";
 /// The name every `export default` in a file shares.
 ///
 /// Upstream's `ast.InternalSymbolNameDefault`. Unlike its neighbours it has no
@@ -3274,7 +3300,7 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
 /// `None` for computed names (`[expr]`) and for destructuring patterns. Both
 /// declare symbols in TypeScript — a binding pattern declares one per element —
 /// and neither is handled yet; see the note in `lib.rs`.
-fn declaration_name(node: Node<'_>) -> Option<&str> {
+fn declaration_name<'a>(node: Node<'a>, nodes: &NodeTable, source: &'a str) -> Option<&'a str> {
     fn from_property_name(name: tsr_ast::PropertyName<'_>) -> Option<&str> {
         match name {
             tsr_ast::PropertyName::Identifier(i) => Some(i.text),
@@ -3314,7 +3340,7 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
         Node::NamespaceImport(n) => n.name.map(|i| i.text),
         Node::ExportSpecifier(n) => n.name.map(export_name),
         Node::ImportEqualsDeclaration(n) => n.name.map(|i| i.text),
-        Node::JsxAttribute(n) => n.name.and_then(jsx_attribute_name),
+        Node::JsxAttribute(n) => n.name.and_then(|name| jsx_attribute_name(name, nodes, source)),
         Node::IndexSignatureDeclaration(_) => Some(INTERNAL_INDEX),
         // `export = x` is the module's whole value; `export default x` is its
         // default export. Neither has a name of its own, so upstream files both
@@ -3334,10 +3360,23 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
 /// A namespaced one (`xlink:href`) is named `namespace:name` upstream, which
 /// needs an owned string where every name here borrows from the source. Left
 /// undeclared rather than misnamed; it is rare and confined to XML-ish JSX.
-fn jsx_attribute_name(name: tsr_ast::JsxAttributeName<'_>) -> Option<&str> {
+fn jsx_attribute_name<'a>(
+    name: tsr_ast::JsxAttributeName<'a>,
+    nodes: &NodeTable,
+    source: &'a str,
+) -> Option<&'a str> {
     match name {
         tsr_ast::JsxAttributeName::Identifier(identifier) => Some(identifier.text),
-        tsr_ast::JsxAttributeName::JsxNamespacedName(_) => None,
+        // `ns:href` is one name upstream (`JsxNamespacedName.Text()` joins the
+        // two halves with a colon). Here it is two identifier nodes with a colon
+        // between, and no node holds the whole of it — so the name is the source
+        // range they span, which is a borrow rather than the concatenation
+        // upstream builds.
+        tsr_ast::JsxAttributeName::JsxNamespacedName(namespaced) => {
+            let start = nodes.span(namespaced.namespace?.node_id?).start;
+            let end = nodes.span(namespaced.name?.node_id?).end;
+            source.get(start as usize..end as usize)
+        }
     }
 }
 

@@ -54,6 +54,11 @@
 //!   there; what `X` refers to needs a resolver. Upstream's baselines resolve
 //!   through it, which is the ceiling on `binder_symbols` for those cases.
 //!
+//! - **Names that must be built rather than sliced.** `{ 0b11: x, 3: y }` is one
+//!   member upstream, which normalises a numeric name to its value; here it is
+//!   two, because every [`Symbol`] name is a borrow. See
+//!   [ADR-0016](../../../docs/adr/0016-file-info-not-a-file-name.md).
+//!
 //! Each is a `bd` issue under the binder epic.
 
 mod binder;
@@ -253,15 +258,28 @@ impl<'a> BindResult<'a> {
     }
 }
 
-/// Bind a parsed file.
+/// What the binder knows about a file that is not in the tree.
 ///
-/// `file_name` is what upstream reads as `b.file.FileName()`. Two decisions
-/// depend on it and on nothing else in the tree: an external module's own symbol
-/// is *named* after the path with its extension removed, and a `.d.ts` is an
-/// ambient context whose declarations are implicitly exported. It is a parameter
-/// rather than a field on [`SourceFile`] because that node is generated from
-/// `ast.json` and upstream's extra file-level fields are not part of it.
+/// Upstream reads these off `b.file`, which is the source file *and* everything
+/// the compiler knows about it. Our `SourceFile` node is generated from
+/// `ast.json` and carries only what that schema names
+/// ([ADR-0005](../../../docs/adr/0005-codegen-from-ast-json.md)), so they arrive
+/// alongside it. See
+/// [ADR-0016](../../../docs/adr/0016-file-info-not-a-file-name.md).
+#[derive(Debug, Clone, Copy)]
+pub struct FileInfo<'a> {
+    /// The path, as `b.file.FileName()`. An external module's own symbol is
+    /// named after it with the extension removed, and a `.d.ts` is an ambient
+    /// context whose declarations are implicitly exported.
+    pub name: &'a str,
+    /// The source text, as `b.file.Text()`. Read only where a symbol's name is
+    /// a *range* of the source that no single node holds — a JSX namespaced
+    /// name, `ns:href`, is two identifiers with a colon between them.
+    pub text: &'a str,
+}
+
+/// Bind a parsed file.
 #[must_use]
-pub fn bind<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable, file_name: &'a str) -> BindResult<'a> {
-    binder::Binder::new(nodes).bind_source_file(file, file_name)
+pub fn bind<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable, info: FileInfo<'a>) -> BindResult<'a> {
+    binder::Binder::new(nodes).bind_source_file(file, info)
 }

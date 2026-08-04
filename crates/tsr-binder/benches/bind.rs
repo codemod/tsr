@@ -61,7 +61,11 @@ fn parse_and_bind(name: &str, source: &str) -> usize {
         jsdoc: false,
     };
     let parsed = tsr_parser::parse_with_options(&arena, source, options);
-    let bound = tsr_binder::bind(parsed.source_file, &parsed.nodes, name);
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name, text: source },
+    );
     bound.symbols().len()
 }
 

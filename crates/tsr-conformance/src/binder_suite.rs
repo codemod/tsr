@@ -129,7 +129,11 @@ impl Suite for BinderSymbols {
                 unparsable += 1;
                 continue;
             }
-            let bound = tsr_binder::bind(result.source_file, &result.nodes, &unit.name);
+            let bound = tsr_binder::bind(
+                result.source_file,
+                &result.nodes,
+                tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
+            );
 
             // One forward scan of the file, reused for every declaration position.
             let full_starts = symbols_baseline::FullStarts::scan(&unit.content);
@@ -279,7 +283,20 @@ fn display_names(
     // for the same reason: choosing between them is a resolution we have no
     // checker to redo. The written name is recovered from the *local* symbol that
     // shares the declaration, since that is where the source's spelling landed.
+    // An anonymous class or function has no name of its own, and upstream prints
+    // the variable it was assigned to, or a placeholder
+    // (`getNameOfSymbolAsWritten`: "(Anonymous class)", "(Anonymous function)").
+    // The container path below asks the same question; this is the answer for the
+    // symbol itself, which is what `>this : Symbol((Anonymous class), …)` needs.
     let mut own: Vec<&str> = vec![symbol.name];
+    if let Anonymity::Displayed(placeholder) = anonymity_of(symbol.name) {
+        let assigned = assigned_name(bound, nodes, id)
+            .map(|named| display_names(bound, nodes, named, names_by_declaration, source));
+        return match assigned {
+            Some(names) if !names.is_empty() => names,
+            _ => vec![placeholder.to_string()],
+        };
+    }
     if symbol.name == INTERNAL_DEFAULT
         && let Some(written) = symbol.declarations.iter().find_map(|d| names_by_declaration.get(d))
     {
@@ -413,7 +430,10 @@ fn anonymity_of(name: &str) -> Anonymity {
         // expression is: `getNameOfDeclaration` falls back to `GetAssignedName`
         // for a function expression, an arrow, and a class expression alike. A
         // *named* function expression never reaches here — its symbol is named.
-        "__function" => Anonymity::Displayed("__function"),
+        "__function" => Anonymity::Displayed("(Anonymous function)"),
+        // Upstream's `getDisplayName` prints a declaration whose name could not
+        // be read as `(Missing)`.
+        "__missing" => Anonymity::Displayed("(Missing)"),
         "__object" | "__type" | "__jsxAttributes" => Anonymity::Unnameable,
         _ => Anonymity::Named,
     }
@@ -627,7 +647,11 @@ mod tests {
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty(), "the snippet should parse cleanly");
-        let bound = tsr_binder::bind(parsed.source_file, &parsed.nodes, "test.ts");
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
         let mut names_by_declaration: NamesByDeclaration<'_> = NamesByDeclaration::default();
         for (_, symbol) in bound.symbols().iter() {
             if symbol.name == INTERNAL_DEFAULT {
@@ -677,7 +701,11 @@ mod tests {
         let source = "export default function foo(): void;\nexport default interface Foo {}\n";
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty(), "the snippet should parse cleanly");
-        let bound = tsr_binder::bind(parsed.source_file, &parsed.nodes, "a.ts");
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "a.ts", text: source },
+        );
         let (_, default) = bound
             .symbols()
             .iter()
