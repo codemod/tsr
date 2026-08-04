@@ -1,8 +1,8 @@
 # `isolatedDeclarations` analysis (`tsr-dts`)
 
 **Status:** slice 1 of Phase 3.5 (`bd tsr-49v.2`), converged at **13/15** with no
-false positives. The analysis exists; the printer and the `.d.ts` text do not
-(`bd tsr-49v.4`).
+false positives. The printer landed in slice 3 (`bd tsr-49v.4`) and the `.d.ts`
+text in slice 4 — see [declaration-emit.md](declaration-emit.md).
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 
@@ -158,7 +158,10 @@ Measured at the pin:
 > **21**. The 22nd was almost certainly `isolatedDeclarationsTypePredicate`, which
 > lives in typescript-go's *own* `testdata/tests/cases/compiler/` and has no
 > submodule counterpart, so `Corpus::discover` never sees it. There are five such
-> tsgo-local cases; they are a real oracle nobody reads yet (`bd tsr-49v.6`).
+> tsgo-local cases; they are a real oracle nobody reads yet (`bd tsr-49v.7` —
+> this line originally cited `tsr-49v.6`, an issue that had never actually been
+> filed; `.6` was subsequently taken by slice 4, so the reference is corrected
+> here rather than silently repointed).
 
 Only the **header block** of an `.errors.txt` is parsed. A baseline states every
 diagnostic twice — once positioned in the header, once as a `!!!` line under the
@@ -201,6 +204,35 @@ Two rules follow from having watched it both ways:
    here rather than assumed away. It became observable only once the rules around
    it were right — which is also why it is now the *most* load-bearing thing in the
    crate by this measure (13 → 10).
+
+## A known defect: a `const` declaration is read as a const assertion
+
+`variable_declaration` passes `is_const` — "the declaration list is `const`" — into
+`infer` as the const *context*. Those are different things:
+
+```ts
+const b = [1, 2];           // number[]           — not readonly [1, 2]
+const o = { a: 1 };         // { a: number }      — not { readonly a: 1 }
+const c = [1, 2] as const;  // readonly [1, 2]
+```
+
+Only `as const` enters a const context, and
+`compiler/isolatedDeclarationsLiterals` says so directly: it pairs
+`constObject … as const` against `mutableObject` and its `.d.ts` baseline reads
+`readonly one: 1` for the first and `one: number` for the second.
+
+The consequence is an **under-report**: `infer`'s array arm raises `TS9017` only
+when `!is_const`, so `export const b = [1, 2]` passes where TypeScript reports.
+That inflates `dts_reachable_target` and puts cases into `dts_emit`'s denominator
+that the emitter then cannot type.
+
+Found by `crates/tsr-declarations/tests/analysis_agreement.rs`, which asserts that
+this analysis and the emitter's type builder agree about what needs inference. The
+corpus could not find it: a case with a `TS9xxx` is excluded from `dts_emit`'s
+denominator by construction, so a disagreement about *whether* to report one is
+invisible there. `tsr-declarations` already has the corrected reading. Filed as
+`bd tsr-49v.2.6`; fixing it moves this suite and `dts_reachable_target`, so it
+needs its own measurement.
 
 ## Known approximations
 
@@ -257,15 +289,32 @@ Measured, by the `dts_reachable_target` suite:
 
 | | |
 |---|---|
-| Cases whose `.js` baseline embeds a `.d.ts` section | **1,289** |
-| Of those, **reachable** — no declaration needs inference | **575 (44.61%)** |
-| Blocked, needing inference somewhere | 714 |
+| Cases whose `.js` baseline embeds an **emitted** `.d.ts` section | **1,162** |
+| Of those, **reachable** — no declaration needs inference | **496 (42.69%)** |
+| Blocked, needing inference somewhere | 666 |
 | Not judged: configuration-varied baselines | 611 |
 | Not judged: no `.js` emit baseline / no baseline at all | 3,094 |
 
-**The falsifier does not fire.** 575 is comfortably above "a few hundred", and it
-is 44% of the population rather than a tail. Phase 3.5 proceeds, and
-`bd tsr-49v.4` — the printer — is worth its cost.
+> **Corrected 2026-08-04, and the correction is not a rounding.** This table first
+> read **575/1,289 (44.61%)**. A baseline echoes every *input* unit before the
+> emitted files, so a case with a `foo.d.ts` **input** — an ambient library, a
+> `node_modules` stub — carries a `//// [foo.d.ts]` section upstream never emitted,
+> and the suite counted it as declaration output. 127 cases are that shape.
+>
+> It surfaced in slice 4 rather than here: `dts_emit` asked the emitter for
+> `foo.d.d.ts` and reported 215 failures reading "emitted x, upstream did not",
+> every one of them the harness's fault. The discriminator is now exact rather than
+> heuristic — a declaration section is output iff no input unit has that name — and
+> both suites apply it. See
+> [declaration-emit.md](declaration-emit.md#the-denominator-was-wrong-and-by-more-than-a-rounding).
+>
+> The same trap as the 617 no-output cases and the 611 configuration-varied ones:
+> **the presence of a file is not evidence of what produced it.**
+
+**The falsifier does not fire.** 496 is comfortably above "a few hundred", and it
+is 43% of the population rather than a tail. Phase 3.5 proceeds, `bd tsr-49v.4` —
+the printer — was worth its cost, and `bd tsr-49v.6` — the emitter — is built on
+top of both. See [declaration-emit.md](declaration-emit.md).
 
 ### The denominator is 1,289, not 1,894, and the difference is not a rounding
 
@@ -305,10 +354,12 @@ alone; excluding `module` and `exports` moved the target from 569 to 575, and cu
 So: an upper bound on what could be *emitted*, and a lower bound on what needs no
 *inference*. Both, at once, for different reasons.
 
-### What blocks the other 714
+### What blocks the other 666
 
 Distinct `TS9xxx` codes across the blocked cases, by how many cases each appears
-in — 468 of the 714 are blocked by a single code:
+in. The counts below were measured against the pre-correction denominator of 714
+blocked cases and are left as measured rather than silently rescaled; the shape,
+not the absolute count, is what they are for:
 
 | Code | Cases | |
 |---|---:|---|

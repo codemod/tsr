@@ -205,7 +205,22 @@ impl Printer<'_> {
                 }
             }
             // Ported from `Printer.emitTypeLiteral` (`internal/printer/printer.go`).
-            TypeNode::TypeLiteralNode(literal) => self.type_members(literal.members),
+            // Ported from `Printer.emitTypeLiteral` (`printer.go:1964`), which is
+            // *not* `emitInterfaceDeclaration`'s list. The difference is
+            // `LFOptionalIfEmpty`: an empty type literal is `{}` on one line, while
+            // an empty interface body is a brace, a newline and a brace. Sharing
+            // one helper between them printed `type A = {` / `}` where every
+            // baseline writes `type A = {};`.
+            TypeNode::TypeLiteralNode(literal) => {
+                self.write_punctuation("{");
+                self.emit_list(
+                    literal.members,
+                    ListFormat::MULTI_LINE_TYPE_LITERAL_MEMBERS
+                        .union(ListFormat::NO_SPACE_IF_EMPTY),
+                    |printer, member| printer.emit_type_element(member),
+                );
+                self.write_punctuation("}");
+            }
             // Ported from `Printer.emitMappedType` (`internal/printer/printer.go`).
             TypeNode::MappedTypeNode(mapped) => {
                 self.write("{");

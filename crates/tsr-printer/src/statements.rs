@@ -335,23 +335,28 @@ impl Printer<'_> {
                             if wrote {
                                 self.write(", ");
                             }
-                            self.write("{ ");
-                            for (index, specifier) in named.elements.iter().enumerate() {
-                                if index > 0 {
-                                    self.write(", ");
-                                }
-                                if specifier.is_type_only {
-                                    self.write("type ");
-                                }
-                                if let Some(property) = &specifier.property_name {
-                                    self.module_export_name(property);
-                                    self.write(" as ");
-                                }
-                                if let Some(name) = specifier.name {
-                                    self.write(name.text);
-                                }
-                            }
-                            self.write(" }");
+                            // Ported from `Printer.emitNamedImports`
+                            // (`printer.go:3939`): the braces are written *here*,
+                            // not by the format — `LFNamedImportsOrExportsElements`
+                            // deliberately carries no `LFBraces`.
+                            self.write_punctuation("{");
+                            self.emit_list(
+                                named.elements,
+                                ListFormat::NAMED_IMPORTS_OR_EXPORTS_ELEMENTS,
+                                |printer, specifier| {
+                                    if specifier.is_type_only {
+                                        printer.write("type ");
+                                    }
+                                    if let Some(property) = &specifier.property_name {
+                                        printer.module_export_name(property);
+                                        printer.write(" as ");
+                                    }
+                                    if let Some(name) = specifier.name {
+                                        printer.write(name.text);
+                                    }
+                                },
+                            );
+                            self.write_punctuation("}");
                             wrote = true;
                         }
                         None => {}
@@ -375,23 +380,30 @@ impl Printer<'_> {
                 }
                 match &node.export_clause {
                     Some(tsr_ast::NamedExportBindings::NamedExports(named)) => {
-                        self.write("{ ");
-                        for (index, specifier) in named.elements.iter().enumerate() {
-                            if index > 0 {
-                                self.write(", ");
-                            }
-                            if specifier.is_type_only {
-                                self.write("type ");
-                            }
-                            if let Some(property) = &specifier.property_name {
-                                self.module_export_name(property);
-                                self.write(" as ");
-                            }
-                            if let Some(name) = &specifier.name {
-                                self.module_export_name(name);
-                            }
-                        }
-                        self.write(" }");
+                        // Through `emit_list`, not by hand. `LFNamedImportsOrExports\
+                        // Elements` carries `NO_SPACE_IF_EMPTY`, which is the whole
+                        // reason `export {}` is not `export { }` — and an empty
+                        // `export {}` is the scope marker the declaration transform
+                        // appends to most files, so hand-writing the braces here put
+                        // two spaces in the most common line in a `.d.ts`.
+                        self.write_punctuation("{");
+                        self.emit_list(
+                            named.elements,
+                            ListFormat::NAMED_IMPORTS_OR_EXPORTS_ELEMENTS,
+                            |printer, specifier| {
+                                if specifier.is_type_only {
+                                    printer.write("type ");
+                                }
+                                if let Some(property) = &specifier.property_name {
+                                    printer.module_export_name(property);
+                                    printer.write(" as ");
+                                }
+                                if let Some(name) = &specifier.name {
+                                    printer.module_export_name(name);
+                                }
+                            },
+                        );
+                        self.write_punctuation("}");
                     }
                     Some(tsr_ast::NamedExportBindings::NamespaceExport(namespace)) => {
                         self.write("*");

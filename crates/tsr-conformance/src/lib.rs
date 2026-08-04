@@ -12,6 +12,7 @@
 pub mod binder_suite;
 pub mod case;
 pub mod corpus;
+pub mod dts_emit_suite;
 pub mod dts_suite;
 pub mod dts_target_suite;
 pub mod errors_baseline;

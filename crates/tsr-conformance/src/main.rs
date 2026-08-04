@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use tsr_conformance::{
     Corpus,
     binder_suite::BinderSymbols,
+    dts_emit_suite::DtsEmit,
     dts_suite::IsolatedDeclarations,
     dts_target_suite::DtsReachableTarget,
     loader_suite::FileLoaderRequests,
@@ -54,6 +55,7 @@ fn main() -> Result<()> {
         Box::new(FileLoaderRequests),
         Box::new(IsolatedDeclarations),
         Box::new(DtsReachableTarget),
+        Box::new(DtsEmit),
         Box::new(PrinterRoundTrip),
     ];
 

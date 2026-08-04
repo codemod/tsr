@@ -3,6 +3,15 @@
 **Status:** slice 3 of Phase 3.5 (`bd tsr-49v.4`), at **99.52%** on the round-trip
 gate. Not yet an emit printer — see "What this is not" below.
 
+> **Slice 4 pointed a byte comparison at this printer and found four defects the
+> round trip could not see.** They are listed in
+> [declaration-emit.md](declaration-emit.md#what-the-round-trip-gate-could-not-see)
+> rather than duplicated here, but the shape is worth carrying in this document,
+> because it is the sharpest available answer to "what does a structural gate miss?"
+> — a leading blank line on every file, `{}` where upstream writes two lines,
+> `export {  };`, and `typeof c1 .foo`. All four parse identically to the correct
+> output. All four survived 11,726 cases. None is in the tree.
+
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 **Upstream counterpart:** `internal/printer/printer.go` (6,280 lines; 14,827 for
 the package with tests).
@@ -159,3 +168,10 @@ see, and it was found by mutating rather than by reasoning about the fingerprint
 56 failures, no bucket larger than eight, plus seven cases reporting an unsupported
 `NoSubstitutionTemplateLiteral` reached through a path the expression printer does
 not cover. The residue is filed under `bd tsr-49v.4`.
+
+Separately, the emit gate (`dts_emit`) now constrains formatting that the round
+trip leaves free, and its residue includes two printer choices that were correct
+under this gate and are wrong under that one: module specifiers are re-quoted with
+double quotes where upstream reproduces the source text through
+`getLiteralTextOfNode`, and comments are not emitted at all. Both are recorded in
+[declaration-emit.md](declaration-emit.md#known-approximations).

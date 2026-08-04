@@ -29,8 +29,20 @@ pub(crate) struct TextWriter {
 }
 
 impl TextWriter {
+    /// A fresh writer, positioned **at the start of a line**.
+    ///
+    /// That is not a detail. Upstream's `textWriter.Clear` sets `lineStart: true`
+    /// (`textwriter.go:27`), so `emitSourceFile`'s opening `p.writeLine()`
+    /// (`printer.go:4637`) is a no-op on an empty buffer. Started at `false`, the
+    /// same call emits a newline and **every printed file gains a leading blank
+    /// line**.
+    ///
+    /// The round trip cannot see this — leading whitespace is not in the tree, so
+    /// 11,726 cases passed with it — and it made `dts_emit` fail its first 289
+    /// cases on line 1 before a single declaration was compared. A gate that only
+    /// checks structure cannot check position.
     pub(crate) fn new() -> Self {
-        Self { builder: String::new(), indent: 0, line_start: false }
+        Self { builder: String::new(), indent: 0, line_start: true }
     }
 
     /// Ported from `textWriter.writeText`.
@@ -137,6 +149,18 @@ mod tests {
         writer.decrease_indent();
         writer.write_line();
         writer.write("a");
-        assert_eq!(writer.into_string(), "\na");
+        assert_eq!(writer.into_string(), "a");
+    }
+
+    #[test]
+    fn a_fresh_writer_is_already_at_the_start_of_a_line() {
+        // This assertion used to read `"\na"`, encoding the state upstream's
+        // `textWriter.Clear` does *not* leave the writer in. The consequence was a
+        // leading blank line on every printed file — invisible to the round trip,
+        // and the first thing a byte comparison found. See [`TextWriter::new`].
+        let mut writer = TextWriter::new();
+        writer.write_line();
+        writer.write("a");
+        assert_eq!(writer.into_string(), "a");
     }
 }

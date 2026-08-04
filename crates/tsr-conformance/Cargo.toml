@@ -25,6 +25,7 @@ tsr-scanner = { workspace = true }
 tsr-binder = { workspace = true }
 tsr-compiler = { workspace = true }
 tsr-dts = { workspace = true }
+tsr-declarations = { workspace = true }
 tsr-printer = { workspace = true }
 tsr-parser = { workspace = true }
 tsr-core = { workspace = true }

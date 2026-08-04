@@ -83,7 +83,22 @@ impl Suite for DtsReachableTarget {
         };
 
         let baseline = JsBaseline::parse(&text);
-        if !baseline.has_declaration_output() {
+        let Ok(parsed_case) = case.load() else {
+            return Outcome::Failed { reason: "case did not load".into() };
+        };
+        // A `.d.ts` **section** is not a `.d.ts` **output**: the baseline echoes
+        // every input unit first, so a case with a `foo.d.ts` input carries a
+        // section upstream never emitted. This test originally read the echo as
+        // evidence of declaration output — see the correction in
+        // `docs/architecture/isolated-declarations.md`. The discriminator is exact:
+        // a declaration section is output iff no input unit has that name.
+        let inputs: std::collections::HashSet<&str> =
+            parsed_case.files.iter().map(|file| file.name.as_str()).collect();
+        let has_output = baseline
+            .sections
+            .iter()
+            .any(|section| section.is_declaration() && !inputs.contains(section.name.as_str()));
+        if !has_output {
             // Excluded from the denominator rather than counted as unreachable.
             // A case that never emits declarations is not a case a declaration
             // emitter failed at — it is not in the population at all, and leaving

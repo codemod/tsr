@@ -24,6 +24,7 @@ tsr-module = { path = "crates/tsr-module" }
 tsr-tsoptions = { path = "crates/tsr-tsoptions" }
 tsr-dts = { path = "crates/tsr-dts" }
 tsr-printer = { path = "crates/tsr-printer" }
+tsr-declarations = { path = "crates/tsr-declarations" }
 
 # Foundations. These mirror oxc's dependency choices (see PLAN.md §3.1); we take
 # oxc's bill of materials, not oxc's crates.

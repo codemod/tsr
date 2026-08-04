@@ -118,6 +118,9 @@ pub fn print(file: &SourceFile<'_>, nodes: &tsr_ast::NodeTable) -> Printed {
 pub(crate) struct Printer<'t> {
     writer: writer::TextWriter,
     unsupported: Vec<SyntaxKind>,
+    /// Whether the last text written was a numeric literal. See
+    /// [`Printer::write_numeric_literal`].
+    last_was_numeric: bool,
     /// `const`/`let` live in `NodeFlags`, not in the tree, so printing a variable
     /// statement needs the side table the parser filled in.
     nodes: &'t tsr_ast::NodeTable,
@@ -125,7 +128,12 @@ pub(crate) struct Printer<'t> {
 
 impl<'t> Printer<'t> {
     fn new(nodes: &'t tsr_ast::NodeTable) -> Self {
-        Self { writer: writer::TextWriter::new(), unsupported: Vec::new(), nodes }
+        Self {
+            writer: writer::TextWriter::new(),
+            unsupported: Vec::new(),
+            last_was_numeric: false,
+            nodes,
+        }
     }
 
     /// Ported from `Printer.emitSourceFile` (`internal/printer/printer.go`).
@@ -152,11 +160,24 @@ impl<'t> Printer<'t> {
     pub(crate) fn write(&mut self, text: &str) {
         let Some(next) = text.chars().next() else { return };
         if let Some(last) = self.writer.last_char()
-            && would_merge(last, next)
+            && would_merge(last, next, self.last_was_numeric)
         {
             self.writer.write(" ");
         }
+        self.last_was_numeric = false;
         self.writer.write(text);
+    }
+
+    /// `write`, for a numeric or bigint literal.
+    ///
+    /// The separator guard is character-based, and one of its rules — a digit
+    /// followed by `.` continues the literal — is a fact about *tokens*, not
+    /// characters. `c1.foo` ends its first token in a digit too, and printed as
+    /// `c1 .foo`, which parses to the same tree and so survived the round trip. The
+    /// flag is what tells the two apart, and it is set only here.
+    pub(crate) fn write_numeric_literal(&mut self, text: &str) {
+        self.write(text);
+        self.last_was_numeric = true;
     }
 
     /// Ported from `Printer.writeKeyword`.
@@ -256,11 +277,30 @@ impl<'t> Printer<'t> {
         }
         if let Some(open) = format.opening_bracket() {
             self.write_punctuation(open);
-            if children.is_empty() && !format.contains(ListFormat::NO_SPACE_IF_EMPTY) {
+        }
+        if children.is_empty() {
+            // Ported from `emitListRange`'s empty branch (`printer.go:4744`). An
+            // empty *multi-line* list is not `{}` — it is a brace, a line break and
+            // a brace, which is how upstream writes `interface I {\n}` for
+            // `interface I { }`. An empty list with `SPACE_BETWEEN_BRACES` gets a
+            // single space unless `NO_SPACE_IF_EMPTY` says otherwise.
+            //
+            // An earlier version wrote a space for *every* empty bracketed list,
+            // which produced `f( )` and `{ }`, and a version after that wrote
+            // nothing at all, which produced `interface I {}` where upstream writes
+            // two lines. All three parse identically; only a byte comparison can
+            // tell them apart, which is why the round trip carried the bug for
+            // 11,726 cases.
+            if format.is_multi_line() {
+                self.write_line();
+            } else if format.contains(ListFormat::SPACE_BETWEEN_BRACES)
+                && !format.contains(ListFormat::NO_SPACE_IF_EMPTY)
+            {
                 self.write_space();
             }
+        } else {
+            self.emit_list_items(children, format, &mut emit);
         }
-        self.emit_list_items(children, format, &mut emit);
         if let Some(close) = format.closing_bracket() {
             self.write_punctuation(close);
         }
@@ -574,7 +614,7 @@ const PUNCTUATION: &str = "+-*/<>=&|!?%^~";
 ///
 /// Conservative on purpose: a false positive costs one space in output nobody
 /// compares, and a false negative silently changes the tree.
-fn would_merge(last: char, next: char) -> bool {
+fn would_merge(last: char, next: char, last_was_numeric: bool) -> bool {
     let word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
     if word(last) && word(next) {
         return true;
@@ -583,8 +623,9 @@ fn would_merge(last: char, next: char) -> bool {
     if last == '/' && (next == '/' || next == '*') {
         return true;
     }
-    // A digit followed by `.` continues the numeric literal.
-    if last.is_ascii_digit() && next == '.' {
+    // A digit followed by `.` continues the numeric literal — but only if the
+    // digit ended a *literal*. `c1.foo` also ends in a digit.
+    if last_was_numeric && last.is_ascii_digit() && next == '.' {
         return true;
     }
     PUNCTUATION.contains(last) && PUNCTUATION.contains(next)
@@ -806,15 +847,24 @@ mod tests {
 
     #[test]
     fn adjacent_words_are_separated() {
-        assert!(would_merge('n', 'x'), "`return` + `x` must not become `returnx`");
-        assert!(!would_merge(')', 'x'));
+        assert!(would_merge('n', 'x', false), "`return` + `x` must not become `returnx`");
+        assert!(!would_merge(')', 'x', false));
     }
 
     #[test]
     fn adjacent_punctuation_that_could_scan_as_one_token_is_separated() {
-        assert!(would_merge('+', '+'), "`a` `+` `+b` must not become `a++b`");
-        assert!(would_merge('<', '='));
-        assert!(would_merge('/', '/'), "a comment would swallow the rest of the line");
+        assert!(would_merge('+', '+', false), "`a` `+` `+b` must not become `a++b`");
+        assert!(would_merge('<', '=', false));
+        assert!(would_merge('/', '/', false), "a comment would swallow the rest of the line");
+    }
+
+    #[test]
+    fn the_digit_then_dot_rule_needs_a_literal_not_just_a_digit() {
+        // `1` `.toString()` must not become `1.toString()`, which does not parse…
+        assert!(would_merge('1', '.', true));
+        // …but `c1` `.foo` is two tokens already, and `c1 .foo` is not what any
+        // baseline writes. The guard is character-based; this one rule is not.
+        assert!(!would_merge('1', '.', false));
     }
 
     #[test]

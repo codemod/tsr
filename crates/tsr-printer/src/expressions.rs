@@ -22,11 +22,11 @@ impl Printer<'_> {
             // Ported from `Printer.emitPrivateIdentifier` (`internal/printer/printer.go`).
             Expression::PrivateIdentifier(node) => self.write(node.text),
             // Ported from `Printer.emitNumericLiteral` (`internal/printer/printer.go`).
-            Expression::NumericLiteral(node) => self.write(node.text),
+            Expression::NumericLiteral(node) => self.write_numeric_literal(node.text),
             // Ported from `Printer.emitBigIntLiteral` (`internal/printer/printer.go`).
             Expression::BigIntLiteral(node) => {
                 let text = big_int_text(node.text);
-                self.write(&text);
+                self.write_numeric_literal(&text);
             }
             // Ported from `Printer.emitStringLiteral` (`internal/printer/printer.go`).
             Expression::StringLiteral(node) => {
