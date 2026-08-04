@@ -24,6 +24,7 @@ tsr-ast = { workspace = true }
 tsr-scanner = { workspace = true }
 tsr-binder = { workspace = true }
 tsr-compiler = { workspace = true }
+tsr-dts = { workspace = true }
 tsr-parser = { workspace = true }
 tsr-core = { workspace = true }
 tsr-module = { workspace = true }

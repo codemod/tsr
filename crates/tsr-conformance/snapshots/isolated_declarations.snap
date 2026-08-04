@@ -1,0 +1,32 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+isolated_declarations Summary:
+What a pass means: the TS9xxx diagnostics of a case that sets @isolatedDeclarations, compared by code and position against upstream's .errors.txt
+Passed         : 5/15 (33.33%)
+Failed         : 10
+Skipped        : 12429 (excluded from the denominator)
+
+  12423  skipped: not an @isolatedDeclarations case
+  1  skipped: upstream recorded no baseline
+  5  skipped: upstream records a known divergence from TypeScript
+
+compiler/computedPropertiesNarrowed
+  5 of 10 expected: 5 missing [computedPropertiesNarrowed.ts(5,5): TS9038 computedPropertiesNarrowed.ts(11,5): TS9038 computedPropertiesNarrowed.ts(22,5): TS9038 +2], 2 unexpected [computedPropertiesNarrowed.ts(16,20): TS9038 computedPropertiesNarrowed.ts(45,10): TS9007]
+compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
+  3 of 3 expected: 1 unexpected [index.ts(3,7): TS9010]
+compiler/isolatedDeclarationErrorsAugmentation
+  1 of 2 expected: 1 missing [parent.ts(1,1): TS9026]
+compiler/isolatedDeclarationErrorsClasses
+  8 of 17 expected: 9 missing [isolatedDeclarationErrorsClasses.ts(12,17): TS9009 isolatedDeclarationErrorsClasses.ts(36,5): TS9038 isolatedDeclarationErrorsClasses.ts(38,5): TS9038 +6], 5 unexpected [isolatedDeclarationErrorsClasses.ts(12,9): TS9009 isolatedDeclarationErrorsClasses.ts(14,9): TS9009 isolatedDeclarationErrorsClasses.ts(15,9): TS9009 +2]
+compiler/isolatedDeclarationErrorsClassesExpressions
+  3 of 4 expected: 1 missing [isolatedDeclarationErrorsClassesExpressions.ts(15,26): TS9021], 1 unexpected [isolatedDeclarationErrorsClassesExpressions.ts(6,10): TS9007]
+compiler/isolatedDeclarationErrorsEnums
+  0 of 7 expected: 7 missing [isolatedDeclarationErrorsEnums.ts(12,5): TS9020 isolatedDeclarationErrorsEnums.ts(13,5): TS9020 isolatedDeclarationErrorsEnums.ts(29,5): TS9020 +4], 11 unexpected [isolatedDeclarationErrorsEnums.ts(4,9): TS9020 isolatedDeclarationErrorsEnums.ts(5,9): TS9020 isolatedDeclarationErrorsEnums.ts(6,9): TS9020 +8]
+compiler/isolatedDeclarationErrorsExpressions
+  47 of 51 expected: 4 missing [isolatedDeclarationErrorsExpressions.ts(91,14): TS9012 isolatedDeclarationErrorsExpressions.ts(92,14): TS9012 isolatedDeclarationErrorsExpressions.ts(93,14): TS9012 +1]
+compiler/isolatedDeclarationErrorsObjects
+  13 of 17 expected: 4 missing [isolatedDeclarationErrorsObjects.ts(40,25): TS9009 isolatedDeclarationErrorsObjects.ts(66,5): TS9038 isolatedDeclarationErrorsObjects.ts(67,5): TS9038 +1], 4 unexpected [isolatedDeclarationErrorsObjects.ts(39,9): TS9009 isolatedDeclarationErrorsObjects.ts(40,9): TS9009 isolatedDeclarationErrorsObjects.ts(42,9): TS9009 +1]
+compiler/isolatedDeclarationErrorsReturnTypes
+  31 of 31 expected: 6 unexpected [isolatedDeclarationErrorsReturnTypes.ts(110,48): TS9007 isolatedDeclarationErrorsReturnTypes.ts(113,44): TS9007 isolatedDeclarationErrorsReturnTypes.ts(116,44): TS9007 +3]
+compiler/isolatedDeclarationsAddUndefined
+  0 of 1 expected: 1 missing [file2.ts(4,27): TS9025]

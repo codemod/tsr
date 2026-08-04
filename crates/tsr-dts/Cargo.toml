@@ -1,0 +1,22 @@
+[package]
+name = "tsr-dts"
+description = "isolatedDeclarations analysis: the checker-free half of declaration emit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+tsr-ast = { workspace = true }
+tsr-core = { workspace = true }
+tsr-diagnostics = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+tsr-parser = { workspace = true }
+
+[lints]
+workspace = true

@@ -240,6 +240,7 @@ dependencies = [
  "tsr-binder",
  "tsr-compiler",
  "tsr-core",
+ "tsr-dts",
  "tsr-module",
  "tsr-parser",
  "tsr-path",
@@ -263,6 +264,17 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "tsr-core",
+]
+
+[[package]]
+name = "tsr-dts"
+version = "0.1.0"
+dependencies = [
+ "rustc-hash",
+ "tsr-ast",
+ "tsr-core",
+ "tsr-diagnostics",
+ "tsr-parser",
 ]
 
 [[package]]

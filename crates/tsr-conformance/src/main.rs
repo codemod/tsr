@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use tsr_conformance::{
     Corpus,
     binder_suite::BinderSymbols,
+    dts_suite::IsolatedDeclarations,
     loader_suite::FileLoaderRequests,
     module_suite::ModuleResolution,
     repo_root, run_suite,
@@ -49,6 +50,7 @@ fn main() -> Result<()> {
         Box::new(BinderSymbols),
         Box::new(ModuleResolution),
         Box::new(FileLoaderRequests),
+        Box::new(IsolatedDeclarations),
     ];
 
     let mut rows = Vec::new();
