@@ -1,0 +1,214 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+diagnostics Summary:
+What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
+Passed         : 54/5488 (0.98%)
+Failed         : 5434
+Skipped        : 6956 (excluded from the denominator)
+
+  793  skipped: configuration-varied baseline (bd tsr-bb4.1)
+  5082  skipped: the case expects no diagnostics (see parser_typescript)
+  617  skipped: upstream recorded no output for this case
+  464  skipped: upstream records a known divergence from TypeScript
+
+First 100 of 5434 failures:
+compiler/ArrowFunctionExpression1
+  1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
+compiler/ClassDeclaration10
+  2 missing (first TS2390 at ClassDeclaration10.ts(2,4))
+compiler/ClassDeclaration11
+  1 missing (first TS2390 at ClassDeclaration11.ts(2,4))
+compiler/ClassDeclaration13
+  1 missing (first TS2389 at ClassDeclaration13.ts(3,4))
+compiler/ClassDeclaration14
+  2 missing (first TS2391 at ClassDeclaration14.ts(2,4))
+compiler/ClassDeclaration15
+  1 missing (first TS2391 at ClassDeclaration15.ts(2,4))
+compiler/ClassDeclaration21
+  1 missing (first TS2389 at ClassDeclaration21.ts(3,5))
+compiler/ClassDeclaration22
+  1 missing (first TS2389 at ClassDeclaration22.ts(3,5))
+compiler/ClassDeclaration24
+  1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
+compiler/ClassDeclaration25
+  2 missing (first TS2391 at ClassDeclaration25.ts(6,5))
+compiler/ClassDeclaration26
+  4 unexpected (first TS1005 at ClassDeclaration26.ts(2,18)), 5 missing
+compiler/ClassDeclaration8
+  1 missing (first TS2390 at ClassDeclaration8.ts(2,3))
+compiler/ClassDeclaration9
+  1 missing (first TS2391 at ClassDeclaration9.ts(2,4))
+compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
+  1 unexpected (first TS1005 at ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts(2,16)), 1 missing
+compiler/ExportAssignment7
+  2 missing (first TS2309 at ExportAssignment7.ts(4,1))
+compiler/ExportAssignment8
+  2 missing (first TS2309 at ExportAssignment8.ts(1,1))
+compiler/FunctionDeclaration3
+  2 missing (first TS2391 at FunctionDeclaration3.ts(1,10))
+compiler/FunctionDeclaration4
+  2 missing (first TS7010 at FunctionDeclaration4.ts(1,10))
+compiler/FunctionDeclaration6
+  2 missing (first TS7010 at FunctionDeclaration6.ts(2,14))
+compiler/FunctionDeclaration7
+  2 missing (first TS2391 at FunctionDeclaration7.ts(2,13))
+compiler/InterfaceDeclaration8
+  1 missing (first TS2427 at InterfaceDeclaration8.ts(1,11))
+compiler/MemberAccessorDeclaration15
+  1 missing (first TS2369 at MemberAccessorDeclaration15.ts(2,12))
+compiler/ParameterList13
+  3 missing (first TS7013 at ParameterList13.ts(2,5))
+compiler/ParameterList4
+  2 missing (first TS2369 at ParameterList4.ts(1,12))
+compiler/ParameterList5
+  4 missing (first TS2355 at ParameterList5.ts(1,15))
+compiler/ParameterList6
+  2 missing (first TS2369 at ParameterList6.ts(2,19))
+compiler/ParameterList7
+  2 missing (first TS2369 at ParameterList7.ts(2,14))
+compiler/ParameterList8
+  3 missing (first TS2369 at ParameterList8.ts(2,14))
+compiler/TransportStream
+  1121 unexpected (first TS1005 at TransportStream.ts(1,2)), 4 missing
+compiler/abstractClassInLocalScopeIsAbstract
+  1 missing (first TS2511 at abstractClassInLocalScopeIsAbstract.ts(4,5))
+compiler/abstractClassUnionInstantiation
+  7 missing (first TS2564 at abstractClassUnionInstantiation.ts(3,28))
+compiler/abstractPropertyInConstructor
+  2 unexpected (first TS2300 at abstractPropertyInConstructor.ts(79,22)), 13 missing
+compiler/accessInstanceMemberFromStaticMethod01
+  1 missing (first TS2662 at accessInstanceMemberFromStaticMethod01.ts(5,17))
+compiler/accessStaticMemberFromInstanceMethod01
+  2 missing (first TS2564 at accessStaticMemberFromInstanceMethod01.ts(2,5))
+compiler/accessorBodyInTypeContext
+  8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
+compiler/accessorDeclarationEmitVisibilityErrors
+  1 missing (first TS2304 at accessorDeclarationEmitVisibilityErrors.ts(2,18))
+compiler/accessorDeclarationOrder
+  2 missing (first TS2564 at accessorDeclarationOrder.ts(2,5))
+compiler/accessorInferredReturnTypeErrorInReturnStatement
+  1 missing (first TS2339 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,18))
+compiler/accessors_spec_section-4.5_error-cases
+  4 missing (first TS2322 at accessors_spec_section-4.5_error-cases.ts(3,48))
+compiler/addMoreCallSignaturesToBaseSignature
+  1 missing (first TS2454 at addMoreCallSignaturesToBaseSignature.ts(10,13))
+compiler/addMoreCallSignaturesToBaseSignature2
+  1 missing (first TS2454 at addMoreCallSignaturesToBaseSignature2.ts(10,13))
+compiler/addMoreOverloadsToBaseSignature
+  1 missing (first TS2430 at addMoreOverloadsToBaseSignature.ts(5,11))
+compiler/aliasAssignments
+  3 missing (first TS2322 at aliasAssignments_1.ts(3,1))
+compiler/aliasBug
+  1 missing (first TS2694 at aliasBug.ts(16,15))
+compiler/aliasDoesNotDuplicateSignatures
+  2 missing (first TS2322 at user.ts(3,5))
+compiler/aliasErrors
+  2 unexpected (first TS1005 at aliasErrors.ts(13,12)), 5 missing
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
+  1 missing (first TS2352 at aliasInstantiationExpressionGenericIntersectionNoCrash1.ts(10,1))
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
+  1 missing (first TS2352 at aliasInstantiationExpressionGenericIntersectionNoCrash2.ts(15,1))
+compiler/aliasOnMergedModuleInterface
+  1 missing (first TS2708 at aliasOnMergedModuleInterface_1.ts(5,16))
+compiler/aliasUsageInArray
+  1 missing (first TS2564 at aliasUsageInArray_backbone.ts(2,12))
+compiler/aliasUsageInFunctionExpression
+  1 missing (first TS2564 at aliasUsageInFunctionExpression_backbone.ts(2,12))
+compiler/aliasUsageInGenericFunction
+  2 missing (first TS2564 at aliasUsageInGenericFunction_backbone.ts(2,12))
+compiler/aliasUsageInIndexerOfClass
+  2 missing (first TS2564 at aliasUsageInIndexerOfClass_backbone.ts(2,12))
+compiler/aliasUsageInObjectLiteral
+  1 missing (first TS2564 at aliasUsageInObjectLiteral_backbone.ts(2,12))
+compiler/aliasUsageInOrExpression
+  6 missing (first TS2564 at aliasUsageInOrExpression_backbone.ts(2,12))
+compiler/aliasUsageInTypeArgumentOfExtendsClause
+  2 missing (first TS2564 at aliasUsageInTypeArgumentOfExtendsClause_backbone.ts(2,12))
+compiler/aliasUsageInVarAssignment
+  2 missing (first TS2564 at aliasUsageInVarAssignment_backbone.ts(2,12))
+compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
+  1 missing (first TS2304 at aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts(2,9))
+compiler/allowImportClausesToMergeWithTypes
+  1 missing (first TS2749 at index.ts(9,10))
+compiler/allowJscheckJsTypeParameterNoCrash
+  1 unexpected (first TS2300 at app.js(8,5)), 1 missing
+compiler/allowSyntheticDefaultImports10
+  2 missing (first TS2339 at a.ts(2,5))
+compiler/alwaysStrict
+  1 missing (first TS1100 at alwaysStrict.ts(2,9))
+compiler/alwaysStrictES6
+  1 missing (first TS1100 at alwaysStrictES6.ts(2,9))
+compiler/alwaysStrictModule
+  1 missing (first TS1100 at alwaysStrictModule.ts(3,13))
+compiler/ambientEnum1
+  1 missing (first TS1066 at ambientEnum1.ts(7,13))
+compiler/ambientErrors1
+  1 missing (first TS1039 at ambientErrors1.ts(1,17))
+compiler/ambientExportDefaultErrors
+  4 missing (first TS2714 at foo.d.ts(1,16))
+compiler/ambientExternalModuleInAnotherExternalModule
+  2 missing (first TS2664 at ambientExternalModuleInAnotherExternalModule.ts(4,16))
+compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
+  2 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
+compiler/ambientExternalModuleWithRelativeModuleName
+  2 missing (first TS2436 at ambientExternalModuleWithRelativeModuleName.ts(1,16))
+compiler/ambientPropertyDeclarationInJs
+  1 unexpected (first TS2300 at /test.js(6,5)), 4 missing
+compiler/ambientStatement1
+  2 missing (first TS1036 at ambientStatement1.ts(2,6))
+compiler/ambiguousGenericAssertion1
+  3 unexpected (first TS1012 at ambiguousGenericAssertion1.ts(4,16)), 2 missing
+compiler/ambiguousOverload
+  2 missing (first TS2322 at ambiguousOverload.ts(5,5))
+compiler/amdDependencyComment1
+  1 missing (first TS2307 at amdDependencyComment1.ts(3,21))
+compiler/amdDependencyCommentName1
+  1 missing (first TS2307 at amdDependencyCommentName1.ts(3,21))
+compiler/anonymousClassExpression2
+  1 missing (first TS2551 at anonymousClassExpression2.ts(13,18))
+compiler/anonymousModules
+  3 unexpected (first TS1005 at anonymousModules.ts(1,8)), 6 missing
+compiler/anyDeclare
+  1 missing (first TS2300 at anyDeclare.ts(4,14))
+compiler/anyIdenticalToItself
+  1 missing (first TS2394 at anyIdenticalToItself.ts(1,10))
+compiler/anyIndexedAccessArrayNoException
+  1 missing (first TS2538 at anyIndexedAccessArrayNoException.ts(1,12))
+compiler/anyInferenceAnonymousFunctions
+  5 missing (first TS2454 at anyInferenceAnonymousFunctions.ts(3,1))
+compiler/anyMappedTypesError
+  1 missing (first TS7039 at anyMappedTypesError.ts(1,12))
+compiler/arguments
+  6 missing (first TS2304 at arguments.ts(6,8))
+compiler/argumentsObjectCreatesRestForJs
+  2 missing (first TS2554 at main.js(3,9))
+compiler/argumentsPropertyNameInJsMode1
+  1 missing (first TS2554 at a.js(9,7))
+compiler/argumentsPropertyNameInJsMode2
+  1 missing (first TS2554 at a.js(5,6))
+compiler/argumentsReferenceInConstructor4_Js
+  1 missing (first TS1210 at /a.js(18,9))
+compiler/argumentsReferenceInFunction1_Js
+  2 missing (first TS7006 at index.js(1,25))
+compiler/argumentsReferenceInMethod4_Js
+  1 missing (first TS1210 at /a.js(16,9))
+compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
+  11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
+compiler/arithAssignTyping
+  12 missing (first TS2629 at arithAssignTyping.ts(3,1))
+compiler/arithmeticOnInvalidTypes
+  15 missing (first TS2365 at arithmeticOnInvalidTypes.ts(3,9))
+compiler/arithmeticOnInvalidTypes2
+  7 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
+compiler/arityErrorRelatedSpanBindingPattern
+  2 missing (first TS2554 at arityErrorRelatedSpanBindingPattern.ts(5,1))
+compiler/arrayAssignmentTest1
+  22 missing (first TS2322 at arrayAssignmentTest1.ts(6,16))
+compiler/arrayAssignmentTest2
+  10 missing (first TS2322 at arrayAssignmentTest2.ts(47,1))
+compiler/arrayAssignmentTest3
+  1 missing (first TS2345 at arrayAssignmentTest3.ts(12,16))
+compiler/arrayAssignmentTest4
+  2 missing (first TS2322 at arrayAssignmentTest4.ts(22,1))
+compiler/arrayAssignmentTest5
+  3 missing (first TS2366 at arrayAssignmentTest5.ts(21,66))

@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use tsr_conformance::{
     Corpus,
     binder_suite::BinderSymbols,
+    diagnostics_suite::Diagnostics,
     dts_emit_suite::DtsEmit,
     dts_shape_suite::DtsShape,
     dts_suite::IsolatedDeclarations,
@@ -90,6 +91,7 @@ fn main() -> Result<()> {
         Box::new(DtsShape),
         Box::new(PrinterRoundTrip),
         Box::new(CheckerTypes),
+        Box::new(Diagnostics),
     ];
 
     let mut rows = Vec::new();

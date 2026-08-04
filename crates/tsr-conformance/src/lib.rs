@@ -12,6 +12,7 @@
 pub mod binder_suite;
 pub mod case;
 pub mod corpus;
+pub mod diagnostics_suite;
 pub mod dts_emit_suite;
 pub mod dts_shape_suite;
 pub mod dts_suite;

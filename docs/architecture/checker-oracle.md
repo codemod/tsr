@@ -1,7 +1,11 @@
-# The checker's oracle (`checker_types`)
+# The checker's oracle (`checker_types`, `diagnostics`)
 
-**Status:** the instrument exists; the subject does not. `checker_types` reports
-**0/9,538** and will until `bd tsr-4sc` computes a type.
+**Status:** the instruments exist; the subject does not.
+
+```
+checker_types    0/9538    0.00%   the type of every expression
+diagnostics      54/5488   0.98%   every diagnostic, by code and position
+```
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 
@@ -99,12 +103,54 @@ upstream never ran.
 
 Both suites now test varied first, and their skip lists are directly comparable.
 
+## The diagnostics half
+
+`.types` gates the types a checker computes; `.errors.txt` gates the errors it
+reports, and that is the larger half — the baseline is what a user sees. Before
+this, the only diagnostic comparison was `isolated_declarations`, filtered to the
+`9000..9100` range: 20 codes out of TypeScript's ~1,600.
+
+A pass is the **exact multiset of (file, line, column, code)**. Not a subset and
+not "the codes we know about": a diagnostic we invent fails a case as surely as
+one we miss.
+
+Only cases expecting **at least one** diagnostic are judged. Reproducing a clean
+file by reporting nothing is real conformance, but it is already measured by
+`parser_typescript` and `scanner_clean_files`, and folding those 5,082 cases in
+here would bury the number that matters — of the diagnostics upstream reports, how
+many do we? The false-positive direction survives anyway: a case expecting three
+and getting four fails.
+
+### It found two defect classes on its first run
+
+0.98% is the checker's absence, and expected. What was not expected: **865 of the
+5,434 failures are cases where this port emits a diagnostic upstream does not.**
+Those are unblocked by the checker and ours to fix today.
+
+| code | cases | |
+|---|---:|---|
+| `TS2300` duplicate identifier | 395 | **a binder diagnostic** (`bd tsr-y4u.18`) |
+| `TS1005`, `TS1003`, `TS1012`, `TS1109`, `TS1125` | ~470 | parser codes (`bd tsr-pum.11`) |
+
+Both were invisible to the suites that ostensibly cover those components, and for
+structural reasons rather than by oversight:
+
+- `binder_symbols` (97.98%) compares symbol **resolution** against `.symbols`. A
+  binder can resolve every name correctly and still invent 395 duplicate-identifier
+  errors, because it never raises them into that comparison.
+- `parser_typescript` (99.36%) judges whether a file parses **cleanly** and skips
+  the 7,413 cases that legitimately contain parse errors — so *which* errors we
+  report in exactly the cases designed to produce errors was never compared.
+
+That is the argument for this suite in one paragraph: a component-shaped gate
+measures the component's model, and only an output-shaped gate measures what
+ships.
+
 ## What is still missing for Phase 4
 
-This gates *types*. Two other oracles the checker needs, neither built:
-
-- **Full `.errors.txt` comparison.** `isolated_declarations` compares only the
-  `9000..9100` range; every other diagnostic the checker produces is unmeasured.
-  That is the larger half of a checker's conformance.
-- **Per-configuration runs** (`bd tsr-bb4.1`), which would return 1,397 cases here
-  and comparable numbers to the parser and binder suites.
+- **Per-configuration runs** (`bd tsr-bb4.1`), which would return 1,397 cases to
+  `checker_types` and 793 to `diagnostics`.
+- **Message text.** Both suites compare codes and positions, never the rendered
+  message. Two diagnostics with the same code and different arguments are equal
+  here, and `.errors.txt` records the full text. That is a real gap and a
+  deliberate one: the localised message tables are `bd tsr-5e7.6`.

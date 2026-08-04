@@ -1,0 +1,212 @@
+//! `diagnostics`: every diagnostic upstream reports, by code and position.
+//!
+//! # The other half of a checker's conformance
+//!
+//! [`crate::types_suite`] gates the types a checker computes. This gates the
+//! *errors* it reports, and that is the larger half: a `.errors.txt` baseline is
+//! what a user sees.
+//!
+//! Until now the only diagnostic comparison in this repository was
+//! `isolated_declarations`, which filters to the `9000..9100` range — 20 codes out
+//! of TypeScript's ~1,600. Everything else upstream reports was unmeasured.
+//!
+//! # What this port can produce today
+//!
+//! The scanner, the parser and the binder. No checker (`bd tsr-4sc`), so every
+//! `TS2xxx` in a baseline is a diagnostic we cannot yet emit — which is the point
+//! of the number, not a defect in it.
+//!
+//! `tsr_dts`'s `TS9xxx` are deliberately **not** included. They are produced under
+//! `isolatedDeclarations`, which is a per-case compiler option this suite does not
+//! model, and emitting them everywhere would be a false positive on every case
+//! that does not set it. `isolated_declarations` gates those separately.
+//!
+//! # Only cases that expect at least one diagnostic are judged
+//!
+//! A case whose baseline records **no** diagnostics is a real expectation, and
+//! reproducing it means reporting nothing — but "we report nothing" is already
+//! measured, thoroughly, by `parser_typescript` (99.36%) and
+//! `scanner_clean_files` (100%). Counting those cases here would add several
+//! thousand near-automatic passes and bury the number that matters: **of the
+//! diagnostics upstream reports, how many do we?**
+//!
+//! The false-positive direction is not lost. A judged case that expects three
+//! diagnostics and gets four fails, because the comparison is set equality.
+//!
+//! # What a pass means
+//!
+//! The **exact multiset of (file, line, column, code)**, compared after sorting.
+//! Not a subset, not "the codes we know about" — a diagnostic we invent fails the
+//! case as surely as one we miss.
+//!
+//! Positions are 1-based, as the baselines write them, and the column is a UTF-16
+//! code unit offset. Getting that wrong shifts every diagnostic on a line
+//! containing an astral character, which is the kind of error that looks like a
+//! checker bug for a week.
+//!
+//! # Exclusions
+//!
+//! Ordered so each reason means what it says — the trap
+//! `docs/architecture/checker-oracle.md` records for the two `.types`/`.symbols`
+//! suites:
+//!
+//! - **Configuration-varied** baselines, until `bd tsr-bb4.1` runs per
+//!   configuration. There is no single expected output to compare against.
+//! - **Known divergences** (`.errors.txt.diff`): upstream records that its own
+//!   output differs from TypeScript's, so the baseline is not a specification.
+//! - **Cases upstream recorded no output for at all.** 617 of them. A missing
+//!   `.errors.txt` means "no diagnostics" only when some other baseline proves the
+//!   case ran; without that the absence proves nothing, and reading it as a clean
+//!   expectation hands out free passes.
+
+use tsr_parser::ParsedFile;
+
+use crate::{
+    CaseEntry,
+    errors_baseline::{self, BaselineDiagnostic},
+    suite::{Outcome, Suite},
+    symbols_baseline::line_and_character,
+};
+
+/// The `diagnostics` suite.
+pub struct Diagnostics;
+
+impl Suite for Diagnostics {
+    fn name(&self) -> &'static str {
+        "diagnostics"
+    }
+
+    fn describes(&self) -> &'static str {
+        "every diagnostic in upstream's .errors.txt reproduced exactly — same file, \
+         line, column and code, no more and no fewer — for cases that expect at \
+         least one; scanner, parser and binder only, with no checker (bd tsr-4sc)"
+    }
+
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        if case.has_varied_errors() {
+            return Outcome::Skipped {
+                reason: "configuration-varied baseline (bd tsr-bb4.1)".into(),
+            };
+        }
+        if case.has_known_divergence() {
+            return Outcome::Skipped {
+                reason: "upstream records a known divergence from TypeScript".into(),
+            };
+        }
+        // Absence is evidence only when something else proves the case ran.
+        if !case.has_any_baseline() {
+            return Outcome::Skipped { reason: "upstream recorded no output for this case".into() };
+        }
+        let Ok(baseline) = case.expected_errors() else {
+            return Outcome::Failed { reason: "baseline did not load".into() };
+        };
+        let mut expected: Vec<BaselineDiagnostic> =
+            baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
+        if expected.is_empty() {
+            return Outcome::Skipped {
+                reason: "the case expects no diagnostics (see parser_typescript)".into(),
+            };
+        }
+        expected.sort_unstable();
+
+        let Ok(test) = case.load() else {
+            return Outcome::Failed { reason: "case did not load".into() };
+        };
+
+        let mut actual = Vec::new();
+        for unit in &test.files {
+            let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
+            if kind == tsr_parser::ScriptKind::Json {
+                continue;
+            }
+            let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
+            let mut reported = parsed.diagnostics().to_vec();
+            // The binder reports strict-mode and grammar diagnostics that the
+            // parser does not, and they appear in the same baselines.
+            parsed.with_ast(|file| {
+                let bound = tsr_binder::bind(
+                    file,
+                    parsed.nodes(),
+                    tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
+                );
+                reported.extend(bound.diagnostics().iter().cloned());
+            });
+            for diagnostic in reported {
+                let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+                actual.push(BaselineDiagnostic {
+                    file: unit.name.clone(),
+                    line: line + 1,
+                    column: character + 1,
+                    code: diagnostic.message.code(),
+                });
+            }
+        }
+        actual.sort_unstable();
+
+        if actual == expected {
+            return Outcome::Passed;
+        }
+        Outcome::Failed { reason: summarise(&expected, &actual) }
+    }
+}
+
+/// A one-line summary of how the two sets differ.
+///
+/// Counts first, then the most informative single item. With no checker the
+/// overwhelming answer is "missing", and the code that is missing is the useful
+/// half — it says which part of the checker would fix the case.
+fn summarise(expected: &[BaselineDiagnostic], actual: &[BaselineDiagnostic]) -> String {
+    let missing: Vec<&BaselineDiagnostic> =
+        expected.iter().filter(|item| !actual.contains(item)).collect();
+    let extra: Vec<&BaselineDiagnostic> =
+        actual.iter().filter(|item| !expected.contains(item)).collect();
+
+    // An unexpected diagnostic is reported in preference to a missing one: with no
+    // checker, missing is the expected state and extra is a defect we own today.
+    if let Some(first) = extra.first() {
+        return format!(
+            "{} unexpected (first TS{} at {}({},{})), {} missing",
+            extra.len(),
+            first.code,
+            first.file,
+            first.line,
+            first.column,
+            missing.len()
+        );
+    }
+    let first = missing.first().expect("sets differ, so one side is non-empty");
+    format!(
+        "{} missing (first TS{} at {}({},{}))",
+        missing.len(),
+        first.code,
+        first.file,
+        first.line,
+        first.column
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn diagnostic(code: u32, line: u32) -> BaselineDiagnostic {
+        BaselineDiagnostic { file: "a.ts".into(), line, column: 1, code }
+    }
+
+    #[test]
+    fn an_unexpected_diagnostic_is_reported_before_a_missing_one() {
+        // With no checker almost every case is "missing"; a false positive is a
+        // defect this port owns today, so it must not be buried behind the count.
+        let expected = vec![diagnostic(2304, 1), diagnostic(2322, 2)];
+        let actual = vec![diagnostic(1005, 9)];
+        let summary = summarise(&expected, &actual);
+        assert!(summary.starts_with("1 unexpected (first TS1005 at a.ts(9,1))"), "{summary}");
+        assert!(summary.ends_with("2 missing"), "{summary}");
+    }
+
+    #[test]
+    fn a_purely_missing_set_names_the_first_code() {
+        let expected = vec![diagnostic(2304, 3), diagnostic(2322, 7)];
+        assert_eq!(summarise(&expected, &[]), "2 missing (first TS2304 at a.ts(3,1))".to_string());
+    }
+}
