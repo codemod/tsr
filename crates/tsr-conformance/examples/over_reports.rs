@@ -139,11 +139,14 @@ fn main() {
     println!("'shadowed' = upstream reports something else at our exact position.");
     let judged = judged_by_diagnostics.len();
     let capped = capped_diagnostics_cases.len();
+    // Same scoped allow, and for the same reason, as `Suite::percentage`: these are
+    // case counts in the thousands, nowhere near `f64`'s 52-bit mantissa.
+    #[allow(clippy::cast_precision_loss)]
+    let (share, ceiling) =
+        (100.0 * capped as f64 / judged as f64, 100.0 * (judged - capped) as f64 / judged as f64);
     println!(
         "\nOf the {judged} cases the `diagnostics` suite judges, {capped} carry an over-report \
-         we emit and upstream does not ({:.1}%). Those cannot pass however good the checker is, \
-         so they cap that suite at {:.1}%.",
-        100.0 * capped as f64 / judged as f64,
-        100.0 * (judged - capped) as f64 / judged as f64
+         we emit and upstream does not ({share:.1}%). Those cannot pass however good the checker \
+         is, so they cap that suite at {ceiling:.1}%."
     );
 }
