@@ -308,6 +308,7 @@ version = "0.1.0"
 name = "tsr-printer"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "tsr-ast",
  "tsr-core",
  "tsr-parser",

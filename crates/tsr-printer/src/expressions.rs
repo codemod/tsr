@@ -12,23 +12,30 @@
 
 use tsr_ast::Expression;
 
-use crate::{Printer, big_int_text, escape_template, quote_string};
+use crate::{ListFormat, Printer, big_int_text, escape_template, quote_string};
 
 impl Printer<'_> {
-    pub(crate) fn expression(&mut self, expression: &Expression<'_>) {
+    pub(crate) fn emit_expression(&mut self, expression: &Expression<'_>) {
         match expression {
+            // Ported from `Printer.emitIdentifierReference` (`internal/printer/printer.go`).
             Expression::Identifier(node) => self.write(node.text),
+            // Ported from `Printer.emitPrivateIdentifier` (`internal/printer/printer.go`).
             Expression::PrivateIdentifier(node) => self.write(node.text),
+            // Ported from `Printer.emitNumericLiteral` (`internal/printer/printer.go`).
             Expression::NumericLiteral(node) => self.write(node.text),
+            // Ported from `Printer.emitBigIntLiteral` (`internal/printer/printer.go`).
             Expression::BigIntLiteral(node) => {
                 let text = big_int_text(node.text);
                 self.write(&text);
             }
+            // Ported from `Printer.emitStringLiteral` (`internal/printer/printer.go`).
             Expression::StringLiteral(node) => {
                 let text = quote_string(node.text);
                 self.write(&text);
             }
+            // Ported from `Printer.emitRegularExpressionLiteral` (`internal/printer/printer.go`).
             Expression::RegularExpressionLiteral(node) => self.write(node.text),
+            // Ported from `Printer.emitNoSubstitutionTemplateLiteral` (`internal/printer/printer.go`).
             Expression::NoSubstitutionTemplateLiteral(node) => {
                 let text = format!("`{}`", escape_template(node.text));
                 self.write(&text);
@@ -37,6 +44,7 @@ impl Printer<'_> {
                 Some(text) => self.write(text),
                 None => self.unsupported(node.kind),
             },
+            // Ported from `Printer.emitTemplateExpression` (`internal/printer/printer.go`).
             Expression::TemplateExpression(node) => {
                 if let Some(head) = node.head {
                     // `raw_text` is the whole token, delimiters included — it is
@@ -45,44 +53,46 @@ impl Printer<'_> {
                 }
                 for span in node.template_spans {
                     if let Some(expression) = &span.expression {
-                        self.expression(expression);
+                        self.emit_expression(expression);
                     }
                     self.template_chunk(span.literal.as_ref());
                 }
             }
+            // Ported from `Printer.emitTaggedTemplateExpression` (`internal/printer/printer.go`).
             Expression::TaggedTemplateExpression(node) => {
                 if let Some(tag) = &node.tag {
-                    self.expression(tag);
+                    self.emit_expression(tag);
                 }
-                self.type_arguments(node.type_arguments);
+                self.emit_type_arguments(node.type_arguments);
                 if let Some(template) = &node.template {
                     self.any_expression(tsr_ast::Node::from(*template));
                 }
             }
+            // Ported from `Printer.emitParenthesizedExpression` (`internal/printer/printer.go`).
             Expression::ParenthesizedExpression(node) => {
                 self.write("(");
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
                 self.write(")");
             }
+            // Ported from `Printer.emitArrayLiteralExpression` (`internal/printer/printer.go`).
             Expression::ArrayLiteralExpression(node) => {
-                self.write("[");
-                for (index, element) in node.elements.iter().enumerate() {
-                    if index > 0 {
-                        self.write(", ");
-                    }
-                    self.expression(element);
-                }
-                self.write("]");
+                self.emit_list(
+                    node.elements,
+                    ListFormat::ARRAY_LITERAL_EXPRESSION_ELEMENTS,
+                    |printer, element| printer.emit_expression(element),
+                );
             }
+            // Ported from `Printer.emitObjectLiteralExpression` (`internal/printer/printer.go`).
             Expression::ObjectLiteralExpression(node) => self.object_members(node.properties),
+            // Ported from `Printer.emitPropertyAccessExpression` (`internal/printer/printer.go`).
             Expression::PropertyAccessExpression(node) => {
                 if let Some(target) = &node.expression {
-                    self.expression(target);
+                    self.emit_expression(target);
                 }
                 if let Some(token) = node.question_dot_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 } else {
                     self.write(".");
                 }
@@ -94,96 +104,105 @@ impl Printer<'_> {
                     None => {}
                 }
             }
+            // Ported from `Printer.emitElementAccessExpression` (`internal/printer/printer.go`).
             Expression::ElementAccessExpression(node) => {
                 if let Some(target) = &node.expression {
-                    self.expression(target);
+                    self.emit_expression(target);
                 }
                 if let Some(token) = node.question_dot_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
                 self.write("[");
                 if let Some(argument) = &node.argument_expression {
-                    self.expression(argument);
+                    self.emit_expression(argument);
                 }
                 self.write("]");
             }
+            // Ported from `Printer.emitCallExpression` (`internal/printer/printer.go`).
             Expression::CallExpression(node) => {
                 if let Some(target) = &node.expression {
-                    self.expression(target);
+                    self.emit_expression(target);
                 }
                 if let Some(token) = node.question_dot_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
-                self.type_arguments(node.type_arguments);
+                self.emit_type_arguments(node.type_arguments);
                 self.arguments(node.arguments);
             }
+            // Ported from `Printer.emitNewExpression` (`internal/printer/printer.go`).
             Expression::NewExpression(node) => {
                 self.write("new ");
                 if let Some(target) = &node.expression {
-                    self.expression(target);
+                    self.emit_expression(target);
                 }
-                self.type_arguments(node.type_arguments);
+                self.emit_type_arguments(node.type_arguments);
                 // `new C` and `new C()` are different trees: the argument list is
                 // optional and its absence is recorded, so it must not be invented.
                 // `new C` and `new C()` parse to the same tree — both carry an
                 // empty argument list — so always emitting `()` loses nothing.
                 self.arguments(node.arguments);
             }
+            // Ported from `Printer.emitBinaryExpression` (`internal/printer/printer.go`).
             Expression::BinaryExpression(node) => {
                 if let Some(left) = &node.left {
-                    self.expression(left);
+                    self.emit_expression(left);
                 }
                 self.write(" ");
                 if let Some(token) = node.operator_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
                 self.write(" ");
                 if let Some(right) = &node.right {
-                    self.expression(right);
+                    self.emit_expression(right);
                 }
             }
+            // Ported from `Printer.emitPrefixUnaryExpression` (`internal/printer/printer.go`).
             Expression::PrefixUnaryExpression(node) => {
-                self.token(node.operator);
+                self.emit_token_node(node.operator);
                 if let Some(operand) = &node.operand {
-                    self.expression(operand);
+                    self.emit_expression(operand);
                 }
             }
+            // Ported from `Printer.emitPostfixUnaryExpression` (`internal/printer/printer.go`).
             Expression::PostfixUnaryExpression(node) => {
                 if let Some(operand) = &node.operand {
-                    self.expression(operand);
+                    self.emit_expression(operand);
                 }
-                self.token(node.operator);
+                self.emit_token_node(node.operator);
             }
+            // Ported from `Printer.emitConditionalExpression` (`internal/printer/printer.go`).
             Expression::ConditionalExpression(node) => {
                 if let Some(condition) = &node.condition {
-                    self.expression(condition);
+                    self.emit_expression(condition);
                 }
                 self.write(" ? ");
                 if let Some(when_true) = &node.when_true {
-                    self.expression(when_true);
+                    self.emit_expression(when_true);
                 }
                 self.write(" : ");
                 if let Some(when_false) = &node.when_false {
-                    self.expression(when_false);
+                    self.emit_expression(when_false);
                 }
             }
+            // Ported from `Printer.emitArrowFunction` (`internal/printer/printer.go`).
             Expression::ArrowFunction(node) => {
-                self.modifiers(node.modifiers);
-                self.type_parameters(node.type_parameters);
-                self.parameters(node.parameters);
+                self.emit_modifier_list(node.modifiers);
+                self.emit_type_parameters(node.type_parameters);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(" => ");
                 match &node.body {
-                    Some(tsr_ast::ConciseBody::Block(block)) => self.block(block),
+                    Some(tsr_ast::ConciseBody::Block(block)) => self.emit_block(block),
                     Some(other) => self.any_expression(tsr_ast::Node::from(*other)),
                     None => {}
                 }
             }
+            // Ported from `Printer.emitFunctionExpression` (`internal/printer/printer.go`).
             Expression::FunctionExpression(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("function");
                 if node.asterisk_token.is_some() {
                     self.write("*");
@@ -192,41 +211,45 @@ impl Printer<'_> {
                     self.write(" ");
                     self.write(name.text);
                 }
-                self.type_parameters(node.type_parameters);
-                self.parameters(node.parameters);
+                self.emit_type_parameters(node.type_parameters);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 if let Some(tsr_ast::FunctionBody::Block(block)) = &node.body {
                     self.write(" ");
-                    self.block(block);
+                    self.emit_block(block);
                 }
             }
+            // Ported from `Printer.emitClassExpression` (`internal/printer/printer.go`).
             Expression::ClassExpression(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("class");
                 if let Some(name) = node.name {
                     self.write(" ");
                     self.write(name.text);
                 }
-                self.type_parameters(node.type_parameters);
+                self.emit_type_parameters(node.type_parameters);
                 self.class_heritage(node.heritage_clauses);
                 self.write(" ");
                 self.class_body(node.members);
             }
+            // Ported from `Printer.emitSpreadElement` (`internal/printer/printer.go`).
             Expression::SpreadElement(node) => {
                 self.write("...");
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
             }
+            // Ported from `Printer.emitAwaitExpression` (`internal/printer/printer.go`).
             Expression::AwaitExpression(node) => {
                 self.write("await ");
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
             }
+            // Ported from `Printer.emitYieldExpression` (`internal/printer/printer.go`).
             Expression::YieldExpression(node) => {
                 self.write("yield");
                 if node.asterisk_token.is_some() {
@@ -234,76 +257,86 @@ impl Printer<'_> {
                 }
                 if let Some(inner) = &node.expression {
                     self.write(" ");
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
             }
+            // Ported from `Printer.emitTypeOfExpression` (`internal/printer/printer.go`).
             Expression::TypeOfExpression(node) => {
                 self.write("typeof ");
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
             }
+            // Ported from `Printer.emitVoidExpression` (`internal/printer/printer.go`).
             Expression::VoidExpression(node) => {
                 self.write("void ");
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
             }
+            // Ported from `Printer.emitDeleteExpression` (`internal/printer/printer.go`).
             Expression::DeleteExpression(node) => {
                 self.write("delete ");
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
             }
+            // Ported from `Printer.emitNonNullExpression` (`internal/printer/printer.go`).
             Expression::NonNullExpression(node) => {
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
                 self.write("!");
             }
+            // Ported from `Printer.emitAsExpression` (`internal/printer/printer.go`).
             Expression::AsExpression(node) => {
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
                 self.write(" as ");
                 if let Some(r#type) = &node.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitSatisfiesExpression` (`internal/printer/printer.go`).
             Expression::SatisfiesExpression(node) => {
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
                 self.write(" satisfies ");
                 if let Some(r#type) = &node.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitTypeAssertionExpression` (`internal/printer/printer.go`).
             Expression::TypeAssertion(node) => {
                 self.write("<");
                 if let Some(r#type) = &node.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(">");
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
             }
+            // Ported from `Printer.emitExpressionWithTypeArguments` (`internal/printer/printer.go`).
             Expression::ExpressionWithTypeArguments(node) => {
                 if let Some(inner) = &node.expression {
-                    self.expression(inner);
+                    self.emit_expression(inner);
                 }
-                self.type_arguments(node.type_arguments);
+                self.emit_type_arguments(node.type_arguments);
             }
+            // Ported from `Printer.emitMetaProperty` (`internal/printer/printer.go`).
             Expression::MetaProperty(node) => {
-                self.token(node.keyword_token);
+                self.emit_token_node(node.keyword_token);
                 self.write(".");
                 if let Some(name) = node.name {
                     self.write(name.text);
                 }
             }
+            // Ported from `Printer.emitOmittedExpression` (`internal/printer/printer.go`).
             Expression::OmittedExpression(_) => {}
-            other if self.jsx_expression(other) => {}
+            other if self.emit_jsx_expression(other) => {}
             other => {
                 let kind = self.kind_of(other.node_id());
                 self.unsupported(kind);
@@ -324,30 +357,27 @@ impl Printer<'_> {
         self.write(raw);
     }
 
+    /// Ported from the `LFCallExpressionArguments` emit site in
+    /// `internal/printer/printer.go`.
     fn arguments(&mut self, arguments: &[Expression<'_>]) {
-        self.write("(");
-        for (index, argument) in arguments.iter().enumerate() {
-            if index > 0 {
-                self.write(", ");
-            }
-            self.expression(argument);
-        }
-        self.write(")");
+        self.emit_list(arguments, ListFormat::CALL_EXPRESSION_ARGUMENTS, |printer, argument| {
+            printer.emit_expression(argument);
+        });
     }
 
     fn class_heritage(&mut self, clauses: &[&tsr_ast::HeritageClause<'_>]) {
         for clause in clauses {
             self.write(" ");
-            self.token(clause.token);
+            self.emit_token_node(clause.token);
             self.write(" ");
             for (index, base) in clause.types.iter().enumerate() {
                 if index > 0 {
                     self.write(", ");
                 }
                 if let Some(expression) = &base.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
-                self.type_arguments(base.type_arguments);
+                self.emit_type_arguments(base.type_arguments);
             }
         }
     }

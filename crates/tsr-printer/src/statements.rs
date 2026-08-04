@@ -2,19 +2,21 @@
 
 use tsr_ast::{ClassElement, Statement, SyntaxKind};
 
-use crate::{Printer, quote_string};
+use crate::{ListFormat, Printer, quote_string};
 
 impl Printer<'_> {
-    pub(crate) fn statement(&mut self, statement: &Statement<'_>) {
-        self.newline();
+    pub(crate) fn emit_statement(&mut self, statement: &Statement<'_>) {
+        self.write_line();
         match statement {
+            // Ported from `Printer.emitVariableStatement` (`internal/printer/printer.go`).
             Statement::VariableStatement(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 if let Some(list) = node.declaration_list {
                     self.variable_declaration_list(list);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitExpressionStatement` (`internal/printer/printer.go`).
             Statement::ExpressionStatement(node) => {
                 if let Some(expression) = &node.expression {
                     // A statement starting with `{`, `function`, `class` or `let[`
@@ -22,12 +24,13 @@ impl Printer<'_> {
                     // expression reading and changes the tree, so those need care.
                     // The corpus exercises this through `({}).x` and similar, which
                     // already carry a `ParenthesizedExpression` node.
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitFunctionDeclaration` (`internal/printer/printer.go`).
             Statement::FunctionDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("function");
                 if node.asterisk_token.is_some() {
                     self.write("*");
@@ -35,108 +38,108 @@ impl Printer<'_> {
                 if let Some(name) = node.name {
                     self.write(name.text);
                 }
-                self.type_parameters(node.type_parameters);
-                self.parameters(node.parameters);
+                self.emit_type_parameters(node.type_parameters);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 match &node.body {
                     Some(tsr_ast::FunctionBody::Block(block)) => {
                         self.write(" ");
-                        self.block(block);
+                        self.emit_block(block);
                     }
                     None => self.write(";"),
                 }
             }
+            // Ported from `Printer.emitClassDeclaration` (`internal/printer/printer.go`).
             Statement::ClassDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("class");
                 if let Some(name) = node.name {
                     self.write(name.text);
                 }
-                self.type_parameters(node.type_parameters);
+                self.emit_type_parameters(node.type_parameters);
                 self.heritage_clauses(node.heritage_clauses);
                 self.write(" ");
                 self.class_body(node.members);
             }
+            // Ported from `Printer.emitInterfaceDeclaration` (`internal/printer/printer.go`).
             Statement::InterfaceDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("interface");
                 if let Some(name) = node.name {
                     self.write(name.text);
                 }
-                self.type_parameters(node.type_parameters);
+                self.emit_type_parameters(node.type_parameters);
                 self.heritage_clauses(node.heritage_clauses);
                 self.write(" ");
                 self.type_members(node.members);
             }
+            // Ported from `Printer.emitTypeAliasDeclaration` (`internal/printer/printer.go`).
             Statement::TypeAliasDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("type");
                 if let Some(name) = node.name {
                     self.write(name.text);
                 }
-                self.type_parameters(node.type_parameters);
+                self.emit_type_parameters(node.type_parameters);
                 self.write(" = ");
                 if let Some(r#type) = &node.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitEnumDeclaration` (`internal/printer/printer.go`).
             Statement::EnumDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("enum");
                 if let Some(name) = node.name {
                     self.write(name.text);
                 }
-                self.write(" {");
-                self.indented(|printer| {
-                    for (index, member) in node.members.iter().enumerate() {
-                        if index > 0 {
-                            printer.write(",");
-                        }
-                        printer.newline();
-                        printer.property_name(&member.name);
-                        if let Some(initializer) = &member.initializer {
-                            printer.write(" = ");
-                            printer.expression(initializer);
-                        }
-                    }
+                self.write_space();
+                self.write_punctuation("{");
+                self.emit_list(node.members, ListFormat::ENUM_MEMBERS, |printer, member| {
+                    printer.emit_enum_member(member);
                 });
-                self.newline();
-                self.write("}");
+                self.write_punctuation("}");
             }
-            Statement::Block(node) => self.block(node),
+            // Ported from `Printer.emitBlock` (`internal/printer/printer.go`).
+            Statement::Block(node) => self.emit_block(node),
+            // Ported from `Printer.emitEmptyStatement` (`internal/printer/printer.go`).
             Statement::EmptyStatement(_) => self.write(";"),
+            // Ported from `Printer.emitIfStatement` (`internal/printer/printer.go`).
             Statement::IfStatement(node) => {
                 self.write("if (");
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(")");
                 self.nested_statement(node.then_statement.as_ref());
                 if let Some(otherwise) = &node.else_statement {
-                    self.newline();
+                    self.write_line();
                     self.write("else");
                     self.nested_statement(Some(otherwise));
                 }
             }
+            // Ported from `Printer.emitReturnStatement` (`internal/printer/printer.go`).
             Statement::ReturnStatement(node) => {
                 self.write("return");
                 if let Some(expression) = &node.expression {
                     self.write(" ");
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitThrowStatement` (`internal/printer/printer.go`).
             Statement::ThrowStatement(node) => {
                 self.write("throw ");
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitBreakStatement` (`internal/printer/printer.go`).
             Statement::BreakStatement(node) => {
                 self.write("break");
                 if let Some(label) = node.label {
@@ -145,6 +148,7 @@ impl Printer<'_> {
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitContinueStatement` (`internal/printer/printer.go`).
             Statement::ContinueStatement(node) => {
                 self.write("continue");
                 if let Some(label) = node.label {
@@ -153,28 +157,32 @@ impl Printer<'_> {
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitDebuggerStatement` (`internal/printer/printer.go`).
             Statement::DebuggerStatement(_) => {
                 self.write("debugger");
                 self.write(";");
             }
+            // Ported from `Printer.emitWhileStatement` (`internal/printer/printer.go`).
             Statement::WhileStatement(node) => {
                 self.write("while (");
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(")");
                 self.nested_statement(Some(&node.statement));
             }
+            // Ported from `Printer.emitDoStatement` (`internal/printer/printer.go`).
             Statement::DoStatement(node) => {
                 self.write("do");
                 self.nested_statement(Some(&node.statement));
-                self.newline();
+                self.write_line();
                 self.write("while (");
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(");");
             }
+            // Ported from `Printer.emitForStatement` (`internal/printer/printer.go`).
             Statement::ForStatement(node) => {
                 self.write("for (");
                 if let Some(initializer) = &node.initializer {
@@ -183,12 +191,12 @@ impl Printer<'_> {
                 self.write(";");
                 if let Some(condition) = &node.condition {
                     self.write(" ");
-                    self.expression(condition);
+                    self.emit_expression(condition);
                 }
                 self.write(";");
                 if let Some(incrementor) = &node.incrementor {
                     self.write(" ");
-                    self.expression(incrementor);
+                    self.emit_expression(incrementor);
                 }
                 self.write(")");
                 self.nested_statement(Some(&node.statement));
@@ -205,69 +213,59 @@ impl Printer<'_> {
                 let in_statement = self.kind_of(node.node_id) == SyntaxKind::ForInStatement;
                 self.write(if in_statement { " in " } else { " of " });
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(")");
                 self.nested_statement(node.statement.as_ref());
             }
+            // Ported from `Printer.emitTryStatement` (`internal/printer/printer.go`).
             Statement::TryStatement(node) => {
                 self.write("try ");
                 if let Some(block) = node.try_block {
-                    self.block(block);
+                    self.emit_block(block);
                 }
                 if let Some(clause) = node.catch_clause {
                     self.write(" catch");
                     if let Some(declaration) = clause.variable_declaration {
                         self.write(" (");
                         if let Some(name) = &declaration.name {
-                            self.binding_name(name);
+                            self.emit_binding_name(name);
                         }
                         if let Some(r#type) = &declaration.r#type {
                             self.write(": ");
-                            self.type_node(r#type);
+                            self.emit_type_node(r#type);
                         }
                         self.write(")");
                     }
                     self.write(" ");
                     if let Some(block) = clause.block {
-                        self.block(block);
+                        self.emit_block(block);
                     }
                 }
                 if let Some(block) = node.finally_block {
                     self.write(" finally ");
-                    self.block(block);
+                    self.emit_block(block);
                 }
             }
+            // Ported from `Printer.emitSwitchStatement` (`internal/printer/printer.go`).
             Statement::SwitchStatement(node) => {
                 self.write("switch (");
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
-                self.write(") {");
+                self.write_punctuation(")");
+                self.write_space();
+                self.write_punctuation("{");
                 if let Some(case_block) = node.case_block {
-                    self.indented(|printer| {
-                        for clause in case_block.clauses {
-                            printer.newline();
-                            if printer.kind_of(clause.node_id) == SyntaxKind::CaseClause {
-                                printer.write("case ");
-                                if let Some(expression) = &clause.expression {
-                                    printer.expression(expression);
-                                }
-                                printer.write(":");
-                            } else {
-                                printer.write("default:");
-                            }
-                            printer.indented(|printer| {
-                                for statement in clause.statements {
-                                    printer.statement(statement);
-                                }
-                            });
-                        }
-                    });
+                    self.emit_list(
+                        case_block.clauses,
+                        ListFormat::CASE_BLOCK_CLAUSES,
+                        |printer, clause| printer.emit_case_or_default_clause(clause),
+                    );
                 }
-                self.newline();
-                self.write("}");
+                self.write_punctuation("}");
             }
+            // Ported from `Printer.emitLabeledStatement` (`internal/printer/printer.go`).
             Statement::LabeledStatement(node) => {
                 if let Some(label) = node.label {
                     self.write(label.text);
@@ -275,17 +273,19 @@ impl Printer<'_> {
                 self.write(":");
                 self.nested_statement(node.statement.as_ref());
             }
+            // Ported from `Printer.emitWithStatement` (`internal/printer/printer.go`).
             Statement::WithStatement(node) => {
                 self.write("with (");
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(")");
                 self.nested_statement(node.statement.as_ref());
             }
+            // Ported from `Printer.emitModuleDeclaration` (`internal/printer/printer.go`).
             Statement::ModuleDeclaration(node) => {
-                self.modifiers(node.modifiers);
-                self.token(node.keyword);
+                self.emit_modifier_list(node.modifiers);
+                self.emit_token_node(node.keyword);
                 // `declare global { … }` is a module whose keyword *is* its name:
                 // the tree carries both `GlobalKeyword` and an identifier `global`,
                 // and writing each gives `declare global global`.
@@ -304,14 +304,15 @@ impl Printer<'_> {
                 }
                 self.module_body(node.body.as_ref());
             }
+            // Ported from `Printer.emitImportDeclaration` (`internal/printer/printer.go`).
             Statement::ImportDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("import ");
                 if let Some(clause) = node.import_clause {
                     // `import type` / `import defer` are recorded as a phase
                     // modifier token rather than a boolean.
                     if let Some(phase) = clause.phase_modifier {
-                        self.token(phase);
+                        self.emit_token_node(phase);
                         self.write(" ");
                     }
                     let mut wrote = false;
@@ -360,13 +361,14 @@ impl Printer<'_> {
                     }
                 }
                 if let Some(specifier) = &node.module_specifier {
-                    self.expression(specifier);
+                    self.emit_expression(specifier);
                 }
                 self.import_attributes(node.attributes);
                 self.write(";");
             }
+            // Ported from `Printer.emitExportDeclaration` (`internal/printer/printer.go`).
             Statement::ExportDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("export ");
                 if node.is_type_only {
                     self.write("type ");
@@ -402,25 +404,27 @@ impl Printer<'_> {
                 }
                 if let Some(specifier) = &node.module_specifier {
                     self.write(" from ");
-                    self.expression(specifier);
+                    self.emit_expression(specifier);
                 }
                 self.import_attributes(node.attributes);
                 self.write(";");
             }
+            // Ported from `Printer.emitExportAssignment` (`internal/printer/printer.go`).
             Statement::ExportAssignment(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 if node.is_export_equals {
                     self.write("export = ");
                 } else {
                     self.write("export default ");
                 }
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitImportEqualsDeclaration` (`internal/printer/printer.go`).
             Statement::ImportEqualsDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("import ");
                 if node.is_type_only {
                     self.write("type ");
@@ -432,12 +436,12 @@ impl Printer<'_> {
                 match &node.module_reference {
                     Some(tsr_ast::ModuleReference::Identifier(name)) => self.write(name.text),
                     Some(tsr_ast::ModuleReference::QualifiedName(name)) => {
-                        self.entity_name(&tsr_ast::EntityName::QualifiedName(name));
+                        self.emit_entity_name(&tsr_ast::EntityName::QualifiedName(name));
                     }
                     Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) => {
                         self.write("require(");
                         if let Some(expression) = &reference.expression {
-                            self.expression(expression);
+                            self.emit_expression(expression);
                         }
                         self.write(")");
                     }
@@ -445,8 +449,9 @@ impl Printer<'_> {
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitNamespaceExportDeclaration` (`internal/printer/printer.go`).
             Statement::NamespaceExportDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("export as namespace ");
                 if let Some(name) = node.name {
                     self.write(name.text);
@@ -471,9 +476,11 @@ impl Printer<'_> {
         if matches!(statement, Statement::Block(_)) {
             self.write(" ");
             let Statement::Block(block) = statement else { unreachable!() };
-            self.block(block);
+            self.emit_block(block);
         } else {
-            self.indented(|printer| printer.statement(statement));
+            self.increase_indent();
+            self.emit_statement(statement);
+            self.decrease_indent();
         }
     }
 
@@ -485,7 +492,7 @@ impl Printer<'_> {
     fn import_attributes(&mut self, attributes: Option<&tsr_ast::ImportAttributes<'_>>) {
         let Some(attributes) = attributes else { return };
         self.write(" ");
-        self.token(attributes.token);
+        self.emit_token_node(attributes.token);
         self.write(" {");
         for (index, attribute) in attributes.attributes.iter().enumerate() {
             if index > 0 {
@@ -502,7 +509,7 @@ impl Printer<'_> {
             }
             self.write(": ");
             if let Some(value) = &attribute.value {
-                self.expression(value);
+                self.emit_expression(value);
             }
         }
         self.write(" }");
@@ -517,14 +524,14 @@ impl Printer<'_> {
     fn module_body(&mut self, body: Option<&tsr_ast::ModuleBody<'_>>) {
         match body {
             Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
-                self.write(" {");
-                self.indented(|printer| {
-                    for inner in block.statements {
-                        printer.statement(inner);
-                    }
-                });
-                self.newline();
-                self.write("}");
+                self.write_space();
+                self.write_punctuation("{");
+                self.emit_list(
+                    block.statements,
+                    ListFormat::MULTI_LINE_BLOCK_STATEMENTS,
+                    |printer, statement| printer.emit_statement(statement),
+                );
+                self.write_punctuation("}");
             }
             Some(tsr_ast::ModuleBody::ModuleDeclaration(inner)) => {
                 self.write(".");
@@ -542,15 +549,46 @@ impl Printer<'_> {
         }
     }
 
-    pub(crate) fn block(&mut self, block: &tsr_ast::Block<'_>) {
-        self.write("{");
-        self.indented(|printer| {
-            for statement in block.statements {
-                printer.statement(statement);
+    /// Ported from `Printer.emitBlock` (`internal/printer/printer.go`).
+    pub(crate) fn emit_block(&mut self, block: &tsr_ast::Block<'_>) {
+        self.write_punctuation("{");
+        self.emit_list(
+            block.statements,
+            ListFormat::MULTI_LINE_BLOCK_STATEMENTS,
+            |printer, statement| printer.emit_statement(statement),
+        );
+        self.write_punctuation("}");
+    }
+
+    /// Ported from `Printer.emitEnumMember` (`internal/printer/printer.go`).
+    fn emit_enum_member(&mut self, member: &tsr_ast::EnumMember<'_>) {
+        self.emit_property_name(&member.name);
+        if let Some(initializer) = &member.initializer {
+            self.write_space();
+            self.write_operator("=");
+            self.write_space();
+            self.emit_expression(initializer);
+        }
+    }
+
+    /// Ported from `Printer.emitCaseClause`/`emitDefaultClause`
+    /// (`internal/printer/printer.go`), which share one node here.
+    fn emit_case_or_default_clause(&mut self, clause: &tsr_ast::CaseOrDefaultClause<'_>) {
+        if self.kind_of(clause.node_id) == SyntaxKind::CaseClause {
+            self.write_keyword("case");
+            self.write_space();
+            if let Some(expression) = &clause.expression {
+                self.emit_expression(expression);
             }
-        });
-        self.newline();
-        self.write("}");
+        } else {
+            self.write_keyword("default");
+        }
+        self.write_punctuation(":");
+        self.emit_list(
+            clause.statements,
+            ListFormat::CASE_OR_DEFAULT_CLAUSE_STATEMENTS,
+            |printer, statement| printer.emit_statement(statement),
+        );
     }
 
     fn for_initializer(&mut self, initializer: &tsr_ast::ForInitializer<'_>) {
@@ -572,18 +610,18 @@ impl Printer<'_> {
                 self.write(", ");
             }
             if let Some(name) = &declaration.name {
-                self.binding_name(name);
+                self.emit_binding_name(name);
             }
             if declaration.exclamation_token.is_some() {
                 self.write("!");
             }
             if let Some(r#type) = &declaration.r#type {
                 self.write(": ");
-                self.type_node(r#type);
+                self.emit_type_node(r#type);
             }
             if let Some(initializer) = &declaration.initializer {
                 self.write(" = ");
-                self.expression(initializer);
+                self.emit_expression(initializer);
             }
         }
     }
@@ -591,16 +629,16 @@ impl Printer<'_> {
     fn heritage_clauses(&mut self, clauses: &[&tsr_ast::HeritageClause<'_>]) {
         for clause in clauses {
             self.write(" ");
-            self.token(clause.token);
+            self.emit_token_node(clause.token);
             self.write(" ");
             for (index, base) in clause.types.iter().enumerate() {
                 if index > 0 {
                     self.write(", ");
                 }
                 if let Some(expression) = &base.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
-                self.type_arguments(base.type_arguments);
+                self.emit_type_arguments(base.type_arguments);
             }
         }
     }
@@ -615,89 +653,96 @@ impl Printer<'_> {
         }
     }
 
-    pub(crate) fn class_element(&mut self, member: &ClassElement<'_>) {
+    pub(crate) fn emit_class_element(&mut self, member: &ClassElement<'_>) {
         match member {
+            // Ported from `Printer.emitPropertyDeclaration` (`internal/printer/printer.go`).
             ClassElement::PropertyDeclaration(node) => {
-                self.modifiers(node.modifiers);
-                self.property_name(&node.name);
+                self.emit_modifier_list(node.modifiers);
+                self.emit_property_name(&node.name);
                 if let Some(token) = node.postfix_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 if let Some(initializer) = &node.initializer {
                     self.write(" = ");
-                    self.expression(initializer);
+                    self.emit_expression(initializer);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitMethodDeclaration` (`internal/printer/printer.go`).
             ClassElement::MethodDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 if node.asterisk_token.is_some() {
                     self.write("*");
                 }
-                self.property_name(&node.name);
+                self.emit_property_name(&node.name);
                 if let Some(token) = node.postfix_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
-                self.type_parameters(node.type_parameters);
-                self.parameters(node.parameters);
+                self.emit_type_parameters(node.type_parameters);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.function_body(node.body.as_ref());
             }
+            // Ported from `Printer.emitConstructor` (`internal/printer/printer.go`).
             ClassElement::ConstructorDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("constructor");
-                self.parameters(node.parameters);
+                self.emit_parameters(node.parameters);
                 self.function_body(node.body.as_ref());
             }
+            // Ported from `Printer.emitGetAccessorDeclaration` (`internal/printer/printer.go`).
             ClassElement::GetAccessorDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("get ");
-                self.property_name(&node.name);
-                self.parameters(node.parameters);
+                self.emit_property_name(&node.name);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.function_body(node.body.as_ref());
             }
+            // Ported from `Printer.emitSetAccessorDeclaration` (`internal/printer/printer.go`).
             ClassElement::SetAccessorDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("set ");
-                self.property_name(&node.name);
-                self.parameters(node.parameters);
+                self.emit_property_name(&node.name);
+                self.emit_parameters(node.parameters);
                 self.function_body(node.body.as_ref());
             }
+            // Ported from `Printer.emitIndexSignature` (`internal/printer/printer.go`).
             ClassElement::IndexSignatureDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("[");
                 for parameter in node.parameters {
                     if let Some(name) = &parameter.name {
-                        self.binding_name(name);
+                        self.emit_binding_name(name);
                     }
                     if let Some(r#type) = &parameter.r#type {
                         self.write(": ");
-                        self.type_node(r#type);
+                        self.emit_type_node(r#type);
                     }
                 }
                 self.write("]");
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitClassStaticBlockDeclaration` (`internal/printer/printer.go`).
             ClassElement::ClassStaticBlockDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("static ");
                 if let Some(block) = node.body {
-                    self.block(block);
+                    self.emit_block(block);
                 }
             }
             ClassElement::SemicolonClassElement(_) => self.write(";"),
@@ -708,33 +753,36 @@ impl Printer<'_> {
         match body {
             Some(tsr_ast::FunctionBody::Block(block)) => {
                 self.write(" ");
-                self.block(block);
+                self.emit_block(block);
             }
             None => self.write(";"),
         }
     }
 
-    pub(crate) fn object_member(&mut self, member: &tsr_ast::ObjectLiteralElementLike<'_>) {
+    pub(crate) fn emit_object_member(&mut self, member: &tsr_ast::ObjectLiteralElementLike<'_>) {
         use tsr_ast::ObjectLiteralElementLike as Member;
         match member {
+            // Ported from `Printer.emitPropertyAssignment` (`internal/printer/printer.go`).
             Member::PropertyAssignment(node) => {
-                self.property_name(&node.name);
+                self.emit_property_name(&node.name);
                 self.write(": ");
                 if let Some(initializer) = &node.initializer {
-                    self.expression(initializer);
+                    self.emit_expression(initializer);
                 }
             }
+            // Ported from `Printer.emitShorthandPropertyAssignment` (`internal/printer/printer.go`).
             Member::ShorthandPropertyAssignment(node) => {
-                self.property_name(&node.name);
+                self.emit_property_name(&node.name);
                 if let Some(initializer) = &node.object_assignment_initializer {
                     self.write(" = ");
-                    self.expression(initializer);
+                    self.emit_expression(initializer);
                 }
             }
+            // Ported from `Printer.emitSpreadAssignment` (`internal/printer/printer.go`).
             Member::SpreadAssignment(node) => {
                 self.write("...");
                 if let Some(expression) = &node.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
             }
             Member::MethodDeclaration(_)
@@ -751,7 +799,7 @@ impl Printer<'_> {
                     }
                     _ => unreachable!("guarded by the outer match"),
                 };
-                self.class_element(&element);
+                self.emit_class_element(&element);
             }
         }
     }

@@ -7,18 +7,30 @@ gate. Not yet an emit printer — see "What this is not" below.
 **Upstream counterpart:** `internal/printer/printer.go` (6,280 lines; 14,827 for
 the package with tests).
 
-> **Correction.** This document and the crate's own doc comment previously said
-> the printer "is a faithful port under ADR-0001's default rather than a rewrite".
-> **It is not a port.** It was written against the AST node definitions and driven
-> by round-trip failures; `printer.go` was consulted only for its function list.
-> The designs diverge where it counts — 284 `emitX` methods against four `match`
-> statements, explicit `writeSpace()` against an adjacency heuristic, `ListFormat`
-> against ad-hoc loops — and there are **no per-item upstream anchors**, so
-> [conventions.md](../conventions.md)'s "every ported item names its typescript-go
-> counterpart" is unmet. Upstream has no checker entanglement here, so unlike
-> `tsr-dts` there is no forcing reason not to port it. Resolving that is
-> `bd tsr-49v.4`: either re-derive the emit surface from `printer.go` with anchors,
-> or record the divergence in an ADR the way ADR-0021 did.
+> **Corrected twice, so the history is worth stating.** This document first
+> claimed the printer was "a faithful port under ADR-0001's default". Review found
+> that false — it had been written against the AST node definitions with
+> `printer.go` consulted only for its function list — and the claim was retracted.
+> It has since been **made true**: the writer and the `ListFormat` table are ported,
+> every child list goes through `emit_list`, and all 128 dispatch points name the
+> upstream `emitX` they port. The deviations are enumerated in the crate docs
+> rather than left implicit.
+
+## What was ported, and what was not
+
+| Upstream | Here |
+|---|---|
+| `textWriter` (`textwriter.go`) | `writer::TextWriter`, deferred indentation included |
+| `ListFormat` `LF*` table | `list_format::ListFormat`, one-for-one |
+| `emitList` / `emitListItems` / `writeDelimiter` | `Printer::emit_list` and friends |
+| central `switch node.Kind` → 284 `emitX` | a `match` per category, each arm anchored |
+| comments, source maps, precedence table | **not ported** — see the deviations below |
+
+Four deviations, each deliberate: the separator guard (upstream places spaces by
+hand, and porting that faithfully produced `1.toString()` for `1 .toString()`); no
+comments or source maps; `PRESERVE_LINES`/`PREFER_NEW_LINE` degraded to single-line
+because they consult original positions; and no precedence table, because
+`ParenthesizedExpression` is in the tree.
 
 ## The gate, and why it needs no baselines
 

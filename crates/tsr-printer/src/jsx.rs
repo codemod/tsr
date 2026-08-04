@@ -17,13 +17,13 @@ use crate::{Printer, quote_string};
 
 impl Printer<'_> {
     /// Whether this expression is JSX, and print it if so.
-    pub(crate) fn jsx_expression(&mut self, expression: &Expression<'_>) -> bool {
+    pub(crate) fn emit_jsx_expression(&mut self, expression: &Expression<'_>) -> bool {
         match expression {
             Expression::JsxElement(node) => {
                 if let Some(opening) = node.opening_element {
                     self.write_raw("<");
                     self.jsx_tag_name(opening.tag_name.as_ref());
-                    self.type_arguments(opening.type_arguments);
+                    self.emit_type_arguments(opening.type_arguments);
                     self.jsx_attributes(opening.attributes);
                     self.write_raw(">");
                 }
@@ -40,7 +40,7 @@ impl Printer<'_> {
             Expression::JsxSelfClosingElement(node) => {
                 self.write_raw("<");
                 self.jsx_tag_name(node.tag_name.as_ref());
-                self.type_arguments(node.type_arguments);
+                self.emit_type_arguments(node.type_arguments);
                 self.jsx_attributes(node.attributes);
                 self.write_raw("/>");
                 true
@@ -75,7 +75,7 @@ impl Printer<'_> {
                 let node = tsr_ast::Node::from(*other);
                 match Expression::try_from(node) {
                     Ok(expression) => {
-                        self.jsx_expression(&expression);
+                        self.emit_jsx_expression(&expression);
                     }
                     Err(unhandled) => {
                         let kind = self.kind_of(unhandled.node_id());
@@ -92,7 +92,7 @@ impl Printer<'_> {
             self.write_raw("...");
         }
         if let Some(inner) = &expression.expression {
-            self.expression(inner);
+            self.emit_expression(inner);
         }
         self.write_raw("}");
     }
@@ -128,7 +128,7 @@ impl Printer<'_> {
                             let node = tsr_ast::Node::from(*other);
                             match Expression::try_from(node) {
                                 Ok(expression) => {
-                                    self.jsx_expression(&expression);
+                                    self.emit_jsx_expression(&expression);
                                 }
                                 Err(unhandled) => {
                                     let kind = self.kind_of(unhandled.node_id());
@@ -141,7 +141,7 @@ impl Printer<'_> {
                 JsxAttributeLike::JsxSpreadAttribute(spread) => {
                     self.write_raw("{...");
                     if let Some(inner) = &spread.expression {
-                        self.expression(inner);
+                        self.emit_expression(inner);
                     }
                     self.write_raw("}");
                 }
@@ -170,7 +170,7 @@ impl Printer<'_> {
                     // A dotted tag name is an ordinary property access, but it must
                     // not gain spaces: `<a . b />` is not a tag.
                     let before = self.len();
-                    self.expression(target);
+                    self.emit_expression(target);
                     debug_assert!(self.len() > before, "a tag name always writes");
                 }
                 self.write_raw(".");

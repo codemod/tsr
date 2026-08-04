@@ -1,31 +1,36 @@
 //! Prints the AST back to TypeScript source.
 //!
-//! # This is not (yet) a port, and the distinction matters
+//! # A port, and where it deviates
 //!
-//! Upstream has a printer — `internal/printer/printer.go`, 6,280 lines — and it
-//! has no checker entanglement, so [ADR-0001]'s default says port it. **This crate
-//! does not.** It was written against the AST node definitions and driven by the
-//! round-trip failures, and the two designs differ where it counts:
+//! Ported from typescript-go's printer (`internal/printer/printer.go`,
+//! `textwriter.go`), under [ADR-0001](../../../docs/adr/0001-idiomatic-rewrite.md)'s
+//! "port, don't reinvent" default. The structure follows upstream's:
 //!
-//! | | upstream | here |
-//! |---|---|---|
-//! | Dispatch | 284 `emitX` methods | four `match` statements |
-//! | Spacing | explicit `writeSpace()` at each site | an adjacency heuristic, [`would_merge`] |
-//! | Lists | `emitList` + `ListFormat` flags | ad-hoc loops |
-//! | Comments, source maps | yes | no |
+//! - [`writer::TextWriter`] ports `textWriter`, deferred indentation included.
+//! - [`list_format::ListFormat`] ports the `LF*` table one-for-one. Every child
+//!   list is emitted through [`Printer::emit_list`], as upstream does, so layout
+//!   lives in the format rather than at the call site.
+//! - Dispatch is a `match` per category rather than 284 methods, which is the
+//!   idiomatic form of upstream's central `switch node.Kind`. Each arm names the
+//!   `emitX` it ports, so a `grep` for an upstream function lands on our code —
+//!   which is what [conventions.md](../../../docs/conventions.md) requires the
+//!   anchors for.
 //!
-//! So it satisfies the round-trip property without being derivable from upstream,
-//! and [conventions.md](../../../docs/conventions.md)'s "every ported item names
-//! its typescript-go counterpart" is not met — there are no per-item anchors here
-//! to meet it with.
+//! Four deliberate deviations, each with a reason rather than an omission:
 //!
-//! That is a real gap rather than a stylistic one: the drift tracker maps an
-//! upstream commit to the Rust items claiming to port it, and nothing here makes
-//! such a claim. Two ways out, and the choice belongs in an issue rather than in
-//! this comment: re-derive the emit surface from `printer.go` with anchors, or
-//! record the divergence in an ADR the way
-//! [ADR-0021](../../../docs/adr/0021-isolated-declarations-is-not-a-port.md) did
-//! for `tsr-dts`. Tracked as `bd tsr-49v.4`.
+//! 1. **A separator guard.** [`Printer::write`] inserts a space when the previous
+//!    character and the next would scan as one token; upstream places every space
+//!    by hand. Ported without it, this printer emitted `1.toString()` for
+//!    `1 .toString()`. Whitespace is not in the tree, so the guard cannot cost
+//!    correctness.
+//! 2. **No comments, no source maps.** Neither is needed to preserve a tree; both
+//!    are a third of upstream's file.
+//! 3. **`PRESERVE_LINES` and `PREFER_NEW_LINE` degrade to single-line.** They
+//!    consult original node positions to keep the author's layout, which this
+//!    printer does not reproduce.
+//! 4. **No precedence table.** Upstream re-derives where parentheses are needed;
+//!    `ParenthesizedExpression` is in the tree, so printing children in order
+//!    reproduces the grouping for free. Phase 5 needs the table.
 //!
 //! # What "correct" means here, and why it is not "byte-identical"
 //!
@@ -64,6 +69,7 @@
 //!
 //! [ADR-0001]: ../../../docs/adr/0001-idiomatic-rewrite.md
 
+pub(crate) use list_format::ListFormat;
 use tsr_ast::{
     ClassElement, Expression, ModifierLike, Node, ObjectLiteralElementLike, SourceFile, SyntaxKind,
     Token, TypeNode,
@@ -71,8 +77,10 @@ use tsr_ast::{
 
 mod expressions;
 mod jsx;
+mod list_format;
 mod statements;
 mod types;
+mod writer;
 
 /// The result of printing a file.
 #[derive(Debug, Clone)]
@@ -98,14 +106,17 @@ impl Printed {
 #[must_use]
 pub fn print(file: &SourceFile<'_>, nodes: &tsr_ast::NodeTable) -> Printed {
     let mut printer = Printer::new(nodes);
-    printer.source_file(file);
-    Printed { text: printer.out, unsupported: printer.unsupported }
+    printer.emit_source_file(file);
+    Printed { text: printer.writer.into_string(), unsupported: printer.unsupported }
 }
 
-/// Emits text, tracking indentation and token adjacency.
+/// Ported from typescript-go's `Printer` (`internal/printer/printer.go`).
+///
+/// Upstream's `Printer` also carries an `EmitContext`, a name generator, comment
+/// and source-map state, and `EmitResolver`. None is needed to preserve a tree;
+/// each is listed in the crate docs as deliberately absent.
 pub(crate) struct Printer<'t> {
-    out: String,
-    indent: usize,
+    writer: writer::TextWriter,
     unsupported: Vec<SyntaxKind>,
     /// `const`/`let` live in `NodeFlags`, not in the tree, so printing a variable
     /// statement needs the side table the parser filled in.
@@ -114,54 +125,96 @@ pub(crate) struct Printer<'t> {
 
 impl<'t> Printer<'t> {
     fn new(nodes: &'t tsr_ast::NodeTable) -> Self {
-        Self { out: String::new(), indent: 0, unsupported: Vec::new(), nodes }
+        Self { writer: writer::TextWriter::new(), unsupported: Vec::new(), nodes }
     }
 
-    fn source_file(&mut self, file: &SourceFile<'_>) {
-        for statement in file.statements {
-            self.statement(statement);
-        }
+    /// Ported from `Printer.emitSourceFile` (`internal/printer/printer.go`).
+    ///
+    /// Upstream also emits a shebang, prologue directives, triple-slash
+    /// directives and helpers before the statements. All four are emit concerns
+    /// rather than tree-preserving ones.
+    fn emit_source_file(&mut self, file: &SourceFile<'_>) {
+        self.emit_list(file.statements, ListFormat::SOURCE_FILE_STATEMENTS, |printer, node| {
+            printer.emit_statement(node);
+        });
     }
 
-    // ----- the writer --------------------------------------------------------
+    // ----- the writer, ported from `Printer.write*` --------------------------
 
-    /// Write raw text, inserting a separator first if the tokens would merge.
+    /// Ported from `Printer.write`.
+    ///
+    /// **Deviation, deliberate:** upstream writes the text unconditionally and
+    /// relies on every call site having placed its own spaces through
+    /// `writeSpace()`. This inserts a separator first when the previous character
+    /// and the next would scan as one token. Ported without the guard, this
+    /// printer emitted `1.toString()` for `1 .toString()`. Whitespace is not in
+    /// the tree, so the guard cannot cost correctness — only tidiness.
     pub(crate) fn write(&mut self, text: &str) {
         let Some(next) = text.chars().next() else { return };
-        if let Some(last) = self.out.chars().last()
+        if let Some(last) = self.writer.last_char()
             && would_merge(last, next)
         {
-            self.out.push(' ');
+            self.writer.write(" ");
         }
-        self.out.push_str(text);
+        self.writer.write(text);
+    }
+
+    /// Ported from `Printer.writeKeyword`.
+    pub(crate) fn write_keyword(&mut self, text: &str) {
+        self.write(text);
+    }
+
+    /// Ported from `Printer.writePunctuation`.
+    pub(crate) fn write_punctuation(&mut self, text: &str) {
+        self.write(text);
+    }
+
+    /// Ported from `Printer.writeOperator`.
+    pub(crate) fn write_operator(&mut self, text: &str) {
+        self.write(text);
+    }
+
+    /// Ported from `Printer.writeLiteral`.
+    ///
+    /// Unused so far: literals currently go through `write`. Kept because the
+    /// write-kind split is upstream's, and a syntax-highlighting writer (Phase 7)
+    /// needs each kind to be distinguishable at the call site.
+    #[allow(dead_code)]
+    pub(crate) fn write_literal(&mut self, text: &str) {
+        self.write(text);
+    }
+
+    /// Ported from `Printer.writeSpace`.
+    pub(crate) fn write_space(&mut self) {
+        self.writer.write(" ");
+    }
+
+    /// Ported from `Printer.writeLine`.
+    pub(crate) fn write_line(&mut self) {
+        self.writer.write_line();
+    }
+
+    /// Ported from `Printer.increaseIndent`.
+    pub(crate) fn increase_indent(&mut self) {
+        self.writer.increase_indent();
+    }
+
+    /// Ported from `Printer.decreaseIndent`.
+    pub(crate) fn decrease_indent(&mut self) {
+        self.writer.decrease_indent();
     }
 
     /// Write text with **no** separator check. JSX only.
     ///
-    /// Everywhere else, emission goes through [`Printer::write`], because the
-    /// separator check is the thing that keeps two adjacent tokens from scanning
-    /// as one. An earlier version used this for ordinary punctuation on the
-    /// grounds that a brace or a dot "obviously" cannot merge — and `1 .toString()`
-    /// printed as `1.toString()`, which does not parse. `would_merge` already had
-    /// the digit-then-dot rule; 123 call sites simply bypassed it.
-    ///
     /// Inside JSX the bypass is required rather than convenient: `JsxText` is a
     /// node, so an inserted space would change the tree.
     pub(crate) fn write_raw(&mut self, text: &str) {
-        self.out.push_str(text);
+        self.writer.raw_write(text);
     }
 
-    pub(crate) fn newline(&mut self) {
-        self.out.push('\n');
-        for _ in 0..self.indent {
-            self.out.push_str("    ");
-        }
-    }
-
-    pub(crate) fn indented(&mut self, body: impl FnOnce(&mut Self)) {
-        self.indent += 1;
-        body(self);
-        self.indent -= 1;
+    /// How much text has been written, for assertions.
+    pub(crate) fn len(&self) -> usize {
+        self.writer.text_pos()
     }
 
     /// The real kind of a node, from the side table.
@@ -174,42 +227,142 @@ impl<'t> Printer<'t> {
         id.map_or(SyntaxKind::Unknown, |id| self.nodes.kind(id))
     }
 
-    /// How much text has been written, for assertions.
-    pub(crate) fn len(&self) -> usize {
-        self.out.len()
-    }
-
     /// Record a node kind this printer does not implement.
+    ///
+    /// No upstream counterpart: upstream panics on an unexpected kind, because it
+    /// is complete. Recording instead is what lets the conformance suite report the
+    /// unimplemented surface as a measured worklist.
     pub(crate) fn unsupported(&mut self, kind: SyntaxKind) {
         if !self.unsupported.contains(&kind) {
             self.unsupported.push(kind);
         }
     }
 
+    // ----- lists, ported from `Printer.emitList` -----------------------------
+
+    /// Ported from `Printer.emitList` (`internal/printer/printer.go`).
+    ///
+    /// Every child list goes through here, exactly as upstream: the layout lives
+    /// in the [`ListFormat`] rather than at the call site, which is what makes
+    /// "how is an enum body laid out?" a question with one answer.
+    pub(crate) fn emit_list<T>(
+        &mut self,
+        children: &[T],
+        format: ListFormat,
+        mut emit: impl FnMut(&mut Self, &T),
+    ) {
+        if children.is_empty() && format.contains(ListFormat::OPTIONAL_IF_EMPTY) {
+            return;
+        }
+        if let Some(open) = format.opening_bracket() {
+            self.write_punctuation(open);
+            if children.is_empty() && !format.contains(ListFormat::NO_SPACE_IF_EMPTY) {
+                self.write_space();
+            }
+        }
+        self.emit_list_items(children, format, &mut emit);
+        if let Some(close) = format.closing_bracket() {
+            self.write_punctuation(close);
+        }
+        if format.contains(ListFormat::SPACE_AFTER_LIST) && !children.is_empty() {
+            self.write_space();
+        }
+    }
+
+    /// Ported from `Printer.emitListItems` (`internal/printer/printer.go`).
+    ///
+    /// Upstream's version also drives comment emission and consults the original
+    /// node positions through `getLeadingLineTerminatorCount` and
+    /// `getSeparatingLineTerminatorCount` to preserve the author's line breaks.
+    /// Neither survives here — comments are not emitted and layout is not
+    /// preserved — so those degrade to "a line break iff the format is
+    /// multi-line". The delimiter, indent, bracket and trailing-comma logic is
+    /// upstream's.
+    fn emit_list_items<T>(
+        &mut self,
+        children: &[T],
+        format: ListFormat,
+        emit: &mut impl FnMut(&mut Self, &T),
+    ) {
+        if children.is_empty() {
+            return;
+        }
+        if format.is_multi_line() {
+            self.write_line();
+        } else if format.contains(ListFormat::SPACE_BETWEEN_BRACES) {
+            self.write_space();
+        }
+        if format.contains(ListFormat::INDENTED) {
+            self.increase_indent();
+        }
+
+        for (index, child) in children.iter().enumerate() {
+            if index > 0 {
+                self.write_delimiter(format);
+                if format.is_multi_line() {
+                    self.write_line();
+                } else if format.contains(ListFormat::SPACE_BETWEEN_SIBLINGS) {
+                    self.write_space();
+                }
+            }
+            emit(self, child);
+        }
+
+        if format.contains(ListFormat::INDENTED) {
+            self.decrease_indent();
+        }
+        if format.is_multi_line() && !format.contains(ListFormat::NO_TRAILING_NEW_LINE) {
+            self.write_line();
+        } else if format.contains(ListFormat::SPACE_BETWEEN_BRACES) {
+            self.write_space();
+        }
+    }
+
+    /// Ported from `Printer.writeDelimiter` (`internal/printer/printer.go`).
+    fn write_delimiter(&mut self, format: ListFormat) {
+        match format.intersection(ListFormat::DELIMITERS_MASK) {
+            ListFormat::COMMA_DELIMITED => self.write_punctuation(","),
+            ListFormat::BAR_DELIMITED => {
+                self.write_space();
+                self.write_punctuation("|");
+            }
+            ListFormat::AMPERSAND_DELIMITED => {
+                self.write_space();
+                self.write_punctuation("&");
+            }
+            ListFormat::ASTERISK_DELIMITED => {
+                self.write_space();
+                self.write_punctuation("*");
+                self.write_space();
+            }
+            _ => {}
+        }
+    }
+
     // ----- shared helpers ----------------------------------------------------
 
-    pub(crate) fn token(&mut self, token: &Token<'_>) {
+    /// Ported from `Printer.emitTokenNode` (`internal/printer/printer.go`).
+    pub(crate) fn emit_token_node(&mut self, token: &Token<'_>) {
         match token_text(token.kind) {
             Some(text) => self.write(text),
             None => self.unsupported(token.kind),
         }
     }
 
-    pub(crate) fn modifiers(&mut self, modifiers: &[ModifierLike<'_>]) {
-        for modifier in modifiers {
-            match modifier {
-                ModifierLike::Token(token) => {
-                    self.token(token);
-                    self.write(" ");
-                }
-                ModifierLike::Decorator(decorator) => {
-                    self.write("@");
-                    if let Some(expression) = &decorator.expression {
-                        self.any_expression(Node::from(*expression));
-                    }
-                    self.newline();
-                }
-            }
+    /// Ported from `Printer.emitModifierList` (`internal/printer/printer.go`),
+    /// which emits `LFModifiers` — space-separated, with a trailing space.
+    pub(crate) fn emit_modifier_list(&mut self, modifiers: &[ModifierLike<'_>]) {
+        self.emit_list(modifiers, ListFormat::MODIFIERS, |printer, modifier| match modifier {
+            ModifierLike::Token(token) => printer.emit_token_node(token),
+            ModifierLike::Decorator(decorator) => printer.emit_decorator(decorator),
+        });
+    }
+
+    /// Ported from `Printer.emitDecorator` (`internal/printer/printer.go`).
+    fn emit_decorator(&mut self, decorator: &tsr_ast::Decorator<'_>) {
+        self.write_punctuation("@");
+        if let Some(expression) = &decorator.expression {
+            self.any_expression(Node::from(*expression));
         }
     }
 
@@ -221,7 +374,7 @@ impl<'t> Printer<'t> {
     /// an expression is recorded rather than skipped.
     pub(crate) fn any_expression(&mut self, node: Node<'_>) {
         match Expression::try_from(node) {
-            Ok(expression) => self.expression(&expression),
+            Ok(expression) => self.emit_expression(&expression),
             Err(other) => {
                 let kind = self.kind_of(other.node_id());
                 self.unsupported(kind);
@@ -229,112 +382,125 @@ impl<'t> Printer<'t> {
         }
     }
 
-    /// `<A, B>` for a type-parameter list, or nothing when empty.
-    pub(crate) fn type_parameters(
+    /// Ported from `Printer.emitTypeParameters` (`internal/printer/printer.go`),
+    /// which emits `LFTypeParameters` — angle-bracketed and optional when empty.
+    pub(crate) fn emit_type_parameters(
         &mut self,
         parameters: &[&tsr_ast::TypeParameterDeclaration<'_>],
     ) {
-        if parameters.is_empty() {
-            return;
-        }
-        self.write("<");
-        for (index, parameter) in parameters.iter().enumerate() {
-            if index > 0 {
-                self.write(", ");
-            }
-            self.modifiers(parameter.modifiers);
-            if let Some(name) = parameter.name {
-                self.write(name.text);
-            }
-            if let Some(constraint) = parameter.constraint {
-                self.write(" extends ");
-                self.type_node(&constraint);
-            }
-            if let Some(default) = parameter.default_type {
-                self.write(" = ");
-                self.type_node(&default);
-            }
-        }
-        self.write(">");
+        self.emit_list(parameters, ListFormat::TYPE_PARAMETERS, |printer, parameter| {
+            printer.emit_type_parameter(parameter);
+        });
     }
 
-    /// `<A, B>` for a type-argument list, or nothing when empty.
-    pub(crate) fn type_arguments(&mut self, arguments: &[TypeNode<'_>]) {
-        if arguments.is_empty() {
-            return;
+    /// Ported from `Printer.emitTypeParameter` (`internal/printer/printer.go`).
+    fn emit_type_parameter(&mut self, parameter: &tsr_ast::TypeParameterDeclaration<'_>) {
+        self.emit_modifier_list(parameter.modifiers);
+        if let Some(name) = parameter.name {
+            self.write(name.text);
         }
-        self.write("<");
-        for (index, argument) in arguments.iter().enumerate() {
-            if index > 0 {
-                self.write(", ");
-            }
-            self.type_node(argument);
+        if let Some(constraint) = parameter.constraint {
+            self.write_space();
+            self.write_keyword("extends");
+            self.write_space();
+            self.emit_type_node(&constraint);
         }
-        self.write(">");
+        if let Some(default) = parameter.default_type {
+            self.write_space();
+            self.write_operator("=");
+            self.write_space();
+            self.emit_type_node(&default);
+        }
     }
 
-    pub(crate) fn parameters(&mut self, parameters: &[&tsr_ast::ParameterDeclaration<'_>]) {
-        self.write("(");
-        for (index, parameter) in parameters.iter().enumerate() {
-            if index > 0 {
-                self.write(", ");
-            }
-            self.modifiers(parameter.modifiers);
-            if parameter.dot_dot_dot_token.is_some() {
-                self.write("...");
-            }
-            if let Some(name) = &parameter.name {
-                self.binding_name(name);
-            }
-            if parameter.question_token.is_some() {
-                self.write("?");
-            }
-            if let Some(node) = &parameter.r#type {
-                self.write(": ");
-                self.type_node(node);
-            }
-            if let Some(initializer) = &parameter.initializer {
-                self.write(" = ");
-                self.expression(initializer);
-            }
-        }
-        self.write(")");
+    /// Ported from `Printer.emitTypeArguments` (`internal/printer/printer.go`),
+    /// which emits `LFTypeArguments`.
+    pub(crate) fn emit_type_arguments(&mut self, arguments: &[TypeNode<'_>]) {
+        self.emit_list(arguments, ListFormat::TYPE_ARGUMENTS, |printer, argument| {
+            printer.emit_type_node(argument);
+        });
     }
 
-    pub(crate) fn binding_name(&mut self, name: &tsr_ast::BindingName<'_>) {
+    /// Ported from `Printer.emitParameters` (`internal/printer/printer.go`),
+    /// which emits `LFParameters`. Parenthesised, so unlike a type-parameter list
+    /// the brackets are written even when the list is empty.
+    pub(crate) fn emit_parameters(&mut self, parameters: &[&tsr_ast::ParameterDeclaration<'_>]) {
+        self.emit_list(parameters, ListFormat::PARAMETERS, |printer, parameter| {
+            printer.emit_parameter(parameter);
+        });
+    }
+
+    /// Ported from `Printer.emitParameter` (`internal/printer/printer.go`).
+    fn emit_parameter(&mut self, parameter: &tsr_ast::ParameterDeclaration<'_>) {
+        self.emit_modifier_list(parameter.modifiers);
+        if parameter.dot_dot_dot_token.is_some() {
+            self.write_punctuation("...");
+        }
+        if let Some(name) = &parameter.name {
+            self.emit_binding_name(name);
+        }
+        if parameter.question_token.is_some() {
+            self.write_punctuation("?");
+        }
+        if let Some(node) = &parameter.r#type {
+            self.write_punctuation(":");
+            self.write_space();
+            self.emit_type_node(node);
+        }
+        if let Some(initializer) = &parameter.initializer {
+            self.write_space();
+            self.write_operator("=");
+            self.write_space();
+            self.emit_expression(initializer);
+        }
+    }
+
+    pub(crate) fn emit_binding_name(&mut self, name: &tsr_ast::BindingName<'_>) {
         match name {
             tsr_ast::BindingName::Identifier(identifier) => self.write(identifier.text),
-            tsr_ast::BindingName::BindingPattern(pattern) => self.binding_pattern(pattern),
+            tsr_ast::BindingName::BindingPattern(pattern) => self.emit_binding_pattern(pattern),
         }
     }
 
-    pub(crate) fn binding_pattern(&mut self, pattern: &tsr_ast::BindingPattern<'_>) {
+    /// Ported from `Printer.emitObjectBindingPattern`/`emitArrayBindingPattern`
+    /// (`internal/printer/printer.go`), which differ only in their list format.
+    pub(crate) fn emit_binding_pattern(&mut self, pattern: &tsr_ast::BindingPattern<'_>) {
+        // The `kind` field is the opening bracket token, not the pattern's kind.
         let object = self.kind_of(pattern.node_id) == SyntaxKind::ObjectBindingPattern;
-        self.write(if object { "{ " } else { "[" });
-        for (index, element) in pattern.elements.iter().enumerate() {
-            if index > 0 {
-                self.write(", ");
-            }
-            // An array pattern hole is an element with no name.
-            if element.dot_dot_dot_token.is_some() {
-                self.write("...");
-            }
-            if let Some(property) = &element.property_name {
-                self.property_name(property);
-                self.write(": ");
-            }
-            if let Some(name) = &element.name {
-                self.binding_name(name);
-            }
-            if let Some(initializer) = &element.initializer {
-                self.write(" = ");
-                self.expression(initializer);
-            }
-        }
-        self.write(if object { " }" } else { "]" });
+        let (format, open, close) = if object {
+            (ListFormat::OBJECT_BINDING_PATTERN_ELEMENTS, "{", "}")
+        } else {
+            (ListFormat::ARRAY_BINDING_PATTERN_ELEMENTS, "[", "]")
+        };
+        self.write_punctuation(open);
+        self.emit_list(pattern.elements, format, |printer, element| {
+            printer.emit_binding_element(element);
+        });
+        self.write_punctuation(close);
     }
 
-    pub(crate) fn property_name(&mut self, name: &tsr_ast::PropertyName<'_>) {
+    /// Ported from `Printer.emitBindingElement` (`internal/printer/printer.go`).
+    fn emit_binding_element(&mut self, element: &tsr_ast::BindingElement<'_>) {
+        if element.dot_dot_dot_token.is_some() {
+            self.write_punctuation("...");
+        }
+        if let Some(property) = &element.property_name {
+            self.emit_property_name(property);
+            self.write_punctuation(":");
+            self.write_space();
+        }
+        if let Some(name) = &element.name {
+            self.emit_binding_name(name);
+        }
+        if let Some(initializer) = &element.initializer {
+            self.write_space();
+            self.write_operator("=");
+            self.write_space();
+            self.emit_expression(initializer);
+        }
+    }
+
+    pub(crate) fn emit_property_name(&mut self, name: &tsr_ast::PropertyName<'_>) {
         match name {
             tsr_ast::PropertyName::Identifier(identifier) => self.write(identifier.text),
             // `PrivateIdentifier.text` already carries its `#`.
@@ -355,19 +521,19 @@ impl<'t> Printer<'t> {
             tsr_ast::PropertyName::ComputedPropertyName(computed) => {
                 self.write("[");
                 if let Some(expression) = &computed.expression {
-                    self.expression(expression);
+                    self.emit_expression(expression);
                 }
                 self.write("]");
             }
         }
     }
 
-    pub(crate) fn entity_name(&mut self, name: &tsr_ast::EntityName<'_>) {
+    pub(crate) fn emit_entity_name(&mut self, name: &tsr_ast::EntityName<'_>) {
         match name {
             tsr_ast::EntityName::Identifier(identifier) => self.write(identifier.text),
             tsr_ast::EntityName::QualifiedName(qualified) => {
                 if let Some(left) = &qualified.left {
-                    self.entity_name(left);
+                    self.emit_entity_name(left);
                 }
                 self.write(".");
                 if let Some(right) = qualified.right {
@@ -377,32 +543,27 @@ impl<'t> Printer<'t> {
         }
     }
 
-    /// A `{ … }` body of class or object members.
+    /// Ported from `Printer.emitClassBody`/`emitMembers` sites in
+    /// `internal/printer/printer.go`, which brace the list and emit it as
+    /// `LFClassMembers`.
     pub(crate) fn class_body(&mut self, members: &[ClassElement<'_>]) {
-        self.write("{");
-        self.indented(|printer| {
-            for member in members {
-                printer.newline();
-                printer.class_element(member);
-            }
+        self.write_punctuation("{");
+        self.emit_list(members, ListFormat::CLASS_MEMBERS, |printer, member| {
+            printer.emit_class_element(member);
         });
-        self.newline();
-        self.write("}");
+        self.write_punctuation("}");
     }
 
+    /// Ported from `Printer.emitObjectLiteralExpression`
+    /// (`internal/printer/printer.go`), which emits `LFObjectLiteralExpressionProperties`.
+    /// That format carries its own braces, so unlike a class body this does not
+    /// write them.
     pub(crate) fn object_members(&mut self, members: &[ObjectLiteralElementLike<'_>]) {
-        self.write("{");
-        self.indented(|printer| {
-            for (index, member) in members.iter().enumerate() {
-                if index > 0 {
-                    printer.write(",");
-                }
-                printer.newline();
-                printer.object_member(member);
-            }
-        });
-        self.newline();
-        self.write("}");
+        self.emit_list(
+            members,
+            ListFormat::OBJECT_LITERAL_EXPRESSION_PROPERTIES,
+            |printer, member| printer.emit_object_member(member),
+        );
     }
 }
 

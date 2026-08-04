@@ -2,40 +2,44 @@
 
 use tsr_ast::{TypeElement, TypeNode};
 
-use crate::Printer;
+use crate::{ListFormat, Printer};
 
 impl Printer<'_> {
-    pub(crate) fn type_node(&mut self, node: &TypeNode<'_>) {
+    pub(crate) fn emit_type_node(&mut self, node: &TypeNode<'_>) {
         match node {
+            // Ported from `Printer.emitKeywordTypeNode` (`internal/printer/printer.go`).
             TypeNode::KeywordTypeNode(keyword) => match crate::token_text(keyword.kind) {
                 Some(text) => self.write(text),
                 None => self.unsupported(keyword.kind),
             },
+            // Ported from `Printer.emitTypeReference` (`internal/printer/printer.go`).
             TypeNode::TypeReferenceNode(reference) => {
                 match &reference.type_name {
-                    Some(name) => self.entity_name(name),
+                    Some(name) => self.emit_entity_name(name),
                     // A `TypeReferenceNode` with no name is how the parser spells
                     // `as const`; `const` is a keyword and never an identifier.
                     None => self.write("const"),
                 }
-                self.type_arguments(reference.type_arguments);
+                self.emit_type_arguments(reference.type_arguments);
             }
+            // Ported from `Printer.emitArrayType` (`internal/printer/printer.go`).
             TypeNode::ArrayTypeNode(array) => {
                 if let Some(element) = &array.element_type {
-                    self.type_node(element);
+                    self.emit_type_node(element);
                 }
                 self.write("[]");
             }
+            // Ported from `Printer.emitTupleType` (`internal/printer/printer.go`).
             TypeNode::TupleTypeNode(tuple) => {
-                self.write("[");
-                for (index, element) in tuple.elements.iter().enumerate() {
-                    if index > 0 {
-                        self.write(", ");
-                    }
-                    self.type_node(element);
-                }
-                self.write("]");
+                self.write_punctuation("[");
+                self.emit_list(
+                    tuple.elements,
+                    ListFormat::SINGLE_LINE_TUPLE_TYPE_ELEMENTS,
+                    |printer, element| printer.emit_type_node(element),
+                );
+                self.write_punctuation("]");
             }
+            // Ported from `Printer.emitNamedTupleMember` (`internal/printer/printer.go`).
             TypeNode::NamedTupleMember(member) => {
                 if member.dot_dot_dot_token.is_some() {
                     self.write("...");
@@ -48,44 +52,52 @@ impl Printer<'_> {
                 }
                 self.write(": ");
                 if let Some(r#type) = &member.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitOptionalType` (`internal/printer/printer.go`).
             TypeNode::OptionalTypeNode(optional) => {
                 if let Some(r#type) = &optional.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write("?");
             }
+            // Ported from `Printer.emitRestType` (`internal/printer/printer.go`).
             TypeNode::RestTypeNode(rest) => {
                 self.write("...");
                 if let Some(r#type) = &rest.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitUnionType` (`internal/printer/printer.go`).
             TypeNode::UnionTypeNode(union) => {
-                for (index, member) in union.types.iter().enumerate() {
-                    if index > 0 {
-                        self.write(" | ");
-                    }
-                    self.type_node(member);
-                }
+                self.emit_list(
+                    union.types,
+                    ListFormat::UNION_TYPE_CONSTITUENTS,
+                    |printer, member| {
+                        printer.emit_type_node(member);
+                    },
+                );
             }
+            // Ported from `Printer.emitIntersectionType` (`internal/printer/printer.go`).
             TypeNode::IntersectionTypeNode(intersection) => {
-                for (index, member) in intersection.types.iter().enumerate() {
-                    if index > 0 {
-                        self.write(" & ");
-                    }
-                    self.type_node(member);
-                }
+                self.emit_list(
+                    intersection.types,
+                    ListFormat::INTERSECTION_TYPE_CONSTITUENTS,
+                    |printer, member| {
+                        printer.emit_type_node(member);
+                    },
+                );
             }
+            // Ported from `Printer.emitParenthesizedType` (`internal/printer/printer.go`).
             TypeNode::ParenthesizedTypeNode(parenthesized) => {
                 self.write("(");
                 if let Some(r#type) = &parenthesized.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(")");
             }
+            // Ported from `Printer.emitLiteralType` (`internal/printer/printer.go`).
             TypeNode::LiteralTypeNode(literal) => {
                 // A literal type's payload is a bare `Node`: it may be a literal, a
                 // prefixed `-1`, or the `null` keyword.
@@ -93,31 +105,36 @@ impl Printer<'_> {
                     self.any_expression(inner);
                 }
             }
+            // Ported from `Printer.emitTypeOperator` (`internal/printer/printer.go`).
             TypeNode::TypeOperatorNode(operator) => {
-                self.token(operator.operator);
+                self.emit_token_node(operator.operator);
                 self.write(" ");
                 if let Some(r#type) = &operator.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitIndexedAccessType` (`internal/printer/printer.go`).
             TypeNode::IndexedAccessTypeNode(indexed) => {
                 if let Some(object) = &indexed.object_type {
-                    self.type_node(object);
+                    self.emit_type_node(object);
                 }
                 self.write("[");
                 if let Some(index) = &indexed.index_type {
-                    self.type_node(index);
+                    self.emit_type_node(index);
                 }
                 self.write("]");
             }
+            // Ported from `Printer.emitTypeQuery` (`internal/printer/printer.go`).
             TypeNode::TypeQueryNode(query) => {
                 self.write("typeof ");
                 if let Some(name) = &query.expr_name {
-                    self.entity_name(name);
+                    self.emit_entity_name(name);
                 }
-                self.type_arguments(query.type_arguments);
+                self.emit_type_arguments(query.type_arguments);
             }
+            // Ported from `Printer.emitThisType` (`internal/printer/printer.go`).
             TypeNode::ThisTypeNode(_) => self.write("this"),
+            // Ported from `Printer.emitTypePredicate` (`internal/printer/printer.go`).
             TypeNode::TypePredicateNode(predicate) => {
                 if predicate.asserts_modifier.is_some() {
                     self.write("asserts ");
@@ -133,9 +150,10 @@ impl Printer<'_> {
                 }
                 if let Some(r#type) = &predicate.r#type {
                     self.write(" is ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitInferType` (`internal/printer/printer.go`).
             TypeNode::InferTypeNode(infer) => {
                 self.write("infer ");
                 if let Some(parameter) = infer.type_parameter {
@@ -144,51 +162,56 @@ impl Printer<'_> {
                     }
                     if let Some(constraint) = parameter.constraint {
                         self.write(" extends ");
-                        self.type_node(&constraint);
+                        self.emit_type_node(&constraint);
                     }
                 }
             }
+            // Ported from `Printer.emitConditionalType` (`internal/printer/printer.go`).
             TypeNode::ConditionalTypeNode(conditional) => {
                 if let Some(check) = &conditional.check_type {
-                    self.type_node(check);
+                    self.emit_type_node(check);
                 }
                 self.write(" extends ");
                 if let Some(extends) = &conditional.extends_type {
-                    self.type_node(extends);
+                    self.emit_type_node(extends);
                 }
                 self.write(" ? ");
                 if let Some(true_type) = &conditional.true_type {
-                    self.type_node(true_type);
+                    self.emit_type_node(true_type);
                 }
                 self.write(" : ");
                 if let Some(false_type) = &conditional.false_type {
-                    self.type_node(false_type);
+                    self.emit_type_node(false_type);
                 }
             }
+            // Ported from `Printer.emitFunctionType` (`internal/printer/printer.go`).
             TypeNode::FunctionTypeNode(function) => {
-                self.type_parameters(function.type_parameters);
-                self.parameters(function.parameters);
+                self.emit_type_parameters(function.type_parameters);
+                self.emit_parameters(function.parameters);
                 self.write(" => ");
                 if let Some(r#type) = &function.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitConstructorType` (`internal/printer/printer.go`).
             TypeNode::ConstructorTypeNode(constructor) => {
-                self.modifiers(constructor.modifiers);
+                self.emit_modifier_list(constructor.modifiers);
                 self.write("new ");
-                self.type_parameters(constructor.type_parameters);
-                self.parameters(constructor.parameters);
+                self.emit_type_parameters(constructor.type_parameters);
+                self.emit_parameters(constructor.parameters);
                 self.write(" => ");
                 if let Some(r#type) = &constructor.r#type {
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
             }
+            // Ported from `Printer.emitTypeLiteral` (`internal/printer/printer.go`).
             TypeNode::TypeLiteralNode(literal) => self.type_members(literal.members),
+            // Ported from `Printer.emitMappedType` (`internal/printer/printer.go`).
             TypeNode::MappedTypeNode(mapped) => {
                 self.write("{");
                 if let Some(token) = mapped.readonly_token {
                     self.write(" ");
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
                 self.write(" [");
                 if let Some(parameter) = mapped.type_parameter {
@@ -197,48 +220,50 @@ impl Printer<'_> {
                     }
                     if let Some(constraint) = parameter.constraint {
                         self.write(" in ");
-                        self.type_node(&constraint);
+                        self.emit_type_node(&constraint);
                     }
                 }
                 if let Some(name) = &mapped.name_type {
                     self.write(" as ");
-                    self.type_node(name);
+                    self.emit_type_node(name);
                 }
                 self.write("]");
                 if let Some(token) = mapped.question_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
                 if let Some(r#type) = &mapped.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write("; }");
             }
+            // Ported from `Printer.emitTemplateType` (`internal/printer/printer.go`).
             TypeNode::TemplateLiteralTypeNode(template) => {
                 if let Some(head) = template.head {
                     self.write(head.raw_text);
                 }
                 for span in template.template_spans {
                     if let Some(r#type) = &span.r#type {
-                        self.type_node(r#type);
+                        self.emit_type_node(r#type);
                     }
                     self.template_chunk(span.literal.as_ref());
                 }
             }
+            // Ported from `Printer.emitImportTypeNode` (`internal/printer/printer.go`).
             TypeNode::ImportTypeNode(import) => {
                 if import.is_type_of {
                     self.write("typeof ");
                 }
                 self.write("import(");
                 if let Some(argument) = &import.argument {
-                    self.type_node(argument);
+                    self.emit_type_node(argument);
                 }
                 self.write(")");
                 if let Some(qualifier) = &import.qualifier {
                     self.write(".");
-                    self.entity_name(qualifier);
+                    self.emit_entity_name(qualifier);
                 }
-                self.type_arguments(import.type_arguments);
+                self.emit_type_arguments(import.type_arguments);
             }
             other => {
                 let kind = self.kind_of(other.node_id());
@@ -248,100 +273,103 @@ impl Printer<'_> {
     }
 
     /// The `{ … }` body of an interface or type literal.
+    /// Ported from the `LFInterfaceMembers` / `LFMultiLineTypeLiteralMembers`
+    /// emit sites in `internal/printer/printer.go`.
     pub(crate) fn type_members(&mut self, members: &[TypeElement<'_>]) {
-        self.write("{");
-        self.indented(|printer| {
-            for member in members {
-                printer.newline();
-                printer.type_element(member);
-            }
+        self.write_punctuation("{");
+        self.emit_list(members, ListFormat::INTERFACE_MEMBERS, |printer, member| {
+            printer.emit_type_element(member);
         });
-        self.newline();
-        self.write("}");
+        self.write_punctuation("}");
     }
 
-    fn type_element(&mut self, member: &TypeElement<'_>) {
+    fn emit_type_element(&mut self, member: &TypeElement<'_>) {
         match member {
+            // Ported from `Printer.emitPropertySignature` (`internal/printer/printer.go`).
             TypeElement::PropertySignatureDeclaration(node) => {
-                self.modifiers(node.modifiers);
-                self.property_name(&node.name);
+                self.emit_modifier_list(node.modifiers);
+                self.emit_property_name(&node.name);
                 if let Some(token) = node.postfix_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitMethodSignature` (`internal/printer/printer.go`).
             TypeElement::MethodSignatureDeclaration(node) => {
-                self.modifiers(node.modifiers);
-                self.property_name(&node.name);
+                self.emit_modifier_list(node.modifiers);
+                self.emit_property_name(&node.name);
                 if let Some(token) = node.postfix_token {
-                    self.token(token);
+                    self.emit_token_node(token);
                 }
-                self.type_parameters(node.type_parameters);
-                self.parameters(node.parameters);
+                self.emit_type_parameters(node.type_parameters);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitCallSignature` (`internal/printer/printer.go`).
             TypeElement::CallSignatureDeclaration(node) => {
-                self.type_parameters(node.type_parameters);
-                self.parameters(node.parameters);
+                self.emit_type_parameters(node.type_parameters);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitConstructSignature` (`internal/printer/printer.go`).
             TypeElement::ConstructSignatureDeclaration(node) => {
                 self.write("new ");
-                self.type_parameters(node.type_parameters);
-                self.parameters(node.parameters);
+                self.emit_type_parameters(node.type_parameters);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
+            // Ported from `Printer.emitIndexSignature` (`internal/printer/printer.go`).
             TypeElement::IndexSignatureDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("[");
                 for parameter in node.parameters {
                     if let Some(name) = &parameter.name {
-                        self.binding_name(name);
+                        self.emit_binding_name(name);
                     }
                     if let Some(r#type) = &parameter.r#type {
                         self.write(": ");
-                        self.type_node(r#type);
+                        self.emit_type_node(r#type);
                     }
                 }
                 self.write("]");
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
             TypeElement::GetAccessorDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("get ");
-                self.property_name(&node.name);
-                self.parameters(node.parameters);
+                self.emit_property_name(&node.name);
+                self.emit_parameters(node.parameters);
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
-                    self.type_node(r#type);
+                    self.emit_type_node(r#type);
                 }
                 self.write(";");
             }
             TypeElement::SetAccessorDeclaration(node) => {
-                self.modifiers(node.modifiers);
+                self.emit_modifier_list(node.modifiers);
                 self.write("set ");
-                self.property_name(&node.name);
-                self.parameters(node.parameters);
+                self.emit_property_name(&node.name);
+                self.emit_parameters(node.parameters);
                 self.write(";");
             }
             // A transform artefact that never appears in a parsed tree.

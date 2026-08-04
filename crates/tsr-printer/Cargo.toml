@@ -10,6 +10,7 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+bitflags = { workspace = true }
 tsr-ast = { workspace = true }
 tsr-core = { workspace = true }
 
