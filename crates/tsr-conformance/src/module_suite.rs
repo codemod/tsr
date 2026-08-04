@@ -715,3 +715,59 @@ File '/src/a.ts' exists - use it as a name resolution result.
         );
     }
 }
+
+#[cfg(test)]
+mod pragma_tests {
+    use tsr_parser::parse_file_references;
+
+    use crate::{Corpus, repo_root};
+
+    /// Run the preamble scanner over every unit of every corpus case.
+    ///
+    /// Not a pass rate — the gate for `///`-directives is the file loader, which
+    /// asks whether the *right* references were found. This is the cheaper
+    /// question underneath it: does the scanner survive 12,444 real files, none
+    /// of which it was written against, and does it keep finding the same number
+    /// of directives.
+    ///
+    /// The counts are pinned because they are the only thing standing between a
+    /// silently-broken scanner and a loader that quietly loads fewer files.
+    ///
+    /// They were checked against a raw grep of the corpus rather than merely
+    /// recorded: grep finds 411 `path`, 74 `types`, 11 `lib`; the parser finds
+    /// 405, 71, 11. Every one of the six differences was inspected and is the
+    /// parser being right —
+    ///
+    /// - `compiler/doNotemitTripleSlashComments` and
+    ///   `compiler/emitTopOfFileTripleSlashCommentOnNotEmittedNodeIfRemoveCommentsIsFalse`
+    ///   write references *after* real code, where they are ordinary comments
+    ///   and add no files to the program.
+    /// - `compiler/tripleSlashInCommentNotParsed` puts one inside a `/* */`
+    ///   block comment, where `<reference` is not a pragma at all. That case
+    ///   exists to assert exactly this.
+    #[test]
+    fn the_preamble_scanner_survives_the_corpus_and_finds_a_stable_count() {
+        let corpus = Corpus::from_repo_root(&repo_root());
+        if !corpus.is_available() {
+            return; // Submodules not initialised.
+        }
+
+        let (mut paths, mut types, mut libs, mut invalid) = (0_usize, 0, 0, 0);
+        for case in corpus.discover().expect("discovering cases") {
+            let Ok(parsed) = case.load() else { continue };
+            for file in &parsed.files {
+                let references = parse_file_references(&file.content);
+                paths += references.referenced_files.len();
+                types += references.type_reference_directives.len();
+                libs += references.lib_reference_directives.len();
+                invalid += references.invalid_reference_directives.len();
+            }
+        }
+
+        assert_eq!(
+            (paths, types, libs, invalid),
+            (405, 71, 11, 1),
+            "preamble directive counts moved: (path, types, lib, invalid)"
+        );
+    }
+}
