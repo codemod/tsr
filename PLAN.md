@@ -3,7 +3,7 @@
 **Status:** Phase 0 in progress — workspace, foundations, and a conformant AST landed
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`
 **Reference corpus:** 80,521 test inputs (`_submodules/TypeScript/tests`) against 49,354 reference baselines (`testdata/baselines/reference`)
-**Prior art studied:** [oxc](https://github.com/oxc-project/oxc) @ `5e5178b`
+**Prior art studied:** [oxc](https://github.com/oxc-project/oxc) — **pin unresolvable**, see below
 
 ---
 
@@ -377,8 +377,26 @@ modules.
 
 ### Phase 3.5 — First shippable artifact (no checker required)
 `tsr-dts` (isolatedDeclarations-style `.d.ts` emit) and syntax-only transforms.
-oxc ships `oxc_isolated_declarations` in 4,066 LOC without any checker. This exists
-so the project delivers usable output roughly a year before P4 completes.
+oxc ships `oxc_isolated_declarations` in **3,550 LOC** of `src/` with no checker
+and no `oxc_semantic` dependency (v0.138.0 → v0.143.0 range; measured at `main`
+on 2026-08-04). This exists so the project delivers usable output roughly a year
+before P4 completes.
+
+> **Corrected 2026-08-04.** This section previously read "4,066 LOC", citing the
+> oxc pin `5e5178b` recorded at the top of this file. **That commit does not
+> resolve on GitHub** (`No commit found for the ref 5e5178b`), so 4,066 could not
+> be reproduced at the pin it claimed. The figure above is a fresh measurement.
+> The load-bearing claim — a few thousand lines, no checker — survives; the
+> number and its anchor did not. The oxc pin must be re-recorded as a resolvable
+> SHA before anything else rests on it (`bd tsr-49v.5`).
+
+**Upstream's declaration transform is not checker-free, and neither is its error
+path** — `isolatedDeclarations` is a flag on the checker-driven transform, not a
+separate branch. Phase 3.5 therefore writes `tsr-dts` against TypeScript's
+`isolatedDeclarations` *specification* rather than porting
+`internal/transformers/declarations`, a deliberate departure from ADR-0001. See
+[ADR-0021](docs/adr/0021-isolated-declarations-is-not-a-port.md) for the
+evidence, the oracle, and the falsifiers.
 
 ### Phase 4 — Checker (the mountain)
 Preceded by the memoization spike. Sharded into parallelizable workstreams:
