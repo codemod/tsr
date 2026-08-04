@@ -114,6 +114,40 @@ pub(crate) struct Binder<'a, 'n> {
     block: NodeId,
     /// Symbol of the nearest container that owns members or exports.
     owner: Option<SymbolId>,
+    /// Whether the file being bound is a JavaScript file.
+    ///
+    /// Upstream reads `node.Flags & NodeFlagsJavaScriptFile`, which the parser
+    /// sets; here it comes from the file name, like everything else in
+    /// [ADR-0015](../../../docs/adr/0015-file-name-is-a-bind-input.md). It gates
+    /// the assignment-declaration forms in `binder.go:618` — `module.exports =`,
+    /// `exports.x =`, `this.x =` — which are declarations in a `.js` file and
+    /// plain assignments in a `.ts` one.
+    in_js_file: bool,
+    /// The file node, for the two places that reach it after the walk has moved
+    /// on: `module.exports =` nested inside a function, and the `module` and
+    /// `exports` locals declared once the file has been walked.
+    file_node: NodeId,
+    /// What the file's own symbol is called if it turns out to need one.
+    file_symbol_name: &'a str,
+    /// The file's own symbol, once it has one.
+    ///
+    /// Upstream's `file.Symbol`. Distinct from [`Self::owner`], which is a
+    /// *cursor*: a `module.exports =` nested inside a function must still reach
+    /// the file's symbol, and by then `owner` is something else entirely.
+    module_symbol: Option<SymbolId>,
+    /// Whether a `CommonJS` export form has been seen (`file.CommonJSModuleIndicator`).
+    ///
+    /// Set by the first `module.exports =` or `exports.x =`, which is also what
+    /// turns a `.js` script into a module and what makes `module` and `exports`
+    /// locals of the file.
+    commonjs_module: bool,
+    /// The nearest node that binds its own `this` (`b.thisContainer`).
+    ///
+    /// `this.x = 1` declares a property on whatever this names, so the binder
+    /// needs the container as well as the scope. It is not the same cursor as
+    /// [`Self::container`]: an arrow function is a container and is not a `this`
+    /// container, which is the entire point of the syntax.
+    this_container: NodeId,
     /// Whether the file being bound is an external module rather than a script.
     ///
     /// Upstream's `ast.IsExternalModule(b.file)`, which reads an indicator the
@@ -196,6 +230,12 @@ impl<'a, 'n> Binder<'a, 'n> {
             container: NodeId::ZERO,
             block: NodeId::ZERO,
             owner: None,
+            in_js_file: false,
+            file_node: NodeId::ZERO,
+            file_symbol_name: "",
+            module_symbol: None,
+            commonjs_module: false,
+            this_container: NodeId::ZERO,
             is_module: false,
             global_exports: SymbolTable::default(),
             flow,
@@ -240,7 +280,10 @@ impl<'a, 'n> Binder<'a, 'n> {
         // only for a *module*; a script's top-level declarations are globals and
         // belong in the file's locals, with nothing to export them from.
         self.export_context = is_declaration_file(file_name) && !file_has_export_declarations(file);
+        self.in_js_file = is_javascript_file(file_name);
         self.is_module = is_external_module(file);
+        self.file_node = root_id;
+        self.file_symbol_name = remove_file_extension(file_name);
         if self.is_module {
             // `bindSourceFileAsExternalModule` names the symbol after the path
             // with its extension removed. Upstream wraps that in quotes, the way
@@ -248,16 +291,19 @@ impl<'a, 'n> Binder<'a, 'n> {
             // spelling, exactly as [`module_name`] does for an ambient module,
             // because quoting would need an owned string where every symbol name
             // here borrows from the source or the file name.
-            let symbol =
-                self.symbols.create(remove_file_extension(file_name), SymbolFlags::VALUE_MODULE);
-            let entry = self.symbols.get_mut(symbol);
-            entry.declarations.push(root_id);
-            entry.value_declaration = Some(root_id);
-            self.node_symbols[root_id.index()] = Some(symbol);
+            let symbol = self.bind_source_file_as_external_module(root_id);
             self.owner = Some(symbol);
         }
 
         self.bind(root);
+
+        // `module` and `exports` are locals of a CommonJS file, and only of one
+        // that actually uses them — which is not known until the whole file has
+        // been walked, so upstream declares them here rather than up front.
+        if self.commonjs_module {
+            self.declare_commonjs_variable("module", root_id);
+            self.declare_commonjs_variable("exports", root_id);
+        }
 
         BindResult {
             global_exports: self.global_exports,
@@ -366,6 +412,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         let saved_container = self.container;
         let saved_block = self.block;
         let saved_owner = self.owner;
+        let saved_this_container = self.this_container;
 
         if flags.contains(ContainerFlags::IS_CONTAINER) {
             self.block = id;
@@ -386,6 +433,12 @@ impl<'a, 'n> Binder<'a, 'n> {
             if flags.contains(ContainerFlags::HAS_LOCALS) {
                 self.locals.entry(id).or_default();
             }
+        }
+        // A separate cursor from `container`, and deliberately so: an arrow
+        // function is a container and is *not* a `this` container, which is what
+        // makes `this` inside one belong to the enclosing method.
+        if flags.contains(ContainerFlags::IS_THIS_CONTAINER) {
+            self.this_container = id;
         }
 
         let saved_export_context = self.export_context;
@@ -415,6 +468,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.container = saved_container;
         self.block = saved_block;
         self.owner = saved_owner;
+        self.this_container = saved_this_container;
         self.export_context = saved_export_context;
         self.in_ambient_module = saved_in_ambient;
     }
@@ -1982,8 +2036,243 @@ impl<'a, 'n> Binder<'a, 'n> {
         false
     }
 
+    /// Give the file its own symbol, as `bindSourceFileAsExternalModule`.
+    ///
+    /// Reached twice: up front when a top-level `import`/`export` says the file is
+    /// an ES module, and again from `set_commonjs_module_indicator` when the
+    /// first `module.exports =` says a JavaScript file is a `CommonJS` one. The
+    /// second may happen part-way through the walk, which is why the symbol is
+    /// remembered on the binder rather than in the [`Self::owner`] cursor.
+    fn bind_source_file_as_external_module(&mut self, file: NodeId) -> SymbolId {
+        // `bindSourceFileAsExternalModule` names the symbol after the path with
+        // its extension removed. Upstream wraps that in quotes, the way
+        // `declare module "fs"` is spelled; we store the value rather than a
+        // spelling, exactly as [`module_name`] does for an ambient module,
+        // because quoting would need an owned string where every symbol name
+        // here borrows from the source or the file name.
+        let symbol = self.symbols.create(self.file_symbol_name, SymbolFlags::VALUE_MODULE);
+        let entry = self.symbols.get_mut(symbol);
+        entry.declarations.push(file);
+        entry.value_declaration = Some(file);
+        self.node_symbols[file.index()] = Some(symbol);
+        self.module_symbol = Some(symbol);
+        symbol
+    }
+
+    /// Record that a `CommonJS` export form was seen, and whether it counts.
+    ///
+    /// Upstream's `setCommonJSModuleIndicator`. An **ES** module ignores
+    /// `module.exports` entirely — it is an ordinary assignment to a global
+    /// there — so the first test is that the file is not already one.
+    fn set_commonjs_module_indicator(&mut self) -> bool {
+        if self.is_module {
+            return false;
+        }
+        if !self.commonjs_module {
+            self.commonjs_module = true;
+            let file = self.file_node;
+            self.bind_source_file_as_external_module(file);
+        }
+        true
+    }
+
+    /// `module` and `exports` as locals of a `CommonJS` file
+    /// (`declareCommonJSVariable`).
+    ///
+    /// They are not declared anywhere in the source, which is exactly why the
+    /// binder has to: `module.exports = …` refers to them and every reference
+    /// would otherwise resolve to nothing. `module` additionally carries an
+    /// `exports` member, so `module.exports` resolves through it.
+    fn declare_commonjs_variable(&mut self, name: &'a str, file: NodeId) {
+        if self.locals.get(&file).is_some_and(|table| table.contains_key(name)) {
+            return;
+        }
+        let symbol = self
+            .symbols
+            .create(name, SymbolFlags::FUNCTION_SCOPED_VARIABLE | SymbolFlags::MODULE_EXPORTS);
+        let entry = self.symbols.get_mut(symbol);
+        entry.declarations.push(file);
+        entry.value_declaration = Some(file);
+        if name == "module" {
+            let property =
+                self.symbols.create("exports", SymbolFlags::MODULE_EXPORTS | SymbolFlags::PROPERTY);
+            let property_entry = self.symbols.get_mut(property);
+            property_entry.declarations.push(file);
+            property_entry.value_declaration = Some(file);
+            property_entry.parent = Some(symbol);
+            self.symbols.get_mut(symbol).members.insert("exports", property);
+        }
+        self.locals.entry(file).or_default().insert(name, symbol);
+    }
+
+    /// The declaration an assignment expression makes, if it makes one.
+    ///
+    /// Upstream's `ast.GetAssignmentDeclarationKind`. In a JavaScript file an
+    /// assignment to a property is how declarations are written at all — there is
+    /// no `export` and no class field syntax to use instead — so the binder has
+    /// to read `module.exports = f`, `exports.x = 1`, and `this.x = 1` as
+    /// declarations rather than as writes.
+    fn assignment_declaration_kind(&self, node: Node<'a>) -> Option<JsDeclaration> {
+        let Node::BinaryExpression(binary) = node else { return None };
+        if binary.operator_token.map(|token| token.kind) != Some(SyntaxKind::EqualsToken) {
+            return None;
+        }
+        let left = binary.left?;
+        let target = access_target(left)?;
+        // Every form below is JavaScript-only. Upstream's fourth kind — the
+        // expando `f.x = 1`, which is *not* JS-gated — is not implemented; see
+        // `lib.rs`.
+        if !self.in_js_file {
+            return None;
+        }
+        if is_module_exports_access(left) {
+            // `module.exports = exports` is a self-assignment, not a declaration.
+            return (!is_exports_identifier(binary.right?)).then_some(JsDeclaration::ModuleExports);
+        }
+        if (is_module_exports_access(target) || is_exports_identifier(target))
+            && access_name(left).is_some()
+        {
+            return Some(JsDeclaration::ExportsProperty);
+        }
+        matches!(target, Expression::KeywordExpression(keyword)
+            if keyword.kind == SyntaxKind::ThisKeyword)
+        .then_some(JsDeclaration::ThisProperty)
+    }
+
+    /// Bind one of the JavaScript assignment declaration forms.
+    ///
+    /// Returns the symbol it declared, which becomes the assignment's own symbol
+    /// so that anything nested under it — the members of an assigned object
+    /// literal, say — has an owner.
+    fn bind_assignment_declaration(
+        &mut self,
+        kind: JsDeclaration,
+        node: Node<'a>,
+        id: NodeId,
+    ) -> Option<SymbolId> {
+        match kind {
+            // `module.exports = x` makes the file a module whose whole value is
+            // `x`, which is what `export = x` means in TypeScript — so it is
+            // filed under the same name.
+            JsDeclaration::ModuleExports => {
+                if !self.set_commonjs_module_indicator() {
+                    return None;
+                }
+                let Node::BinaryExpression(binary) = node else { return None };
+                let flags = if expression_is_alias(binary.right) {
+                    SymbolFlags::ALIAS
+                } else {
+                    SymbolFlags::PROPERTY
+                };
+                let module = self.module_symbol?;
+                let file = self.file_node;
+                let symbol = self.declare_into(
+                    Destination::Exports,
+                    file,
+                    Some(module),
+                    INTERNAL_EXPORT_EQUALS,
+                    flags,
+                    id,
+                );
+                self.symbols.get_mut(symbol).value_declaration = Some(id);
+                Some(symbol)
+            }
+            // `exports.x = 1` and `module.exports.x = 1` are named exports.
+            JsDeclaration::ExportsProperty => {
+                if !self.set_commonjs_module_indicator() {
+                    return None;
+                }
+                let Node::BinaryExpression(binary) = node else { return None };
+                let name = access_name(binary.left?)?;
+                let flags = if expression_is_alias(binary.right) {
+                    SymbolFlags::ALIAS
+                } else {
+                    SymbolFlags::FUNCTION_SCOPED_VARIABLE
+                };
+                let module = self.module_symbol?;
+                let file = self.file_node;
+                Some(self.declare_into(Destination::Exports, file, Some(module), name, flags, id))
+            }
+            JsDeclaration::ThisProperty => self.bind_this_property_assignment(node, id),
+        }
+    }
+
+    /// `this.x = 1` inside a class member declares `x` on the class.
+    ///
+    /// Upstream's `bindThisPropertyAssignment`. The property is
+    /// **replaceable by a method**: a real declaration of the same name wins
+    /// outright and this one is dropped, rather than merging, because
+    /// `this.m = this.m.bind(this)` in a constructor must not turn the method
+    /// into two declarations.
+    fn bind_this_property_assignment(&mut self, node: Node<'a>, id: NodeId) -> Option<SymbolId> {
+        // Only a class member's `this` names a class. Upstream additionally
+        // handles a *constructor function* — `function C() { this.x = 1 }` — and
+        // marks that path `!!!`, unimplemented, so neither does this.
+        if !matches!(
+            self.nodes.kind(self.this_container),
+            SyntaxKind::Constructor
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::ClassStaticBlockDeclaration
+        ) {
+            return None;
+        }
+        let Node::BinaryExpression(binary) = node else { return None };
+        let left = binary.left?;
+        // A private name is not a property of the class in this sense.
+        if matches!(left, Expression::PropertyAccessExpression(access)
+            if matches!(access.name, Some(tsr_ast::MemberName::PrivateIdentifier(_))))
+        {
+            return None;
+        }
+        // A computed `this[k] = 1` is late-bound; see `lib.rs`.
+        let name = access_name(left)?;
+        let owner = self.owner?;
+
+        // Upstream files a *static* member in the class's exports and an
+        // instance member in its members. This binder puts both in `members`
+        // — `static x = 1` already goes there — so `this.x` follows suit; the
+        // divergence is pre-existing and uniform.
+        if let Some(existing) = self.symbols.get(owner).members.get(name).copied() {
+            let flags = self.symbols.get(existing).flags;
+            if !flags.contains(SymbolFlags::REPLACEABLE_BY_METHOD) {
+                // A real property or method of this name already exists. Upstream
+                // returns it *without* adding this assignment as a declaration.
+                return Some(existing);
+            }
+            let entry = self.symbols.get_mut(existing);
+            entry.flags |= SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT;
+            entry.declarations.push(id);
+            return Some(existing);
+        }
+
+        let symbol = self.symbols.create(
+            name,
+            SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT | SymbolFlags::REPLACEABLE_BY_METHOD,
+        );
+        let entry = self.symbols.get_mut(symbol);
+        entry.declarations.push(id);
+        entry.value_declaration = Some(id);
+        entry.parent = Some(owner);
+        self.symbols.get_mut(owner).members.insert(name, symbol);
+        Some(symbol)
+    }
+
     /// Create a symbol for `node` if it declares one.
     fn declare(&mut self, node: Node<'a>, id: NodeId) -> Option<SymbolId> {
+        // In a JavaScript file an assignment to a property can *be* a
+        // declaration. Checked before anything else, because the node kinds
+        // involved — a binary expression — declare nothing otherwise.
+        if let Some(kind) = self.assignment_declaration_kind(node) {
+            let symbol = self.bind_assignment_declaration(kind, node, id);
+            if let Some(symbol) = symbol {
+                self.node_symbols[id.index()] = Some(symbol);
+            }
+            return symbol;
+        }
+
         // An object literal, a type literal, or an unnamed class expression has
         // members but no name to file them under. Upstream gives each an
         // *anonymous* symbol (`bindAnonymousDeclaration`) that goes into no
@@ -2018,8 +2307,14 @@ impl<'a, 'n> Binder<'a, 'n> {
             // a shadow local would be a second declaration of a name the source
             // wrote once.
             if flags.contains(SymbolFlags::ALIAS) {
-                let exported =
-                    self.declare_into(Destination::Exports, container, export_name, flags, id);
+                let exported = self.declare_into(
+                    Destination::Exports,
+                    container,
+                    self.owner,
+                    export_name,
+                    flags,
+                    id,
+                );
                 self.node_symbols[id.index()] = Some(exported);
                 return Some(exported);
             }
@@ -2043,11 +2338,24 @@ impl<'a, 'n> Binder<'a, 'n> {
                 } else {
                     SymbolFlags::empty()
                 };
-                self.declare_into(Destination::Locals, local_owner, name, export_value, id);
+                self.declare_into(
+                    Destination::Locals,
+                    local_owner,
+                    self.owner,
+                    name,
+                    export_value,
+                    id,
+                );
             }
 
-            let exported =
-                self.declare_into(Destination::Exports, container, export_name, flags, id);
+            let exported = self.declare_into(
+                Destination::Exports,
+                container,
+                self.owner,
+                export_name,
+                flags,
+                id,
+            );
             // The export symbol is the node's symbol, so a class's members land
             // on the thing `M.C` names rather than on the shadow local.
             self.node_symbols[id.index()] = Some(exported);
@@ -2062,7 +2370,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
         };
 
-        let symbol = self.declare_into(destination, table_owner, name, flags, id);
+        let symbol = self.declare_into(destination, table_owner, self.owner, name, flags, id);
         self.node_symbols[id.index()] = Some(symbol);
 
         // `constructor(public x: T)` declares twice: a parameter in the
@@ -2073,6 +2381,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             let property = self.declare_into(
                 Destination::Members,
                 table_owner,
+                self.owner,
                 name,
                 SymbolFlags::PROPERTY,
                 id,
@@ -2089,22 +2398,22 @@ impl<'a, 'n> Binder<'a, 'n> {
         &mut self,
         destination: Destination,
         table_owner: NodeId,
+        symbol_owner: Option<SymbolId>,
         name: &'a str,
         flags: SymbolFlags,
         declaration: NodeId,
     ) -> SymbolId {
-        let existing = match destination {
-            Destination::Locals => {
-                self.locals.get(&table_owner).and_then(|table| table.get(name).copied())
-            }
-            Destination::Members => {
-                self.owner.and_then(|owner| self.symbols.get(owner).members.get(name).copied())
-            }
-            Destination::Exports => {
-                self.owner.and_then(|owner| self.symbols.get(owner).exports.get(name).copied())
-            }
-            Destination::GlobalExports => self.global_exports.get(name).copied(),
-        };
+        let existing =
+            match destination {
+                Destination::Locals => {
+                    self.locals.get(&table_owner).and_then(|table| table.get(name).copied())
+                }
+                Destination::Members => symbol_owner
+                    .and_then(|owner| self.symbols.get(owner).members.get(name).copied()),
+                Destination::Exports => symbol_owner
+                    .and_then(|owner| self.symbols.get(owner).exports.get(name).copied()),
+                Destination::GlobalExports => self.global_exports.get(name).copied(),
+            };
 
         let symbol = if let Some(existing) = existing {
             let existing_flags = self.symbols.get(existing).flags;
@@ -2128,20 +2437,20 @@ impl<'a, 'n> Binder<'a, 'n> {
                     self.locals.entry(table_owner).or_default().insert(name, created);
                 }
                 Destination::Members => {
-                    if let Some(owner) = self.owner {
+                    if let Some(owner) = symbol_owner {
                         self.symbols.get_mut(owner).members.insert(name, created);
                         self.symbols.get_mut(created).parent = Some(owner);
                     }
                 }
                 Destination::Exports => {
-                    if let Some(owner) = self.owner {
+                    if let Some(owner) = symbol_owner {
                         self.symbols.get_mut(owner).exports.insert(name, created);
                         self.symbols.get_mut(created).parent = Some(owner);
                     }
                 }
                 Destination::GlobalExports => {
                     self.global_exports.insert(name, created);
-                    self.symbols.get_mut(created).parent = self.owner;
+                    self.symbols.get_mut(created).parent = symbol_owner;
                 }
             }
             created
@@ -2348,6 +2657,76 @@ fn is_external_module(file: &SourceFile<'_>) -> bool {
             _ => modifiers_of(node).is_some_and(has_export),
         }
     })
+}
+
+/// What a JavaScript assignment expression declares.
+///
+/// Upstream's `ast.JSDeclarationKind`, minus the three forms not implemented:
+/// the expando `f.x = 1`, and the two `Object.defineProperty` shapes. See
+/// `lib.rs`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JsDeclaration {
+    /// `module.exports = x`
+    ModuleExports,
+    /// `exports.x = 1`, `module.exports.x = 1`
+    ExportsProperty,
+    /// `this.x = 1`
+    ThisProperty,
+}
+
+/// Whether a file is a JavaScript file, whose assignment forms are declarations.
+///
+/// Upstream reads the flag the parser set; here it is the extension, per
+/// [ADR-0015](../../../docs/adr/0015-file-name-is-a-bind-input.md).
+fn is_javascript_file(file_name: &str) -> bool {
+    matches!(
+        file_name.rsplit_once('.').map(|(_, extension)| extension),
+        Some("js" | "jsx" | "mjs" | "cjs")
+    )
+}
+
+/// The object an access expression reads from: `a` in `a.b` and in `a[b]`.
+fn access_target(expression: Expression<'_>) -> Option<Expression<'_>> {
+    match expression {
+        Expression::PropertyAccessExpression(access) => access.expression,
+        Expression::ElementAccessExpression(access) => access.expression,
+        _ => None,
+    }
+}
+
+/// The property an access expression names, when it names one statically.
+///
+/// Upstream's `GetElementOrPropertyAccessName`: an identifier for `a.b`, and a
+/// string or numeric literal for `a["b"]`. `a[k]` names nothing the binder can
+/// know, which is the late-bound case.
+fn access_name(expression: Expression<'_>) -> Option<&str> {
+    match expression {
+        Expression::PropertyAccessExpression(access) => match access.name? {
+            tsr_ast::MemberName::Identifier(identifier) => Some(identifier.text),
+            tsr_ast::MemberName::PrivateIdentifier(_) => None,
+        },
+        Expression::ElementAccessExpression(access) => {
+            match skip_parentheses(Node::from(access.argument_expression?)) {
+                Node::StringLiteral(literal) => Some(literal.text),
+                Node::NumericLiteral(literal) => Some(literal.text),
+                Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether `expression` is the identifier `exports` (`IsExportsIdentifier`).
+fn is_exports_identifier(expression: Expression<'_>) -> bool {
+    matches!(expression, Expression::Identifier(identifier) if identifier.text == "exports")
+}
+
+/// Whether `expression` is `module.exports` (`IsModuleExportsAccessExpression`).
+fn is_module_exports_access(expression: Expression<'_>) -> bool {
+    let Some(target) = access_target(expression) else { return false };
+    matches!(target, Expression::Identifier(identifier) if identifier.text == "module")
+        && access_name(expression) == Some("exports")
 }
 
 /// Whether a file is a declaration file, and so an ambient context.

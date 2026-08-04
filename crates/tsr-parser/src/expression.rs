@@ -685,13 +685,20 @@ impl<'a> Parser<'a> {
                 );
                 Expression::RegularExpressionLiteral(node)
             }
-            kind if kind.is_keyword() => {
-                // `this`, `super`, `true`, `false`, `null`, and contextual
-                // keywords used as names all land here.
+            // A *reserved* word in expression position is the keyword itself:
+            // `this`, `super`, `true`, `false`, `null`.
+            kind if kind.is_keyword() && crate::statement::is_reserved_word(kind) => {
                 self.next_token();
                 let node = self.finish_node(KeywordExpression::new(kind), kind, start);
                 Expression::KeywordExpression(node)
             }
+            // Anything else that is a keyword is *contextual*, and in expression
+            // position it is an ordinary name: `module.exports`, `const x =
+            // type`, `of(1)`. Parsing it as a keyword expression loses the text
+            // — a `KeywordExpression` has no name — so every such reference
+            // became anonymous. Upstream falls through to `parseIdentifier()`
+            // here for the same reason.
+            kind if kind.is_keyword() => Expression::Identifier(self.parse_identifier()),
             _ => {
                 self.error_at_current(&messages::EXPRESSION_EXPECTED);
                 Expression::Identifier(self.missing_identifier())

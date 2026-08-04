@@ -408,6 +408,11 @@ impl Bound<'_> {
         self.result.symbol_of(self.root())
     }
 
+    /// A top-level local's symbol id.
+    fn top_level_symbol(&self, name: &str) -> Option<tsr_binder::SymbolId> {
+        self.result.lookup_local(self.root(), name)
+    }
+
     /// What the module exports under `name`.
     fn export(&self, name: &str) -> Option<tsr_binder::SymbolId> {
         let module = self.module_symbol()?;
@@ -500,4 +505,84 @@ fn a_script_with_an_export_keyword_still_declares_a_local() {
     let arena = Arena::new();
     let bound = bind_as(&arena, "namespace M { export const x = 1; }", "a.ts");
     assert!(bound.top_level("M").is_some());
+}
+
+#[test]
+fn a_commonjs_export_makes_a_javascript_file_a_module() {
+    // `module.exports = x` is what `export = x` is in TypeScript, and it is the
+    // only thing that tells a `.js` script it is a module.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "class Bar {}\nmodule.exports = Bar;\n", "index.js");
+    assert!(bound.module_symbol().is_some(), "the file has a symbol of its own");
+    assert!(bound.export("export=").is_some(), "filed under the same name as `export =`");
+    // `module` and `exports` are declared nowhere in the source, so the binder
+    // declares them; `module.exports` resolves through `module`'s members.
+    let module = bound.top_level_symbol("module").expect("`module` is a local");
+    assert!(bound.result.symbols().get(module).members.contains_key("exports"));
+    assert!(bound.top_level("exports").is_some());
+}
+
+#[test]
+fn the_same_file_in_typescript_declares_nothing_of_the_kind() {
+    // In a `.ts` file `module.exports = x` is an assignment to a global, not a
+    // declaration — which is why the whole form is gated on the file's dialect.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "class Bar {}\nmodule.exports = Bar;\n", "index.ts");
+    assert!(bound.module_symbol().is_none());
+    assert!(bound.top_level("module").is_none());
+}
+
+#[test]
+fn a_commonjs_named_export_is_an_export_of_the_file() {
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "exports.foo = 1;\nmodule.exports.bar = 2;\n", "index.js");
+    assert!(bound.export("foo").is_some());
+    assert!(bound.export("bar").is_some());
+}
+
+#[test]
+fn this_property_assignment_declares_a_class_member_in_javascript() {
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "class C {\n  constructor() {\n    this.x = 1;\n  }\n}\n", "a.js");
+    let class = bound.top_level_symbol("C").expect("the class");
+    assert!(bound.result.symbols().get(class).members.contains_key("x"));
+}
+
+#[test]
+fn a_real_declaration_beats_a_this_property_of_the_same_name() {
+    // `this.m = this.m.bind(this)` in a constructor must not turn the method
+    // into a second declaration — upstream's isReplaceableByMethod.
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "class C {\n  m() {}\n  constructor() {\n    this.m = this.m.bind(this);\n  }\n}\n",
+        "a.js",
+    );
+    let class = bound.top_level_symbol("C").expect("the class");
+    let member = *bound.result.symbols().get(class).members.get("m").expect("`m` exists");
+    assert_eq!(
+        bound.result.symbols().get(member).declarations.len(),
+        1,
+        "the method is the only declaration"
+    );
+}
+
+#[test]
+fn this_outside_a_class_member_declares_nothing() {
+    // Upstream marks the constructor-function case unimplemented, and so is it
+    // here; the important part is that it does not attach to whatever happens
+    // to be the enclosing owner.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "function f() {\n  this.x = 1;\n}\n", "a.js");
+    assert!(bound.result.symbols().iter().all(|(_, symbol)| symbol.name != "x"));
+}
+
+#[test]
+fn a_contextual_keyword_in_expression_position_is_a_name() {
+    // `module`, `type`, `of` and friends are keywords only where the grammar
+    // says so; as values they are ordinary identifiers, and parsing them as
+    // keyword expressions lost the text entirely.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "const type = 1;\nconst x = type;\n", "a.ts");
+    assert!(bound.top_level("type").is_some());
 }

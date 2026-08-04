@@ -901,3 +901,37 @@ fn a_umd_global_declaration_is_not_an_export_assignment() {
         other => panic!("unexpected statement: {other:?}"),
     }
 }
+
+#[test]
+fn a_contextual_keyword_in_expression_position_parses_as_an_identifier() {
+    // A `KeywordExpression` carries a kind and no text, so parsing `module` as
+    // one lost the name: `module.exports` referred to nothing.
+    let arena = Arena::new();
+    for (source, text) in [
+        ("module.exports = 1;", "module"),
+        ("const x = type;", "type"),
+        ("of(1);", "of"),
+        ("declare;", "declare"),
+    ] {
+        let statements = statements(&arena, source);
+        let found = statements.iter().any(|statement| {
+            fn names(node: tsr_ast::Node<'_>, text: &str) -> bool {
+                if matches!(node, tsr_ast::Node::Identifier(id) if id.text == text) {
+                    return true;
+                }
+                let mut children = Vec::new();
+                tsr_ast::push_children(node, &mut children);
+                children.into_iter().any(|child| names(child, text))
+            }
+            names(tsr_ast::Node::from(*statement), text)
+        });
+        assert!(found, "{source:?} should contain an identifier named {text:?}");
+    }
+}
+
+#[test]
+fn a_reserved_word_in_expression_position_stays_a_keyword() {
+    let arena = Arena::new();
+    let statements = statements(&arena, "const a = this;\nconst b = null;\nconst c = true;\n");
+    assert_eq!(statements.len(), 3);
+}

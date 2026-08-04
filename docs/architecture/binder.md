@@ -99,6 +99,55 @@ them, so `bind_container` is one place that saves both halves.
 
 ---
 
+## JavaScript declares things by assigning to them
+
+A `.js` file has no `export`, no class fields, and no type annotations, so the
+forms that mean "declare" there are assignments. Upstream reads three of them as
+declarations (`GetAssignmentDeclarationKind`), and the binder does too — gated on
+the file being JavaScript, because in a `.ts` file the identical source is an
+ordinary write to a global:
+
+| written | means | lands in |
+|---|---|---|
+| `module.exports = x` | `export = x` | the file's exports, under `export=` |
+| `exports.x = 1`, `module.exports.x = 1` | a named export | the file's exports |
+| `this.x = 1` in a class member | a property of the class | the class's members |
+
+The first two also make the file a **module**: a `.js` file with no `import` or
+`export` is a script until a `module.exports` appears, at which point
+`set_commonjs_module_indicator` gives it a symbol part-way through the walk. That
+is why the file's symbol is a field on the binder and not the `owner` cursor —
+by the time a `module.exports =` nested inside a function is reached, `owner` is
+something else entirely.
+
+Once a file is CommonJS, `module` and `exports` are declared as locals of it
+(`declareCommonJSVariable`), with `exports` also a member of `module`. Nothing in
+the source declares them, which is exactly why the binder must: every reference
+to either would otherwise resolve to nothing.
+
+**`this.x` is replaceable by a method.** A property declared this way loses
+outright to a real declaration of the same name rather than merging with it,
+because `this.m = this.m.bind(this)` in a constructor must not turn the method
+into two declarations. That is upstream's `isReplaceableByMethod`, and it is the
+one merge rule in the binder that discards a declaration.
+
+### The parser was losing every contextual keyword used as a name
+
+`module.exports` did not work at first, and the reason was not in the binder:
+`module` was being parsed as a `KeywordExpression`, which carries a *kind* and no
+text. So did `type`, `of`, `as`, `declare`, `async`, `get` — every non-reserved
+keyword in expression position. `const x = type;` referred to nothing.
+
+A keyword is reserved or it is contextual, and only a reserved one (`this`,
+`super`, `true`, `false`, `null`) is the keyword when it appears as a value.
+Upstream falls through to `parseIdentifier()` for the rest; so does the parser
+now. It was worth 14 conformance cases on its own, well beyond the CommonJS work
+that found it, and it is the reason the flow graph grew from 81,713 nodes to
+83,690: an identifier is a narrowable reference and a keyword expression is not,
+so those references now get flow nodes they should always have had.
+
+---
+
 ## The flow graph is not the control-flow graph
 
 This is the thing most worth understanding, and the thing a from-scratch
@@ -125,8 +174,12 @@ and narrowing is quietly lost. Neither crashes, and neither shows up in a test
 that only checks the positive cases — which is why the test suite in
 `tests/flow.rs` asserts the *absence* of nodes as well as their presence.
 
-The filter is also what makes the graph affordable: 81,713 flow nodes for
-419,464 AST nodes across the benchmark fixtures, one per five.
+The filter is also what makes the graph affordable: 83,690 flow nodes for
+419,571 AST nodes across the benchmark fixtures, one per five. (Measured
+2026-08-04. The earlier figure of 81,713 was correct for the tree as it was then
+parsed: contextual keywords in expression position were `KeywordExpression`s,
+which are not narrowable references and so got no flow node. Fixing that in the
+parser added 1,977 — nodes the graph should always have had.)
 
 ---
 
@@ -277,6 +330,12 @@ Named here rather than left to be discovered. Each has a `bd` issue.
 - **`export * from "m"`**. Upstream collects every star export in an `__export`
   symbol; nothing is declared for one here. `export * as ns from "m"` *is*
   declared.
+- **Expando assignments and `Object.defineProperty`** (`tsr-y4u.15`). `f.x = 1`
+  on a previously declared function, and the two `Object.defineProperty` forms.
+  Unlike the three JavaScript forms above these need a *resolver*: upstream
+  defers them to a second pass and looks the assignment target's name up in the
+  scope it was written in (`bindDeferredExpandoAssignment`, `lookupEntity`).
+  Measured at 4–8 cases, which is why the machinery is not there yet.
 - **Optional chains** (`tsr-y4u.7`). The flow shapes are ported in full, but the
   parser records the `?.` token without setting `NodeFlags::OPTIONAL_CHAIN`, so
   `is_optional_chain` is always false and `a?.b` currently gets the graph of
@@ -309,8 +368,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 7,790/8,455
-(**92.13%**). See
+own `.symbols` baselines over the 12,444-case corpus. Currently 7,833/8,455
+(**92.64%**). See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -344,6 +403,8 @@ five biggest wins turned out to be in the harness.
 | single-quoted names unquoted | 92.18% | harness |
 | **multi-file cases compared unit by unit** | 91.67% | harness — *denominator +834* |
 | module vs script: module symbol, `export` routing, `default` merging | 92.13% | binder + parser + harness |
+| JavaScript: `module.exports`, `exports.x`, `this.x`, CommonJS locals | 92.48% | binder |
+| contextual keywords in expression position parse as identifiers | 92.64% | **parser** |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -390,22 +451,33 @@ the rest of the 39 came from cases nobody had classified into that bucket. The
 lesson is the same one this section keeps recording, applied one level deeper:
 bucketing by *reason string* is still bucketing by name shape.
 
-### What the remaining 665 failures are, and why this is near the ceiling
+### What the JavaScript forms cost and bought
+
+**43 cases fixed, 0 broken**, in two measured steps. The three assignment forms
+and the CommonJS locals were worth 29; the contextual-keyword parser fix they
+uncovered was worth a further 14, none of them JavaScript cases.
+
+The estimate in `tsr-y4u.13` was "45 failing cases across six sub-features,
+largest 16". Three sub-features covered 43 cases — more than the arithmetic
+allowed, because the parser bug behind `module.exports` was also silently
+costing cases nobody had attributed to JavaScript at all. That is the third time
+this session a cause named from failure text turned out to be somewhere else.
+
+### What the remaining 622 failures are, and why this is near the ceiling
 
 Classified against the actual sources:
 
 | Cause | Cases | Status |
 |---|---:|---|
-| Late-bound computed names | ~371 | **blocked on the checker** |
+| Late-bound computed names | ~371 | **blocked on the checker** (`tsr-y4u.11`) |
 | `import X = Y` alias resolution | ~73 | **blocked on a resolver** (`tsr-y4u.12`) |
-| JavaScript binder features | ~27 | six sub-features (`tsr-y4u.13`) |
 | Module-shaped, various | ~38 | mostly cross-file, blocked on module resolution |
-| Long tail, many distinct causes | ~156 | each below ~10 cases |
+| JavaScript expando and `Object.defineProperty` | ~10 | needs a resolver (`tsr-y4u.15`) |
+| Long tail, many distinct causes | ~130 | each below ~10 cases |
 
-**Roughly 67% of what remains is hard-blocked** on the checker or a resolver, and
-no tractable cause above ~27 cases is left. Further movement on this metric comes
-from the checker, the resolver, and module resolution — not from more binder
-work.
+**Roughly 79% of what remains is hard-blocked** on the checker, a resolver, or
+module resolution, and no tractable cause above ~10 cases is left. Further
+movement on this metric comes from those three — not from more binder work.
 
 Two module-shaped things are known to be available and small. `export default x`
 where `x` is an identifier should display under `x`'s name, because upstream's

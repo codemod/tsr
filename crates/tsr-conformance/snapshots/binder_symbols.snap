@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 7790/8455 (92.13%)
-Failed         : 665
+Passed         : 7833/8455 (92.64%)
+Failed         : 622
 Skipped        : 3989 (excluded from the denominator)
 
   2321  skipped: no .symbols baseline
@@ -11,7 +11,7 @@ Skipped        : 3989 (excluded from the denominator)
   547  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 665 failures:
+First 100 of 622 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/aliasDoesNotDuplicateSignatures
@@ -38,16 +38,8 @@ compiler/capturedParametersInInitializers1
   1 symbol(s): [z]: no symbol
 compiler/checkDestructuringShorthandAssigment2
   1 symbol(s): [k]: no symbol
-compiler/checkJsFiles7
-  1 symbol(s): C.a: no symbol
-compiler/checkJsFiles_noErrorLocation
-  1 symbol(s): B.foo: no symbol
 compiler/checkJsObjectLiteralIndexSignatures
   2 symbol(s): [n]: no symbol; [s]: no symbol
-compiler/checkJsTypeDefNoUnusedLocalMarked
-  2 symbol(s): something.js: exports: no symbol; something.js: module: no symbol
-compiler/checkSuperCallBeforeThisAccessing9
-  1 symbol(s): Derived.x: no symbol
 compiler/checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1
   1 symbol(s): composed.name: no symbol
 compiler/checkingObjectWithThisInNamePositionNoCrash
@@ -56,12 +48,8 @@ compiler/circularlyConstrainedMappedTypeContainingConditionalNoInfiniteInstantia
   1 symbol(s): Validator[nominalTypeHack]: no symbol
 compiler/classDeclarationShouldBeOutOfScopeInComputedNames
   2 symbol(s): A[A.p1]: no symbol; A[A.p2]: no symbol
-compiler/classExtendingAny
-  1 symbol(s): b.js: B.wat: no symbol
 compiler/classFieldSuperAccessibleJs1
   1 symbol(s): C.blah2: no symbol
-compiler/classFieldSuperNotAccessibleJs
-  2 symbol(s): YaddaBase.foo: no symbol; YaddaBase.roots: no symbol
 compiler/classImplementsImportedInterface
   1 symbol(s): T: declared on {6}, expected to include {0, 6}
 compiler/classNonUniqueSymbolMethodHasSymbolIndexer
@@ -70,8 +58,6 @@ compiler/collisionExportsRequireAndInternalModuleAliasInGlobalFile
   1 symbol(s): exports: declared on {3, 9, 16}, expected to include {0, 3, 9, 16}
 compiler/commaOperatorInConditionalExpression
   1 symbol(s): [m]: no symbol
-compiler/commonJsIsolatedModules
-  2 symbol(s): exports: no symbol; module: no symbol
 compiler/complexRecursiveCollections
   3 symbol(s): immutable.ts: Indexed[Symbol.iterator]: no symbol; immutable.ts: Instance[Symbol.iterator]: no symbol; immutable.ts: Keyed[Symbol.iterator]: no symbol
 compiler/computedPropertiesInDestructuring1
@@ -187,7 +173,7 @@ compiler/dynamicNames
 compiler/dynamicNamesErrors
   3 symbol(s): ClassMemberVisibility[w]: no symbol; ClassMemberVisibility[x]: no symbol; ClassMemberVisibility[y]: no symbol
 compiler/ensureNoCrashExportAssignmentDefineProperrtyPotentialMerge
-  3 symbol(s): index.js: exports: no symbol; index.js: module: no symbol; namespacey.js: bar: no symbol
+  2 symbol(s): namespacey.js: bar: no symbol; namespacer.js: NS: no symbol
 compiler/enumWithUnicodeEscape1
   1 symbol(s): E.gold \u2730: no symbol
 compiler/erasableSyntaxOnly
@@ -209,6 +195,20 @@ compiler/expandoFunctionBlockShadowing
 compiler/expandoFunctionContextualTypesJSDocInTs
   1 symbol(s): Foo.bar: no symbol
 compiler/expandoFunctionContextualTypesJs
-  3 symbol(s): MyComponent2.defaultProps: no symbol; defaultProps: no symbol; exports: no symbol
+  2 symbol(s): MyComponent2.defaultProps: no symbol; defaultProps: no symbol
 compiler/expandoFunctionContextualTypesNoValue
   1 symbol(s): Foo.bar: no symbol
+compiler/expandoFunctionExpressionsWithDynamicNames2
+  1 symbol(s): Foo[mySymbol]: no symbol
+compiler/expandoFunctionNullishProperty
+  1 symbol(s): inner.prop: no symbol
+compiler/expandoFunctionSymbolProperty
+  1 symbol(s): TestSymb[symb]: no symbol
+compiler/exportDeclarationsInAmbientNamespaces
+  1 symbol(s): Q.try: no symbol
+compiler/exportDefaultClassAndValue
+  1 symbol(s): foo: declared on {0}, expected to include {0, 1}
+compiler/exportDefaultInterfaceClassAndValue
+  1 symbol(s): foo: declared on {0}, expected to include {0, 1, 2}
+compiler/exportDefaultTypeClassAndValue
+  1 symbol(s): foo: declared on {0}, expected to include {0, 1}

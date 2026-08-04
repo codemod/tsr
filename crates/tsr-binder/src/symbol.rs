@@ -88,6 +88,14 @@ bitflags::bitflags! {
         const OPTIONAL = 1 << 24;
         /// Created by the checker rather than the binder.
         const TRANSIENT = 1 << 25;
+        /// Declared by an assignment to a property (`f.x = 1`, `this.x = 1`)
+        /// rather than by a declaration. JavaScript files only.
+        const ASSIGNMENT = 1 << 26;
+        /// The `module` of CommonJS's `module.exports`, and its `exports` member.
+        const MODULE_EXPORTS = 1 << 27;
+        /// A property declared by `this.x = …` in a constructor, which a real
+        /// method or property of the same name replaces outright.
+        const REPLACEABLE_BY_METHOD = 1 << 29;
 
         /// `enum` in either form.
         const ENUM = Self::REGULAR_ENUM.bits() | Self::CONST_ENUM.bits();

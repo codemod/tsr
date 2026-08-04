@@ -150,7 +150,9 @@ too.
 | — attributable to the flow graph | 3,328 |
 
 3.25 MiB buys 81,713 flow nodes and 419,464 `node -> flow` entries — one flow
-node per 5.1 AST nodes.
+node per 5.1 AST nodes. (Both counts are as measured on 2026-08-04 before the
+parser stopped turning contextual keywords into `KeywordExpression`s; the graph
+is now 83,690 nodes over 419,571 AST nodes, and peak RSS did not move.)
 
 The binder then *shrank* while gaining work. Closing the symbol-parity gaps took
 it from 39,306 symbols to 41,529 (index signatures, function expressions, JSX

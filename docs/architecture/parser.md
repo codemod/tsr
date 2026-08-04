@@ -114,11 +114,23 @@ tokens, so a naive bracket counter never balances `<K extends Key<U>>`, and
 `ReturnType<<T>() => number>` opens with one `<<`. Both directions need splitting;
 `greater_than_count` and `rescan_less_than` do it.
 
-## Two export forms that were parsed lossily
+## Three things that were parsed lossily
 
-Both were found from the binder side, and neither produced a diagnostic — a
-lossy parse of a valid program is silent by construction, which is what makes
-this class of bug worth naming.
+Each was found from the binder side, and none produced a diagnostic — a lossy
+parse of a valid program is silent by construction, which is what makes this
+class of bug worth naming.
+
+**A contextual keyword in expression position became a `KeywordExpression`**,
+which carries a kind and no text. `module`, `type`, `of`, `as`, `declare`,
+`async`, `get` — every non-reserved keyword used as a value — referred to
+nothing, so `module.exports` and `const x = type` bound no symbol and narrowed
+nothing. Only a *reserved* word (`this`, `super`, `true`, `false`, `null`) is the
+keyword when it appears as a value; upstream falls through to `parseIdentifier()`
+for the rest, and so does this parser now. Worth 14 conformance cases in
+`binder_symbols`, and 1,977 more flow nodes across the benchmark fixtures — an
+identifier is a narrowable reference and a keyword expression is not.
+
+The two export forms:
 
 - **`export default class C {}` dropped the `default` keyword.** Only `export`
   survived as a modifier, so nothing downstream could tell it from
