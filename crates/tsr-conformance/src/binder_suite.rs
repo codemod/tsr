@@ -11,6 +11,14 @@
 //! model-independent — the baseline says nothing about how either side stores a
 //! symbol table, which matters because ours is deliberately not upstream's.
 //!
+//! **Multi-file cases are compared unit by unit.** Each baseline section names a
+//! unit, and each unit is bound on its own — which is not an approximation but
+//! the truth: there is no program and no cross-file linking yet, so a symbol
+//! declared in `a.ts` is not visible from `b.ts`. The baseline agrees, because
+//! the comparison already drops any symbol whose declarations live in another
+//! file. Before this, 1,153 cases — 13% of the corpus with `.symbols` baselines
+//! — were skipped outright.
+//!
 //! It does **not** yet test resolution: which *occurrence* binds to which symbol.
 //! The baseline has that, but the occurrence's own position is implicit in the
 //! layout (the annotation follows the line it describes), so recovering it means
@@ -91,102 +99,128 @@ impl Suite for BinderSymbols {
             Ok(parsed) => parsed,
             Err(err) => return Outcome::Failed { reason: format!("{err:#}") },
         };
-        // Multi-file cases need per-file attribution that the single-unit path
-        // does not have; skipped rather than scored wrongly.
-        if parsed.files.len() != 1 || expected_files.len() != 1 {
-            return Outcome::Skipped {
-                reason: "multi-file case; needs per-file symbol attribution".into(),
-            };
-        }
 
-        let unit = &parsed.files[0];
-        if !crate::scanner_suite::is_typescript_unit(&unit.name) {
-            return Outcome::Skipped { reason: "not a TypeScript unit".into() };
-        }
-
-        let arena = tsr_core::Arena::new();
-        let script_kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-        let result = tsr_parser::parse_with_script_kind(&arena, &unit.content, script_kind);
-        // A file we cannot parse tells us nothing about the binder.
-        if !result.diagnostics.is_empty() {
-            return Outcome::Skipped { reason: "the parser reports errors for this file".into() };
-        }
-        let bound = tsr_binder::bind(result.source_file, &result.nodes);
-
-        // One forward scan of the file, reused for every declaration position.
-        let full_starts = symbols_baseline::FullStarts::scan(&unit.content);
-
-        // What we produced, keyed by *qualified* name.
-        let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
-            std::collections::HashMap::new();
-        for (id, symbol) in bound.symbols().iter() {
-            let mut declared = BTreeSet::new();
-            for declaration in &symbol.declarations {
-                let span = result.nodes.span(*declaration);
-                // Upstream reports the *full start*; see `symbols_baseline`.
-                let pos = full_starts.of(&unit.content, span.start);
-                let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
-                declared.insert(line);
-            }
-            // Indexed under every dotted suffix, not just the full chain.
-            // Upstream prints the *shortest name accessible from the reference
-            // site*: a use of `m` inside `namespace M` prints `C.m`, while a use
-            // from outside prints `M.C.m` — same symbol, two spellings, and which
-            // one appears depends on a resolution we have no checker to redo.
-            // Accepting any suffix is the honest approximation; it weakens the
-            // test slightly, since `C.m` would also match a `C.m` nested
-            // somewhere else entirely.
-            let full = qualified_name(&bound, &result.nodes, id);
-            for (offset, _) in
-                std::iter::once((0, '.')).chain(full.match_indices('.').map(|(i, _)| (i + 1, '.')))
-            {
-                ours.entry(full[offset..].to_string()).or_default().extend(&declared);
-            }
-        }
-
-        // What upstream expects, deduplicated: the baseline repeats a symbol once
-        // per occurrence, and a symbol is one fact however often it is used.
-        // `BTreeMap`, not `HashMap`: the loop below stops after three misses, so
-        // hash order would decide *which* three a failing case reports and the
-        // committed snapshot would churn on reruns with no code change. A snapshot
-        // that moves on its own teaches reviewers to ignore its diff.
-        let mut expected: std::collections::BTreeMap<String, BTreeSet<u32>> =
-            std::collections::BTreeMap::new();
-        let unit_file = &expected_files[0].file;
-        for reference in &expected_files[0].refs {
-            if reference.declarations.is_empty() {
-                continue;
-            }
-            // Only symbols declared *in this file*. A reference to `console`
-            // resolves to `Decl(lib.dom.d.ts, --, --)`, and we neither load lib
-            // files nor could produce those declarations; requiring them would
-            // score the absence of a standard library as a binder failure.
-            if reference.declarations.iter().any(|d| &d.file != unit_file) {
-                continue;
-            }
-            let lines = expected.entry(normalise_symbol_name(&reference.symbol)).or_default();
-            for declaration in &reference.declarations {
-                lines.insert(declaration.line);
-            }
-        }
-        if expected.is_empty() {
-            return Outcome::Skipped { reason: "the baseline names no symbols".into() };
-        }
-
+        // Each baseline section describes one unit, and each unit is bound on its
+        // own — which is not a limitation here but the truth: there is no program
+        // and no cross-file linking yet, so a symbol declared in `a.ts` is simply
+        // not visible from `b.ts`. The baseline agrees, because the comparison
+        // below already drops any symbol whose declarations live in another file.
         let mut missing = Vec::new();
-        for (name, lines) in &expected {
-            match ours.get(name.as_str()) {
-                None => missing.push(format!("{name}: no symbol")),
-                // Ours must *contain* the expected lines rather than equal them:
-                // upstream lists only the declarations reachable from a use site,
-                // while we hold every declaration of the symbol.
-                Some(found) if !lines.is_subset(found) => missing
-                    .push(format!("{name}: declared on {found:?}, expected to include {lines:?}")),
-                Some(_) => {}
+        let mut compared = 0usize;
+        let mut unparsable = 0usize;
+
+        for expected_file in &expected_files {
+            let Some(unit) = parsed.files.iter().find(|unit| unit.name == expected_file.file)
+            else {
+                continue;
+            };
+            if !crate::scanner_suite::is_typescript_unit(&unit.name) {
+                continue;
+            }
+
+            let arena = tsr_core::Arena::new();
+            let script_kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
+            let result = tsr_parser::parse_with_script_kind(&arena, &unit.content, script_kind);
+            // A file we cannot parse tells us nothing about the binder.
+            if !result.diagnostics.is_empty() {
+                unparsable += 1;
+                continue;
+            }
+            let bound = tsr_binder::bind(result.source_file, &result.nodes);
+
+            // One forward scan of the file, reused for every declaration position.
+            let full_starts = symbols_baseline::FullStarts::scan(&unit.content);
+
+            // What we produced, keyed by *qualified* name.
+            let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
+                std::collections::HashMap::new();
+            for (id, symbol) in bound.symbols().iter() {
+                let mut declared = BTreeSet::new();
+                for declaration in &symbol.declarations {
+                    let span = result.nodes.span(*declaration);
+                    // Upstream reports the *full start*; see `symbols_baseline`.
+                    let pos = full_starts.of(&unit.content, span.start);
+                    let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
+                    declared.insert(line);
+                }
+                // Indexed under every dotted suffix, not just the full chain.
+                // Upstream prints the *shortest name accessible from the reference
+                // site*: a use of `m` inside `namespace M` prints `C.m`, while a use
+                // from outside prints `M.C.m` — same symbol, two spellings, and which
+                // one appears depends on a resolution we have no checker to redo.
+                // Accepting any suffix is the honest approximation; it weakens the
+                // test slightly, since `C.m` would also match a `C.m` nested
+                // somewhere else entirely.
+                let full = qualified_name(&bound, &result.nodes, id);
+                for (offset, _) in std::iter::once((0, '.'))
+                    .chain(full.match_indices('.').map(|(i, _)| (i + 1, '.')))
+                {
+                    ours.entry(full[offset..].to_string()).or_default().extend(&declared);
+                }
+            }
+
+            // What upstream expects, deduplicated: the baseline repeats a symbol once
+            // per occurrence, and a symbol is one fact however often it is used.
+            // `BTreeMap`, not `HashMap`: the loop below stops after three misses, so
+            // hash order would decide *which* three a failing case reports and the
+            // committed snapshot would churn on reruns with no code change. A snapshot
+            // that moves on its own teaches reviewers to ignore its diff.
+            let mut expected: std::collections::BTreeMap<String, BTreeSet<u32>> =
+                std::collections::BTreeMap::new();
+            for reference in &expected_file.refs {
+                if reference.declarations.is_empty() {
+                    continue;
+                }
+                // Only symbols declared *in this file*. A reference to `console`
+                // resolves to `Decl(lib.dom.d.ts, --, --)`, and we neither load lib
+                // files nor could produce those declarations; requiring them would
+                // score the absence of a standard library as a binder failure. The
+                // same filter is what makes per-unit binding sound: a symbol from a
+                // sibling unit is another file's declaration and is skipped here.
+                if reference.declarations.iter().any(|d| d.file != expected_file.file) {
+                    continue;
+                }
+                let lines = expected.entry(normalise_symbol_name(&reference.symbol)).or_default();
+                for declaration in &reference.declarations {
+                    lines.insert(declaration.line);
+                }
+            }
+            if expected.is_empty() {
+                continue;
+            }
+            compared += 1;
+
+            let multi = expected_files.len() > 1;
+            for (name, lines) in &expected {
+                let where_ =
+                    if multi { format!("{}: ", expected_file.file) } else { String::new() };
+                match ours.get(name.as_str()) {
+                    None => missing.push(format!("{where_}{name}: no symbol")),
+                    // Ours must *contain* the expected lines rather than equal them:
+                    // upstream lists only the declarations reachable from a use site,
+                    // while we hold every declaration of the symbol.
+                    Some(found) if !lines.is_subset(found) => missing.push(format!(
+                        "{where_}{name}: declared on {found:?}, expected to include {lines:?}"
+                    )),
+                    Some(_) => {}
+                }
+                if missing.len() >= 3 {
+                    break;
+                }
             }
             if missing.len() >= 3 {
                 break;
             }
+        }
+
+        if compared == 0 {
+            return Outcome::Skipped {
+                reason: if unparsable > 0 {
+                    "the parser reports errors for this file".into()
+                } else {
+                    "the baseline names no symbols in any unit we bind".into()
+                },
+            };
         }
 
         if missing.is_empty() {
@@ -284,10 +318,13 @@ fn anonymity_of(name: &str) -> Anonymity {
 /// expression, and we create no symbol for them at all. Normalising those would
 /// turn a real gap into a passing case.
 fn normalise_symbol_name(name: &str) -> String {
-    // An ambient external module is named by a string literal and printed with
-    // its quotes: `declare module "fs"` is the symbol `"fs"`.
-    if name.len() >= 2 && name.starts_with('"') && name.ends_with('"') {
-        return name[1..name.len() - 1].to_string();
+    // A whole name in quotes is a string literal spelled as the source wrote it:
+    // `declare module "fs"` is the symbol `"fs"`, and `{ 'a': 1 }` gives `'a'`.
+    // Either quote, because the baseline reproduces the spelling.
+    for quote in ['"', '\''] {
+        if name.len() >= 2 && name.starts_with(quote) && name.ends_with(quote) {
+            return name[1..name.len() - 1].to_string();
+        }
     }
     let mut out = String::with_capacity(name.len());
     let mut rest = name;
@@ -346,6 +383,9 @@ mod tests {
     fn an_ambient_module_name_loses_its_quotes() {
         assert_eq!(normalise_symbol_name("\"fs\""), "fs");
         assert_eq!(normalise_symbol_name("\"./relativeModule\""), "./relativeModule");
+        // Either quote: `{ 'a': 1 }` prints `'a'` and `{ "a": 1 }` prints `"a"`.
+        assert_eq!(normalise_symbol_name("'a'"), "a");
+        assert_eq!(normalise_symbol_name("''"), "");
     }
 
     #[test]

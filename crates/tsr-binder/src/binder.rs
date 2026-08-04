@@ -2136,18 +2136,28 @@ fn has_async_modifier(node: Node<'_>) -> bool {
 /// Upstream's `bindAnonymousDeclaration` with the `InternalSymbolName*`
 /// constants. The symbol goes into no symbol table — nothing can look it up by
 /// name — but it owns the members declared inside it, which is the entire point.
-fn anonymous_declaration(node: Node<'_>) -> Option<(&'static str, SymbolFlags)> {
+fn anonymous_declaration(node: Node<'_>) -> Option<(&str, SymbolFlags)> {
     Some(match node {
         Node::ObjectLiteralExpression(_) => (INTERNAL_OBJECT, SymbolFlags::OBJECT_LITERAL),
         Node::TypeLiteralNode(_) | Node::MappedTypeNode(_) => {
             (INTERNAL_TYPE, SymbolFlags::TYPE_LITERAL)
         }
         Node::JsxAttributes(_) => (INTERNAL_JSX_ATTRIBUTES, SymbolFlags::OBJECT_LITERAL),
-        // A *named* class expression declares its name; only an unnamed one is
+        // A *named* class expression declares its name into the enclosing block,
+        // as upstream's `bindClassLikeDeclaration` does; only an unnamed one is
         // anonymous.
         Node::ClassExpression(class) if class.name.is_none() => {
             (INTERNAL_CLASS, SymbolFlags::CLASS)
         }
+        // `var obj = function f() {}` declares `f`, but *nowhere*: the name is
+        // visible only inside the function, so upstream gives it a symbol in no
+        // symbol table (`bindFunctionExpression` → `bindAnonymousDeclaration`).
+        // That is why it reads as a bare `f` in the baselines rather than as a
+        // member of anything.
+        Node::FunctionExpression(function) => {
+            (function.name.map_or(INTERNAL_FUNCTION, |name| name.text), SymbolFlags::FUNCTION)
+        }
+        Node::ArrowFunction(_) => (INTERNAL_FUNCTION, SymbolFlags::FUNCTION),
         _ => return None,
     })
 }
@@ -2161,6 +2171,10 @@ pub(crate) const INTERNAL_OBJECT: &str = "__object";
 pub(crate) const INTERNAL_TYPE: &str = "__type";
 pub(crate) const INTERNAL_CLASS: &str = "__class";
 pub(crate) const INTERNAL_JSX_ATTRIBUTES: &str = "__jsxAttributes";
+pub(crate) const INTERNAL_FUNCTION: &str = "__function";
+/// The name every index signature in a container shares, so that two of them
+/// merge into one symbol — which is what upstream's `__index` is for.
+pub(crate) const INTERNAL_INDEX: &str = "__index";
 
 /// The modifier list of a declaration that can carry `export`.
 fn modifiers_of(node: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
@@ -2233,6 +2247,9 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         | Node::ShorthandPropertyAssignment(_)
         | Node::JsxAttribute(_) => (S::PROPERTY, D::Members),
         Node::MethodDeclaration(_) | Node::MethodSignatureDeclaration(_) => (S::METHOD, D::Members),
+        // An index signature has no name of its own; upstream files every one in
+        // a container under the same internal name so they merge.
+        Node::IndexSignatureDeclaration(_) => (S::SIGNATURE, D::Members),
         Node::GetAccessorDeclaration(_) => (S::GET_ACCESSOR, D::Members),
         Node::SetAccessorDeclaration(_) => (S::SET_ACCESSOR, D::Members),
         Node::EnumMember(_) => (S::ENUM_MEMBER, D::Members),
@@ -2295,6 +2312,7 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
         Node::ExportSpecifier(n) => n.name.map(export_name),
         Node::ImportEqualsDeclaration(n) => n.name.map(|i| i.text),
         Node::JsxAttribute(n) => n.name.and_then(jsx_attribute_name),
+        Node::IndexSignatureDeclaration(_) => Some(INTERNAL_INDEX),
         _ => None,
     }
 }

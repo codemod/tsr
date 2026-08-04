@@ -2,39 +2,42 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 6914/7621 (90.72%)
-Failed         : 707
-Skipped        : 4823 (excluded from the denominator)
+Passed         : 7744/8445 (91.70%)
+Failed         : 701
+Skipped        : 3999 (excluded from the denominator)
 
-  1153  skipped: multi-file case; needs per-file symbol attribution
   2321  skipped: no .symbols baseline
-  379  skipped: the baseline names no symbols
-  520  skipped: the parser reports errors for this file
+  682  skipped: the baseline names no symbols in any unit we bind
+  546  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 707 failures:
+First 100 of 701 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
+compiler/aliasDoesNotDuplicateSignatures
+  1 symbol(s): demo.d.ts: alias: declared on {3}, expected to include {0, 3}
+compiler/allowImportClausesToMergeWithTypes
+  1 symbol(s): a.ts: zzz: declared on {0, 4}, expected to include {0, 4, 9}
+compiler/ambientExportDefaultErrors
+  2 symbol(s): foo.d.ts: Foo: no symbol; foo2.d.ts: Foo2: no symbol
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   1 symbol(s): (Anonymous class)[Symbol.iterator]: no symbol
-compiler/arithmeticOnInvalidTypes2
-  1 symbol(s): f: no symbol
 compiler/asiAbstract
   2 symbol(s): C2.abstract: no symbol; C2.nonAbstractFunction: declared on {5}, expected to include {6}
-compiler/assignmentCompatability24
-  1 symbol(s): f: no symbol
 compiler/asyncYieldStarContextualType
   1 symbol(s): Result[Symbol.iterator]: no symbol
+compiler/augmentExportEquals3
+  1 symbol(s): file2.ts: x.b: no symbol
+compiler/augmentExportEquals4
+  1 symbol(s): file2.ts: x.b: no symbol
+compiler/augmentExportEquals6
+  1 symbol(s): file2.ts: x.B.b: no symbol
 compiler/capturedLetConstInLoop13
   1 symbol(s): [name + ".a"]: no symbol
 compiler/capturedParametersInInitializers1
   1 symbol(s): [z]: no symbol
-compiler/castExpressionParentheses
-  1 symbol(s): foo: no symbol
-compiler/castFunctionExpressionShouldBeParenthesized
-  1 symbol(s): a: no symbol
 compiler/checkDestructuringShorthandAssigment2
   1 symbol(s): [k]: no symbol
 compiler/checkJsFiles7
@@ -43,6 +46,10 @@ compiler/checkJsFiles_noErrorLocation
   1 symbol(s): B.foo: no symbol
 compiler/checkJsObjectLiteralIndexSignatures
   2 symbol(s): [n]: no symbol; [s]: no symbol
+compiler/checkJsTypeDefNoUnusedLocalMarked
+  2 symbol(s): something.js: exports: no symbol; something.js: module: no symbol
+compiler/checkMergedGlobalUMDSymbol
+  1 symbol(s): global.d.ts: THREE: declared on {5}, expected to include {0, 5}
 compiler/checkSuperCallBeforeThisAccessing9
   1 symbol(s): Derived.x: no symbol
 compiler/checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1
@@ -53,6 +60,8 @@ compiler/circularlyConstrainedMappedTypeContainingConditionalNoInfiniteInstantia
   1 symbol(s): Validator[nominalTypeHack]: no symbol
 compiler/classDeclarationShouldBeOutOfScopeInComputedNames
   2 symbol(s): A[A.p1]: no symbol; A[A.p2]: no symbol
+compiler/classExtendingAny
+  1 symbol(s): b.js: B.wat: no symbol
 compiler/classFieldSuperAccessibleJs1
   1 symbol(s): C.blah2: no symbol
 compiler/classFieldSuperNotAccessibleJs
@@ -67,6 +76,10 @@ compiler/collisionExportsRequireAndInternalModuleAliasInGlobalFile
   1 symbol(s): exports: declared on {3, 9, 16}, expected to include {0, 3, 9, 16}
 compiler/commaOperatorInConditionalExpression
   1 symbol(s): [m]: no symbol
+compiler/commonJsIsolatedModules
+  2 symbol(s): exports: no symbol; module: no symbol
+compiler/complexRecursiveCollections
+  3 symbol(s): immutable.ts: Indexed[Symbol.iterator]: no symbol; immutable.ts: Instance[Symbol.iterator]: no symbol; immutable.ts: Keyed[Symbol.iterator]: no symbol
 compiler/computedPropertiesInDestructuring1
   3 symbol(s): [(1 + {})]: no symbol; [foo()]: no symbol; [foo2()]: no symbol
 compiler/computedPropertiesInDestructuring1_ES6
@@ -85,16 +98,6 @@ compiler/constEnums
   3 symbol(s): I: declared on {13, 95}, expected to include {51, 62, 95}; I.V1: no symbol; I.V2: no symbol
 compiler/contextualComputedNonBindablePropertyType
   2 symbol(s): [propSelector('bar')]: no symbol; [testD()]: no symbol
-compiler/contextualOuterTypeParameters
-  1 symbol(s): test: no symbol
-compiler/contextualTypeArrayReturnType
-  1 symbol(s): 'ry': no symbol
-compiler/contextuallyTypedParametersOptionalInJSDoc
-  1 symbol(s): self: no symbol
-compiler/contextuallyTypedParametersWithInitializers1
-  1 symbol(s): getFoo: declared on {44}, expected to include {44, 51}
-compiler/contextuallyTypedParametersWithQuestionToken
-  1 symbol(s): self: no symbol
 compiler/contextuallyTypedSymbolNamedProperties
   2 symbol(s): [A]: no symbol; [B]: no symbol
 compiler/controlFlowInstanceofWithSymbolHasInstance
@@ -107,12 +110,34 @@ compiler/declFileImportedTypeUseInTypeArgPosition
   1 symbol(s): x.Foo: no symbol
 compiler/declFileInternalAliases
   1 symbol(s): x: declared on {4, 8}, expected to include {0, 4, 8}
+compiler/declarationEmitAnyComputedPropertyInClass
+  1 symbol(s): main.ts: C[Test.someKey]: no symbol
 compiler/declarationEmitClassMemberWithComputedPropertyName
   3 symbol(s): Foo[k1]: no symbol; Foo[k2]: no symbol; Foo[k3]: no symbol
+compiler/declarationEmitComputedNameCausesImportToBePainted
+  2 symbol(s): context.ts: Context[Key]: no symbol; index.ts: [Key]: no symbol
+compiler/declarationEmitComputedNameConstEnumAlias
+  1 symbol(s): index.ts: [EnumExample.TEST]: no symbol
 compiler/declarationEmitComputedNameWithQuestionToken
   1 symbol(s): WithData[dataSomething]: no symbol
 compiler/declarationEmitComputedNamesInaccessible
   3 symbol(s): ParameterizedHolder[localClassFieldName]: no symbol; ParameterizedHolder[localOtherField]: no symbol; ParameterizedHolder[localStaticField]: no symbol
+compiler/declarationEmitComputedPropertyNameEnum1
+  1 symbol(s): type.ts: [Enum.A]: no symbol
+compiler/declarationEmitComputedPropertyNameEnum2
+  1 symbol(s): type.ts: [Enum.A]: no symbol
+compiler/declarationEmitComputedPropertyNameEnum3
+  1 symbol(s): type.ts: [Foo.Enum]: no symbol
+compiler/declarationEmitComputedPropertyNameSymbol1
+  1 symbol(s): type.ts: [Foo.sym]: no symbol
+compiler/declarationEmitComputedPropertyNameSymbol2
+  1 symbol(s): type.ts: [Foo.sym]: no symbol
+compiler/declarationEmitDefaultExportWithStaticAssignment
+  3 symbol(s): index1.ts: Example.Foo: no symbol; index2.ts: Example.Foo: no symbol; index3.ts: Example.Bar: no symbol
+compiler/declarationEmitDoesNotUseReexportedNamespaceAsLocal
+  1 symbol(s): index.ts: Q: no symbol
+compiler/declarationEmitExpandoPropertyPrivateName
+  1 symbol(s): b.ts: q.val: no symbol
 compiler/declarationEmitExpandoWithGenericConstraint
   1 symbol(s): Point.zero: no symbol
 compiler/declarationEmitFunctionKeywordProp
@@ -123,20 +148,26 @@ compiler/declarationEmitLateBoundAssignments2
   3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
 compiler/declarationEmitLateBoundJSAssignments
   1 symbol(s): foo.bar: no symbol
-compiler/declarationEmitMappedTypePropertyFromNumericStringKey
-  1 symbol(s): '0': no symbol
+compiler/declarationEmitMixinPrivateProtected
+  1 symbol(s): another.ts: default._onDispose: no symbol
 compiler/declarationEmitMultipleComputedNamesSameDomain
   2 symbol(s): Test[x]: no symbol; Test[y]: no symbol
 compiler/declarationEmitNameConflictsWithAlias
   1 symbol(s): v.I: no symbol
+compiler/declarationEmitPartialReuseComputedProperty
+  3 symbol(s): a.ts: [n]: no symbol; a.ts: [neg]: no symbol; a.ts: [poz]: no symbol
+compiler/declarationEmitPrivateSymbolCausesVarDeclarationEmit2
+  2 symbol(s): b.ts: C[x]: no symbol; c.ts: D[x]: no symbol
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
   1 symbol(s): User[_data]: no symbol
 compiler/declarationEmitPropertyNumericStringKey
   2 symbol(s): [hundredNum]: no symbol; [hundredStr]: no symbol
-compiler/declarationEmitShadowing
-  1 symbol(s): O: no symbol
+compiler/declarationEmitReadonlyComputedProperty
+  2 symbol(s): bug.ts: Interface[SYMBOL]: no symbol; bug.ts: [SYMBOL]: no symbol
 compiler/declarationEmitSimpleComputedNames1
   3 symbol(s): Holder[classFieldName]: no symbol; Holder[otherField]: no symbol; Holder[staticField]: no symbol
+compiler/declarationEmitStringEnumUsedInNonlocalSpread
+  3 symbol(s): class.ts: ITest[TestEnum.Test1]: no symbol; class.ts: ITest[TestEnum.Test2]: no symbol; class.ts: [TestEnum.Test1]: no symbol
 compiler/declarationTypecheckNoUseBeforeReferenceCheck
   1 symbol(s): C[C.p]: no symbol
 compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
@@ -147,8 +178,6 @@ compiler/decoratorsOnComputedProperties
   3 symbol(s): A[Symbol.isConcatSpreadable]: no symbol; A[Symbol.iterator]: no symbol; A[Symbol.match]: no symbol
 compiler/deeplyNestedMappedTypes
   3 symbol(s): Input: declared on {46, 49}, expected to include {44, 49}; TKind[Kind]: no symbol; TObject[Kind]: no symbol
-compiler/deleteReadonly
-  1 symbol(s): 'test': no symbol
 compiler/destructuringAssignment_private
   2 symbol(s): [nameO]: no symbol; [nameX]: no symbol
 compiler/destructuringInitializerContextualTypeFromContext
@@ -159,57 +188,27 @@ compiler/duplicateObjectLiteralProperty_computedName1
   3 symbol(s): +1: declared on {15, 20, 21}, expected to include {15, 16, 20, 21}; -1: declared on {25, 30, 31}, expected to include {25, 26, 30, 31}; [+1]: no symbol
 compiler/duplicateObjectLiteralProperty_computedName2
   3 symbol(s): [E1.A]: no symbol; [E2.B]: no symbol; [n]: no symbol
+compiler/duplicateObjectLiteralProperty_computedName3
+  3 symbol(s): b.ts: [keys.E1.A]: no symbol; b.ts: [keys.E2.B]: no symbol; b.ts: [keys.n]: no symbol
 compiler/duplicateObjectLiteralProperty_computedNameNegative1
   2 symbol(s): [x]: no symbol; [y]: no symbol
+compiler/dynamicNames
+  3 symbol(s): module.ts: T0[c0]: no symbol; module.ts: T0[c1]: no symbol; module.ts: T0[s0]: no symbol
 compiler/dynamicNamesErrors
   3 symbol(s): ClassMemberVisibility[w]: no symbol; ClassMemberVisibility[x]: no symbol; ClassMemberVisibility[y]: no symbol
-compiler/emitAccessExpressionOfCastedObjectLiteralExpressionInArrowFunctionES6
-  1 symbol(s): __index: no symbol
-compiler/enumKeysQuotedAsObjectPropertiesInDeclarationEmit
-  1 symbol(s): '-1': no symbol
+compiler/ensureNoCrashExportAssignmentDefineProperrtyPotentialMerge
+  3 symbol(s): index.js: exports: no symbol; index.js: module: no symbol; namespacey.js: bar: no symbol
 compiler/enumWithUnicodeEscape1
   1 symbol(s): E.gold \u2730: no symbol
-compiler/es2017basicAsync
-  2 symbol(s): asyncNamedFunc: no symbol; namedFunc: no symbol
+compiler/erasableSyntaxOnly
+  2 symbol(s): index.ts: FineAlias: declared on {60}, expected to include {58, 60}; index.ts: NoGoodAlias: declared on {23}, expected to include {21, 23}
+compiler/erasableSyntaxOnlyDeclaration
+  2 symbol(s): index.d.ts: FineAlias: declared on {43}, expected to include {41, 43}; index.d.ts: NoGoodAlias: declared on {12}, expected to include {10, 12}
 compiler/es6ExportDefaultClassDeclaration2
   1 symbol(s): default.method: no symbol
 compiler/es6ModuleInternalImport
   2 symbol(s): a2: declared on {3}, expected to include {1, 3}; a4: declared on {7, 13}, expected to include {1, 7, 13}
+compiler/esModuleInteropDefaultImports
+  2 symbol(s): b.ts: self.def: no symbol; b.ts: self.default: no symbol
 compiler/esNextWeakRefs_IterableWeakMap
   3 symbol(s): IterableWeakMap[Symbol.iterator]: no symbol; IterableWeakMap[Symbol.toStringTag]: no symbol; [Symbol.iterator]: no symbol
-compiler/escapedIdentifiers
-  3 symbol(s): \u0061: no symbol; arg\u0032: no symbol; arg\u0033: no symbol
-compiler/expandoFunctionBlockShadowing
-  1 symbol(s): Y.test: no symbol
-compiler/expandoFunctionContextualTypesJSDocInTs
-  1 symbol(s): Foo.bar: no symbol
-compiler/expandoFunctionContextualTypesJs
-  3 symbol(s): MyComponent2.defaultProps: no symbol; defaultProps: no symbol; exports: no symbol
-compiler/expandoFunctionContextualTypesNoValue
-  1 symbol(s): Foo.bar: no symbol
-compiler/expandoFunctionExpressionsWithDynamicNames2
-  1 symbol(s): Foo[mySymbol]: no symbol
-compiler/expandoFunctionNullishProperty
-  1 symbol(s): inner.prop: no symbol
-compiler/expandoFunctionSymbolProperty
-  1 symbol(s): TestSymb[symb]: no symbol
-compiler/exportAsNamespace.d
-  1 symbol(s): N: no symbol
-compiler/exportDeclarationsInAmbientNamespaces
-  1 symbol(s): Q.try: no symbol
-compiler/exportDefaultAsyncFunction
-  1 symbol(s): foo: no symbol
-compiler/exportDefaultClassAndValue
-  1 symbol(s): foo: declared on {0}, expected to include {0, 1}
-compiler/exportDefaultInterfaceAndFunctionOverloads
-  1 symbol(s): foo: declared on {0, 1}, expected to include {0, 1, 4}
-compiler/exportDefaultInterfaceAndTwoFunctions
-  1 symbol(s): A: declared on {0}, expected to include {0, 1}
-compiler/exportDefaultInterfaceClassAndFunctionOverloads
-  1 symbol(s): foo: declared on {0, 1}, expected to include {0, 1, 6}
-compiler/exportDefaultInterfaceClassAndValue
-  1 symbol(s): foo: declared on {0}, expected to include {0, 1, 2}
-compiler/exportDefaultTypeClassAndValue
-  1 symbol(s): foo: declared on {0}, expected to include {0, 1}
-compiler/exportImportAndClodule
-  1 symbol(s): D: declared on {12}, expected to include {0, 3, 12}
