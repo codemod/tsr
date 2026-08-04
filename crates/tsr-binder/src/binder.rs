@@ -87,6 +87,19 @@ enum Destination {
 /// labelled statement. A stack is the same structure without the allocations;
 /// `labels_base` hides the labels of an enclosing function, which upstream does
 /// by setting the list head to `nil` and restoring it.
+/// One `f.x = 1`, and the scope it was written in.
+///
+/// Upstream's `ExpandoAssignmentInfo`. The scope is recorded rather than
+/// recomputed because the deferred pass runs with the cursors wherever the walk
+/// left them.
+#[derive(Clone, Copy)]
+struct ExpandoAssignment<'a> {
+    node: Node<'a>,
+    id: NodeId,
+    container: NodeId,
+    block: NodeId,
+}
+
 struct ActiveLabel<'a> {
     name: &'a str,
     break_target: FlowId,
@@ -141,6 +154,20 @@ pub(crate) struct Binder<'a, 'n> {
     /// turns a `.js` script into a module and what makes `module` and `exports`
     /// locals of the file.
     commonjs_module: bool,
+    /// Expando assignments (`f.x = 1`), and the scope each was written in.
+    ///
+    /// Bound in a second pass: the target may be declared further down the file
+    /// than the assignment that extends it.
+    expando_assignments: Vec<ExpandoAssignment<'a>>,
+    /// `declaration -> the function, class, or empty object literal it is
+    /// initialised with`, for the declarations that can carry expando properties.
+    ///
+    /// Upstream reads `declaration.Initializer()` in the deferred pass; the tree
+    /// here has no parent-to-child edge to follow from a `NodeId`
+    /// ([ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)), so the id
+    /// is recorded on the way past, where the node is in hand. Only expando-shaped
+    /// initializers are recorded, so the map stays small.
+    expando_initializers: rustc_hash::FxHashMap<NodeId, NodeId>,
     /// The nearest node that binds its own `this` (`b.thisContainer`).
     ///
     /// `this.x = 1` declares a property on whatever this names, so the binder
@@ -236,6 +263,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             module_symbol: None,
             commonjs_module: false,
             this_container: NodeId::ZERO,
+            expando_assignments: Vec::new(),
+            expando_initializers: rustc_hash::FxHashMap::default(),
             is_module: false,
             global_exports: SymbolTable::default(),
             flow,
@@ -296,6 +325,9 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         self.bind(root);
+        // Expando assignments are bound last, because `f.x = 1` may extend an
+        // `f` declared further down the file (`bindDeferredExpandoAssignments`).
+        self.bind_deferred_expando_assignments();
 
         // `module` and `exports` are locals of a CommonJS file, and only of one
         // that actually uses them — which is not known until the whole file has
@@ -2112,31 +2144,63 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// no `export` and no class field syntax to use instead — so the binder has
     /// to read `module.exports = f`, `exports.x = 1`, and `this.x = 1` as
     /// declarations rather than as writes.
+    ///
+    /// The last form, the **expando** `f.x = 1`, is deliberately *not* gated on
+    /// the file being JavaScript: TypeScript reads a property assigned to a
+    /// function as a declaration too, which is what makes
+    /// `function f() {}; f.cache = new Map()` type-check.
     fn assignment_declaration_kind(&self, node: Node<'a>) -> Option<JsDeclaration> {
-        let Node::BinaryExpression(binary) = node else { return None };
-        if binary.operator_token.map(|token| token.kind) != Some(SyntaxKind::EqualsToken) {
-            return None;
+        match node {
+            Node::BinaryExpression(binary) => {
+                if binary.operator_token.map(|token| token.kind) != Some(SyntaxKind::EqualsToken) {
+                    return None;
+                }
+                let left = binary.left?;
+                let target = access_target(left)?;
+                if self.in_js_file {
+                    if is_module_exports_access(left) {
+                        // `module.exports = exports` is a self-assignment.
+                        return (!is_exports_identifier(binary.right?))
+                            .then_some(JsDeclaration::ModuleExports);
+                    }
+                    if (is_module_exports_access(target) || is_exports_identifier(target))
+                        && access_name(left).is_some()
+                    {
+                        return Some(JsDeclaration::ExportsProperty);
+                    }
+                    if matches!(target, Expression::KeywordExpression(keyword)
+                        if keyword.kind == SyntaxKind::ThisKeyword)
+                    {
+                        return Some(JsDeclaration::ThisProperty);
+                    }
+                }
+                // `a.b.c = 1` declares only when everything left of the last dot
+                // is a *name* — an entity name expression. `f().x = 1` assigns to
+                // whatever `f()` returned and declares nothing.
+                let names_something = match left {
+                    Expression::PropertyAccessExpression(access) => {
+                        matches!(access.name, Some(tsr_ast::MemberName::Identifier(_)))
+                            && is_entity_name_expression(target, self.in_js_file)
+                    }
+                    Expression::ElementAccessExpression(_) => {
+                        is_entity_name_expression(target, self.in_js_file)
+                    }
+                    _ => false,
+                };
+                names_something.then_some(JsDeclaration::Property)
+            }
+            // `Object.defineProperty(f, "x", { … })` is the same declaration
+            // written as a call, and only means it in a JavaScript file.
+            Node::CallExpression(_) if self.in_js_file => {
+                let target = bindable_object_define_property_target(node)?;
+                Some(if is_exports_identifier(target) || is_module_exports_access(target) {
+                    JsDeclaration::ObjectDefinePropertyExports
+                } else {
+                    JsDeclaration::ObjectDefinePropertyValue
+                })
+            }
+            _ => None,
         }
-        let left = binary.left?;
-        let target = access_target(left)?;
-        // Every form below is JavaScript-only. Upstream's fourth kind — the
-        // expando `f.x = 1`, which is *not* JS-gated — is not implemented; see
-        // `lib.rs`.
-        if !self.in_js_file {
-            return None;
-        }
-        if is_module_exports_access(left) {
-            // `module.exports = exports` is a self-assignment, not a declaration.
-            return (!is_exports_identifier(binary.right?)).then_some(JsDeclaration::ModuleExports);
-        }
-        if (is_module_exports_access(target) || is_exports_identifier(target))
-            && access_name(left).is_some()
-        {
-            return Some(JsDeclaration::ExportsProperty);
-        }
-        matches!(target, Expression::KeywordExpression(keyword)
-            if keyword.kind == SyntaxKind::ThisKeyword)
-        .then_some(JsDeclaration::ThisProperty)
     }
 
     /// Bind one of the JavaScript assignment declaration forms.
@@ -2194,6 +2258,212 @@ impl<'a, 'n> Binder<'a, 'n> {
                 Some(self.declare_into(Destination::Exports, file, Some(module), name, flags, id))
             }
             JsDeclaration::ThisProperty => self.bind_this_property_assignment(node, id),
+
+            // `f.x = 1` and `Object.defineProperty(f, "x", …)` name a target the
+            // binder has not necessarily reached yet — `f` may be a function
+            // declared further down the file — so upstream records them and
+            // binds them all once the walk is over (`bindExpandoPropertyAssignment`).
+            JsDeclaration::Property | JsDeclaration::ObjectDefinePropertyValue => {
+                self.expando_assignments.push(ExpandoAssignment {
+                    node,
+                    id,
+                    container: self.container,
+                    block: self.block,
+                });
+                None
+            }
+            // The `exports` form is not deferred: its target is the file, which
+            // is already known.
+            JsDeclaration::ObjectDefinePropertyExports => {
+                if !self.set_commonjs_module_indicator() {
+                    return None;
+                }
+                let Node::CallExpression(call) = node else { return None };
+                let name = string_or_numeric_text(Node::from(call.arguments[1]))?;
+                let module = self.module_symbol?;
+                let file = self.file_node;
+                Some(self.declare_into(
+                    Destination::Exports,
+                    file,
+                    Some(module),
+                    name,
+                    SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT,
+                    id,
+                ))
+            }
+        }
+    }
+
+    /// Remember where a declaration's expando-carrying initializer is.
+    ///
+    /// `const f = function () {}` puts the properties of `f.x = 1` on the
+    /// *function expression's* symbol, not on the variable's, so the deferred
+    /// pass needs to reach the initializer from the declaration. It cannot walk
+    /// down the tree to find it, so the id is recorded here — the one place that
+    /// has both the node and its id.
+    fn record_expando_initializer(&mut self, node: Node<'a>, id: NodeId) {
+        let (initializer, has_type) = match node {
+            Node::VariableDeclaration(declaration) => {
+                // Upstream: a `const`, or any `var`/`let` in a JavaScript file.
+                if !(self.in_js_file || self.combined_node_flags(id).contains(NodeFlags::CONST)) {
+                    return;
+                }
+                (declaration.initializer, declaration.r#type.is_some())
+            }
+            _ => return,
+        };
+        let Some(initializer) = initializer else { return };
+        if !self.is_expando_initializer(initializer, has_type) {
+            return;
+        }
+        if let Some(initializer_id) = Node::from(initializer).node_id() {
+            self.expando_initializers.insert(id, initializer_id);
+        }
+    }
+
+    /// Whether an initializer is the kind of thing properties can be assigned to.
+    ///
+    /// Upstream's `IsExpandoInitializer`. A function is one in any dialect; a
+    /// class expression and an *empty, unannotated* object literal are one only
+    /// in a JavaScript file, where `const o = {}; o.x = 1` is how an object type
+    /// is built up.
+    fn is_expando_initializer(&self, initializer: Expression<'a>, has_type: bool) -> bool {
+        match initializer {
+            Expression::FunctionExpression(_) | Expression::ArrowFunction(_) => true,
+            Expression::ClassExpression(_) => self.in_js_file,
+            Expression::ObjectLiteralExpression(literal) => {
+                self.in_js_file && literal.properties.is_empty() && !has_type
+            }
+            _ => false,
+        }
+    }
+
+    /// Bind every expando assignment now that the whole file has been walked.
+    ///
+    /// Upstream's `bindDeferredExpandoAssignments`. The scope each was written in
+    /// is restored from what was recorded, because the lookup below reads it.
+    fn bind_deferred_expando_assignments(&mut self) {
+        for index in 0..self.expando_assignments.len() {
+            let ExpandoAssignment { node, id, container, block } = self.expando_assignments[index];
+            self.container = container;
+            self.block = block;
+            self.bind_deferred_expando_assignment(node, id);
+        }
+    }
+
+    /// `f.x = 1` declares `x` on whatever `f` turned out to be.
+    ///
+    /// Returns nothing; the `Option` is only so that the several ways of finding
+    /// out there is nothing to declare can be written as `?`.
+    fn bind_deferred_expando_assignment(&mut self, node: Node<'a>, id: NodeId) -> Option<()> {
+        let target = match node {
+            Node::BinaryExpression(binary) => access_target(binary.left?)?,
+            Node::CallExpression(_) => bindable_object_define_property_target(node)?,
+            _ => return None,
+        };
+        // Two containers, not a scope chain: upstream looks in the block scope
+        // and then in the function scope, and stops. A name further out is not
+        // reached, which is why `f.x = 1` inside a nested block does not extend
+        // an `f` declared two scopes up.
+        let block = self.block;
+        let container = self.container;
+        let symbol =
+            self.lookup_entity(target, block).or_else(|| self.lookup_entity(target, container));
+        let symbol = self.initializer_symbol(symbol)?;
+
+        let name = match node {
+            Node::BinaryExpression(binary) => access_name(binary.left?),
+            Node::CallExpression(call) => string_or_numeric_text(Node::from(call.arguments[1])),
+            _ => None,
+        };
+        // A computed name is late-bound; see `lib.rs`.
+        let name = name?;
+
+        // "We declare expandos only when there are no non-expando declarations
+        // for that name": a real `class F { x }` wins, and the assignment adds
+        // nothing rather than merging into it.
+        if let Some(existing) = self.symbols.get(symbol).exports.get(name).copied()
+            && !self.symbols.get(existing).flags.contains(SymbolFlags::ASSIGNMENT)
+        {
+            return None;
+        }
+        let owner_node = self.container;
+        let declared = self.declare_into(
+            Destination::Exports,
+            owner_node,
+            Some(symbol),
+            name,
+            SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT,
+            id,
+        );
+        self.node_symbols[id.index()] = Some(declared);
+        Some(())
+    }
+
+    /// Resolve a name, or a dotted chain of them, against one container.
+    ///
+    /// Upstream's `lookupEntity`/`lookupName`. Deliberately *not* a scope walk:
+    /// it reads the container's own locals and its symbol's exports and stops.
+    fn lookup_entity(&self, expression: Expression<'a>, container: NodeId) -> Option<SymbolId> {
+        match expression {
+            Expression::Identifier(identifier) => self.lookup_name(identifier.text, container),
+            // `this.x.y = 1`. Upstream restores only the container and the block
+            // scope before the deferred pass, not the `this` container, so this
+            // branch resolves against whatever `this` was left over — which is
+            // the file. Reproducing that faithfully means declaring nothing.
+            Expression::KeywordExpression(keyword) if keyword.kind == SyntaxKind::ThisKeyword => {
+                None
+            }
+            _ => {
+                let target = access_target(expression)?;
+                let outer = self.lookup_entity(target, container);
+                let outer = self.initializer_symbol(outer)?;
+                let name = access_name(expression)?;
+                self.symbols.get(outer).exports.get(name).copied()
+            }
+        }
+    }
+
+    /// One container's own locals, then its symbol's exports (`lookupName`).
+    fn lookup_name(&self, name: &str, container: NodeId) -> Option<SymbolId> {
+        if let Some(local) = self.locals.get(&container).and_then(|table| table.get(name)) {
+            // Upstream returns `local.ExportSymbol` when there is one. Here the
+            // two symbols share a declaration and the *export* is what the node
+            // was given, so the export is recovered through the node rather than
+            // stored a second time on the local.
+            let local = *local;
+            let exported = self
+                .symbols
+                .get(local)
+                .declarations
+                .first()
+                .and_then(|declaration| self.node_symbols[declaration.index()]);
+            return Some(exported.unwrap_or(local));
+        }
+        let owner = self.node_symbols[container.index()]?;
+        self.symbols.get(owner).exports.get(name).copied()
+    }
+
+    /// The symbol an expando property should hang off, given what the name
+    /// resolved to.
+    ///
+    /// Upstream's `getInitializerSymbol`. A function declaration is itself the
+    /// answer; a `const f = function () {}` is not — the properties belong to the
+    /// function expression's symbol, not to the variable's.
+    fn initializer_symbol(&self, symbol: Option<SymbolId>) -> Option<SymbolId> {
+        let symbol = symbol?;
+        let declaration = self.symbols.get(symbol).value_declaration?;
+        match self.nodes.kind(declaration) {
+            SyntaxKind::FunctionDeclaration => Some(symbol),
+            SyntaxKind::ClassDeclaration if self.in_js_file => Some(symbol),
+            // The initializer's node id was recorded on the way past, because
+            // the tree has no parent-to-child edge to find it with; see
+            // [`Self::expando_initializers`].
+            SyntaxKind::VariableDeclaration | SyntaxKind::BinaryExpression => self
+                .expando_initializers
+                .get(&declaration)
+                .and_then(|initializer| self.node_symbols[initializer.index()]),
+            _ => None,
         }
     }
 
@@ -2372,6 +2642,7 @@ impl<'a, 'n> Binder<'a, 'n> {
 
         let symbol = self.declare_into(destination, table_owner, self.owner, name, flags, id);
         self.node_symbols[id.index()] = Some(symbol);
+        self.record_expando_initializer(node, id);
 
         // `constructor(public x: T)` declares twice: a parameter in the
         // constructor's scope and a property on the class. Upstream declares the
@@ -2661,9 +2932,7 @@ fn is_external_module(file: &SourceFile<'_>) -> bool {
 
 /// What a JavaScript assignment expression declares.
 ///
-/// Upstream's `ast.JSDeclarationKind`, minus the three forms not implemented:
-/// the expando `f.x = 1`, and the two `Object.defineProperty` shapes. See
-/// `lib.rs`.
+/// Upstream's `ast.JSDeclarationKind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JsDeclaration {
     /// `module.exports = x`
@@ -2672,6 +2941,81 @@ enum JsDeclaration {
     ExportsProperty,
     /// `this.x = 1`
     ThisProperty,
+    /// `f.x = 1` — an *expando* property on something declared elsewhere.
+    Property,
+    /// `Object.defineProperty(f, "x", { … })`
+    ObjectDefinePropertyValue,
+    /// `Object.defineProperty(exports, "x", { … })`
+    ObjectDefinePropertyExports,
+}
+
+/// The object a `Object.defineProperty(target, "name", …)` call describes.
+///
+/// Upstream's `IsBindableObjectDefinePropertyCall`, returning the first argument
+/// rather than a boolean because every caller wants it. The shape is exact:
+/// three arguments, a literal name, and a target that is a name rather than an
+/// arbitrary expression.
+fn bindable_object_define_property_target(node: Node<'_>) -> Option<Expression<'_>> {
+    let Node::CallExpression(call) = node else { return None };
+    if call.arguments.len() != 3 {
+        return None;
+    }
+    let Some(Expression::PropertyAccessExpression(callee)) = call.expression else { return None };
+    if !matches!(callee.expression, Some(Expression::Identifier(object)) if object.text == "Object")
+    {
+        return None;
+    }
+    if access_name(Expression::PropertyAccessExpression(callee)) != Some("defineProperty") {
+        return None;
+    }
+    if !matches!(
+        skip_parentheses(Node::from(call.arguments[1])),
+        Node::StringLiteral(_) | Node::NumericLiteral(_) | Node::NoSubstitutionTemplateLiteral(_)
+    ) {
+        return None;
+    }
+    // `excludeThisKeyword: true` upstream — `Object.defineProperty(this, …)` is
+    // not one of these.
+    is_entity_name_expression(call.arguments[0], false).then_some(call.arguments[0])
+}
+
+/// The text of a string or numeric literal, which is what a statically-named
+/// `Object.defineProperty` call and a bracketed access carry.
+fn string_or_numeric_text(node: Node<'_>) -> Option<&str> {
+    match skip_parentheses(node) {
+        Node::StringLiteral(literal) => Some(literal.text),
+        Node::NumericLiteral(literal) => Some(literal.text),
+        Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text),
+        _ => None,
+    }
+}
+
+/// Whether an expression is a *name*: an identifier, or a dotted chain of them.
+///
+/// Upstream's `IsEntityNameExpressionEx`. `allow_js` additionally permits `this`
+/// and a bracketed literal (`a["b"].c`), which are names only in a JavaScript
+/// file.
+fn is_entity_name_expression(expression: Expression<'_>, allow_js: bool) -> bool {
+    match expression {
+        Expression::Identifier(_) => true,
+        Expression::PropertyAccessExpression(access) => {
+            matches!(access.name, Some(tsr_ast::MemberName::Identifier(_)))
+                && access
+                    .expression
+                    .is_some_and(|target| is_entity_name_expression(target, allow_js))
+        }
+        Expression::ElementAccessExpression(access) => {
+            allow_js
+                && access_name(expression).is_some()
+                && access
+                    .expression
+                    .is_some_and(|target| is_entity_name_expression(target, allow_js))
+        }
+        Expression::KeywordExpression(keyword) => {
+            allow_js && keyword.kind == SyntaxKind::ThisKeyword
+        }
+        _ => false,
+    }
 }
 
 /// Whether a file is a JavaScript file, whose assignment forms are declarations.

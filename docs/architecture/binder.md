@@ -112,6 +112,12 @@ ordinary write to a global:
 | `module.exports = x` | `export = x` | the file's exports, under `export=` |
 | `exports.x = 1`, `module.exports.x = 1` | a named export | the file's exports |
 | `this.x = 1` in a class member | a property of the class | the class's members |
+| `f.x = 1` | an **expando** property | the exports of whatever `f` names |
+| `Object.defineProperty(f, "x", …)` | the same, written as a call | as above |
+
+The last two are **not** gated on the file being JavaScript: TypeScript reads a
+property assigned to a function as a declaration too, which is what makes
+`function f() {}; f.cache = new Map()` type-check.
 
 The first two also make the file a **module**: a `.js` file with no `import` or
 `export` is a script until a `module.exports` appears, at which point
@@ -124,6 +130,45 @@ Once a file is CommonJS, `module` and `exports` are declared as locals of it
 (`declareCommonJSVariable`), with `exports` also a member of `module`. Nothing in
 the source declares them, which is exactly why the binder must: every reference
 to either would otherwise resolve to nothing.
+
+### Expando assignments are bound in a second pass
+
+`f.x = 1` names a target the binder has not necessarily reached — `f` may be
+declared further down the file — so upstream records each one with the scope it
+was written in and binds them all once the walk is over
+(`bindDeferredExpandoAssignments`). Three things about that pass are worth
+knowing, because each is a place a from-scratch implementation would do more
+work than upstream and get a different answer:
+
+- **The lookup is two containers, not a scope chain.** `lookupName` reads one
+  container's own locals and its symbol's exports, and `bindDeferredExpandoAssignment`
+  tries the block scope and then the function scope. A name three scopes out is
+  simply not found.
+- **The properties land on the *initializer*, not on the declaration.**
+  `const g = function () {}` puts `g.y` on the function expression's symbol,
+  because that is the thing with a call signature. `getInitializerSymbol` accepts
+  a function declaration, a `const` (or, in JavaScript, any) variable
+  initialised with a function, an arrow, a class expression, or an *empty
+  unannotated* object literal — and nothing else.
+- **A real declaration wins.** "We declare expandos only when there are no
+  non-expando declarations for that name": a declared `static x` is not merged
+  into or displaced by `C.x = 1`.
+
+Reaching the initializer needed one thing upstream gets free. It reads
+`declaration.Initializer()`, and the tree here has no parent-to-child edge to
+follow from a `NodeId` ([ADR-0003](../adr/0003-tree-plus-side-tables.md)). Rather
+than build an id-to-node table for it, the binder records the initializer's id on
+the way past — in the one place that has both the node and its id — and only for
+initializers that are expando-shaped, so the map holds a handful of entries.
+
+**`C.prototype.x = 1` still declares nothing**, here and upstream: the lookup
+reaches the class's `prototype` export, which has no value declaration, so
+`getInitializerSymbol` gives up. Upstream's constructor-function handling, which
+is what would make it work, is marked `!!!` — unimplemented — in the Go port too.
+Adding the `prototype` symbol to classes (TypeScript 1.0 spec §8.4) was tried and
+measured at **zero** cases, so it is not there; it belongs with the
+duplicate-identifier work, where our members-versus-exports split would have to
+change for it to do the job it does upstream.
 
 **`this.x` is replaceable by a method.** A property declared this way loses
 outright to a real declaration of the same name rather than merging with it,
@@ -330,12 +375,10 @@ Named here rather than left to be discovered. Each has a `bd` issue.
 - **`export * from "m"`**. Upstream collects every star export in an `__export`
   symbol; nothing is declared for one here. `export * as ns from "m"` *is*
   declared.
-- **Expando assignments and `Object.defineProperty`** (`tsr-y4u.15`). `f.x = 1`
-  on a previously declared function, and the two `Object.defineProperty` forms.
-  Unlike the three JavaScript forms above these need a *resolver*: upstream
-  defers them to a second pass and looks the assignment target's name up in the
-  scope it was written in (`bindDeferredExpandoAssignment`, `lookupEntity`).
-  Measured at 4–8 cases, which is why the machinery is not there yet.
+- **Constructor functions** (`tsr-y4u.16`). `function C() { this.x = 1 }` should
+  declare `x` on `C`, and `C.prototype.m = …` should declare `m` on its
+  prototype. Upstream marks both `!!!` — unimplemented — in the Go port, so
+  neither is ported here either.
 - **Optional chains** (`tsr-y4u.7`). The flow shapes are ported in full, but the
   parser records the `?.` token without setting `NodeFlags::OPTIONAL_CHAIN`, so
   `is_optional_chain` is always false and `a?.b` currently gets the graph of
@@ -368,8 +411,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 7,833/8,455
-(**92.64%**). See
+own `.symbols` baselines over the 12,444-case corpus. Currently 7,853/8,455
+(**92.88%**). See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -405,6 +448,7 @@ five biggest wins turned out to be in the harness.
 | module vs script: module symbol, `export` routing, `default` merging | 92.13% | binder + parser + harness |
 | JavaScript: `module.exports`, `exports.x`, `this.x`, CommonJS locals | 92.48% | binder |
 | contextual keywords in expression position parse as identifiers | 92.64% | **parser** |
+| expando assignments and `Object.defineProperty`, bound in a deferred pass | 92.88% | binder + harness |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -463,7 +507,7 @@ allowed, because the parser bug behind `module.exports` was also silently
 costing cases nobody had attributed to JavaScript at all. That is the third time
 this session a cause named from failure text turned out to be somewhere else.
 
-### What the remaining 622 failures are, and why this is near the ceiling
+### What the remaining 602 failures are, and why this is the ceiling
 
 Classified against the actual sources:
 
@@ -471,13 +515,14 @@ Classified against the actual sources:
 |---|---:|---|
 | Late-bound computed names | ~371 | **blocked on the checker** (`tsr-y4u.11`) |
 | `import X = Y` alias resolution | ~73 | **blocked on a resolver** (`tsr-y4u.12`) |
-| Module-shaped, various | ~38 | mostly cross-file, blocked on module resolution |
-| JavaScript expando and `Object.defineProperty` | ~10 | needs a resolver (`tsr-y4u.15`) |
-| Long tail, many distinct causes | ~130 | each below ~10 cases |
+| Module-shaped, various | ~31 | mostly cross-file, blocked on module resolution |
+| JavaScript | 5 | JSDoc `@overload`/`@typedef`, and late-bound names |
+| Long tail, many distinct causes | ~122 | each below ~10 cases |
 
 **Roughly 79% of what remains is hard-blocked** on the checker, a resolver, or
-module resolution, and no tractable cause above ~10 cases is left. Further
-movement on this metric comes from those three — not from more binder work.
+module resolution, and there is no longer a *single* identified cause above five
+cases outside those three. This is the ceiling for the binder on its own: the
+metric now moves when the checker, the resolver, or module resolution arrives.
 
 Two module-shaped things are known to be available and small. `export default x`
 where `x` is an identifier should display under `x`'s name, because upstream's

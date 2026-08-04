@@ -55,7 +55,9 @@
 //! **Anonymous containers do not qualify.** A member of `{ salt: 2 }` prints
 //! bare, because no expression names the object literal; a member of an unnamed
 //! class expression prints `(Anonymous class).foo`, because upstream gives that
-//! one a display name. See [`anonymity_of`].
+//! one a display name; an unnamed *function* expression is displayed under the
+//! variable it was assigned to, since that is what `getNameOfDeclaration` falls
+//! back to for one. See [`anonymity_of`].
 //!
 //! Lines only, not columns: a column comparison would fail on the fallback
 //! positions above and attribute it to the binder.
@@ -351,6 +353,12 @@ enum Anonymity {
 fn anonymity_of(name: &str) -> Anonymity {
     match name {
         "__class" => Anonymity::Displayed("(Anonymous class)"),
+        // An anonymous function that carries expando properties is displayed
+        // under the variable it was assigned to, for the same reason a class
+        // expression is: `getNameOfDeclaration` falls back to `GetAssignedName`
+        // for a function expression, an arrow, and a class expression alike. A
+        // *named* function expression never reaches here — its symbol is named.
+        "__function" => Anonymity::Displayed("__function"),
         "__object" | "__type" | "__jsxAttributes" => Anonymity::Unnameable,
         _ => Anonymity::Named,
     }

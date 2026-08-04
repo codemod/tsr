@@ -586,3 +586,90 @@ fn a_contextual_keyword_in_expression_position_is_a_name() {
     let bound = bind_as(&arena, "const type = 1;\nconst x = type;\n", "a.ts");
     assert!(bound.top_level("type").is_some());
 }
+
+#[test]
+fn a_property_assigned_to_a_function_declares_on_it() {
+    // `f.cache = …` is an expando: TypeScript reads it as a declaration in
+    // `.ts` files too, which is why this one is not gated on the dialect.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "function f() {}\nf.cache = 1;\n", "a.ts");
+    let f = bound.top_level_symbol("f").expect("the function");
+    assert!(bound.result.symbols().get(f).exports.contains_key("cache"));
+}
+
+#[test]
+fn an_expando_reaches_a_target_declared_after_it() {
+    // The whole reason the pass is deferred: `f` is bound after the assignment
+    // that extends it.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "f.late = 1;\nfunction f() {}\n", "a.ts");
+    let f = bound.top_level_symbol("f").expect("the function");
+    assert!(bound.result.symbols().get(f).exports.contains_key("late"));
+}
+
+#[test]
+fn an_expando_on_a_const_lands_on_the_function_expression() {
+    // Upstream's getInitializerSymbol: the properties belong to the initializer's
+    // symbol, not to the variable's.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "const g = function () {};\ng.y = 1;\n", "a.ts");
+    let g = bound.top_level_symbol("g").expect("the variable");
+    assert!(bound.result.symbols().get(g).exports.is_empty(), "not on the variable");
+    let function = bound
+        .result
+        .symbols()
+        .iter()
+        .find(|(_, symbol)| symbol.name == "__function")
+        .map(|(id, _)| id)
+        .expect("the function expression has an anonymous symbol");
+    assert!(bound.result.symbols().get(function).exports.contains_key("y"));
+}
+
+#[test]
+fn a_let_only_carries_expandos_in_javascript() {
+    // `const` or a JavaScript file; a `let` in TypeScript may be reassigned, so
+    // its initializer is not the declaration of anything.
+    let arena = Arena::new();
+    let typescript = bind_as(&arena, "let h = function () {};\nh.y = 1;\n", "a.ts");
+    assert!(typescript.result.symbols().iter().all(|(_, symbol)| symbol.name != "y"));
+
+    let javascript = bind_as(&arena, "let h = function () {};\nh.y = 1;\n", "a.js");
+    assert!(javascript.result.symbols().iter().any(|(_, symbol)| symbol.name == "y"));
+}
+
+#[test]
+fn a_real_declaration_beats_an_expando_of_the_same_name() {
+    // "We declare expandos only when there are no non-expando declarations for
+    // that name."
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "class C {\n  static x = 1;\n}\nC.x = 2;\n", "a.js");
+    let c = bound.top_level_symbol("C").expect("the class");
+    // The static member is in `members` here rather than `exports`, so the
+    // expando is the only thing in `exports` — what matters is that it did not
+    // merge into, or displace, the declared one.
+    let member = *bound.result.symbols().get(c).members.get("x").expect("`static x`");
+    assert_eq!(bound.result.symbols().get(member).declarations.len(), 1);
+}
+
+#[test]
+fn object_define_property_declares_what_it_names() {
+    let arena = Arena::new();
+    let bound =
+        bind_as(&arena, "function h() {}\nObject.defineProperty(h, 'w', { value: 1 });\n", "a.js");
+    let h = bound.top_level_symbol("h").expect("the function");
+    assert!(bound.result.symbols().get(h).exports.contains_key("w"));
+
+    // The `exports` form goes to the file instead.
+    let on_exports =
+        bind_as(&arena, "Object.defineProperty(exports, 'v', { value: 1 });\n", "a.js");
+    assert!(on_exports.export("v").is_some());
+}
+
+#[test]
+fn an_assignment_to_a_call_result_declares_nothing() {
+    // `f().x = 1` assigns to whatever `f()` returned; only a *name* on the left
+    // makes a declaration.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "function f() { return {}; }\nf().x = 1;\n", "a.ts");
+    assert!(bound.result.symbols().iter().all(|(_, symbol)| symbol.name != "x"));
+}

@@ -33,12 +33,10 @@
 //!   expression evaluates to. The binder declares nothing for those: a symbol
 //!   under a guessed name would be unreachable by any reference. Upstream gives
 //!   them an internal `__computed` name and resolves them in the checker.
-//! - **JavaScript expando assignments.** `f.x = 1` on a previously declared
-//!   function declares a property on it. Unlike the three assignment forms that
-//!   *are* implemented (`module.exports =`, `exports.x =`, `this.x =`), this one
-//!   needs to resolve `f` in the scope it was written in, which is why upstream
-//!   defers it to a second pass. The two `Object.defineProperty` forms are the
-//!   same shape.
+//! - **Constructor functions.** `function C() { this.x = 1 }` should declare `x`
+//!   on `C`, and `C.prototype.m = …` should declare `m` on its prototype.
+//!   Upstream marks both `!!!` — unimplemented — in the Go port, so neither is
+//!   ported here.
 //! - **`import.meta` as a module indicator.** A file with a top-level import or
 //!   export binds as a module; upstream also counts a file that mentions
 //!   `import.meta`, which needs a full-tree walk under module settings the binder

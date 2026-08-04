@@ -28,7 +28,7 @@ parser_reachable_target              5031/10570    47.60%      1874
 scanner_termination                 12444/12444   100.00%         0
 scanner_clean_files                   5031/5031   100.00%      7413
 parser_typescript                     4999/5031    99.36%      7413
-binder_symbols                        7833/8455    92.64%      3989
+binder_symbols                        7853/8455    92.88%      3989
 ```
 
 The first two measure the **harness**; `parser_reachable_target` measures the
