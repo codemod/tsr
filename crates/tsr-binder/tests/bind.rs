@@ -673,3 +673,79 @@ fn an_assignment_to_a_call_result_declares_nothing() {
     let bound = bind_as(&arena, "function f() { return {}; }\nf().x = 1;\n", "a.ts");
     assert!(bound.result.symbols().iter().all(|(_, symbol)| symbol.name != "x"));
 }
+
+#[test]
+fn a_late_bound_member_gets_a_symbol_in_no_table() {
+    // Upstream's `__computed`: the name is whatever the expression evaluates to,
+    // so no table can hold it — but the declaration still needs a symbol, and
+    // the checker needs somewhere to attach the resolved name.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "declare const k: string;\nclass C { [k]: number; }\n", "a.ts");
+    let class = bound.top_level_symbol("C").expect("the class");
+    assert!(
+        bound.result.symbols().get(class).members.is_empty(),
+        "a late-bound member is in no symbol table"
+    );
+    let (id, computed) = bound
+        .result
+        .symbols()
+        .iter()
+        .find(|(_, symbol)| symbol.name == "__computed")
+        .expect("the member still gets a symbol");
+    assert_eq!(computed.parent, Some(class), "parented to the class it was written in");
+    assert!(computed.flags.contains(SymbolFlags::PROPERTY));
+    // The expression is reachable from the declaration, which is what late
+    // binding will need.
+    let declaration = computed.declarations[0];
+    assert!(bound.result.computed_name(declaration).is_some());
+    let _ = id;
+}
+
+#[test]
+fn two_late_bound_members_are_two_symbols() {
+    // They share the name `__computed`, and merging them would be wrong: which
+    // of them — if either — collides is the checker's answer, not the binder's.
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "declare const j: string;\ndeclare const k: string;\nclass C { [j]: number; [k]: string; }\n",
+        "a.ts",
+    );
+    let count =
+        bound.result.symbols().iter().filter(|(_, symbol)| symbol.name == "__computed").count();
+    assert_eq!(count, 2);
+    assert!(bound.result.diagnostics().is_empty(), "and no duplicate-identifier error");
+}
+
+#[test]
+fn a_statically_computed_name_still_declares_statically() {
+    // `['a']` is computed in syntax only: the expression is already the value.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "class C { ['a']: number; }\n", "a.ts");
+    let class = bound.top_level_symbol("C").expect("the class");
+    assert!(bound.result.symbols().get(class).members.contains_key("a"));
+    // The written form is recorded even so, because upstream prints it back.
+    let member = bound.result.symbols().get(class).members["a"];
+    let declaration = bound.result.symbols().get(member).declarations[0];
+    assert!(bound.result.computed_name(declaration).is_some());
+}
+
+#[test]
+fn a_late_bound_object_literal_member_is_parented_to_the_literal() {
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "declare function f(): string;\nconst o = { [f()]: 1 };\n", "a.ts");
+    let literal = bound
+        .result
+        .symbols()
+        .iter()
+        .find(|(_, symbol)| symbol.name == "__object")
+        .map(|(id, _)| id)
+        .expect("the object literal");
+    let computed = bound
+        .result
+        .symbols()
+        .iter()
+        .find(|(_, symbol)| symbol.name == "__computed")
+        .expect("the member");
+    assert_eq!(computed.1.parent, Some(literal));
+}

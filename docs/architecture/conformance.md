@@ -28,7 +28,7 @@ parser_reachable_target              5031/10570    47.60%      1874
 scanner_termination                 12444/12444   100.00%         0
 scanner_clean_files                   5031/5031   100.00%      7413
 parser_typescript                     4999/5031    99.36%      7413
-binder_symbols                        7853/8455    92.88%      3989
+binder_symbols                        8212/8455    97.13%      3989
 ```
 
 The first two measure the **harness**; `parser_reachable_target` measures the
@@ -270,6 +270,36 @@ bugs, no binder bugs.
     a reference in the same file and `default` for one from outside.
     `export default function foo` therefore matches either, while
     `export default class {}` has no written name and matches only `default`.
+  - for a member written with a **computed name**, the source text of that name:
+    `C[Symbol.iterator]`, `[foo()]`, `[-1]`. Upstream prints exactly this —
+    `getNameOfSymbolAsWritten` falls through to the declaration's name node, and
+    `declarationNameToString` of a `ComputedPropertyName` is the text it was
+    written with — and it does so whether or not the name was ever resolved.
 
   Each of these weakens the test — a suffix could match a same-named symbol
   nested elsewhere — and that is the price of not having a checker yet.
+
+### What accepting the written form of a computed name gives up
+
+This one deserves its own note, because an earlier version of this document
+argued the opposite: *"Computed names are deliberately left alone. Normalising
+those would turn a real gap into a passing case."*
+
+That was correct while the binder created **no symbol at all** for `[k]`.
+Matching on the written spelling would then have scored a missing symbol as
+present. It is no longer correct, because the binder now creates the symbol
+upstream creates — `__computed`, parented to the container, carrying the
+declaration — and matching on the spelling tests exactly the three things the
+binder is responsible for: that a symbol exists for the declaration, that it is
+in the right container, and that it is at the right line.
+
+What it stops testing is **late binding**: that two spellings of the same
+computed name are one symbol, and that `[k]` merges with a declared `a` when `k`
+is `"a"`. Those are the checker's, and the suite still catches the merging half —
+the baseline lists every declaration of a merged symbol, and the comparison
+requires ours to contain them all. Four cases fail on precisely that, which is
+the evidence the oracle still has teeth here.
+
+The split between binder and harness was measured, not assumed: with this
+accommodation in place and the binder's `__computed` symbol switched off, the
+suite reads 92.88% — the rate before either change.

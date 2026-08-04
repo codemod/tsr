@@ -168,10 +168,10 @@ impl Suite for BinderSymbols {
                 // Accepting any suffix is the honest approximation; it weakens the
                 // test slightly, since `C.m` would also match a `C.m` nested
                 // somewhere else entirely.
-                for full in display_names(&bound, &result.nodes, id, &names_by_declaration) {
-                    for (offset, _) in std::iter::once((0, '.'))
-                        .chain(full.match_indices('.').map(|(i, _)| (i + 1, '.')))
-                    {
+                for full in
+                    display_names(&bound, &result.nodes, id, &names_by_declaration, &unit.content)
+                {
+                    for offset in dotted_suffixes(&full) {
                         ours.entry(full[offset..].to_string()).or_default().extend(&declared);
                     }
                 }
@@ -265,6 +265,7 @@ fn display_names(
     nodes: &NodeTable,
     id: tsr_binder::SymbolId,
     names_by_declaration: &NamesByDeclaration<'_>,
+    source: &str,
 ) -> Vec<String> {
     let symbols = bound.symbols();
     let symbol = symbols.get(id);
@@ -285,24 +286,78 @@ fn display_names(
         own.extend(written);
     }
 
+    // The container's spellings, or a single empty one when nothing names it —
+    // a member of an object literal is written bare.
     let containers: Vec<String> = match symbol.parent {
-        None => return own.iter().map(ToString::to_string).collect(),
+        None => vec![String::new()],
         Some(parent) => match anonymity_of(symbols.get(parent).name) {
-            // Unreachable by any name: the member is only ever written bare.
-            Anonymity::Unnameable => return own.iter().map(ToString::to_string).collect(),
+            Anonymity::Unnameable => vec![String::new()],
             Anonymity::Displayed(fallback) => assigned_name(bound, nodes, parent).map_or_else(
                 || vec![fallback.to_string()],
-                |named| display_names(bound, nodes, named, names_by_declaration),
+                |named| display_names(bound, nodes, named, names_by_declaration, source),
             ),
-            Anonymity::Named => display_names(bound, nodes, parent, names_by_declaration),
+            Anonymity::Named => display_names(bound, nodes, parent, names_by_declaration, source),
         },
     };
 
-    containers
-        .iter()
-        .flat_map(|container| own.iter().map(move |name| format!("{container}.{name}")))
-        .collect()
+    let mut names = Vec::new();
+    for container in &containers {
+        // A member written with a *computed* name is printed the way it was
+        // written — `C[Symbol.iterator]`, `[foo()]`, `[-1]` — because
+        // `getNameOfSymbolAsWritten` falls through to the declaration's name node
+        // and `declarationNameToString` of a `ComputedPropertyName` is the source
+        // text of it. That holds whether or not the name is late-bound, so the
+        // written form is offered *alongside* the ordinary spelling rather than
+        // instead of it: `{ ['a']: 1 }` declares `a` statically and the baseline
+        // may print either.
+        for declaration in &symbol.declarations {
+            let Some(computed) = bound.computed_name(*declaration) else { continue };
+            let span = nodes.span(computed);
+            let (Ok(start), Ok(end)) = (usize::try_from(span.start), usize::try_from(span.end))
+            else {
+                continue;
+            };
+            if let Some(text) = source.get(start..end) {
+                names.push(format!("{container}{text}"));
+            }
+        }
+        if symbol.name == INTERNAL_COMPUTED {
+            // There is no other spelling: the name is whatever the expression
+            // evaluates to, and only the checker knows that.
+            continue;
+        }
+        for name in &own {
+            if container.is_empty() {
+                names.push((*name).to_string());
+            } else {
+                names.push(format!("{container}.{name}"));
+            }
+        }
+    }
+    names
 }
+
+/// Byte offsets of every dotted suffix of a display name, longest first.
+///
+/// Only dots *outside* brackets split: `C[Symbol.iterator]` is one name, and
+/// splitting at the dot inside it would index the nonsense `iterator]`.
+fn dotted_suffixes(name: &str) -> Vec<usize> {
+    let mut offsets = vec![0];
+    let mut depth = 0i32;
+    for (index, byte) in name.bytes().enumerate() {
+        match byte {
+            b'[' => depth += 1,
+            b']' => depth -= 1,
+            b'.' if depth == 0 => offsets.push(index + 1),
+            _ => {}
+        }
+    }
+    offsets
+}
+
+/// Upstream's `ast.InternalSymbolNameComputed`: a member whose name is not known
+/// until the checker evaluates the expression.
+const INTERNAL_COMPUTED: &str = "__computed";
 
 /// Every symbol's name, keyed by the declaration it was first declared on.
 ///
@@ -501,7 +556,7 @@ mod tests {
             .iter()
             .find(|(_, symbol)| symbol.name == name)
             .unwrap_or_else(|| panic!("no symbol named {name}"));
-        display_names(&bound, &parsed.nodes, id, &names_by_declaration)
+        display_names(&bound, &parsed.nodes, id, &names_by_declaration, source)
     }
 
     /// The single name a symbol displays as, for the cases that have only one.

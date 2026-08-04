@@ -28,11 +28,13 @@
 //!
 //! Named here rather than left to be discovered:
 //!
-//! - **Late-bound property names.** `{ ['a']: 1 }` names a symbol statically and
-//!   does declare `a`, but `[Symbol.iterator]` and `[k]` name whatever the
-//!   expression evaluates to. The binder declares nothing for those: a symbol
-//!   under a guessed name would be unreachable by any reference. Upstream gives
-//!   them an internal `__computed` name and resolves them in the checker.
+//! - **Late *binding*.** `[Symbol.iterator]` and `[k]` do get a symbol — an
+//!   anonymous `__computed` one, as upstream creates — but nothing resolves the
+//!   expression to a name, so `class C { a: string; [k]: number }` with `k` of
+//!   `"a"` is two symbols here and one upstream. That is the checker's work.
+//! - **A signed numeric literal name** (`[-1]`). Upstream treats it as static and
+//!   builds the name by concatenating the operator with the operand; every name
+//!   here borrows from the source, so that needs an arena allocation.
 //! - **Constructor functions.** `function C() { this.x = 1 }` should declare `x`
 //!   on `C`, and `C.prototype.m = …` should declare `m` on its prototype.
 //!   Upstream marks both `!!!` — unimplemented — in the Go port, so neither is
@@ -108,6 +110,7 @@ pub struct BindResult<'a> {
     node_symbols: Vec<Option<SymbolId>>,
     locals: FxHashMap<NodeId, SymbolTable<'a>>,
     global_exports: SymbolTable<'a>,
+    computed_names: FxHashMap<NodeId, NodeId>,
     diagnostics: Vec<Diagnostic>,
     flow: FlowStore,
     node_flow: Vec<Option<FlowId>>,
@@ -142,6 +145,17 @@ impl<'a> BindResult<'a> {
     #[must_use]
     pub fn global_exports(&self) -> &SymbolTable<'a> {
         &self.global_exports
+    }
+
+    /// The `ComputedPropertyName` a declaration was written with, if it was.
+    ///
+    /// Recorded for every computed name, late-bound (`[k]`) or not (`['a']`),
+    /// because a declaration is seen as a [`NodeId`] and the name is a child the
+    /// tree has no edge to reach ([ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)).
+    /// The checker's late binding reads the expression back through this.
+    #[must_use]
+    pub fn computed_name(&self, declaration: NodeId) -> Option<NodeId> {
+        self.computed_names.get(&declaration).copied()
     }
 
     /// Duplicate-identifier and related errors, in discovery order.

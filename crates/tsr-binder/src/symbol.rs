@@ -130,6 +130,9 @@ bitflags::bitflags! {
         const MODULE = Self::VALUE_MODULE.bits() | Self::NAMESPACE_MODULE.bits();
         /// A `get` or `set` accessor.
         const ACCESSOR = Self::GET_ACCESSOR.bits() | Self::SET_ACCESSOR.bits();
+        /// Anything that is a member of a class.
+        const CLASS_MEMBER =
+            Self::METHOD.bits() | Self::ACCESSOR.bits() | Self::PROPERTY.bits();
     }
 }
 

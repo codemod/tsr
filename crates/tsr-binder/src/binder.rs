@@ -154,6 +154,15 @@ pub(crate) struct Binder<'a, 'n> {
     /// turns a `.js` script into a module and what makes `module` and `exports`
     /// locals of the file.
     commonjs_module: bool,
+    /// `declaration -> the computed name it was written with`.
+    ///
+    /// Recorded for every declaration whose name is a `ComputedPropertyName`,
+    /// late-bound or not. A consumer sees declarations as ids and the name is a
+    /// *child*, which the tree has no edge to follow
+    /// ([ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)); the
+    /// checker's late binding and the conformance harness both need to read the
+    /// expression back.
+    computed_names: rustc_hash::FxHashMap<NodeId, NodeId>,
     /// Expando assignments (`f.x = 1`), and the scope each was written in.
     ///
     /// Bound in a second pass: the target may be declared further down the file
@@ -263,6 +272,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             module_symbol: None,
             commonjs_module: false,
             this_container: NodeId::ZERO,
+            computed_names: rustc_hash::FxHashMap::default(),
             expando_assignments: Vec::new(),
             expando_initializers: rustc_hash::FxHashMap::default(),
             is_module: false,
@@ -338,6 +348,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         BindResult {
+            computed_names: self.computed_names,
             global_exports: self.global_exports,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
@@ -2557,6 +2568,31 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         let (flags, destination) = self.classify(node, id)?;
+
+        // A *late-bound* name — `[Symbol.iterator]`, `[k]`, `[foo()]` — is
+        // whatever the expression evaluates to, which needs the checker. Upstream
+        // still creates a symbol: an anonymous one called `__computed`, in no
+        // symbol table, parented to the container so that the checker's late
+        // binding has something to attach a resolved name to
+        // (`bindPropertyOrMethodOrAccessor` -> `bindAnonymousDeclaration`).
+        // Without it the declaration has no symbol at all and its members and
+        // flow have nowhere to go.
+        if let Some(computed) = dynamic_name(node) {
+            let symbol = self.symbols.create(INTERNAL_COMPUTED, flags);
+            self.symbols.get_mut(symbol).declarations.push(id);
+            if flags.intersects(SymbolFlags::ENUM_MEMBER | SymbolFlags::CLASS_MEMBER) {
+                self.symbols.get_mut(symbol).parent = self.owner;
+            }
+            if flags.intersects(SymbolFlags::VALUE) {
+                self.symbols.get_mut(symbol).value_declaration = Some(id);
+            }
+            self.node_symbols[id.index()] = Some(symbol);
+            if let Some(computed_id) = computed.node_id {
+                self.computed_names.insert(id, computed_id);
+            }
+            return Some(symbol);
+        }
+
         let name = declaration_name(node);
 
         if destination == Destination::Locals
@@ -2643,6 +2679,13 @@ impl<'a, 'n> Binder<'a, 'n> {
         let symbol = self.declare_into(destination, table_owner, self.owner, name, flags, id);
         self.node_symbols[id.index()] = Some(symbol);
         self.record_expando_initializer(node, id);
+        // `{ ['a']: 1 }` declares `a` statically, but it was still *written* as a
+        // computed name, and upstream prints it back the way it was written.
+        if let Some(computed) = computed_property_name(node)
+            && let Some(computed_id) = computed.node_id
+        {
+            self.computed_names.insert(id, computed_id);
+        }
 
         // `constructor(public x: T)` declares twice: a parameter in the
         // constructor's scope and a property on the class. Upstream declares the
@@ -2850,6 +2893,11 @@ pub(crate) const INTERNAL_FUNCTION: &str = "__function";
 /// The name every index signature in a container shares, so that two of them
 /// merge into one symbol — which is what upstream's `__index` is for.
 pub(crate) const INTERNAL_INDEX: &str = "__index";
+/// The name every late-bound member shares until the checker resolves it
+/// (`ast.InternalSymbolNameComputed`). Unlike the other internal names it is
+/// deliberately *not* a key in any symbol table: two `[k]`s in one class are two
+/// symbols, and which — if either — ends up reachable is the checker's answer.
+pub(crate) const INTERNAL_COMPUTED: &str = "__computed";
 /// The name every `export default` in a file shares.
 ///
 /// Upstream's `ast.InternalSymbolNameDefault`. Unlike its neighbours it has no
@@ -2977,6 +3025,37 @@ fn bindable_object_define_property_target(node: Node<'_>) -> Option<Expression<'
     // `excludeThisKeyword: true` upstream — `Object.defineProperty(this, …)` is
     // not one of these.
     is_entity_name_expression(call.arguments[0], false).then_some(call.arguments[0])
+}
+
+/// The computed property name a declaration was written with, if it was.
+fn computed_property_name(node: Node<'_>) -> Option<&tsr_ast::ComputedPropertyName<'_>> {
+    let name = match node {
+        Node::PropertyDeclaration(n) => n.name,
+        Node::PropertySignatureDeclaration(n) => n.name,
+        Node::MethodDeclaration(n) => n.name,
+        Node::MethodSignatureDeclaration(n) => n.name,
+        Node::GetAccessorDeclaration(n) => n.name,
+        Node::SetAccessorDeclaration(n) => n.name,
+        Node::EnumMember(n) => n.name,
+        Node::PropertyAssignment(n) => n.name,
+        _ => return None,
+    };
+    match name {
+        tsr_ast::PropertyName::ComputedPropertyName(computed) => Some(computed),
+        _ => None,
+    }
+}
+
+/// The computed name of a declaration whose name is genuinely *late-bound*.
+///
+/// Upstream's `ast.HasDynamicName`. `['a']` and `[2]` are computed in syntax
+/// only — the expression is already the value — and declare statically; the
+/// signed-numeric case (`[-1]`) is upstream's third static form and is not
+/// ported, because building the name needs an owned string where every name here
+/// borrows from the source.
+fn dynamic_name(node: Node<'_>) -> Option<&tsr_ast::ComputedPropertyName<'_>> {
+    let computed = computed_property_name(node)?;
+    computed_name(computed).is_none().then_some(computed)
 }
 
 /// The text of a string or numeric literal, which is what a statically-named

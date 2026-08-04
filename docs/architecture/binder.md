@@ -193,6 +193,45 @@ so those references now get flow nodes they should always have had.
 
 ---
 
+## Late-bound names still get a symbol
+
+`class C { [Symbol.iterator]() {} }` declares a member whose *name* nobody can
+know until the checker evaluates `Symbol.iterator`. The binder used to declare
+nothing for it, on the reasoning that a symbol under a guessed name would be
+unreachable by any reference. That reasoning was right about the name and wrong
+about the symbol: upstream creates one, and creating none loses more than it
+saves.
+
+Upstream's `bindPropertyOrMethodOrAccessor` routes a dynamically-named member to
+`bindAnonymousDeclaration` with the name `__computed`
+(`ast.InternalSymbolNameComputed`), and three properties of that symbol are the
+whole design:
+
+- **It is in no symbol table.** Two `[k]`s in one class are two symbols, not one
+  merged under `__computed`. Which of them collides — if either — is a question
+  about the *values* of the expressions, so it is the checker's answer.
+- **It is parented to the container** when it is a class member or enum member,
+  which is what lets the checker attach a resolved name to the right class, and
+  what makes the baselines print `C[Symbol.iterator]` rather than a bare name.
+- **The declaration keeps its expression**, which is what late binding reads.
+
+The last one needed a side table here. The checker will be handed a `NodeId` and
+the computed name is a *child* of the declaration, an edge the tree does not have
+([ADR-0003](../adr/0003-tree-plus-side-tables.md)), so `BindResult::computed_name`
+records it — for every computed name, static (`['a']`) or not, because upstream
+prints them all back the way they were written.
+
+**This is the declaration half only.** What is still missing is late *binding*:
+`class C { a: string; [k]: number }` where `k` is `"a"` should end up one symbol
+with two declarations, and here it is two. That needs the checker, and the four
+conformance cases that still fail on computed names are all of exactly that shape.
+
+`[-1]` remains late-bound. Upstream treats a signed numeric literal as static and
+builds the name by concatenating the operator with the operand, which needs an
+owned string where every name here borrows from the source.
+
+---
+
 ## The flow graph is not the control-flow graph
 
 This is the thing most worth understanding, and the thing a from-scratch
@@ -411,8 +450,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 7,853/8,455
-(**92.88%**). See
+own `.symbols` baselines over the 12,444-case corpus. Currently 8,212/8,455
+(**97.13%**). See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -449,6 +488,7 @@ five biggest wins turned out to be in the harness.
 | JavaScript: `module.exports`, `exports.x`, `this.x`, CommonJS locals | 92.48% | binder |
 | contextual keywords in expression position parse as identifiers | 92.64% | **parser** |
 | expando assignments and `Object.defineProperty`, bound in a deferred pass | 92.88% | binder + harness |
+| late-bound names get a `__computed` symbol | 97.13% | binder + harness |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -507,22 +547,47 @@ allowed, because the parser bug behind `module.exports` was also silently
 costing cases nobody had attributed to JavaScript at all. That is the third time
 this session a cause named from failure text turned out to be somewhere else.
 
-### What the remaining 602 failures are, and why this is the ceiling
+### "Blocked on the checker" was wrong about 359 cases
+
+The table below used to read *"late-bound computed names — ~371 — blocked on the
+checker"*, and that was the largest single line in it for three revisions of this
+document. It was wrong, and the way it was wrong is worth keeping.
+
+The reasoning was: the *name* of `[Symbol.iterator]` cannot be known without the
+checker, therefore nothing can be done. Both halves are true and the conclusion
+does not follow. Upstream does not know the name either at bind time; it creates
+a symbol called `__computed` anyway and resolves the name later. Once the binder
+does the same, the baselines match — because `symbolToString` prints a computed
+member as the *source text of its name*, `C[Symbol.iterator]`, whether or not the
+name was ever resolved.
+
+**359 cases fixed, 0 broken.** The split between the two halves was measured
+rather than assumed: with the harness change in place and the binder's
+`__computed` symbol switched off, the rate is 92.88% — exactly where it was. The
+whole gain is the binder creating symbols; the harness change only makes them
+visible.
+
+What the suite no longer tests is stated in
+[conformance.md](conformance.md#what-is-approximate-and-what-is-not-covered).
+The residual four cases are the part that is genuinely blocked, and they all have
+the same shape: a late-bound name that should have *merged* with a declared
+member.
+
+### What the remaining 243 failures are
 
 Classified against the actual sources:
 
 | Cause | Cases | Status |
 |---|---:|---|
-| Late-bound computed names | ~371 | **blocked on the checker** (`tsr-y4u.11`) |
 | `import X = Y` alias resolution | ~73 | **blocked on a resolver** (`tsr-y4u.12`) |
-| Module-shaped, various | ~31 | mostly cross-file, blocked on module resolution |
-| JavaScript | 5 | JSDoc `@overload`/`@typedef`, and late-bound names |
-| Long tail, many distinct causes | ~122 | each below ~10 cases |
+| Module-shaped, various | ~34 | mostly cross-file, blocked on module resolution |
+| Late-bound *merging* | 4 | **blocked on the checker** (`tsr-y4u.11`) |
+| JavaScript | 5 | JSDoc `@overload`/`@typedef` |
+| Long tail, many distinct causes | ~127 | each below ~10 cases |
 
-**Roughly 79% of what remains is hard-blocked** on the checker, a resolver, or
-module resolution, and there is no longer a *single* identified cause above five
-cases outside those three. This is the ceiling for the binder on its own: the
-metric now moves when the checker, the resolver, or module resolution arrives.
+The long tail is now the largest bucket, which is the useful signal: there is no
+remaining single cause worth a session on its own, and the next real movement
+comes from the resolver and from module resolution.
 
 Two module-shaped things are known to be available and small. `export default x`
 where `x` is an identifier should display under `x`'s name, because upstream's
