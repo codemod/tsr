@@ -27,6 +27,7 @@ tsr-compiler = { workspace = true }
 tsr-parser = { workspace = true }
 tsr-core = { workspace = true }
 tsr-module = { workspace = true }
+tsr-tsoptions = { workspace = true }
 tsr-path = { workspace = true }
 tsr-vfs = { workspace = true }
 

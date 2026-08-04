@@ -70,13 +70,11 @@ use tsr_parser::{CollectOptions, SpecifierContext};
 use tsr_path::{
     Path, combine_paths,
     extension::{
-        ALL_SUPPORTED_EXTENSIONS, ALL_SUPPORTED_EXTENSIONS_WITH_JSON, EXTENSION_CJS, EXTENSION_CTS,
-        EXTENSION_DCTS, EXTENSION_DMTS, EXTENSION_DTS, EXTENSION_JS, EXTENSION_JSON, EXTENSION_JSX,
-        EXTENSION_MJS, EXTENSION_MTS, EXTENSION_TS, EXTENSION_TSX, SUPPORTED_TS_EXTENSIONS,
-        SUPPORTED_TS_EXTENSIONS_WITH_JSON, SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT,
-        file_extension_is, file_extension_is_one_of,
+        EXTENSION_CJS, EXTENSION_CTS, EXTENSION_DCTS, EXTENSION_DMTS, EXTENSION_DTS, EXTENSION_JS,
+        EXTENSION_JSON, EXTENSION_JSX, EXTENSION_MJS, EXTENSION_MTS, EXTENSION_TS, EXTENSION_TSX,
+        SUPPORTED_TS_EXTENSIONS_WITH_JSON_FLAT, file_extension_is, file_extension_is_one_of,
     },
-    get_base_file_name, get_canonical_file_name, get_directory_path, get_normalized_absolute_path,
+    get_canonical_file_name, get_directory_path, get_normalized_absolute_path, has_extension,
     is_declaration_file_name, is_rooted_disk_path, normalize_path, to_path,
 };
 
@@ -217,15 +215,12 @@ impl<'host> FileLoader<'host> {
         options: CompilerOptions,
         root_file_names: &[String],
     ) -> LoadedFiles {
-        let supported_extensions =
-            if options.get_allow_js() { ALL_SUPPORTED_EXTENSIONS } else { SUPPORTED_TS_EXTENSIONS };
-        let supported_extensions_with_json = if !options.get_resolve_json_module() {
-            supported_extensions
-        } else if options.get_allow_js() {
-            ALL_SUPPORTED_EXTENSIONS_WITH_JSON
-        } else {
-            SUPPORTED_TS_EXTENSIONS_WITH_JSON
-        };
+        // From `tsr-tsoptions`, as upstream's `fileloader.go` takes them from
+        // `internal/tsoptions`: the same two lists decide which files a wildcard
+        // `include` expands to and which extensions a reference may name.
+        let supported_extensions = tsr_tsoptions::file_names::supported_extensions(&options);
+        let supported_extensions_with_json =
+            tsr_tsoptions::file_names::supported_extensions_with_json(&options);
 
         let mut loader = Self {
             resolver: Resolver::new(host, options.clone()),
@@ -923,11 +918,6 @@ fn should_transform_import_call(
 /// `core.ModuleKind.IsNonNodeESM`.
 fn is_non_node_esm(kind: ModuleKind) -> bool {
     ModuleKind::ES2015 <= kind && kind <= ModuleKind::ESNext
-}
-
-/// Whether the file name has an extension at all (`tspath.HasExtension`).
-fn has_extension(file_name: &str) -> bool {
-    get_base_file_name(file_name).contains('.')
 }
 
 /// Whether the file is JavaScript (`ast.IsSourceFileJS`, by extension).

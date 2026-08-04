@@ -1581,7 +1581,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
         loader: &Loader,
     ) -> Search {
         let matched = match_pattern_or_exact(path_patterns, module_name);
-        if !matched.is_valid() || (matched.text.is_empty() && matched.star_index.is_some()) {
+        if !matched.is_valid() {
             return continue_searching();
         }
         let matched_star = matched.matched_text(module_name).to_string();

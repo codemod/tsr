@@ -41,37 +41,25 @@
 //!
 //! # The skip rules, and why they are not silent
 //!
-//! 155 corpus cases set `@traceResolution`; only 109 have a baseline. The gap is
-//! not missing data — **typescript-go skips those cases itself**, through
-//! `harnessutil.SkipUnsupportedCompilerOptions`, because it has not ported
-//! `node10`/`classic` resolution, AMD/UMD/System modules, `baseUrl`, `outFile`,
-//! or an ES5 target. [`upstream_skip_reason`] reimplements that predicate, and
-//! [`the_skip_rule_explains_every_missing_baseline`] asserts it accounts for the
-//! gap exactly. If upstream ever unskips a case, that test fails rather than the
-//! case silently vanishing from the denominator.
+//! Which cases are judged, and why the rest are not, is
+//! [`crate::trace_case`]'s — shared with `file_loader`, so the two suites'
+//! denominators can only differ where a suite says so. `upstream_skip_reason`
+//! there reimplements `harnessutil.SkipUnsupportedCompilerOptions` rather than
+//! inferring a reason from an absent baseline, and
+//! [`the_skip_rule_explains_every_missing_baseline`] asserts it accounts for
+//! the gap exactly.
 
 use std::collections::{HashMap, hash_map::Entry};
 
-use tsr_core::{
-    CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, ResolutionMode, ScriptTarget,
-    Tristate,
-};
-use tsr_module::{
-    messages::Trace,
-    resolver::Resolver,
-    types::{ResolutionHost, ResolvedModule},
-};
-use tsr_path::{get_normalized_absolute_path, to_path};
-use tsr_vfs::{FileSystem, InMemoryFileSystem};
+use tsr_core::{ModuleResolutionKind, ResolutionMode};
+use tsr_module::{messages::Trace, resolver::Resolver, types::ResolvedModule};
+use tsr_path::to_path;
 
 use crate::{
-    CaseEntry, TestCase,
+    CaseEntry,
     suite::{Outcome, Suite},
+    trace_case::{Setup, prepare},
 };
-
-/// Where a case's files live when it does not say otherwise
-/// (`testrunner.srcFolder`).
-pub(crate) const SRC_FOLDER: &str = "/.src";
 
 /// The `module_resolution` suite.
 pub struct ModuleResolution;
@@ -86,77 +74,29 @@ impl Suite for ModuleResolution {
     }
 
     fn run(&self, case: &CaseEntry) -> Outcome {
-        let Ok(parsed) = case.load() else {
-            return Outcome::Skipped { reason: "case could not be read".to_string() };
+        let prepared = match prepare(case) {
+            Setup::Ready(prepared) => prepared,
+            Setup::Skip(reason) => return Outcome::Skipped { reason },
         };
-        if !parsed.options.contains_key("traceresolution") {
-            return Outcome::Skipped {
-                reason: "case does not set @traceResolution, so upstream records no trace"
-                    .to_string(),
-            };
-        }
-
-        // Checked before anything that reasons about options: a case that
-        // configures itself with a tsconfig.json has options this harness cannot
-        // see at all, so neither its expected behaviour nor upstream's skip
-        // predicate can be evaluated for it.
-        if parsed.files.iter().any(|file| file.name.ends_with("tsconfig.json")) {
-            return Outcome::Skipped {
-                reason: "case configures itself with a tsconfig.json, which needs tsr-tsoptions \
-                         (bd tsr-9or slice 3)"
-                    .to_string(),
-            };
-        }
-
-        let baseline_path = case.baseline_path("trace.json");
-        let Ok(expected) = std::fs::read_to_string(&baseline_path) else {
-            // No baseline. Either upstream skipped the case — in which case say
-            // exactly why — or it is configuration-varied, or something has
-            // changed upstream and we want to hear about it.
-            if let Some(reason) = upstream_skip_reason(&parsed) {
-                return Outcome::Skipped { reason: format!("upstream skips this case: {reason}") };
-            }
-            if case.baselines.has_variant(case.stem(), "trace.json") {
-                return Outcome::Skipped {
-                    reason: "configuration-varied trace baselines (bd tsr-bb4.1)".to_string(),
-                };
-            }
-            // An unskipped case with no baseline ran and traced *nothing*:
-            // `baseline.Run` deletes the reference file when the content is
-            // `NoContent`, so absence here means "no resolution happened", not
-            // "no data". Three cases are in this bucket, all of which have no
-            // import at all. There is nothing for *this* suite to judge — the
-            // claim "we would also have requested nothing" belongs to the file
-            // loader, and [`crate::loader_suite`] asserts it there.
+        if prepared.expected.is_empty() {
+            // Upstream traced nothing, so there is no request list to replay.
+            // Whether *we* would also have requested nothing is the loader's
+            // claim, and `crate::loader_suite` asserts it.
             return Outcome::Skipped {
                 reason: "upstream recorded an empty trace: the case performs no resolutions"
                     .to_string(),
             };
-        };
+        }
 
-        let current_directory = parsed.current_directory.as_deref().map_or_else(
-            || SRC_FOLDER.to_string(),
-            |dir| get_normalized_absolute_path(dir, SRC_FOLDER),
-        );
-        let options = compiler_options(&parsed, &current_directory);
-        let use_case_sensitive_file_names = parsed
-            .options
-            .get("usecasesensitivefilenames")
-            .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
-
-        let requests = parse_requests(&expected, options.module_resolution_kind());
+        let requests =
+            parse_requests(&prepared.expected, prepared.options.module_resolution_kind());
         if requests.is_empty() {
             return Outcome::Failed {
                 reason: "baseline contains no resolution request headers".to_string(),
             };
         }
 
-        let host = TestHost {
-            fs: build_file_system(&parsed, &current_directory, use_case_sensitive_file_names),
-            current_directory: current_directory.clone(),
-        };
-        let resolver = Resolver::new(&host, options);
-
+        let resolver = Resolver::new(&prepared.host, prepared.options.clone());
         let mut traces: Vec<Trace> = Vec::new();
         for request in &requests {
             let (_, request_traces) = match request.kind {
@@ -177,188 +117,14 @@ impl Suite for ModuleResolution {
             traces.extend(request_traces);
         }
 
-        let actual = sanitize(&traces, &current_directory, use_case_sensitive_file_names);
-        if actual == expected {
+        let actual =
+            sanitize(&traces, &prepared.current_directory, prepared.use_case_sensitive_file_names);
+        if actual == prepared.expected {
             Outcome::Passed
         } else {
-            Outcome::Failed { reason: first_difference(&expected, &actual) }
+            Outcome::Failed { reason: first_difference(&prepared.expected, &actual) }
         }
     }
-}
-
-/// A `ResolutionHost` over an in-memory file system.
-pub(crate) struct TestHost {
-    pub(crate) fs: InMemoryFileSystem,
-    pub(crate) current_directory: String,
-}
-
-impl ResolutionHost for TestHost {
-    fn fs(&self) -> &dyn FileSystem {
-        &self.fs
-    }
-
-    fn current_directory(&self) -> &str {
-        &self.current_directory
-    }
-}
-
-/// Assemble the case's declared units and symlinks into a file system.
-pub(crate) fn build_file_system(
-    case: &TestCase,
-    current_directory: &str,
-    use_case_sensitive_file_names: bool,
-) -> InMemoryFileSystem {
-    let files = case
-        .files
-        .iter()
-        .map(|file| {
-            (get_normalized_absolute_path(&file.name, current_directory), file.content.clone())
-        })
-        .collect::<Vec<_>>();
-    let symlinks = case
-        .symlinks
-        .iter()
-        .map(|(link, target)| {
-            (
-                get_normalized_absolute_path(link, current_directory),
-                get_normalized_absolute_path(target, current_directory),
-            )
-        })
-        .collect::<Vec<_>>();
-    InMemoryFileSystem::new(files, symlinks, use_case_sensitive_file_names)
-}
-
-/// Whether typescript-go's own harness would skip this case, and why
-/// (`harnessutil.SkipUnsupportedCompilerOptions`).
-///
-/// Reimplemented rather than inferred from the absent baseline: an absent file
-/// proves nothing on its own, and this project has been caught by that before.
-#[must_use]
-pub fn upstream_skip_reason(case: &TestCase) -> Option<String> {
-    let options = compiler_options(case, SRC_FOLDER);
-
-    match options.module {
-        ModuleKind::AMD | ModuleKind::UMD | ModuleKind::System => {
-            return Some(format!("unsupported module kind {:?}", options.module));
-        }
-        _ => {}
-    }
-    // The big one: `node10` and `classic` resolution are not ported upstream at
-    // all, so every case that *asks* for them is skipped. Note this reads the
-    // raw field, as upstream does — the derived kind can never be either, since
-    // `GetModuleResolutionKind` falls through to bundler.
-    match options.module_resolution {
-        ModuleResolutionKind::Node10 | ModuleResolutionKind::Classic => {
-            return Some(format!(
-                "unsupported module resolution kind {}",
-                options.module_resolution
-            ));
-        }
-        _ => {}
-    }
-    if options.es_module_interop.is_false() {
-        return Some("esModuleInterop=false is unsupported".to_string());
-    }
-    if case.options.get("allowsyntheticdefaultimports").is_some_and(|v| v == "false") {
-        return Some("allowSyntheticDefaultImports=false is unsupported".to_string());
-    }
-    if !options.base_url.is_empty() {
-        return Some(format!("unsupported baseUrl {}", options.base_url));
-    }
-    if case.options.contains_key("outfile") {
-        return Some("unsupported outFile".to_string());
-    }
-    if options.target == ScriptTarget::ES5 {
-        return Some("unsupported target ES5".to_string());
-    }
-    if case.options.get("alwaysstrict").is_some_and(|v| v == "false") {
-        return Some("alwaysStrict=false is unsupported".to_string());
-    }
-    None
-}
-
-/// Build options from the case's directives
-/// (`harnessutil.SetOptionsFromTestConfig`, for the options resolution reads).
-pub(crate) fn compiler_options(case: &TestCase, current_directory: &str) -> CompilerOptions {
-    let get = |name: &str| case.options.get(name).map(String::as_str);
-    let tristate = |name: &str| match get(name) {
-        Some(value) if value.eq_ignore_ascii_case("true") => Tristate::True,
-        Some(value) if value.eq_ignore_ascii_case("false") => Tristate::False,
-        _ => Tristate::Unknown,
-    };
-    let list = |name: &str| {
-        get(name).map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|part| !part.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-    };
-    // `rootDirs` and `typeRoots` are made absolute against the current directory
-    // before the resolver ever sees them.
-    let absolute_list = |name: &str| {
-        list(name).map(|values| {
-            values
-                .iter()
-                .map(|value| get_normalized_absolute_path(value, current_directory))
-                .collect::<Vec<_>>()
-        })
-    };
-
-    CompilerOptions {
-        target: get("target").and_then(ScriptTarget::parse).unwrap_or_default(),
-        module: get("module").and_then(ModuleKind::parse).unwrap_or_default(),
-        module_resolution: get("moduleresolution")
-            .and_then(parse_module_resolution)
-            .unwrap_or_default(),
-        jsx: get("jsx").and_then(JsxEmit::parse).unwrap_or_default(),
-        allow_js: tristate("allowjs"),
-        check_js: tristate("checkjs"),
-        strict: tristate("strict"),
-        declaration: tristate("declaration"),
-        es_module_interop: tristate("esmoduleinterop"),
-        allow_arbitrary_extensions: tristate("allowarbitraryextensions"),
-        trace_resolution: tristate("traceresolution"),
-        no_resolve: tristate("noresolve"),
-        base_url: get("baseurl").unwrap_or_default().to_string(),
-        type_roots: absolute_list("typeroots"),
-        types: list("types"),
-        root_dirs: absolute_list("rootdirs").unwrap_or_default(),
-        root_dir: get("rootdir")
-            .map(|dir| get_normalized_absolute_path(dir, current_directory))
-            .unwrap_or_default(),
-        module_suffixes: list("modulesuffixes").unwrap_or_default(),
-        custom_conditions: list("customconditions").unwrap_or_default(),
-        resolve_json_module: tristate("resolvejsonmodule"),
-        no_implicit_any: tristate("noimplicitany"),
-        allow_non_ts_extensions: tristate("allownontsextensions"),
-        jsx_import_source: get("jsximportsource").unwrap_or_default().to_string(),
-        max_node_module_js_depth: get("maxnodemodulejsdepth").and_then(|v| v.parse().ok()),
-        no_dts_resolution: tristate("nodtsresolution"),
-        resolve_package_json_exports: tristate("resolvepackagejsonexports"),
-        resolve_package_json_imports: tristate("resolvepackagejsonimports"),
-        preserve_symlinks: tristate("preservesymlinks"),
-        out_dir: get("outdir")
-            .map(|dir| get_normalized_absolute_path(dir, current_directory))
-            .unwrap_or_default(),
-        declaration_dir: get("declarationdir")
-            .map(|dir| get_normalized_absolute_path(dir, current_directory))
-            .unwrap_or_default(),
-        ..CompilerOptions::default()
-    }
-}
-
-fn parse_module_resolution(value: &str) -> Option<ModuleResolutionKind> {
-    Some(match value.to_ascii_lowercase().as_str() {
-        "classic" => ModuleResolutionKind::Classic,
-        "node" | "node10" => ModuleResolutionKind::Node10,
-        "node16" => ModuleResolutionKind::Node16,
-        "nodenext" => ModuleResolutionKind::NodeNext,
-        "bundler" => ModuleResolutionKind::Bundler,
-        _ => return None,
-    })
 }
 
 /// What kind of thing a baseline block resolves.
@@ -652,75 +418,72 @@ File '/src/a.ts' exists - use it as a name resolution result.
     #[test]
     fn the_skip_rule_explains_every_missing_baseline() {
         // Trap this project has been caught by before: a bucket of cases with no
-        // baseline read as evidence about the compiler when it was evidence about
-        // the harness. Here the claim is precise — upstream's own skip predicate
-        // accounts for every `@traceResolution` case with no `.trace.json` — and
-        // it is asserted rather than assumed.
+        // baseline read as evidence about the compiler when it was evidence
+        // about the harness. The claim is precise — upstream's own skip
+        // predicate, run on the *merged* options, accounts for every
+        // `@traceResolution` case with no `.trace.json` — and it is asserted
+        // rather than assumed.
         let corpus = Corpus::from_repo_root(&repo_root());
         if !corpus.is_available() {
             return; // Submodules not initialised; nothing to check.
         }
         let mut skipped_by_option: Vec<String> = Vec::new();
-        let mut tsconfig_configured: Vec<String> = Vec::new();
+        let mut configuration_varied: Vec<String> = Vec::new();
         let mut empty_trace: Vec<String> = Vec::new();
         for case in corpus.discover().expect("discovering cases") {
             let Ok(parsed) = case.load() else { continue };
             if !parsed.options.contains_key("traceresolution") {
                 continue;
             }
-            if case.baselines.has_any(case.stem(), "trace.json") {
+            if case.baselines.has_exact(case.stem(), "trace.json") {
                 continue;
             }
-            if upstream_skip_reason(&parsed).is_some() {
-                skipped_by_option.push(case.name.clone());
-                continue;
+            match crate::trace_case::prepare(&case) {
+                crate::trace_case::Setup::Skip(reason) if reason.contains("upstream skips") => {
+                    skipped_by_option.push(case.name.clone());
+                }
+                crate::trace_case::Setup::Skip(reason)
+                    if reason.contains("configuration-varied") =>
+                {
+                    configuration_varied.push(case.name.clone());
+                }
+                // What is left ran and traced *nothing*: `baseline.Run` removes
+                // the reference file when the content is `NoContent`, so absence
+                // here means no resolution happened.
+                _ => empty_trace.push(case.name.clone()),
             }
-            // Options this harness cannot see: the case configures itself
-            // through a `tsconfig.json` unit.
-            if parsed.files.iter().any(|file| file.name.ends_with("tsconfig.json")) {
-                tsconfig_configured.push(case.name.clone());
-                continue;
-            }
-            // What is left ran and traced *nothing*: `baseline.Run` removes the
-            // reference file when the content is `NoContent`, so absence here
-            // means no resolution happened. Listed by name rather than detected
-            // by a content heuristic — `import M = N` looks like an import and
-            // resolves nothing, so any heuristic would be guessing.
-            empty_trace.push(case.name.clone());
         }
-        // Every `@traceResolution` case with no baseline falls into exactly one
-        // of three named buckets, and all three are pinned. A case moving
-        // between them, appearing, or disappearing fails this test rather than
-        // silently changing the denominator.
+        // Every `@traceResolution` case with no plain baseline falls into
+        // exactly one of three named buckets, and all three are pinned. A case
+        // moving between them, appearing, or disappearing fails this test rather
+        // than silently changing a denominator.
         //
-        // 155 cases set `@traceResolution`; 109 have a baseline; 46 do not:
-        //   23  upstream skips them by compiler option (mostly `node10`/
-        //       `classic` resolution, which is not ported upstream at all)
-        //   20  configure themselves through a `tsconfig.json` unit, so their
-        //       options are not in their directives and the predicate above
-        //       cannot be evaluated for them (bd tsr-9or slice 3)
-        //    3  ran and traced nothing: `baseline.Run` removes the reference
-        //       file when the content is `NoContent`
+        // The `tsconfig-configured` bucket that used to sit here is gone:
+        // `tsr-tsoptions` reads those configs, so their options are visible to
+        // the predicate. That is why `skipped_by_option` grew from 23 to 41 —
+        // a `baseUrl`, an `outFile` or a `moduleResolution: node` written in a
+        // config is now seen — and why the empty-trace bucket grew from 3 to 5.
         assert_eq!(
-            (skipped_by_option.len(), tsconfig_configured.len(), empty_trace.len()),
-            (23, 20, 3),
+            (skipped_by_option.len(), configuration_varied.len(), empty_trace.len()),
+            (41, 14, 5),
             "the no-baseline buckets changed\n\nskipped by option: \
-             {skipped_by_option:#?}\n\ntsconfig-configured: \
-             {tsconfig_configured:#?}\n\nempty trace: {empty_trace:#?}"
-        );
-        assert_eq!(
-            skipped_by_option.len() + tsconfig_configured.len() + empty_trace.len(),
-            46,
-            "every @traceResolution case without a baseline must be accounted for"
+             {skipped_by_option:#?}\n\nconfiguration-varied: \
+             {configuration_varied:#?}\n\nempty trace: {empty_trace:#?}"
         );
         // The empty-trace bucket is the one that would silently absorb a real
-        // regression, so it is also pinned by name.
+        // regression, so it is also pinned by name. `file_loader` asserts these
+        // three request nothing, rather than skipping them.
         assert_eq!(
             empty_trace,
             [
                 "compiler/jsdocInTypeScript",
                 "compiler/moduleResolutionWithRequire",
+                // A `paths` config over a single file that imports nothing.
+                "compiler/pathMappingBasedModuleResolution1_node",
                 "conformance/globalAugmentationModuleResolution",
+                // An `@types` package whose `package.json` says
+                // `"typings": null`, which auto-discovery must not include.
+                "conformance/typingsLookup2",
             ],
             "cases upstream ran with an empty trace"
         );

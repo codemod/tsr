@@ -23,12 +23,14 @@
 //! them yet: the corpus is the only consumer, and a real host arrives with
 //! `tsr-tsoptions` (bd tsr-9or).
 
+pub mod glob;
+
 use std::collections::BTreeMap;
 
 use rustc_hash::FxHashMap;
 use tsr_path::{
     ensure_trailing_directory_separator, get_canonical_file_name, get_directory_path,
-    normalize_path, remove_trailing_directory_separator,
+    get_root_length, normalize_path, remove_trailing_directory_separator,
 };
 
 /// What lives directly inside a directory (`vfs.FS.GetAccessibleEntries`).
@@ -116,8 +118,18 @@ impl InMemoryFileSystem {
     }
 
     fn canonical(&self, path: &str) -> String {
-        let normalized = remove_trailing_directory_separator(&normalize_path(path));
-        get_canonical_file_name(&normalized, self.use_case_sensitive_file_names)
+        let normalized = normalize_path(path);
+        // A trailing separator is not part of a directory's identity — except
+        // the root's, where it *is* the identity. `tspath`'s
+        // `remove_trailing_directory_separator` is upstream-faithful and turns
+        // `/` into the empty string, which is right for glob compilation and
+        // wrong for a map key, so the root is guarded here rather than there.
+        let key = if normalized.len() > get_root_length(&normalized) {
+            remove_trailing_directory_separator(&normalized)
+        } else {
+            normalized
+        };
+        get_canonical_file_name(&key, self.use_case_sensitive_file_names)
     }
 
     /// Record every ancestor directory of `path`, and `path`'s own entry in its

@@ -34,6 +34,7 @@
 mod declaration;
 mod expression;
 mod jsdoc;
+mod json;
 mod jsx;
 mod module;
 mod parsed_file;
@@ -98,7 +99,11 @@ pub fn parse_with_options<'a>(
     options: ParseOptions,
 ) -> ParsedSourceFile<'a> {
     let mut parser = Parser::with_options(arena, source, options);
-    let source_file = parser.parse_source_file();
+    let source_file = if options.script_kind == ScriptKind::Json {
+        parser.parse_json_text()
+    } else {
+        parser.parse_source_file()
+    };
     let (diagnostics, node_table, jsdoc) = parser.finish();
     // A second, tiny pass over the leading trivia. Upstream folds it into the
     // parser's own trivia handling, but the preamble is bounded by the first

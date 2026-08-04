@@ -29,8 +29,8 @@ scanner_termination                 12444/12444   100.00%         0
 scanner_clean_files                   5031/5031   100.00%      7413
 parser_typescript                     4999/5031    99.36%      7413
 binder_symbols                        8278/8449    97.98%      3995
-module_resolution                         75/75   100.00%     12369
-file_loader                               76/76   100.00%     12368
+module_resolution                         95/95   100.00%     12349
+file_loader                               96/96   100.00%     12348
 ```
 
 The first two measure the **harness**; `parser_reachable_target` measures the
@@ -41,10 +41,13 @@ The last two are deliberately two suites over one oracle: the 146 `.trace.json`
 baselines have two authors, and measuring them together fuses two failure modes
 into one number. `module_resolution` judges what a resolution *did*;
 `file_loader` judges which resolutions were *asked for*, in what order, and in
-what mode. Their denominators differ by exactly `+3 −2`, derived in
+what mode. Their denominators differ by exactly `+5 −4`, derived in
 [module-resolution.md](module-resolution.md); anything else is a bug in a suite.
-See [ADR-0018](../adr/0018-splitting-the-resolution-oracle.md) and
-[ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md).
+Everything before the judging is shared, in `src/trace_case.rs`, so they can only
+drift where a suite says it is less capable.
+See [ADR-0018](../adr/0018-splitting-the-resolution-oracle.md),
+[ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md) and
+[ADR-0020](../adr/0020-the-parser-reads-tsconfig.md).
 
 `scanner_clean_files` was the first suite to find real bugs — three of them, none
 visible by inspection. See [scanner.md](scanner.md). `parser_typescript` then found

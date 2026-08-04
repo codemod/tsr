@@ -2,16 +2,18 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 module_resolution Summary:
 What a pass means: resolver trace matches upstream's .trace.json, step for step
-Passed         : 75/75 (100.00%)
-Skipped        : 12369 (excluded from the denominator)
+Passed         : 95/95 (100.00%)
+Skipped        : 12349 (excluded from the denominator)
 
-  47  skipped: case configures itself with a tsconfig.json, which needs tsr-tsoptions (bd tsr-9or slice 3)
   12289  skipped: case does not set @traceResolution, so upstream records no trace
   14  skipped: configuration-varied trace baselines (bd tsr-bb4.1)
-  3  skipped: upstream recorded an empty trace: the case performs no resolutions
-  2  skipped: upstream skips this case: unsupported baseUrl /
-  1  skipped: upstream skips this case: unsupported baseUrl c:/root
-  3  skipped: upstream skips this case: unsupported module kind AMD
+  5  skipped: upstream recorded an empty trace: the case performs no resolutions
+  8  skipped: upstream skips this case: unsupported baseUrl /
+  1  skipped: upstream skips this case: unsupported baseUrl /.src/root/src
+  1  skipped: upstream skips this case: unsupported baseUrl /project
+  6  skipped: upstream skips this case: unsupported baseUrl /root
+  5  skipped: upstream skips this case: unsupported baseUrl c:/root
+  10  skipped: upstream skips this case: unsupported module kind AMD
   5  skipped: upstream skips this case: unsupported module resolution kind Classic
   3  skipped: upstream skips this case: unsupported module resolution kind Node10
-  2  skipped: upstream skips this case: unsupported outFile
+  2  skipped: upstream skips this case: unsupported outFile /output.js

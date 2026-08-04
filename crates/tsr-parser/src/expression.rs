@@ -581,7 +581,7 @@ impl<'a> Parser<'a> {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn parse_primary_expression(&mut self) -> Expression<'a> {
+    pub(crate) fn parse_primary_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         // Bound before matching: a guard below needs `&mut self` for lookahead.
         let kind = self.token.kind;
@@ -706,7 +706,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_array_literal(&mut self) -> Expression<'a> {
+    pub(crate) fn parse_array_literal(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::OpenBracketToken);
         let mut elements = Vec::new();
@@ -738,7 +738,7 @@ impl<'a> Parser<'a> {
         Expression::ArrayLiteralExpression(node)
     }
 
-    fn parse_object_literal(&mut self) -> Expression<'a> {
+    pub(crate) fn parse_object_literal(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
         let mut properties = Vec::new();

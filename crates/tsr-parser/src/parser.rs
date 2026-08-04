@@ -19,6 +19,11 @@ pub enum ScriptKind {
     TypeScript,
     /// `.tsx`, `.jsx` — `<` opens JSX; type assertions must use `as`.
     Tsx,
+    /// `.json`. A file is a single value, not a statement list.
+    ///
+    /// Not merely a dialect flag: it selects a different entry point
+    /// ([`Parser::parse_json_text`]), because a JSON document has no statements.
+    Json,
 }
 
 impl ScriptKind {
@@ -30,7 +35,11 @@ impl ScriptKind {
             .and_then(|e| e.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if extension == "tsx" || extension == "jsx" { Self::Tsx } else { Self::TypeScript }
+        match extension.as_str() {
+            "tsx" | "jsx" => Self::Tsx,
+            "json" => Self::Json,
+            _ => Self::TypeScript,
+        }
     }
 
     /// Whether `<` in expression position opens JSX.
@@ -351,24 +360,47 @@ impl<'a> Parser<'a> {
     /// expression. Diagnostics emitted during a rejected attempt are discarded,
     /// so a speculative path cannot leave phantom errors behind.
     pub(crate) fn try_parse<T>(&mut self, f: impl FnOnce(&mut Self) -> Option<T>) -> Option<T> {
-        let saved_scanner = self.scanner.save();
-        let saved_token = self.token;
-        let saved_value = self.token_value.clone();
-        let saved_diagnostics = self.diagnostics.len();
-        let saved_nodes = self.nodes.len();
-
+        let saved = self.save_state();
         let result = f(self);
         if result.is_none() {
-            self.scanner.restore(saved_scanner);
-            self.token = saved_token;
-            self.token_value = saved_value;
-            self.diagnostics.truncate(saved_diagnostics);
-            // Nodes registered during the abandoned attempt stay in the table but
-            // are unreachable from the tree. Truncating is safe only because ids
-            // are handed out sequentially and nothing else holds one yet.
-            self.nodes.truncate(saved_nodes);
+            self.restore_state(saved);
         }
         result
+    }
+
+    /// Run `f` on a saved position and rewind unconditionally
+    /// (upstream's `Parser.lookAhead`).
+    ///
+    /// [`Self::try_parse`] rewinds only on failure, which is what a speculative
+    /// *parse* wants. A lookahead asks a question and never keeps the answer's
+    /// side effects — JSON parsing needs one to tell `{"a": 1}` written without
+    /// its braces from a bare string.
+    pub(crate) fn look_ahead<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let saved = self.save_state();
+        let result = f(self);
+        self.restore_state(saved);
+        result
+    }
+
+    fn save_state(&self) -> ParserState {
+        ParserState {
+            scanner: self.scanner.save(),
+            token: self.token,
+            token_value: self.token_value.clone(),
+            diagnostics: self.diagnostics.len(),
+            nodes: self.nodes.len(),
+        }
+    }
+
+    fn restore_state(&mut self, saved: ParserState) {
+        self.scanner.restore(saved.scanner);
+        self.token = saved.token;
+        self.token_value = saved.token_value;
+        self.diagnostics.truncate(saved.diagnostics);
+        // Nodes registered during the abandoned attempt stay in the table but
+        // are unreachable from the tree. Truncating is safe only because ids are
+        // handed out sequentially and nothing else holds one yet.
+        self.nodes.truncate(saved.nodes);
     }
 
     /// Enter a nested construct, refusing past [`MAX_DEPTH`].
@@ -537,6 +569,18 @@ impl<'a> Parser<'a> {
             start,
         )
     }
+}
+
+/// Everything [`Parser::look_ahead`] and [`Parser::try_parse`] must put back.
+///
+/// The diagnostic and node counts are lengths rather than saved contents: both
+/// vectors only grow during a speculative attempt, so truncating restores them.
+struct ParserState {
+    scanner: tsr_scanner::ScannerState,
+    token: Token,
+    token_value: Option<String>,
+    diagnostics: usize,
+    nodes: usize,
 }
 
 /// Capture the scanner's decoded value, if it differs from the raw text.

@@ -18,12 +18,31 @@ pub const INFERRED_TYPES_CONTAINING_FILE: &str = "__inferred type names__.ts";
 
 /// A `paths`/`typesVersions` key: literal text with at most one `*`
 /// (`core.Pattern`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pattern {
     /// The key as written.
     pub text: String,
     /// Where the `*` is, or `None` for an exact match.
     pub star_index: Option<usize>,
+}
+
+impl Default for Pattern {
+    /// The "no pattern" value, which is upstream's Go zero value.
+    ///
+    /// Not derived, and the difference is load-bearing. Upstream's `StarIndex`
+    /// is an `int` where `-1` means "exact match", so its *zero value* is
+    /// `{Text: "", StarIndex: 0}` — which `IsValid` rejects, because `0 < 0` is
+    /// false. Mapping `-1` onto `Option::None` makes the derived default
+    /// `{text: "", star_index: None}`, which reads as a valid *exact* pattern
+    /// matching the empty string.
+    ///
+    /// That is how `MatchPatternOrExact` returning "nothing matched" became a
+    /// valid match here, and `MatchedText` then asserted on a candidate that
+    /// does not match. It went unnoticed until `tsr-tsoptions` made `paths`
+    /// reachable, because no directive-configured case could set one.
+    fn default() -> Self {
+        Self { text: String::new(), star_index: Some(0) }
+    }
 }
 
 impl Pattern {
@@ -38,9 +57,9 @@ impl Pattern {
                 Self { text: pattern.to_string(), star_index: Some(star) }
             }
             None => Self { text: pattern.to_string(), star_index: None },
-            // Two stars: upstream returns the zero value, whose `star_index` is 0
-            // and whose text is empty, and which `is_valid` rejects.
-            Some(_) => Self { text: String::new(), star_index: Some(0) },
+            // Two stars: not a pattern. Upstream returns the zero value, which
+            // `is_valid` rejects.
+            Some(_) => Self::default(),
         }
     }
 

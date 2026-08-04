@@ -1,6 +1,6 @@
 [package]
-name = "tsr-compiler"
-description = "The Program: a set of files bound together under one set of compiler options"
+name = "tsr-tsoptions"
+description = "Reading tsconfig.json into compiler options and a file list: tsgo's internal/tsoptions"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,18 +10,10 @@ authors.workspace = true
 
 [dependencies]
 tsr-ast = { workspace = true }
-tsr-binder = { workspace = true }
 tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }
 tsr-parser = { workspace = true }
 tsr-path = { workspace = true }
-tsr-module = { workspace = true }
-tsr-tsoptions = { workspace = true }
-rayon = { workspace = true }
-rustc-hash = { workspace = true }
-self_cell = { workspace = true }
-
-[dev-dependencies]
 tsr-vfs = { workspace = true }
 
 [lints]

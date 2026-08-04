@@ -68,7 +68,7 @@ already emitted:
 
 Type-before-module is the one rule that is not "source order", and it is why a
 `/// <reference types="node" />` in a file always precedes that file's imports in
-a baseline. Swapping the two costs 5 of the 76 conformance cases.
+a baseline. Swapping the two costs 5 of the 96 conformance cases.
 
 Root tasks are walked in order, and the synthetic `types`/`@types` task is
 appended **after** every root file — which is why every automatic type directive
@@ -90,7 +90,7 @@ or `@types` auto-discovery. There is no third source.
 
 ### What is *not* a module reference
 
-Three corpus cases are baselined with an **empty** trace, and each is a distinct
+Five corpus cases are baselined with an **empty** trace, and each is a distinct
 way to be wrong here. They are assertions, not skips:
 
 - `compiler/moduleResolutionWithRequire` — `require("x")` in a `.ts` file. It is
@@ -102,6 +102,14 @@ way to be wrong here. They are assertions, not skips:
   literal.
 - `conformance/globalAugmentationModuleResolution` — `declare global`, whose
   name is an identifier and not a module specifier.
+- `compiler/pathMappingBasedModuleResolution1_node` — a `paths` table over a
+  single file that imports nothing. Configuring a mapping is not using one.
+- `conformance/typingsLookup2` — an `@types` package whose `package.json` says
+  `"typings": null`, which `@types` auto-discovery must not include.
+
+The last two became visible only when [`tsr-tsoptions`](tsconfig.md) landed:
+both configure themselves through a `tsconfig.json`, so both were previously
+skipped rather than asserted.
 
 Also not module references: `import M = N` (a namespace alias, not
 `require`), and a *relative* import written inside an ambient external module —
@@ -168,6 +176,9 @@ are in [ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md
 
 - Lib files are not loaded (they resolve nothing) — except under
   `libReplacement`, which does, and is not implemented (bd tsr-9or.5).
+- Root file names arrive from the caller. Turning a `tsconfig.json` into that
+  list is [`tsr-tsoptions`](tsconfig.md)'s job, as it is upstream's; the loader
+  takes `ParsedCommandLine.FileNames` either way.
 - No `importHelpers`/`tslib` synthetic import: no baseline has one.
 - No project references, redirects, or package deduplication — as with
   [`Program`](../adr/0017-program-before-tsconfig.md).
@@ -187,7 +198,9 @@ It runs this loader over each `@traceResolution` case and compares the lines tha
 describe a *request* — the opening `======== Resolving … ========` header and the
 `Resolving in … mode with conditions …` line — against the committed baseline.
 
-**76/76, 100.00%.** Not a rate that moved: it is a new number covering the half of
-the `.trace.json` oracle `module_resolution` was explicitly not judging. See
-[module-resolution.md](module-resolution.md) for the other half and how the two
-denominators relate.
+**96/96, 100.00%.** Not a rate that moved when the loader landed: it was a new
+number covering the half of the `.trace.json` oracle `module_resolution` was
+explicitly not judging. It went from 76 to 96 when
+[`tsr-tsoptions`](tsconfig.md) let both suites stop skipping tsconfig-configured
+cases. See [module-resolution.md](module-resolution.md) for the other half and
+how the two denominators relate.

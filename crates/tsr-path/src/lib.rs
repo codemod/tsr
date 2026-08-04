@@ -227,12 +227,18 @@ pub fn ensure_trailing_directory_separator(path: &str) -> String {
     if has_trailing_directory_separator(path) { path.to_string() } else { format!("{path}/") }
 }
 
-/// `path` with any trailing separator removed, unless it is the root
+/// `path` with one trailing separator removed
 /// (`tspath.RemoveTrailingDirectorySeparator`).
+///
+/// **The root is not special-cased**: `"/"` becomes `""`, exactly as upstream's
+/// does. An earlier version here kept the root, which reads as the safer
+/// choice and is not: glob compilation strips the separator from a pattern's
+/// first component precisely so it compares equal to the *empty* leading
+/// component a rooted path yields, and `"/" != ""` made every rooted include
+/// pattern match nothing.
 #[must_use]
 pub fn remove_trailing_directory_separator(path: &str) -> String {
-    let root_length = get_root_length(path);
-    if path.len() > root_length && has_trailing_directory_separator(path) {
+    if has_trailing_directory_separator(path) {
         return path[..path.len() - 1].to_string();
     }
     path.to_string()
@@ -287,6 +293,16 @@ pub fn get_base_file_name(path: &str) -> &str {
         Some(slash) => &trimmed[slash + 1..],
         None => trimmed,
     }
+}
+
+/// Whether the file name has an extension at all (`tspath.HasExtension`).
+///
+/// Purely lexical, and deliberately so: `a.b/c` has none and `.gitignore` has
+/// one. Module resolution, the file loader, and `include` glob compilation all
+/// branch on it before deciding whether a name needs an extension appended.
+#[must_use]
+pub fn has_extension(file_name: &str) -> bool {
+    get_base_file_name(file_name).contains('.')
 }
 
 /// A path's directory (`tspath.GetDirectoryPath`).

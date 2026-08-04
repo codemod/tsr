@@ -19,6 +19,7 @@ pub mod snapshot;
 pub mod suite;
 pub mod suites;
 pub mod symbols_baseline;
+pub mod trace_case;
 
 use std::path::{Path, PathBuf};
 

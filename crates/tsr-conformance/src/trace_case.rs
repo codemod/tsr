@@ -1,0 +1,432 @@
+//! Setting up a `@traceResolution` case, for both suites that judge one.
+//!
+//! `module_resolution` and `file_loader` judge two halves of the same 146
+//! `.trace.json` baselines ([ADR-0018](../../../docs/adr/0018-splitting-the-resolution-oracle.md),
+//! [ADR-0019](../../../docs/adr/0019-the-loader-gate-discharges-the-mode-circularity.md)),
+//! and everything *before* the judging is common: which cases upstream runs,
+//! what options they run under, what the file system looks like, and which units
+//! are root files.
+//!
+//! Keeping that in one place is not tidiness. The two suites' denominators are
+//! meant to differ by exactly one documented step, and two copies of the setup
+//! is how they would quietly stop differing by only that.
+//!
+//! Ported from `internal/testrunner/compiler_runner.go` (`newCompilerTest`),
+//! `internal/testrunner/test_case_parser.go` (the `tsconfig.json` branch), and
+//! `internal/testutil/harnessutil` (`CompileFilesEx`,
+//! `SetOptionsFromTestConfig`, `SkipUnsupportedCompilerOptions`).
+
+use tsr_core::{
+    CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, ScriptTarget, Tristate,
+};
+use tsr_module::types::ResolutionHost;
+use tsr_path::{extension::file_extension_is, get_normalized_absolute_path};
+use tsr_vfs::{FileSystem, InMemoryFileSystem};
+
+use crate::{CaseEntry, TestCase, case::TestFile};
+
+/// Where a case's files live when it does not say otherwise
+/// (`testrunner.srcFolder`).
+pub const SRC_FOLDER: &str = "/.src";
+
+/// A `@traceResolution` case, ready to run.
+pub struct TraceCase {
+    /// The options the compilation runs under.
+    pub options: CompilerOptions,
+    /// The directory relative names resolve against.
+    pub current_directory: String,
+    /// Whether the host distinguishes `A.ts` from `a.ts`.
+    pub use_case_sensitive_file_names: bool,
+    /// The file system the *compiler* sees.
+    pub host: TestHost,
+    /// The program's root files, in the order upstream passes them.
+    pub root_file_names: Vec<String>,
+    /// The committed trace, or empty when upstream ran the case and traced
+    /// nothing.
+    pub expected: String,
+}
+
+/// Either a case to judge or a reason not to.
+pub enum Setup {
+    /// Run it.
+    Ready(Box<TraceCase>),
+    /// Leave it out of the denominator, with a reason the snapshot prints.
+    Skip(String),
+}
+
+/// A `ResolutionHost` over an in-memory file system.
+pub struct TestHost {
+    /// The files.
+    pub fs: InMemoryFileSystem,
+    /// The directory relative names resolve against.
+    pub current_directory: String,
+}
+
+impl ResolutionHost for TestHost {
+    fn fs(&self) -> &dyn FileSystem {
+        &self.fs
+    }
+
+    fn current_directory(&self) -> &str {
+        &self.current_directory
+    }
+}
+
+/// Prepare a case, or say why it is not judged.
+///
+/// The skip reasons are the same for both suites except where a suite is
+/// genuinely less capable than the other; those belong to the suite, not here.
+#[must_use]
+pub fn prepare(case: &CaseEntry) -> Setup {
+    let Ok(parsed) = case.load() else {
+        return Setup::Skip("case could not be read".to_string());
+    };
+    if !parsed.options.contains_key("traceresolution") {
+        return Setup::Skip(
+            "case does not set @traceResolution, so upstream records no trace".to_string(),
+        );
+    }
+
+    let current_directory = parsed.current_directory.as_deref().map_or_else(
+        || SRC_FOLDER.to_string(),
+        |dir| get_normalized_absolute_path(dir, SRC_FOLDER),
+    );
+    let use_case_sensitive_file_names = parsed
+        .options
+        .get("usecasesensitivefilenames")
+        .is_none_or(|value| !value.eq_ignore_ascii_case("false"));
+
+    let Compilation { options, units, root_file_names } =
+        compilation(&parsed, &current_directory, use_case_sensitive_file_names);
+
+    // Upstream's own skip predicate, run on the *merged* options — which is why
+    // it could not be evaluated for a tsconfig-configured case until this crate
+    // existed.
+    if let Some(reason) = upstream_skip_reason(&options) {
+        return Setup::Skip(format!("upstream skips this case: {reason}"));
+    }
+
+    let expected = if let Ok(expected) = std::fs::read_to_string(case.baseline_path("trace.json")) {
+        expected
+    } else {
+        if case.baselines.has_variant(case.stem(), "trace.json") {
+            return Setup::Skip("configuration-varied trace baselines (bd tsr-bb4.1)".to_string());
+        }
+        // Not skipped and no baseline means upstream ran the case and traced
+        // *nothing*: `baseline.Run` deletes the reference file when the content
+        // is `NoContent`.
+        String::new()
+    };
+
+    Setup::Ready(Box::new(TraceCase {
+        host: TestHost {
+            fs: file_system(&units, &parsed, &current_directory, use_case_sensitive_file_names),
+            current_directory: current_directory.clone(),
+        },
+        options,
+        current_directory,
+        use_case_sensitive_file_names,
+        root_file_names,
+        expected,
+    }))
+}
+
+/// What the harness decided to compile.
+struct Compilation {
+    options: CompilerOptions,
+    /// The case's units, minus the `tsconfig.json` one — which upstream deletes
+    /// from the list and never puts on the compiler's file system.
+    units: Vec<TestFile>,
+    root_file_names: Vec<String>,
+}
+
+/// Which units are root files, and under what options
+/// (`newCompilerTest` plus `CompileFilesEx`'s `programFileNames`).
+fn compilation(
+    case: &TestCase,
+    current_directory: &str,
+    use_case_sensitive_file_names: bool,
+) -> Compilation {
+    let config_index =
+        case.files.iter().position(|file| config_name_from_file_name(&file.name).is_some());
+
+    let Some(config_index) = config_index else {
+        let options = apply_test_directives(CompilerOptions::default(), case, current_directory);
+        let units = case.files.clone();
+        let root_file_names = root_files_without_a_config(case, &units, current_directory);
+        return Compilation { options, units, root_file_names };
+    };
+
+    // A tsconfig unit is parsed against a file system holding *every* unit,
+    // including itself, and is then removed from the compilation.
+    let config = &case.files[config_index];
+    let config_file_name = get_normalized_absolute_path(&config.name, current_directory);
+    let config_fs =
+        build_file_system(&case.files, case, current_directory, use_case_sensitive_file_names);
+    let parsed_config = tsr_tsoptions::parse_config_file(
+        &config_file_name,
+        &config.content,
+        tsr_path::get_directory_path(&config_file_name),
+        &config_fs,
+    );
+
+    let mut units = case.files.clone();
+    units.remove(config_index);
+
+    // Root files are the *intersection* of the config's file list with the
+    // case's units, in unit order — a `files` entry naming something the case
+    // does not declare is simply absent.
+    let root_file_names = units
+        .iter()
+        .map(|unit| get_normalized_absolute_path(&unit.name, current_directory))
+        .filter(|name| parsed_config.file_names.contains(name))
+        .filter(|name| !is_excluded_root_extension(name))
+        .collect();
+
+    // Directives are applied *over* the config, as `SetOptionsFromTestConfig`
+    // does to the cloned config options.
+    let options = apply_test_directives(parsed_config.compiler_options, case, current_directory);
+    Compilation { options, units, root_file_names }
+}
+
+/// Root files for a case with no `tsconfig.json`.
+///
+/// Upstream's heuristic on the *last* unit: if it uses `require(` or a
+/// `/// <reference path`, the case is assumed to pull the rest in by reference,
+/// so only that unit is a root and the others merely exist on disk.
+fn root_files_without_a_config(
+    case: &TestCase,
+    units: &[TestFile],
+    current_directory: &str,
+) -> Vec<String> {
+    let Some(last) = units.last() else { return Vec::new() };
+    let only_last = case.options.contains_key("noimplicitreferences")
+        || last.content.contains("require(")
+        || contains_path_reference(&last.content);
+
+    let selected: Vec<&TestFile> = if only_last { vec![last] } else { units.iter().collect() };
+    selected
+        .into_iter()
+        .map(|unit| get_normalized_absolute_path(&unit.name, current_directory))
+        .filter(|name| !is_excluded_root_extension(name))
+        .collect()
+}
+
+/// `.json` and `.tsbuildinfo` units are never root files
+/// (`harnessutil.CompileFilesEx`).
+fn is_excluded_root_extension(name: &str) -> bool {
+    file_extension_is(name, ".json") || file_extension_is(name, ".tsbuildinfo")
+}
+
+/// Upstream's `referencesRegex`, which is the literal pattern `reference\spath`.
+fn contains_path_reference(content: &str) -> bool {
+    content.match_indices("reference").any(|(index, _)| {
+        let rest = &content[index + "reference".len()..];
+        rest.starts_with(char::is_whitespace) && rest[1..].starts_with("path")
+    })
+}
+
+/// Which unit is the config (`harnessutil.GetConfigNameFromFileName`).
+fn config_name_from_file_name(name: &str) -> Option<&'static str> {
+    let base = tsr_path::get_base_file_name(name).to_ascii_lowercase();
+    match base.as_str() {
+        "tsconfig.json" => Some("tsconfig.json"),
+        "jsconfig.json" => Some("jsconfig.json"),
+        _ => None,
+    }
+}
+
+/// Assemble the case's units and symlinks into a file system.
+fn file_system(
+    units: &[TestFile],
+    case: &TestCase,
+    current_directory: &str,
+    use_case_sensitive_file_names: bool,
+) -> InMemoryFileSystem {
+    build_file_system(units, case, current_directory, use_case_sensitive_file_names)
+}
+
+fn build_file_system(
+    units: &[TestFile],
+    case: &TestCase,
+    current_directory: &str,
+    use_case_sensitive_file_names: bool,
+) -> InMemoryFileSystem {
+    let files = units
+        .iter()
+        .map(|file| {
+            (get_normalized_absolute_path(&file.name, current_directory), file.content.clone())
+        })
+        .collect::<Vec<_>>();
+    let symlinks = case
+        .symlinks
+        .iter()
+        .map(|(link, target)| {
+            (
+                get_normalized_absolute_path(link, current_directory),
+                get_normalized_absolute_path(target, current_directory),
+            )
+        })
+        .collect::<Vec<_>>();
+    InMemoryFileSystem::new(files, symlinks, use_case_sensitive_file_names)
+}
+
+/// Whether typescript-go's own harness would skip this case, and why
+/// (`harnessutil.SkipUnsupportedCompilerOptions`).
+///
+/// Reimplemented rather than inferred from an absent baseline: an absent file
+/// proves nothing on its own, and this project has been caught by that before.
+#[must_use]
+pub fn upstream_skip_reason(options: &CompilerOptions) -> Option<String> {
+    match options.module {
+        ModuleKind::AMD | ModuleKind::UMD | ModuleKind::System => {
+            return Some(format!("unsupported module kind {:?}", options.module));
+        }
+        _ => {}
+    }
+    // The big one: `node10` and `classic` resolution are not ported upstream at
+    // all, so every case that *asks* for them is skipped. Note this reads the
+    // raw field, as upstream does — the derived kind can never be either, since
+    // `GetModuleResolutionKind` falls through to bundler.
+    match options.module_resolution {
+        ModuleResolutionKind::Node10 | ModuleResolutionKind::Classic => {
+            return Some(format!(
+                "unsupported module resolution kind {}",
+                options.module_resolution
+            ));
+        }
+        _ => {}
+    }
+    if options.es_module_interop.is_false() {
+        return Some("esModuleInterop=false is unsupported".to_string());
+    }
+    if options.allow_synthetic_default_imports.is_false() {
+        return Some("allowSyntheticDefaultImports=false is unsupported".to_string());
+    }
+    if !options.base_url.is_empty() {
+        return Some(format!("unsupported baseUrl {}", options.base_url));
+    }
+    if !options.out_file.is_empty() {
+        return Some(format!("unsupported outFile {}", options.out_file));
+    }
+    if options.target == ScriptTarget::ES5 {
+        return Some("unsupported target ES5".to_string());
+    }
+    if options.always_strict.is_false() {
+        return Some("alwaysStrict=false is unsupported".to_string());
+    }
+    None
+}
+
+/// Apply the case's `// @name: value` directives over `base`
+/// (`harnessutil.SetOptionsFromTestConfig`).
+///
+/// Over, not instead of: a tsconfig-configured case may still carry directives,
+/// and upstream applies them to the options the config produced.
+#[must_use]
+pub fn apply_test_directives(
+    base: CompilerOptions,
+    case: &TestCase,
+    current_directory: &str,
+) -> CompilerOptions {
+    let get = |name: &str| case.options.get(name).map(String::as_str);
+    let tristate = |name: &str, base: Tristate| match get(name) {
+        Some(value) if value.eq_ignore_ascii_case("true") => Tristate::True,
+        Some(value) if value.eq_ignore_ascii_case("false") => Tristate::False,
+        _ => base,
+    };
+    let list = |name: &str| {
+        get(name).map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|part| !part.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+    };
+    // `rootDirs` and `typeRoots` are made absolute against the current directory
+    // before the resolver ever sees them.
+    let absolute_list = |name: &str| {
+        list(name).map(|values| {
+            values
+                .iter()
+                .map(|value| get_normalized_absolute_path(value, current_directory))
+                .collect::<Vec<_>>()
+        })
+    };
+    let absolute = |name: &str, base: String| {
+        get(name).map_or(base, |dir| get_normalized_absolute_path(dir, current_directory))
+    };
+
+    CompilerOptions {
+        target: get("target").and_then(ScriptTarget::parse).unwrap_or(base.target),
+        module: get("module").and_then(ModuleKind::parse).unwrap_or(base.module),
+        module_resolution: get("moduleresolution")
+            .and_then(parse_module_resolution)
+            .unwrap_or(base.module_resolution),
+        jsx: get("jsx").and_then(JsxEmit::parse).unwrap_or(base.jsx),
+        allow_js: tristate("allowjs", base.allow_js),
+        check_js: tristate("checkjs", base.check_js),
+        strict: tristate("strict", base.strict),
+        no_implicit_any: tristate("noimplicitany", base.no_implicit_any),
+        declaration: tristate("declaration", base.declaration),
+        es_module_interop: tristate("esmoduleinterop", base.es_module_interop),
+        allow_synthetic_default_imports: tristate(
+            "allowsyntheticdefaultimports",
+            base.allow_synthetic_default_imports,
+        ),
+        always_strict: tristate("alwaysstrict", base.always_strict),
+        lib_replacement: tristate("libreplacement", base.lib_replacement),
+        allow_arbitrary_extensions: tristate(
+            "allowarbitraryextensions",
+            base.allow_arbitrary_extensions,
+        ),
+        allow_non_ts_extensions: tristate("allownontsextensions", base.allow_non_ts_extensions),
+        trace_resolution: tristate("traceresolution", base.trace_resolution),
+        no_resolve: tristate("noresolve", base.no_resolve),
+        base_url: absolute("baseurl", base.base_url),
+        out_file: absolute("outfile", base.out_file),
+        type_roots: absolute_list("typeroots").or(base.type_roots),
+        types: list("types").or(base.types),
+        root_dirs: absolute_list("rootdirs").unwrap_or(base.root_dirs),
+        root_dir: absolute("rootdir", base.root_dir),
+        module_suffixes: list("modulesuffixes").unwrap_or(base.module_suffixes),
+        custom_conditions: list("customconditions").unwrap_or(base.custom_conditions),
+        resolve_json_module: tristate("resolvejsonmodule", base.resolve_json_module),
+        no_dts_resolution: tristate("nodtsresolution", base.no_dts_resolution),
+        resolve_package_json_exports: tristate(
+            "resolvepackagejsonexports",
+            base.resolve_package_json_exports,
+        ),
+        resolve_package_json_imports: tristate(
+            "resolvepackagejsonimports",
+            base.resolve_package_json_imports,
+        ),
+        preserve_symlinks: tristate("preservesymlinks", base.preserve_symlinks),
+        out_dir: absolute("outdir", base.out_dir),
+        declaration_dir: absolute("declarationdir", base.declaration_dir),
+        jsx_import_source: get("jsximportsource").map_or(base.jsx_import_source, str::to_string),
+        max_node_module_js_depth: get("maxnodemodulejsdepth")
+            .and_then(|value| value.parse().ok())
+            .or(base.max_node_module_js_depth),
+        // Not settable by a directive: these come from the config or nowhere.
+        paths: base.paths,
+        paths_base_path: base.paths_base_path,
+        config_file_path: base.config_file_path,
+        lib: base.lib,
+        no_lib: base.no_lib,
+        isolated_modules: base.isolated_modules,
+    }
+}
+
+fn parse_module_resolution(value: &str) -> Option<ModuleResolutionKind> {
+    Some(match value.to_ascii_lowercase().as_str() {
+        "classic" => ModuleResolutionKind::Classic,
+        "node" | "node10" => ModuleResolutionKind::Node10,
+        "node16" => ModuleResolutionKind::Node16,
+        "nodenext" => ModuleResolutionKind::NodeNext,
+        "bundler" => ModuleResolutionKind::Bundler,
+        _ => return None,
+    })
+}

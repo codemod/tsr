@@ -5,7 +5,7 @@
 [ADR-0004](../adr/0004-oxc-inspiration-not-dependency.md) and
 [ADR-0017](../adr/0017-program-before-tsconfig.md).
 
-**Status (2026-08-04):** 75/75 judgeable `.trace.json` baselines, 100.00%.
+**Status (2026-08-04):** 95/95 judgeable `.trace.json` baselines, 100.00%.
 
 ## What it is
 
@@ -55,9 +55,9 @@ Also deferred, with nothing depending on them yet:
 
 | Deferred | Where it lives upstream | Blocked on |
 |---|---|---|
-| The file loader — the walk that *requests* resolutions | `compiler/fileloader.go`, `compiler/filesparser.go` (1,358 lines) | needs `/// <reference />` pragma parsing, which `tsr-parser` does not do |
+
 | `GetEntrypointsFromPackageJsonInfo`, `loadEntrypointsFromExportMap` | `resolver.go` 2,143–2,368 | language-service auto-imports; no consumer |
-| Project-reference redirects | `GetCompilerOptionsWithRedirect` | needs `tsr-tsoptions` |
+| Project-reference redirects | `GetCompilerOptionsWithRedirect` | needs project references, which `tsr-tsoptions` does not read |
 | The typings-location extra pass | `tryResolveFromTypingsLocation` | needs an installed-typings host |
 
 ## Layout
@@ -116,19 +116,24 @@ The arithmetic, all of it asserted by
 ```text
 12,444  corpus cases
    155  set @traceResolution
-   109  have a .trace.json baseline
-    46  do not, in exactly three buckets:
-          23  upstream skips them by compiler option — mostly node10/classic
-              resolution, plus AMD/UMD/System modules, baseUrl, outFile, ES5
-          20  configure themselves with a tsconfig.json unit, so their options
-              are not in their directives (bd tsr-9or slice 3)
-           3  ran and traced nothing; baseline.Run deletes the reference file
+    95  have a plain .trace.json baseline   →   95 judged, 95 passed, 100.00%
+    60  do not, in exactly three buckets:
+          41  upstream skips them by compiler option — node10/classic
+              resolution, AMD/UMD/System modules, baseUrl, outFile, ES5
+          14  have only configuration-varied baselines, e.g.
+              `case(module=commonjs).trace.json` (bd tsr-bb4.1)
+           5  ran and traced nothing; baseline.Run deletes the reference file
               when the content is NoContent
-   109  baselined
-   -20  need tsconfig parsing
-   -14  have only configuration-varied baselines (bd tsr-bb4.1)
- =  75  judged   →   75 passed, 100.00%
 ```
+
+(146 `.trace.json` files exist: these 95, plus the configuration-varied ones,
+which are several files per case.)
+
+The `tsconfig-configured` bucket that used to sit here is gone. `tsr-tsoptions`
+reads those configs ([tsconfig.md](tsconfig.md)), so their **options are visible
+to upstream's own skip predicate** — which is why the skipped-by-option bucket
+grew from 23 to 41 and the empty-trace bucket from 3 to 5. Twenty of them are now
+judged, taking this suite from 75 to 95.
 
 **An absent baseline is not evidence on its own.** This project has been caught by
 that repeatedly, so `upstream_skip_reason` reimplements
@@ -157,11 +162,11 @@ Landed. It has its own suite, `file_loader`, over the same baselines, and its ow
 document — [file-loader.md](file-loader.md) — with the decisions in
 [ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md).
 
-**The 75 above did not move, and could not have**: this suite replays requests
-taken from the baseline, so no loader can change it. What changed is what it
-claims alongside. `file_loader` compares the requests themselves — specifier,
-containing file, order, and **mode** — and reaches 76/76. Together the two cover
-a `.trace.json` end to end, which neither does alone.
+**No loader can move the number above**: this suite replays requests taken from
+the baseline. What changed is what it claims alongside. `file_loader` compares
+the requests themselves — specifier, containing file, order, and **mode** — and
+reaches 96/96. Together the two cover a `.trace.json` end to end, which neither
+does alone.
 
 The mode is the part worth noting. ADR-0018 recorded a circularity it could not
 avoid: this suite reads each resolution's mode out of the baseline's own
@@ -174,19 +179,30 @@ discharged.
 The two denominators differ, by exactly one arithmetic step:
 
 ```text
-    75  module_resolution
-    +3  cases upstream traced nothing for; here that is an assertion, not a skip
-    -2  cases needing libReplacement, which resolves the bundled lib files
+    95  module_resolution
+    +5  cases upstream traced nothing for; here that is an assertion, not a skip
+    -4  cases needing libReplacement, which resolves the bundled lib files
         through the module resolver and which the loader cannot run (bd tsr-9or.5)
- =  76  file_loader   →   76 passed, 100.00%
+ =  96  file_loader   →   96 passed, 100.00%
 ```
 
 Any other difference between the two denominators is a bug in one of the suites,
-not a fact about the compiler.
+not a fact about the compiler. Everything *before* the judging — which cases
+upstream runs, under what options, over what file system, with which root files —
+is shared, in `crates/tsr-conformance/src/trace_case.rs`, so the two can only
+drift where a suite says it is less capable.
 
 ## Growing the number
 
-The next move: **`tsr-tsoptions`** (ADR-0017 slice 3). Gate: the 20
-tsconfig-configured trace cases here — which are the largest single skip bucket
-in *both* suites — and the 757 configuration-varied cases the other suites skip
-(bd tsr-bb4.1).
+What is left of the 146 baselines, and what each needs:
+
+1. **14 configuration-varied cases** (bd tsr-bb4.1). Their baselines live under
+   `case(module=commonjs).trace.json`, so judging them means running each case
+   once per configuration. A denominator change, and it affects the parser and
+   binder suites far more than these (757 cases there).
+2. **4 `libReplacement` cases** (bd tsr-9or.5), which need the bundled
+   `lib.*.d.ts` on the host so the lib reference chain can be walked.
+3. **41 cases upstream skips itself**, which will come back only if upstream
+   ports `node10`/`classic` resolution or AMD/UMD/System modules.
+
+Nothing here is blocked on this port any more.

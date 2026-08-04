@@ -329,7 +329,7 @@ JSDoc declarations. See [docs/architecture/binder.md](docs/architecture/binder.m
 [ADR-0017](docs/adr/0017-program-before-tsconfig.md).
 **Gate:** upstream module-resolution baselines pass (146 `.trace.json`).
 
-**Status (2026-08-04):** slices 1, 2 and 3 landed.
+**Status (2026-08-04):** complete — slices 1–4 landed.
 
 *Slice 1* — `tsr-path` (`tspath`), `CompilerOptions` in `tsr-core`, and
 `tsr-compiler` with a `Program` that parses and binds a set of files together,
@@ -358,9 +358,22 @@ between them is a whole `.trace.json`, which neither did alone. See
 [ADR-0019](docs/adr/0019-the-loader-gate-discharges-the-mode-circularity.md),
 which discharges ADR-0018's mode circularity.
 
-Still to do: `tsr-tsoptions` (slice 4), which unblocks the 20 tsconfig-configured
-trace cases — the largest skip bucket in both resolution suites — and the
-configuration-varied cases the other suites skip (bd tsr-bb4.1).
+*Slice 4* — **`tsr-tsoptions`**: `tsconfig.json` into `CompilerOptions` and a root
+file list, plus `ScriptKind::Json` in `tsr-parser` and the `include`/`exclude`
+glob engine in `tsr-vfs` (upstream's `internal/vfs/vfsmatch`). Both resolution
+suites stopped skipping tsconfig-configured cases: **`module_resolution`
+75 → 95/95** and **`file_loader` 76 → 96/96**, both 100.00%. It also made
+upstream's own skip predicate honest — `SkipUnsupportedCompilerOptions` now runs
+on merged options, so a `baseUrl` or `outFile` written in a config is seen. See
+[docs/architecture/tsconfig.md](docs/architecture/tsconfig.md) and
+[ADR-0020](docs/adr/0020-the-parser-reads-tsconfig.md).
+
+**Phase 3's gate is met** for every `.trace.json` baseline this port can reach.
+What is left of the 146 is accounted for by name: 14 configuration-varied
+(bd tsr-bb4.1, a harness change that affects the parser and binder far more),
+4 needing `libReplacement` (bd tsr-9or.5), and 41 that upstream skips itself
+because it has not ported `node10`/`classic` resolution or AMD/UMD/System
+modules.
 
 ### Phase 3.5 — First shippable artifact (no checker required)
 `tsr-dts` (isolatedDeclarations-style `.d.ts` emit) and syntax-only transforms.

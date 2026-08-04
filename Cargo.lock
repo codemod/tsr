@@ -226,6 +226,7 @@ dependencies = [
  "tsr-module",
  "tsr-parser",
  "tsr-path",
+ "tsr-tsoptions",
  "tsr-vfs",
 ]
 
@@ -243,6 +244,7 @@ dependencies = [
  "tsr-parser",
  "tsr-path",
  "tsr-scanner",
+ "tsr-tsoptions",
  "tsr-vfs",
 ]
 
@@ -297,6 +299,18 @@ dependencies = [
  "tsr-ast",
  "tsr-core",
  "tsr-diagnostics",
+]
+
+[[package]]
+name = "tsr-tsoptions"
+version = "0.1.0"
+dependencies = [
+ "tsr-ast",
+ "tsr-core",
+ "tsr-diagnostics",
+ "tsr-parser",
+ "tsr-path",
+ "tsr-vfs",
 ]
 
 [[package]]

@@ -268,9 +268,19 @@ pub type ResolutionMode = ModuleKind;
 /// resolution, and the trace records each substitution as it is tried — so a
 /// `HashMap` here would make the oracle unmatchable, not merely untidy. Small by
 /// construction (a handful of patterns), so a `Vec` scan is the right shape.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderedMap<V> {
     entries: Vec<(String, V)>,
+}
+
+impl<V> Default for OrderedMap<V> {
+    /// An empty map.
+    ///
+    /// Hand-written rather than derived: `derive(Default)` would demand
+    /// `V: Default`, which the value type of a config map has no reason to be.
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<V> OrderedMap<V> {
@@ -300,6 +310,19 @@ impl<V> OrderedMap<V> {
     #[must_use]
     pub fn contains_key(&self, key: &str) -> bool {
         self.entries.iter().any(|(k, _)| k == key)
+    }
+
+    /// Remove `key`, keeping the order of the rest.
+    ///
+    /// Wildcard file expansion needs it: a file found later can displace one
+    /// found earlier when it has a higher-priority extension.
+    pub fn remove(&mut self, key: &str) {
+        self.entries.retain(|(existing, _)| existing != key);
+    }
+
+    /// The values, in insertion order, consuming the map.
+    pub fn into_values(self) -> impl Iterator<Item = V> {
+        self.entries.into_iter().map(|(_, value)| value)
     }
 
     /// How many entries.
@@ -419,6 +442,16 @@ pub struct CompilerOptions {
     pub jsx_import_source: String,
     /// Load files whose extension TypeScript does not recognise.
     pub allow_non_ts_extensions: Tristate,
+    /// Resolve each lib file's name as an `@typescript/lib-*` module instead of
+    /// loading the bundled one.
+    pub lib_replacement: Tristate,
+    /// Synthesise a default import for a `CommonJS` module without one.
+    pub allow_synthetic_default_imports: Tristate,
+    /// Emit `"use strict"` in every file.
+    pub always_strict: Tristate,
+    /// Concatenate the output into one file. Present because upstream's test
+    /// harness skips every case that sets it; nothing here emits.
+    pub out_file: String,
     /// How far into `node_modules` a JavaScript file's imports are followed.
     /// `None` is upstream's zero, which is what makes a `.js` dependency's own
     /// imports invisible by default.
