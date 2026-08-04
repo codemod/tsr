@@ -14,10 +14,14 @@
 
 pub mod arena;
 pub mod index;
+pub mod options;
 pub mod side_table;
 pub mod span;
 
 pub use arena::Arena;
 pub use index::{Idx, IndexVec};
+pub use options::{
+    CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, ScriptTarget, Tristate,
+};
 pub use side_table::PagedTable;
 pub use span::{GetSpan, Span};

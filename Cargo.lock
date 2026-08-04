@@ -213,6 +213,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsr-compiler"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "rustc-hash",
+ "self_cell",
+ "tsr-ast",
+ "tsr-binder",
+ "tsr-core",
+ "tsr-diagnostics",
+ "tsr-parser",
+ "tsr-path",
+]
+
+[[package]]
 name = "tsr-conformance"
 version = "0.1.0"
 dependencies = [
@@ -220,6 +235,7 @@ dependencies = [
  "rayon",
  "tsr-ast",
  "tsr-binder",
+ "tsr-compiler",
  "tsr-core",
  "tsr-parser",
  "tsr-scanner",
@@ -251,6 +267,10 @@ dependencies = [
  "tsr-diagnostics",
  "tsr-scanner",
 ]
+
+[[package]]
+name = "tsr-path"
+version = "0.1.0"
 
 [[package]]
 name = "tsr-scanner"

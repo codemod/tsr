@@ -23,6 +23,7 @@ rayon = { workspace = true }
 tsr-ast = { workspace = true }
 tsr-scanner = { workspace = true }
 tsr-binder = { workspace = true }
+tsr-compiler = { workspace = true }
 tsr-parser = { workspace = true }
 tsr-core = { workspace = true }
 

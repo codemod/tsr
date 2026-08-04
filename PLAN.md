@@ -323,9 +323,18 @@ JSDoc declarations. See [docs/architecture/binder.md](docs/architecture/binder.m
 [ADR-0014](docs/adr/0014-flow-graph-representation.md) and
 [ADR-0016](docs/adr/0016-file-info-not-a-file-name.md).
 
-### Phase 3 — Module resolution & tsconfig
-`node16`/`nodenext`/`bundler`, path mapping, `tsoptions`, on `oxc_resolver`.
-**Gate:** upstream module-resolution baselines pass.
+### Phase 3 — Program, module resolution & tsconfig
+`node16`/`nodenext`/`bundler`, path mapping, `tsoptions`. Written here, not on
+`oxc_resolver` — [ADR-0004](docs/adr/0004-oxc-inspiration-not-dependency.md) and
+[ADR-0017](docs/adr/0017-program-before-tsconfig.md).
+**Gate:** upstream module-resolution baselines pass (146 `.trace.json`).
+
+**Status (2026-08-04):** slice 1 landed — `tsr-path` (`tspath`), `CompilerOptions`
+in `tsr-core`, and `tsr-compiler` with a `Program` that parses and binds a set of
+files together, addressable by canonical path. The binder conformance suite now
+runs through it. **The rate did not move (8,278/8,449), as recorded in ADR-0017:**
+binding is per-file upstream too, and what crosses files is resolution. Still to
+do: the resolver (slice 2) and `tsr-tsoptions` (slice 3).
 
 ### Phase 3.5 — First shippable artifact (no checker required)
 `tsr-dts` (isolatedDeclarations-style `.d.ts` emit) and syntax-only transforms.

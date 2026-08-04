@@ -1,0 +1,23 @@
+[package]
+name = "tsr-compiler"
+description = "The Program: a set of files bound together under one set of compiler options"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tsr-ast = { workspace = true }
+tsr-binder = { workspace = true }
+tsr-core = { workspace = true }
+tsr-diagnostics = { workspace = true }
+tsr-parser = { workspace = true }
+tsr-path = { workspace = true }
+rayon = { workspace = true }
+rustc-hash = { workspace = true }
+self_cell = { workspace = true }
+
+[lints]
+workspace = true

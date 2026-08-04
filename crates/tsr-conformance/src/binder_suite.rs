@@ -11,13 +11,14 @@
 //! model-independent — the baseline says nothing about how either side stores a
 //! symbol table, which matters because ours is deliberately not upstream's.
 //!
-//! **Multi-file cases are compared unit by unit.** Each baseline section names a
-//! unit, and each unit is bound on its own — which is not an approximation but
-//! the truth: there is no program and no cross-file linking yet, so a symbol
-//! declared in `a.ts` is not visible from `b.ts`. The baseline agrees, because
-//! the comparison already drops any symbol whose declarations live in another
-//! file. Before this, 1,153 cases — 13% of the corpus with `.symbols` baselines
-//! — were skipped outright.
+//! **Multi-file cases are bound as one program and compared unit by unit.** The
+//! case's units go into a [`tsr_compiler::Program`], and each baseline section is
+//! then compared against the file it names. Comparing per unit is not an
+//! approximation but the truth: binding is per-file upstream too, and what
+//! crosses files is *resolution*, which the checker does. So the comparison still
+//! drops any symbol whose declarations live in another file. Before multi-file
+//! cases were compared at all, 1,153 — 13% of the corpus with `.symbols`
+//! baselines — were skipped outright.
 //!
 //! It does **not** yet test resolution: which *occurrence* binds to which symbol.
 //! The baseline has that, but the occurrence's own position is implicit in the
@@ -102,14 +103,29 @@ impl Suite for BinderSymbols {
             Err(err) => return Outcome::Failed { reason: format!("{err:#}") },
         };
 
-        // Each baseline section describes one unit, and each unit is bound on its
-        // own — which is not a limitation here but the truth: there is no program
-        // and no cross-file linking yet, so a symbol declared in `a.ts` is simply
-        // not visible from `b.ts`. The baseline agrees, because the comparison
-        // below already drops any symbol whose declarations live in another file.
+        // Each baseline section describes one unit. The units are bound together
+        // as one program, but compared one at a time, because that is what the
+        // baseline is: per file. A symbol declared in `a.ts` is still not visible
+        // from `b.ts` — resolving across files is the checker's, not the
+        // binder's — and the comparison below drops any symbol whose declarations
+        // live elsewhere.
         let mut missing = Vec::new();
         let mut compared = 0usize;
         let mut unparsable = 0usize;
+
+        // Every unit of the case, bound together as one program. The comparison
+        // below is still per file — the baseline is written per file — but the
+        // files now exist in one object rather than one at a time, which is what
+        // cross-file resolution will need.
+        let program = tsr_compiler::Program::new(tsr_compiler::ProgramOptions {
+            files: parsed
+                .files
+                .iter()
+                .filter(|unit| crate::scanner_suite::is_typescript_unit(&unit.name))
+                .map(|unit| (unit.name.clone(), unit.content.clone()))
+                .collect(),
+            ..Default::default()
+        });
 
         for expected_file in &expected_files {
             let Some(unit) =
@@ -120,66 +136,61 @@ impl Suite for BinderSymbols {
             if !crate::scanner_suite::is_typescript_unit(&unit.name) {
                 continue;
             }
-
-            let arena = tsr_core::Arena::new();
-            let script_kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-            let result = tsr_parser::parse_with_script_kind(&arena, &unit.content, script_kind);
+            let Some(file) = program.source_file(&unit.name, "/") else { continue };
             // A file we cannot parse tells us nothing about the binder.
-            if !result.diagnostics.is_empty() {
+            if !file.diagnostics().is_empty() {
                 unparsable += 1;
                 continue;
             }
-            let bound = tsr_binder::bind(
-                result.source_file,
-                &result.nodes,
-                tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
-            );
 
             // One forward scan of the file, reused for every declaration position.
             let full_starts = symbols_baseline::FullStarts::scan(&unit.content);
 
-            // Which symbols share a declaration, so a `default` export can be
-            // displayed under the name its declaration was written with; see
-            // [`display_names`].
-            let mut names_by_declaration: std::collections::HashMap<tsr_ast::NodeId, Vec<&str>> =
-                std::collections::HashMap::new();
-            for (_, symbol) in bound.symbols().iter() {
-                if symbol.name == INTERNAL_DEFAULT {
-                    continue;
-                }
-                for declaration in &symbol.declarations {
-                    names_by_declaration.entry(*declaration).or_default().push(symbol.name);
-                }
-            }
-
-            // What we produced, keyed by *qualified* name.
-            let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
-                std::collections::HashMap::new();
-            for (id, symbol) in bound.symbols().iter() {
-                let mut declared = BTreeSet::new();
-                for declaration in &symbol.declarations {
-                    let span = result.nodes.span(*declaration);
-                    // Upstream reports the *full start*; see `symbols_baseline`.
-                    let pos = full_starts.of(&unit.content, span.start);
-                    let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
-                    declared.insert(line);
-                }
-                // Indexed under every dotted suffix, not just the full chain.
-                // Upstream prints the *shortest name accessible from the reference
-                // site*: a use of `m` inside `namespace M` prints `C.m`, while a use
-                // from outside prints `M.C.m` — same symbol, two spellings, and which
-                // one appears depends on a resolution we have no checker to redo.
-                // Accepting any suffix is the honest approximation; it weakens the
-                // test slightly, since `C.m` would also match a `C.m` nested
-                // somewhere else entirely.
-                for full in
-                    display_names(&bound, &result.nodes, id, &names_by_declaration, &unit.content)
-                {
-                    for offset in dotted_suffixes(&full) {
-                        ours.entry(full[offset..].to_string()).or_default().extend(&declared);
+            let ours = file.with_bound(|_source_file, bound| {
+                // Which symbols share a declaration, so a `default` export can be
+                // displayed under the name its declaration was written with; see
+                // [`display_names`].
+                let mut names_by_declaration: NamesByDeclaration<'_> =
+                    NamesByDeclaration::default();
+                for (_, symbol) in bound.symbols().iter() {
+                    if symbol.name == INTERNAL_DEFAULT {
+                        continue;
+                    }
+                    for declaration in &symbol.declarations {
+                        names_by_declaration.entry(*declaration).or_default().push(symbol.name);
                     }
                 }
-            }
+
+                // What we produced, keyed by *qualified* name.
+                let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
+                    std::collections::HashMap::new();
+                for (id, symbol) in bound.symbols().iter() {
+                    let mut declared = BTreeSet::new();
+                    for declaration in &symbol.declarations {
+                        let span = file.nodes().span(*declaration);
+                        // Upstream reports the *full start*; see `symbols_baseline`.
+                        let pos = full_starts.of(&unit.content, span.start);
+                        let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
+                        declared.insert(line);
+                    }
+                    // Indexed under every dotted suffix, not just the full chain.
+                    // Upstream prints the *shortest name accessible from the reference
+                    // site*: a use of `m` inside `namespace M` prints `C.m`, while a use
+                    // from outside prints `M.C.m` — same symbol, two spellings, and which
+                    // one appears depends on a resolution we have no checker to redo.
+                    // Accepting any suffix is the honest approximation; it weakens the
+                    // test slightly, since `C.m` would also match a `C.m` nested
+                    // somewhere else entirely.
+                    for full in
+                        display_names(bound, file.nodes(), id, &names_by_declaration, &unit.content)
+                    {
+                        for offset in dotted_suffixes(&full) {
+                            ours.entry(full[offset..].to_string()).or_default().extend(&declared);
+                        }
+                    }
+                }
+                ours
+            });
 
             // What upstream expects, deduplicated: the baseline repeats a symbol once
             // per occurrence, and a symbol is one fact however often it is used.
