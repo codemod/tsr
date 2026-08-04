@@ -1,0 +1,213 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+dts_reachable_target Summary:
+What a pass means: upstream emitted .d.ts for this case and no declaration in it needs inference, so a checker-free emitter could be aimed at it — an UPPER BOUND on what is achievable, not a pass rate, and not a claim that we emit anything
+Passed         : 575/1289 (44.61%)
+Failed         : 714
+Skipped        : 11155 (excluded from the denominator)
+
+  8061  skipped: the emit baseline contains no .d.ts section
+  2477  skipped: upstream recorded no .js emit baseline
+  617  skipped: upstream recorded no output for this case
+
+First 100 of 714 failures:
+compiler/accessorDeclarationEmitJs
+  needs inference: TS9009
+compiler/allowSyntheticDefaultImports1
+  needs inference: TS9010
+compiler/allowSyntheticDefaultImports10
+  needs inference: TS9007
+compiler/allowSyntheticDefaultImports4
+  needs inference: TS9010
+compiler/allowSyntheticDefaultImports9
+  needs inference: TS9007
+compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
+  needs inference: TS9010
+compiler/ambientConstLiterals
+  needs inference: TS9010
+compiler/ambientExportDefaultErrors
+  needs inference: TS9037
+compiler/amdLikeInputDeclarationEmit
+  needs inference: TS9007
+compiler/anonClassDeclarationEmitIsAnon
+  needs inference: TS9007 TS9021 TS9037
+compiler/anonymousClassDeclarationDoesntPrintWithReadonly
+  needs inference: TS9007
+compiler/argumentsPropertyNameInJsMode1
+  needs inference: TS9007 TS9011
+compiler/argumentsPropertyNameInJsMode2
+  needs inference: TS9007 TS9011
+compiler/argumentsReferenceInConstructor3_Js
+  needs inference: TS9009
+compiler/argumentsReferenceInConstructor4_Js
+  needs inference: TS9009
+compiler/argumentsReferenceInMethod1_Js
+  needs inference: TS9008
+compiler/argumentsReferenceInMethod2_Js
+  needs inference: TS9008
+compiler/argumentsReferenceInMethod3_Js
+  needs inference: TS9008 TS9009
+compiler/argumentsReferenceInMethod4_Js
+  needs inference: TS9008 TS9009
+compiler/argumentsReferenceInMethod5_Js
+  needs inference: TS9008
+compiler/argumentsReferenceInMethod6_Js
+  needs inference: TS9008
+compiler/argumentsReferenceInMethod7_Js
+  needs inference: TS9008
+compiler/arrayFlatNoCrashInferenceDeclarations
+  needs inference: TS9007
+compiler/bigintWithLib
+  needs inference: TS9010 TS9023
+compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
+  needs inference: TS9008
+compiler/checkMergedGlobalUMDSymbol
+  needs inference: TS9010
+compiler/checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1
+  needs inference: TS9007 TS9011
+compiler/checkingObjectWithThisInNamePositionNoCrash
+  needs inference: TS9008
+compiler/circularBaseTypes
+  needs inference: TS9007
+compiler/circularReferenceInImport
+  needs inference: TS9007
+compiler/classAccessorInitializationInferenceWithElementAccess1
+  needs inference: TS9012
+compiler/classExpressionInClassStaticDeclarations
+  needs inference: TS9022
+compiler/classNonUniqueSymbolMethodHasSymbolIndexer
+  needs inference: TS9008 TS9010 TS9038
+compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
+  needs inference: TS9021
+compiler/coAndContraVariantInferences
+  needs inference: TS9007
+compiler/commentsTypeParameters
+  needs inference: TS9007 TS9008
+compiler/commonSourceDirectory_dts
+  needs inference: TS9010
+compiler/computedEnumTypeWidening
+  needs inference: TS9007 TS9010 TS9012
+compiler/computedPropertyNameAndTypeParameterConflict
+  needs inference: TS9038
+compiler/computedPropertyNameWithImportedKey
+  needs inference: TS9010
+compiler/constructorPropertyJs
+  needs inference: TS9008 TS9011
+compiler/contextuallyTypedBooleanLiterals
+  needs inference: TS9010
+compiler/contextuallyTypedParametersWithInitializers1
+  needs inference: TS9007
+compiler/contextuallyTypedSymbolNamedProperties
+  needs inference: TS9010
+compiler/controlFlowAutoAccessor1
+  needs inference: TS9008 TS9012 TS9023
+compiler/correlatedUnions
+  needs inference: TS9007 TS9010
+compiler/declFileAliasUseBeforeDeclaration
+  needs inference: TS9007
+compiler/declFileClassWithStaticMethodReturningConstructor
+  needs inference: TS9008
+compiler/declFileEmitDeclarationOnly
+  needs inference: TS9008
+compiler/declFileEnumUsedAsValue
+  needs inference: TS9010
+compiler/declFileEnums
+  needs inference: TS9020
+compiler/declFileForClassWithMultipleBaseClasses
+  needs inference: TS9008 TS9013
+compiler/declFileForInterfaceWithOptionalFunction
+  needs inference: TS9011 TS9013
+compiler/declFileForInterfaceWithRestParams
+  needs inference: TS9011
+compiler/declFileForVarList
+  needs inference: TS9010
+compiler/declFileGenericType
+  needs inference: TS9007 TS9010
+compiler/declFileImportModuleWithExportAssignment
+  needs inference: TS9010
+compiler/declFileInternalAliases
+  needs inference: TS9010
+compiler/declFileModuleAssignmentInObjectLiteralProperty
+  needs inference: TS9013
+compiler/declFileModuleWithPropertyOfTypeModule
+  needs inference: TS9010
+compiler/declFileOptionalInterfaceMethod
+  needs inference: TS9013
+compiler/declFilePrivateMethodOverloads
+  needs inference: TS9013
+compiler/declFileRestParametersOfFunctionAndFunctionType
+  needs inference: TS9007 TS9011
+compiler/declFileTypeofClass
+  needs inference: TS9010
+compiler/declFileTypeofEnum
+  needs inference: TS9010
+compiler/declFileTypeofFunction
+  needs inference: TS9007 TS9010
+compiler/declFileTypeofInAnonymousType
+  needs inference: TS9013
+compiler/declFileTypeofModule
+  needs inference: TS9010
+compiler/declFileWithErrorsInInputDeclarationFile
+  needs inference: TS9007 TS9010
+compiler/declInput
+  needs inference: TS9008
+compiler/declInput-2
+  needs inference: TS9008
+compiler/declInput3
+  needs inference: TS9008
+compiler/declInput4
+  needs inference: TS9008
+compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1
+  needs inference: TS9010
+compiler/declarationEmitAliasFromIndirectFile
+  needs inference: TS9037
+compiler/declarationEmitAliasInlineing
+  needs inference: TS9010
+compiler/declarationEmitAnyComputedPropertyInClass
+  needs inference: TS9008 TS9038
+compiler/declarationEmitBindingPatterns
+  needs inference: TS9007 TS9010 TS9011
+compiler/declarationEmitBindingPatternsUnused
+  needs inference: TS9007 TS9008 TS9013
+compiler/declarationEmitBundlerConditions
+  needs inference: TS9007 TS9010
+compiler/declarationEmitClassMemberWithComputedPropertyName
+  needs inference: TS9010
+compiler/declarationEmitClassMixinLocalClassDeclaration
+  needs inference: TS9021
+compiler/declarationEmitClassSetAccessorParamNameInJs
+  needs inference: TS9009
+compiler/declarationEmitClassSetAccessorParamNameInJs2
+  needs inference: TS9009
+compiler/declarationEmitClassSetAccessorParamNameInJs3
+  needs inference: TS9009
+compiler/declarationEmitCommonJsModuleReferencedType
+  needs inference: TS9010
+compiler/declarationEmitComputedNameCausesImportToBePainted
+  needs inference: TS9010
+compiler/declarationEmitComputedNameConstEnumAlias
+  needs inference: TS9038
+compiler/declarationEmitComputedNameWithQuestionToken
+  needs inference: TS9008 TS9010 TS9038
+compiler/declarationEmitComputedNamesInaccessible
+  needs inference: TS9007
+compiler/declarationEmitComputedPropertyName1
+  needs inference: TS9010
+compiler/declarationEmitComputedPropertyNameEnum1
+  needs inference: TS9015
+compiler/declarationEmitComputedPropertyNameEnum2
+  needs inference: TS9015
+compiler/declarationEmitComputedPropertyNameEnum3
+  needs inference: TS9015
+compiler/declarationEmitComputedPropertyNameSymbol1
+  needs inference: TS9010 TS9015
+compiler/declarationEmitComputedPropertyNameSymbol2
+  needs inference: TS9010 TS9015
+compiler/declarationEmitConstantNoWidening
+  needs inference: TS9012
+compiler/declarationEmitCrossFileCopiedGeneratedImportType
+  needs inference: TS9016
+compiler/declarationEmitCrossFileImportTypeOfAmbientModule
+  needs inference: TS9010
+compiler/declarationEmitDefaultExport3
+  needs inference: TS9007

@@ -76,17 +76,40 @@ pub struct ParsedFile {
 unsafe impl Send for ParsedFile {}
 
 impl ParsedFile {
-    /// Parse `source`, taking ownership of it.
+    /// Parse `source` as TypeScript, taking ownership of it.
+    ///
+    /// Use [`ParsedFile::parse_with_script_kind`] for `.tsx` and `.json`, where the
+    /// dialect changes what the text means.
     #[must_use]
     pub fn parse(source: String) -> Self {
+        Self::parse_with_script_kind(source, crate::ScriptKind::TypeScript)
+    }
+
+    /// Parse `source` in a given dialect, taking ownership of it.
+    ///
+    /// The dialect is not cosmetic: in `.tsx` a leading `<` opens JSX, and in `.ts`
+    /// the same character opens a type assertion. Parsing a `.tsx` file as
+    /// TypeScript therefore produces a tree that is wrong rather than merely
+    /// different, and any analysis run over it reports diagnostics about syntax
+    /// that is not there. Callers working from a file name should pair this with
+    /// [`ScriptKind::from_file_name`](crate::ScriptKind::from_file_name).
+    #[must_use]
+    pub fn parse_with_script_kind(source: String, script_kind: crate::ScriptKind) -> Self {
         let mut diagnostics = Vec::new();
         let mut nodes = NodeTable::new();
 
         let cell = Cell::new(Owner { arena: Arena::new(), source }, |owner| {
             // `source` is borrowed from the owner, so the AST's `&'a str`s point
             // into storage the cell keeps alive.
-            let mut parser = crate::Parser::new(&owner.arena, &owner.source);
-            let source_file = parser.parse_source_file();
+            let mut parser =
+                crate::Parser::with_script_kind(&owner.arena, &owner.source, script_kind);
+            // JSON is not a dialect of the statement grammar: a document is one
+            // value, so it needs its own entry point rather than a flag.
+            let source_file = if script_kind == crate::ScriptKind::Json {
+                parser.parse_json_text()
+            } else {
+                parser.parse_source_file()
+            };
             let (parsed_diagnostics, parsed_nodes, jsdoc) = parser.finish();
             diagnostics = parsed_diagnostics;
             nodes = parsed_nodes;

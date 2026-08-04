@@ -10,6 +10,7 @@ use tsr_conformance::{
     Corpus,
     binder_suite::BinderSymbols,
     dts_suite::IsolatedDeclarations,
+    dts_target_suite::DtsReachableTarget,
     loader_suite::FileLoaderRequests,
     module_suite::ModuleResolution,
     repo_root, run_suite,
@@ -51,6 +52,7 @@ fn main() -> Result<()> {
         Box::new(ModuleResolution),
         Box::new(FileLoaderRequests),
         Box::new(IsolatedDeclarations),
+        Box::new(DtsReachableTarget),
     ];
 
     let mut rows = Vec::new();

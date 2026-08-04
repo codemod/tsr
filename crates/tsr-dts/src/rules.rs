@@ -156,7 +156,14 @@ impl Checker<'_> {
                         .operator_token
                         .is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
                     && let Some(Expression::PropertyAccessExpression(target)) = &assignment.left
-                    && matches!(target.expression, Some(Expression::Identifier(_)))
+                    && let Some(Expression::Identifier(base)) = &target.expression
+                    // `module.exports = …` and `exports.x = …` are CommonJS export
+                    // assignment, not properties bolted onto a function. Found by
+                    // running this rule over the whole corpus rather than its
+                    // 15-case oracle: it was the only false-positive class among
+                    // the eight cases the expando rule blocked on its own.
+                    && base.text != "module"
+                    && base.text != "exports"
                 {
                     // TS9023 `Assigning_properties_to_functions_without_declaring_them_is_not_supported_with_isolatedDeclarations…`.
                     //

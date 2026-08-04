@@ -242,3 +242,107 @@ file*. This needs the `Program`, not the checker, so it is reachable earlier tha
 `TS9025` — but not from `analyze(file, nodes)`.
 
 Both are filed under `bd tsr-49v.2`.
+
+## The reachable target, and ADR-0021's falsifier
+
+[ADR-0021](../adr/0021-isolated-declarations-is-not-a-port.md) committed to a
+falsifier rather than to the work:
+
+> If `bd tsr-49v.3` finds that fewer than a few hundred of the 1,414
+> `@declaration` cases are annotated enough for a checker-free emitter, then the
+> artifact this phase ships is not usable on real TypeScript, and the phase should
+> be cut rather than built.
+
+Measured, by the `dts_reachable_target` suite:
+
+| | |
+|---|---|
+| Cases whose `.js` baseline embeds a `.d.ts` section | **1,289** |
+| Of those, **reachable** — no declaration needs inference | **575 (44.61%)** |
+| Blocked, needing inference somewhere | 714 |
+| Not judged: configuration-varied baselines | 611 |
+| Not judged: no `.js` emit baseline / no baseline at all | 3,094 |
+
+**The falsifier does not fire.** 575 is comfortably above "a few hundred", and it
+is 44% of the population rather than a tail. Phase 3.5 proceeds, and
+`bd tsr-49v.4` — the printer — is worth its cost.
+
+### The denominator is 1,289, not 1,894, and the difference is not a rounding
+
+`bd tsr-49v.3` and ADR-0021 both quote 1,894 `.js` baselines carrying a `.d.ts`
+section. That figure counts baseline **files**; this suite counts **cases with a
+plain baseline**, and the two differ by exactly the configuration-varied ones:
+
+```
+1,900 baseline files with a .d.ts/.d.mts/.d.cts section
+  611 of them configuration-varied — case(target=es5).js
+1,289 plain — the suite's denominator
+```
+
+The counts reconcile exactly, which is what validates the section reader against
+something other than itself. Two corrections fall out: the total is **1,900**, not
+1,894 — the earlier grep matched `.d.ts` only and missed 495 `.d.mts`/`.d.cts`
+sections — and the 611 varied cases are not unreachable, merely unjudged until
+`bd tsr-bb4.1` runs per-configuration.
+
+### Which direction the number is wrong in
+
+ADR-0021 calls this an upper bound, and for byte-matching it is: a reachable case
+is one where nothing needs *inferring*, not one we could emit correctly, because
+the text also depends on visibility decisions upstream makes through
+`IsDeclarationVisible`.
+
+But it is *also* an under-count of "cases needing no inference", and that pull is
+in the opposite direction. The analysis was validated on a 15-case oracle and is
+here applied to 1,289; its deliberately-approximate rules can over-report, and
+each false positive removes a case from the target. That is not hypothetical —
+running it corpus-wide immediately exposed one such class. The expando rule
+(`TS9023`) fired on `module.exports = […]`, which is CommonJS export assignment
+rather than a property bolted onto a function. Eight cases rested on that rule
+alone; excluding `module` and `exports` moved the target from 569 to 575, and cut
+`TS9023`'s reach from 43 cases to 21.
+
+So: an upper bound on what could be *emitted*, and a lower bound on what needs no
+*inference*. Both, at once, for different reasons.
+
+### What blocks the other 714
+
+Distinct `TS9xxx` codes across the blocked cases, by how many cases each appears
+in — 468 of the 714 are blocked by a single code:
+
+| Code | Cases | |
+|---|---:|---|
+| `TS9010` | 318 | variable needs an annotation |
+| `TS9007` | 289 | function return type |
+| `TS9008` | 124 | method return type |
+| `TS9011` | 90 | parameter type |
+| `TS9038` | 38 | computed property name |
+| `TS9013` | 26 | expression not inferable |
+| `TS9021` | 24 | extends clause is an expression |
+| `TS9023` | 21 | expando assignment |
+| others | ≤19 each | |
+
+This is what ordinary TypeScript looks like when it is not written for
+`isolatedDeclarations`, and it is the expected shape rather than a defect: the
+corpus was not written to this constraint. Nothing here is actionable for the
+emitter — these cases are correctly out of scope.
+
+### Mutations
+
+| Mutation | Result |
+|---|---|
+| Analysis silenced entirely | **1,289/1,289** — the analysis accounts for exactly the 714 |
+| `.d.mts`/`.d.cts` not counted as declarations | 570/1,283 — denominator loses 6 |
+| Every unit parsed as TypeScript, ignoring `.tsx` | 580/1,289 — **5 spurious passes** |
+| Header line treated as a section | no change |
+
+The third is worth keeping: mis-parsing a `.tsx` file as TypeScript makes the
+number go *up*, because a tree that is wrong rather than merely different can
+swallow the declarations that would have been analysed. A suite that reads higher
+when its input handling is broken is the kind of thing only a mutation finds.
+
+The fourth changes nothing, and that is a fact about the code rather than a hole
+in the suite: `parse` tests for a header before it tests for a section, so the
+guard inside `section_name` is unreachable through it. It is covered by a direct
+unit test instead — the same treatment the visibility pass got when the corpus
+could not see it.
