@@ -24,15 +24,16 @@ row look the same, and only one of them tells you where you are.
 suite                                    passed      rate   skipped
 corpus_ingest                       12444/12444   100.00%         0
 baseline_resolution                 12444/12444   100.00%         0
-parser_reachable_target              5648/11187    50.49%      1257
+parser_reachable_target              5031/10570    47.60%      1874
 scanner_termination                 12444/12444   100.00%         0
-scanner_clean_files                   5648/5648   100.00%      6796
-parser_typescript                     5376/5648    95.18%      6796
+scanner_clean_files                   5031/5031   100.00%      7413
+parser_typescript                     4999/5031    99.36%      7413
+binder_symbols                        7790/8455    92.13%      3989
 ```
 
 The first two measure the **harness**; `parser_reachable_target` measures the
-**size of the target**; the scanner suites and `parser_typescript` measure the
-**compiler**.
+**size of the target**; the scanner suites, `parser_typescript`, and
+`binder_symbols` measure the **compiler**.
 
 `scanner_clean_files` was the first suite to find real bugs — three of them, none
 visible by inspection. See [scanner.md](scanner.md). `parser_typescript` then found
@@ -249,4 +250,26 @@ bugs, no binder bugs.
 - **Resolution is not tested.** The baseline says which *occurrence* binds to which
   symbol; recovering an occurrence's position means reconstructing the
   interleaving of source and annotations. Filed.
-- **Multi-file cases are skipped** — 4,823 of them — pending per-file attribution.
+- **Multi-file cases are compared unit by unit.** Each baseline section names a
+  unit and each unit is bound alone, which is what the compiler currently is:
+  there is no program and no cross-file linking, and the comparison already drops
+  any symbol whose declarations live in another file. See
+  [binder.md](binder.md#the-denominator-changed-on-purpose) for what that did to
+  the denominator.
+- **A symbol may be accepted under more than one name.** Upstream prints
+  `checker.symbolToString(symbol, node.parent)` — the shortest name reachable
+  *from the reference site* — and choosing between the spellings is a resolution
+  we have no checker to redo. So the harness offers all of them and accepts a
+  match on any:
+  - every **dotted suffix** of the qualified name, because a use of `m` inside
+    `namespace M { export class C { m() {} } }` prints `C.m` and a use from
+    outside prints `M.C.m`;
+  - for a **default export**, both `default` and the name its declaration was
+    written with, because `getNameOfSymbolAsWritten`
+    (`internal/checker/nodebuilderimpl.go:978`) prints the declaration's name for
+    a reference in the same file and `default` for one from outside.
+    `export default function foo` therefore matches either, while
+    `export default class {}` has no written name and matches only `default`.
+
+  Each of these weakens the test — a suffix could match a same-named symbol
+  nested elsewhere — and that is the price of not having a checker yet.

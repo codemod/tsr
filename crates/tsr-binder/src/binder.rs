@@ -68,13 +68,17 @@ enum Destination {
     Locals,
     /// The container symbol's `members` — class, interface, enum, type literal.
     Members,
-    /// The container symbol's `exports` — module or namespace.
+    /// The container symbol's `exports` — module, namespace, or source file.
     ///
-    /// Reached by a namespace member: explicitly, with `export`, or implicitly
-    /// inside an ambient module. A *source file's* exports still route to
-    /// `Locals`, because telling a module from a script needs module resolution;
-    /// see `lib.rs`.
+    /// Reached by a namespace or module member: explicitly, with `export`, or
+    /// implicitly inside an ambient module.
     Exports,
+    /// The file's `global_exports` — `export as namespace N` only.
+    ///
+    /// Upstream's `file.GlobalExports`: a UMD module's global name is not an
+    /// export of the module, it is a *global* the module claims, so it cannot go
+    /// in either table without changing what the checker resolves.
+    GlobalExports,
 }
 
 /// A `label:` in scope, and where `break label` / `continue label` go.
@@ -110,6 +114,18 @@ pub(crate) struct Binder<'a, 'n> {
     block: NodeId,
     /// Symbol of the nearest container that owns members or exports.
     owner: Option<SymbolId>,
+    /// Whether the file being bound is an external module rather than a script.
+    ///
+    /// Upstream's `ast.IsExternalModule(b.file)`, which reads an indicator the
+    /// *parser* recorded; see [`is_external_module`] for why the binder computes
+    /// it instead.
+    is_module: bool,
+    /// Names a UMD module claims globally (`export as namespace N`).
+    ///
+    /// Upstream's `file.GlobalExports`. Separate from the module's exports
+    /// because it is a different question: what the file is called when loaded
+    /// as a script, not what it exports.
+    global_exports: SymbolTable<'a>,
 
     // ---- control flow ----
     flow: FlowStore,
@@ -180,6 +196,8 @@ impl<'a, 'n> Binder<'a, 'n> {
             container: NodeId::ZERO,
             block: NodeId::ZERO,
             owner: None,
+            is_module: false,
+            global_exports: SymbolTable::default(),
             flow,
             node_flow: vec![None; nodes.len()],
             current_flow: unreachable,
@@ -207,18 +225,42 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
     }
 
-    pub(crate) fn bind_source_file(mut self, file: &'a SourceFile<'a>) -> BindResult<'a> {
+    pub(crate) fn bind_source_file(
+        mut self,
+        file: &'a SourceFile<'a>,
+        file_name: &'a str,
+    ) -> BindResult<'a> {
         let root = Node::SourceFile(file);
         let root_id = root.node_id().expect("the source file is registered");
 
-        // A file's own symbol exists only for a module; a script's declarations
-        // are globals. Distinguishing the two needs module resolution, which does
-        // not exist, so this binds every file as a script and records the gap.
         self.container = root_id;
         self.block = root_id;
+
+        // Upstream's `bindSourceFileIfExternalModule`. A file's own symbol exists
+        // only for a *module*; a script's top-level declarations are globals and
+        // belong in the file's locals, with nothing to export them from.
+        self.export_context = is_declaration_file(file_name) && !file_has_export_declarations(file);
+        self.is_module = is_external_module(file);
+        if self.is_module {
+            // `bindSourceFileAsExternalModule` names the symbol after the path
+            // with its extension removed. Upstream wraps that in quotes, the way
+            // `declare module "fs"` is spelled; we store the value rather than a
+            // spelling, exactly as [`module_name`] does for an ambient module,
+            // because quoting would need an owned string where every symbol name
+            // here borrows from the source or the file name.
+            let symbol =
+                self.symbols.create(remove_file_extension(file_name), SymbolFlags::VALUE_MODULE);
+            let entry = self.symbols.get_mut(symbol);
+            entry.declarations.push(root_id);
+            entry.value_declaration = Some(root_id);
+            self.node_symbols[root_id.index()] = Some(symbol);
+            self.owner = Some(symbol);
+        }
+
         self.bind(root);
 
         BindResult {
+            global_exports: self.global_exports,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
             locals: self.locals,
@@ -1889,12 +1931,30 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// test in `declareModuleMember`. Two ways to be exported from a namespace —
     /// say so, or be inside an ambient one that exports everything implicitly.
     fn is_exported_from_container(&self, node: Node<'a>) -> bool {
-        if self.nodes.kind(self.container) != SyntaxKind::ModuleDeclaration {
-            // A source file's exports need the module-versus-script decision,
-            // which needs module resolution; see `lib.rs`.
-            return false;
+        match self.nodes.kind(self.container) {
+            SyntaxKind::ModuleDeclaration => self.export_context || self.has_export_modifier(node),
+            // `declareSourceFileMember` routes through `declareModuleMember` only
+            // for an external module. A script's top-level `export` — which the
+            // parser accepts and the checker rejects — has nothing to export
+            // from, so it stays a plain local.
+            SyntaxKind::SourceFile => {
+                self.is_module && (self.export_context || self.has_export_modifier(node))
+            }
+            _ => false,
         }
-        self.export_context || self.has_export_modifier(node)
+    }
+
+    /// Whether `node` is the thing a `export default …` exports.
+    ///
+    /// Upstream's `isDefaultExport` test in `declareSymbolEx`, which is what
+    /// renames the *export* half of the pair to `default` while the local half
+    /// keeps the name the source wrote.
+    fn is_default_export(node: Node<'a>) -> bool {
+        if modifiers_of(node).is_some_and(|m| has_modifier(m, SyntaxKind::DefaultKeyword)) {
+            return true;
+        }
+        matches!(node, Node::ExportSpecifier(specifier)
+            if specifier.name.map(export_name) == Some(INTERNAL_DEFAULT))
     }
 
     /// Whether `node` carries `export`, including on the statement that owns it.
@@ -1938,38 +1998,68 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         let (flags, destination) = self.classify(node, id)?;
-        let name = declaration_name(node)?;
+        let name = declaration_name(node);
 
-        // An exported namespace member gets **two** symbols, as upstream's
-        // `declareModuleMember` explains at length: a local, and an export on the
-        // namespace's own symbol. Both are needed — locals and exports of the
-        // same name are mutually exclusive within a container, so the local is
-        // what makes a duplicate a duplicate, while the export is what makes the
-        // member reachable as `M.X`. Creating only the export loses every
-        // unqualified reference to it, which is a 223-case regression measured
-        // 2026-08-04.
         if destination == Destination::Locals
             && self.owner.is_some()
             && self.is_exported_from_container(node)
         {
-            let local_owner = self.locals_owner(flags);
-            let export_value = if flags.intersects(SymbolFlags::VALUE) {
-                SymbolFlags::EXPORT_VALUE
-            } else {
-                SymbolFlags::empty()
-            };
-            self.declare_into(Destination::Locals, local_owner, name, export_value, id);
             let container = self.container;
-            let exported = self.declare_into(Destination::Exports, container, name, flags, id);
+            // An *export* of a default declaration is always called `default`,
+            // whatever the source called the declaration itself
+            // (`declareSymbolEx`). This is what merges the four declarations of
+            // `export default function f` / `export default interface F` into one
+            // symbol, and it is why the local half below keeps the written name.
+            let is_default = Self::is_default_export(node);
+            let export_name = if is_default { INTERNAL_DEFAULT } else { name? };
+
+            // An alias gets **one** symbol, not two: `export { x }` and
+            // `export import y = …` name something that already has a local, so
+            // a shadow local would be a second declaration of a name the source
+            // wrote once.
+            if flags.contains(SymbolFlags::ALIAS) {
+                let exported =
+                    self.declare_into(Destination::Exports, container, export_name, flags, id);
+                self.node_symbols[id.index()] = Some(exported);
+                return Some(exported);
+            }
+
+            // An exported member otherwise gets **two** symbols, as upstream's
+            // `declareModuleMember` explains at length: a local, and an export on
+            // the container's own symbol. Both are needed — locals and exports of
+            // the same name are mutually exclusive within a container, so the
+            // local is what makes a duplicate a duplicate, while the export is
+            // what makes the member reachable as `M.X`. Creating only the export
+            // loses every unqualified reference to it, which is a 223-case
+            // regression measured 2026-08-04.
+            //
+            // The exception is an *unnamed* default (`export default class {}`):
+            // there is no name to declare a local under, and upstream says so in
+            // as many words — "No local symbol for an unnamed default!".
+            if let Some(name) = name {
+                let local_owner = self.locals_owner(flags);
+                let export_value = if flags.intersects(SymbolFlags::VALUE) {
+                    SymbolFlags::EXPORT_VALUE
+                } else {
+                    SymbolFlags::empty()
+                };
+                self.declare_into(Destination::Locals, local_owner, name, export_value, id);
+            }
+
+            let exported =
+                self.declare_into(Destination::Exports, container, export_name, flags, id);
             // The export symbol is the node's symbol, so a class's members land
             // on the thing `M.C` names rather than on the shadow local.
             self.node_symbols[id.index()] = Some(exported);
             return Some(exported);
         }
 
+        let name = name?;
         let table_owner = match destination {
             Destination::Locals => self.locals_owner(flags),
-            Destination::Members | Destination::Exports => self.container,
+            Destination::Members | Destination::Exports | Destination::GlobalExports => {
+                self.container
+            }
         };
 
         let symbol = self.declare_into(destination, table_owner, name, flags, id);
@@ -2013,6 +2103,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             Destination::Exports => {
                 self.owner.and_then(|owner| self.symbols.get(owner).exports.get(name).copied())
             }
+            Destination::GlobalExports => self.global_exports.get(name).copied(),
         };
 
         let symbol = if let Some(existing) = existing {
@@ -2047,6 +2138,10 @@ impl<'a, 'n> Binder<'a, 'n> {
                         self.symbols.get_mut(owner).exports.insert(name, created);
                         self.symbols.get_mut(created).parent = Some(owner);
                     }
+                }
+                Destination::GlobalExports => {
+                    self.global_exports.insert(name, created);
+                    self.symbols.get_mut(created).parent = self.owner;
                 }
             }
             created
@@ -2175,6 +2270,16 @@ pub(crate) const INTERNAL_FUNCTION: &str = "__function";
 /// The name every index signature in a container shares, so that two of them
 /// merge into one symbol — which is what upstream's `__index` is for.
 pub(crate) const INTERNAL_INDEX: &str = "__index";
+/// The name every `export default` in a file shares.
+///
+/// Upstream's `ast.InternalSymbolNameDefault`. Unlike its neighbours it has no
+/// `__` prefix, because `import x from "m"` really does look `default` up by that
+/// name — it is well-known rather than unspellable. Sharing it is what merges
+/// `export default function f` with `export default interface F` into one symbol.
+pub(crate) const INTERNAL_DEFAULT: &str = "default";
+/// The name `export = x` files the module's whole value under
+/// (`ast.InternalSymbolNameExportEquals`).
+pub(crate) const INTERNAL_EXPORT_EQUALS: &str = "export=";
 
 /// The modifier list of a declaration that can carry `export`.
 fn modifiers_of(node: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
@@ -2214,6 +2319,90 @@ fn has_export_declarations(module: &tsr_ast::ModuleDeclaration<'_>) -> bool {
     block.statements.iter().any(|statement| {
         matches!(statement, Statement::ExportDeclaration(_) | Statement::ExportAssignment(_))
     })
+}
+
+/// Whether a file is an external module rather than a script.
+///
+/// Upstream's `isFileProbablyExternalModule`, which the *parser* runs and stores
+/// on the file as `ExternalModuleIndicator`. Our `SourceFile` node is generated
+/// from `ast.json` and carries no such field ([ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)
+/// keeps everything derived off the tree), and a side table with one entry per
+/// file would be a table for a single boolean, so the binder recomputes it. The
+/// scan is over top-level statements only, so it is a few dozen comparisons on a
+/// list the binder is about to walk anyway.
+///
+/// One indicator is **not** implemented: upstream also treats a file containing
+/// `import.meta` anywhere as a module (`getImportMetaIfNecessary`), which needs a
+/// full-tree walk under specific module settings the binder does not have.
+fn is_external_module(file: &SourceFile<'_>) -> bool {
+    file.statements.iter().any(|statement| {
+        let node = Node::from(*statement);
+        match node {
+            Node::ImportDeclaration(_) | Node::ExportAssignment(_) | Node::ExportDeclaration(_) => {
+                true
+            }
+            Node::ImportEqualsDeclaration(n) => matches!(
+                n.module_reference,
+                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+            ),
+            _ => modifiers_of(node).is_some_and(has_export),
+        }
+    })
+}
+
+/// Whether a file is a declaration file, and so an ambient context.
+///
+/// Upstream reads `file.IsDeclarationFile`, which the parser sets from the same
+/// suffix test. `.d.ts`, `.d.mts`, `.d.cts`, and the `.d.*.ts` form used by
+/// generated libraries all count.
+fn is_declaration_file(file_name: &str) -> bool {
+    let Some(stem) = file_name
+        .strip_suffix(".ts")
+        .or_else(|| file_name.strip_suffix(".mts"))
+        .or_else(|| file_name.strip_suffix(".cts"))
+    else {
+        return false;
+    };
+    // Split rather than `ends_with(".d")` so that `d.ts` — a file whose whole
+    // name is `d` — is not mistaken for a declaration file.
+    matches!(stem.rsplit_once('.'), Some((_, "d")))
+}
+
+/// The file name with its extension removed, as `tspath.RemoveFileExtension`.
+fn remove_file_extension(file_name: &str) -> &str {
+    match file_name.rfind('.') {
+        // A leading dot is the whole name (`.gitignore`), not an extension.
+        Some(dot) if dot > 0 => &file_name[..dot],
+        _ => file_name,
+    }
+}
+
+/// Whether a file contains an `export …` or `export =` statement.
+///
+/// The file-level half of `hasExportDeclarations`, which decides whether a
+/// declaration file is an *export context* — one where every declaration is
+/// implicitly exported because none of them says `export`.
+fn file_has_export_declarations(file: &SourceFile<'_>) -> bool {
+    file.statements
+        .iter()
+        .any(|s| matches!(s, Statement::ExportDeclaration(_) | Statement::ExportAssignment(_)))
+}
+
+/// Whether `export default x` re-exports something that already has a symbol.
+///
+/// Upstream's `ExpressionIsAlias`: an entity name (`x`, `a.b.c`) names an
+/// existing declaration, so `export default x` is an *alias* for it; anything
+/// else is a fresh value and the export is a property. Upstream also treats a
+/// `require(…)` call as an alias, which needs the `CommonJS` handling that is not
+/// ported.
+fn expression_is_alias(expression: Option<Expression<'_>>) -> bool {
+    match expression {
+        Some(Expression::Identifier(_)) => true,
+        Some(Expression::PropertyAccessExpression(access)) => {
+            expression_is_alias(access.expression)
+        }
+        _ => false,
+    }
 }
 
 /// Upstream: `isGeneratorFunctionExpression`.
@@ -2261,6 +2450,18 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
         | Node::NamespaceImport(_)
         | Node::ExportSpecifier(_)
         | Node::ImportEqualsDeclaration(_) => (S::ALIAS, D::Locals),
+
+        // `export = x` and `export default x` name the module itself rather than
+        // a declaration inside it, so they go straight into the module's exports
+        // under a well-known name (`bindExportAssignment`).
+        Node::ExportAssignment(assignment) => (
+            if expression_is_alias(assignment.expression) { S::ALIAS } else { S::PROPERTY },
+            D::Exports,
+        ),
+        // `export * as ns from "m"` exports one alias named `ns`.
+        Node::NamespaceExport(_) => (S::ALIAS, D::Exports),
+        // `export as namespace N` claims the global name `N` for a UMD module.
+        Node::NamespaceExportDeclaration(_) => (S::ALIAS, D::GlobalExports),
 
         _ => return None,
     })
@@ -2313,6 +2514,15 @@ fn declaration_name(node: Node<'_>) -> Option<&str> {
         Node::ImportEqualsDeclaration(n) => n.name.map(|i| i.text),
         Node::JsxAttribute(n) => n.name.and_then(jsx_attribute_name),
         Node::IndexSignatureDeclaration(_) => Some(INTERNAL_INDEX),
+        // `export = x` is the module's whole value; `export default x` is its
+        // default export. Neither has a name of its own, so upstream files both
+        // under a well-known one — which is also what makes `export default`
+        // merge across the declarations that share it.
+        Node::ExportAssignment(n) => {
+            Some(if n.is_export_equals { INTERNAL_EXPORT_EQUALS } else { INTERNAL_DEFAULT })
+        }
+        Node::NamespaceExport(n) => n.name.map(export_name),
+        Node::NamespaceExportDeclaration(n) => n.name.map(|i| i.text),
         _ => None,
     }
 }

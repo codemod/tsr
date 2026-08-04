@@ -1,6 +1,6 @@
 //! Parser behaviour.
 
-use tsr_ast::{Expression, Statement, SyntaxKind};
+use tsr_ast::{Expression, ModifierLike, Statement, SyntaxKind};
 use tsr_core::Arena;
 use tsr_parser::parse;
 
@@ -853,4 +853,51 @@ fn the_tree_can_actually_be_read_from_several_threads() {
 
     assert!(counts[0] > 20, "walked {} nodes, expected more", counts[0]);
     assert!(counts.iter().all(|c| *c == counts[0]), "threads disagreed: {counts:?}");
+}
+
+#[test]
+fn a_default_export_keeps_the_default_keyword_as_a_modifier() {
+    // `default` is the only thing that distinguishes this from `export class C`,
+    // and dropping it is silent: the parse still succeeds.
+    let arena = Arena::new();
+    for source in [
+        "export default class C {}",
+        "export default function f() {}",
+        "export default @dec class C {}",
+        // `export default abstract class C {}` belongs here and does not parse;
+        // filed as tsr-y4u.14.
+    ] {
+        let statements = statements(&arena, source);
+        let modifiers = match statements[0] {
+            Statement::ClassDeclaration(class) => class.modifiers,
+            Statement::FunctionDeclaration(function) => function.modifiers,
+            other => panic!("unexpected statement for {source:?}: {other:?}"),
+        };
+        let keywords: Vec<SyntaxKind> = modifiers
+            .iter()
+            .filter_map(|modifier| match modifier {
+                ModifierLike::Token(token) => Some(token.kind),
+                ModifierLike::Decorator(_) => None,
+            })
+            .collect();
+        assert!(
+            keywords.contains(&SyntaxKind::ExportKeyword)
+                && keywords.contains(&SyntaxKind::DefaultKeyword),
+            "{source:?} kept {keywords:?}"
+        );
+    }
+}
+
+#[test]
+fn a_umd_global_declaration_is_not_an_export_assignment() {
+    // `export as namespace N` and `export default N` mean different things; both
+    // used to parse to `ExportAssignment`.
+    let arena = Arena::new();
+    let statements = statements(&arena, "export as namespace N;");
+    match statements[0] {
+        Statement::NamespaceExportDeclaration(declaration) => {
+            assert_eq!(declaration.name.map(|name| name.text), Some("N"));
+        }
+        other => panic!("unexpected statement: {other:?}"),
+    }
 }

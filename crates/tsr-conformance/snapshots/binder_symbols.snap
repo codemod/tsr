@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 7751/8455 (91.67%)
-Failed         : 704
+Passed         : 7790/8455 (92.13%)
+Failed         : 665
 Skipped        : 3989 (excluded from the denominator)
 
   2321  skipped: no .symbols baseline
@@ -11,15 +11,13 @@ Skipped        : 3989 (excluded from the denominator)
   547  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 704 failures:
+First 100 of 665 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/aliasDoesNotDuplicateSignatures
   1 symbol(s): demo.d.ts: alias: declared on {3}, expected to include {0, 3}
 compiler/allowImportClausesToMergeWithTypes
   1 symbol(s): a.ts: zzz: declared on {0, 4}, expected to include {0, 4, 9}
-compiler/ambientExportDefaultErrors
-  2 symbol(s): foo.d.ts: Foo: no symbol; foo2.d.ts: Foo2: no symbol
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
@@ -48,8 +46,6 @@ compiler/checkJsObjectLiteralIndexSignatures
   2 symbol(s): [n]: no symbol; [s]: no symbol
 compiler/checkJsTypeDefNoUnusedLocalMarked
   2 symbol(s): something.js: exports: no symbol; something.js: module: no symbol
-compiler/checkMergedGlobalUMDSymbol
-  1 symbol(s): global.d.ts: THREE: declared on {5}, expected to include {0, 5}
 compiler/checkSuperCallBeforeThisAccessing9
   1 symbol(s): Derived.x: no symbol
 compiler/checkingObjectDefinePropertyOnFunctionNonexistentPropertyNoCrash1
@@ -68,8 +64,6 @@ compiler/classFieldSuperNotAccessibleJs
   2 symbol(s): YaddaBase.foo: no symbol; YaddaBase.roots: no symbol
 compiler/classImplementsImportedInterface
   1 symbol(s): T: declared on {6}, expected to include {0, 6}
-compiler/classMergedWithInterfaceMultipleBasesNoError
-  3 symbol(s): default: no symbol; default.handleIntersection: no symbol; default.observer: no symbol
 compiler/classNonUniqueSymbolMethodHasSymbolIndexer
   2 symbol(s): (Anonymous class)[a]: no symbol; A[a]: no symbol
 compiler/collisionExportsRequireAndInternalModuleAliasInGlobalFile
@@ -134,8 +128,6 @@ compiler/declarationEmitComputedPropertyNameSymbol2
   1 symbol(s): type.ts: [Foo.sym]: no symbol
 compiler/declarationEmitDefaultExportWithStaticAssignment
   3 symbol(s): index1.ts: Example.Foo: no symbol; index2.ts: Example.Foo: no symbol; index3.ts: Example.Bar: no symbol
-compiler/declarationEmitDoesNotUseReexportedNamespaceAsLocal
-  1 symbol(s): index.ts: Q: no symbol
 compiler/declarationEmitExpandoPropertyPrivateName
   1 symbol(s): b.ts: q.val: no symbol
 compiler/declarationEmitExpandoWithGenericConstraint
@@ -148,8 +140,6 @@ compiler/declarationEmitLateBoundAssignments2
   3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
 compiler/declarationEmitLateBoundJSAssignments
   1 symbol(s): foo.bar: no symbol
-compiler/declarationEmitMixinPrivateProtected
-  1 symbol(s): another.ts: default._onDispose: no symbol
 compiler/declarationEmitMultipleComputedNamesSameDomain
   2 symbol(s): Test[x]: no symbol; Test[y]: no symbol
 compiler/declarationEmitNameConflictsWithAlias
@@ -204,11 +194,21 @@ compiler/erasableSyntaxOnly
   2 symbol(s): index.ts: FineAlias: declared on {60}, expected to include {58, 60}; index.ts: NoGoodAlias: declared on {23}, expected to include {21, 23}
 compiler/erasableSyntaxOnlyDeclaration
   2 symbol(s): index.d.ts: FineAlias: declared on {43}, expected to include {41, 43}; index.d.ts: NoGoodAlias: declared on {12}, expected to include {10, 12}
-compiler/es6ExportDefaultClassDeclaration2
-  1 symbol(s): default.method: no symbol
 compiler/es6ModuleInternalImport
   2 symbol(s): a2: declared on {3}, expected to include {1, 3}; a4: declared on {7, 13}, expected to include {1, 7, 13}
 compiler/esModuleInteropDefaultImports
   2 symbol(s): b.ts: self.def: no symbol; b.ts: self.default: no symbol
 compiler/esModuleInteropImportTSLibHasImport
   2 symbol(s): index.ts: sayHello: no symbol; index.ts: username: no symbol
+compiler/esNextWeakRefs_IterableWeakMap
+  3 symbol(s): IterableWeakMap[Symbol.iterator]: no symbol; IterableWeakMap[Symbol.toStringTag]: no symbol; [Symbol.iterator]: no symbol
+compiler/escapedIdentifiers
+  3 symbol(s): \u0061: no symbol; arg\u0032: no symbol; arg\u0033: no symbol
+compiler/expandoFunctionBlockShadowing
+  1 symbol(s): Y.test: no symbol
+compiler/expandoFunctionContextualTypesJSDocInTs
+  1 symbol(s): Foo.bar: no symbol
+compiler/expandoFunctionContextualTypesJs
+  3 symbol(s): MyComponent2.defaultProps: no symbol; defaultProps: no symbol; exports: no symbol
+compiler/expandoFunctionContextualTypesNoValue
+  1 symbol(s): Foo.bar: no symbol

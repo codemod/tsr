@@ -127,10 +127,24 @@ impl Suite for BinderSymbols {
                 unparsable += 1;
                 continue;
             }
-            let bound = tsr_binder::bind(result.source_file, &result.nodes);
+            let bound = tsr_binder::bind(result.source_file, &result.nodes, &unit.name);
 
             // One forward scan of the file, reused for every declaration position.
             let full_starts = symbols_baseline::FullStarts::scan(&unit.content);
+
+            // Which symbols share a declaration, so a `default` export can be
+            // displayed under the name its declaration was written with; see
+            // [`display_names`].
+            let mut names_by_declaration: std::collections::HashMap<tsr_ast::NodeId, Vec<&str>> =
+                std::collections::HashMap::new();
+            for (_, symbol) in bound.symbols().iter() {
+                if symbol.name == INTERNAL_DEFAULT {
+                    continue;
+                }
+                for declaration in &symbol.declarations {
+                    names_by_declaration.entry(*declaration).or_default().push(symbol.name);
+                }
+            }
 
             // What we produced, keyed by *qualified* name.
             let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
@@ -152,11 +166,12 @@ impl Suite for BinderSymbols {
                 // Accepting any suffix is the honest approximation; it weakens the
                 // test slightly, since `C.m` would also match a `C.m` nested
                 // somewhere else entirely.
-                let full = qualified_name(&bound, &result.nodes, id);
-                for (offset, _) in std::iter::once((0, '.'))
-                    .chain(full.match_indices('.').map(|(i, _)| (i + 1, '.')))
-                {
-                    ours.entry(full[offset..].to_string()).or_default().extend(&declared);
+                for full in display_names(&bound, &result.nodes, id, &names_by_declaration) {
+                    for (offset, _) in std::iter::once((0, '.'))
+                        .chain(full.match_indices('.').map(|(i, _)| (i + 1, '.')))
+                    {
+                        ours.entry(full[offset..].to_string()).or_default().extend(&declared);
+                    }
                 }
             }
 
@@ -234,7 +249,7 @@ impl Suite for BinderSymbols {
     }
 }
 
-/// A symbol's name as the baseline writes it.
+/// A symbol's names as the baseline may write it.
 ///
 /// Upstream's baseline prints `checker.symbolToString(symbol, node.parent)` —
 /// the name as reachable *from the reference site*, not a raw parent walk. The
@@ -243,25 +258,62 @@ impl Suite for BinderSymbols {
 /// member of an unnamed class expression prints as `(Anonymous class).foo`,
 /// because upstream gives that one a display name. A parent walk that stops at
 /// the right places reproduces both without a checker.
-fn qualified_name(bound: &BindResult<'_>, nodes: &NodeTable, id: tsr_binder::SymbolId) -> String {
+fn display_names(
+    bound: &BindResult<'_>,
+    nodes: &NodeTable,
+    id: tsr_binder::SymbolId,
+    names_by_declaration: &NamesByDeclaration<'_>,
+) -> Vec<String> {
     let symbols = bound.symbols();
     let symbol = symbols.get(id);
-    let Some(parent) = symbol.parent else {
-        return symbol.name.to_string();
-    };
-    match anonymity_of(symbols.get(parent).name) {
-        // Unreachable by any name: the member is only ever written bare.
-        Anonymity::Unnameable => symbol.name.to_string(),
-        Anonymity::Displayed(fallback) => {
-            let container = assigned_name(bound, nodes, parent)
-                .map_or_else(|| fallback.to_string(), |named| qualified_name(bound, nodes, named));
-            format!("{container}.{}", symbol.name)
-        }
-        Anonymity::Named => {
-            format!("{}.{}", qualified_name(bound, nodes, parent), symbol.name)
-        }
+
+    // A default export is named `default`, but upstream prints it under the name
+    // its declaration was written with whenever the reference is in the same file
+    // (`getNameOfSymbolAsWritten`, `nodebuilderimpl.go:978`): `export default
+    // function foo` prints `foo`, while `export default class {}` has no name to
+    // print and stays `default`. Both spellings appear in the baselines, so both
+    // are offered — the same accommodation the dotted suffixes above make, and
+    // for the same reason: choosing between them is a resolution we have no
+    // checker to redo. The written name is recovered from the *local* symbol that
+    // shares the declaration, since that is where the source's spelling landed.
+    let mut own: Vec<&str> = vec![symbol.name];
+    if symbol.name == INTERNAL_DEFAULT
+        && let Some(written) = symbol.declarations.iter().find_map(|d| names_by_declaration.get(d))
+    {
+        own.extend(written);
     }
+
+    let containers: Vec<String> = match symbol.parent {
+        None => return own.iter().map(ToString::to_string).collect(),
+        Some(parent) => match anonymity_of(symbols.get(parent).name) {
+            // Unreachable by any name: the member is only ever written bare.
+            Anonymity::Unnameable => return own.iter().map(ToString::to_string).collect(),
+            Anonymity::Displayed(fallback) => assigned_name(bound, nodes, parent).map_or_else(
+                || vec![fallback.to_string()],
+                |named| display_names(bound, nodes, named, names_by_declaration),
+            ),
+            Anonymity::Named => display_names(bound, nodes, parent, names_by_declaration),
+        },
+    };
+
+    containers
+        .iter()
+        .flat_map(|container| own.iter().map(move |name| format!("{container}.{name}")))
+        .collect()
 }
+
+/// Every symbol's name, keyed by the declaration it was first declared on.
+///
+/// Upstream picks the first declaration that *has* a name
+/// (`getNameOfSymbolAsWritten`), which is why every declaration is indexed and
+/// not only the first. Used only to recover the written name of a `default`
+/// export; see
+/// [`display_names`].
+type NamesByDeclaration<'a> = std::collections::HashMap<tsr_ast::NodeId, Vec<&'a str>>;
+
+/// Upstream's `ast.InternalSymbolNameDefault`, the name every `export default`
+/// in a file shares.
+const INTERNAL_DEFAULT: &str = "default";
 
 /// The symbol of the variable an anonymous declaration is assigned to.
 ///
@@ -421,18 +473,68 @@ mod tests {
         assert_eq!(normalise_symbol_name("[foo()]"), "[foo()]");
     }
 
-    /// Bind a snippet and return the qualified name of the symbol called `name`.
-    fn qualified(source: &str, name: &str) -> String {
+    /// Bind a snippet and return every name the symbol called `name` displays as.
+    fn qualified_all(source: &str, name: &str) -> Vec<String> {
         let arena = tsr_core::Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty(), "the snippet should parse cleanly");
-        let bound = tsr_binder::bind(parsed.source_file, &parsed.nodes);
+        let bound = tsr_binder::bind(parsed.source_file, &parsed.nodes, "test.ts");
+        let mut names_by_declaration: NamesByDeclaration<'_> = NamesByDeclaration::default();
+        for (_, symbol) in bound.symbols().iter() {
+            if symbol.name == INTERNAL_DEFAULT {
+                continue;
+            }
+            for declaration in &symbol.declarations {
+                names_by_declaration.entry(*declaration).or_default().push(symbol.name);
+            }
+        }
         let (id, _) = bound
             .symbols()
             .iter()
             .find(|(_, symbol)| symbol.name == name)
             .unwrap_or_else(|| panic!("no symbol named {name}"));
-        qualified_name(&bound, &parsed.nodes, id)
+        display_names(&bound, &parsed.nodes, id, &names_by_declaration)
+    }
+
+    /// The single name a symbol displays as, for the cases that have only one.
+    fn qualified(source: &str, name: &str) -> String {
+        let names = qualified_all(source, name);
+        assert_eq!(names.len(), 1, "expected one spelling, got {names:?}");
+        names.into_iter().next().expect("just asserted non-empty")
+    }
+
+    #[test]
+    fn a_default_export_is_displayed_under_the_name_it_was_written_with() {
+        // Upstream's getNameOfSymbolAsWritten prints the declaration's own name
+        // for a reference in the same file, and `default` for one from outside.
+        // The baselines contain both, so both are offered.
+        // Qualified by the module symbol, which the suite's dotted-suffix
+        // indexing sees through.
+        let names = qualified_all("export default function foo() {}", "default");
+        assert!(names.contains(&"test.default".to_string()), "{names:?}");
+        assert!(names.contains(&"test.foo".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn an_unnamed_default_export_has_only_the_default_spelling() {
+        // No local symbol is created for it, so there is no written name to
+        // recover — which is also what upstream prints.
+        assert_eq!(qualified_all("export default class { m() {} }", "default"), ["test.default"]);
+    }
+
+    #[test]
+    fn a_default_export_merges_the_declarations_that_share_it() {
+        let arena = tsr_core::Arena::new();
+        let source = "export default function foo(): void;\nexport default interface Foo {}\n";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "the snippet should parse cleanly");
+        let bound = tsr_binder::bind(parsed.source_file, &parsed.nodes, "a.ts");
+        let (_, default) = bound
+            .symbols()
+            .iter()
+            .find(|(_, symbol)| symbol.name == "default")
+            .expect("the file exports a default");
+        assert_eq!(default.declarations.len(), 2);
     }
 
     #[test]

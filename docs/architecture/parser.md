@@ -114,6 +114,22 @@ tokens, so a naive bracket counter never balances `<K extends Key<U>>`, and
 `ReturnType<<T>() => number>` opens with one `<<`. Both directions need splitting;
 `greater_than_count` and `rescan_less_than` do it.
 
+## Two export forms that were parsed lossily
+
+Both were found from the binder side, and neither produced a diagnostic — a
+lossy parse of a valid program is silent by construction, which is what makes
+this class of bug worth naming.
+
+- **`export default class C {}` dropped the `default` keyword.** Only `export`
+  survived as a modifier, so nothing downstream could tell it from
+  `export class C {}` — and `default` is the *only* thing that distinguishes
+  them. It is now a modifier alongside `export`, as upstream has it, which is
+  what lets the binder file the export under the name `default`.
+- **`export as namespace N` was recorded as an `ExportAssignment`**, the same
+  node as `export default N`. Those mean different things: one claims a global
+  name for a UMD module, the other exports a value. It is now a
+  `NamespaceExportDeclaration` with `N` as its name.
+
 ## Not yet built
 
 - **The JSDoc reparser** — `@type` and `@param` promoted to real annotations in

@@ -11,8 +11,59 @@ The binder walks a parsed file once and produces two things:
 Ported from `internal/binder/binder.go` (2,773 lines) at the pinned commit. The
 flow half is roughly two thirds of that file.
 
-Crate: `crates/tsr-binder`. Entry point: `tsr_binder::bind(file, nodes) ->
-BindResult`.
+Crate: `crates/tsr-binder`. Entry point: `tsr_binder::bind(file, nodes, file_name)
+-> BindResult`.
+
+---
+
+## Module or script
+
+A file binds one of two ways, and the difference is not cosmetic.
+
+A **script**'s top-level declarations are globals: they go in the file's `locals`
+and there is nothing to export them from. An external **module** has a symbol of
+its own — named after its path with the extension removed — and an exported
+declaration is filed **twice**: a local carrying only `EXPORT_VALUE`, and an
+export on the module symbol carrying the real flags. That duplication is
+upstream's (`declareModuleMember`, `internal/binder/binder.go:373`) and it is not
+an optimisation to be undone; see the regression recorded below.
+
+A file is a module when a top-level statement is an `import`, an `export`, an
+`export =`, or carries the `export` modifier — upstream's
+`isFileProbablyExternalModule`, which the *parser* runs there and the binder runs
+here. Why here, and why the file name is a parameter rather than a field on the
+node, is [ADR-0015](../adr/0015-file-name-is-a-bind-input.md).
+
+**`export default` is what makes this visible.** The *export* half of a default
+export is always named `default`, whatever the declaration was called
+(`declareSymbolEx`, `binder.go:154`). That is the whole mechanism by which
+
+```ts
+export default function foo(value: number): number
+export default function foo(value: string): string
+export default function foo(value: string | number): string | number { return 1 }
+export default interface Foo {}
+```
+
+is **one symbol with four declarations** — `foo` and `Foo` are different names, so
+nothing else would merge them. The local halves keep the written names, which is
+what an unqualified `foo` inside the file resolves to. An *unnamed* default
+(`export default class {}`) gets no local at all: there is no name to file one
+under, and upstream says so in as many words.
+
+Three things came out of the parser rather than the binder, because they were
+never recorded:
+
+- `export default class C {}` **dropped the `default` modifier**, keeping only
+  `export`. Nothing downstream could then tell it from `export class C {}`.
+- `export as namespace N` was parsed as an `ExportAssignment`, which made it
+  indistinguishable from `export default N`. It is now a
+  `NamespaceExportDeclaration`, and its symbol goes in
+  `BindResult::global_exports` — upstream's `SourceFile.GlobalExports` — because
+  a UMD global is a name the module claims *as a script*, not something
+  `import { N }` may resolve.
+- `export = x` and `export default x` produced no symbol at all;
+  `ExportAssignment` now declares one under `export=` or `default`.
 
 ---
 
@@ -212,15 +263,20 @@ entire flow graph.
 
 Named here rather than left to be discovered. Each has a `bd` issue.
 
-- **Destructuring patterns declare no symbols** (`tsr-y4u.3`). `const { a, b } =
-  x` should declare two; `declaration_name` returns `None` for a binding
-  pattern. The *flow* side does handle patterns — one assignment node per name —
-  so narrowing is ready for the symbols when they arrive.
-- **Computed property names** (`tsr-y4u.3`). `{ [k]: 1 }` declares a late-bound
-  name.
-- **Module vs script, and `export`** (`tsr-y4u.3`). Every file binds as a
-  script, so top-level declarations are locals rather than exports of a module
-  symbol. Needs module resolution.
+- **Late-bound computed property names** (`tsr-y4u.3`). `{ ['a']: 1 }` declares
+  `a` statically, but `[k]` and `[Symbol.iterator]` name whatever the expression
+  evaluates to. Upstream files them under an internal `__computed` name and
+  resolves them in the checker; the binder declares nothing, because a symbol
+  under a guessed name would be unreachable by any reference. This is the single
+  largest remaining cause of `binder_symbols` failures and it is **blocked on the
+  checker**.
+- **`import.meta` as a module indicator** (`tsr-y4u.3`). A file whose only
+  module-ness is a mention of `import.meta` binds as a script. Detecting it needs
+  a full-tree walk under module settings the binder does not have; see
+  [ADR-0015](../adr/0015-file-name-is-a-bind-input.md).
+- **`export * from "m"`**. Upstream collects every star export in an `__export`
+  symbol; nothing is declared for one here. `export * as ns from "m"` *is*
+  declared.
 - **Optional chains** (`tsr-y4u.7`). The flow shapes are ported in full, but the
   parser records the `?.` token without setting `NodeFlags::OPTIONAL_CHAIN`, so
   `is_optional_chain` is always false and `a?.b` currently gets the graph of
@@ -253,8 +309,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 7,751/8,455
-(**91.67%**). See
+own `.symbols` baselines over the 12,444-case corpus. Currently 7,790/8,455
+(**92.13%**). See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -287,6 +343,7 @@ five biggest wins turned out to be in the harness.
 | index signatures (`__index`) and named function expressions | 92.04% | binder |
 | single-quoted names unquoted | 92.18% | harness |
 | **multi-file cases compared unit by unit** | 91.67% | harness — *denominator +834* |
+| module vs script: module symbol, `export` routing, `default` merging | 92.13% | binder + parser + harness |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -316,25 +373,45 @@ The rate fell half a point and that is the honest direction: it now describes 11
 more of the corpus, and 87% of the newly-tested cases pass. Quoting the old
 number against the new one would be comparing two different corpora.
 
-### What the remaining 704 failures are, and why this is near the ceiling
+### What module-vs-script actually cost and bought
 
-Classified case by case against the actual sources, not by name shape:
+**39 cases fixed, 0 broken**, measured by capturing every failure before and
+after and diffing the two lists by case name. The 39 are: 10 `export default`
+merging cases, 10 `export as namespace` cases that had no symbol at all, and 19
+elsewhere in the corpus that the export routing reached.
+
+**The prediction was 97, and it was wrong by a factor of two and a half.** The
+prior classification below attributed ~82 failures to "cross-file / module
+export" on the strength of the *names* in the failure text. Re-bucketing them
+against the sources shows most of that group is something else: 73 are
+`import X = Y` alias resolution, and a further block is the JavaScript binder
+(`module.exports`, expando assignments). Only about 20 were module-vs-script, and
+the rest of the 39 came from cases nobody had classified into that bucket. The
+lesson is the same one this section keeps recording, applied one level deeper:
+bucketing by *reason string* is still bucketing by name shape.
+
+### What the remaining 665 failures are, and why this is near the ceiling
+
+Classified against the actual sources:
 
 | Cause | Cases | Status |
 |---|---:|---|
-| Late-bound computed names | ~344 | **blocked on the checker** |
-| `import X = Y` alias resolution | ~84 | **blocked on a resolver** (`tsr-y4u.12`) |
-| Cross-file / module export | ~82 | blocked on module resolution |
-| Long tail, many distinct causes | ~89 | each below ~10 cases |
-| JavaScript binder features | ~45 | six sub-features, largest 16 cases |
-| `export default` symbol merging | ~15 | blocked on module-vs-script |
+| Late-bound computed names | ~371 | **blocked on the checker** |
+| `import X = Y` alias resolution | ~73 | **blocked on a resolver** (`tsr-y4u.12`) |
+| JavaScript binder features | ~27 | six sub-features (`tsr-y4u.13`) |
+| Module-shaped, various | ~38 | mostly cross-file, blocked on module resolution |
+| Long tail, many distinct causes | ~156 | each below ~10 cases |
 
-**Roughly 72% of what remains is hard-blocked**, and no tractable cause above
-~16 cases is left. That is the useful conclusion: further movement on this metric
-comes from the checker, the resolver, and module resolution — not from more
-binder work. The JavaScript features (`this.x = …`, `module.exports`, expando
-assignments, prototype assignments) are the largest genuinely-available block and
-are filed, but they are six separate features for 0.5 points.
+**Roughly 67% of what remains is hard-blocked** on the checker or a resolver, and
+no tractable cause above ~27 cases is left. Further movement on this metric comes
+from the checker, the resolver, and module resolution — not from more binder
+work.
+
+Two module-shaped things are known to be available and small. `export default x`
+where `x` is an identifier should display under `x`'s name, because upstream's
+`getNameOfDeclaration` returns the expression for an `ExportAssignment`; that is
+3 cases and needs the harness to reach a node it currently cannot (it has a
+`NodeTable`, not an id-to-node map). `export * from "m"` declares nothing.
 
 ### What was already right
 

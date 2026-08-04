@@ -33,10 +33,10 @@
 //!   expression evaluates to. The binder declares nothing for those: a symbol
 //!   under a guessed name would be unreachable by any reference. Upstream gives
 //!   them an internal `__computed` name and resolves them in the checker.
-//! - **Module vs script.** A *namespace* routes its exported members into its own
-//!   symbol, but a source file still binds as a script, so top-level declarations
-//!   are locals rather than exports of a module symbol. Telling the two apart
-//!   needs module resolution.
+//! - **`import.meta` as a module indicator.** A file with a top-level import or
+//!   export binds as a module; upstream also counts a file that mentions
+//!   `import.meta`, which needs a full-tree walk under module settings the binder
+//!   does not have. See [`binder::is_external_module`].
 //! - **Optional chains.** The flow shapes are ported in full, but the parser does
 //!   not set [`tsr_ast::NodeFlags::OPTIONAL_CHAIN`], so `a?.b` currently gets the
 //!   graph of `a.b` and loses the narrowing that the `?.` implies.
@@ -103,6 +103,7 @@ pub struct BindResult<'a> {
     symbols: SymbolStore<'a>,
     node_symbols: Vec<Option<SymbolId>>,
     locals: FxHashMap<NodeId, SymbolTable<'a>>,
+    global_exports: SymbolTable<'a>,
     diagnostics: Vec<Diagnostic>,
     flow: FlowStore,
     node_flow: Vec<Option<FlowId>>,
@@ -129,6 +130,14 @@ impl<'a> BindResult<'a> {
     #[must_use]
     pub fn locals(&self, container: NodeId) -> Option<&SymbolTable<'a>> {
         self.locals.get(&container)
+    }
+
+    /// The global names a UMD module claims with `export as namespace N`.
+    ///
+    /// Upstream's `SourceFile.GlobalExports`. Empty for everything else.
+    #[must_use]
+    pub fn global_exports(&self) -> &SymbolTable<'a> {
+        &self.global_exports
     }
 
     /// Duplicate-identifier and related errors, in discovery order.
@@ -227,7 +236,14 @@ impl<'a> BindResult<'a> {
 }
 
 /// Bind a parsed file.
+///
+/// `file_name` is what upstream reads as `b.file.FileName()`. Two decisions
+/// depend on it and on nothing else in the tree: an external module's own symbol
+/// is *named* after the path with its extension removed, and a `.d.ts` is an
+/// ambient context whose declarations are implicitly exported. It is a parameter
+/// rather than a field on [`SourceFile`] because that node is generated from
+/// `ast.json` and upstream's extra file-level fields are not part of it.
 #[must_use]
-pub fn bind<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable) -> BindResult<'a> {
-    binder::Binder::new(nodes).bind_source_file(file)
+pub fn bind<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable, file_name: &'a str) -> BindResult<'a> {
+    binder::Binder::new(nodes).bind_source_file(file, file_name)
 }

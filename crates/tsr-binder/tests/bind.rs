@@ -23,7 +23,7 @@ fn bind<'a>(arena: &'a Arena, source: &'a str) -> Bound<'a> {
     );
     // SAFETY-free: `result` borrows the same arena as `parsed`, and both live
     // as long as the caller's `arena`.
-    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes);
+    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes, "test.ts");
     Bound { parsed, result }
 }
 
@@ -378,7 +378,7 @@ fn a_jsx_attribute_declares_a_property_on_the_attributes_object() {
         tsr_parser::ScriptKind::Tsx,
     );
     assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
-    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes);
+    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes, "test.ts");
 
     // The attributes object is anonymous — no expression names it — so the
     // attributes hang off an internal symbol rather than off anything in scope.
@@ -391,4 +391,113 @@ fn a_jsx_attribute_declares_a_property_on_the_attributes_object() {
     let members = &result.symbols().get(attributes).members;
     assert!(members.contains_key("icon"), "`icon` is a property of the attributes");
     assert!(members.contains_key("label"), "`label` is too");
+}
+
+/// Bind under a chosen file name, which is what decides module-vs-script naming
+/// and whether the file is an ambient declaration file.
+fn bind_as<'a>(arena: &'a Arena, source: &'a str, file_name: &'a str) -> Bound<'a> {
+    let parsed = tsr_parser::parse(arena, source);
+    assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
+    let result = tsr_binder::bind(parsed.source_file, &parsed.nodes, file_name);
+    Bound { parsed, result }
+}
+
+impl Bound<'_> {
+    /// The file's own symbol, which exists only for an external module.
+    fn module_symbol(&self) -> Option<tsr_binder::SymbolId> {
+        self.result.symbol_of(self.root())
+    }
+
+    /// What the module exports under `name`.
+    fn export(&self, name: &str) -> Option<tsr_binder::SymbolId> {
+        let module = self.module_symbol()?;
+        self.result.symbols().get(module).exports.get(name).copied()
+    }
+}
+
+#[test]
+fn a_file_with_no_import_or_export_is_a_script() {
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "const x = 1;", "a.ts");
+    assert!(bound.module_symbol().is_none(), "a script has no symbol of its own");
+    // Its declarations are still locals, reachable by name.
+    assert!(bound.top_level("x").is_some());
+}
+
+#[test]
+fn a_top_level_export_makes_the_file_a_module_named_after_its_path() {
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "export const x = 1;", "src/a.ts");
+    let module = bound.module_symbol().expect("an external module has a symbol");
+    // Upstream: `"\"" + RemoveFileExtension(fileName) + "\""`. We store the value
+    // rather than the quoted spelling; see the binder's `bind_source_file`.
+    assert_eq!(bound.result.symbols().get(module).name, "src/a");
+    assert!(bound.export("x").is_some(), "`x` is an export of the module");
+}
+
+#[test]
+fn an_exported_declaration_gets_both_a_local_and_an_export() {
+    // The distinction upstream's `declareModuleMember` explains at length: an
+    // unqualified reference inside the file resolves to the local.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "export class C {}\n", "a.ts");
+    let local = bound.top_level("C").expect("the local half exists");
+    assert!(local.contains(SymbolFlags::EXPORT_VALUE), "the local is marked exported: {local:?}");
+    let exported = bound.export("C").expect("the export half exists");
+    assert!(bound.result.symbols().get(exported).flags.contains(SymbolFlags::CLASS));
+}
+
+#[test]
+fn every_default_export_in_a_file_shares_one_symbol() {
+    // `export default function f` and `export default interface F` merge, because
+    // the *export* is named `default` however the declaration was named.
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "export default function foo(): void;\nexport default interface Foo {}\n",
+        "a.ts",
+    );
+    let default = bound.export("default").expect("the file has a default export");
+    assert_eq!(bound.result.symbols().get(default).declarations.len(), 2);
+    // The local half keeps the name the source wrote.
+    assert!(bound.top_level("foo").is_some());
+    assert!(bound.top_level("Foo").is_some());
+}
+
+#[test]
+fn an_unnamed_default_export_has_no_local() {
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "export default class { m() {} }\n", "a.ts");
+    assert!(bound.export("default").is_some());
+    // "No local symbol for an unnamed default!" — there is no name to use.
+    assert_eq!(bound.top_level_names(), Vec::<&str>::new());
+}
+
+#[test]
+fn a_declaration_file_exports_everything_it_declares() {
+    // An ambient file with no `export` statement is an export context: upstream's
+    // `setExportContextFlag`.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "import \"./x\";\ndeclare var y: number;\n", "a.d.ts");
+    assert!(bound.export("y").is_some(), "implicitly exported");
+}
+
+#[test]
+fn a_umd_global_name_is_not_an_export() {
+    // `export as namespace N` claims a *global*; putting it in `exports` would
+    // make `import { N }` resolve.
+    let arena = Arena::new();
+    let bound =
+        bind_as(&arena, "export as namespace N;\nexport declare var y: number;\n", "a.d.ts");
+    assert!(bound.export("N").is_none(), "not an export");
+    assert!(bound.result.global_exports().contains_key("N"), "a global the module claims");
+}
+
+#[test]
+fn a_script_with_an_export_keyword_still_declares_a_local() {
+    // A `export` in a script is an error the checker reports; the binder must not
+    // lose the declaration over it.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "namespace M { export const x = 1; }", "a.ts");
+    assert!(bound.top_level("M").is_some());
 }

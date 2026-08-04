@@ -176,24 +176,22 @@ impl<'a> Parser<'a> {
     ) -> Statement<'a> {
         let modifiers_slice: &'a [ModifierLike<'a>] = &[];
 
-        // `export as namespace N;` declares a UMD global. It has no dedicated
-        // node here, so it is recorded as an export assignment of the name.
+        // `export as namespace N;` declares a UMD global — the name the module
+        // takes when it is loaded as a script rather than imported. It is not an
+        // export assignment: `export default N` and `export as namespace N` mean
+        // different things, and recording both as `ExportAssignment` made the
+        // binder file the UMD name under `default`.
         if self.at(SyntaxKind::AsKeyword) {
             self.next_token();
             self.expect(SyntaxKind::NamespaceKeyword);
             let name = self.parse_identifier();
             self.parse_semicolon();
             let node = self.finish_node(
-                ExportAssignment::new(
-                    modifiers_slice,
-                    false,
-                    None,
-                    Some(Expression::Identifier(name)),
-                ),
-                SyntaxKind::ExportAssignment,
+                NamespaceExportDeclaration::new(modifiers_slice, Some(name)),
+                SyntaxKind::NamespaceExportDeclaration,
                 start,
             );
-            return Statement::ExportAssignment(node);
+            return Statement::NamespaceExportDeclaration(node);
         }
 
         // `export = expr;`
@@ -212,11 +210,22 @@ impl<'a> Parser<'a> {
         // `export default …` — a declaration if one follows, otherwise an
         // expression.
         if self.at(SyntaxKind::DefaultKeyword) {
+            let default_start = self.pos();
             self.next_token();
+            // `default` is a *modifier* of the declaration it introduces, not
+            // punctuation the parser can drop: it is the only thing that
+            // distinguishes `export default function foo` from `export function
+            // foo`, and the binder needs it to file the export under `default`.
+            let default_token = self.alloc_token(
+                SyntaxKind::DefaultKeyword,
+                tsr_core::Span::new(default_start, self.pos()),
+            );
             // `export default @dec class {}` — decorators sit between.
             if self.at(SyntaxKind::AtToken) {
-                let decorators = self.parse_modifiers();
-                return self.parse_declaration_after_modifiers(start, &decorators);
+                let mut modifiers =
+                    vec![ModifierLike::Token(export_token), ModifierLike::Token(default_token)];
+                modifiers.extend(self.parse_modifiers());
+                return self.parse_declaration_after_modifiers(start, &modifiers);
             }
             if matches!(
                 self.token.kind,
@@ -229,7 +238,7 @@ impl<'a> Parser<'a> {
             ) {
                 return self.parse_declaration_after_modifiers(
                     start,
-                    &[ModifierLike::Token(export_token)],
+                    &[ModifierLike::Token(export_token), ModifierLike::Token(default_token)],
                 );
             }
             let expression = self.parse_assignment_expression();
