@@ -657,8 +657,15 @@ resolution *and* accessible-name computation. Neither is binder work. It is
 | Numeric name normalisation | ~5 | needs a *synthesised* name; see [ADR-0016](../adr/0016-file-info-not-a-file-name.md) |
 | Long tail, many distinct causes | ~46 | each below ~5 cases |
 
-Note also that **547 cases are skipped for parse errors** — a larger pool than
-the failures, and binder coverage the parser is currently hiding (`tsr-y4u.17`).
+**On the 553 cases skipped for parse errors**, which an earlier revision of this
+section called "binder coverage the parser is hiding": measured 2026-08-04, that
+was wrong in proportion. 562 unit-level failures are files **upstream also errors
+on** — the suite skips them under "a file we cannot parse tells us nothing about
+the binder", which is a rule about the harness, not a gap in the parser. Only 31
+are files upstream parses cleanly, and those are the same ones
+`parser_typescript` already counts. Recovering the first group means judging a
+unit that parses *with* errors against the symbols the baseline names, which is
+`tsr-y4u.17` and needs its own reasoning about what a skip means.
 
 Two module-shaped things are known to be available and small. `export default x`
 where `x` is an identifier should display under `x`'s name, because upstream's

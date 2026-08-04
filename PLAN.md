@@ -284,18 +284,44 @@ the comparison is against upstream rather than our own history.
 The AST model (§3.3) lands here and everything downstream inherits it.
 **Gate:** 100% of the corpus parses with byte-identical parse diagnostics vs. Go.
 
+**Status (2026-08-04):** `parser_typescript` is **99.36% over 5,031 cases** and
+both scanner suites are at 100%. The 32 remaining failures are classified by
+`cargo run -p tsr-conformance --example failure_classes` and tracked as
+`tsr-pum.8`; the largest single class is private names in call expressions
+(`this.#f()`), 10 cases.
+
+The gate is not met and cannot be by the parser alone: 5,539 cases *expect*
+diagnostics, and `.errors.txt` mixes syntactic with semantic ones, so which are
+the parser's is undecidable until the checker exists. The parser is therefore
+judged on 5,031 of 12,444 cases — see
+[docs/architecture/conformance.md](docs/architecture/conformance.md).
+
 ### Phase 2 — Binder
 Symbol tables, scopes, declaration merging, flow graph.
 **Gate:** symbol-table dumps match Go across the corpus (compare against oxc's
 `symbols_typescript` at 21.1% — this is harder than it looks).
 
-Symbols, scopes, and declaration merging landed 2026-08-03; the control-flow
-graph 2026-08-04. `binder_symbols` conformance is 91.67% over 8,455 cases
-(62.05% over 7,621 at the start of the day; the denominator grew when multi-file
-cases stopped being skipped). ~72% of what still fails is blocked on the checker,
-a resolver, or module resolution. Module-vs-script and the strict-mode diagnostics remain — see
-[docs/architecture/binder.md](docs/architecture/binder.md) and
-[ADR-0014](docs/adr/0014-flow-graph-representation.md).
+**Status (2026-08-04):** symbols, scopes, and declaration merging landed
+2026-08-03; the control-flow graph, module-vs-script and `export` routing, the
+JavaScript declaration forms (`module.exports`, `exports.x`, `this.x`, expando
+assignments), and late-bound `__computed` names all landed 2026-08-04.
+`binder_symbols` is **97.98% over 8,449 cases** (62.05% over 7,621 at the start of
+2026-08-04; the denominator grew by 834 when multi-file cases stopped being
+skipped, and shrank by 6 when the parser became more faithful about modifiers —
+both recorded in the architecture doc).
+
+Of the 171 that still fail, ~73 need the checker's accessible-name computation
+for `import X = Y`, ~34 need module resolution, and the rest is a tail below five
+cases apiece. Of the 553 cases skipped because our parser reports errors, **562 unit-level
+failures are cases upstream also errors on** — the suite's blanket "a file we
+cannot parse tells us nothing" rule, not a parser gap — and only **31 are files
+upstream parses cleanly**, which are the same ones `parser_typescript` already
+counts. Measured 2026-08-04; recovering the first group is a harness decision
+(`tsr-y4u.17`), not parser work. Still unbuilt in the binder: late *binding*,
+strict-mode diagnostics, JavaScript constructor functions, `export * from`, and
+JSDoc declarations. See [docs/architecture/binder.md](docs/architecture/binder.md),
+[ADR-0014](docs/adr/0014-flow-graph-representation.md) and
+[ADR-0016](docs/adr/0016-file-info-not-a-file-name.md).
 
 ### Phase 3 — Module resolution & tsconfig
 `node16`/`nodenext`/`bundler`, path mapping, `tsoptions`, on `oxc_resolver`.
