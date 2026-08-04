@@ -21,7 +21,8 @@ pub mod span;
 pub use arena::Arena;
 pub use index::{Idx, IndexVec};
 pub use options::{
-    CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, ScriptTarget, Tristate,
+    CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, OrderedMap, ResolutionMode,
+    ScriptTarget, Tristate,
 };
 pub use side_table::PagedTable;
 pub use span::{GetSpan, Span};

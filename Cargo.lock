@@ -237,8 +237,11 @@ dependencies = [
  "tsr-binder",
  "tsr-compiler",
  "tsr-core",
+ "tsr-module",
  "tsr-parser",
+ "tsr-path",
  "tsr-scanner",
+ "tsr-vfs",
 ]
 
 [[package]]
@@ -247,6 +250,7 @@ version = "0.1.0"
 dependencies = [
  "nonmax",
  "rustc-hash",
+ "tsr-path",
 ]
 
 [[package]]
@@ -255,6 +259,16 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "tsr-core",
+]
+
+[[package]]
+name = "tsr-module"
+version = "0.1.0"
+dependencies = [
+ "rustc-hash",
+ "tsr-core",
+ "tsr-path",
+ "tsr-vfs",
 ]
 
 [[package]]
@@ -280,6 +294,14 @@ dependencies = [
  "tsr-ast",
  "tsr-core",
  "tsr-diagnostics",
+]
+
+[[package]]
+name = "tsr-vfs"
+version = "0.1.0"
+dependencies = [
+ "rustc-hash",
+ "tsr-path",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 nonmax = { workspace = true }
 rustc-hash = { workspace = true }
+tsr-path = { workspace = true }
 
 [lints]
 workspace = true

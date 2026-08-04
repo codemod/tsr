@@ -19,6 +19,8 @@ tsr-scanner = { path = "crates/tsr-scanner" }
 tsr-parser = { path = "crates/tsr-parser" }
 tsr-path = { path = "crates/tsr-path" }
 tsr-compiler = { path = "crates/tsr-compiler" }
+tsr-vfs = { path = "crates/tsr-vfs" }
+tsr-module = { path = "crates/tsr-module" }
 
 # Foundations. These mirror oxc's dependency choices (see PLAN.md §3.1); we take
 # oxc's bill of materials, not oxc's crates.

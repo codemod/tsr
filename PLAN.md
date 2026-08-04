@@ -329,12 +329,26 @@ JSDoc declarations. See [docs/architecture/binder.md](docs/architecture/binder.m
 [ADR-0017](docs/adr/0017-program-before-tsconfig.md).
 **Gate:** upstream module-resolution baselines pass (146 `.trace.json`).
 
-**Status (2026-08-04):** slice 1 landed — `tsr-path` (`tspath`), `CompilerOptions`
-in `tsr-core`, and `tsr-compiler` with a `Program` that parses and binds a set of
-files together, addressable by canonical path. The binder conformance suite now
-runs through it. **The rate did not move (8,278/8,449), as recorded in ADR-0017:**
-binding is per-file upstream too, and what crosses files is resolution. Still to
-do: the resolver (slice 2) and `tsr-tsoptions` (slice 3).
+**Status (2026-08-04):** slices 1 and 2 landed.
+
+*Slice 1* — `tsr-path` (`tspath`), `CompilerOptions` in `tsr-core`, and
+`tsr-compiler` with a `Program` that parses and binds a set of files together,
+addressable by canonical path. **The rate did not move (8,278/8,449), as recorded
+in ADR-0017:** binding is per-file upstream too, and what crosses files is
+resolution.
+
+*Slice 2* — `tsr-module` (upstream's `internal/module`, plus `packagejson`,
+`semver`, and an ordered JSON reader) and `tsr-vfs`. New `module_resolution`
+conformance suite: **75/75, 100.00%** against the `.trace.json` baselines,
+step for step. Scope correction: there are **three** resolution kinds, not four —
+`node10` and `classic` are not ported upstream either. See
+[docs/architecture/module-resolution.md](docs/architecture/module-resolution.md)
+and [ADR-0018](docs/adr/0018-splitting-the-resolution-oracle.md), which records
+why that number judges the *resolver* and not yet the file loader.
+
+Still to do: the file loader (the walk that requests resolutions) and
+`tsr-tsoptions` (slice 3), which together unblock the 20 tsconfig-configured and
+14 configuration-varied trace cases currently skipped.
 
 ### Phase 3.5 — First shippable artifact (no checker required)
 `tsr-dts` (isolatedDeclarations-style `.d.ts` emit) and syntax-only transforms.

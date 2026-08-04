@@ -240,6 +240,86 @@ impl JsxEmit {
     }
 }
 
+/// Which format a file is being resolved *as* (`core.ResolutionMode`).
+///
+/// Upstream reuses `ModuleKind` for this and only ever stores three of its
+/// values, so this is an alias rather than a new enum: `None` (unknown, which
+/// `bundler` reads as ESM), `CommonJS`, and `ESNext`.
+pub type ResolutionMode = ModuleKind;
+
+/// An insertion-ordered string map (`collections.OrderedMap`).
+///
+/// `paths` and `typesVersions` are iterated in *declaration order* during
+/// resolution, and the trace records each substitution as it is tried — so a
+/// `HashMap` here would make the oracle unmatchable, not merely untidy. Small by
+/// construction (a handful of patterns), so a `Vec` scan is the right shape.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OrderedMap<V> {
+    entries: Vec<(String, V)>,
+}
+
+impl<V> OrderedMap<V> {
+    /// An empty map.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { entries: Vec::new() }
+    }
+
+    /// Append or replace `key`. Replacing keeps the original position.
+    pub fn set(&mut self, key: impl Into<String>, value: V) {
+        let key = key.into();
+        if let Some(existing) = self.entries.iter_mut().find(|(k, _)| *k == key) {
+            existing.1 = value;
+        } else {
+            self.entries.push((key, value));
+        }
+    }
+
+    /// The value for `key`.
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&V> {
+        self.entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
+    /// Whether `key` is present.
+    #[must_use]
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.entries.iter().any(|(k, _)| k == key)
+    }
+
+    /// How many entries.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether there are no entries.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// The keys, in insertion order.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().map(|(k, _)| k.as_str())
+    }
+
+    /// The entries, in insertion order.
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &V)> {
+        self.entries.iter().map(|(k, v)| (k.as_str(), v))
+    }
+}
+
+impl<V> FromIterator<(String, V)> for OrderedMap<V> {
+    fn from_iter<T: IntoIterator<Item = (String, V)>>(iter: T) -> Self {
+        let mut map = Self::new();
+        for (key, value) in iter {
+            map.set(key, value);
+        }
+        map
+    }
+}
+
 /// The options a compilation runs under (`core.CompilerOptions`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CompilerOptions {
@@ -269,6 +349,49 @@ pub struct CompilerOptions {
     pub isolated_modules: Tristate,
     /// Permit importing files with unknown extensions.
     pub allow_arbitrary_extensions: Tristate,
+
+    // ---- Module resolution. Added by Phase 3 slice 2; every field below is one
+    // ---- some `.trace.json` baseline exercises.
+    /// Log every resolution step. The `.trace.json` oracle exists because of it.
+    pub trace_resolution: Tristate,
+    /// Do not follow imports into new files at all.
+    pub no_resolve: Tristate,
+    /// Path mapping patterns, in declaration order.
+    pub paths: OrderedMap<Vec<String>>,
+    /// What `paths` substitutions are resolved against; the config's directory.
+    pub paths_base_path: String,
+    /// Legacy non-relative resolution root. Present only so the harness can see
+    /// it: upstream *skips* every test that sets it, so no baseline exercises it.
+    pub base_url: String,
+    /// Explicit `@types` roots. `None` means "walk to every ancestor
+    /// `node_modules/@types`", which is a different thing from an empty list.
+    pub type_roots: Option<Vec<String>>,
+    /// Type packages to include automatically. `None` means "all of them".
+    pub types: Option<Vec<String>>,
+    /// Virtual source roots a relative specifier may be resolved through.
+    pub root_dirs: Vec<String>,
+    /// The declared source root.
+    pub root_dir: String,
+    /// Suffixes tried before the bare file name, e.g. `.ios`.
+    pub module_suffixes: Vec<String>,
+    /// Extra `exports`/`imports` conditions to match.
+    pub custom_conditions: Vec<String>,
+    /// Allow importing `.json`.
+    pub resolve_json_module: Tristate,
+    /// Resolve to implementation files rather than declarations.
+    pub no_dts_resolution: Tristate,
+    /// Honour `package.json` `exports`.
+    pub resolve_package_json_exports: Tristate,
+    /// Honour `package.json` `imports`.
+    pub resolve_package_json_imports: Tristate,
+    /// Report the symlink rather than its target.
+    pub preserve_symlinks: Tristate,
+    /// Where output goes; consulted to map an output path back to its input.
+    pub out_dir: String,
+    /// Where declarations go; likewise.
+    pub declaration_dir: String,
+    /// The tsconfig this came from, if any.
+    pub config_file_path: String,
 }
 
 impl CompilerOptions {
@@ -304,6 +427,20 @@ impl CompilerOptions {
     }
 
     /// How specifiers resolve (`GetModuleResolutionKind`).
+    ///
+    /// **`node10` and `classic` are not outcomes of this function.** Upstream
+    /// has not ported either algorithm, so both — and "unspecified" — fall
+    /// through to `bundler` unless the module kind names a Node mode. An earlier
+    /// version of this port had an extra arm returning `Node10` for the
+    /// unspecified case; it does not exist in
+    /// `core.CompilerOptions.GetModuleResolutionKind`, and it made 54 baselined
+    /// corpus cases derive an unimplemented kind. Found by the
+    /// `module_resolution` conformance suite, which is what a strict oracle is
+    /// for.
+    ///
+    /// A `node10`/`classic` *request* survives in the raw
+    /// [`CompilerOptions::module_resolution`] field, which is what upstream's
+    /// test harness reads to decide whether to skip a case.
     #[must_use]
     pub fn module_resolution_kind(&self) -> ModuleResolutionKind {
         match self.module_resolution {
@@ -314,14 +451,88 @@ impl CompilerOptions {
                     ModuleResolutionKind::Node16
                 }
                 ModuleKind::NodeNext => ModuleResolutionKind::NodeNext,
-                ModuleKind::Preserve => ModuleResolutionKind::Bundler,
-                _ if self.module_resolution == ModuleResolutionKind::Unknown => {
-                    ModuleResolutionKind::Node10
-                }
-                _ => self.module_resolution,
+                _ => ModuleResolutionKind::Bundler,
             },
             explicit => explicit,
         }
+    }
+
+    /// Whether `.json` imports resolve (`GetResolveJsonModule`).
+    ///
+    /// Unset does not mean off: `nodenext`/`node20` and every bundler resolution
+    /// turn it on, which is why so many traces list JSON among the target file
+    /// types without the case mentioning `resolveJsonModule`.
+    #[must_use]
+    pub fn get_resolve_json_module(&self) -> bool {
+        if self.resolve_json_module != Tristate::Unknown {
+            return self.resolve_json_module == Tristate::True;
+        }
+        if matches!(self.emit_module_kind(), ModuleKind::Node20 | ModuleKind::NodeNext) {
+            return true;
+        }
+        self.module_resolution_kind() == ModuleResolutionKind::Bundler
+    }
+
+    /// Whether `.js` files enter the program (`GetAllowJS`).
+    #[must_use]
+    pub fn get_allow_js(&self) -> bool {
+        if self.allow_js != Tristate::Unknown {
+            return self.allow_js == Tristate::True;
+        }
+        self.check_js == Tristate::True
+    }
+
+    /// Where `paths` substitutions are resolved from (`GetPathsBasePath`).
+    #[must_use]
+    pub fn get_paths_base_path(&self, current_directory: &str) -> String {
+        if self.paths.is_empty() {
+            return String::new();
+        }
+        if !self.paths_base_path.is_empty() {
+            return self.paths_base_path.clone();
+        }
+        current_directory.to_string()
+    }
+
+    /// The `@types` roots, and whether they were configured
+    /// (`GetEffectiveTypeRoots`).
+    ///
+    /// The second value is not cosmetic: a *configured* `typeRoots` makes
+    /// resolution try file-or-directory in each root and skip the `node_modules`
+    /// fallback, while the derived list does neither.
+    ///
+    /// # Panics
+    ///
+    /// If there is neither a config file path nor a current directory to walk
+    /// from — upstream panics on the same condition, because the answer would
+    /// otherwise be silently empty.
+    #[must_use]
+    pub fn get_effective_type_roots(&self, current_directory: &str) -> (Vec<String>, bool) {
+        if let Some(roots) = &self.type_roots {
+            return (roots.clone(), true);
+        }
+        let base_dir = if self.config_file_path.is_empty() {
+            assert!(
+                !current_directory.is_empty(),
+                "cannot get effective type roots without a config file path or current directory"
+            );
+            current_directory.to_string()
+        } else {
+            tsr_path::get_directory_path(&self.config_file_path).to_string()
+        };
+
+        let mut roots = Vec::new();
+        tsr_path::for_each_ancestor_directory::<()>(&base_dir, |dir| {
+            roots.push(tsr_path::combine_paths(dir, &["node_modules", "@types"]));
+            None
+        });
+        (roots, false)
+    }
+
+    /// Whether `types` contains `*` (`UsesWildcardTypes`).
+    #[must_use]
+    pub fn uses_wildcard_types(&self) -> bool {
+        self.types.as_ref().is_some_and(|types| types.iter().any(|t| t == "*"))
     }
 
     /// The default library for this target (`tsoptions.GetDefaultLibFileName`).
@@ -345,6 +556,23 @@ impl CompilerOptions {
             ScriptTarget::ES2015 => "lib.es6.d.ts",
             ScriptTarget::ES5 | ScriptTarget::None => "lib.d.ts",
         }
+    }
+}
+
+impl fmt::Display for ModuleResolutionKind {
+    /// The spelling the resolution trace uses
+    /// (`core.ModuleResolutionKind.String()`).
+    ///
+    /// This text is compared against committed baselines, so it is behaviour.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Unknown => "Unknown",
+            Self::Classic => "Classic",
+            Self::Node10 => "Node10",
+            Self::Node16 => "Node16",
+            Self::NodeNext => "NodeNext",
+            Self::Bundler => "Bundler",
+        })
     }
 }
 
@@ -385,10 +613,21 @@ mod tests {
         let preserve = CompilerOptions { module: ModuleKind::Preserve, ..Default::default() };
         assert_eq!(preserve.module_resolution_kind(), ModuleResolutionKind::Bundler);
 
+        // Unspecified is *bundler*, not node10: upstream never returns node10
+        // from this function because it has not ported that algorithm.
         assert_eq!(
             CompilerOptions::default().module_resolution_kind(),
-            ModuleResolutionKind::Node10
+            ModuleResolutionKind::Bundler
         );
+        // Even an explicit `node10` request derives to bundler; the request
+        // survives only in the raw field, which is what decides whether a
+        // conformance case is judgeable at all.
+        let node10 = CompilerOptions {
+            module_resolution: ModuleResolutionKind::Node10,
+            ..Default::default()
+        };
+        assert_eq!(node10.module_resolution_kind(), ModuleResolutionKind::Bundler);
+        assert_eq!(node10.module_resolution, ModuleResolutionKind::Node10);
     }
 
     #[test]

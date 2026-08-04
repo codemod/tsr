@@ -1,0 +1,18 @@
+[package]
+name = "tsr-module"
+description = "TypeScript module resolution: tsgo's internal/module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+tsr-core.workspace = true
+tsr-path.workspace = true
+tsr-vfs.workspace = true
+rustc-hash.workspace = true
+
+[lints]
+workspace = true

@@ -9,6 +9,7 @@ use anyhow::{Context, Result, bail};
 use tsr_conformance::{
     Corpus,
     binder_suite::BinderSymbols,
+    module_suite::ModuleResolution,
     repo_root, run_suite,
     scanner_suite::{ScannerCleanFiles, ScannerTermination},
     snapshot,
@@ -45,6 +46,7 @@ fn main() -> Result<()> {
         Box::new(ScannerCleanFiles),
         Box::new(Parser),
         Box::new(BinderSymbols),
+        Box::new(ModuleResolution),
     ];
 
     let mut rows = Vec::new();

@@ -26,6 +26,9 @@ tsr-binder = { workspace = true }
 tsr-compiler = { workspace = true }
 tsr-parser = { workspace = true }
 tsr-core = { workspace = true }
+tsr-module = { workspace = true }
+tsr-path = { workspace = true }
+tsr-vfs = { workspace = true }
 
 [lints]
 workspace = true

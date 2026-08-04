@@ -22,6 +22,16 @@
 
 use std::fmt;
 
+pub mod extension;
+
+pub use extension::{
+    change_extension, extension_is_one_of, extension_is_ts, file_extension_is,
+    file_extension_is_one_of, get_declaration_file_extension,
+    get_possible_original_input_extension_for_extension, has_implementation_ts_file_extension,
+    is_declaration_file_name, remove_extension, remove_file_extension, try_extract_ts_extension,
+    try_get_extension_from_path,
+};
+
 /// The directory separator TypeScript uses, on every platform.
 pub const DIRECTORY_SEPARATOR: char = '/';
 
@@ -230,21 +240,42 @@ pub fn remove_trailing_directory_separator(path: &str) -> String {
 
 /// The extension of a file name, or `""` (`tspath.GetAnyExtensionFromPath`).
 ///
-/// `.d.ts` counts as one extension, which is the case that stops this being
-/// `rsplit_once('.')`.
+/// **Lexical**: everything from the last dot in the base name, so `a.d.ts` yields
+/// `.ts` and not `.d.ts`. That is upstream's behaviour and it is deliberate — this
+/// is the answer to "what did the user write", while
+/// [`extension::try_get_extension_from_path`] answers "what does TypeScript
+/// recognise". The resolver needs both and uses them in different places.
 #[must_use]
 pub fn get_any_extension_from_path(path: &str) -> &str {
     let base = get_base_file_name(path);
-    for multi in [".d.ts", ".d.mts", ".d.cts"] {
-        if base.len() > multi.len() && base.ends_with(multi) {
-            return &base[base.len() - multi.len()..];
-        }
-    }
     match base.rfind('.') {
         // A leading dot is the whole name (`.gitignore`), not an extension.
         Some(dot) if dot > 0 => &base[dot..],
         _ => "",
     }
+}
+
+/// The first of `extensions` that `path` ends with, or `""`
+/// (`tspath.GetAnyExtensionFromPath` with an explicit extension list).
+///
+/// Case-sensitive, which is the only form the resolver asks for.
+#[must_use]
+pub fn get_any_extension_from_path_with<'a>(path: &'a str, extensions: &[&str]) -> &'a str {
+    let root_length = get_root_length(path);
+    let trimmed = if path.len() > root_length && has_trailing_directory_separator(path) {
+        &path[..path.len() - 1]
+    } else {
+        path
+    };
+    for extension in extensions {
+        // Every caller passes dot-prefixed extensions; upstream tolerates both.
+        debug_assert!(extension.starts_with('.'));
+        // `>=` rather than `>`: upstream returns `.ts` for the path `.ts` itself.
+        if trimmed.len() >= extension.len() && trimmed.ends_with(extension) {
+            return &trimmed[trimmed.len() - extension.len()..];
+        }
+    }
+    ""
 }
 
 /// The last segment of a path (`tspath.GetBaseFileName`).
@@ -272,11 +303,268 @@ pub fn get_directory_path(path: &str) -> &str {
     }
 }
 
-/// `path` with its extension removed (`tspath.RemoveFileExtension`).
+/// A path split into its root and segments (`tspath.GetPathComponents`).
+///
+/// The first element is the root — `""` for a relative path — and the rest are
+/// the segments, with a trailing empty segment dropped. That first-element
+/// convention is upstream's and every consumer below relies on it.
 #[must_use]
-pub fn remove_file_extension(path: &str) -> &str {
-    let extension = get_any_extension_from_path(path);
-    if extension.is_empty() { path } else { &path[..path.len() - extension.len()] }
+pub fn get_path_components(path: &str, current_directory: &str) -> Vec<String> {
+    let path = combine_paths(current_directory, &[path]);
+    let root_length = get_root_length(&path);
+    let (root, rest) = path.split_at(root_length);
+    let mut components = vec![root.to_string()];
+    let mut segments: Vec<&str> = rest.split('/').collect();
+    if segments.last().is_some_and(|last| last.is_empty()) {
+        segments.pop();
+    }
+    components.extend(segments.iter().map(|s| (*s).to_string()));
+    components
+}
+
+/// Resolve `.` and `..` within already-split components
+/// (`tspath.reducePathComponents`).
+#[must_use]
+pub fn reduce_path_components(components: &[String]) -> Vec<String> {
+    if components.is_empty() {
+        return Vec::new();
+    }
+    let mut reduced = vec![components[0].clone()];
+    for component in &components[1..] {
+        if component.is_empty() || component == "." {
+            continue;
+        }
+        if component == ".." {
+            if reduced.len() > 1 {
+                if reduced[reduced.len() - 1] != ".." {
+                    reduced.pop();
+                    continue;
+                }
+            } else if !reduced[0].is_empty() {
+                // `..` cannot climb above a root, but *can* above nothing.
+                continue;
+            }
+        }
+        reduced.push(component.clone());
+    }
+    reduced
+}
+
+/// Rejoin components produced by [`get_path_components`]
+/// (`tspath.GetPathFromPathComponents`).
+#[must_use]
+pub fn get_path_from_path_components(components: &[String]) -> String {
+    if components.is_empty() {
+        return String::new();
+    }
+    let root = ensure_trailing_directory_separator_if_nonempty(&components[0]);
+    format!("{root}{}", components[1..].join("/"))
+}
+
+fn ensure_trailing_directory_separator_if_nonempty(path: &str) -> String {
+    if path.is_empty() { String::new() } else { ensure_trailing_directory_separator(path) }
+}
+
+/// Whether `path` starts with `.` or `..` as a segment (`tspath.PathIsRelative`).
+#[must_use]
+pub fn path_is_relative(path: &str) -> bool {
+    if path == "." || path == ".." {
+        return true;
+    }
+    let bytes = path.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'.' && matches!(bytes[1], b'/' | b'\\') {
+        return true;
+    }
+    bytes.len() >= 3 && bytes[0] == b'.' && bytes[1] == b'.' && matches!(bytes[2], b'/' | b'\\')
+}
+
+/// Whether a module specifier names a file rather than a package
+/// (`tspath.IsExternalModuleNameRelative`).
+///
+/// A rooted path counts as "relative" here, which reads oddly and is upstream's:
+/// what the flag really means is "do not look this up in `node_modules`".
+#[must_use]
+pub fn is_external_module_name_relative(module_name: &str) -> bool {
+    path_is_relative(module_name) || is_rooted_disk_path(module_name)
+}
+
+/// How paths are compared: by the host's case rule, against a base directory.
+///
+/// Upstream's `tspath.ComparePathsOptions`.
+#[derive(Debug, Clone, Default)]
+pub struct ComparePathsOptions {
+    /// Whether the host distinguishes `A.ts` from `a.ts`.
+    pub use_case_sensitive_file_names: bool,
+    /// What a relative path is resolved against. May be empty.
+    pub current_directory: String,
+}
+
+impl ComparePathsOptions {
+    fn equate(&self, a: &str, b: &str) -> bool {
+        if self.use_case_sensitive_file_names { a == b } else { a.eq_ignore_ascii_case(b) }
+    }
+
+    fn compare(&self, a: &str, b: &str) -> std::cmp::Ordering {
+        if self.use_case_sensitive_file_names {
+            a.cmp(b)
+        } else {
+            // Case-insensitive first, then case-sensitive as the tiebreak, so the
+            // ordering stays total. Upstream's `CompareStringsCaseInsensitive`
+            // lowercases both sides and compares.
+            a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()).then_with(|| a.cmp(b))
+        }
+    }
+}
+
+/// Order two paths (`tspath.ComparePaths`).
+///
+/// Roots are always compared case-insensitively — a drive letter's case is never
+/// meaningful — and the rest by the host's rule.
+#[must_use]
+pub fn compare_paths(a: &str, b: &str, options: &ComparePathsOptions) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    let a = combine_paths(&options.current_directory, &[a]);
+    let b = combine_paths(&options.current_directory, &[b]);
+    if a == b {
+        return Ordering::Equal;
+    }
+    if a.is_empty() {
+        return Ordering::Less;
+    }
+    if b.is_empty() {
+        return Ordering::Greater;
+    }
+
+    let a_root = &a[..get_root_length(&a)];
+    let b_root = &b[..get_root_length(&b)];
+    let root_order = a_root.to_ascii_lowercase().cmp(&b_root.to_ascii_lowercase());
+    if root_order != Ordering::Equal {
+        return root_order;
+    }
+
+    let a_components = reduce_path_components(&get_path_components(&a, ""));
+    let b_components = reduce_path_components(&get_path_components(&b, ""));
+    let shared = a_components.len().min(b_components.len());
+    for i in 1..shared {
+        let order = options.compare(&a_components[i], &b_components[i]);
+        if order != Ordering::Equal {
+            return order;
+        }
+    }
+    a_components.len().cmp(&b_components.len())
+}
+
+/// Whether `child` is `parent` or lies beneath it (`tspath.ContainsPath`).
+#[must_use]
+pub fn contains_path(parent: &str, child: &str, options: &ComparePathsOptions) -> bool {
+    let parent = combine_paths(&options.current_directory, &[parent]);
+    let child = combine_paths(&options.current_directory, &[child]);
+    if parent.is_empty() || child.is_empty() {
+        return false;
+    }
+    if parent == child {
+        return true;
+    }
+    let parent_components = reduce_path_components(&get_path_components(&parent, ""));
+    let child_components = reduce_path_components(&get_path_components(&child, ""));
+    if child_components.len() < parent_components.len() {
+        return false;
+    }
+    for (i, parent_component) in parent_components.iter().enumerate() {
+        // The root, again, is always case-insensitive.
+        let equal = if i == 0 {
+            parent_component.eq_ignore_ascii_case(&child_components[i])
+        } else {
+            options.equate(parent_component, &child_components[i])
+        };
+        if !equal {
+            return false;
+        }
+    }
+    true
+}
+
+/// The components of `to` relative to `from`
+/// (`tspath.GetPathComponentsRelativeTo`).
+#[must_use]
+pub fn get_path_components_relative_to(
+    from: &str,
+    to: &str,
+    options: &ComparePathsOptions,
+) -> Vec<String> {
+    let from_components =
+        reduce_path_components(&get_path_components(from, &options.current_directory));
+    let to_components =
+        reduce_path_components(&get_path_components(to, &options.current_directory));
+
+    let max_common = from_components.len().min(to_components.len());
+    let mut start = 0;
+    while start < max_common {
+        let equal = if start == 0 {
+            from_components[start].eq_ignore_ascii_case(&to_components[start])
+        } else {
+            options.equate(&from_components[start], &to_components[start])
+        };
+        if !equal {
+            break;
+        }
+        start += 1;
+    }
+
+    if start == 0 {
+        return to_components;
+    }
+
+    let mut result = vec![String::new()];
+    result.extend(std::iter::repeat_n("..".to_string(), from_components.len() - start));
+    result.extend_from_slice(&to_components[start..]);
+    result
+}
+
+/// `to` written relative to the directory `from_directory`
+/// (`tspath.GetRelativePathFromDirectory`).
+///
+/// Both must be absolute or both relative; a mismatch is a caller bug upstream
+/// panics on, and returning the absolute `to` instead would silently produce a
+/// wrong module specifier.
+///
+/// # Panics
+///
+/// If one path is rooted and the other is not.
+#[must_use]
+pub fn get_relative_path_from_directory(
+    from_directory: &str,
+    to: &str,
+    options: &ComparePathsOptions,
+) -> String {
+    assert_eq!(
+        get_root_length(from_directory) > 0,
+        get_root_length(to) > 0,
+        "paths must either both be absolute or both be relative"
+    );
+    get_path_from_path_components(&get_path_components_relative_to(from_directory, to, options))
+}
+
+/// Call `f` on `directory` and each ancestor until it returns a value
+/// (`tspath.ForEachAncestorDirectory`).
+///
+/// Stops at the root, which is the directory whose parent is itself.
+pub fn for_each_ancestor_directory<T>(
+    directory: &str,
+    mut f: impl FnMut(&str) -> Option<T>,
+) -> Option<T> {
+    let mut directory = directory.to_string();
+    loop {
+        if let Some(result) = f(&directory) {
+            return Some(result);
+        }
+        let parent = get_directory_path(&directory).to_string();
+        if parent == directory {
+            return None;
+        }
+        directory = parent;
+    }
 }
 
 #[cfg(test)]
@@ -346,13 +634,68 @@ mod tests {
     }
 
     #[test]
-    fn a_declaration_file_has_one_extension_not_two() {
-        assert_eq!(get_any_extension_from_path("a.d.ts"), ".d.ts");
+    fn the_lexical_and_known_extension_answers_differ_on_declaration_files() {
+        // `GetAnyExtensionFromPath` is purely lexical — last dot in the base name
+        // — so a declaration file's extension is `.ts`. An earlier version of this
+        // function special-cased `.d.ts` and was wrong about upstream: the
+        // composite answer comes from the known-extension list instead, and the
+        // resolver depends on having *both*. See `extension.rs`.
+        assert_eq!(get_any_extension_from_path("a.d.ts"), ".ts");
+        assert_eq!(try_get_extension_from_path("a.d.ts"), ".d.ts");
+
         assert_eq!(get_any_extension_from_path("a.ts"), ".ts");
         assert_eq!(get_any_extension_from_path("a.b.ts"), ".ts");
         assert_eq!(get_any_extension_from_path(".gitignore"), "");
         assert_eq!(remove_file_extension("/a/b.d.ts"), "/a/b");
         assert_eq!(remove_file_extension("/a/b.ts"), "/a/b");
+    }
+
+    #[test]
+    fn relative_paths_and_module_specifiers() {
+        assert!(path_is_relative("./a"));
+        assert!(path_is_relative(".."));
+        assert!(!path_is_relative("a/b"));
+        assert!(!path_is_relative(".hidden"));
+        // A rooted path counts as "relative" for module resolution: it means
+        // "do not search node_modules".
+        assert!(is_external_module_name_relative("/a/b"));
+        assert!(is_external_module_name_relative("./a"));
+        assert!(!is_external_module_name_relative("react"));
+    }
+
+    #[test]
+    fn ancestor_directories_stop_at_the_root() {
+        let mut seen = Vec::new();
+        let result: Option<()> = for_each_ancestor_directory("/a/b/c", |dir| {
+            seen.push(dir.to_string());
+            None
+        });
+        assert!(result.is_none());
+        assert_eq!(seen, ["/a/b/c", "/a/b", "/a", "/"]);
+    }
+
+    #[test]
+    fn containment_compares_component_by_component() {
+        let options = ComparePathsOptions {
+            use_case_sensitive_file_names: true,
+            current_directory: String::new(),
+        };
+        assert!(contains_path("/a/b", "/a/b/c", &options));
+        assert!(contains_path("/a/b", "/a/b", &options));
+        // A prefix of a *name* is not a prefix of a *path*.
+        assert!(!contains_path("/a/b", "/a/bc", &options));
+        assert!(!contains_path("/a/b/c", "/a/b", &options));
+    }
+
+    #[test]
+    fn a_relative_path_between_directories_climbs_and_descends() {
+        let options = ComparePathsOptions {
+            use_case_sensitive_file_names: true,
+            current_directory: String::new(),
+        };
+        assert_eq!(get_relative_path_from_directory("/a/b", "/a/b/c/d.ts", &options), "c/d.ts");
+        assert_eq!(get_relative_path_from_directory("/a/b/c", "/a/d.ts", &options), "../../d.ts");
+        assert_eq!(get_relative_path_from_directory("/a/b", "/a/b", &options), "");
     }
 
     #[test]
