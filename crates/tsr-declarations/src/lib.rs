@@ -72,13 +72,14 @@
 //! assert_eq!(emitted.text.trim(), "export declare const answer: number;");
 //! ```
 
-mod enum_value;
+pub mod enum_value;
 pub mod factory;
 mod modifiers;
 pub mod resolver;
 mod transform;
 mod type_builder;
 
+pub use enum_value::EnumValue;
 pub use factory::Factory;
 pub use resolver::{EmitResolver, Freshness, LiteralConstHost, SyntacticResolver};
 

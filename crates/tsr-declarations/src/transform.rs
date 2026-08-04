@@ -310,7 +310,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let modifiers =
                     self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
                 let name = node.name.map_or("", |name| name.text);
-                let values = crate::enum_value::fold_members(node.members, name);
+                let values = self.resolver.get_enum_member_values(node.members, name);
                 let mut members = Vec::with_capacity(node.members.len());
                 for (member, value) in node.members.iter().zip(values) {
                     let span = self.span_of(member.node_id);

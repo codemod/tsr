@@ -26,8 +26,23 @@ and the distinction is measurable:
 | | |
 |---|---|
 | `internal/transformers/declarations/` | **4,160 lines** |
-| …of which reach `EmitResolver` | 9 distinct methods, at ~30 call sites |
-| `internal/compiler/emitter.go`'s declaration path | prints through `internal/printer/printer.go` — **there is no separate `.d.ts` printer** |
+| …of which reach `EmitResolver` | **29 distinct methods, at 39 call sites** |
+| `internal/printer/printer.go` | holds no resolver at all — verified: `grep EmitResolver` is empty |
+| `internal/compiler/emitter.go`'s declaration path | prints through that same printer — **there is no separate `.d.ts` printer** |
+
+> **Corrected.** This table first read "9 distinct methods, at ~30 call sites".
+> That was not a measurement of upstream at all: it was a miscount of the methods
+> *this crate's own trait* declares (8, one of which is a host method rather than a
+> resolver one), written up as though it described `transform.go`. The real figure
+> is 29 methods at 39 sites, measured by
+> `grep -o 'resolver\.[A-Za-z]*' internal/transformers/declarations/`.
+>
+> The error flattered the decision by a factor of three, which is the reason to
+> record it rather than quietly fix the number. What the decision actually rests on
+> is unchanged — 39 sites in 4,160 lines, all through one interface, and a printer
+> that touches none of them — but the *reach* of a checker-free stand-in is much
+> narrower than "9 of 9" implied. See "What the syntactic implementation answers"
+> below.
 
 The dispatch (`visit`, `visitDeclarationStatements`,
 `transformTopLevelDeclaration`, `visitDeclarationSubtree`, and the twenty-odd
@@ -67,13 +82,41 @@ not know which resolver it has, so it does not change at all.
 
 ### What the syntactic implementation answers, and what it refuses
 
-`SyntacticResolver` covers 7 of the 9 methods from syntax alone. Two it cannot:
+`SyntacticResolver` implements **8 of the 29**, and that ratio is the honest
+measure of what Phase 3.5 reaches. The other 21 are not an oversight: each belongs
+to a feature this port deliberately does not have, and they line up one-for-one
+with the "not ported yet" table in
+[declaration-emit.md](../architecture/declaration-emit.md):
+
+| Upstream methods | Feature |
+|---|---|
+| `IsExpandoFunctionDeclaration`, `IsExpandoFunctionDeclarationUnsafe`, `GetPropertiesOfContainerFunction` | expando functions (`TS9023`) |
+| `TryJSTypeNodeToTypeNode`, `IsThisPropertyAssignmentDeclarationRedundant` | JS/JSDoc declarations |
+| `IsSymbolAccessible`, `IsEntityNameVisible`, `PrecalculateDeclarationEmitVisibility` | symbol accessibility — the late-painted-statement queue |
+| `IsLateBound`, `CreateLateBoundIndexSignatures`, `GetElementAccessExpressionName` | late-bound names |
+| `RequiresAddingImplicitUndefined`, `RequiresAddingImplicitUndefinedUnsafe` | `TS9025` (`bd tsr-49v.2.5`) |
+| `IsImportRequiredByAugmentation` | `TS9026` (`bd tsr-49v.2.5`) |
+| `GetReferencedValueDeclaration` and three siblings, `IsNameResolvable` | name resolution across files — needs the `Program` |
+| `CreateTypeOfExpression`, `CreateTypeParametersOfSignatureDeclaration`, `IsDefinitelyReferenceToGlobalSymbolObject` | the `extends`-clause hoist and generic signatures |
+
+So "the checker enters through one interface" is true and load-bearing; "a
+checker-free implementation covers most of it" would not have been, and is not
+claimed. The corpus says the same thing more bluntly: **545 of the 885 cases with
+declaration output — 62% — need inference somewhere**, and `dts_emit` skips every
+one of them.
+
+Of the 8 implemented, two are refusals:
 
 | Method | Syntactic answer |
 |---|---|
 | `CreateTypeOfDeclaration` | the expression's *shape*, rewritten — `{ a: 1 }` → `{ a: number; }`, never through a type |
 | `CreateReturnTypeOfSignatureDeclaration` | **refused always.** A return type is the type of what the body returns, and the body is what a `.d.ts` drops |
 | `IsImplementationOfOverload` | **refused always** (`false`), which keeps a declaration upstream elides — a visible extra line rather than a silent omission |
+
+(`GetEnumMemberValue` is the eighth, and it was the last to go through the seam at
+all: the transform originally called `enum_value::fold_members` directly, which
+made this ADR's central claim untrue of its own code. Routing it through the trait
+is a one-line change and it is now done — a seam with a hole in it is not a seam.)
 
 A refusal is not silence. Upstream's `ensureType` emits `any` when its node
 builder returns nothing, and this port does the same, so the *shape* of the output

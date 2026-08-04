@@ -30,8 +30,18 @@ writes a tree. This builds the tree in between: bodies gone, initializers gone,
 
 Upstream's transform reaches the checker through one Go interface,
 `printer.EmitResolver` (`internal/printer/emitresolver.go:77`, 44 members). The
-declaration transform calls **9** of them. Those 9 are the trait; everything above
-it is a port that does not know which implementation it has.
+declaration transform calls **29 of them, at 39 call sites**; this port's
+`SyntacticResolver` implements **8**, and the other 21 belong to features listed
+under "known approximations" below. The trait is the seam; everything above it is a
+port that does not know which implementation it has.
+
+> **Corrected.** This section first said the transform calls 9 methods. That was a
+> miscount of *this crate's trait*, presented as a measurement of `transform.go` —
+> see the correction in
+> [ADR-0022](../adr/0022-the-declaration-transform-is-a-port-around-a-resolver-seam.md#the-forcing-constraint),
+> which also tabulates which 21 are missing and why.
+
+The 8 implemented:
 
 | Method | `SyntacticResolver`'s answer |
 |---|---|
@@ -137,6 +147,27 @@ still does not fire.** It asked whether "fewer than a few hundred" of the
 `@declaration` cases are reachable. 496 is comfortably above, and it is 43% of the
 population rather than a tail. The correction moves the number; it does not change
 the decision.
+
+### The checker is not confined to declaration emit
+
+Worth stating here because Phase 5 inherits it. Emit as a whole reaches the
+resolver from five more transformer packages:
+
+| package | call sites | for |
+|---|---:|---|
+| `declarations` | 39 | all of the above |
+| `moduletransforms` | 8 | referenced export containers, import declarations |
+| `tstransforms` | 7 | decorator metadata, import elision |
+| `estransforms` | 5 | |
+| `jsxtransforms` | 4 | `GetJsxFactoryEntity` |
+| `inliners` | 1 | const-enum `GetConstantValue` |
+
+`emitter.go:112` fetches the resolver unconditionally. There is exactly one
+checker-free escape and it does not apply here: at `:115`, *script* transforms fall
+back to `binder.NewReferenceResolver` when import elision, JSX, `isolatedModules`
+and decorator metadata are all off. Declaration emit has no such fallback, which is
+[ADR-0021](../adr/0021-isolated-declarations-is-not-a-port.md)'s finding restated
+from the driver's side.
 
 ## What the round-trip gate could not see
 

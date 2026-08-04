@@ -102,6 +102,19 @@ pub trait EmitResolver<'a> {
         factory: &mut Factory<'a, '_>,
     ) -> Option<TypeNode<'a>>;
 
+    /// `EmitResolver.GetEnumMemberValue`.
+    ///
+    /// Answered for the whole member list at once rather than per member, because
+    /// a member's value depends on its predecessors — `enum E { A, B }` numbers
+    /// `B` from `A`, and `C = A | B` folds through both. Upstream's per-node
+    /// signature hides that behind the checker's own memoised evaluator; here the
+    /// dependency has to be explicit.
+    fn get_enum_member_values(
+        &self,
+        members: &[&tsr_ast::EnumMember<'a>],
+        enum_name: &str,
+    ) -> Vec<Option<crate::enum_value::EnumValue>>;
+
     /// `DeclarationEmitHost.GetEffectiveDeclarationFlags`.
     ///
     /// On the host rather than the resolver upstream, but it is the same kind of
@@ -268,6 +281,17 @@ impl<'a> EmitResolver<'a> for SyntacticResolver {
         _factory: &mut Factory<'a, '_>,
     ) -> Option<TypeNode<'a>> {
         None
+    }
+
+    /// Upstream evaluates enum members in the checker. The syntactic fold covers
+    /// the same constant-expression grammar `tsr_dts`'s `TS9020` rule recognises —
+    /// see [`crate::enum_value`] for why that is the right boundary.
+    fn get_enum_member_values(
+        &self,
+        members: &[&tsr_ast::EnumMember<'a>],
+        enum_name: &str,
+    ) -> Vec<Option<crate::enum_value::EnumValue>> {
+        crate::enum_value::fold_members(members, enum_name)
     }
 
     fn get_effective_declaration_flags(

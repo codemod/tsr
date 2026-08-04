@@ -39,8 +39,13 @@
 use tsr_ast::{EnumMember, Expression, MemberName, SyntaxKind};
 
 /// A folded enum member value.
+///
+/// Public because it crosses the [`EmitResolver`](crate::EmitResolver) seam:
+/// `GetEnumMemberValue` is one of the 29 methods upstream's transform asks the
+/// checker for, so a checker-backed implementation has to be able to answer in
+/// the same currency.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum EnumValue {
+pub enum EnumValue {
     /// A numeric value, in JavaScript's only number type.
     Number(f64),
     /// A string value, from a string-valued member.
@@ -52,7 +57,7 @@ pub(crate) enum EnumValue {
 /// `None` for a member means "no constant value", which emits with no
 /// initializer. Auto-numbering continues from the previous *numeric* value, and
 /// stops — as TypeScript does — once a member has no numeric predecessor.
-pub(crate) fn fold_members(members: &[&EnumMember<'_>], enum_name: &str) -> Vec<Option<EnumValue>> {
+pub fn fold_members(members: &[&EnumMember<'_>], enum_name: &str) -> Vec<Option<EnumValue>> {
     let mut folded: Vec<(String, Option<EnumValue>)> = Vec::with_capacity(members.len());
     let mut auto = Some(0.0_f64);
 
