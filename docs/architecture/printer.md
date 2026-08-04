@@ -5,9 +5,20 @@ gate. Not yet an emit printer — see "What this is not" below.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 **Upstream counterpart:** `internal/printer/printer.go` (6,280 lines; 14,827 for
-the package with tests). Unlike `tsr-dts`, this has a real counterpart and no
-checker entanglement, so it is a faithful port under
-[ADR-0001](../adr/0001-idiomatic-rewrite.md)'s default rather than a rewrite.
+the package with tests).
+
+> **Correction.** This document and the crate's own doc comment previously said
+> the printer "is a faithful port under ADR-0001's default rather than a rewrite".
+> **It is not a port.** It was written against the AST node definitions and driven
+> by round-trip failures; `printer.go` was consulted only for its function list.
+> The designs diverge where it counts — 284 `emitX` methods against four `match`
+> statements, explicit `writeSpace()` against an adjacency heuristic, `ListFormat`
+> against ad-hoc loops — and there are **no per-item upstream anchors**, so
+> [conventions.md](../conventions.md)'s "every ported item names its typescript-go
+> counterpart" is unmet. Upstream has no checker entanglement here, so unlike
+> `tsr-dts` there is no forcing reason not to port it. Resolving that is
+> `bd tsr-49v.4`: either re-derive the emit surface from `printer.go` with anchors,
+> or record the divergence in an ADR the way ADR-0021 did.
 
 ## The gate, and why it needs no baselines
 
@@ -100,6 +111,23 @@ percentage after each is the round-trip rate once it was fixed.
 The last row is worth reading twice. The rate went *down* when the gate got
 stronger, and that number is the honest one. A gate that only ever moves upward is
 not measuring itself.
+
+## The separator guard, and the hole it had
+
+`write` inserts a space when the last character written and the first about to be
+written could scan as one token. That is the design's safety net, and it was
+bypassed at **123 of its call sites**: an earlier `write_raw` skipped the check on
+the grounds that a brace, a dot or a bracket "obviously" cannot merge.
+
+`1 .toString()` printed as `1.toString()`, which does not parse — and
+`would_merge` already had the digit-then-dot rule that would have caught it.
+
+All non-JSX emission now goes through the checked writer; `write_raw` survives for
+JSX alone, where the bypass is required rather than convenient because `JsxText` is
+a node and an inserted space would change the tree. The corpus rate did not move,
+which is the point worth recording: **11,726 cases contained no instance of the
+bug**, and it was found by probing constructs by hand. A gate with a big
+denominator is not the same as a gate that covers the space.
 
 ## Mutations
 

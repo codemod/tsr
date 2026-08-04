@@ -1,8 +1,31 @@
 //! Prints the AST back to TypeScript source.
 //!
-//! Upstream counterpart: `internal/printer/printer.go` (6,280 lines). Unlike
-//! [`tsr_dts`], this has a real counterpart and no checker entanglement, so it is
-//! a faithful port under [ADR-0001]'s default rather than a rewrite.
+//! # This is not (yet) a port, and the distinction matters
+//!
+//! Upstream has a printer — `internal/printer/printer.go`, 6,280 lines — and it
+//! has no checker entanglement, so [ADR-0001]'s default says port it. **This crate
+//! does not.** It was written against the AST node definitions and driven by the
+//! round-trip failures, and the two designs differ where it counts:
+//!
+//! | | upstream | here |
+//! |---|---|---|
+//! | Dispatch | 284 `emitX` methods | four `match` statements |
+//! | Spacing | explicit `writeSpace()` at each site | an adjacency heuristic, [`would_merge`] |
+//! | Lists | `emitList` + `ListFormat` flags | ad-hoc loops |
+//! | Comments, source maps | yes | no |
+//!
+//! So it satisfies the round-trip property without being derivable from upstream,
+//! and [conventions.md](../../../docs/conventions.md)'s "every ported item names
+//! its typescript-go counterpart" is not met — there are no per-item anchors here
+//! to meet it with.
+//!
+//! That is a real gap rather than a stylistic one: the drift tracker maps an
+//! upstream commit to the Rust items claiming to port it, and nothing here makes
+//! such a claim. Two ways out, and the choice belongs in an issue rather than in
+//! this comment: re-derive the emit surface from `printer.go` with anchors, or
+//! record the divergence in an ADR the way
+//! [ADR-0021](../../../docs/adr/0021-isolated-declarations-is-not-a-port.md) did
+//! for `tsr-dts`. Tracked as `bd tsr-49v.4`.
 //!
 //! # What "correct" means here, and why it is not "byte-identical"
 //!
@@ -113,7 +136,17 @@ impl<'t> Printer<'t> {
         self.out.push_str(text);
     }
 
-    /// Write text that is known to need no separator, such as a closing brace.
+    /// Write text with **no** separator check. JSX only.
+    ///
+    /// Everywhere else, emission goes through [`Printer::write`], because the
+    /// separator check is the thing that keeps two adjacent tokens from scanning
+    /// as one. An earlier version used this for ordinary punctuation on the
+    /// grounds that a brace or a dot "obviously" cannot merge — and `1 .toString()`
+    /// printed as `1.toString()`, which does not parse. `would_merge` already had
+    /// the digit-then-dot rule; 123 call sites simply bypassed it.
+    ///
+    /// Inside JSX the bypass is required rather than convenient: `JsxText` is a
+    /// node, so an inserted space would change the tree.
     pub(crate) fn write_raw(&mut self, text: &str) {
         self.out.push_str(text);
     }
@@ -336,9 +369,9 @@ impl<'t> Printer<'t> {
                 if let Some(left) = &qualified.left {
                     self.entity_name(left);
                 }
-                self.write_raw(".");
+                self.write(".");
                 if let Some(right) = qualified.right {
-                    self.write_raw(right.text);
+                    self.write(right.text);
                 }
             }
         }
@@ -354,7 +387,7 @@ impl<'t> Printer<'t> {
             }
         });
         self.newline();
-        self.write_raw("}");
+        self.write("}");
     }
 
     pub(crate) fn object_members(&mut self, members: &[ObjectLiteralElementLike<'_>]) {
@@ -362,14 +395,14 @@ impl<'t> Printer<'t> {
         self.indented(|printer| {
             for (index, member) in members.iter().enumerate() {
                 if index > 0 {
-                    printer.write_raw(",");
+                    printer.write(",");
                 }
                 printer.newline();
                 printer.object_member(member);
             }
         });
         self.newline();
-        self.write_raw("}");
+        self.write("}");
     }
 }
 

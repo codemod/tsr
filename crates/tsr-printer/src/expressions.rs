@@ -64,17 +64,17 @@ impl Printer<'_> {
                 if let Some(inner) = &node.expression {
                     self.expression(inner);
                 }
-                self.write_raw(")");
+                self.write(")");
             }
             Expression::ArrayLiteralExpression(node) => {
                 self.write("[");
                 for (index, element) in node.elements.iter().enumerate() {
                     if index > 0 {
-                        self.write_raw(", ");
+                        self.write(", ");
                     }
                     self.expression(element);
                 }
-                self.write_raw("]");
+                self.write("]");
             }
             Expression::ObjectLiteralExpression(node) => self.object_members(node.properties),
             Expression::PropertyAccessExpression(node) => {
@@ -84,12 +84,12 @@ impl Printer<'_> {
                 if let Some(token) = node.question_dot_token {
                     self.token(token);
                 } else {
-                    self.write_raw(".");
+                    self.write(".");
                 }
                 match &node.name {
-                    Some(tsr_ast::MemberName::Identifier(name)) => self.write_raw(name.text),
+                    Some(tsr_ast::MemberName::Identifier(name)) => self.write(name.text),
                     Some(tsr_ast::MemberName::PrivateIdentifier(name)) => {
-                        self.write_raw(name.text);
+                        self.write(name.text);
                     }
                     None => {}
                 }
@@ -101,11 +101,11 @@ impl Printer<'_> {
                 if let Some(token) = node.question_dot_token {
                     self.token(token);
                 }
-                self.write_raw("[");
+                self.write("[");
                 if let Some(argument) = &node.argument_expression {
                     self.expression(argument);
                 }
-                self.write_raw("]");
+                self.write("]");
             }
             Expression::CallExpression(node) => {
                 if let Some(target) = &node.expression {
@@ -284,7 +284,7 @@ impl Printer<'_> {
                 if let Some(r#type) = &node.r#type {
                     self.type_node(r#type);
                 }
-                self.write_raw(">");
+                self.write(">");
                 if let Some(inner) = &node.expression {
                     self.expression(inner);
                 }
@@ -297,9 +297,9 @@ impl Printer<'_> {
             }
             Expression::MetaProperty(node) => {
                 self.token(node.keyword_token);
-                self.write_raw(".");
+                self.write(".");
                 if let Some(name) = node.name {
-                    self.write_raw(name.text);
+                    self.write(name.text);
                 }
             }
             Expression::OmittedExpression(_) => {}
@@ -321,18 +321,18 @@ impl Printer<'_> {
             Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => tail.raw_text,
             None => return,
         };
-        self.write_raw(raw);
+        self.write(raw);
     }
 
     fn arguments(&mut self, arguments: &[Expression<'_>]) {
-        self.write_raw("(");
+        self.write("(");
         for (index, argument) in arguments.iter().enumerate() {
             if index > 0 {
-                self.write_raw(", ");
+                self.write(", ");
             }
             self.expression(argument);
         }
-        self.write_raw(")");
+        self.write(")");
     }
 
     fn class_heritage(&mut self, clauses: &[&tsr_ast::HeritageClause<'_>]) {
@@ -342,7 +342,7 @@ impl Printer<'_> {
             self.write(" ");
             for (index, base) in clause.types.iter().enumerate() {
                 if index > 0 {
-                    self.write_raw(", ");
+                    self.write(", ");
                 }
                 if let Some(expression) = &base.expression {
                     self.expression(expression);

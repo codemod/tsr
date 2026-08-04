@@ -114,3 +114,13 @@ fn jsx_children_are_not_reformatted() {
     assert!(round_trips_as("const a = <><b>{x}</b></>;", ScriptKind::Tsx));
     assert!(round_trips_as("const a = <A.B {...p} k:v=\"1\" />;", ScriptKind::Tsx));
 }
+
+#[test]
+fn a_dot_after_a_number_keeps_its_separator() {
+    // `1 .toString()` is legal, and printing `1.toString()` does not parse. Found
+    // by probing rather than by the corpus, which contains no instance of it.
+    assert!(round_trips("const a = 1 .toString();"));
+    assert!(round_trips("const b = 0x10 .toString();"));
+    // The idiomatic spelling must survive untouched too.
+    assert!(round_trips("const c = 1..toString();"));
+}

@@ -13,7 +13,7 @@ impl Printer<'_> {
                 if let Some(list) = node.declaration_list {
                     self.variable_declaration_list(list);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::ExpressionStatement(node) => {
                 if let Some(expression) = &node.expression {
@@ -24,7 +24,7 @@ impl Printer<'_> {
                     // already carry a `ParenthesizedExpression` node.
                     self.expression(expression);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::FunctionDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -46,7 +46,7 @@ impl Printer<'_> {
                         self.write(" ");
                         self.block(block);
                     }
-                    None => self.write_raw(";"),
+                    None => self.write(";"),
                 }
             }
             Statement::ClassDeclaration(node) => {
@@ -82,7 +82,7 @@ impl Printer<'_> {
                 if let Some(r#type) = &node.r#type {
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::EnumDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -94,7 +94,7 @@ impl Printer<'_> {
                 self.indented(|printer| {
                     for (index, member) in node.members.iter().enumerate() {
                         if index > 0 {
-                            printer.write_raw(",");
+                            printer.write(",");
                         }
                         printer.newline();
                         printer.property_name(&member.name);
@@ -105,16 +105,16 @@ impl Printer<'_> {
                     }
                 });
                 self.newline();
-                self.write_raw("}");
+                self.write("}");
             }
             Statement::Block(node) => self.block(node),
-            Statement::EmptyStatement(_) => self.write_raw(";"),
+            Statement::EmptyStatement(_) => self.write(";"),
             Statement::IfStatement(node) => {
                 self.write("if (");
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(")");
+                self.write(")");
                 self.nested_statement(node.then_statement.as_ref());
                 if let Some(otherwise) = &node.else_statement {
                     self.newline();
@@ -128,14 +128,14 @@ impl Printer<'_> {
                     self.write(" ");
                     self.expression(expression);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::ThrowStatement(node) => {
                 self.write("throw ");
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::BreakStatement(node) => {
                 self.write("break");
@@ -143,7 +143,7 @@ impl Printer<'_> {
                     self.write(" ");
                     self.write(label.text);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::ContinueStatement(node) => {
                 self.write("continue");
@@ -151,18 +151,18 @@ impl Printer<'_> {
                     self.write(" ");
                     self.write(label.text);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::DebuggerStatement(_) => {
                 self.write("debugger");
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::WhileStatement(node) => {
                 self.write("while (");
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(")");
+                self.write(")");
                 self.nested_statement(Some(&node.statement));
             }
             Statement::DoStatement(node) => {
@@ -173,24 +173,24 @@ impl Printer<'_> {
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(");");
+                self.write(");");
             }
             Statement::ForStatement(node) => {
                 self.write("for (");
                 if let Some(initializer) = &node.initializer {
                     self.for_initializer(initializer);
                 }
-                self.write_raw(";");
+                self.write(";");
                 if let Some(condition) = &node.condition {
                     self.write(" ");
                     self.expression(condition);
                 }
-                self.write_raw(";");
+                self.write(";");
                 if let Some(incrementor) = &node.incrementor {
                     self.write(" ");
                     self.expression(incrementor);
                 }
-                self.write_raw(")");
+                self.write(")");
                 self.nested_statement(Some(&node.statement));
             }
             Statement::ForInOrOfStatement(node) => {
@@ -198,7 +198,7 @@ impl Printer<'_> {
                 if node.await_modifier.is_some() {
                     self.write("await ");
                 }
-                self.write_raw("(");
+                self.write("(");
                 if let Some(initializer) = &node.initializer {
                     self.for_initializer(initializer);
                 }
@@ -207,7 +207,7 @@ impl Printer<'_> {
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(")");
+                self.write(")");
                 self.nested_statement(node.statement.as_ref());
             }
             Statement::TryStatement(node) => {
@@ -226,7 +226,7 @@ impl Printer<'_> {
                             self.write(": ");
                             self.type_node(r#type);
                         }
-                        self.write_raw(")");
+                        self.write(")");
                     }
                     self.write(" ");
                     if let Some(block) = clause.block {
@@ -243,7 +243,7 @@ impl Printer<'_> {
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(") {");
+                self.write(") {");
                 if let Some(case_block) = node.case_block {
                     self.indented(|printer| {
                         for clause in case_block.clauses {
@@ -253,7 +253,7 @@ impl Printer<'_> {
                                 if let Some(expression) = &clause.expression {
                                     printer.expression(expression);
                                 }
-                                printer.write_raw(":");
+                                printer.write(":");
                             } else {
                                 printer.write("default:");
                             }
@@ -266,13 +266,13 @@ impl Printer<'_> {
                     });
                 }
                 self.newline();
-                self.write_raw("}");
+                self.write("}");
             }
             Statement::LabeledStatement(node) => {
                 if let Some(label) = node.label {
                     self.write(label.text);
                 }
-                self.write_raw(":");
+                self.write(":");
                 self.nested_statement(node.statement.as_ref());
             }
             Statement::WithStatement(node) => {
@@ -280,7 +280,7 @@ impl Printer<'_> {
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(")");
+                self.write(")");
                 self.nested_statement(node.statement.as_ref());
             }
             Statement::ModuleDeclaration(node) => {
@@ -322,7 +322,7 @@ impl Printer<'_> {
                     match &clause.named_bindings {
                         Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) => {
                             if wrote {
-                                self.write_raw(", ");
+                                self.write(", ");
                             }
                             self.write("* as ");
                             if let Some(name) = namespace.name {
@@ -332,12 +332,12 @@ impl Printer<'_> {
                         }
                         Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
                             if wrote {
-                                self.write_raw(", ");
+                                self.write(", ");
                             }
                             self.write("{ ");
                             for (index, specifier) in named.elements.iter().enumerate() {
                                 if index > 0 {
-                                    self.write_raw(", ");
+                                    self.write(", ");
                                 }
                                 if specifier.is_type_only {
                                     self.write("type ");
@@ -363,7 +363,7 @@ impl Printer<'_> {
                     self.expression(specifier);
                 }
                 self.import_attributes(node.attributes);
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::ExportDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -376,7 +376,7 @@ impl Printer<'_> {
                         self.write("{ ");
                         for (index, specifier) in named.elements.iter().enumerate() {
                             if index > 0 {
-                                self.write_raw(", ");
+                                self.write(", ");
                             }
                             if specifier.is_type_only {
                                 self.write("type ");
@@ -405,7 +405,7 @@ impl Printer<'_> {
                     self.expression(specifier);
                 }
                 self.import_attributes(node.attributes);
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::ExportAssignment(node) => {
                 self.modifiers(node.modifiers);
@@ -417,7 +417,7 @@ impl Printer<'_> {
                 if let Some(expression) = &node.expression {
                     self.expression(expression);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::ImportEqualsDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -439,11 +439,11 @@ impl Printer<'_> {
                         if let Some(expression) = &reference.expression {
                             self.expression(expression);
                         }
-                        self.write_raw(")");
+                        self.write(")");
                     }
                     None => {}
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             Statement::NamespaceExportDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -451,7 +451,7 @@ impl Printer<'_> {
                 if let Some(name) = node.name {
                     self.write(name.text);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             other => self.unsupported_statement(other),
         }
@@ -465,7 +465,7 @@ impl Printer<'_> {
     /// A statement in a position where a block is conventional.
     fn nested_statement(&mut self, statement: Option<&Statement<'_>>) {
         let Some(statement) = statement else {
-            self.write_raw(";");
+            self.write(";");
             return;
         };
         if matches!(statement, Statement::Block(_)) {
@@ -489,7 +489,7 @@ impl Printer<'_> {
         self.write(" {");
         for (index, attribute) in attributes.attributes.iter().enumerate() {
             if index > 0 {
-                self.write_raw(",");
+                self.write(",");
             }
             self.write(" ");
             match &attribute.name {
@@ -500,7 +500,7 @@ impl Printer<'_> {
                 }
                 None => {}
             }
-            self.write_raw(": ");
+            self.write(": ");
             if let Some(value) = &attribute.value {
                 self.expression(value);
             }
@@ -524,21 +524,21 @@ impl Printer<'_> {
                     }
                 });
                 self.newline();
-                self.write_raw("}");
+                self.write("}");
             }
             Some(tsr_ast::ModuleBody::ModuleDeclaration(inner)) => {
-                self.write_raw(".");
+                self.write(".");
                 match &inner.name {
-                    Some(tsr_ast::ModuleName::Identifier(name)) => self.write_raw(name.text),
+                    Some(tsr_ast::ModuleName::Identifier(name)) => self.write(name.text),
                     Some(tsr_ast::ModuleName::StringLiteral(literal)) => {
                         let quoted = crate::quote_string(literal.text);
-                        self.write_raw(&quoted);
+                        self.write(&quoted);
                     }
                     None => {}
                 }
                 self.module_body(inner.body.as_ref());
             }
-            None => self.write_raw(";"),
+            None => self.write(";"),
         }
     }
 
@@ -550,7 +550,7 @@ impl Printer<'_> {
             }
         });
         self.newline();
-        self.write_raw("}");
+        self.write("}");
     }
 
     fn for_initializer(&mut self, initializer: &tsr_ast::ForInitializer<'_>) {
@@ -569,7 +569,7 @@ impl Printer<'_> {
         self.write(" ");
         for (index, declaration) in list.declarations.iter().enumerate() {
             if index > 0 {
-                self.write_raw(", ");
+                self.write(", ");
             }
             if let Some(name) = &declaration.name {
                 self.binding_name(name);
@@ -595,7 +595,7 @@ impl Printer<'_> {
             self.write(" ");
             for (index, base) in clause.types.iter().enumerate() {
                 if index > 0 {
-                    self.write_raw(", ");
+                    self.write(", ");
                 }
                 if let Some(expression) = &base.expression {
                     self.expression(expression);
@@ -631,7 +631,7 @@ impl Printer<'_> {
                     self.write(" = ");
                     self.expression(initializer);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             ClassElement::MethodDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -691,7 +691,7 @@ impl Printer<'_> {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             ClassElement::ClassStaticBlockDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -700,7 +700,7 @@ impl Printer<'_> {
                     self.block(block);
                 }
             }
-            ClassElement::SemicolonClassElement(_) => self.write_raw(";"),
+            ClassElement::SemicolonClassElement(_) => self.write(";"),
         }
     }
 
@@ -710,7 +710,7 @@ impl Printer<'_> {
                 self.write(" ");
                 self.block(block);
             }
-            None => self.write_raw(";"),
+            None => self.write(";"),
         }
     }
 

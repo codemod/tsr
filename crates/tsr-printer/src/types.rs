@@ -24,17 +24,17 @@ impl Printer<'_> {
                 if let Some(element) = &array.element_type {
                     self.type_node(element);
                 }
-                self.write_raw("[]");
+                self.write("[]");
             }
             TypeNode::TupleTypeNode(tuple) => {
                 self.write("[");
                 for (index, element) in tuple.elements.iter().enumerate() {
                     if index > 0 {
-                        self.write_raw(", ");
+                        self.write(", ");
                     }
                     self.type_node(element);
                 }
-                self.write_raw("]");
+                self.write("]");
             }
             TypeNode::NamedTupleMember(member) => {
                 if member.dot_dot_dot_token.is_some() {
@@ -46,7 +46,7 @@ impl Printer<'_> {
                 if member.question_token.is_some() {
                     self.write("?");
                 }
-                self.write_raw(": ");
+                self.write(": ");
                 if let Some(r#type) = &member.r#type {
                     self.type_node(r#type);
                 }
@@ -55,7 +55,7 @@ impl Printer<'_> {
                 if let Some(r#type) = &optional.r#type {
                     self.type_node(r#type);
                 }
-                self.write_raw("?");
+                self.write("?");
             }
             TypeNode::RestTypeNode(rest) => {
                 self.write("...");
@@ -84,7 +84,7 @@ impl Printer<'_> {
                 if let Some(r#type) = &parenthesized.r#type {
                     self.type_node(r#type);
                 }
-                self.write_raw(")");
+                self.write(")");
             }
             TypeNode::LiteralTypeNode(literal) => {
                 // A literal type's payload is a bare `Node`: it may be a literal, a
@@ -104,11 +104,11 @@ impl Printer<'_> {
                 if let Some(object) = &indexed.object_type {
                     self.type_node(object);
                 }
-                self.write_raw("[");
+                self.write("[");
                 if let Some(index) = &indexed.index_type {
                     self.type_node(index);
                 }
-                self.write_raw("]");
+                self.write("]");
             }
             TypeNode::TypeQueryNode(query) => {
                 self.write("typeof ");
@@ -204,7 +204,7 @@ impl Printer<'_> {
                     self.write(" as ");
                     self.type_node(name);
                 }
-                self.write_raw("]");
+                self.write("]");
                 if let Some(token) = mapped.question_token {
                     self.token(token);
                 }
@@ -212,7 +212,7 @@ impl Printer<'_> {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw("; }");
+                self.write("; }");
             }
             TypeNode::TemplateLiteralTypeNode(template) => {
                 if let Some(head) = template.head {
@@ -233,9 +233,9 @@ impl Printer<'_> {
                 if let Some(argument) = &import.argument {
                     self.type_node(argument);
                 }
-                self.write_raw(")");
+                self.write(")");
                 if let Some(qualifier) = &import.qualifier {
-                    self.write_raw(".");
+                    self.write(".");
                     self.entity_name(qualifier);
                 }
                 self.type_arguments(import.type_arguments);
@@ -257,7 +257,7 @@ impl Printer<'_> {
             }
         });
         self.newline();
-        self.write_raw("}");
+        self.write("}");
     }
 
     fn type_element(&mut self, member: &TypeElement<'_>) {
@@ -272,7 +272,7 @@ impl Printer<'_> {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             TypeElement::MethodSignatureDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -286,7 +286,7 @@ impl Printer<'_> {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             TypeElement::CallSignatureDeclaration(node) => {
                 self.type_parameters(node.type_parameters);
@@ -295,7 +295,7 @@ impl Printer<'_> {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             TypeElement::ConstructSignatureDeclaration(node) => {
                 self.write("new ");
@@ -305,7 +305,7 @@ impl Printer<'_> {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             TypeElement::IndexSignatureDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -319,12 +319,12 @@ impl Printer<'_> {
                         self.type_node(r#type);
                     }
                 }
-                self.write_raw("]");
+                self.write("]");
                 if let Some(r#type) = &node.r#type {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             TypeElement::GetAccessorDeclaration(node) => {
                 self.modifiers(node.modifiers);
@@ -335,14 +335,14 @@ impl Printer<'_> {
                     self.write(": ");
                     self.type_node(r#type);
                 }
-                self.write_raw(";");
+                self.write(";");
             }
             TypeElement::SetAccessorDeclaration(node) => {
                 self.modifiers(node.modifiers);
                 self.write("set ");
                 self.property_name(&node.name);
                 self.parameters(node.parameters);
-                self.write_raw(";");
+                self.write(";");
             }
             // A transform artefact that never appears in a parsed tree.
             TypeElement::NotEmittedTypeElement(_) => {}
