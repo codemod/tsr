@@ -168,6 +168,13 @@ pub(crate) struct Binder<'a, 'n> {
     /// checker's late binding and the conformance harness both need to read the
     /// expression back.
     computed_names: rustc_hash::FxHashMap<NodeId, NodeId>,
+    /// Declaration node → its name node, for anchoring redeclaration diagnostics.
+    ///
+    /// A `NodeId` alone cannot reach the tree — [`NodeTable`] holds kind, span,
+    /// flags and parent, not the node — and a redeclaration has to be reported on
+    /// declarations bound earlier, which are known only by id. Recording the name
+    /// as each declaration is bound is what makes that possible.
+    name_nodes: rustc_hash::FxHashMap<NodeId, NodeId>,
     /// Expando assignments (`f.x = 1`), and the scope each was written in.
     ///
     /// Bound in a second pass: the target may be declared further down the file
@@ -279,6 +286,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             commonjs_module: false,
             this_container: NodeId::ZERO,
             computed_names: rustc_hash::FxHashMap::default(),
+            name_nodes: rustc_hash::FxHashMap::default(),
             expando_assignments: Vec::new(),
             expando_initializers: rustc_hash::FxHashMap::default(),
             is_module: false,
@@ -2698,6 +2706,14 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
         };
 
+        // **Before `declare_into`**, which is where a redeclaration diagnostic is
+        // raised and therefore where this node's name span is first needed.
+        // Recorded after the call, it was always absent for the declaration being
+        // bound and present only for the earlier ones — so every diagnostic landed
+        // on the `enum`/`class` keyword instead of the name.
+        if let Some(name_node) = name_node_of(node) {
+            self.name_nodes.insert(id, name_node);
+        }
         let symbol = self.declare_into(destination, table_owner, self.owner, name, flags, id);
         self.node_symbols[id.index()] = Some(symbol);
         self.record_expando_initializer(node, id);
@@ -2728,6 +2744,16 @@ impl<'a, 'n> Binder<'a, 'n> {
         Some(symbol)
     }
 
+    /// The span a redeclaration diagnostic is anchored on.
+    ///
+    /// The declaration's name, falling back to the declaration itself — upstream's
+    /// `declarationName == nil` branch (`binder.go:245`).
+    fn declaration_name_span(&self, declaration: NodeId) -> tsr_core::Span {
+        self.name_nodes
+            .get(&declaration)
+            .map_or_else(|| self.nodes.span(declaration), |name| self.nodes.span(*name))
+    }
+
     /// Add `name` to the appropriate table, merging with an existing symbol where
     /// TypeScript allows it and reporting a duplicate where it does not.
     fn declare_into(
@@ -2754,13 +2780,48 @@ impl<'a, 'n> Binder<'a, 'n> {
         let symbol = if let Some(existing) = existing {
             let existing_flags = self.symbols.get(existing).flags;
             if flags.excludes().intersects(existing_flags) {
-                // A genuine redeclaration. Upstream reports on every
-                // declaration involved, not only the second.
-                self.diagnostics.push(Diagnostic::with_args(
-                    &messages::DUPLICATE_IDENTIFIER_0,
-                    self.nodes.span(declaration),
-                    [name.to_string()],
-                ));
+                // Ported from `binder.declareSymbol` (`internal/binder/binder.go:202`),
+                // whose message selection this originally collapsed into one
+                // diagnostic at one position. Three separate defects, all of which
+                // the `diagnostics` conformance suite reports as a *false positive*
+                // because a diagnostic at the wrong position or with the wrong code
+                // is both an unexpected one and a missing one:
+                //
+                // 1. An enum in the conflict is `TS2567`, not `TS2300`, and carries
+                //    no name argument (`binder.go:220`). `class c4 {} enum c4 {}`
+                //    was the whole of `compiler/augmentedTypesClass`'s divergence.
+                // 2. A block-scoped existing declaration is `TS2451`
+                //    (`binder.go:214`).
+                // 3. The position is the declaration's **name**, not the
+                //    declaration (`GetNameOfDeclaration`, `binder.go:245`). `class
+                //    c1 {}` reports at the `c1`, not at the `class`.
+                //
+                // And upstream reports on *every* declaration involved
+                // (`binder.go:259`), which the previous comment here claimed while
+                // the code reported only the latest.
+                let enum_conflict = existing_flags.intersects(SymbolFlags::ENUM)
+                    || flags.intersects(SymbolFlags::ENUM);
+                let message = if enum_conflict {
+                    &messages::ENUM_DECLARATIONS_CAN_ONLY_MERGE_WITH_NAMESPACE_OR_OTHER_ENUM_DECLARATIONS
+                } else if existing_flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
+                    &messages::CANNOT_REDECLARE_BLOCK_SCOPED_VARIABLE_0
+                } else {
+                    &messages::DUPLICATE_IDENTIFIER_0
+                };
+
+                let report = |binder: &mut Self, at: NodeId| {
+                    let span = binder.declaration_name_span(at);
+                    binder.diagnostics.push(if enum_conflict {
+                        Diagnostic::new(message, span)
+                    } else {
+                        Diagnostic::with_args(message, span, [name.to_string()])
+                    });
+                };
+                let previous: Vec<NodeId> = self.symbols.get(existing).declarations.to_vec();
+                report(self, declaration);
+                for earlier in previous {
+                    report(self, earlier);
+                }
                 // Still merge, so the checker has one symbol to resolve
                 // against rather than a hole. Upstream does the same.
             }
@@ -3300,6 +3361,47 @@ fn classify(node: Node<'_>) -> Option<(SymbolFlags, Destination)> {
 /// `None` for computed names (`[expr]`) and for destructuring patterns. Both
 /// declare symbols in TypeScript — a binding pattern declares one per element —
 /// and neither is handled yet; see the note in `lib.rs`.
+/// The span of a declaration's *name*, for a diagnostic anchored on it.
+///
+/// Ported from `ast.GetNameOfDeclaration` (`internal/ast/utilities.go`) as the
+/// binder uses it: upstream anchors a redeclaration diagnostic on the name and
+/// falls back to the declaration itself when there is none (`binder.go:245`).
+///
+/// Only the declaration kinds that can collide in a symbol table are listed. A
+/// kind not here falls back to the declaration's own span, which is what upstream
+/// does for a nameless declaration anyway.
+fn name_node_of(node: Node<'_>) -> Option<NodeId> {
+    use tsr_ast::PropertyName;
+    let property = |name: &PropertyName<'_>| name.node_id();
+    match node {
+        Node::FunctionDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::ClassDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::ClassExpression(n) => n.name.and_then(|i| i.node_id),
+        Node::InterfaceDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::TypeAliasDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::EnumDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::ImportEqualsDeclaration(n) => n.name.and_then(|i| i.node_id),
+        Node::ModuleDeclaration(n) => match n.name {
+            Some(tsr_ast::ModuleName::Identifier(i)) => i.node_id,
+            Some(tsr_ast::ModuleName::StringLiteral(l)) => l.node_id,
+            None => None,
+        },
+        Node::VariableDeclaration(n) => n.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+        Node::ParameterDeclaration(n) => n.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+        Node::BindingElement(n) => n.name.as_ref().and_then(tsr_ast::BindingName::node_id),
+        Node::PropertyDeclaration(n) => property(&n.name),
+        Node::PropertySignatureDeclaration(n) => property(&n.name),
+        Node::MethodDeclaration(n) => property(&n.name),
+        Node::MethodSignatureDeclaration(n) => property(&n.name),
+        Node::GetAccessorDeclaration(n) => property(&n.name),
+        Node::SetAccessorDeclaration(n) => property(&n.name),
+        Node::EnumMember(n) => property(&n.name),
+        Node::PropertyAssignment(n) => property(&n.name),
+        Node::ShorthandPropertyAssignment(n) => property(&n.name),
+        _ => None,
+    }
+}
+
 fn declaration_name<'a>(node: Node<'a>, nodes: &NodeTable, source: &'a str) -> Option<&'a str> {
     fn from_property_name(name: tsr_ast::PropertyName<'_>) -> Option<&str> {
         match name {

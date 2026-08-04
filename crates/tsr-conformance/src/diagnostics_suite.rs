@@ -152,14 +152,16 @@ impl Suite for Diagnostics {
 
 /// A one-line summary of how the two sets differ.
 ///
-/// Counts first, then the most informative single item. With no checker the
-/// overwhelming answer is "missing", and the code that is missing is the useful
-/// half — it says which part of the checker would fix the case.
+/// **Multiset, not set.** The comparison this explains is `Vec == Vec` over sorted
+/// diagnostics, so a case expecting the *same* diagnostic twice and getting it
+/// once is a difference. An earlier version filtered with `Vec::contains`, which
+/// answers "is it present at all": both differences came back empty and the
+/// function panicked on its own `expect`. It stayed hidden until the binder began
+/// reporting a redeclaration on every declaration involved, which is exactly when
+/// duplicate positions started to occur.
 fn summarise(expected: &[BaselineDiagnostic], actual: &[BaselineDiagnostic]) -> String {
-    let missing: Vec<&BaselineDiagnostic> =
-        expected.iter().filter(|item| !actual.contains(item)).collect();
-    let extra: Vec<&BaselineDiagnostic> =
-        actual.iter().filter(|item| !expected.contains(item)).collect();
+    let missing = surplus(expected, actual);
+    let extra = surplus(actual, expected);
 
     // An unexpected diagnostic is reported in preference to a missing one: with no
     // checker, missing is the expected state and extra is a defect we own today.
@@ -174,15 +176,41 @@ fn summarise(expected: &[BaselineDiagnostic], actual: &[BaselineDiagnostic]) -> 
             missing.len()
         );
     }
-    let first = missing.first().expect("sets differ, so one side is non-empty");
-    format!(
-        "{} missing (first TS{} at {}({},{}))",
-        missing.len(),
-        first.code,
-        first.file,
-        first.line,
-        first.column
-    )
+    match missing.first() {
+        Some(first) => format!(
+            "{} missing (first TS{} at {}({},{}))",
+            missing.len(),
+            first.code,
+            first.file,
+            first.line,
+            first.column
+        ),
+        // Unreachable while the caller compares sorted vectors, but returning a
+        // sentence beats an `expect` in a harness that runs over 12,444 cases.
+        None => "sets differ but no diagnostic does".to_string(),
+    }
+}
+
+/// The elements of `left` that `right` does not have *as many of*.
+///
+/// Both inputs are sorted, so this is a merge rather than a scan.
+fn surplus<'a>(
+    left: &'a [BaselineDiagnostic],
+    right: &[BaselineDiagnostic],
+) -> Vec<&'a BaselineDiagnostic> {
+    let mut out = Vec::new();
+    let mut index = 0usize;
+    for item in left {
+        while index < right.len() && right[index] < *item {
+            index += 1;
+        }
+        if index < right.len() && right[index] == *item {
+            index += 1;
+        } else {
+            out.push(item);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -202,6 +230,15 @@ mod tests {
         let summary = summarise(&expected, &actual);
         assert!(summary.starts_with("1 unexpected (first TS1005 at a.ts(9,1))"), "{summary}");
         assert!(summary.ends_with("2 missing"), "{summary}");
+    }
+
+    #[test]
+    fn the_same_diagnostic_expected_twice_and_seen_once_is_a_difference() {
+        // Multiset, not set. This is the case that made the previous `contains`
+        // based version panic on its own `expect`.
+        let expected = vec![diagnostic(2300, 3), diagnostic(2300, 3)];
+        let actual = vec![diagnostic(2300, 3)];
+        assert_eq!(summarise(&expected, &actual), "1 missing (first TS2300 at a.ts(3,1))");
     }
 
     #[test]

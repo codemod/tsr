@@ -1,4 +1,10 @@
-# The performance gate from docs/adr/0009-performance-gate.md.
+# The performance gate from docs/adr/0009-performance-gate.md, plus the
+# conformance rates.
+#
+# The two travel together because both answer "where is the port?" rather than
+# "did this change break something", and both are worth a reading on a quiet week.
+# The artifact carries every suite's snapshot, so a download shows the full
+# per-case detail and not just the summary line.
 #
 # Separate from ci.yml because it needs a Go toolchain and a typescript-go build,
 # and because it is the one job whose result is a *measurement* rather than a
@@ -65,6 +71,22 @@ jobs:
         id: compare
         run: cargo run -p xtask -- perf
 
+      # The conformance rates ride along with the perf artifacts so one download
+      # answers "where is the port?" without reading a log. `ci.yml` also runs the
+      # corpus, but as a *ratchet* — it fails when the committed snapshots move.
+      # This publishes the numbers themselves, including on a scheduled run when
+      # nothing changed, which is the point: an artifact you can open and read.
+      #
+      # Release, and after the perf comparison. Debug is roughly 10x slower here
+      # and needs a 32 MiB worker stack (see the constant in the coverage binary);
+      # running it before the benchmark would also be the compile-next-to-a-
+      # benchmark noise this job takes care to avoid.
+      - name: Conformance rates
+        if: always()
+        run: |
+          cargo run --release -p tsr-conformance --bin coverage \
+            | tee conformance-summary.txt
+
       # `always()`: a failing gate is exactly when the numbers are worth keeping.
       - name: Publish results
         if: always()
@@ -74,9 +96,20 @@ jobs:
           path: |
             perf-results.json
             perf-summary.md
+            conformance-summary.txt
+            crates/tsr-conformance/snapshots/
           if-no-files-found: warn
           retention-days: 90
 
       - name: Job summary
         if: always()
-        run: cat perf-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+        run: |
+          cat perf-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          {
+            echo
+            echo '## Conformance'
+            echo
+            echo '```'
+            cat conformance-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY" || true

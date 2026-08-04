@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 54/5488 (0.98%)
-Failed         : 5434
+Passed         : 79/5488 (1.44%)
+Failed         : 5409
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5434 failures:
+First 100 of 5409 failures:
 compiler/ArrowFunctionExpression1
   1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
 compiler/ClassDeclaration10
@@ -33,7 +33,7 @@ compiler/ClassDeclaration24
 compiler/ClassDeclaration25
   2 missing (first TS2391 at ClassDeclaration25.ts(6,5))
 compiler/ClassDeclaration26
-  4 unexpected (first TS1005 at ClassDeclaration26.ts(2,18)), 5 missing
+  5 unexpected (first TS1005 at ClassDeclaration26.ts(2,18)), 5 missing
 compiler/ClassDeclaration8
   1 missing (first TS2390 at ClassDeclaration8.ts(2,3))
 compiler/ClassDeclaration9
@@ -75,7 +75,7 @@ compiler/abstractClassInLocalScopeIsAbstract
 compiler/abstractClassUnionInstantiation
   7 missing (first TS2564 at abstractClassUnionInstantiation.ts(3,28))
 compiler/abstractPropertyInConstructor
-  2 unexpected (first TS2300 at abstractPropertyInConstructor.ts(79,22)), 13 missing
+  4 unexpected (first TS2300 at abstractPropertyInConstructor.ts(79,15)), 13 missing
 compiler/accessInstanceMemberFromStaticMethod01
   1 missing (first TS2662 at accessInstanceMemberFromStaticMethod01.ts(5,17))
 compiler/accessStaticMemberFromInstanceMethod01
@@ -131,7 +131,7 @@ compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
 compiler/allowImportClausesToMergeWithTypes
   1 missing (first TS2749 at index.ts(9,10))
 compiler/allowJscheckJsTypeParameterNoCrash
-  1 unexpected (first TS2300 at app.js(8,5)), 1 missing
+  2 unexpected (first TS2300 at app.js(6,7)), 1 missing
 compiler/allowSyntheticDefaultImports10
   2 missing (first TS2339 at a.ts(2,5))
 compiler/alwaysStrict
@@ -153,11 +153,11 @@ compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
 compiler/ambientExternalModuleWithRelativeModuleName
   2 missing (first TS2436 at ambientExternalModuleWithRelativeModuleName.ts(1,16))
 compiler/ambientPropertyDeclarationInJs
-  1 unexpected (first TS2300 at /test.js(6,5)), 4 missing
+  2 unexpected (first TS2300 at /test.js(3,9)), 4 missing
 compiler/ambientStatement1
   2 missing (first TS1036 at ambientStatement1.ts(2,6))
 compiler/ambiguousGenericAssertion1
-  3 unexpected (first TS1012 at ambiguousGenericAssertion1.ts(4,16)), 2 missing
+  4 unexpected (first TS1005 at ambiguousGenericAssertion1.ts(4,16)), 2 missing
 compiler/ambiguousOverload
   2 missing (first TS2322 at ambiguousOverload.ts(5,5))
 compiler/amdDependencyComment1
@@ -168,8 +168,6 @@ compiler/anonymousClassExpression2
   1 missing (first TS2551 at anonymousClassExpression2.ts(13,18))
 compiler/anonymousModules
   3 unexpected (first TS1005 at anonymousModules.ts(1,8)), 6 missing
-compiler/anyDeclare
-  1 missing (first TS2300 at anyDeclare.ts(4,14))
 compiler/anyIdenticalToItself
   1 missing (first TS2394 at anyIdenticalToItself.ts(1,10))
 compiler/anyIndexedAccessArrayNoException
@@ -212,3 +210,5 @@ compiler/arrayAssignmentTest4
   2 missing (first TS2322 at arrayAssignmentTest4.ts(22,1))
 compiler/arrayAssignmentTest5
   3 missing (first TS2366 at arrayAssignmentTest5.ts(21,66))
+compiler/arrayAssignmentTest6
+  1 missing (first TS2322 at arrayAssignmentTest6.ts(16,13))
