@@ -39,6 +39,7 @@ mod module;
 mod parsed_file;
 mod parser;
 pub mod pragma;
+pub mod references;
 mod statement;
 mod types;
 
@@ -46,6 +47,10 @@ pub use parsed_file::ParsedFile;
 pub use parser::{JSDocTable, ParseOptions, ParseResult, Parser, ScriptKind};
 pub use pragma::{
     CheckJsDirective, FileReference, FileReferences, ResolutionMode, parse_file_references,
+};
+pub use references::{
+    CollectOptions, ExternalModuleReferences, ModuleSpecifier, SpecifierContext,
+    collect_external_module_references, contains_jsx_tag, is_file_probably_external_module,
 };
 
 use tsr_ast::SourceFile;

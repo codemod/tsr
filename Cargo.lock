@@ -223,8 +223,10 @@ dependencies = [
  "tsr-binder",
  "tsr-core",
  "tsr-diagnostics",
+ "tsr-module",
  "tsr-parser",
  "tsr-path",
+ "tsr-vfs",
 ]
 
 [[package]]
@@ -279,6 +281,7 @@ dependencies = [
  "tsr-ast",
  "tsr-core",
  "tsr-diagnostics",
+ "tsr-path",
  "tsr-scanner",
 ]
 

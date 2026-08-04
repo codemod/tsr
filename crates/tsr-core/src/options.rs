@@ -58,6 +58,16 @@ impl Tristate {
         self == Self::False
     }
 
+    /// This option if it was set, else `fallback`
+    /// (`Tristate.DefaultIfUnknown`).
+    ///
+    /// How the strict family works: `noImplicitAny` unset means "whatever
+    /// `strict` says", which is why [`Tristate`] needs a third state at all.
+    #[must_use]
+    pub fn default_if_unknown(self, fallback: Self) -> Self {
+        if self == Self::Unknown { fallback } else { self }
+    }
+
     /// From a `true`/`false` directive value.
     #[must_use]
     pub fn from_bool(value: bool) -> Self {
@@ -189,7 +199,12 @@ impl ModuleKind {
 }
 
 /// How `import` specifiers are resolved (`core.ModuleResolutionKind`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+///
+/// Ordered, and the order is upstream's numbering rather than presentation:
+/// `Node16 <= kind && kind <= NodeNext` is how the compiler asks "does this
+/// resolution mode split `CommonJS` from ESM", and it must exclude `Bundler`
+/// (upstream `Node16 = 3`, `NodeNext = 99`, `Bundler = 100`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum ModuleResolutionKind {
     /// Unset; derived from [`CompilerOptions::module`].
     #[default]
@@ -392,6 +407,22 @@ pub struct CompilerOptions {
     pub declaration_dir: String,
     /// The tsconfig this came from, if any.
     pub config_file_path: String,
+
+    // ---- The file loader. Added by Phase 3 slice 3; each is read while
+    // ---- deciding which files enter the program and how they are resolved.
+    /// Report an implicit `any`. Read by the loader only to decide whether a
+    /// `.js` resolution without types is an error and so excluded from the
+    /// program (`module.GetResolutionDiagnostic`).
+    pub no_implicit_any: Tristate,
+    /// The package the automatic JSX runtime is imported from; `react` when
+    /// unset and `jsx` names an automatic runtime.
+    pub jsx_import_source: String,
+    /// Load files whose extension TypeScript does not recognise.
+    pub allow_non_ts_extensions: Tristate,
+    /// How far into `node_modules` a JavaScript file's imports are followed.
+    /// `None` is upstream's zero, which is what makes a `.js` dependency's own
+    /// imports invisible by default.
+    pub max_node_module_js_depth: Option<i32>,
 }
 
 impl CompilerOptions {
@@ -471,6 +502,24 @@ impl CompilerOptions {
             return true;
         }
         self.module_resolution_kind() == ModuleResolutionKind::Bundler
+    }
+
+    /// Whether `package.json` `exports` are honoured
+    /// (`GetResolvePackageJsonExports`).
+    ///
+    /// Unset means *on*, which is worth stating because it makes
+    /// `importSyntaxAffectsModuleResolution` true under every default — so a
+    /// specifier's syntax decides its resolution mode even under `bundler`.
+    #[must_use]
+    pub fn get_resolve_package_json_exports(&self) -> bool {
+        self.resolve_package_json_exports.is_true_or_unknown()
+    }
+
+    /// Whether `package.json` `imports` are honoured
+    /// (`GetResolvePackageJsonImports`).
+    #[must_use]
+    pub fn get_resolve_package_json_imports(&self) -> bool {
+        self.resolve_package_json_imports.is_true_or_unknown()
     }
 
     /// Whether `.js` files enter the program (`GetAllowJS`).

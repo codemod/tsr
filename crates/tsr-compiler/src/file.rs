@@ -30,7 +30,7 @@ use tsr_ast::{NodeTable, SourceFile};
 use tsr_binder::{BindResult, FileInfo};
 use tsr_core::Arena;
 use tsr_diagnostics::Diagnostic;
-use tsr_parser::{JSDocTable, ScriptKind};
+use tsr_parser::{FileReferences, JSDocTable, ScriptKind};
 use tsr_path::Path;
 
 /// What a file owns: the arena its nodes live in, its name, and its text.
@@ -75,6 +75,7 @@ pub struct ProgramFile {
     cell: Cell,
     diagnostics: Vec<Diagnostic>,
     nodes: NodeTable,
+    file_references: FileReferences,
 }
 
 // SAFETY: as `tsr_parser::ParsedFile`, and for the same reason. The cell owns the
@@ -99,12 +100,14 @@ impl ProgramFile {
         let script_kind = ScriptKind::from_file_name(&file_name);
         let mut diagnostics = Vec::new();
         let mut nodes = NodeTable::new();
+        let mut file_references = FileReferences::default();
 
         let cell = Cell::new(Owner { arena: Arena::new(), file_name, text }, |owner| {
             let options = tsr_parser::ParseOptions { script_kind, ..Default::default() };
             let parsed = tsr_parser::parse_with_options(&owner.arena, &owner.text, options);
             diagnostics = parsed.diagnostics;
             nodes = parsed.nodes;
+            file_references = parsed.file_references;
             Contents {
                 source_file: parsed.source_file,
                 jsdoc: parsed.jsdoc,
@@ -112,7 +115,7 @@ impl ProgramFile {
             }
         });
 
-        Self { path, cell, diagnostics, nodes }
+        Self { path, cell, diagnostics, nodes, file_references }
     }
 
     /// Bind the file, if it is not bound already.
@@ -159,6 +162,16 @@ impl ProgramFile {
     #[must_use]
     pub fn nodes(&self) -> &NodeTable {
         &self.nodes
+    }
+
+    /// What the file's `///`-directive preamble declared.
+    ///
+    /// The file loader reads these the same way it reads an `import`: a
+    /// `path` reference names a file directly, a `types` reference goes through
+    /// the resolver, and a `lib` reference names a built-in library.
+    #[must_use]
+    pub fn file_references(&self) -> &FileReferences {
+        &self.file_references
     }
 
     /// What the scanner and parser objected to, in source order.

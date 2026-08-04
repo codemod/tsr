@@ -19,8 +19,10 @@
 //! # What it deliberately does not do
 //!
 //! - **It does not resolve modules.** The file list is given, not discovered.
-//!   Following `import` specifiers is the next slice, and it has its own oracle
-//!   (146 `.trace.json` baselines).
+//!   Discovering it is [`loader`]'s job — a separate entry point with its own
+//!   oracle (146 `.trace.json` baselines) — and the two are not yet joined:
+//!   nothing today hands [`loader::LoadedFiles`] to [`Program`]. When something
+//!   does, `ProgramOptions::files` becomes "root files" rather than "all files".
 //! - **It does not read tsconfig.json.** Options arrive as a
 //!   [`CompilerOptions`], which is what upstream's `program.go` takes — it
 //!   imports `internal/core` and not `internal/tsoptions`.
@@ -29,6 +31,7 @@
 //!   and so should we, when there is one.
 
 mod file;
+pub mod loader;
 
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -36,6 +39,7 @@ use tsr_core::CompilerOptions;
 use tsr_path::{Path, to_path};
 
 pub use file::ProgramFile;
+pub use loader::{FileLoader, LoadedFiles, RequestKind, ResolutionRequest};
 
 /// How a program is constructed (`compiler.ProgramOptions`).
 #[derive(Debug, Clone)]

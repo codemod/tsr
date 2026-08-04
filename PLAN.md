@@ -329,7 +329,7 @@ JSDoc declarations. See [docs/architecture/binder.md](docs/architecture/binder.m
 [ADR-0017](docs/adr/0017-program-before-tsconfig.md).
 **Gate:** upstream module-resolution baselines pass (146 `.trace.json`).
 
-**Status (2026-08-04):** slices 1 and 2 landed.
+**Status (2026-08-04):** slices 1, 2 and 3 landed.
 
 *Slice 1* — `tsr-path` (`tspath`), `CompilerOptions` in `tsr-core`, and
 `tsr-compiler` with a `Program` that parses and binds a set of files together,
@@ -346,9 +346,21 @@ step for step. Scope correction: there are **three** resolution kinds, not four 
 and [ADR-0018](docs/adr/0018-splitting-the-resolution-oracle.md), which records
 why that number judges the *resolver* and not yet the file loader.
 
-Still to do: the file loader (the walk that requests resolutions) and
-`tsr-tsoptions` (slice 3), which together unblock the 20 tsconfig-configured and
-14 configuration-varied trace cases currently skipped.
+*Slice 3* — the **file loader** (`tsr-compiler`'s `loader`, upstream's
+`fileloader.go` + `filesparser.go`) and `collectExternalModuleReferences` in
+`tsr-parser`: the walk that decides *what* to resolve. New `file_loader`
+conformance suite over the same baselines: **76/76, 100.00%**, judging the
+`======== Resolving ... ========` headers, their order, and the resolution mode.
+**No rate moved and none could have** — `module_resolution` replays requests taken
+from the baseline, so a loader cannot change it; what the two numbers now cover
+between them is a whole `.trace.json`, which neither did alone. See
+[docs/architecture/file-loader.md](docs/architecture/file-loader.md) and
+[ADR-0019](docs/adr/0019-the-loader-gate-discharges-the-mode-circularity.md),
+which discharges ADR-0018's mode circularity.
+
+Still to do: `tsr-tsoptions` (slice 4), which unblocks the 20 tsconfig-configured
+trace cases — the largest skip bucket in both resolution suites — and the
+configuration-varied cases the other suites skip (bd tsr-bb4.1).
 
 ### Phase 3.5 — First shippable artifact (no checker required)
 `tsr-dts` (isolatedDeclarations-style `.d.ts` emit) and syntax-only transforms.

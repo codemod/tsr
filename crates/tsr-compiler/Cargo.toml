@@ -15,9 +15,13 @@ tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }
 tsr-parser = { workspace = true }
 tsr-path = { workspace = true }
+tsr-module = { workspace = true }
 rayon = { workspace = true }
 rustc-hash = { workspace = true }
 self_cell = { workspace = true }
+
+[dev-dependencies]
+tsr-vfs = { workspace = true }
 
 [lints]
 workspace = true

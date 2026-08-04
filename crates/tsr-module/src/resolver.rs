@@ -184,6 +184,28 @@ impl<'host> Resolver<'host> {
         &self.compiler_options
     }
 
+    /// The nearest enclosing `package.json`, if any
+    /// (`Resolver.GetPackageScopeForPath`).
+    ///
+    /// The file loader asks this of every file it parses, to derive the file's
+    /// module format from the `type` field. It is *not* a resolution: upstream
+    /// runs it through a `resolutionState` with tracing off, so the lookups it
+    /// performs produce no trace lines even under `traceResolution`. They do
+    /// warm the `package.json` cache, which later resolutions observe — the
+    /// baseline sanitiser exists precisely to make that unobservable.
+    #[must_use]
+    pub fn get_package_scope_for_path(&self, directory: &str) -> Option<Rc<PackageJsonInfo>> {
+        let mut state = ResolutionState::new(
+            self,
+            String::new(),
+            directory.to_string(),
+            /* is_type_reference_directive */ false,
+            ResolutionMode::None,
+            /* tracing */ false,
+        );
+        state.get_package_scope_for_path(directory)
+    }
+
     /// Resolve an `import` specifier (`Resolver.ResolveModuleName`).
     ///
     /// Returns the resolution and the trace lines it produced. The traces are

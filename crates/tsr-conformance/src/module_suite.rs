@@ -27,10 +27,17 @@
 //!
 //! That is a real limitation and it is deliberate. It means the suite **cannot**
 //! catch a loader that would have asked for the wrong things, or asked in the
-//! wrong order — there is no loader yet (bd tsr-9or), and building one to get a
-//! number would have entangled the two failure modes so that neither could be
-//! localised. When the loader lands it gets its own gate: the *headers*, in
-//! order, from the same baselines.
+//! wrong order — building one number out of both would have entangled the two
+//! failure modes so that neither could be localised.
+//!
+//! The loader now exists, and it has that second gate:
+//! [`crate::loader_suite`] runs it for real and compares the *headers*, their
+//! order, and the resolution mode, from these same baselines. Between them the
+//! two suites cover a trace end to end. See
+//! [ADR-0018](../../../docs/adr/0018-splitting-the-resolution-oracle.md) for the
+//! split and
+//! [ADR-0019](../../../docs/adr/0019-the-loader-gate-discharges-the-mode-circularity.md)
+//! for what the second half established.
 //!
 //! # The skip rules, and why they are not silent
 //!
@@ -64,7 +71,7 @@ use crate::{
 
 /// Where a case's files live when it does not say otherwise
 /// (`testrunner.srcFolder`).
-const SRC_FOLDER: &str = "/.src";
+pub(crate) const SRC_FOLDER: &str = "/.src";
 
 /// The `module_resolution` suite.
 pub struct ModuleResolution;
@@ -118,9 +125,9 @@ impl Suite for ModuleResolution {
             // `baseline.Run` deletes the reference file when the content is
             // `NoContent`, so absence here means "no resolution happened", not
             // "no data". Three cases are in this bucket, all of which have no
-            // import at all. There is nothing for this suite to judge — the
+            // import at all. There is nothing for *this* suite to judge — the
             // claim "we would also have requested nothing" belongs to the file
-            // loader, which does not exist yet.
+            // loader, and [`crate::loader_suite`] asserts it there.
             return Outcome::Skipped {
                 reason: "upstream recorded an empty trace: the case performs no resolutions"
                     .to_string(),
@@ -180,9 +187,9 @@ impl Suite for ModuleResolution {
 }
 
 /// A `ResolutionHost` over an in-memory file system.
-struct TestHost {
-    fs: InMemoryFileSystem,
-    current_directory: String,
+pub(crate) struct TestHost {
+    pub(crate) fs: InMemoryFileSystem,
+    pub(crate) current_directory: String,
 }
 
 impl ResolutionHost for TestHost {
@@ -196,7 +203,7 @@ impl ResolutionHost for TestHost {
 }
 
 /// Assemble the case's declared units and symlinks into a file system.
-fn build_file_system(
+pub(crate) fn build_file_system(
     case: &TestCase,
     current_directory: &str,
     use_case_sensitive_file_names: bool,
@@ -272,7 +279,7 @@ pub fn upstream_skip_reason(case: &TestCase) -> Option<String> {
 
 /// Build options from the case's directives
 /// (`harnessutil.SetOptionsFromTestConfig`, for the options resolution reads).
-fn compiler_options(case: &TestCase, current_directory: &str) -> CompilerOptions {
+pub(crate) fn compiler_options(case: &TestCase, current_directory: &str) -> CompilerOptions {
     let get = |name: &str| case.options.get(name).map(String::as_str);
     let tristate = |name: &str| match get(name) {
         Some(value) if value.eq_ignore_ascii_case("true") => Tristate::True,
@@ -325,6 +332,10 @@ fn compiler_options(case: &TestCase, current_directory: &str) -> CompilerOptions
         module_suffixes: list("modulesuffixes").unwrap_or_default(),
         custom_conditions: list("customconditions").unwrap_or_default(),
         resolve_json_module: tristate("resolvejsonmodule"),
+        no_implicit_any: tristate("noimplicitany"),
+        allow_non_ts_extensions: tristate("allownontsextensions"),
+        jsx_import_source: get("jsximportsource").unwrap_or_default().to_string(),
+        max_node_module_js_depth: get("maxnodemodulejsdepth").and_then(|v| v.parse().ok()),
         no_dts_resolution: tristate("nodtsresolution"),
         resolve_package_json_exports: tristate("resolvepackagejsonexports"),
         resolve_package_json_imports: tristate("resolvepackagejsonimports"),
@@ -451,7 +462,7 @@ fn parse_requests(baseline: &str, kind: ModuleResolutionKind) -> Vec<Request> {
 ///   reads as a real probe and every later one as a cache hit — regardless of
 ///   which the resolver actually did. Without this the output depends on the
 ///   order resolutions happened to run in.
-fn sanitize(
+pub(crate) fn sanitize(
     traces: &[Trace],
     current_directory: &str,
     use_case_sensitive_file_names: bool,
@@ -539,7 +550,7 @@ fn sanitize_line(
 ///
 /// A whole-trace diff would be unreadable in a committed snapshot; the first
 /// divergence is where the bug is.
-fn first_difference(expected: &str, actual: &str) -> String {
+pub(crate) fn first_difference(expected: &str, actual: &str) -> String {
     let expected_lines: Vec<&str> = expected.lines().collect();
     let actual_lines: Vec<&str> = actual.lines().collect();
     for (index, (expected_line, actual_line)) in

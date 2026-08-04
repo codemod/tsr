@@ -13,6 +13,7 @@ tsr-core = { workspace = true }
 tsr-ast = { workspace = true }
 tsr-scanner = { workspace = true }
 tsr-diagnostics = { workspace = true }
+tsr-path = { workspace = true }
 self_cell = { workspace = true }
 
 [dev-dependencies]

@@ -46,6 +46,45 @@ pub const EXTENSION_CTS: &str = ".cts";
 /// `.d.cts`.
 pub const EXTENSION_DCTS: &str = ".d.cts";
 
+/// Every extension a program will load, grouped by *format family*
+/// (`tspath.AllSupportedExtensions`).
+///
+/// The grouping is not presentation. A resolution that reaches
+/// `./foo` tries the whole first group before the second, so `foo.ts` wins over
+/// `foo.cts`; and the file loader's extensionless root-file fallback
+/// (`getSourceFileFromReference`) tries **only** the first group. Flattening
+/// these would change both.
+pub const ALL_SUPPORTED_EXTENSIONS: &[&[&str]] = &[
+    &[EXTENSION_TS, EXTENSION_TSX, EXTENSION_DTS, EXTENSION_JS, EXTENSION_JSX],
+    &[EXTENSION_CTS, EXTENSION_DCTS, EXTENSION_CJS],
+    &[EXTENSION_MTS, EXTENSION_DMTS, EXTENSION_MJS],
+];
+
+/// [`ALL_SUPPORTED_EXTENSIONS`] plus `.json`
+/// (`tspath.AllSupportedExtensionsWithJson`).
+pub const ALL_SUPPORTED_EXTENSIONS_WITH_JSON: &[&[&str]] = &[
+    &[EXTENSION_TS, EXTENSION_TSX, EXTENSION_DTS, EXTENSION_JS, EXTENSION_JSX],
+    &[EXTENSION_CTS, EXTENSION_DCTS, EXTENSION_CJS],
+    &[EXTENSION_MTS, EXTENSION_DMTS, EXTENSION_MJS],
+    &[EXTENSION_JSON],
+];
+
+/// The TypeScript-only extensions, grouped (`tspath.SupportedTSExtensions`).
+pub const SUPPORTED_TS_EXTENSIONS: &[&[&str]] = &[
+    &[EXTENSION_TS, EXTENSION_TSX, EXTENSION_DTS],
+    &[EXTENSION_CTS, EXTENSION_DCTS],
+    &[EXTENSION_MTS, EXTENSION_DMTS],
+];
+
+/// [`SUPPORTED_TS_EXTENSIONS`] plus `.json`
+/// (`tspath.SupportedTSExtensionsWithJson`).
+pub const SUPPORTED_TS_EXTENSIONS_WITH_JSON: &[&[&str]] = &[
+    &[EXTENSION_TS, EXTENSION_TSX, EXTENSION_DTS],
+    &[EXTENSION_CTS, EXTENSION_DCTS],
+    &[EXTENSION_MTS, EXTENSION_DMTS],
+    &[EXTENSION_JSON],
+];
+
 /// Declaration extensions, in upstream's order
 /// (`tspath.SupportedDeclarationExtensions`).
 pub const SUPPORTED_DECLARATION_EXTENSIONS: &[&str] =

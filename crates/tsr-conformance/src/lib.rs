@@ -12,6 +12,7 @@
 pub mod binder_suite;
 pub mod case;
 pub mod corpus;
+pub mod loader_suite;
 pub mod module_suite;
 pub mod scanner_suite;
 pub mod snapshot;

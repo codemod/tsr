@@ -151,13 +151,42 @@ rewrites over the whole run:
   actually did**. Without this the committed output would depend on the order
   resolutions happened to run in, and the baselines would be unstable.
 
+## The other half: the file loader
+
+Landed. It has its own suite, `file_loader`, over the same baselines, and its own
+document — [file-loader.md](file-loader.md) — with the decisions in
+[ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md).
+
+**The 75 above did not move, and could not have**: this suite replays requests
+taken from the baseline, so no loader can change it. What changed is what it
+claims alongside. `file_loader` compares the requests themselves — specifier,
+containing file, order, and **mode** — and reaches 76/76. Together the two cover
+a `.trace.json` end to end, which neither does alone.
+
+The mode is the part worth noting. ADR-0018 recorded a circularity it could not
+avoid: this suite reads each resolution's mode out of the baseline's own
+`Resolving in {0} mode with conditions {1}.` line, so it could never catch a
+wrong one. `file_loader` supplies nothing —
+`getImpliedNodeFormatForFile`, the `package.json` `type` lookup, and
+`getModeForUsageLocation` all run — and compares that line. That falsifier is
+discharged.
+
+The two denominators differ, by exactly one arithmetic step:
+
+```text
+    75  module_resolution
+    +3  cases upstream traced nothing for; here that is an assertion, not a skip
+    -2  cases needing libReplacement, which resolves the bundled lib files
+        through the module resolver and which the loader cannot run (bd tsr-9or.5)
+ =  76  file_loader   →   76 passed, 100.00%
+```
+
+Any other difference between the two denominators is a bug in one of the suites,
+not a fact about the compiler.
+
 ## Growing the number
 
-The next two moves, in order:
-
-1. **The file loader** (bd tsr-9or). Gate: the `======== Resolving ... ========`
-   headers, in order, from the same 75 baselines — plus the 3 empty-trace cases,
-   which become real assertions rather than skips. Needs `/// <reference />`
-   pragma parsing in `tsr-parser` first.
-2. **`tsr-tsoptions`** (ADR-0017 slice 3). Gate: the 20 tsconfig-configured trace
-   cases here, and the 757 configuration-varied cases the other suites skip.
+The next move: **`tsr-tsoptions`** (ADR-0017 slice 3). Gate: the 20
+tsconfig-configured trace cases here — which are the largest single skip bucket
+in *both* suites — and the 757 configuration-varied cases the other suites skip
+(bd tsr-bb4.1).
