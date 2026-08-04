@@ -1,6 +1,6 @@
 # Declaration emit (`tsr-declarations`)
 
-**Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.35%** on the byte-exact
+**Status:** slice 4 of Phase 3.5 (`bd tsr-49v.6`), at **47.49%** on the byte-exact
 emit gate and **67.76%** on the structural one. This is the artifact the phase
 exists to ship: the first `.d.ts` this port has ever produced.
 
@@ -63,8 +63,8 @@ than silent.
 ## The gates, and why there are two of them
 
 ```
-dts_reachable_target   496/1162   42.69%    the population a checker-free emitter can aim at
-dts_emit               161/340    47.35%    of which the text is byte-identical
+dts_reachable_target   495/1162   42.60%    the population a checker-free emitter can aim at
+dts_emit               161/339    47.49%    of which the text is byte-identical
 dts_shape              618/912    67.76%    the declarations are right, ignoring types
 ```
 

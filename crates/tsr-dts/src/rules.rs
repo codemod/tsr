@@ -134,7 +134,7 @@ impl Checker<'_> {
                 {
                     let span = self.span(expression.node_id());
                     // TS9037 `Default_exports_can_t_be_inferred_with_isolatedDeclarations`.
-                    if self.infer(expression, false) == Inferability::Generic {
+                    if self.infer(expression, Ctx::binding(false)) == Inferability::Generic {
                         self.report(
                             &messages::DEFAULT_EXPORTS_CAN_T_BE_INFERRED_WITH_ISOLATEDDECLARATIONS,
                             span,
@@ -232,7 +232,7 @@ impl Checker<'_> {
             );
             return;
         };
-        if self.infer(initializer, is_const) == Inferability::Generic {
+        if self.infer(initializer, Ctx::binding(is_const)) == Inferability::Generic {
             self.report(
                 &messages::VARIABLE_MUST_HAVE_AN_EXPLICIT_TYPE_ANNOTATION_WITH_ISOLATEDDECLARATIONS,
                 name_span,
@@ -346,7 +346,9 @@ impl Checker<'_> {
                 let is_const = has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword);
                 let generic = match &property.initializer {
                     None => true,
-                    Some(initializer) => self.infer(initializer, is_const) == Inferability::Generic,
+                    Some(initializer) => {
+                        self.infer(initializer, Ctx::binding(is_const)) == Inferability::Generic
+                    }
                 };
                 if generic {
                     // TS9012 `Property_must_have_an_explicit_type_annotation_with_isolatedDeclarations`.
@@ -521,7 +523,7 @@ impl Checker<'_> {
             let (span, generic) = match &parameter.initializer {
                 Some(initializer) => {
                     let outer = std::mem::replace(&mut self.in_parameter_default, true);
-                    let result = self.infer(initializer, false);
+                    let result = self.infer(initializer, Ctx::binding(false));
                     self.in_parameter_default = outer;
                     (self.span(initializer.node_id()), result == Inferability::Generic)
                 }
@@ -544,9 +546,9 @@ impl Checker<'_> {
 
     /// Whether `expression`'s type is syntactically apparent.
     ///
-    /// `is_const` is the const-assertion context: `const x = [1]` and
-    /// `let x = [1] as const` differ only in this, and the array rule turns on it.
-    fn infer(&mut self, expression: &Expression<'_>, is_const: bool) -> Inferability {
+    /// See [`Ctx`] for why the const-ness of the *binding* and the const-ness of
+    /// an *assertion* are two flags rather than one.
+    fn infer(&mut self, expression: &Expression<'_>, ctx: Ctx) -> Inferability {
         match expression {
             expression if is_apparent_literal(expression) => Inferability::Ok,
 
@@ -566,7 +568,7 @@ impl Checker<'_> {
             // substitutions' types. `isolatedDeclarationErrorsExpressions` contrasts
             // `templateLetOk2` against `templateConstNotOk3` on exactly this.
             Expression::TemplateExpression(_) => {
-                if is_const {
+                if ctx.fresh {
                     Inferability::Generic
                 } else {
                     Inferability::Ok
@@ -574,7 +576,7 @@ impl Checker<'_> {
             }
 
             Expression::ParenthesizedExpression(inner) => match &inner.expression {
-                Some(expression) => self.infer(expression, is_const),
+                Some(expression) => self.infer(expression, ctx),
                 None => Inferability::Generic,
             },
 
@@ -582,7 +584,7 @@ impl Checker<'_> {
             Expression::AsExpression(as_expression) => {
                 if is_const_assertion(as_expression.r#type.as_ref()) {
                     match &as_expression.expression {
-                        Some(expression) => self.infer(expression, true),
+                        Some(expression) => self.infer(expression, Ctx::ASSERTED),
                         None => Inferability::Generic,
                     }
                 } else {
@@ -594,12 +596,12 @@ impl Checker<'_> {
             // `satisfies` constrains without naming the type, so inference is still
             // required for the operand.
             Expression::SatisfiesExpression(satisfies) => match &satisfies.expression {
-                Some(expression) => self.infer(expression, is_const),
+                Some(expression) => self.infer(expression, ctx),
                 None => Inferability::Generic,
             },
 
             Expression::ArrayLiteralExpression(array) => {
-                if !is_const {
+                if !ctx.asserted {
                     // TS9017 `Only_const_arrays_can_be_inferred_with_isolatedDeclarations`.
                     let span = self.span(array.node_id);
                     self.report(
@@ -618,7 +620,7 @@ impl Checker<'_> {
                             span,
                         );
                         result = Inferability::Reported;
-                    } else if self.nested(element, true) {
+                    } else if self.nested(element, Ctx::ASSERTED) {
                         result = Inferability::Reported;
                     }
                 }
@@ -629,7 +631,7 @@ impl Checker<'_> {
                 let mut result = Inferability::Ok;
                 let mut accessors = Vec::new();
                 for property in object.properties {
-                    if self.object_member(property, is_const, &mut accessors) {
+                    if self.object_member(property, ctx, &mut accessors) {
                         result = Inferability::Reported;
                     }
                 }
@@ -665,8 +667,8 @@ impl Checker<'_> {
     /// Returns whether anything was reported. This is the `Generic` → `TS9013`
     /// conversion described in the module docs: nested failures name themselves,
     /// top-level ones defer to the declaration.
-    fn nested(&mut self, expression: &Expression<'_>, is_const: bool) -> bool {
-        match self.infer(expression, is_const) {
+    fn nested(&mut self, expression: &Expression<'_>, ctx: Ctx) -> bool {
+        match self.infer(expression, ctx) {
             Inferability::Ok => false,
             Inferability::Reported => true,
             Inferability::Generic => {
@@ -685,7 +687,7 @@ impl Checker<'_> {
     fn object_member(
         &mut self,
         property: &ObjectLiteralElementLike<'_>,
-        is_const: bool,
+        ctx: Ctx,
         accessors: &mut Vec<AccessorInfo>,
     ) -> bool {
         let before = self.out.len();
@@ -693,7 +695,7 @@ impl Checker<'_> {
             ObjectLiteralElementLike::PropertyAssignment(assignment) => {
                 self.property_name(&assignment.name);
                 if let Some(initializer) = &assignment.initializer {
-                    self.nested(initializer, is_const);
+                    self.nested(initializer, ctx);
                 }
             }
             ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
@@ -927,6 +929,54 @@ fn is_apparent_literal(expression: &Expression<'_>) -> bool {
             SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword | SyntaxKind::NullKeyword
         ),
         _ => false,
+    }
+}
+
+/// The two kinds of const-ness, which are not the same kind.
+///
+/// `is_const` used to be one flag, passed the *declaration's* const-ness and
+/// documented as the *assertion* context. Two rules read it and they want
+/// different answers, which `compiler/isolatedDeclarationErrorsExpressions`
+/// settles line by line:
+///
+/// | | `let` | `const` | `as const` |
+/// |---|---|---|---|
+/// | `` `s${1}` `` | clean | **TS9010** | **TS9010** |
+/// | `[1, 2, 3]` | **TS9017** | ? | clean |
+///
+/// The template row is about **widening**: a `let` widens to `string`, which is
+/// emittable, while a `const` keeps the template literal type and would need its
+/// substitutions' types. A `readonly` property behaves like `const`, and the same
+/// file shows it.
+///
+/// The array row is about **assertion**: `[1, 2, 3]` is `number[]` under both
+/// `let` and `const`, and neither can be restated from the written syntax without
+/// widening and unioning the elements. Only `as const` makes it a `readonly` tuple
+/// of literal types, each of which *is* written down.
+///
+/// The `?` is the cell no corpus case covers — there is no plain-`const` array in
+/// any `@isolatedDeclarations` case, which is why one flag served for both rules
+/// without the conformance suite noticing. It is `TS9017` by the reasoning above:
+/// const-ness of the binding does not make an array literal a tuple. That is a
+/// deduction from the other three cells rather than a measurement, and it is
+/// flagged as such here so the next person can overturn it with a baseline rather
+/// than by re-deriving it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Ctx {
+    /// The declared type keeps its literal types — a `const` binding, a `readonly`
+    /// property, or anything inside an `as const`.
+    fresh: bool,
+    /// Inside an `as const`.
+    asserted: bool,
+}
+
+impl Ctx {
+    /// Inside a const assertion: both hold.
+    const ASSERTED: Self = Self { fresh: true, asserted: true };
+
+    /// The context a binding establishes. `is_const` is `const`/`readonly`.
+    const fn binding(is_const: bool) -> Self {
+        Self { fresh: is_const, asserted: false }
     }
 }
 

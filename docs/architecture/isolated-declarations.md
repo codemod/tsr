@@ -205,36 +205,48 @@ Two rules follow from having watched it both ways:
    it were right — which is also why it is now the *most* load-bearing thing in the
    crate by this measure (13 → 10).
 
-## A known defect: a `const` declaration is read as a const assertion
+## Two kinds of const-ness, which were one flag
 
-`variable_declaration` passes `is_const` — "the declaration list is `const`" — into
-`infer` as the const *context*. Those are different things:
+`infer` took a single `is_const`, passed the *declaration's* const-ness and
+documented as the *assertion* context. Two rules read it and they want different
+answers. `compiler/isolatedDeclarationErrorsExpressions` settles it line by line:
 
-```ts
-const b = [1, 2];           // number[]           — not readonly [1, 2]
-const o = { a: 1 };         // { a: number }      — not { readonly a: 1 }
-const c = [1, 2] as const;  // readonly [1, 2]
-```
+| | `let` | `const` / `readonly` | `as const` |
+|---|---|---|---|
+| `` `s${1}` `` | clean | **TS9010** | **TS9010** |
+| `[1, 2, 3]` | **TS9017** | *(no case)* | clean |
 
-Only `as const` enters a const context, and
-`compiler/isolatedDeclarationsLiterals` says so directly: it pairs
-`constObject … as const` against `mutableObject` and its `.d.ts` baseline reads
-`readonly one: 1` for the first and `one: number` for the second.
+The template row is about **widening**. A `let` widens to `string`, which is
+emittable; a `const` keeps the template literal type and would need its
+substitutions' types. So here the *binding* decides, and a `readonly` property
+behaves like `const` — the same file shows both, and the class half of it repeats
+the pattern with `TS9012`.
 
-The consequence is an **under-report**: `infer`'s array arm raises `TS9017` only
-when `!is_const`, so `export const b = [1, 2]` passes where TypeScript reports.
-That inflates `dts_reachable_target` and puts cases into `dts_emit`'s denominator
-that the emitter then cannot type.
+The array row is about **assertion**. `[1, 2, 3]` is `number[]` under `let` and
+`const` alike, and neither can be restated from written syntax without widening
+and unioning the elements. Only `as const` makes it a `readonly` tuple of literal
+types, each of which is written down.
 
-Found by `crates/tsr-declarations/tests/analysis_agreement.rs`, which asserts that
-this analysis and the emitter's type builder agree about what needs inference. The
-corpus could not find it: a case with a `TS9xxx` is excluded from `dts_emit`'s
-denominator by construction, so a disagreement about *whether* to report one is
-invisible there. `tsr-declarations` already has the corrected reading. Filed as
-`bd tsr-49v.2.6`; fixing it moves this suite and `dts_reachable_target`, so it
-needs its own measurement.
+One flag cannot serve both, and the corpus never caught it because **there is no
+plain-`const` array in any `@isolatedDeclarations` case** — the empty cell above.
+It is now `Ctx { fresh, asserted }`: `fresh` for the template rule, `asserted` for
+the array rule, both set by `as const`.
 
-## Known approximations
+The empty cell is filled by deduction, not measurement: const-ness of a binding
+does not make an array literal a tuple, so `const x = [1, 2]` is `TS9017` like its
+`let` counterpart. `rules.rs` says so at the definition of `Ctx`, so the next
+person can overturn it with a baseline rather than by re-deriving the argument.
+
+**How it was found, since the conformance suite could not.** A case with a
+`TS9xxx` is excluded from `dts_emit`'s denominator by construction, so a
+disagreement about *whether* to report one is invisible there.
+`crates/tsr-declarations/tests/analysis_agreement.rs` asserts that this analysis
+and the emitter's type builder accept the same constructs, and it caught the array
+half on its first run — the emitter refused where the analysis did not. The fix
+moves exactly one corpus case (`dts_reachable_target` 496 → 495), which is the
+honest measure of its size and no argument against making it.
+
+## Known approximations## Known approximations
 
 Each of these is a place where upstream consults the checker and this analysis
 guesses. They are the expected source of divergence under ADR-0021.
@@ -290,8 +302,8 @@ Measured, by the `dts_reachable_target` suite:
 | | |
 |---|---|
 | Cases whose `.js` baseline embeds an **emitted** `.d.ts` section | **1,162** |
-| Of those, **reachable** — no declaration needs inference | **496 (42.69%)** |
-| Blocked, needing inference somewhere | 666 |
+| Of those, **reachable** — no declaration needs inference | **495 (42.60%)** |
+| Blocked, needing inference somewhere | 667 |
 | Not judged: configuration-varied baselines | 611 |
 | Not judged: no `.js` emit baseline / no baseline at all | 3,094 |
 

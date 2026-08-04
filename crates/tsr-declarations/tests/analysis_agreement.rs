@@ -80,6 +80,8 @@ const APPARENT: &[&str] = &[
 const NEEDS_INFERENCE: &[&str] = &[
     "export const a = f();",
     "export let b = [1, 2];",
+    "export const b2 = [1, 2];",
+    "export const t = `s${1}`;",
     "export let c;",
     "export const d = { ...e };",
     "export function f() { return 1; }",
@@ -109,25 +111,41 @@ fn every_reported_construct_is_reported_by_both() {
     }
 }
 
-/// The one construct the two crates are known to disagree about.
+/// The two crates agree about a `const` array, and did not always.
 ///
-/// `tsr_dts::rules` passes "the declaration list is `const`" in where the const
-/// *context* belongs, so it accepts `export const b = [1, 2]` — for which
-/// TypeScript raises `TS9017`, because only `as const` makes an array inferable.
-/// This crate has the corrected reading, so the emitter refuses where the analysis
-/// does not, and the case reaches `dts_emit`'s denominator with no type to emit.
+/// `tsr_dts` used to pass "the declaration list is `const`" where the const
+/// *assertion* context belonged, so it accepted `export const b = [1, 2]` — for
+/// which TypeScript raises `TS9017`, because only `as const` makes an array a
+/// tuple of literal types that can be restated from written syntax. This crate
+/// already had the corrected reading, so the emitter refused where the analysis
+/// did not, and the case reached `dts_emit`'s denominator with no type to emit.
 ///
-/// Asserted rather than removed: the day `bd tsr-49v.2.6` is fixed, this test
-/// fails and says so, which is the only way a known divergence stops being a
-/// permanent one.
+/// This test was written the other way round — asserting the *disagreement*, so
+/// that fixing `bd tsr-49v.2.6` would fail it and say so. It did, on the commit
+/// that fixed it, which is the only evidence that a known-divergence test is
+/// doing anything.
 #[test]
-fn the_known_const_context_disagreement_still_stands() {
+fn a_const_array_is_reported_by_both() {
     let (diagnostics, refusals, _) = emit("export const b = [1, 2];");
-    assert_eq!(
-        diagnostics, 0,
-        "tsr-dts now reports this — bd tsr-49v.2.6 is fixed, delete this test"
-    );
-    assert!(refusals > 0, "the emitter now types this without the analysis agreeing");
+    assert!(diagnostics > 0, "the analysis stopped reporting a plain-const array");
+    assert!(refusals > 0, "the emitter stopped refusing a plain-const array");
+}
+
+/// A `const` template *is* fresh, and that is a different rule.
+///
+/// The same `Ctx` split that made a `const` array report must leave this alone.
+/// A template with substitutions widens to `string` under `let`, which is
+/// emittable and clean; under `const` it keeps its template literal type and needs
+/// the substitutions' types. `compiler/isolatedDeclarationErrorsExpressions` pairs the two on
+/// consecutive lines. Collapsing the two kinds of const-ness in the other
+/// direction — treating only `as const` as const — would silently un-report this.
+#[test]
+fn a_const_template_reports_and_a_let_template_does_not() {
+    let (const_diagnostics, _, _) = emit("export const t = `s${1} - ${\"S\"}`;");
+    assert!(const_diagnostics > 0, "a const template must be reported");
+    let (let_diagnostics, let_refusals, text) = emit("export let t = `s${1} - ${\"S\"}`;");
+    assert_eq!(let_diagnostics, 0, "a let template widens to string and is clean:\n{text}");
+    assert_eq!(let_refusals, 0, "and the emitter must be able to type it:\n{text}");
 }
 
 /// The emitted `.d.ts` must itself parse.
