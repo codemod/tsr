@@ -1,6 +1,6 @@
 //! Source positions.
 //!
-//! Corresponds to typescript-go's `core.TextRange` (`internal/core/textrange.go`).
+//! Corresponds to typescript-go's `core.TextRange` (`internal/core/text.go`).
 //! Like oxc's `Span`, positions are **byte** offsets into UTF-8 source text, held
 //! as `u32`: line/column is a presentation concern computed on demand for
 //! diagnostics, never carried on every node.

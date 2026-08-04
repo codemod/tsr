@@ -43,6 +43,14 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+      # Every anchor naming an upstream symbol, file or line must still resolve
+      # against the pinned submodule. This is the half of bd tsr-5e7.3 that can be
+      # a gate today: broken anchors are always bugs and the count is zero, while
+      # *missing* anchors number in the thousands and are reported as a rate
+      # instead. See docs/architecture/upstream-anchors.md.
+      - name: Upstream anchors resolve
+        run: cargo run -p xtask -- anchors
+
       # Conformance snapshots are committed so a regression shows up as a
       # reviewable diff. CI reruns the corpus and fails if the checked-in numbers
       # no longer match — that is the ratchet.

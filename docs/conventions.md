@@ -19,6 +19,17 @@ archaeology.
 This is oxc's own practice in `oxc_type_checker`, and it is the difference between
 mechanical drift tracking and manual review of every upstream commit.
 
+**Anchors are checked.** `cargo xtask anchors` verifies that every cited file,
+line and Go declaration still resolves against the pinned submodule, and CI fails
+if one does not. Pointed at a newer checkout with `--upstream`, the same check *is*
+the drift report. An anchor nobody verifies is worse than no anchor, because it is
+believed — the tool found four broken ones on its first run, three of them written
+the previous day. See [architecture/upstream-anchors.md](architecture/upstream-anchors.md).
+
+Coverage is reported per crate but does **not** fail the build: most crates are
+near zero, and a gate that always fails gets deleted rather than fixed. Raising
+that rate is a ratchet, not a gate.
+
 ## Generated code is never hand-edited
 
 `crates/tsr-ast/src/generated/` is produced by `cargo xtask codegen`. It is checked

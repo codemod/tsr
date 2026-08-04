@@ -2,7 +2,7 @@
 //!
 //! Ported from typescript-go's `ensureModifiers`/`ensureModifierFlags`
 //! (`internal/transformers/declarations/transform.go:2313`, `:2333`),
-//! `maskModifierFlags` (`.../util.go`) and
+//! `maskModifierFlags` (`internal/transformers/declarations/util.go`) and
 //! `ast.CreateModifiersFromModifierFlags` (`internal/ast/utilities.go:3250`).
 //!
 //! This is where `declare` comes from, and where `public`, `async` and `override`

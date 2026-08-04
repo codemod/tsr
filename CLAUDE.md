@@ -117,6 +117,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
 
 cargo xtask codegen && cargo fmt --all    # regenerate the AST
+cargo xtask anchors                       # every upstream anchor still resolves
 cargo run -p tsr-conformance --bin coverage   # conformance run; writes snapshots
 ```
 

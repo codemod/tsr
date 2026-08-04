@@ -583,9 +583,13 @@ impl<'t> Printer<'t> {
         }
     }
 
-    /// Ported from `Printer.emitClassBody`/`emitMembers` sites in
-    /// `internal/printer/printer.go`, which brace the list and emit it as
-    /// `LFClassMembers`.
+    /// Ported from the `LFClassMembers` emit sites in
+    /// `internal/printer/printer.go` — `Printer.emitClassDeclaration` (`:3764`) and
+    /// `Printer.emitClassExpression` (`:2956`), which brace the member list and
+    /// emit it through `emitClassElement`.
+    ///
+    /// Upstream has no single `emitClassBody`: both call sites inline the braces.
+    /// This anchor named one anyway until `cargo xtask anchors` asked upstream.
     pub(crate) fn class_body(&mut self, members: &[ClassElement<'_>]) {
         self.write_punctuation("{");
         self.emit_list(members, ListFormat::CLASS_MEMBERS, |printer, member| {

@@ -3,6 +3,9 @@
 //! ```text
 //! cargo xtask codegen    regenerate crates/tsr-ast/src/generated
 //! cargo xtask perf       compare against typescript-go; write perf artifacts
+//! cargo xtask anchors    verify every upstream anchor still resolves
+//!                        --upstream <path> checks a newer checkout, which is
+//!                        the drift report (bd tsr-l68)
 //! ```
 //!
 //! Codegen reads `vendor/typescript-go/_scripts/ast.json`, the same
@@ -11,6 +14,7 @@
 //! claim: when upstream adds a node kind, regeneration picks it up and the
 //! conformance tests fail until we do.
 
+mod anchors;
 mod ast_json;
 mod gen_diagnostics;
 mod gen_kind;
@@ -30,9 +34,22 @@ fn main() -> Result<()> {
     match task.as_deref() {
         Some("codegen") => codegen(),
         Some("perf") => perf::run(&workspace_root()),
-        Some(other) => bail!("unknown task {other:?}; expected `codegen` or `perf`"),
+        Some("anchors") => {
+            let mut args = std::env::args().skip(2);
+            let mut upstream = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--upstream" => upstream = args.next().map(PathBuf::from),
+                    other => bail!("unknown flag {other:?}; expected `--upstream <path>`"),
+                }
+            }
+            anchors::run(&workspace_root(), upstream)
+        }
+        Some(other) => {
+            bail!("unknown task {other:?}; expected `codegen`, `perf` or `anchors`")
+        }
         None => {
-            eprintln!("usage: cargo xtask <codegen|perf>");
+            eprintln!("usage: cargo xtask <codegen|perf|anchors>");
             Ok(())
         }
     }

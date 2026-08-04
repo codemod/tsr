@@ -1,7 +1,7 @@
 //! Building nodes that the parser never saw.
 //!
 //! Stands in for typescript-go's `ast.NodeFactory` together with the parts of
-//! `printer.EmitContext` this transform needs (`internal/ast/factory.go`,
+//! `printer.EmitContext` this transform needs (`internal/ast/ast_generated.go`,
 //! `internal/printer/emitcontext.go`). Upstream's factory is 4,000 lines of
 //! `NewX`/`UpdateX` pairs; this is the subset the declaration transform calls,
 //! and nothing else.
