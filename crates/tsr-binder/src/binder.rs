@@ -1982,7 +1982,34 @@ impl<'a, 'n> Binder<'a, 'n> {
             };
             return Some((SymbolFlags::TYPE_PARAMETER, destination));
         }
-        classify(node)
+
+        let (flags, destination) = classify(node)?;
+
+        // A `static` class member belongs to the class's **exports**, an instance
+        // member to its **members**. Upstream's `declareClassMember` splits on
+        // `ast.IsStatic` (`internal/binder/binder.go:414-419`); `classify` had one
+        // answer for both, so `static get x()` and `get x()` shared a symbol —
+        // `static m()`/`m()` and `static p`/`p` too. Only the accessors reported
+        // anything (`GetAccessorExcludes` still collides with itself), which is why
+        // this looked like an `excludes()` problem: 34 of the over-reports left
+        // after ADR-0023 are that pair. The method and property cases were silent
+        // resolution defects, and are the reason this is worth more than the 34.
+        //
+        // Guarded on the container being a class, because that is the only branch
+        // of upstream's switch that consults `IsStatic` (`binder.go:435`). `static`
+        // is not valid on an interface or type-literal member, but the parser
+        // recovers from it, and honouring it there would move the member into a
+        // table upstream never puts it in.
+        if destination == Destination::Members
+            && matches!(
+                self.ancestors.last().map(|(_, parent)| *parent),
+                Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+            )
+            && is_static(node)
+        {
+            return Some((flags, Destination::Exports));
+        }
+        Some((flags, destination))
     }
 
     /// Whether a declaration is scoped to the nearest block rather than the
@@ -2047,8 +2074,37 @@ impl<'a, 'n> Binder<'a, 'n> {
     ///
     /// `var` and functions go to the nearest *function* scope; `let`, `const`,
     /// and classes go to the nearest block. This is the whole of `var` hoisting.
+    /// Which locals table a `Destination::Locals` declaration goes into.
+    ///
+    /// Upstream has two entry points, and which one a declaration uses is fixed
+    /// per kind: `declareSymbolAndAddToSymbolTable` files into
+    /// `GetLocals(b.container)` (`binder.go:444`), and
+    /// `bindBlockScopedDeclaration` into `GetLocals(b.blockScopeContainer)`
+    /// (`binder.go:1249`). Six kinds take the second: block-scoped variables
+    /// (`binder.go:1171`), classes (`:944`), **interfaces** (`:681`), **type
+    /// aliases** (`:693`), **enums**, both `const` and regular (`:1158`, `:1160`),
+    /// and **function declarations** (`:1216`).
+    ///
+    /// The last four were missing, so they were filed in the enclosing *function*
+    /// instead of the enclosing block. That only diverges inside a nested block —
+    /// `self.block` and `self.container` are the same node at the top of a
+    /// function, because both are set for every `IS_CONTAINER` — which is why it
+    /// took a case with two `type A`s in sibling blocks to show it
+    /// (`compiler/narrowingOfQualifiedNames`, 63 of the over-reports remaining
+    /// after ADR-0023).
+    ///
+    /// Function declarations being block-scoped is upstream's behaviour
+    /// unconditionally, not a strict-mode-only rule: `bindFunctionDeclaration`
+    /// calls `bindBlockScopedDeclaration` with no dialect test.
     fn locals_owner(&self, flags: SymbolFlags) -> NodeId {
-        if flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE | SymbolFlags::CLASS) {
+        if flags.intersects(
+            SymbolFlags::BLOCK_SCOPED_VARIABLE
+                | SymbolFlags::CLASS
+                | SymbolFlags::INTERFACE
+                | SymbolFlags::TYPE_ALIAS
+                | SymbolFlags::ENUM
+                | SymbolFlags::FUNCTION,
+        ) {
             self.block
         } else {
             self.container
@@ -3052,6 +3108,30 @@ fn modifiers_of(node: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
 
 fn has_export(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
     has_modifier(modifiers, SyntaxKind::ExportKeyword)
+}
+
+/// Whether a class element is `static`, and so a member of the *constructor*
+/// rather than of instances.
+///
+/// Upstream: `ast.IsStatic` (`internal/ast/utilities.go:1048`) —
+/// `IsClassElement(node) && HasStaticModifier(node) || IsClassStaticBlockDeclaration(node)`.
+/// A `static` block counts without carrying the modifier, which is why it is
+/// listed separately rather than falling out of the modifier check.
+///
+/// Only the kinds that can appear in a class body are listed. `static` is not
+/// valid anywhere else, and a node that cannot be a class element is not static
+/// no matter what modifiers the parser recovered on it.
+fn is_static(node: Node<'_>) -> bool {
+    let modifiers = match node {
+        Node::ClassStaticBlockDeclaration(_) => return true,
+        Node::PropertyDeclaration(n) => n.modifiers,
+        Node::MethodDeclaration(n) => n.modifiers,
+        Node::GetAccessorDeclaration(n) => n.modifiers,
+        Node::SetAccessorDeclaration(n) => n.modifiers,
+        Node::IndexSignatureDeclaration(n) => n.modifiers,
+        _ => return false,
+    };
+    has_modifier(modifiers, SyntaxKind::StaticKeyword)
 }
 
 fn has_declare(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {

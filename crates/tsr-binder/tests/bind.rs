@@ -656,11 +656,68 @@ fn a_real_declaration_beats_an_expando_of_the_same_name() {
     let arena = Arena::new();
     let bound = bind_as(&arena, "class C {\n  static x = 1;\n}\nC.x = 2;\n", "a.js");
     let c = bound.top_level_symbol("C").expect("the class");
-    // The static member is in `members` here rather than `exports`, so the
-    // expando is the only thing in `exports` — what matters is that it did not
-    // merge into, or displace, the declared one.
-    let member = *bound.result.symbols().get(c).members.get("x").expect("`static x`");
-    assert_eq!(bound.result.symbols().get(member).declarations.len(), 1);
+    // `static x` is an *export* of the class, not a member — upstream's
+    // `declareClassMember` splits on `IsStatic` (`binder.go:415`). That puts the
+    // declared static and the expando `C.x = 2` in the same table, which is what
+    // makes this test meaningful: the expando now has something to collide with,
+    // and must lose. Before the split they were in different tables and could not
+    // have met, so the assertion held for the wrong reason.
+    let symbols = bound.result.symbols();
+    assert!(!symbols.get(c).members.contains_key("x"), "`static x` is not an instance member");
+    let exported = *symbols.get(c).exports.get("x").expect("`static x`");
+    assert_eq!(
+        symbols.get(exported).declarations.len(),
+        1,
+        "the expando neither merged into nor displaced the declared static"
+    );
+    assert!(!symbols.get(exported).flags.contains(SymbolFlags::ASSIGNMENT));
+}
+
+#[test]
+fn a_static_and_an_instance_member_of_the_same_name_are_different_symbols() {
+    // `declareClassMember` splits on `IsStatic` (`binder.go:414-419`): a static
+    // member is an export of the class, an instance member is a member of it.
+    // Sharing one table merged them into a single symbol — silently for methods
+    // and properties, and as a spurious `TS2300` for accessors, which is how it
+    // was found. Neither conformance suite could see it: `binder_symbols` did not
+    // move when this was fixed.
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "class C {\n  static m() {}\n  m() {}\n  static get x() { return 1; }\n  get x() { return 1; }\n}\n",
+        "a.ts",
+    );
+    let c = bound.top_level_symbol("C").expect("the class");
+    let symbols = bound.result.symbols();
+    for name in ["m", "x"] {
+        let statik = *symbols.get(c).exports.get(name).unwrap_or_else(|| panic!("static {name}"));
+        let instance = *symbols.get(c).members.get(name).unwrap_or_else(|| panic!("{name}"));
+        assert_ne!(statik, instance, "`static {name}` and `{name}` must not share a symbol");
+        assert_eq!(symbols.get(statik).declarations.len(), 1);
+        assert_eq!(symbols.get(instance).declarations.len(), 1);
+    }
+    assert!(bound.result.diagnostics().is_empty(), "no redeclaration here");
+}
+
+#[test]
+fn block_scoped_declarations_go_in_the_block_not_the_function() {
+    // Interfaces, type aliases, enums and function declarations all reach
+    // `bindBlockScopedDeclaration` upstream (`binder.go:681`, `:693`, `:1158`,
+    // `:1216`), which files them in `GetLocals(b.blockScopeContainer)`. Filing
+    // them in the enclosing *function* instead made two declarations in sibling
+    // blocks collide. Only visible inside a nested block: at the top of a function
+    // the block and the container are the same node.
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "function f() {\n  { type A = string; interface I {} enum E {} function g() {} }\n  { type A = number; interface I {} enum E {} function g() {} }\n}\n",
+        "a.ts",
+    );
+    assert!(
+        bound.result.diagnostics().is_empty(),
+        "sibling blocks are separate scopes, got {:?}",
+        bound.result.diagnostics()
+    );
 }
 
 #[test]

@@ -148,19 +148,29 @@ too.
 | Binder, symbols + flow graph (2026-08-04) | 15,616 |
 | Binder, after the symbol-parity work (2026-08-04) | **14,848** |
 | — attributable to the flow graph | 3,328 |
-| Binder, re-measured at `0e17464` (2026-08-05) | **15,056** |
+| Binder, observed range over 6 runs (2026-08-05) | **14,848 – 15,104** |
 
-**The 14,848 KiB figure does not reproduce.** Re-measured on 2026-08-05 with the
-binder changes of ADR-0023 stashed — i.e. at `0e17464` exactly, the commit the
-number was recorded against — `examples/rss` reports **15,056 KiB**, 208 KiB
-(1.4%) above it. This is recorded rather than silently corrected because it was
-found the wrong way round: the ADR-0023 change measured 15,052 KiB and looked like
-a 1.4% regression against the documented gate, and only measuring the unchanged
-baseline showed the change is RSS-neutral (−4 KiB, noise) and the *gate* is stale.
-Which of machine state, allocator behaviour, or an untracked change between
-2026-08-04 and `0e17464` accounts for the 208 KiB is not established. **Treat
-14,848 as unverified: compare against a baseline measured in the same session,
-not against this table.**
+**`examples/rss` is not deterministic, so 14,848 KiB is not a gate.** Six runs on
+2026-08-05, same binary, same machine, nothing else changed: 14,848 / 15,052 /
+15,056 / 15,088 / 15,104 / 15,104 KiB — a spread of 256 KiB (1.7%). The documented
+14,848 is the *bottom* of that range, not its centre, so any single comparison
+against it has a ~1.7% chance of looking like a regression for no reason.
+
+Two corrections to note, because both were wrong in this document earlier today:
+
+1. This entry first claimed "the 14,848 figure does not reproduce", on the strength
+   of one reading of 15,056 at `0e17464`. It does reproduce — it came up again
+   later the same session. One reading was not enough to declare a number stale,
+   and asserting it from one reading was the same mistake as trusting the original.
+2. The 208 KiB gap that prompted the investigation was read as a possible
+   regression in the ADR-0023 binder changes. It is not: those changes measure
+   inside this range, and a stashed baseline measured 15,056.
+
+**Method, for anyone touching this gate:** take at least three readings of the
+baseline *and* three of the change, in the same session, and compare the ranges.
+A single pair of numbers cannot distinguish a 1.4% regression from this noise —
+which is the whole reason the gate exists. Narrowing the spread (or finding what
+drives it) is `bd tsr-y4u.21`.
 
 3.25 MiB buys 81,713 flow nodes and 419,464 `node -> flow` entries — one flow
 node per 5.1 AST nodes. (Both counts are as measured on 2026-08-04 before the

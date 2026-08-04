@@ -364,13 +364,33 @@ against the parent. That divergence, why it was not fixed by converting to
 upstream's model, and the `SymbolFlags::excludes()` corrections found with it are
 [ADR-0023](../adr/0023-the-symbol-table-comes-from-the-container.md).
 
+Two more per-kind answers were wrong the same way, and are
+[ADR-0024](../adr/0024-static-members-and-block-scoped-declarations.md):
+
+- A **static** class member is an *export* of the class, an instance member a
+  *member* of it (`declareClassMember` splits on `ast.IsStatic`, `binder.go:415`).
+  Sharing one table merged `static m()` with `m()` into a single symbol.
+- `locals_owner` decides between the enclosing block and the enclosing function.
+  Upstream fixes that per kind by which of two functions binds the declaration:
+  `bindBlockScopedDeclaration` → `GetLocals(b.blockScopeContainer)`
+  (`binder.go:1249`) takes block-scoped variables, classes, interfaces, type
+  aliases, enums and **function declarations**; everything else takes
+  `GetLocals(b.container)` (`binder.go:444`). Four of the six were missing.
+
 The failure it caused is worth keeping in mind when reading `classify`: a class is
 `IS_CONTAINER` *without* `HAS_LOCALS` (matching `GetContainerFlags`), so
 `Destination::Locals` for a type parameter resolved to the enclosing **file**, and
 the `T` of `class A<T>` merged with the `T` of `class B<T>` into a single symbol.
-`binder_symbols` did not move when this was fixed — the `.symbols` baselines in the
-suite do not distinguish it — so the instrument that caught it was the
-diagnostic it produced, via `examples/ts2300_constructs.rs`.
+
+**`binder_symbols` did not move for any of these three fixes.** It sat at
+8,278/8,449 through all of ADR-0023 and ADR-0024, while three separate defects that
+merged unrelated declarations into one symbol were removed. Its `.symbols` baselines
+do not distinguish a static member from an instance one, a block's locals from its
+function's, or one class's type parameter from another's. **Do not read 97.98% as
+evidence that the symbol tables are right.** What caught all three was a diagnostic
+they happened to produce, bucketed by declaring construct
+(`examples/ts2300_constructs.rs`); what pins them now is unit tests in
+`crates/tsr-binder/tests/bind.rs`, each verified to fail with the fix reverted.
 
 ---
 

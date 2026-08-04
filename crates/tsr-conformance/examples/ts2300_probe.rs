@@ -21,6 +21,19 @@ const SNIPPETS: &[(&str, &str)] = &[
     ("two classes, same type parameter name", "class A<T> { x: T; }\nclass B<T> { y: T; }\n"),
     ("two functions, same type parameter name", "function f<T>(a: T) {}\nfunction g<T>(a: T) {}\n"),
     ("one class, duplicate type parameter", "class A<T, T> { }\n"),
+    // A static and an instance member of the same name are in *different* tables
+    // upstream: `declareClassMember` splits on `IsStatic` (binder.go:415).
+    (
+        "static and instance accessor",
+        "class C {\n    static get x() { return 1; }\n    static set x(v) {}\n    get x() { return 1; }\n    set x(v) {}\n}\n",
+    ),
+    ("static and instance method", "class C {\n    static m() {}\n    m() {}\n}\n"),
+    ("static and instance property", "class C {\n    static p: number;\n    p: string;\n}\n"),
+    ("get/set pair, instance only", "class C {\n    get x() { return 1; }\n    set x(v) {}\n}\n"),
+    (
+        "two getters, same name",
+        "class C {\n    get x() { return 1; }\n    get x() { return 2; }\n}\n",
+    ),
 ];
 
 fn main() {
