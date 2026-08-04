@@ -109,6 +109,7 @@ impl Checker<'_> {
                 }
             }
             Statement::ClassDeclaration(node) => {
+                self.heritage(node.heritage_clauses);
                 let mut accessors = Vec::new();
                 for member in node.members {
                     self.class_element(member);
@@ -117,6 +118,12 @@ impl Checker<'_> {
                 self.accessors(&accessors);
             }
             Statement::EnumDeclaration(node) => self.enum_declaration(node),
+            Statement::InterfaceDeclaration(node) => {
+                self.heritage(node.heritage_clauses);
+                for member in node.members {
+                    self.interface_member(member);
+                }
+            }
             Statement::ExportAssignment(node) => {
                 // `export default <expr>`. A bare identifier is fine: the `.d.ts`
                 // references the declaration rather than restating its type, which
@@ -170,7 +177,39 @@ impl Checker<'_> {
         }
     }
 
+    /// `TS9021`, for an `extends` clause the emitter cannot restate.
+    ///
+    /// A `.d.ts` can write `extends Base` and `extends a.b.Base`; it cannot write
+    /// `extends id(Base)`, because naming the resulting type means computing it.
+    /// `implements` is not checked: it is emitted as written and never needs a
+    /// synthesised name.
+    fn heritage(&mut self, clauses: &[&tsr_ast::HeritageClause<'_>]) {
+        for clause in clauses {
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for base in clause.types {
+                let Some(expression) = &base.expression else { continue };
+                if is_entity_name_expression(expression) {
+                    continue;
+                }
+                // TS9021 `Extends_clause_can_t_contain_an_expression_with_isolatedDeclarations`.
+                let span = self.span(expression.node_id());
+                self.report(
+                    &messages::EXTENDS_CLAUSE_CAN_T_CONTAIN_AN_EXPRESSION_WITH_ISOLATEDDECLARATIONS,
+                    span,
+                );
+            }
+        }
+    }
+
     fn variable_declaration(&mut self, declaration: &VariableDeclaration<'_>, is_const: bool) {
+        // TS9019 is independent of the annotation: `export const [, , b = 1]: T = …`
+        // is fully annotated and still reported, because the `.d.ts` would have to
+        // restate the destructuring and cannot carry the default.
+        if let Some(tsr_ast::BindingName::BindingPattern(pattern)) = &declaration.name {
+            self.binding_pattern(pattern);
+        }
         if declaration.r#type.is_some() {
             // An annotated declaration emits its annotation; the initialiser never
             // reaches the `.d.ts`, so nothing inside it can fail.
@@ -194,17 +233,86 @@ impl Checker<'_> {
         }
     }
 
+    /// `TS9020`, which is three-valued and transitive rather than a simple predicate.
+    ///
+    /// `isolatedDeclarationErrorsEnums` separates the three outcomes deliberately,
+    /// and reading it as a two-way "constant or not" gets every one of them wrong:
+    ///
+    /// - `A = computed(0)` — **not an error.** A call is not a constant expression,
+    ///   so the member is emitted with no value at all (`declare enum E { A }`) and
+    ///   nothing needed inferring. All four members of that file's `enum E` are
+    ///   calls and the baseline is silent on every one.
+    /// - `AB = A | B` where `A` and `B` are constant siblings — **not an error.**
+    ///   `Flag.AB` and `Flag["A"]` are equally fine: a self-reference by any
+    ///   spelling stays inside the enum.
+    /// - `A = E.A` (another enum), `E = EV` (an outside `const`) — **errors.** A
+    ///   constant-shaped expression that reaches outside cannot be folded without
+    ///   resolving what it reaches.
+    ///
+    /// And it is transitive: `enum F { A = E.A, B = A }` errors *twice*. `B` names
+    /// a sibling, but that sibling is not constant, so `B` is not either. Members
+    /// are therefore folded in declaration order, each seeing the verdicts of the
+    /// ones before it.
+    ///
+    /// Anchored at the member **name** — `isolatedDeclarationErrorsEnums.ts(12,5)`
+    /// is the `A` of `A = E.A`, not its initialiser.
+    /// An interface member the emitter cannot restate.
+    ///
+    /// A method signature with no return type is `TS9013`, anchored on the whole
+    /// member. `isolatedDeclarationErrorsClasses`'s `interface I` is the evidence,
+    /// and it is worth reading carefully because it looks like a computed-name rule
+    /// and is not: `[noAnnotationStringName]: 10` — a computed name whose
+    /// identifier is `let … : string` — is **clean**, while
+    /// `[noAnnotationLiteralName]()` on the next line is reported. What separates
+    /// them is the missing return type, not the name; upstream pairs the diagnostic
+    /// with `TS7010`, "lacks return-type annotation".
+    fn interface_member(&mut self, member: &tsr_ast::TypeElement<'_>) {
+        let tsr_ast::TypeElement::MethodSignatureDeclaration(method) = member else { return };
+        self.parameters(method.parameters);
+        if method.r#type.is_some() || method.full_signature.is_some() {
+            return;
+        }
+        // TS9013 `Expression_type_can_t_be_inferred_with_isolatedDeclarations`.
+        let span = self.span(method.node_id);
+        self.report(&messages::EXPRESSION_TYPE_CAN_T_BE_INFERRED_WITH_ISOLATEDDECLARATIONS, span);
+    }
+
+    /// `TS9019`, for a destructured binding whose element carries a default.
+    fn binding_pattern(&mut self, pattern: &tsr_ast::BindingPattern<'_>) {
+        for element in pattern.elements {
+            if element.initializer.is_some() {
+                // TS9019 `Binding_elements_with_initializers_can_t_be_exported_directly_with_isolatedDeclarations`.
+                let span = self.span(element.node_id);
+                self.report(
+                    &messages::BINDING_ELEMENTS_WITH_INITIALIZERS_CAN_T_BE_EXPORTED_DIRECTLY_WITH_ISOLATEDDECLARATIONS,
+                    span,
+                );
+            }
+            if let Some(tsr_ast::BindingName::BindingPattern(nested)) = &element.name {
+                self.binding_pattern(nested);
+            }
+        }
+    }
+
     fn enum_declaration(&mut self, node: &EnumDeclaration<'_>) {
+        let own_name = node.name.map_or("", |name| name.text);
+        let mut folded: Vec<(String, Constness)> = Vec::new();
+
         for member in node.members {
-            let Some(initializer) = &member.initializer else { continue };
-            if !is_constant_enum_initializer(initializer) {
+            let constness = match &member.initializer {
+                // No initialiser: auto-numbered, and constant by construction.
+                None => Constness::Constant,
+                Some(initializer) => fold_enum_initializer(initializer, own_name, &folded),
+            };
+            if constness == Constness::External {
                 // TS9020 `Enum_member_initializers_must_be_computable_without_references_to_external_symbols_with_isolatedDeclarations`.
-                let span = self.span(initializer.node_id());
+                let span = self.span(member.name.node_id());
                 self.report(
                     &messages::ENUM_MEMBER_INITIALIZERS_MUST_BE_COMPUTABLE_WITHOUT_REFERENCES_TO_EXTERNAL_SYMBOLS_WITH_ISOLATEDDECLARATIONS,
                     span,
                 );
             }
+            folded.push((accessor_key(&member.name), constness));
         }
     }
 
@@ -222,9 +330,16 @@ impl Checker<'_> {
                     return;
                 }
                 let name_span = self.span(property.name.node_id());
+                // `readonly` makes the initialiser a const context, exactly as
+                // `const` does for a variable: `readonly t = ` + "`s${1}`" + ` `
+                // keeps its template literal type instead of widening to `string`,
+                // so it needs an annotation. `isolatedDeclarationErrorsExpressions`
+                // has the same three template initialisers twice over, once on
+                // `export let` (clean) and once on `readonly` fields (TS9012).
+                let is_const = has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword);
                 let generic = match &property.initializer {
                     None => true,
-                    Some(initializer) => self.infer(initializer, false) == Inferability::Generic,
+                    Some(initializer) => self.infer(initializer, is_const) == Inferability::Generic,
                 };
                 if generic {
                     // TS9012 `Property_must_have_an_explicit_type_annotation_with_isolatedDeclarations`.
@@ -266,7 +381,22 @@ impl Checker<'_> {
             if member.annotated {
                 continue;
             }
-            if members.iter().any(|other| other.name == member.name && other.annotated) {
+            // A *pair* never reports, even when neither half is annotated.
+            // `isolatedDeclarationErrorsClasses` puts the four combinations side by
+            // side and only the lone accessors are squiggled: `get getOnly()` and
+            // `set setOnly(value)` error, while `get getSetBad()` /
+            // `set getSetBad(value)` — neither annotated — is clean in both
+            // typescript-go's baseline and TypeScript's own.
+            if members.iter().any(|other| other.name == member.name && other.kind != member.kind) {
+                continue;
+            }
+            // A lone *getter* reports only in a class. The same shape in an object
+            // literal is silent: `isolatedDeclarationErrorsObjects` has
+            // `get singleGetterBad() { return 0 }` with no diagnostic, while its
+            // `set singleSetterBad(value)` on the next line has one. The asymmetry
+            // is taken from the baselines rather than derived, and it is the kind of
+            // thing a printer slice may well revise.
+            if member.kind == AccessorKind::Get && !member.in_class {
                 continue;
             }
             self.report(
@@ -276,21 +406,49 @@ impl Checker<'_> {
         }
     }
 
+    /// Where a setter's `TS9009` goes: its parameter, falling back to its name.
+    fn setter_anchor(
+        &self,
+        parameters: &[&ParameterDeclaration<'_>],
+        name: Option<NodeId>,
+    ) -> Span {
+        parameters
+            .first()
+            .and_then(|parameter| parameter.name.as_ref().and_then(tsr_ast::BindingName::node_id))
+            .map_or_else(|| self.span(name), |id| self.span(Some(id)))
+    }
+
     /// Record a class accessor for the pair rule.
+    ///
+    /// The accessor's name is checked here rather than in `class_element`, and a
+    /// name that fails suppresses the pair rule: upstream reports `TS9038` at
+    /// `get [noAnnotationStringName]()` and *not* `TS9009`, at the same position.
+    /// Reporting both would put two diagnostics on one squiggle.
     fn collect_accessor(&mut self, member: &ClassElement<'_>, out: &mut Vec<AccessorInfo>) {
         if is_private(member) {
             return;
         }
+        if let Some(name) = accessor_name(member) {
+            let before = self.out.len();
+            self.property_name(name);
+            if self.out.len() != before {
+                return;
+            }
+        }
         match member {
             ClassElement::GetAccessorDeclaration(getter) => out.push(AccessorInfo {
                 name: accessor_key(&getter.name),
+                kind: AccessorKind::Get,
+                in_class: true,
                 annotated: getter.r#type.is_some() || getter.full_signature.is_some(),
                 span: self.span(getter.name.node_id()),
             }),
             ClassElement::SetAccessorDeclaration(setter) => out.push(AccessorInfo {
                 name: accessor_key(&setter.name),
+                kind: AccessorKind::Set,
+                in_class: true,
                 annotated: setter.parameters.iter().any(|p| p.r#type.is_some()),
-                span: self.span(setter.name.node_id()),
+                span: self.setter_anchor(setter.parameters, setter.name.node_id()),
             }),
             _ => {}
         }
@@ -299,7 +457,7 @@ impl Checker<'_> {
     fn property_name(&mut self, name: &PropertyName<'_>) {
         if let PropertyName::ComputedPropertyName(computed) = name
             && let Some(expression) = &computed.expression
-            && !is_simple_computed_name(expression)
+            && !Self::is_restatable_computed_name(expression)
         {
             // TS9038 `Computed_property_names_on_class_or_object_literals_cannot_be_inferred_with_isolatedDeclarations`.
             let span = self.span(computed.node_id);
@@ -307,6 +465,42 @@ impl Checker<'_> {
                 &messages::COMPUTED_PROPERTY_NAMES_ON_CLASS_OR_OBJECT_LITERALS_CANNOT_BE_INFERRED_WITH_ISOLATEDDECLARATIONS,
                 span,
             );
+        }
+    }
+
+    /// Whether a computed property name is one the emitter can restate.
+    ///
+    /// Only a literal is. Not an identifier, however it was declared; not an enum
+    /// member; not a `unique symbol`.
+    ///
+    /// This is narrower than it looks like it should be, and the corpus is
+    /// unambiguous about it. `isolatedDeclarationErrorsObjects` writes six computed
+    /// names in one object literal — `[1]`, `[1 + 3]`, `[prop(2)]`, `[s]` where
+    /// `const s: unique symbol`, `[E.V]` where `E` is an enum, and `[str]` — and
+    /// **only `[1]` is accepted**. `isolatedDeclarationErrorsClasses` agrees for
+    /// class members: every computed name in its `class C` is reported, including
+    /// `[noAnnotationLiteralName]`, which is declared `const … = "…"` and therefore
+    /// does have a literal type.
+    ///
+    /// An earlier version of this rule resolved the name through a top-level scope
+    /// index to ask whether it was a `const` with a literal type, on the assumption
+    /// that a literal-typed name would be restatable. It is not, the machinery
+    /// bought nothing, and it was removed. The one place the corpus's own comment
+    /// says otherwise — `[missing] = 1`, marked "Should not be reported as an
+    /// isolated declaration error" — is reported by TypeScript too.
+    fn is_restatable_computed_name(expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::StringLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::NoSubstitutionTemplateLiteral(_) => true,
+            // `[-1]` is a literal type too. `computedPropertiesNarrowed` accepts
+            // `{ [-1]: 1 }` and rejects `{ [1-1]: 1 }` on the next line, which is
+            // the whole distinction: a signed literal, not an arithmetic result.
+            Expression::PrefixUnaryExpression(unary) => {
+                matches!(unary.operator.kind, SyntaxKind::MinusToken | SyntaxKind::PlusToken)
+                    && matches!(unary.operand, Some(Expression::NumericLiteral(_)))
+            }
+            _ => false,
         }
     }
 
@@ -523,19 +717,31 @@ impl Checker<'_> {
                 }
             }
             ObjectLiteralElementLike::GetAccessorDeclaration(getter) => {
+                let before = self.out.len();
                 self.property_name(&getter.name);
+                if self.out.len() != before {
+                    return true;
+                }
                 accessors.push(AccessorInfo {
                     name: accessor_key(&getter.name),
+                    kind: AccessorKind::Get,
+                    in_class: false,
                     annotated: getter.r#type.is_some() || getter.full_signature.is_some(),
                     span: self.span(getter.name.node_id()),
                 });
             }
             ObjectLiteralElementLike::SetAccessorDeclaration(setter) => {
+                let before = self.out.len();
                 self.property_name(&setter.name);
+                if self.out.len() != before {
+                    return true;
+                }
                 accessors.push(AccessorInfo {
                     name: accessor_key(&setter.name),
+                    kind: AccessorKind::Set,
+                    in_class: false,
                     annotated: setter.parameters.iter().any(|p| p.r#type.is_some()),
-                    span: self.span(setter.name.node_id()),
+                    span: self.setter_anchor(setter.parameters, setter.name.node_id()),
                 });
             }
         }
@@ -566,7 +772,14 @@ impl Checker<'_> {
     /// That is exactly the checker dependence ADR-0021 accepted diverging on.
     fn arrow(&mut self, arrow: &ArrowFunction<'_>) -> Inferability {
         self.parameters(arrow.parameters);
-        self.return_type(arrow.r#type.is_some() || arrow.full_signature.is_some(), arrow.node_id)
+        // A concise body *is* the return type when the expression is itself
+        // apparent: `(cb = () => 1)` needs no annotation, while
+        // `(cb = function(){ })` does. `isolatedDeclarationErrorsReturnTypes` pairs
+        // the two spellings on consecutive lines nine times over and reports only
+        // the block-bodied one each time.
+        let concise = arrow.body.as_ref().is_some_and(concise_body_is_apparent_literal);
+        let annotated = concise || arrow.r#type.is_some() || arrow.full_signature.is_some();
+        self.return_type(annotated, arrow.node_id)
     }
 
     fn function_expression(&mut self, function: &FunctionExpression<'_>) -> Inferability {
@@ -591,12 +804,25 @@ impl Checker<'_> {
     }
 }
 
+/// Which half of a property's accessor pair this is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AccessorKind {
+    Get,
+    Set,
+}
+
 /// A getter or setter, reduced to what the pair rule needs.
 struct AccessorInfo {
-    /// The property name as written. Computed names collapse to their source text,
-    /// which pairs `get [k]()` with `set [k]()` and nothing else.
+    /// The property name as written. Computed names collapse to a per-node key, so
+    /// `get [k]()` pairs with nothing — which is the conservative direction.
     name: String,
+    kind: AccessorKind,
+    /// Whether this is a class member rather than an object-literal property.
+    in_class: bool,
     annotated: bool,
+    /// Where the diagnostic goes: a getter's *name*, but a setter's *parameter*.
+    /// `isolatedDeclarationErrorsClasses.ts(11,9)` is `getOnly`; `(12,17)` is the
+    /// `value` of `set setOnly(value)`, not the `setOnly`.
     span: Span,
 }
 
@@ -615,6 +841,54 @@ fn accessor_key(name: &PropertyName<'_>) -> String {
     }
 }
 
+/// Whether an arrow's concise body is a literal, and so its own return type.
+///
+/// `ConciseBody` is `Block | Expression`, and the generated union spells out every
+/// expression variant, so this mirrors [`is_apparent_literal`] over that union
+/// rather than converting between the two.
+fn concise_body_is_apparent_literal(body: &tsr_ast::ConciseBody<'_>) -> bool {
+    use tsr_ast::ConciseBody as Body;
+    match body {
+        Body::NumericLiteral(_)
+        | Body::StringLiteral(_)
+        | Body::BigIntLiteral(_)
+        | Body::NoSubstitutionTemplateLiteral(_)
+        | Body::RegularExpressionLiteral(_) => true,
+        Body::KeywordExpression(keyword) => matches!(
+            keyword.kind,
+            SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword | SyntaxKind::NullKeyword
+        ),
+        _ => false,
+    }
+}
+
+/// Whether an expression is a plain name or a dotted chain of them.
+fn is_entity_name_expression(expression: &Expression<'_>) -> bool {
+    match expression {
+        Expression::Identifier(_) => true,
+        Expression::PropertyAccessExpression(access) => {
+            access.expression.as_ref().is_some_and(is_entity_name_expression)
+        }
+        _ => false,
+    }
+}
+
+/// The property name of a class accessor, if the member is one.
+fn accessor_name<'b, 'a>(member: &'b ClassElement<'a>) -> Option<&'b PropertyName<'a>> {
+    match member {
+        ClassElement::GetAccessorDeclaration(getter) => Some(&getter.name),
+        ClassElement::SetAccessorDeclaration(setter) => Some(&setter.name),
+        _ => None,
+    }
+}
+
+/// Whether a modifier list carries a given keyword.
+fn has_modifier(modifiers: &[ModifierLike<'_>], kind: SyntaxKind) -> bool {
+    modifiers
+        .iter()
+        .any(|modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == kind))
+}
+
 /// Whether a class member is `private` or `#private`, and so not emitted.
 fn is_private(member: &ClassElement<'_>) -> bool {
     let (modifiers, name) = match member {
@@ -627,9 +901,7 @@ fn is_private(member: &ClassElement<'_>) -> bool {
     if matches!(name, Some(PropertyName::PrivateIdentifier(_))) {
         return true;
     }
-    modifiers.iter().any(|modifier| {
-        matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::PrivateKeyword)
-    })
+    has_modifier(modifiers, SyntaxKind::PrivateKeyword)
 }
 
 /// Whether an expression is a literal whose type is its own text.
@@ -668,52 +940,89 @@ fn is_const_assertion(node: Option<&tsr_ast::TypeNode<'_>>) -> bool {
     }
 }
 
-/// Whether a computed property name is one the emitter can restate verbatim.
-///
-/// Upstream decides this from the *type* of the name expression — a string or
-/// number literal type, or a `unique symbol`. That is checker knowledge, and this
-/// is the syntactic stand-in: literals and dotted names pass, everything else does
-/// not. `isolatedDeclarationErrorsObjects` shows where the two part company —
-/// `[str]` (a `string`-typed const) is an error upstream and accepted here.
-/// A known and deliberate divergence, in the direction ADR-0021 anticipates.
-fn is_simple_computed_name(expression: &Expression<'_>) -> bool {
-    match expression {
-        Expression::StringLiteral(_)
-        | Expression::NumericLiteral(_)
-        | Expression::NoSubstitutionTemplateLiteral(_)
-        | Expression::Identifier(_) => true,
-        Expression::PropertyAccessExpression(access) => {
-            access.expression.as_ref().is_some_and(is_simple_computed_name)
-        }
-        _ => false,
-    }
+/// How an enum member's value can be reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Constness {
+    /// Foldable from literals and constant siblings.
+    Constant,
+    /// Not a constant expression at all — a call, say. Emitted without a value,
+    /// which is legal, so this is *not* an error.
+    Dynamic,
+    /// Constant-shaped, but reaching a symbol outside this enum. This is TS9020.
+    External,
 }
 
-/// Whether an enum member initialiser is computable without external symbols.
+/// Fold one enum member initialiser against the members already folded.
 ///
-/// TS9020's condition. Literals, signed literals, and arithmetic over them are
-/// fine; a call or an imported name is not. A bare identifier is accepted because
-/// the overwhelmingly common case is a reference to an earlier member of the same
-/// enum, which is computable — distinguishing that from an external name needs
-/// scope information this pass does not have.
-fn is_constant_enum_initializer(expression: &Expression<'_>) -> bool {
+/// `siblings` are the earlier members of the same enum with their verdicts, which
+/// is what makes the rule transitive — see `Checker::enum_declaration`.
+fn fold_enum_initializer(
+    expression: &Expression<'_>,
+    own_name: &str,
+    siblings: &[(String, Constness)],
+) -> Constness {
+    let sibling = |name: &str| {
+        siblings
+            .iter()
+            .find(|(candidate, _)| candidate == name)
+            .map_or(Constness::External, |(_, constness)| *constness)
+    };
+
     match expression {
-        // A bare identifier is accepted because it is nearly always an earlier
-        // member of the same enum, which is computable; telling that apart from an
-        // imported name needs scope information this pass does not have.
         Expression::NumericLiteral(_)
         | Expression::StringLiteral(_)
-        | Expression::Identifier(_) => true,
-        Expression::ParenthesizedExpression(inner) => {
-            inner.expression.as_ref().is_some_and(is_constant_enum_initializer)
+        | Expression::BigIntLiteral(_)
+        | Expression::NoSubstitutionTemplateLiteral(_) => Constness::Constant,
+
+        Expression::Identifier(identifier) => sibling(identifier.text),
+
+        // `Self.Member` and `Self["Member"]` stay inside the enum; any other
+        // qualifier reaches outside it.
+        Expression::PropertyAccessExpression(access) => match (&access.expression, &access.name) {
+            (Some(Expression::Identifier(target)), Some(tsr_ast::MemberName::Identifier(m)))
+                if target.text == own_name =>
+            {
+                sibling(m.text)
+            }
+            _ => Constness::External,
+        },
+        Expression::ElementAccessExpression(access) => {
+            match (&access.expression, &access.argument_expression) {
+                (
+                    Some(Expression::Identifier(target)),
+                    Some(Expression::StringLiteral(argument)),
+                ) if target.text == own_name => sibling(argument.text),
+                _ => Constness::External,
+            }
         }
-        Expression::PrefixUnaryExpression(unary) => {
-            unary.operand.as_ref().is_some_and(is_constant_enum_initializer)
-        }
+
+        Expression::ParenthesizedExpression(inner) => inner
+            .expression
+            .as_ref()
+            .map_or(Constness::Dynamic, |e| fold_enum_initializer(e, own_name, siblings)),
+        Expression::PrefixUnaryExpression(unary) => unary
+            .operand
+            .as_ref()
+            .map_or(Constness::Dynamic, |e| fold_enum_initializer(e, own_name, siblings)),
         Expression::BinaryExpression(binary) => {
-            binary.left.as_ref().is_some_and(is_constant_enum_initializer)
-                && binary.right.as_ref().is_some_and(is_constant_enum_initializer)
+            let left = binary
+                .left
+                .as_ref()
+                .map_or(Constness::Dynamic, |e| fold_enum_initializer(e, own_name, siblings));
+            let right = binary
+                .right
+                .as_ref()
+                .map_or(Constness::Dynamic, |e| fold_enum_initializer(e, own_name, siblings));
+            // Reaching outside anywhere in the expression poisons the whole of it;
+            // otherwise a non-constant operand makes the result non-constant.
+            match (left, right) {
+                (Constness::External, _) | (_, Constness::External) => Constness::External,
+                (Constness::Dynamic, _) | (_, Constness::Dynamic) => Constness::Dynamic,
+                _ => Constness::Constant,
+            }
         }
-        _ => false,
+
+        // Calls and everything else: a computed member, emitted without a value.
+        _ => Constness::Dynamic,
     }
 }

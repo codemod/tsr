@@ -56,7 +56,9 @@ Status is as of this ADR; keep it current.
 | `diagnostics/loc_generated.go` + `loc/*.json.gz` | 151 | Microsoft LCX translations, 13 locales | A | **Not built** — `bd tsr-5e7.6` |
 | `stringutil/identifier_parts_generated.go` | 1,391 | Unicode 15.1.0 ID_Start / ID_Continue | A | **Done** — `xtask/gen_unicode.rs` |
 | `stringutil/js_case_generated.go` | 3,496 | Unicode 15.1.0 case mappings + Final_Sigma | A | **Not built** — needed by the checker, not the scanner |
-| `bundled/libs_generated.go`, `embed_generated.go` | 568 | `lib.*.d.ts` from the TypeScript submodule | A | **Not built** — needed from P3 |
+| `bundled/libs_generated.go` | 116 | `lib.*.d.ts` from the TypeScript submodule | A | **Done** — `xtask/gen_libs.rs` → `LIB_NAMES` |
+| `tsoptions/enummaps.go` `LibMap` | ~110 | hand-written Go **data** | A′ | **Done** — `xtask/gen_libs.rs` → `LIB_MAP`. See "A data table in Go source" below |
+| `bundled/embed_generated.go` | 452 | the same `lib.*.d.ts` files | A | **Not built** — this is a *packaging* decision (embed vs. read from disk), and it belongs with the consumer. `bd tsr-9or.1` |
 | `lsp/lsproto/lsp_generated.go` | 17,466 | LSP `metaModel.json` | A | **Not built** — P8. Evaluate `tower-lsp-server` first; it may supply this |
 | `api/encoder/{encoder,decoder}_generated.go` | 1,847 | `_scripts/ast.json` | A | **Not built** — needed for the API surface |
 | `ast/kind_stringer_generated.go` | 375 | the Go `Kind` enum | B | **Not ported** — generated `SyntaxKind::name()` |
@@ -84,6 +86,32 @@ These apply to every Category A generator we write.
 6. **Deviate deliberately, and record it.** Where upstream's generator is
    non-deterministic or lossy, we may diverge — but the divergence must be
    quantified by a test. See below.
+
+## A data table in Go source (category A′)
+
+`tsoptions.LibMap` — the `--lib` values and the file each selects — does not fit
+the two categories as written, and the gap is worth naming rather than papering
+over.
+
+Its source of truth is hand-written Go, so rule 1 ("read upstream's input") has
+nothing to point at, and by the letter of the taxonomy it looks like Category B.
+It is not. Category B is *a mechanical restatement of a declaration*: `stringer`
+output carries no information, which is why regenerating it in Rust is pointless.
+`LibMap` carries information no Rust feature supplies, changes whenever TypeScript
+adds a lib, and its **order is load order** — which decides whose declaration of a
+merged global type wins.
+
+So it is generated, by parsing the Go literal. The distinguishing test is not
+*where the input lives* but **whether the artifact carries information**:
+
+- carries information → generate it, wherever it lives (A, A′)
+- restates a declaration → use the Rust feature (B)
+
+The cost of parsing hand-written Go is that a refactor upstream breaks the parse.
+That is why the parser errors on any unrecognised line inside the literal instead
+of skipping it: a permissive parse would report a short table as success, and the
+missing libs would surface much later as unresolved global types. Generation also
+fails outright if any `LibMap` entry names a file the submodule does not ship.
 
 ## Deliberate divergences so far
 

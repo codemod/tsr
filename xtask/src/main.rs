@@ -14,6 +14,7 @@
 mod ast_json;
 mod gen_diagnostics;
 mod gen_kind;
+mod gen_libs;
 mod gen_nodes;
 mod gen_unicode;
 mod perf;
@@ -98,6 +99,9 @@ fn codegen() -> Result<()> {
 
     codegen_diagnostics(&root)?;
     codegen_unicode(&root, &ast)?;
+
+    let (lib_files, lib_options) = gen_libs::run(&root)?;
+    println!("wrote bundled libs: {lib_files} files, {lib_options} --lib option values");
 
     Ok(())
 }

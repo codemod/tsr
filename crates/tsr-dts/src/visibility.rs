@@ -39,7 +39,8 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_ast::{
-    EntityName, ModifierLike, NamedExportBindings, NodeId, SourceFile, Statement, SyntaxKind, Visit,
+    EntityName, Expression, ModifierLike, NamedExportBindings, NodeId, SourceFile, Statement,
+    SyntaxKind, Visit,
 };
 
 /// The top-level declarations that reach the `.d.ts`, keyed by statement node id.
@@ -247,11 +248,30 @@ fn module_export_name<'a>(name: &tsr_ast::ModuleExportName<'a>) -> Option<&'a st
     }
 }
 
-/// Collects every name a declaration mentions outside a function body.
+/// Collects the names a declaration mentions **in type positions**.
 ///
-/// Function bodies are skipped because nothing inside one is emitted: a `.d.ts`
-/// keeps signatures and drops implementations. Everything else is collected, which
-/// over-approximates — see the module docs for why that direction is the safe one.
+/// Only a type position can pull another declaration into the `.d.ts`. An
+/// initialiser cannot: `export const instance: Indirect = new Indirect()` emits
+/// `declare const instance: Indirect`, so the annotation is what makes `Indirect`
+/// visible and the `new Indirect()` contributes nothing.
+///
+/// An earlier version collected from everything except function bodies, on the
+/// theory that over-approximating was the safe direction. It was not merely
+/// imprecise, it was wrong in a way the corpus catches three separate times:
+///
+/// - `declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile` has
+///   `const trpc = initTRPC.create()` reached only from the initialisers of the
+///   exported consts. Upstream reports nothing for it; we reported `TS9010`.
+/// - `isolatedDeclarationErrorsClassesExpressions` has `function id(...)` reached
+///   only from `extends id(Base)` — an extends clause that upstream rejects
+///   outright with `TS9021`, so nothing is dragged in.
+/// - `computedPropertiesNarrowed` has `function ns()` reached only from
+///   `[ns().v]: 1`.
+///
+/// The traversal therefore skips every expression-valued field rather than only
+/// function bodies. Two expressions still count, and both are exact:
+/// `export default a`, which emits a reference to `a`, and a heritage clause whose
+/// expression is a plain entity name, which is the only kind that can be restated.
 #[derive(Default)]
 struct ReferenceCollector<'a> {
     names: Vec<&'a str>,
@@ -268,15 +288,73 @@ impl<'a> ReferenceCollector<'a> {
             }
         }
     }
+
+    /// The leftmost identifier of an entity-name-shaped expression, if it is one.
+    ///
+    /// `Base` and `a.b.Base` qualify; `id(Base)` does not.
+    fn record_entity_expression(&mut self, expression: &Expression<'a>) {
+        match expression {
+            Expression::Identifier(identifier) => self.names.push(identifier.text),
+            Expression::PropertyAccessExpression(access) => {
+                if let Some(inner) = &access.expression {
+                    self.record_entity_expression(inner);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Record the names used by computed keys inside an emitted literal.
+    ///
+    /// Only the keys: `{ [u]: v }` emits `[u]` and so needs `u`, but `v` is a value
+    /// and never appears in a `.d.ts`.
+    fn collect_computed_keys(&mut self, expression: &Expression<'a>) {
+        match expression {
+            Expression::ObjectLiteralExpression(object) => {
+                for property in object.properties {
+                    if let Some(name) = object_member_name(property)
+                        && let tsr_ast::PropertyName::ComputedPropertyName(computed) = name
+                        && let Some(inner) = &computed.expression
+                    {
+                        self.record_entity_expression(inner);
+                    }
+                    if let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
+                        property
+                        && let Some(value) = &assignment.initializer
+                    {
+                        self.collect_computed_keys(value);
+                    }
+                }
+            }
+            Expression::ArrayLiteralExpression(array) => {
+                for element in array.elements {
+                    self.collect_computed_keys(element);
+                }
+            }
+            Expression::AsExpression(as_expression) => {
+                if let Some(inner) = &as_expression.expression {
+                    self.collect_computed_keys(inner);
+                }
+            }
+            Expression::ParenthesizedExpression(inner) => {
+                if let Some(inner) = &inner.expression {
+                    self.collect_computed_keys(inner);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_type(&mut self, node: Option<tsr_ast::TypeNode<'a>>) {
+        if let Some(node) = node {
+            self.visit_node(tsr_ast::Node::from(node));
+        }
+    }
 }
 
 impl<'a> Visit<'a> for ReferenceCollector<'a> {
     fn visit_identifier(&mut self, node: &'a tsr_ast::Identifier<'a>) {
         self.names.push(node.text);
-    }
-
-    fn visit_block(&mut self, _node: &'a tsr_ast::Block<'a>) {
-        // A function body emits nothing, so it can make nothing visible.
     }
 
     fn visit_type_reference_node(&mut self, node: &'a tsr_ast::TypeReferenceNode<'a>) {
@@ -286,5 +364,86 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
         for argument in node.type_arguments {
             self.visit_node(tsr_ast::Node::from(*argument));
         }
+    }
+
+    // A body emits nothing, so it can make nothing visible.
+    fn visit_block(&mut self, _node: &'a tsr_ast::Block<'a>) {}
+
+    // Every declaration form below is visited for its *type* only; its initialiser
+    // is deliberately not traversed. See the type docs.
+    fn visit_variable_declaration(&mut self, node: &'a tsr_ast::VariableDeclaration<'a>) {
+        self.visit_type(node.r#type);
+        // An *unannotated* declaration emits the shape of its initialiser, and a
+        // computed key inside that shape is restated verbatim -- so the name it
+        // uses has to be emitted too. `computedPropertiesNarrowed` needs this:
+        // `let u = Symbol()` is not exported and upstream still reports TS9010 on
+        // it, because `export let o4 = { [u]: 1 }` puts `u` in the output.
+        if node.r#type.is_none()
+            && let Some(initializer) = &node.initializer
+        {
+            self.collect_computed_keys(initializer);
+        }
+    }
+
+    fn visit_property_declaration(&mut self, node: &'a tsr_ast::PropertyDeclaration<'a>) {
+        self.visit_type(node.r#type);
+        if node.r#type.is_none()
+            && let Some(initializer) = &node.initializer
+        {
+            self.collect_computed_keys(initializer);
+        }
+    }
+
+    fn visit_parameter_declaration(&mut self, node: &'a tsr_ast::ParameterDeclaration<'a>) {
+        self.visit_type(node.r#type);
+    }
+
+    fn visit_property_assignment(&mut self, node: &'a tsr_ast::PropertyAssignment<'a>) {
+        self.visit_type(node.r#type);
+    }
+
+    fn visit_enum_member(&mut self, _node: &'a tsr_ast::EnumMember<'a>) {}
+
+    fn visit_binding_element(&mut self, node: &'a tsr_ast::BindingElement<'a>) {
+        if let Some(name) = &node.name {
+            self.visit_node(tsr_ast::Node::from(*name));
+        }
+    }
+
+    fn visit_expression_statement(&mut self, _node: &'a tsr_ast::ExpressionStatement<'a>) {}
+
+    /// A heritage clause contributes only when it names something restatable.
+    fn visit_expression_with_type_arguments(
+        &mut self,
+        node: &'a tsr_ast::ExpressionWithTypeArguments<'a>,
+    ) {
+        if let Some(expression) = &node.expression {
+            self.record_entity_expression(expression);
+        }
+        for argument in node.type_arguments {
+            self.visit_node(tsr_ast::Node::from(*argument));
+        }
+    }
+
+    /// `export default a` emits a reference to `a`, so `a` must be emitted too.
+    fn visit_export_assignment(&mut self, node: &'a tsr_ast::ExportAssignment<'a>) {
+        if let Some(expression) = &node.expression {
+            self.record_entity_expression(expression);
+        }
+    }
+}
+
+/// The property name of an object-literal member, when it has one.
+fn object_member_name<'b, 'a>(
+    property: &'b tsr_ast::ObjectLiteralElementLike<'a>,
+) -> Option<&'b tsr_ast::PropertyName<'a>> {
+    use tsr_ast::ObjectLiteralElementLike as Member;
+    match property {
+        Member::PropertyAssignment(node) => Some(&node.name),
+        Member::MethodDeclaration(node) => Some(&node.name),
+        Member::GetAccessorDeclaration(node) => Some(&node.name),
+        Member::SetAccessorDeclaration(node) => Some(&node.name),
+        Member::ShorthandPropertyAssignment(node) => Some(&node.name),
+        Member::SpreadAssignment(_) => None,
     }
 }

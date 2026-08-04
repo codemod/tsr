@@ -1,7 +1,8 @@
 # `isolatedDeclarations` analysis (`tsr-dts`)
 
-**Status:** slice 1 of Phase 3.5 (`bd tsr-49v.2`). The analysis exists; the printer
-and the `.d.ts` text do not (`bd tsr-49v.4`).
+**Status:** slice 1 of Phase 3.5 (`bd tsr-49v.2`), converged at **13/15** with no
+false positives. The analysis exists; the printer and the `.d.ts` text do not
+(`bd tsr-49v.4`).
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 
@@ -56,9 +57,15 @@ A specific diagnostic *replaces* the generic one rather than joining it:
 `export let arr = [1, 2, 3];` produces `TS9017` at the array and no `TS9010` at the
 name.
 
-## Two findings that changed the rules
+## Findings that changed the rules
 
-### The corpus's own comments are wrong about function expressions
+Each of these was a case where a source or an assumption said one thing and the
+baselines said another. They are recorded because none is recoverable by reading
+the diagnostic messages.
+
+### The corpus's own comments are wrong twice
+
+**Function expressions.**
 
 `isolatedDeclarationErrorsReturnTypes` marks a block of exported
 `const fn = function foo() { return 0; }` declarations `// Should Error`, and a
@@ -74,6 +81,49 @@ The one apparent counter-example is checker-driven and deliberately not matched:
 in `isolatedDeclarationErrors.ts` an arrow *does* get `TS9007`, but only because an
 expando assignment (`errorOnMissingReturn.a = ""`) makes upstream build the
 function's type through `IsExpandoFunctionDeclaration`.
+
+`isolatedDeclarationErrorsClasses` does it again: `[missing] = 1` is marked
+`// Should not be reported as an isolated declaration error`, and TypeScript
+reports it. Treat the comments in these files as commentary, not specification.
+
+### `TS9007` is narrower still: only parameter defaults, and only block bodies
+
+Following on: a function used as a parameter default needs a return type, but an
+arrow with a *concise literal body* does not — `(cb = () => 1)` is clean while
+`(cb = function(){ })` and `(cb = () => {})` are not.
+`isolatedDeclarationErrorsReturnTypes` pairs the two spellings on consecutive
+lines nine times and reports only the block-bodied one each time.
+
+### `TS9009` fires only for a *lone* accessor
+
+A get/set pair is never reported, even when neither half is annotated. Only an
+accessor with no counterpart is, and a setter anchors its diagnostic at its
+**parameter** rather than its name. One asymmetry is taken from the baselines
+rather than derived: a lone unannotated getter reports in a class and is silent in
+an object literal.
+
+### `TS9020` is three-valued and transitive
+
+Reading enum members as "constant or not" gets every outcome wrong. `A = f()` is
+*not* an error — a call is not a constant expression, so the member emits with no
+value at all. `AB = A | B` over constant siblings is fine, by any spelling
+(`Flag.AB`, `Flag["A"]`). Only a constant-shaped expression that reaches *outside*
+the enum errors. And it is transitive: in `enum F { A = E.A, B = A }` both members
+are reported, because `B` names a sibling that is itself not constant. Members are
+therefore folded in declaration order, each seeing the verdicts before it.
+
+### A computed property name must be *written* as a literal
+
+Not have a literal type — be written as one. `isolatedDeclarationErrorsObjects`
+puts six computed names in one object literal and accepts only `[1]`; `[s]` where
+`const s: unique symbol`, `[E.V]` where `E` is an enum, and `[k]` where
+`const k = "a"` are all reported. `[-1]` is accepted, `[1 - 1]` is not.
+
+An earlier version resolved names through a scope index to ask whether they had a
+literal type. That machinery bought nothing and was removed — twice, in fact: the
+second attempt was aimed at `interface I`'s `[noAnnotationLiteralName]()`, which
+turned out not to be a computed-name rule at all. What that member is missing is a
+*return type*, and the diagnostic is `TS9013` paired with `TS7010`.
 
 ### `as const` is a `TypeReferenceNode` with no name
 
@@ -97,6 +147,8 @@ Measured at the pin:
 |---|---|
 | Corpus cases setting `@isolatedDeclarations: true` | **21** |
 | Judged (after exclusions) | **15** |
+| Passing | **13** (86.67%) |
+| False positives across all judged cases | **0** |
 | Excluded: known divergence (`.errors.txt.diff`) | 5 |
 | Excluded: upstream recorded no baseline | 1 |
 | Positioned `TS9xxx` in those baselines | **172**, across 20 distinct codes |
@@ -119,33 +171,36 @@ Three of the sixteen baselines mix ordinary checker errors in with the `TS9xxx`
 ones (12 in total); those are Phase 4's, and comparing whole baselines would make
 this suite unpassable for reasons unrelated to what it measures.
 
-### The gate is coarse at this pass rate, and the mutations say so
+### The gate has teeth, and it did not always
 
-Four mutations were applied to the code under test and re-measured over the corpus.
-**None of them moved the pass rate**, because a case that already fails on an
-exact-match comparison keeps failing when made worse. What moved was the snapshot's
-per-case detail:
+Five mutations, applied to the code under test and re-measured over the corpus:
 
 | Mutation | Pass rate | Snapshot lines changed |
 |---|---|---|
-| `TS9010` anchored at the initialiser instead of the name | 5/15 | 6 |
-| `private` / `#` members judged like any other | 5/15 | 2 |
-| Parameter defaults not treated as a special position for `TS9007` | 5/15 | 2 |
-| **Visibility pass disabled entirely** | 5/15 | **0** |
+| Visibility pass disabled entirely | 10/15 | 10 |
+| Accessor pair rule dropped | 11/15 | 8 |
+| Reference collection widened back to all expressions | 12/15 | 6 |
+| Enum fold loses transitivity | 12/15 | 6 |
+| `readonly` no longer a const context | 12/15 | 6 |
 
-Two things follow, and both are load-bearing:
+against a baseline of **13/15**. All five move the rate.
 
-1. **Read the snapshot diff, not the rate.** Until the rate is high, the rate is
-   the insensitive instrument. This is the same reason the project's method says to
-   diff the failure list by case name.
-2. **The visibility pass is not currently tested by the corpus at all.** Disabling
-   it changes nothing, because the rules that would have fired on invisible
-   declarations are exactly the `TS9007`-on-initialiser rules that the first finding
-   above removed. Its only teeth are the unit tests in
-   `crates/tsr-dts/tests/rules.rs`, which do fail under that mutation. It is kept
-   because it is demonstrably right and will become load-bearing the moment the
-   `.d.ts` output oracle exists — but until then it is a pass whose correctness the
-   gate cannot see, and that should be said out loud rather than assumed.
+That is worth contrasting with how this suite behaved at 5/15, because the change
+is a property of the *measurement*, not only of the compiler. At that rate four
+mutations — including disabling the visibility pass — moved the pass rate by
+**zero**: a case that already fails an exact-match comparison keeps failing when
+made worse, so the rate could not distinguish "wrong" from "more wrong". Only the
+snapshot's per-case detail moved, and for the visibility pass not even that.
+
+Two rules follow from having watched it both ways:
+
+1. **Below convergence, read the snapshot diff, not the rate.** An exact-match
+   gate is close to useless as a gradient until it is nearly satisfied.
+2. **A pass the gate cannot see is untested, whatever its author believes.** The
+   visibility pass was in exactly that position at 5/15 and it was said out loud
+   here rather than assumed away. It became observable only once the rules around
+   it were right — which is also why it is now the *most* load-bearing thing in the
+   crate by this measure (13 → 10).
 
 ## Known approximations
 
@@ -155,7 +210,7 @@ guesses. They are the expected source of divergence under ADR-0021.
 | Area | Upstream | Here |
 |---|---|---|
 | Visibility | `EmitResolver.IsDeclarationVisible` | reachability from the exports by top-level name; no scope chain, no declaration merging |
-| Computed property names (`TS9038`) | the name expression's *type* — string/number literal, or `unique symbol` | literals and dotted names pass. `[str]` where `str: string` is an error upstream and accepted here |
+| Computed property names (`TS9038`) | the name expression's *type* | the name expression's *spelling*: a literal, optionally signed. This turned out to agree with upstream on every corpus case |
 | Expando assignments (`TS9023`) | `IsExpandoFunctionDeclaration` | a top-level assignment to a property of a top-level name; cannot tell a function from any other binding |
 | Enum initialisers (`TS9020`) | constant-expression evaluation | literals and arithmetic over them; a bare identifier is accepted, since it is nearly always an earlier member of the same enum |
 
@@ -165,10 +220,25 @@ have dropped. The direction is deliberate — an over-approximation reports a
 diagnostic upstream does not and shows up as a conformance failure, while an
 under-approximation stays silent.
 
-## What is not done
+## What is not done, and why each is out of reach here
 
-The remaining failure buckets, by root cause, are filed as children of
-`bd tsr-49v.2`. The largest are the accessor-pair anchor (`TS9009`), enum
-initialisers (`TS9020`), computed names (`TS9038`), and the four codes with no
-implementation at all: `TS9021`, `TS9022` in heritage position, `TS9025`
-(implicitly-added `undefined`), and `TS9026` (augmentation imports).
+Two diagnostics remain, in two cases, and neither is a gap in the rules — both
+need information a single-file syntactic pass does not have. They are the honest
+end of this slice rather than a to-do list.
+
+**`TS9025` — implicitly adding `undefined` to a parameter type**
+(`isolatedDeclarationsAddUndefined`). Upstream answers this with
+`EmitResolver.RequiresAddingImplicitUndefined`, which is checker-backed, and the
+corpus gives one discriminating pair: `foo(p = (ip = 10, v: number) => {})` is
+clean while `foo2(p = (ip = 10 as T, v: number) => {})` — with `type T = number` —
+is reported. The difference is what the initialiser's *type* is, not what it looks
+like. `bd tsr-49v.1`'s audit named this as the item most likely to resist a
+syntactic treatment, and it does. Deferred to Phase 4 rather than guessed at.
+
+**`TS9026` — preserving an import for augmentations**
+(`isolatedDeclarationErrorsAugmentation`). Deciding it means knowing that
+`child1.ts` contains `declare module './parent'`, which is a fact about *another
+file*. This needs the `Program`, not the checker, so it is reachable earlier than
+`TS9025` — but not from `analyze(file, nodes)`.
+
+Both are filed under `bd tsr-49v.2`.
