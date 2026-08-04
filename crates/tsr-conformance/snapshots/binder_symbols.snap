@@ -2,16 +2,16 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8212/8455 (97.13%)
-Failed         : 243
-Skipped        : 3989 (excluded from the denominator)
+Passed         : 8265/8449 (97.82%)
+Failed         : 184
+Skipped        : 3995 (excluded from the denominator)
 
   2321  skipped: no .symbols baseline
   671  skipped: the baseline names no symbols in any unit we bind
-  547  skipped: the parser reports errors for this file
+  553  skipped: the parser reports errors for this file
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 243 failures:
+First 100 of 184 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/aliasDoesNotDuplicateSignatures
@@ -20,8 +20,6 @@ compiler/allowImportClausesToMergeWithTypes
   1 symbol(s): a.ts: zzz: declared on {0, 4}, expected to include {0, 4, 9}
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
-compiler/asiAbstract
-  2 symbol(s): C2.abstract: no symbol; C2.nonAbstractFunction: declared on {5}, expected to include {6}
 compiler/augmentExportEquals3
   1 symbol(s): file2.ts: x.b: no symbol
 compiler/augmentExportEquals4
@@ -32,8 +30,6 @@ compiler/classImplementsImportedInterface
   1 symbol(s): T: declared on {6}, expected to include {0, 6}
 compiler/collisionExportsRequireAndInternalModuleAliasInGlobalFile
   1 symbol(s): exports: declared on {3, 9, 16}, expected to include {0, 3, 9, 16}
-compiler/computedPropertiesNarrowed
-  1 symbol(s): 1-1: no symbol
 compiler/constEnumOnlyModuleMerging
   3 symbol(s): O: declared on {8}, expected to include {0, 2, 8}; O.A: no symbol; O.A.X: no symbol
 compiler/constEnums
@@ -53,19 +49,13 @@ compiler/declarationEmitNameConflictsWithAlias
 compiler/declareDottedExtend
   2 symbol(s): ab: declared on {3}, expected to include {0, 3}; ab.C: no symbol
 compiler/decoratorsOnComputedProperties
-  3 symbol(s): C.some\" + \"method: no symbol; D.some\" + \"method: no symbol; E.some\" + \"method: no symbol
-compiler/deeplyNestedMappedTypes
-  1 symbol(s): Input: declared on {46, 49}, expected to include {44, 49}
-compiler/destructuringInitializerContextualTypeFromContext
-  1 symbol(s): f: declared on {20}, expected to include {18}
+  3 symbol(s): C["some\" + \"method"]: no symbol; D["some\" + \"method"]: no symbol; E["some\" + \"method"]: no symbol
 compiler/duplicateIdentifierDifferentSpelling
   1 symbol(s): A.0b11: declared on {0}, expected to include {0, 1}
 compiler/duplicateObjectLiteralProperty_computedName1
   2 symbol(s): +1: declared on {15, 20, 21}, expected to include {15, 16, 20, 21}; -1: declared on {25, 30, 31}, expected to include {25, 26, 30, 31}
 compiler/dynamicNamesErrors
   2 symbol(s): T0.1: declared on {4}, expected to include {3, 4}; T3[c0]: declared on {16}, expected to include {16, 17}
-compiler/enumWithUnicodeEscape1
-  1 symbol(s): E.gold \u2730: no symbol
 compiler/erasableSyntaxOnly
   2 symbol(s): index.ts: FineAlias: declared on {60}, expected to include {58, 60}; index.ts: NoGoodAlias: declared on {23}, expected to include {21, 23}
 compiler/erasableSyntaxOnlyDeclaration
@@ -77,7 +67,7 @@ compiler/esModuleInteropDefaultImports
 compiler/esModuleInteropImportTSLibHasImport
   2 symbol(s): index.ts: sayHello: no symbol; index.ts: username: no symbol
 compiler/escapedIdentifiers
-  3 symbol(s): \u0061: no symbol; arg\u0032: no symbol; arg\u0033: no symbol
+  2 symbol(s): constructorTestClass[arg2]: no symbol; constructorTestClass[arg3]: no symbol
 compiler/expandoFunctionContextualTypesJs
   1 symbol(s): defaultProps: declared on {9, 15}, expected to include {4}
 compiler/exportDeclarationsInAmbientNamespaces
@@ -94,12 +84,8 @@ compiler/exportImportNonInstantiatedModule
   1 symbol(s): A1: declared on {4}, expected to include {0, 4}
 compiler/expressionsForbiddenInParameterInitializers
   1 symbol(s): ./bar: no symbol
-compiler/extendedUnicodeEscapeSequenceIdentifiers
-  2 symbol(s): \u{0061}: no symbol; a\u{0061}: no symbol
 compiler/externalModuleReferenceDoubleUnderscore1
   1 symbol(s): basics.TimeUnit: no symbol
-compiler/genericMappedTypeAsClause
-  1 symbol(s): RemapRecord: declared on {21}, expected to include {19}
 compiler/importAliasInModuleAugmentation
   2 symbol(s): x: declared on {7}, expected to include {3, 7}; x.s: no symbol
 compiler/importAnImport
@@ -126,8 +112,6 @@ compiler/importedModuleAddToGlobal
   3 symbol(s): a: declared on {7, 12}, expected to include {0, 7, 12}; b: declared on {2}, expected to include {2, 5}; c: declared on {3}, expected to include {3, 10}
 compiler/indexTypeNoSubstitutionTemplateLiteral
   1 symbol(s): Foo[`b`]: no symbol
-compiler/inferenceErasedSignatures
-  3 symbol(s): BaseType: declared on {26}, expected to include {24}; InheritedType.useT1: declared on {36}, expected to include {35}; StructuralVersion: declared on {40}, expected to include {38}
 compiler/innerAliases
   2 symbol(s): inner: declared on {8}, expected to include {1, 8}; inner.Class1: no symbol
 compiler/innerAliases2
@@ -183,9 +167,7 @@ compiler/internalImportUnInstantiatedModuleMergedWithClassNotReferencingInstance
 compiler/internalImportUnInstantiatedModuleNotReferencingInstanceNoConflict
   1 symbol(s): Y: declared on {5}, expected to include {0, 5}
 compiler/invalidUnicodeEscapeSequance4
-  2 symbol(s): a\u0031: no symbol; u0031a: no symbol
-compiler/isolatedDeclarationErrorsObjects
-  1 symbol(s): 1 + 3: no symbol
+  1 symbol(s): u0031a: no symbol
 compiler/jsDeclarationEmitDoesNotRenameImport
   1 symbol(s): index.js: test: declared on {13}, expected to include {4}
 compiler/jsFileMethodOverloads
@@ -194,8 +176,6 @@ compiler/jsxNamespacePrefixIntrinsics
   2 symbol(s): ns:attribute: declared on {2}, expected to include {2, 10}; ns:invalid: no symbol
 compiler/jsxNamespacedNameNotComparedToNonMatchingIndexSignature
   1 symbol(s): ns:thing: declared on {4}, expected to include {9}
-compiler/mappedTypeIndexedAccessConstraint
-  2 symbol(s): Foo: declared on {79}, expected to include {77}; Obj1: declared on {57}, expected to include {55}
 compiler/missingPropertiesOfClassExpression
   1 symbol(s): (Anonymous class): no symbol
 compiler/moduleAliasInterface
@@ -212,3 +192,23 @@ compiler/moduleAugmentationImportsAndExports2
   2 symbol(s): f3.ts: C: declared on {12}, expected to include {5, 12}; f3.ts: I: declared on {11}, expected to include {4, 11}
 compiler/moduleAugmentationImportsAndExports3
   2 symbol(s): f3.ts: C: declared on {11}, expected to include {5, 11}; f3.ts: I: declared on {10}, expected to include {4, 10}
+compiler/moduleAugmentationImportsAndExports4
+  2 symbol(s): f3.ts: C: declared on {9}, expected to include {6, 9}; f3.ts: I: declared on {8}, expected to include {5, 8}
+compiler/moduleAugmentationImportsAndExports5
+  2 symbol(s): f3.ts: C: declared on {9}, expected to include {6, 9}; f3.ts: I: declared on {8}, expected to include {5, 8}
+compiler/moduleAugmentationImportsAndExports6
+  2 symbol(s): f3.ts: C: declared on {9}, expected to include {6, 9}; f3.ts: I: declared on {8}, expected to include {5, 8}
+compiler/moduleCrashBug1
+  1 symbol(s): modes: declared on {12}, expected to include {0, 12}
+compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
+  3 symbol(s): index.ts: Acc: no symbol; index.ts: Acc.someProp: no symbol; index.ts: Account: no symbol
+compiler/moduleElementsInWrongContext
+  1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
+compiler/moduleImport
+  2 symbol(s): ABC: declared on {7}, expected to include {0, 7}; ABC.ping: no symbol
+compiler/moduleSharesNameWithImportDeclarationInsideIt5
+  1 symbol(s): M: declared on {0, 8, 9}, expected to include {0, 5, 8, 9}
+compiler/moduleVisibilityTest1
+  2 symbol(s): OuterInnerAlias: declared on {6}, expected to include {1, 6}; OuterInnerAlias.someExportedOuterInnerFunc: no symbol
+compiler/moduleVisibilityTest2
+  2 symbol(s): OuterInnerAlias: declared on {6}, expected to include {1, 6}; OuterInnerAlias.someExportedOuterInnerFunc: no symbol

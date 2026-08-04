@@ -217,8 +217,14 @@ impl FullStarts {
 /// the positions a forward scan cannot place, and because it is what the
 /// difference between the two is measured against.
 ///
-/// Comments are handled for the `*/` form only; a `//` comment cannot be
-/// recognised scanning backwards without re-lexing the line.
+/// Both comment forms are handled. A block comment is recognised by its closing
+/// `*/`. A `//` comment cannot be recognised scanning backwards at all — it ends
+/// at a line break like the whitespace around it — so it is found by scanning the
+/// *line* forwards from its start, which is the smallest amount of re-lexing that
+/// answers the question. Quote counting decides whether a `//` is a comment or
+/// text inside a string; that is an approximation, and it is confined to the
+/// fallback, where the alternative was ignoring line comments entirely. Measured
+/// 2026-08-04: handling them is worth 20 conformance cases, with no regressions.
 #[must_use]
 pub fn full_start(source: &str, start: u32) -> u32 {
     let bytes = source.as_bytes();
@@ -239,6 +245,13 @@ pub fn full_start(source: &str, start: u32) -> u32 {
                 continue;
             }
         }
+        // A line comment, which the whitespace skip above has just walked to the
+        // end of. It has no closing token to recognise, so the line it sits on is
+        // scanned forwards for the `//` that opens it.
+        if let Some(comment) = line_comment_start(bytes, i) {
+            i = comment;
+            continue;
+        }
         break;
     }
     #[allow(clippy::cast_possible_truncation)]
@@ -247,9 +260,55 @@ pub fn full_start(source: &str, start: u32) -> u32 {
     }
 }
 
+/// Where the `//` comment ending at `end` begins, if that is what ends there.
+///
+/// Scans the line forwards from its start, because a line comment has no closing
+/// token: `x` in `// x` looks exactly like `x` in code read backwards. Quotes are
+/// counted so that the `//` in `"http://…"` is not mistaken for one — an
+/// approximation that a real lexer would not need, and one confined to this
+/// fallback.
+fn line_comment_start(bytes: &[u8], end: usize) -> Option<usize> {
+    if end == 0 {
+        return None;
+    }
+    let line_start = bytes[..end].iter().rposition(|byte| *byte == b'\n').map_or(0, |n| n + 1);
+    let mut quotes = 0usize;
+    let mut index = line_start;
+    while index + 1 < end {
+        match bytes[index] {
+            b'"' | b'\'' | b'`' => quotes += 1,
+            b'/' if bytes[index + 1] == b'/' && quotes % 2 == 0 => return Some(index),
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn a_line_comment_is_leading_trivia_of_what_follows_it() {
+        // Upstream's `pos` is where the trivia begins, and a comment above a
+        // declaration is trivia of that declaration.
+        let source = "}\n\n// why\n\ntype T = 1;\n";
+        let token = source.find("type").expect("the declaration") as u32;
+        // Trivia begins immediately after the `}`.
+        let expected = source.find('\n').expect("the first line break") as u32;
+        assert_eq!(full_start(source, token), expected);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn a_slash_inside_a_string_does_not_open_a_comment() {
+        let source = "const u = \"http://x\";\ntype T = 1;\n";
+        let token = source.find("type").expect("the declaration") as u32;
+        let expected = source.find('\n').expect("the line break") as u32;
+        assert_eq!(full_start(source, token), expected);
+    }
 
     #[test]
     fn a_reference_with_one_declaration_parses() {
@@ -311,8 +370,12 @@ mod tests {
         assert_eq!(full_starts.of(source, interface), 0);
         assert_eq!(line_and_character(source, full_starts.of(source, interface)), (0, 0));
 
-        // What the backwards walk gets instead, kept as the record of the gap.
-        assert_eq!(line_and_character(source, full_start(source, interface)), (1, 6));
+        // The backwards walk used to answer (1, 6) here — the end of the second
+        // comment — because it could not recognise a `//` scanning backwards. It
+        // now scans each line forwards to find one, so the two agree. The forward
+        // scan is still the primary: it is exact, and this is an approximation
+        // that quote-counts its way past `"http://…"`.
+        assert_eq!(line_and_character(source, full_start(source, interface)), (0, 0));
     }
 
     #[test]

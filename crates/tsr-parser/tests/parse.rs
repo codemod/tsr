@@ -935,3 +935,45 @@ fn a_reserved_word_in_expression_position_stays_a_keyword() {
     let statements = statements(&arena, "const a = this;\nconst b = null;\nconst c = true;\n");
     assert_eq!(statements.len(), 3);
 }
+
+#[test]
+fn a_second_static_is_a_member_name_not_a_modifier() {
+    // `class C { static static }` declares a static member called `static`.
+    // Upstream's `hasSeenStaticModifier`: no rule about what *follows* reaches
+    // this, which is why the test is a whitelist of what may follow a modifier
+    // rather than a blacklist of what may not.
+    let arena = Arena::new();
+    for source in [
+        "class C { static static }",
+        "class C { static static\n  m() {} }",
+        "class C { static override static }",
+        "class C { static \n static }",
+    ] {
+        let statements = statements(&arena, source);
+        let Statement::ClassDeclaration(class) = statements[0] else { panic!("a class") };
+        let named_static = class.members.iter().any(|member| {
+            matches!(member, tsr_ast::ClassElement::PropertyDeclaration(property)
+                if matches!(property.name, tsr_ast::PropertyName::Identifier(name)
+                    if name.text == "static"))
+        });
+        assert!(named_static, "{source:?} should declare a member named `static`");
+    }
+}
+
+#[test]
+fn a_modifier_on_its_own_line_does_not_modify_the_next_one() {
+    // `nextTokenIsOnSameLineAndCanFollowModifier`: everything except `static`
+    // must be followed on the same line by what it modifies.
+    let arena = Arena::new();
+    let statements = statements(&arena, "interface Foo {\n  public\n  biz;\n}\n");
+    let Statement::InterfaceDeclaration(interface) = statements[0] else { panic!("an interface") };
+    assert_eq!(interface.members.len(), 2, "`public` is a member of its own");
+}
+
+#[test]
+fn a_decorator_may_follow_export() {
+    // `canFollowExportModifier` names `@` explicitly. It is an error later, but
+    // it parses — and treating `export` as a name here lost the whole class.
+    let arena = Arena::new();
+    statements(&arena, "@dec export @dec class C {}");
+}

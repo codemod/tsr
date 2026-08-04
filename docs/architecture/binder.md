@@ -450,8 +450,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 8,212/8,455
-(**97.13%**). See
+own `.symbols` baselines over the 12,444-case corpus. Currently 8,265/8,449
+(**97.82%**). See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -489,6 +489,8 @@ five biggest wins turned out to be in the harness.
 | contextual keywords in expression position parse as identifiers | 92.64% | **parser** |
 | expando assignments and `Object.defineProperty`, bound in a deferred pass | 92.88% | binder + harness |
 | late-bound names get a `__computed` symbol | 97.13% | binder + harness |
+| line comments counted as leading trivia; bracket spellings not over-reduced; escaped identifiers decoded | 97.67% | harness |
+| a second `static` is a member name, not a modifier | 97.82% | **parser** — *denominator −6* |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -573,21 +575,59 @@ The residual four cases are the part that is genuinely blocked, and they all hav
 the same shape: a late-bound name that should have *merged* with a declared
 member.
 
-### What the remaining 243 failures are
+### A sixth of the remaining failures were the harness again
 
-Classified against the actual sources:
+The 243 failures at 97.13% were classified case by case, and three of the buckets
+turned out to be the *measurement* rather than the compiler. Each was sized by
+making the change and re-running, not by inspection:
+
+| Cause | Cases | What it was |
+|---|---:|---|
+| Full start ignored `//` comments | 20 | The forward scan is exact, but where a context-free scan diverges from the parser it falls back to a backwards walk, and that walk handled `/* */` only. A comment above a declaration is trivia *of that declaration*, so upstream reports the declaration two lines above where we did. |
+| Bracket spellings over-reduced | 18 | `static_bracket_name` accepted anything *starting* with a digit or a quote, so the baseline's `[0 + 1]` became the member name `0 + 1` and `["+" + bar]` became `"+"bar`. It has to be the whole text. Only visible once computed names produced symbols to compare against. |
+| Escaped identifiers | 6 | `var \u0061` declares `a`; the baseline prints the spelling. The same reduction the quote handling already did. |
+
+That is the third time this session that a bucket named from failure text turned
+out to be somewhere other than where it was filed. The pattern is consistent
+enough to state as a rule: **when a bucket is large and uniform, suspect the
+oracle before the compiler.**
+
+### The denominator moved by six, and not on purpose
+
+`class C { static static }` declares a static member *called* `static`. The
+parser used to decide whether a modifier keyword was really a name with a
+blacklist of what could follow it, which cannot reach that case — the second
+`static` is followed by `}` in one test and by `[x: string]: string` in another.
+Upstream tests the opposite way (`tryParseModifier`): a **whitelist** of what may
+follow a modifier, plus `hasSeenStaticModifier` — a second `static` is never one
+— plus a same-line requirement for every modifier except `static` itself, and
+explicit cases for `export` (which a decorator may follow) and `default`.
+
+Porting that fixed 3 binder cases and 2 decorator cases that had been silently
+mis-parsed (`@dec export @dec class C {}` lost the class entirely). It also made
+the parser report errors on 6 cases where it had previously mis-parsed in
+silence — `static static p: string` is an error upstream too — and the suite
+skips any unit it cannot parse, so those 6 left the judged denominator: 8,455 →
+8,449.
+
+That is a real cost and it is recorded here rather than absorbed. The suite's
+rule ("a file we cannot parse tells us nothing about the binder") is right, but
+it means a parser that becomes *more* faithful can shrink the denominator. The
+6 cases were failing before, so nothing that passed was lost.
+
+### What the remaining 184 failures are
 
 | Cause | Cases | Status |
 |---|---:|---|
 | `import X = Y` alias resolution | ~73 | **blocked on a resolver** (`tsr-y4u.12`) |
 | Module-shaped, various | ~34 | mostly cross-file, blocked on module resolution |
 | Late-bound *merging* | 4 | **blocked on the checker** (`tsr-y4u.11`) |
-| JavaScript | 5 | JSDoc `@overload`/`@typedef` |
-| Long tail, many distinct causes | ~127 | each below ~10 cases |
+| JavaScript / JSDoc | ~5 | `@overload`, `@typedef` |
+| Long tail, many distinct causes | ~68 | each below ~5 cases |
 
-The long tail is now the largest bucket, which is the useful signal: there is no
-remaining single cause worth a session on its own, and the next real movement
-comes from the resolver and from module resolution.
+Alias resolution is now 40% of everything left and is the only bucket worth a
+session. Note also that **547 cases are skipped for parse errors** — a larger
+pool than the failures, and binder coverage the parser is currently hiding.
 
 Two module-shaped things are known to be available and small. `export default x`
 where `x` is an identifier should display under `x`'s name, because upstream's

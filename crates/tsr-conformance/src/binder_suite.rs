@@ -457,6 +457,8 @@ fn same_unit(unit: &str, baseline: &str) -> bool {
 /// expression, and we create no symbol for them at all. Normalising those would
 /// turn a real gap into a passing case.
 fn normalise_symbol_name(name: &str) -> String {
+    let decoded = decode_unicode_escapes(name);
+    let name: &str = &decoded;
     // A whole name in quotes is a string literal spelled as the source wrote it:
     // `declare module "fs"` is the symbol `"fs"`, and `{ 'a': 1 }` gives `'a'`.
     // Either quote, because the baseline reproduces the spelling.
@@ -487,22 +489,91 @@ fn normalise_symbol_name(name: &str) -> String {
     out
 }
 
+/// A name with its `\uXXXX` and `\u{…}` escapes resolved to the characters they
+/// spell.
+///
+/// The baseline reproduces the *source* spelling of an identifier, so
+/// `var \u0061;` prints as `\u0061` while the symbol is called `a` — the scanner
+/// resolves the escape, as it must for `\u0061` and `a` to be the same variable.
+/// This is the same reduction the quote handling above performs: a spelling of a
+/// value becomes the value. An escape that does not resolve is left exactly as
+/// written, since it is then not an escape.
+fn decode_unicode_escapes(name: &str) -> String {
+    if !name.contains("\\u") {
+        return name.to_string();
+    }
+    let mut out = String::with_capacity(name.len());
+    let mut rest = name;
+    while let Some(at) = rest.find("\\u") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 2..];
+        let (digits, remainder) = if let Some(braced) = after.strip_prefix('{') {
+            match braced.find('}') {
+                Some(close) => (&braced[..close], &braced[close + 1..]),
+                None => ("", after),
+            }
+        } else if after.len() >= 4 {
+            after.split_at(4)
+        } else {
+            ("", after)
+        };
+        if let Some(resolved) = u32::from_str_radix(digits, 16).ok().and_then(char::from_u32) {
+            out.push(resolved);
+            rest = remainder;
+        } else {
+            // Not an escape after all — `\u` followed by something else is just
+            // those characters, which is what `invalidUnicodeEscapeSequance4`
+            // tests.
+            out.push_str("\\u");
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The value inside `[…]` when it is a literal rather than an expression.
+///
+/// The test has to be that the text is *entirely* one literal, not that it looks
+/// like one at the start. `["+" + bar]` begins and ends with a quote and
+/// `[0 + 1]` begins with a digit, and reducing either to a member name turns a
+/// computed name — which the binder deliberately leaves late-bound — into a
+/// spelling that would silently match something else. Measured 2026-08-04:
+/// requiring the whole text is worth 18 conformance cases.
 fn static_bracket_name(inside: &str) -> Option<&str> {
     // Either quote: the baseline reproduces the source spelling, and `C['a']`
-    // and `C["a"]` name the same member.
+    // and `C["a"]` name the same member. The quote must not recur inside, or
+    // `"a" + "b"` would read as the string `a" + "b`.
     for quote in ['"', '\''] {
-        if inside.len() >= 2 && inside.starts_with(quote) && inside.ends_with(quote) {
+        if inside.len() >= 2
+            && inside.starts_with(quote)
+            && inside.ends_with(quote)
+            && !inside[1..inside.len() - 1].contains(quote)
+        {
             return Some(&inside[1..inside.len() - 1]);
         }
     }
-    // A numeric literal in any spelling — `2.0`, `0b11`, `1e3`. Starting with a
-    // digit is what separates them from an expression: `A[A.p1]` and `A[a]` are
-    // computed and must keep their brackets.
-    if inside.starts_with(|c: char| c.is_ascii_digit()) {
+    // A numeric literal in any spelling — `2.0`, `0b11`, `1e3`. A digit first
+    // and nothing but literal characters after: `A[A.p1]`, `A[a]` and `A[1 << 6]`
+    // are computed and must keep their brackets.
+    if inside.starts_with(|c: char| c.is_ascii_digit()) && is_numeric_literal(inside) {
         return Some(inside);
     }
     None
+}
+
+/// Whether the whole text is one numeric literal.
+///
+/// `2.0`, `0b11`, `1e3`, `11e-1`, `1_000`. A sign counts only as an exponent's,
+/// which is what separates `11e-1` from the expression `11 - 1`.
+fn is_numeric_literal(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.iter().enumerate().all(|(index, byte)| {
+        byte.is_ascii_alphanumeric()
+            || *byte == b'.'
+            || *byte == b'_'
+            || (matches!(byte, b'+' | b'-') && index > 0 && matches!(bytes[index - 1], b'e' | b'E'))
+    })
 }
 
 #[cfg(test)]
@@ -525,6 +596,21 @@ mod tests {
         // Either quote: `{ 'a': 1 }` prints `'a'` and `{ "a": 1 }` prints `"a"`.
         assert_eq!(normalise_symbol_name("'a'"), "a");
         assert_eq!(normalise_symbol_name("''"), "");
+    }
+
+    #[test]
+    fn an_expression_that_starts_like_a_literal_is_still_an_expression() {
+        // The whole text has to be one literal. Reducing these would invent a
+        // member name for something the binder leaves late-bound.
+        assert_eq!(normalise_symbol_name("[0 + 1]"), "[0 + 1]");
+        assert_eq!(normalise_symbol_name("C[1 << 6]"), "C[1 << 6]");
+        assert_eq!(normalise_symbol_name("[\"+\" + bar]"), "[\"+\" + bar]");
+        // Genuine literals still reduce.
+        assert_eq!(normalise_symbol_name("C[0b11]"), "C.0b11");
+        assert_eq!(normalise_symbol_name("C[1e3]"), "C.1e3");
+        // A sign belongs to an exponent, and only there.
+        assert_eq!(normalise_symbol_name("Nums[11e-1]"), "Nums.11e-1");
+        assert_eq!(normalise_symbol_name("[11 - 1]"), "[11 - 1]");
     }
 
     #[test]
@@ -636,6 +722,17 @@ mod tests {
         // Not the same file, and the separator anchor is what stops it.
         assert!(!same_unit("ab.ts", "b.ts"));
         assert!(!same_unit("a.ts", "b.ts"));
+    }
+
+    #[test]
+    fn an_escaped_identifier_reduces_to_the_characters_it_spells() {
+        // `var \u0061;` declares `a`; the baseline prints how it was written.
+        assert_eq!(normalise_symbol_name("\\u0061"), "a");
+        assert_eq!(normalise_symbol_name("arg\\u0032"), "arg2");
+        assert_eq!(normalise_symbol_name("\\u{0061}"), "a");
+        assert_eq!(normalise_symbol_name("a\\u{0061}"), "aa");
+        // Not an escape: left alone.
+        assert_eq!(normalise_symbol_name("u0031a"), "u0031a");
     }
 
     #[test]

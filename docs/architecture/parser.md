@@ -142,6 +142,29 @@ The two export forms:
   name for a UMD module, the other exports a value. It is now a
   `NamespaceExportDeclaration` with `N` as its name.
 
+## Whether a modifier keyword is really a name
+
+`class C { static static }` declares a static member called `static`, and no
+rule about *what follows* reaches that: the second `static` is followed by `}`
+in one test and by `[x: string]: string` in another. The parser used to decide
+with a blacklist of tokens a name could be followed by, which got this and
+several neighbours wrong.
+
+Upstream tests the opposite way (`tryParseModifier`, `nextTokenCanFollowModifier`),
+and it is now ported arm for arm:
+
+- a **whitelist** of what may follow a modifier — `[`, `{`, `*`, `...`, or a
+  literal property name, keywords included;
+- `hasSeenStaticModifier`: a second `static` in one list is never a modifier;
+- everything except `static` must be followed **on the same line**;
+- `export` may be followed by a decorator and not by `*`, `as` or `{`;
+- `default` is followed by the declaration it exports.
+
+The blacklist had been silently losing `@dec export @dec class C {}` — the whole
+class. Against that, the parser now *reports* errors on six error-recovery cases
+it used to mis-parse quietly, which costs the binder suite six judged cases; see
+[binder.md](binder.md#the-denominator-moved-by-six-and-not-on-purpose).
+
 ## Not yet built
 
 - **The JSDoc reparser** — `@type` and `@param` promoted to real annotations in

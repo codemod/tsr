@@ -162,6 +162,18 @@ impl<'a> Parser<'a> {
     }
 
     /// Look at the next token without committing.
+    /// Look at the next token through a predicate that may read more than its
+    /// kind — the preceding-line-break flag, in particular.
+    pub(crate) fn peek_token(&mut self, predicate: impl Fn(&Self) -> bool) -> bool {
+        let mut matched = false;
+        self.try_parse(|p| {
+            p.next_token();
+            matched = predicate(p);
+            None::<()>
+        });
+        matched
+    }
+
     pub(crate) fn peek_kind(&mut self, predicate: impl Fn(SyntaxKind) -> bool) -> bool {
         let mut matched = false;
         // `try_parse` always rewinds when the closure returns `None`, which makes
@@ -271,6 +283,7 @@ impl<'a> Parser<'a> {
     /// by the grammar.
     pub(crate) fn parse_modifiers(&mut self) -> Vec<ModifierLike<'a>> {
         let mut modifiers = Vec::new();
+        let mut seen_static = false;
         loop {
             if self.at(SyntaxKind::AtToken) {
                 modifiers.push(ModifierLike::Decorator(self.parse_decorator()));
@@ -289,9 +302,10 @@ impl<'a> Parser<'a> {
             // A modifier keyword can also be a member *name*:
             // `interface I { abstract(): void }` declares a method called
             // `abstract`. What follows decides.
-            if self.modifier_is_actually_a_name() {
+            if self.modifier_is_actually_a_name(seen_static) {
                 break;
             }
+            seen_static |= kind == SyntaxKind::StaticKeyword;
             let start = self.pos();
             self.next_token();
             let token = self.alloc_token(kind, tsr_core::Span::new(start, self.pos()));
@@ -310,23 +324,56 @@ impl<'a> Parser<'a> {
 
     /// Whether the modifier at the cursor is really a member name.
     ///
-    /// A name is followed by something that continues a member — `(`, `:`, `?`,
-    /// `=`, `;`, `,`, `}`, or a line break ending the member — whereas a genuine
-    /// modifier is followed by another modifier or the thing it modifies.
-    fn modifier_is_actually_a_name(&mut self) -> bool {
-        self.peek_kind(|kind| {
-            matches!(
-                kind,
-                SyntaxKind::OpenParenToken
-                    | SyntaxKind::ColonToken
-                    | SyntaxKind::QuestionToken
-                    | SyntaxKind::EqualsToken
-                    | SyntaxKind::SemicolonToken
-                    | SyntaxKind::CommaToken
-                    | SyntaxKind::CloseBraceToken
-                    | SyntaxKind::CloseParenToken
-                    | SyntaxKind::LessThanToken
-            )
+    /// Upstream's `tryParseModifier`/`nextTokenCanFollowModifier`, and the shape
+    /// of the test matters: it is a **whitelist** of what may follow a modifier,
+    /// not a blacklist of what may not. `class C { static static }` declares a
+    /// static member called `static`, and no list of "things a name is followed
+    /// by" reaches that — the second `static` is followed by `}` in one case and
+    /// by `[x: string]: string` in another.
+    ///
+    /// Two rules, both upstream's:
+    ///
+    /// - **A second `static` is never a modifier** (`hasSeenStaticModifier`),
+    ///   which is what makes `static static` a name.
+    /// - Everything else must be followed, **on the same line**, by something
+    ///   that can follow a modifier. `static` itself is exempt from the same-line
+    ///   part, because `static` on its own line still modifies what comes next.
+    fn modifier_is_actually_a_name(&mut self, seen_static: bool) -> bool {
+        let kind = self.token.kind;
+        if seen_static && kind == SyntaxKind::StaticKeyword {
+            return true;
+        }
+        !self.peek_token(|p| match kind {
+            // `export` may be followed by a decorator — `@dec export @dec class`
+            // — and not by the tokens that make it an export *declaration*
+            // rather than a modifier (`canFollowExportModifier`).
+            SyntaxKind::ExportKeyword => {
+                p.token.kind == SyntaxKind::AtToken
+                    || !matches!(
+                        p.token.kind,
+                        SyntaxKind::AsteriskToken
+                            | SyntaxKind::AsKeyword
+                            | SyntaxKind::OpenBraceToken
+                    ) && can_follow_modifier(p.token.kind)
+            }
+            // `export default` is followed by the declaration it exports
+            // (`nextTokenCanFollowDefaultKeyword`).
+            SyntaxKind::DefaultKeyword => matches!(
+                p.token.kind,
+                SyntaxKind::ClassKeyword
+                    | SyntaxKind::FunctionKeyword
+                    | SyntaxKind::InterfaceKeyword
+                    | SyntaxKind::AbstractKeyword
+                    | SyntaxKind::AsyncKeyword
+                    | SyntaxKind::AtToken
+            ),
+            // `static` alone is exempt from the same-line rule: `static` on its
+            // own line still modifies what comes next.
+            SyntaxKind::StaticKeyword => can_follow_modifier(p.token.kind),
+            _ => {
+                !p.token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK)
+                    && can_follow_modifier(p.token.kind)
+            }
         })
     }
 
@@ -890,6 +937,31 @@ fn is_modifier(kind: SyntaxKind) -> bool {
 /// Whether `kind` is a keyword that may also be an ordinary identifier.
 pub(crate) fn is_contextual_keyword(kind: SyntaxKind) -> bool {
     kind.is_keyword() && !is_reserved_word(kind)
+}
+
+/// What may follow a modifier keyword for it to be one (`canFollowModifier`).
+///
+/// A member name, or the punctuation that opens one: `[computed]`, `{`, `*gen()`,
+/// `...rest`.
+fn can_follow_modifier(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::OpenBracketToken
+            | SyntaxKind::OpenBraceToken
+            | SyntaxKind::AsteriskToken
+            | SyntaxKind::DotDotDotToken
+    ) || is_literal_property_name(kind)
+}
+
+/// Upstream's `isLiteralPropertyName`: anything that can be written as a member
+/// name without brackets. A keyword counts — `class C { default() {} }`.
+fn is_literal_property_name(kind: SyntaxKind) -> bool {
+    kind == SyntaxKind::Identifier
+        || kind == SyntaxKind::PrivateIdentifier
+        || kind == SyntaxKind::StringLiteral
+        || kind == SyntaxKind::NumericLiteral
+        || kind == SyntaxKind::BigIntLiteral
+        || kind.is_keyword()
 }
 
 /// Whether `kind` is a reserved word that can never name a binding.
