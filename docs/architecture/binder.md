@@ -348,6 +348,30 @@ how many nodes actually have one:
 statement or an unused label is an error depends on compiler options the binder
 does not have.
 
+### Which symbol table a declaration goes into
+
+`classify` returns a `Destination` keyed on the declaration's **node kind**.
+Upstream keys the table on the **container's** kind instead
+(`declareSymbolAndAddToSymbolTable`,
+`vendor/typescript-go/internal/binder/binder.go:428-447`) and never looks at the
+declaration. The two agree for every declaration kind that only ever occurs in one
+kind of container, which is nearly all of them.
+
+Type parameters are the exception — the same node appears under a class, an
+interface, a function, a type alias, a mapped type, and every signature, and
+upstream files it in a different table in each — so `classify` special-cases them
+against the parent. That divergence, why it was not fixed by converting to
+upstream's model, and the `SymbolFlags::excludes()` corrections found with it are
+[ADR-0023](../adr/0023-the-symbol-table-comes-from-the-container.md).
+
+The failure it caused is worth keeping in mind when reading `classify`: a class is
+`IS_CONTAINER` *without* `HAS_LOCALS` (matching `GetContainerFlags`), so
+`Destination::Locals` for a type parameter resolved to the enclosing **file**, and
+the `T` of `class A<T>` merged with the `T` of `class B<T>` into a single symbol.
+`binder_symbols` did not move when this was fixed — the `.symbols` baselines in the
+suite do not distinguish it — so the instrument that caught it was the
+diagnostic it produced, via `examples/ts2300_constructs.rs`.
+
 ---
 
 ## Reading a node's parent

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 79/5488 (1.44%)
-Failed         : 5409
+Passed         : 77/5488 (1.40%)
+Failed         : 5411
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5409 failures:
+First 100 of 5411 failures:
 compiler/ArrowFunctionExpression1
   1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
 compiler/ClassDeclaration10
@@ -33,7 +33,7 @@ compiler/ClassDeclaration24
 compiler/ClassDeclaration25
   2 missing (first TS2391 at ClassDeclaration25.ts(6,5))
 compiler/ClassDeclaration26
-  5 unexpected (first TS1005 at ClassDeclaration26.ts(2,18)), 5 missing
+  3 unexpected (first TS1005 at ClassDeclaration26.ts(2,18)), 5 missing
 compiler/ClassDeclaration8
   1 missing (first TS2390 at ClassDeclaration8.ts(2,3))
 compiler/ClassDeclaration9
@@ -75,7 +75,7 @@ compiler/abstractClassInLocalScopeIsAbstract
 compiler/abstractClassUnionInstantiation
   7 missing (first TS2564 at abstractClassUnionInstantiation.ts(3,28))
 compiler/abstractPropertyInConstructor
-  4 unexpected (first TS2300 at abstractPropertyInConstructor.ts(79,15)), 13 missing
+  13 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessInstanceMemberFromStaticMethod01
   1 missing (first TS2662 at accessInstanceMemberFromStaticMethod01.ts(5,17))
 compiler/accessStaticMemberFromInstanceMethod01
@@ -153,7 +153,7 @@ compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
 compiler/ambientExternalModuleWithRelativeModuleName
   2 missing (first TS2436 at ambientExternalModuleWithRelativeModuleName.ts(1,16))
 compiler/ambientPropertyDeclarationInJs
-  2 unexpected (first TS2300 at /test.js(3,9)), 4 missing
+  4 missing (first TS2322 at /test.js(3,9))
 compiler/ambientStatement1
   2 missing (first TS1036 at ambientStatement1.ts(2,6))
 compiler/ambiguousGenericAssertion1

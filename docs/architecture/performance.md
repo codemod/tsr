@@ -148,6 +148,19 @@ too.
 | Binder, symbols + flow graph (2026-08-04) | 15,616 |
 | Binder, after the symbol-parity work (2026-08-04) | **14,848** |
 | — attributable to the flow graph | 3,328 |
+| Binder, re-measured at `0e17464` (2026-08-05) | **15,056** |
+
+**The 14,848 KiB figure does not reproduce.** Re-measured on 2026-08-05 with the
+binder changes of ADR-0023 stashed — i.e. at `0e17464` exactly, the commit the
+number was recorded against — `examples/rss` reports **15,056 KiB**, 208 KiB
+(1.4%) above it. This is recorded rather than silently corrected because it was
+found the wrong way round: the ADR-0023 change measured 15,052 KiB and looked like
+a 1.4% regression against the documented gate, and only measuring the unchanged
+baseline showed the change is RSS-neutral (−4 KiB, noise) and the *gate* is stale.
+Which of machine state, allocator behaviour, or an untracked change between
+2026-08-04 and `0e17464` accounts for the 208 KiB is not established. **Treat
+14,848 as unverified: compare against a baseline measured in the same session,
+not against this table.**
 
 3.25 MiB buys 81,713 flow nodes and 419,464 `node -> flow` entries — one flow
 node per 5.1 AST nodes. (Both counts are as measured on 2026-08-04 before the

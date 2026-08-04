@@ -154,8 +154,18 @@ impl SymbolFlags {
         if self.contains(Self::BLOCK_SCOPED_VARIABLE) {
             return Self::VALUE;
         }
+        // A property does **not** exclude another property. Upstream:
+        // `PropertyExcludes = Value & ^(Property | Accessor)`
+        // (`symbolflags.go:59`). Two properties of the same name in one table —
+        // `{ a: 1, a: 2 }`, `interface I { x: string; x: number }`, a class member
+        // declared twice — merge in the binder, and the *checker* decides what to
+        // say about them (`TS1117` for an object literal, `TS2717`/`TS2687` for a
+        // member, `TS2300` only sometimes and from a different code path).
+        // Reading this as `PROPERTY` instead made every such duplicate a binder
+        // `TS2300`, which is both an unexpected diagnostic and, where upstream
+        // does report something, one at the wrong code.
         if self.contains(Self::PROPERTY) {
-            return Self::PROPERTY;
+            return Self::VALUE & !(Self::PROPERTY | Self::ACCESSOR);
         }
         if self.contains(Self::ENUM_MEMBER) {
             return Self::VALUE | Self::TYPE;
@@ -165,9 +175,14 @@ impl SymbolFlags {
         if self.contains(Self::FUNCTION) {
             return Self::VALUE & !(Self::FUNCTION | Self::VALUE_MODULE | Self::CLASS);
         }
-        // A class merges with an interface or a namespace, not with a value.
+        // A class merges with an interface, a namespace, or a *function*. The
+        // function half was missing: upstream's `ClassExcludes` is
+        // `(Value|Type) & ^(ValueModule|Interface|Function)`
+        // (`symbolflags.go:63`), with the comment that class-interface mergability
+        // is finished in the checker.
         if self.contains(Self::CLASS) {
-            return (Self::VALUE | Self::TYPE) & !(Self::VALUE_MODULE | Self::INTERFACE);
+            return (Self::VALUE | Self::TYPE)
+                & !(Self::VALUE_MODULE | Self::INTERFACE | Self::FUNCTION);
         }
         // Interfaces merge with each other and with classes.
         if self.contains(Self::INTERFACE) {
@@ -181,17 +196,29 @@ impl SymbolFlags {
         if self.intersects(Self::MODULE) {
             return Self::empty();
         }
+        // Upstream: `MethodExcludes = Value & ^Method` (`symbolflags.go:69`). Two
+        // methods of the same name are overloads and merge; a method collides with
+        // everything else in value space, including a property. `PROPERTY` had it
+        // backwards on both counts.
         if self.contains(Self::METHOD) {
-            return Self::PROPERTY;
+            return Self::VALUE & !Self::METHOD;
         }
         if self.intersects(Self::ACCESSOR) {
-            // Upstream: `Value & ^SetAccessor` for a getter, and the mirror for a
-            // setter. That is value space minus *the other* accessor: a getter
-            // and a setter of the same name pair up, two getters collide.
-            return Self::VALUE & !(Self::ACCESSOR & !self);
+            // Upstream: `GetAccessorExcludes = Value & ^(SetAccessor | Property)`
+            // and the mirror for a setter (`symbolflags.go:70`). Value space minus
+            // *the other* accessor — a getter and a setter of the same name pair
+            // up — and minus `Property`, which was missing: an accessor merges with
+            // a property, and the checker decides whether that is legal
+            // (`TS2717`/`TS1049`), not the binder.
+            return Self::VALUE & !((Self::ACCESSOR & !self) | Self::PROPERTY);
         }
+        // Upstream: `TypeParameterExcludes = Type & ^TypeParameter`
+        // (`symbolflags.go:72`). Two type parameters of the same name in one list
+        // do *not* collide in the binder — `class A<T, T>` is `TS2300` from the
+        // checker, which knows it is looking at a type parameter list. Reading
+        // this as all of `TYPE` made it a binder diagnostic instead.
         if self.contains(Self::TYPE_PARAMETER) {
-            return Self::TYPE;
+            return Self::TYPE & !Self::TYPE_PARAMETER;
         }
         if self.contains(Self::TYPE_ALIAS) {
             return Self::TYPE;

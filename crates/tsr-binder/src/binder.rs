@@ -1943,6 +1943,45 @@ impl<'a, 'n> Binder<'a, 'n> {
                 Destination::Locals,
             ));
         }
+        // A type parameter's table comes from its **container**, not from its own
+        // kind. Upstream has no per-kind answer at all: every declaration goes
+        // through `declareSymbolAndAddToSymbolTable`, which switches on
+        // `b.container.Kind` (`internal/binder/binder.go:429`), and for a class or
+        // an interface that is `GetMembers(container.Symbol())` — a type parameter
+        // is a member of the type it parameterises.
+        //
+        // `classify` answers per-kind, so a type parameter was reaching
+        // `Destination::Locals` and `locals_owner` resolved that to the nearest
+        // *locals* container. A class is `IsContainer` without `HasLocals`
+        // (`container.rs:53`, matching `GetContainerFlags`), so it is not one: the
+        // `T` of `class A<T>` was filed in the enclosing file, where it met the `T`
+        // of `class B<T>` and merged with it. One symbol, two declarations, in
+        // unrelated classes — a resolution defect, and the reason the binder
+        // reported `TS2300` on 4,132 type parameters upstream says nothing about
+        // (95% of the remaining over-reports; `examples/ts2300_constructs.rs`).
+        //
+        // Only the containers that own a symbol are listed. Anything else — a
+        // function, method, signature, type alias, mapped type — is upstream's
+        // `GetLocals(b.container)` branch (`binder.go:444`), which is what
+        // `Destination::Locals` already means, and those were never wrong.
+        if matches!(node, Node::TypeParameterDeclaration(_)) {
+            let destination = match self.ancestors.last().map(|(_, parent)| *parent) {
+                Some(
+                    Node::ClassDeclaration(_)
+                    | Node::ClassExpression(_)
+                    | Node::InterfaceDeclaration(_)
+                    | Node::TypeLiteralNode(_),
+                ) => Destination::Members,
+                // `b.container.Kind == KindEnumDeclaration` takes exports
+                // (`binder.go:437`). Unreachable in valid syntax — an enum has no
+                // type parameters — but the parser will hand us one from
+                // `enum E<T> {}`, and guessing `Locals` there would put it in the
+                // enclosing scope.
+                Some(Node::EnumDeclaration(_)) => Destination::Exports,
+                _ => Destination::Locals,
+            };
+            return Some((SymbolFlags::TYPE_PARAMETER, destination));
+        }
         classify(node)
     }
 
