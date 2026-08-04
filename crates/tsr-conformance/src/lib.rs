@@ -18,6 +18,7 @@ pub mod errors_baseline;
 pub mod js_baseline;
 pub mod loader_suite;
 pub mod module_suite;
+pub mod printer_suite;
 pub mod scanner_suite;
 pub mod snapshot;
 pub mod suite;

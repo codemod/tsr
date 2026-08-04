@@ -1,0 +1,114 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+printer_round_trip Summary:
+What a pass means: every unit of the case parses, prints, and reparses to the same tree
+Passed         : 11670/11726 (99.52%)
+Failed         : 49
+Unsupported    : 7
+Skipped        : 718 (excluded from the denominator)
+
+  7  printer does not implement NoSubstitutionTemplateLiteral
+  718  skipped: the case does not parse cleanly, so there is no tree to preserve
+
+compiler/commentOnArrayElement10
+  tree has 5 nodes, printed has 4
+compiler/commentOnArrayElement11
+  tree has 4 nodes, printed has 3
+compiler/commentOnArrayElement12
+  tree has 5 nodes, printed has 4
+compiler/commentOnArrayElement3
+  tree has 6 nodes, printed has 5
+compiler/declarationEmitCastReusesTypeNode4
+  QuestionToken count changed: 1 became 0
+compiler/expandoFunctionContextualTypesJs
+  QuestionToken count changed: 1 became 0
+compiler/exportAssignmentWithDeclareAndExportModifiers
+  tree differs at node 2: ExpressionStatement became ExportAssignment
+compiler/exportAssignmentWithDeclareModifier
+  tree differs at node 2: ExpressionStatement became ExportAssignment
+compiler/exportAssignmentWithExportModifier
+  tree differs at node 2: ExpressionStatement became ExportAssignment
+compiler/exportDefaultAsyncFunction
+  tree differs at node 0: ExpressionStatement became FunctionDeclaration
+compiler/exportDefaultFunctionInNamespace
+  tree differs at node 10: ExpressionStatement became FunctionDeclaration
+compiler/gettersAndSettersErrors
+  tree differs at node 31: StringKeyword(StringKeyword) became Block
+compiler/invalidUnicodeEscapeSequance4
+  printed text does not parse: Identifier expected.
+compiler/jsDocDeclarationEmitDoesNotUseNodeModulesPathWithoutError
+  QuestionToken count changed: 1 became 0
+compiler/jsdocInTypeScript
+  QuestionToken count changed: 1 became 0
+compiler/jsxMultilineAttributeStringValues
+  tree differs at node 6: StringLiteral(
+    foo: 23
+  ) became StringLiteral(\n  foo: 23\n)
+compiler/jsxMultilineAttributeValuesReact
+  tree differs at node 10: StringLiteral(
+  foo: 23
+  ) became StringLiteral(\nfoo: 23\n)
+compiler/moduleExportsTypeNoExcessPropertyCheckFromContainedLiteral
+  DotDotDotToken count changed: 2 became 1
+compiler/newExpressionWithCast
+  tree differs at node 14: Identifier(Test2) became CallExpression
+compiler/parserConstructorDeclaration12
+  tree differs at node 1: MethodDeclaration became Constructor
+compiler/strictOptionalProperties1
+  tree differs at node 323: OmittedExpression became ExpressionStatement
+compiler/strictOptionalProperties3
+  QuestionToken count changed: 1 became 0
+compiler/trailingCommasES5
+  tree differs at node 48: OmittedExpression became VariableStatement
+compiler/unicodeEscapesInNames01
+  tree differs at node 3: PrivateIdentifier(x) became Identifier(x)
+conformance/MemberFunctionDeclaration6_es6
+  AsteriskToken count changed: 1 became 0
+conformance/arrayLiteralWidened
+  tree differs at node 7: OmittedExpression became VariableStatement
+conformance/arrayLiterals2ES5
+  tree differs at node 39: OmittedExpression became VariableStatement
+conformance/arrayLiterals2ES6
+  tree differs at node 39: OmittedExpression became VariableStatement
+conformance/checkJsdocSatisfiesTag15
+  DotDotDotToken count changed: 5 became 0
+conformance/checkJsdocTypeTag7
+  QuestionToken count changed: 1 became 0
+conformance/constructorNameInGenerator
+  AsteriskToken count changed: 1 became 0
+conformance/contextualTypeFromJSDoc
+  QuestionToken count changed: 6 became 0
+conformance/destructuringParameterDeclaration9
+  QuestionToken count changed: 3 became 0
+conformance/importTag25
+  tree differs at node 0: ExpressionStatement became FunctionDeclaration
+conformance/jsDeclarationsReactComponents
+  QuestionToken count changed: 1 became 0
+conformance/jsdocFunctionType
+  DotDotDotToken count changed: 2 became 1
+conformance/optionalBindingParameters4
+  QuestionToken count changed: 1 became 0
+conformance/parserArrayLiteralExpression2
+  tree has 4 nodes, printed has 3
+conformance/parserArrayLiteralExpression3
+  tree has 5 nodes, printed has 4
+conformance/parserArrayLiteralExpression4
+  tree has 6 nodes, printed has 5
+conformance/parserConstructorDeclaration11
+  tree differs at node 1: MethodDeclaration became Constructor
+conformance/parserSetAccessorWithTypeAnnotation1
+  tree differs at node 4: NumberKeyword(NumberKeyword) became Block
+conformance/parserTypeAssertionInObjectCreationExpression1
+  tree differs at node 6: Identifier(Foo) became CallExpression
+conformance/recursiveTypeReferences2
+  QuestionToken count changed: 5 became 0
+conformance/strictNullChecksNoWidening
+  tree differs at node 16: OmittedExpression became VariableStatement
+conformance/tsxReactEmitEntities
+  printed text does not parse: Identifier expected.
+conformance/typeFromContextualThisType
+  QuestionToken count changed: 4 became 0
+conformance/typeFromPrivatePropertyAssignmentJs
+  QuestionToken count changed: 2 became 0
+conformance/typeTagWithGenericSignature
+  QuestionToken count changed: 1 became 0

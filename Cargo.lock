@@ -244,6 +244,7 @@ dependencies = [
  "tsr-module",
  "tsr-parser",
  "tsr-path",
+ "tsr-printer",
  "tsr-scanner",
  "tsr-tsoptions",
  "tsr-vfs",
@@ -302,6 +303,15 @@ dependencies = [
 [[package]]
 name = "tsr-path"
 version = "0.1.0"
+
+[[package]]
+name = "tsr-printer"
+version = "0.1.0"
+dependencies = [
+ "tsr-ast",
+ "tsr-core",
+ "tsr-parser",
+]
 
 [[package]]
 name = "tsr-scanner"

@@ -13,6 +13,7 @@ use tsr_conformance::{
     dts_target_suite::DtsReachableTarget,
     loader_suite::FileLoaderRequests,
     module_suite::ModuleResolution,
+    printer_suite::PrinterRoundTrip,
     repo_root, run_suite,
     scanner_suite::{ScannerCleanFiles, ScannerTermination},
     snapshot,
@@ -53,6 +54,7 @@ fn main() -> Result<()> {
         Box::new(FileLoaderRequests),
         Box::new(IsolatedDeclarations),
         Box::new(DtsReachableTarget),
+        Box::new(PrinterRoundTrip),
     ];
 
     let mut rows = Vec::new();
