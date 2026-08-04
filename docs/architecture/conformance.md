@@ -27,8 +27,8 @@ baseline_resolution                 12444/12444   100.00%         0
 parser_reachable_target              5031/10570    47.60%      1874
 scanner_termination                 12444/12444   100.00%         0
 scanner_clean_files                   5031/5031   100.00%      7413
-parser_typescript                     4999/5031    99.36%      7413
-binder_symbols                        8278/8449    97.98%      3995
+parser_typescript                     5000/5031    99.38%      7413
+binder_symbols                        8284/8451    98.02%      3993
 module_resolution                         95/95   100.00%     12349
 file_loader                               96/96   100.00%     12348
 ```
@@ -67,6 +67,34 @@ does not close. The probe is a heuristic — it would mis-handle some division
 expressions — which is acceptable for a "produces no diagnostics" check and would
 not be for a token-stream comparison. It is harness scaffolding; the parser
 replaces it.
+
+## The over-report ceiling on `diagnostics`
+
+`examples/over_reports.rs` answers the one question the `diagnostics` suite cannot:
+**which diagnostics do we emit that upstream does not?** That suite fails a case for
+emitting too much or too little, and with no checker almost every case fails for too
+little, so a false positive is invisible in its rate. It is also the one class of
+failure the checker cannot fix — a parser or binder diagnostic upstream never emits
+will still be there underneath the checker's output.
+
+Measured 2026-08-05 at `06d30b3`:
+
+| component | over-reported diagnostics | cases |
+|---|---:|---:|
+| parser / scanner | 7,234 | 509 |
+| binder | 126 | 47 |
+
+**502 of the 5,488 cases `diagnostics` judges carry one, so that suite is capped at
+90.9% until they are fixed**, however good the checker is. Re-derive with
+`cargo run --release -p tsr-conformance --example over_reports`.
+
+The split is 57:1 against the parser, and its shape differs: the binder's 126 are
+spread thinly (TS2300 99, TS2528 15, TS2451 12 — `bd tsr-y4u.19`), while the
+parser's concentrate in error *recovery* — TS1012 (2,456 over 192 cases), TS1005
+(1,907/324), and TS1127 (1,812 over just **8** cases, a per-character cascade).
+`bd tsr-pum.11`. The tool prints a `shadowed` column — how many land where upstream
+reports something else — which separates "we invented an error" from "we got the
+code or the owner wrong".
 
 ## The corpus
 
