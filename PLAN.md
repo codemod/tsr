@@ -418,6 +418,12 @@ separate branch. Phase 3.5 therefore writes `tsr-dts` against TypeScript's
 evidence, the oracle, and the falsifiers.
 
 ### Phase 4 — Checker (the mountain)
+**The oracle exists before the subject.** `checker_types` reads 0/9,538 and will
+until a type is computed; the target it sizes is **594,122 positioned type
+assertions** across 12,155 `.types` baselines. See
+[docs/architecture/checker-oracle.md](docs/architecture/checker-oracle.md).
+`binder_symbols`' 97.98% measures symbol tables, not types — a checker can be
+arbitrarily wrong while every symbol resolves.
 Preceded by the memoization spike. Sharded into parallelizable workstreams:
 relations/assignability · inference · generics & instantiation ·
 unions/intersections/indexed access · control-flow narrowing · contextual typing ·

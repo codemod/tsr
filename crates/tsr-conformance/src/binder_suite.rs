@@ -87,8 +87,20 @@ impl Suite for BinderSymbols {
     }
 
     fn run(&self, case: &CaseEntry) -> Outcome {
+        // Varied before absent. A configuration-varied case has no *plain*
+        // `.symbols`, so asking for that first reported all 1,397 of them as
+        // "no baseline" — the right exclusion under a reason that says something
+        // else. Checked when this was fixed for `checker_types`: no case has both
+        // a plain and a varied baseline, so the pass *rate* was never affected;
+        // only the skip breakdown was, and it overstated how much upstream had
+        // recorded nothing for.
+        if case.has_varied_symbols() {
+            return Outcome::Skipped {
+                reason: "configuration-varied baseline (bd tsr-bb4.1)".into(),
+            };
+        }
         let Some(baseline) = case.expected_symbols() else {
-            return Outcome::Skipped { reason: "no .symbols baseline".into() };
+            return Outcome::Skipped { reason: "upstream recorded no .symbols baseline".into() };
         };
         if case.has_known_divergence() {
             return Outcome::Skipped {

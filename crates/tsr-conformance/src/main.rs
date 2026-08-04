@@ -21,6 +21,7 @@ use tsr_conformance::{
     snapshot,
     suite::Suite,
     suites::{BaselineResolution, CorpusIngest, Parser, ParserReachable},
+    types_suite::CheckerTypes,
     upstream_commit,
 };
 
@@ -88,6 +89,7 @@ fn main() -> Result<()> {
         Box::new(DtsEmit),
         Box::new(DtsShape),
         Box::new(PrinterRoundTrip),
+        Box::new(CheckerTypes),
     ];
 
     let mut rows = Vec::new();

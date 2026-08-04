@@ -181,6 +181,34 @@ impl CaseEntry {
         }
     }
 
+    /// Whether the `.types` baseline is configuration-varied.
+    ///
+    /// 2,032 of the 12,155 are. Matching `case(target=es5).types` against a single
+    /// default compilation is not a comparison — the same trap `has_varied_errors`
+    /// guards. See `bd tsr-bb4.1`.
+    #[must_use]
+    pub fn has_varied_types(&self) -> bool {
+        self.baselines.has_variant(self.stem(), "types")
+    }
+
+    /// The `.types` baseline, if upstream recorded one.
+    ///
+    /// The checker's oracle; see [`crate::types_baseline`].
+    #[must_use]
+    pub fn expected_types(&self) -> Option<String> {
+        let path = self.baseline_path("types");
+        path.exists().then(|| read_lossy(&path).ok()).flatten()
+    }
+
+    /// Whether the `.symbols` baseline is configuration-varied.
+    ///
+    /// Mirrors [`CaseEntry::has_varied_types`]; the two baselines are written in
+    /// lockstep upstream, 12,155 of each.
+    #[must_use]
+    pub fn has_varied_symbols(&self) -> bool {
+        self.baselines.has_variant(self.stem(), "symbols")
+    }
+
     /// The `.symbols` baseline, if upstream recorded one.
     ///
     /// The binder's oracle; see [`crate::symbols_baseline`].

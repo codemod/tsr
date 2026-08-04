@@ -1,0 +1,13 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+checker_types Summary:
+What a pass means: the type of every expression matches upstream's .types baseline, line for line — 0% until a checker exists (bd tsr-4sc); the denominator is what this measures today
+Passed         : 0/9538 (0.00%)
+Unsupported    : 9538
+Skipped        : 2906 (excluded from the denominator)
+
+  9538  no checker (bd tsr-4sc)
+  1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
+  135  skipped: the .types baseline has no assertions
+  924  skipped: upstream recorded no .types baseline
+  450  skipped: upstream records a known divergence from TypeScript
