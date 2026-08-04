@@ -721,6 +721,35 @@ fn block_scoped_declarations_go_in_the_block_not_the_function() {
 }
 
 #[test]
+fn an_export_specifier_is_an_export_not_a_local() {
+    // `declareModuleMember` sends an alias to the container's exports when the node
+    // is an `ExportSpecifier`, testing the kind rather than looking for a modifier
+    // (`binder.go:377`) — there is no `export` keyword on the specifier to find, it
+    // belongs to the `export { … }` declaration. Treating it as a local made it
+    // collide with the identically-named local of an import in the same file.
+    let arena = Arena::new();
+    let bound = bind_as(
+        &arena,
+        "import { a as a1 } from \"m\";\nexport { a as a1 } from \"m\";\na1;\n",
+        "a.ts",
+    );
+    assert!(
+        bound.result.diagnostics().is_empty(),
+        "an import local and a re-export of the same name do not collide, got {:?}",
+        bound.result.diagnostics()
+    );
+    // The import keeps a local; the re-export is only ever an export.
+    let exported = bound.export("a1").expect("the re-export");
+    let local = bound.top_level_symbol("a1").expect("the import's local");
+    assert_ne!(exported, local, "the export and the local are separate symbols");
+    assert_eq!(
+        bound.result.symbols().get(local).declarations.len(),
+        1,
+        "the import declares the local alone"
+    );
+}
+
+#[test]
 fn object_define_property_declares_what_it_names() {
     let arena = Arena::new();
     let bound =

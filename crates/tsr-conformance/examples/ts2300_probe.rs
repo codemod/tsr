@@ -31,6 +31,18 @@ const SNIPPETS: &[(&str, &str)] = &[
     ("static and instance property", "class C {\n    static p: number;\n    p: string;\n}\n"),
     ("get/set pair, instance only", "class C {\n    get x() { return 1; }\n    set x(v) {}\n}\n"),
     (
+        "named imports with the same property name",
+        "import { a as a1 } from \"m1\";\nimport { a as a2 } from \"m2\";\n",
+    ),
+    (
+        "named re-exports with the same property name",
+        "export { a as a1 } from \"m1\";\nexport { a as a2 } from \"m2\";\n",
+    ),
+    (
+        "import and re-export of the same local name",
+        "import { a as a1 } from \"m\";\nexport { a as a1 } from \"m\";\na1;\n",
+    ),
+    (
         "two getters, same name",
         "class C {\n    get x() { return 1; }\n    get x() { return 2; }\n}\n",
     ),
@@ -49,7 +61,13 @@ fn main() {
             );
             for diagnostic in bound.diagnostics() {
                 let (line, character) = line_and_character(source, diagnostic.span.start);
-                println!("  TS{} at ({},{})", diagnostic.message.code(), line + 1, character + 1);
+                println!(
+                    "  TS{} at ({},{}) args={:?}",
+                    diagnostic.message.code(),
+                    line + 1,
+                    character + 1,
+                    diagnostic.args
+                );
             }
             for (id, symbol) in bound.symbols().iter() {
                 let flags = symbol.flags;

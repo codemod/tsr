@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8278/8449 (97.98%)
-Failed         : 171
+Passed         : 8282/8449 (98.02%)
+Failed         : 167
 Skipped        : 3995 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,13 +12,11 @@ Skipped        : 3995 (excluded from the denominator)
   924  skipped: upstream recorded no .symbols baseline
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-First 100 of 171 failures:
+First 100 of 167 failures:
 compiler/aliasBug
   3 symbol(s): booz: declared on {7}, expected to include {4, 7}; provide.Provide: no symbol; provide.bar: no symbol
 compiler/aliasDoesNotDuplicateSignatures
   1 symbol(s): demo.d.ts: alias: declared on {3}, expected to include {0, 3}
-compiler/allowImportClausesToMergeWithTypes
-  1 symbol(s): a.ts: zzz: declared on {0, 4}, expected to include {0, 4, 9}
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
 compiler/augmentExportEquals3
@@ -71,8 +69,6 @@ compiler/escapedIdentifiers
   2 symbol(s): constructorTestClass[arg2]: no symbol; constructorTestClass[arg3]: no symbol
 compiler/expandoFunctionContextualTypesJs
   1 symbol(s): defaultProps: declared on {9, 15}, expected to include {4}
-compiler/exportDeclarationsInAmbientNamespaces
-  1 symbol(s): Q.try: no symbol
 compiler/exportDefaultClassAndValue
   1 symbol(s): foo: declared on {0}, expected to include {0, 1}
 compiler/exportDefaultInterfaceClassAndValue
@@ -211,5 +207,9 @@ compiler/moduleVisibilityTest3
   2 symbol(s): modes: declared on {12}, expected to include {0, 12}; modes.IMode: no symbol
 compiler/module_augmentUninstantiatedModule
   1 symbol(s): M: declared on {0, 2}, expected to include {0, 2, 6}
-compiler/namespacesWithTypeAliasOnlyExportsMerge
-  3 symbol(s): constAndNS.ts: Q.A: no symbol; constAndNS.ts: Q2.Q: no symbol; constAndNS.ts: Q3.B: no symbol
+compiler/newLineInTypeofInstantiation
+  1 symbol(s): T: no symbol
+compiler/newNamesInGlobalAugmentations1
+  1 symbol(s): f1.d.ts: X: declared on {10}, expected to include {3, 10}
+compiler/numericClassMembers1
+  2 symbol(s): C234.0: declared on {0}, expected to include {0, 1}; C235.0.0: declared on {5}, expected to include {5, 6}

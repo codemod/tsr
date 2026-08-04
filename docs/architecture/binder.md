@@ -382,13 +382,23 @@ The failure it caused is worth keeping in mind when reading `classify`: a class 
 `Destination::Locals` for a type parameter resolved to the enclosing **file**, and
 the `T` of `class A<T>` merged with the `T` of `class B<T>` into a single symbol.
 
-**`binder_symbols` did not move for any of these three fixes.** It sat at
-8,278/8,449 through all of ADR-0023 and ADR-0024, while three separate defects that
-merged unrelated declarations into one symbol were removed. Its `.symbols` baselines
-do not distinguish a static member from an instance one, a block's locals from its
-function's, or one class's type parameter from another's. **Do not read 97.98% as
-evidence that the symbol tables are right.** What caught all three was a diagnostic
-they happened to produce, bucketed by declaring construct
+A fourth wrong-table defect sat one level further out, in
+`is_exported_from_container` rather than in `classify`: an **export specifier** is an
+export of its container unconditionally, and there is no `export` modifier on the
+specifier to find — the keyword belongs to the `export { … }` declaration above it.
+Asking for the modifier made `export { a as a1 } from "m"` a *local*, colliding with
+the local of `import { a as a1 } from "m"`. See
+[ADR-0025](../adr/0025-an-export-specifier-is-an-export.md).
+
+**Three of those four fixes did not move `binder_symbols` at all.** It sat at
+8,278/8,449 through ADR-0023 and ADR-0024 while three separate defects that merged
+unrelated declarations into one symbol were removed; the export-specifier fix moved
+it to 8,282. So the suite is a *weak* instrument for this class of bug, not a blind
+one: its `.symbols` baselines do not distinguish a static member from an instance
+one, a block's locals from its function's, or one class's type parameter from
+another's. **Do not read a flat `binder_symbols` as evidence that a symbol-table
+change is safe, or that the tables are right.** What caught all four was a
+diagnostic they happened to produce, bucketed by declaring construct
 (`examples/ts2300_constructs.rs`); what pins them now is unit tests in
 `crates/tsr-binder/tests/bind.rs`, each verified to fail with the fix reverted.
 

@@ -2139,15 +2139,32 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// test in `declareModuleMember`. Two ways to be exported from a namespace —
     /// say so, or be inside an ambient one that exports everything implicitly.
     fn is_exported_from_container(&self, node: Node<'a>) -> bool {
+        // An export specifier is *always* an export of its container, and there is
+        // no `export` modifier on it to find — the keyword belongs to the
+        // `export { … }` declaration two levels up, not to the specifier that gets
+        // the symbol. Upstream does not look for a modifier either: it tests the
+        // node kind (`declareModuleMember`, `binder.go:377`).
+        //
+        // Without this, `export { a as a1 } from "m"` declared a **local** `a1`,
+        // which then collided with the local of `import { a as a1 } from "m"` in the
+        // same file — 46 of the 92 over-reports left after ADR-0024, counted once on
+        // the export specifier and once on the import specifier because we report on
+        // every declaration involved.
+        //
+        // This holds with or without a module specifier. `export { x }` re-exporting
+        // a local `x` is the case that looks like it should be a local, and is not:
+        // the export half is a separate symbol in the container's exports, which is
+        // what makes `M.x` reachable, and the local it aliases already exists.
+        let exported = matches!(node, Node::ExportSpecifier(_))
+            || self.export_context
+            || self.has_export_modifier(node);
         match self.nodes.kind(self.container) {
-            SyntaxKind::ModuleDeclaration => self.export_context || self.has_export_modifier(node),
+            SyntaxKind::ModuleDeclaration => exported,
             // `declareSourceFileMember` routes through `declareModuleMember` only
             // for an external module. A script's top-level `export` — which the
             // parser accepts and the checker rejects — has nothing to export
             // from, so it stays a plain local.
-            SyntaxKind::SourceFile => {
-                self.is_module && (self.export_context || self.has_export_modifier(node))
-            }
+            SyntaxKind::SourceFile => self.is_module && exported,
             _ => false,
         }
     }
