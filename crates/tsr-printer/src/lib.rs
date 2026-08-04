@@ -279,7 +279,7 @@ impl<'t> Printer<'t> {
             self.write_punctuation(open);
         }
         if children.is_empty() {
-            // Ported from `emitListRange`'s empty branch (`printer.go:4744`). An
+            // Ported from `emitListRange`'s empty branch (`printer.go:4745`). An
             // empty *multi-line* list is not `{}` — it is a brace, a line break and
             // a brace, which is how upstream writes `interface I {\n}` for
             // `interface I { }`. An empty list with `SPACE_BETWEEN_BRACES` gets a

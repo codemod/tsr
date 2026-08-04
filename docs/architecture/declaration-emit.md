@@ -183,7 +183,7 @@ each defect, and are not comparable to the 47.06% above.)
 | Defect | Effect | `dts_emit` |
 |---|---|---|
 | `TextWriter::new` started `line_start: false`; upstream's `Clear` sets it `true` (`textwriter.go:27`), so `emitSourceFile`'s opening `writeLine` is a no-op on an empty buffer | **every printed file gained a leading blank line** | 1.07% → 12.50% |
-| An empty bracketed list wrote a space, and then — half-corrected — nothing. Upstream writes a *line* for an empty multi-line list (`printer.go:4744`), so `interface I { }` is `{`, newline, `}` | `f( )`, then `interface I {}` | 15.18% → 23.91% |
+| An empty bracketed list wrote a space, and then — half-corrected — nothing. Upstream writes a *line* for an empty multi-line list (`printer.go:4745`), so `interface I { }` is `{`, newline, `}` | `f( )`, then `interface I {}` | 15.18% → 23.91% |
 | Named imports and exports wrote their braces by hand instead of going through `emit_list`, so `LFNoSpaceIfEmpty` never applied | `export {  };` — the most common line in a `.d.ts` | 29.92% (+10 cases) |
 
 The middle row is worth reading twice: the first attempt at the fix was *also*
