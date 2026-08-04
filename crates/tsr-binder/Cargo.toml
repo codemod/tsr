@@ -10,6 +10,7 @@ tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }
 bitflags = { workspace = true }
 rustc-hash = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]
 tsr-parser = { workspace = true }

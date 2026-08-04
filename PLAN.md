@@ -290,9 +290,10 @@ Symbol tables, scopes, declaration merging, flow graph.
 `symbols_typescript` at 21.1% — this is harder than it looks).
 
 Symbols, scopes, and declaration merging landed 2026-08-03; the control-flow
-graph 2026-08-04. `binder_symbols` conformance is 90.72%, up from 62.05% the same
-day; the two largest remaining buckets — late-bound property names and alias
-resolution — both need work outside the binder. Module-vs-script and the strict-mode diagnostics remain — see
+graph 2026-08-04. `binder_symbols` conformance is 91.67% over 8,455 cases
+(62.05% over 7,621 at the start of the day; the denominator grew when multi-file
+cases stopped being skipped). ~72% of what still fails is blocked on the checker,
+a resolver, or module resolution. Module-vs-script and the strict-mode diagnostics remain — see
 [docs/architecture/binder.md](docs/architecture/binder.md) and
 [ADR-0014](docs/adr/0014-flow-graph-representation.md).
 

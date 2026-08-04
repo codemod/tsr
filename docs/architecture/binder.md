@@ -253,8 +253,8 @@ condition node) because the failure mode of a filter is a graph that is quietly
 too big and still passes every positive test.
 
 **`crates/tsr-conformance`, suite `binder_symbols`** — judged against upstream's
-own `.symbols` baselines over the 12,444-case corpus. Currently 6,914/7,621
-(**90.72%**), up from 62.05% on 2026-08-04. See
+own `.symbols` baselines over the 12,444-case corpus. Currently 7,751/8,455
+(**91.67%**). See
 [ADR-0006](../adr/0006-conformance-oracle.md) for why the baselines are the right
 oracle and [conformance.md](conformance.md) for what the suite does and does not
 compare.
@@ -284,6 +284,9 @@ five biggest wins turned out to be in the harness.
 | computed names that are literals declare statically | 88.78% | binder |
 | JSX attributes declare properties | 90.51% | binder |
 | a class expression displayed under the variable it is assigned to | 90.72% | harness |
+| index signatures (`__index`) and named function expressions | 92.04% | binder |
+| single-quoted names unquoted | 92.18% | harness |
+| **multi-file cases compared unit by unit** | 91.67% | harness — *denominator +834* |
 
 The regression is the instructive one. Preserving the `export` modifier let
 namespace members route into the namespace's `exports` — correct, and it broke
@@ -293,44 +296,45 @@ at length, and the reason it is not an optimisation is exactly what the failures
 showed: an unqualified reference inside the namespace resolves to the local, so
 creating only the export loses every one of them.
 
-### What the remaining 707 failures are
+### The denominator changed, on purpose
 
-| Bucket | Complaints | Cases failing on this alone | Cause |
-|---|---:|---:|---|
-| Computed name | 509 | 342 | **late-bound**: `[Symbol.iterator]`, `[k]`, `[super.foo()]` — needs the checker |
-| Wrong declaration lines | 206 | ~106 | mostly alias resolution; see below |
-| Bare name | 179 | ~116 | mixed remainder |
-| Qualified `A.b` | 169 | ~98 | mixed remainder |
-| Private identifier | 1 | — | a string-named property containing `#`, not a private name at all |
+At 92.18% the rate was measured on a corpus that silently excluded every
+multi-file test — 1,153 cases, 13% of everything with a `.symbols` baseline,
+skipped as "needs per-file symbol attribution". Each baseline section names a
+unit, so each unit is now bound and compared on its own. That is not an
+approximation: there is no program and no cross-file linking yet, so a symbol
+declared in `a.ts` is genuinely not visible from `b.ts`, and the comparison
+already dropped any symbol whose declarations live in another file.
 
-Private identifiers went 181 → 1 across the day without a single binder change:
-most were the old bracket-form name printer, and the last seven were all
-`const C = class { #x }`, where upstream displays the class under the variable it
-is assigned to (see the display rules in [conformance.md](conformance.md)).
+| | before | after |
+|---|---:|---:|
+| denominator | 7,621 | **8,455** |
+| passing | 7,025 | **7,751** |
+| rate | 92.18% | 91.67% |
 
-**Both of the top two are blocked rather than unwritten**, and that is the more
-useful fact than the percentage.
+The rate fell half a point and that is the honest direction: it now describes 11%
+more of the corpus, and 87% of the newly-tested cases pass. Quoting the old
+number against the new one would be comparing two different corpora.
 
-A *late-bound* name is whatever an expression evaluates to. The binder cannot
-know it, and declaring a symbol under a guessed name would be worse than
-declaring none — it would be unreachable by any reference. Upstream gives these
-an internal `__computed` name at bind time and resolves them in the checker.
+### What the remaining 704 failures are, and why this is near the ceiling
 
-*Alias resolution* accounts for 73 of the 723 (`tsr-y4u.12`). For
+Classified case by case against the actual sources, not by name shape:
 
-```ts
-namespace Outer { export var x = 1; }
-namespace Outer { export const enum A { X } }
-namespace B { import O = Outer; }
-```
+| Cause | Cases | Status |
+|---|---:|---|
+| Late-bound computed names | ~344 | **blocked on the checker** |
+| `import X = Y` alias resolution | ~84 | **blocked on a resolver** (`tsr-y4u.12`) |
+| Cross-file / module export | ~82 | blocked on module resolution |
+| Long tail, many distinct causes | ~89 | each below ~10 cases |
+| JavaScript binder features | ~45 | six sub-features, largest 16 cases |
+| `export default` symbol merging | ~15 | blocked on module-vs-script |
 
-upstream's baseline prints the reference to `Outer` as
-`Symbol(O, Decl(f, 0, 0), Decl(f, 2, 1))`: the *display name* is the alias `O`,
-because that is the accessible name from inside `B`, while the *declarations* are
-both of `Outer`'s. Reproducing that needs alias resolution and upstream's
-accessible-name computation — resolver work. The binder is already correct about
-what it declares; it declares `O` as an alias with its own declaration site,
-which is all a binder can do.
+**Roughly 72% of what remains is hard-blocked**, and no tractable cause above
+~16 cases is left. That is the useful conclusion: further movement on this metric
+comes from the checker, the resolver, and module resolution — not from more
+binder work. The JavaScript features (`this.x = …`, `module.exports`, expando
+assignments, prototype assignments) are the largest genuinely-available block and
+are filed, but they are six separate features for 0.5 points.
 
 ### What was already right
 

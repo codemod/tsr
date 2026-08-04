@@ -110,7 +110,8 @@ impl Suite for BinderSymbols {
         let mut unparsable = 0usize;
 
         for expected_file in &expected_files {
-            let Some(unit) = parsed.files.iter().find(|unit| unit.name == expected_file.file)
+            let Some(unit) =
+                parsed.files.iter().find(|unit| same_unit(&unit.name, &expected_file.file))
             else {
                 continue;
             };
@@ -303,6 +304,29 @@ fn anonymity_of(name: &str) -> Anonymity {
     }
 }
 
+/// Whether a unit's `@filename` names the same file as a baseline section.
+///
+/// The two spell paths differently: a case may write `./a.ts` or a Windows
+/// `C:\a\b\c.ts` where the baseline says `a.ts` and `C:/a/b/c.ts`, and a
+/// rooted case directory (`/.src/node_modules/…`) is written relative in the
+/// baseline. Comparing the raw strings left 18 cases untested for no better
+/// reason than punctuation.
+fn same_unit(unit: &str, baseline: &str) -> bool {
+    fn normalise(path: &str) -> String {
+        let slashes = path.replace('\\', "/");
+        let trimmed = slashes.trim_start_matches("./").to_string();
+        // Collapse `a//b`, which appears in a few hand-written cases.
+        trimmed.replace("//", "/")
+    }
+    let (unit, baseline) = (normalise(unit), normalise(baseline));
+    if unit == baseline {
+        return true;
+    }
+    // A rooted unit path ending in the baseline's relative one is the same file.
+    // Anchored at a separator so `ab.ts` does not match `b.ts`.
+    unit.strip_suffix(&baseline).is_some_and(|prefix| prefix.ends_with('/'))
+}
+
 /// The baseline's spelling of a symbol name, reduced to plain dotted form.
 ///
 /// Upstream prints a name the way the *source* wrote it: `class C { "foo"() {} }`
@@ -430,6 +454,23 @@ mod tests {
     #[test]
     fn an_object_literal_member_is_never_qualified() {
         assert_eq!(qualified("const o = { salt: 2 };", "salt"), "salt");
+    }
+
+    #[test]
+    fn a_unit_matches_its_baseline_section_across_path_spellings() {
+        assert!(same_unit("./a.ts", "a.ts"));
+        assert!(same_unit("C:\\a\\b\\c.ts", "C:/a/b/c.ts"));
+        assert!(same_unit(
+            "/.src/node_modules/@types/node/index.d.ts",
+            "node_modules/@types/node/index.d.ts"
+        ));
+        assert!(same_unit(
+            "node_modules/lit-element/development//lit-element.d.ts",
+            "node_modules/lit-element/development/lit-element.d.ts"
+        ));
+        // Not the same file, and the separator anchor is what stops it.
+        assert!(!same_unit("ab.ts", "b.ts"));
+        assert!(!same_unit("a.ts", "b.ts"));
     }
 
     #[test]

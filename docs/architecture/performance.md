@@ -145,11 +145,26 @@ too.
 |---|---:|
 | AST | 25,600 |
 | Binder, symbols only (2026-08-03) | 12,288 |
-| Binder, symbols + flow graph (2026-08-04) | **15,616** |
+| Binder, symbols + flow graph (2026-08-04) | 15,616 |
+| Binder, after the symbol-parity work (2026-08-04) | **14,848** |
 | — attributable to the flow graph | 3,328 |
 
 3.25 MiB buys 81,713 flow nodes and 419,464 `node -> flow` entries — one flow
-node per 5.1 AST nodes. The flow graph is 13% of the AST's footprint and 21% of
+node per 5.1 AST nodes.
+
+The binder then *shrank* while gaining work. Closing the symbol-parity gaps took
+it from 39,306 symbols to 41,529 (index signatures, function expressions, JSX
+attributes, destructuring, anonymous containers), which cost ~6% of bind time and
+0.5 MiB — until `Symbol::declarations` became a `SmallVec<[NodeId; 1]>`. Almost
+every symbol has exactly one declaration, so a `Vec` there meant ~41,000 heap
+allocations to hold one four-byte id apiece. Removing them paid for all of the
+new work and more:
+
+| | parse+bind `checker.ts` | binder RSS |
+|---|---:|---:|
+| flow graph only, 2026-08-04 | 25.2 ms | 15,616 KiB |
+| + symbol parity, `Vec` declarations | 26.8 ms | 16,128 KiB |
+| + `SmallVec<[NodeId; 1]>` | **25.6 ms** | **14,848 KiB** | The flow graph is 13% of the AST's footprint and 21% of
 the binder's; [ADR-0014](../adr/0014-flow-graph-representation.md) accounts for it
 byte by byte and explains why a record is 16 bytes rather than upstream's 32.
 

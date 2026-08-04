@@ -211,7 +211,7 @@ fn a_declaration_can_be_found_from_its_node_and_back() {
     let id = function.node_id().expect("registered");
     let symbol = bound.result.symbol_of(id).expect("the function declares a symbol");
     assert_eq!(bound.result.symbols().get(symbol).name, "f");
-    assert_eq!(bound.result.symbols().get(symbol).declarations, [id]);
+    assert_eq!(bound.result.symbols().get(symbol).declarations.as_slice(), [id]);
     assert_eq!(bound.result.symbols().get(symbol).value_declaration, Some(id));
 }
 
