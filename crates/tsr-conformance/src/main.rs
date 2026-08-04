@@ -24,7 +24,36 @@ use tsr_conformance::{
     upstream_commit,
 };
 
+/// Stack for each corpus worker.
+///
+/// The corpus is a *compiler* test suite and contains inputs written to break
+/// compilers. `compiler/binderBinaryExpressionStress` is 4,971 lines of one
+/// binary-operator chain, and printing it recurses once per operand:
+///
+/// | | parse | parse + print |
+/// |---|---|---|
+/// | debug | under 1 MiB | **between 6 and 8 MiB** |
+/// | release | under 1 MiB | under 1 MiB |
+///
+/// Rayon gives a worker 2 MiB by default, so the debug run aborted with
+/// `has overflowed its stack` — and only the debug run, which is why a release-only
+/// habit hid it. The parser is unaffected: it climbs precedence in a loop.
+///
+/// Upstream does not need this. Go grows a goroutine's stack on demand up to 1 GiB,
+/// so `emitBinaryExpression` recursing 5,000 deep costs it nothing; a Rust thread's
+/// stack is fixed at spawn. That is a difference between the languages rather than
+/// between the two implementations, and it is the reason a port has to size this
+/// explicitly. Making the printer iterative is the real fix and is `bd tsr-el3`.
+const WORKER_STACK: usize = 32 * 1024 * 1024;
+
 fn main() -> Result<()> {
+    // Before any suite runs: `build_global` may only be called once, and rayon
+    // builds a default pool on first use.
+    rayon::ThreadPoolBuilder::new()
+        .stack_size(WORKER_STACK)
+        .build_global()
+        .context("sizing the corpus thread pool")?;
+
     let root = repo_root();
     let corpus = Corpus::from_repo_root(&root);
 
