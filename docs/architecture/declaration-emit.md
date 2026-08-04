@@ -193,7 +193,7 @@ Of 308 failures at 36.89%:
 | ~10 | blank lines and other spacing |
 
 None of these is a rule that needs a checker, which is the useful thing about the
-distribution: the residue is *text*. That is also
+distribution: the residue is *text*. It is filed as `bd tsr-49v.6.1`. That is also
 [ADR-0022](../adr/0022-the-declaration-transform-is-a-port-around-a-resolver-seam.md)'s
 second falsifier — if raising the printer's fidelity stops moving the number, the
 reachable target was measuring something other than what the emitter can do.
