@@ -33,6 +33,12 @@ struct Bucket {
 }
 
 fn main() {
+    // `cargo run … --example over_reports -- 1127` drills into one code: every case
+    // that over-reports it, with a count and the first few positions. The summary
+    // table names the codes worth fixing; this names the files to open.
+    let only: Option<u32> = std::env::args().nth(1).and_then(|arg| arg.parse().ok());
+    let mut detail: BTreeMap<String, (usize, Vec<String>)> = BTreeMap::new();
+
     let cases = Corpus::from_repo_root(&repo_root()).discover().expect("discover");
     let mut parse_time: BTreeMap<u32, Bucket> = BTreeMap::new();
     let mut bind_time: BTreeMap<u32, Bucket> = BTreeMap::new();
@@ -99,11 +105,32 @@ fn main() {
                     bucket.shadowed += 1;
                 }
                 total_cases_with_any.insert(case.name.clone());
+                if only == Some(code) {
+                    let entry = detail.entry(case.name.clone()).or_default();
+                    entry.0 += 1;
+                    if entry.1.len() < 4 {
+                        entry.1.push(format!("{}({line},{column})", unit.name));
+                    }
+                }
                 if in_diagnostics_suite {
                     capped_diagnostics_cases.insert(case.name.clone());
                 }
             }
         }
+    }
+
+    if let Some(code) = only {
+        let mut sorted: Vec<_> = detail.iter().collect();
+        sorted.sort_by_key(|(_, (n, _))| std::cmp::Reverse(*n));
+        let total: usize = sorted.iter().map(|(_, (n, _))| *n).sum();
+        println!("TS{code}: {total} over-reports over {} cases", sorted.len());
+        for (case, (count, positions)) in sorted {
+            println!("{count:6}  {case}");
+            for position in positions {
+                println!("          {position}");
+            }
+        }
+        return;
     }
 
     for (label, table) in [("PARSER / SCANNER", &parse_time), ("BINDER", &bind_time)] {

@@ -33,6 +33,49 @@ use tsr_path::{
     get_root_length, normalize_path, remove_trailing_directory_separator,
 };
 
+/// Decode a file's bytes into text, honouring a byte-order mark.
+///
+/// Ported from `decodeBytes` (`internal/vfs/internal/internal.go:170`) and
+/// `decodeUtf16` (`:187`). A leading `FF FE` or `FE FF` means the file is
+/// **UTF-16**, little- or big-endian; a leading `EF BB BF` is a UTF-8 mark and is
+/// dropped; anything else is UTF-8 already.
+///
+/// # Why this is not `String::from_utf8_lossy`
+///
+/// Five corpus files are checked in as UTF-16 — `compiler/bom-utf16be`,
+/// `bom-utf16le`, `unicodeIdentifierNames`, `promiseTest`,
+/// `collisionCodeGenModuleWithUnicodeNames`. Read as UTF-8 they become a run of
+/// replacement characters with a NUL between every letter, and the scanner
+/// dutifully reports `TS1127 Invalid character` on nearly every position: 1,812
+/// diagnostics upstream does not emit, a quarter of every false positive the
+/// parser produced. They are not malformed files, they are correctly encoded files
+/// in the other encoding TypeScript accepts.
+///
+/// Invalid sequences are still replaced rather than rejected, because
+/// `compiler/corrupted` *is* deliberately malformed and refusing to read it would
+/// drop it from the corpus — which is the opposite of what a conformance harness
+/// should do.
+#[must_use]
+pub fn decode_bytes(bytes: &[u8]) -> String {
+    match bytes {
+        [0xFF, 0xFE, rest @ ..] => decode_utf16(rest, u16::from_le_bytes),
+        [0xFE, 0xFF, rest @ ..] => decode_utf16(rest, u16::from_be_bytes),
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        _ => String::from_utf8_lossy(bytes).into_owned(),
+    }
+}
+
+/// Decode UTF-16 code units of a known endianness.
+///
+/// A trailing odd byte is dropped, as upstream's `binary.Read` into a
+/// `[]uint16` of length `len(s)/2` also ignores it.
+fn decode_utf16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> String {
+    let units: Vec<u16> = bytes.chunks_exact(2).map(|pair| unit([pair[0], pair[1]])).collect();
+    // Upstream's `utf16.Decode` substitutes U+FFFD for an unpaired surrogate;
+    // `decode_utf16_lossy` is not stable, so this is the same thing spelled out.
+    char::decode_utf16(units).map(|result| result.unwrap_or('\u{FFFD}')).collect()
+}
+
 /// What lives directly inside a directory (`vfs.FS.GetAccessibleEntries`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DirectoryEntries {
@@ -288,6 +331,39 @@ mod tests {
     fn a_symlink_cycle_terminates() {
         let fs = fs(&[], &[("/a", "/b"), ("/b", "/a")]);
         assert!(!fs.file_exists("/a"));
+    }
+
+    #[test]
+    fn a_byte_order_mark_selects_the_encoding() {
+        // `var a = 1;` as the corpus checks it in, three ways.
+        let little: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain("var a = 1;".encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
+        let big: Vec<u8> = [0xFE, 0xFF]
+            .into_iter()
+            .chain("var a = 1;".encode_utf16().flat_map(u16::to_be_bytes))
+            .collect();
+        assert_eq!(decode_bytes(&little), "var a = 1;");
+        assert_eq!(decode_bytes(&big), "var a = 1;");
+        assert_eq!(decode_bytes(b"\xEF\xBB\xBFvar a = 1;"), "var a = 1;");
+        assert_eq!(decode_bytes(b"var a = 1;"), "var a = 1;");
+    }
+
+    #[test]
+    fn decoding_does_not_reject_a_malformed_file() {
+        // `compiler/corrupted` is deliberately broken and must still be read, so
+        // that it stays in the denominator rather than vanishing from it.
+        assert_eq!(decode_bytes(b"a\xFFb"), "a\u{FFFD}b");
+        // An unpaired surrogate: U+FFFD, as upstream's `utf16.Decode` gives.
+        let lone_surrogate = [0xFF, 0xFE, 0x00, 0xD8];
+        assert_eq!(decode_bytes(&lone_surrogate), "\u{FFFD}");
+        // An odd trailing byte is dropped, not an error.
+        let odd = [0xFF, 0xFE, 0x76, 0x00, 0x61];
+        assert_eq!(decode_bytes(&odd), "v");
+        // Two bytes that are only a mark decode to nothing.
+        assert_eq!(decode_bytes(b"\xFF\xFE"), "");
+        assert_eq!(decode_bytes(b""), "");
     }
 
     #[test]

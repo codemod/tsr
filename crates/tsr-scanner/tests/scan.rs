@@ -583,3 +583,30 @@ fn line_breaks_are_reported_across_every_trivia_form() {
     let (tokens, _) = tsr_scanner::tokenize("a /* x */ b");
     assert!(!tokens[1].flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK));
 }
+
+#[test]
+fn a_binary_file_is_reported_once_and_abandoned() {
+    // `scanner.Scan`'s default arm (`internal/scanner/scanner.go:936-941`) reports
+    // `File_appears_to_be_binary` at offset 0 length 0, jumps to the end of the
+    // text, and yields `NonTextFileMarkerTrivia`. Abandoning the file is the point:
+    // scanning on gives one `TS1127 Invalid character` per undecodable byte, and
+    // `compiler/TransportStream` produced 557 of them where upstream produces one.
+    let (tokens, diagnostics) = tokenize("\u{FFFD}\u{1F}\u{FFFD}\u{3}rest of it");
+    assert_eq!(diagnostics.len(), 1, "one diagnostic, not one per byte: {diagnostics:?}");
+    assert_eq!(diagnostics[0].message.code(), 1490);
+    assert_eq!(diagnostics[0].span.start, 0, "anchored at the start of the file");
+    assert_eq!(diagnostics[0].span.end, 0, "zero length, as upstream's errorAt(_, 0, 0)");
+    assert_eq!(
+        tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
+        [SyntaxKind::NonTextFileMarkerTrivia, SyntaxKind::EndOfFile],
+        "the rest of the file is consumed, not tokenised"
+    );
+
+    // A file with no replacement character is untouched by this path.
+    let (_, clean) = tokenize("let x = 1;");
+    assert!(clean.is_empty());
+    // And a stray *decodable* non-ASCII character is still TS1127, not TS1490 —
+    // only U+FFFD means "binary".
+    let (_, invalid) = tokenize("let x = \u{00A1};");
+    assert_eq!(invalid.iter().map(|d| d.message.code()).collect::<Vec<_>>(), [1127]);
+}

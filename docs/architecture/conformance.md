@@ -28,7 +28,7 @@ parser_reachable_target              5031/10570    47.60%      1874
 scanner_termination                 12444/12444   100.00%         0
 scanner_clean_files                   5031/5031   100.00%      7413
 parser_typescript                     5000/5031    99.38%      7413
-binder_symbols                        8284/8451    98.02%      3993
+binder_symbols                        8290/8457    98.03%      3987
 module_resolution                         95/95   100.00%     12349
 file_loader                               96/96   100.00%     12348
 ```
@@ -77,24 +77,28 @@ little, so a false positive is invisible in its rate. It is also the one class o
 failure the checker cannot fix — a parser or binder diagnostic upstream never emits
 will still be there underneath the checker's output.
 
-Measured 2026-08-05 at `06d30b3`:
+Measured 2026-08-05 after [ADR-0027](../adr/0027-a-byte-order-mark-selects-the-encoding.md):
 
 | component | over-reported diagnostics | cases |
 |---|---:|---:|
-| parser / scanner | 7,234 | 509 |
+| parser / scanner | 2,675 | 503 |
 | binder | 126 | 47 |
 
-**502 of the 5,488 cases `diagnostics` judges carry one, so that suite is capped at
+**500 of the 5,488 cases `diagnostics` judges carry one, so that suite is capped at
 90.9% until they are fixed**, however good the checker is. Re-derive with
-`cargo run --release -p tsr-conformance --example over_reports`.
+`cargo run --release -p tsr-conformance --example over_reports`; pass a code
+(`-- 1005`) to list the cases behind it.
 
-The split is 57:1 against the parser, and its shape differs: the binder's 126 are
-spread thinly (TS2300 99, TS2528 15, TS2451 12 — `bd tsr-y4u.19`), while the
-parser's concentrate in error *recovery* — TS1012 (2,456 over 192 cases), TS1005
-(1,907/324), and TS1127 (1,812 over just **8** cases, a per-character cascade).
-`bd tsr-pum.11`. The tool prints a `shadowed` column — how many land where upstream
-reports something else — which separates "we invented an error" from "we got the
-code or the owner wrong".
+The split is 21:1 against the parser, and its shape differs. The binder's 126 are
+spread thinly (TS2300 99, TS2528 15, TS2451 12 — `bd tsr-y4u.19`). The parser's are
+error-*recovery* divergences: TS1005 (1,084 over 318 cases), TS1012 (578/186),
+TS1109 (280/126), TS1131 (221/68). `bd tsr-pum.11`.
+
+**Rank this work by cases, not by diagnostics.** ADR-0027 cut over-reported
+diagnostics 63% and moved the ceiling by two cases, because six encoding-broken
+files were producing a third of the noise between them. The `shadowed` column is
+the other half of the picture: how many land where upstream reports something else,
+which separates "we invented an error" from "we got the code or the owner wrong".
 
 ## The corpus
 

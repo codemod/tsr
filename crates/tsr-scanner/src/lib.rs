@@ -532,6 +532,32 @@ impl<'a> Scanner<'a> {
             _ => {
                 if is_identifier_start(ch) {
                     self.scan_identifier_or_keyword(flags)
+                } else if ch == char::REPLACEMENT_CHARACTER {
+                    // A binary file: report once at the start and abandon it.
+                    //
+                    // Ported from `scanner.Scan`'s default arm
+                    // (`internal/scanner/scanner.go:936-941`): on `utf8.RuneError`
+                    // upstream reports `File_appears_to_be_binary` at offset 0 with
+                    // length 0, sets `pos` to the end of the text, and returns
+                    // `KindNonTextFileMarkerTrivia`.
+                    //
+                    // Abandoning the file is the whole point. Without it every
+                    // undecodable byte is its own `TS1127 Invalid character`:
+                    // `compiler/TransportStream` alone produced 557 of them where
+                    // upstream produces one, and `compiler/corrupted`'s baseline has
+                    // exactly one error in total.
+                    //
+                    // Upstream tests `ch == utf8.RuneError` without checking the
+                    // decoded size, so a file containing a *validly encoded* U+FFFD
+                    // is also declared binary — and `corrupted.ts` is precisely
+                    // that, three `EF BF BD` sequences. Matching on the replacement
+                    // character reproduces that, including the quirk: by the time
+                    // the scanner sees the text, an undecodable byte and a real
+                    // U+FFFD are the same character, because `decode_bytes`
+                    // substituted one for the other.
+                    self.error(&messages::FILE_APPEARS_TO_BE_BINARY, Span::new(0, 0));
+                    self.pos = self.limit;
+                    SyntaxKind::NonTextFileMarkerTrivia
                 } else {
                     self.scan_punctuation()
                 }

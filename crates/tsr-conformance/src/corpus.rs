@@ -332,14 +332,22 @@ fn collect(
     Ok(())
 }
 
-/// Read a file as UTF-8, replacing invalid sequences.
+/// Read a file, decoding whichever encoding its byte-order mark declares.
 ///
-/// A handful of corpus files are deliberately malformed to exercise encoding
-/// handling; refusing to read them would remove them from the denominator, which
-/// is the opposite of what a conformance harness should do.
+/// Delegates to [`tsr_vfs::decode_bytes`], which is the port of upstream's
+/// `decodeBytes` — the same function a real compiler run will go through, so the
+/// harness cannot judge a case on text the compiler would never see.
+///
+/// This used to be `String::from_utf8_lossy` alone, on the reasoning that "a
+/// handful of corpus files are deliberately malformed … refusing to read them would
+/// remove them from the denominator". The second half is right and is preserved.
+/// The first half conflated two different files: `compiler/corrupted` really is
+/// malformed, but five others are valid **UTF-16**, and reading those as UTF-8 made
+/// the scanner report `TS1127` on nearly every position — 1,812 diagnostics
+/// upstream does not emit.
 fn read_lossy(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    Ok(tsr_vfs::decode_bytes(&bytes))
 }
 
 #[cfg(test)]

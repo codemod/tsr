@@ -69,7 +69,7 @@ compiler/ParameterList7
 compiler/ParameterList8
   3 missing (first TS2369 at ParameterList8.ts(2,14))
 compiler/TransportStream
-  1121 unexpected (first TS1005 at TransportStream.ts(1,2)), 4 missing
+  4 unexpected (first TS1005 at TransportStream.ts(1,2)), 3 missing
 compiler/abstractClassInLocalScopeIsAbstract
   1 missing (first TS2511 at abstractClassInLocalScopeIsAbstract.ts(4,5))
 compiler/abstractClassUnionInstantiation
