@@ -750,6 +750,40 @@ fn an_export_specifier_is_an_export_not_a_local() {
 }
 
 #[test]
+fn a_named_class_expressions_name_is_visible_only_inside_it() {
+    // `bindClassLikeDeclaration` splits on the *kind*, not on whether there is a
+    // name (`binder.go:942-951`): a class *expression* always goes through
+    // `bindAnonymousDeclaration`, which takes the written name as the symbol's name
+    // and files the symbol in no table. The name is in scope only inside the class,
+    // exactly as for a named function expression.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "class C { }\nconst C9 = class C { };\n", "a.ts");
+    assert!(
+        bound.result.diagnostics().is_empty(),
+        "the class expression's `C` does not collide with the declaration, got {:?}",
+        bound.result.diagnostics()
+    );
+    // The declaration owns the only top-level `C`, with one declaration.
+    let declared = bound.top_level_symbol("C").expect("`class C`");
+    assert_eq!(bound.result.symbols().get(declared).declarations.len(), 1);
+}
+
+#[test]
+fn a_second_export_default_is_not_a_duplicate_identifier() {
+    // `A_module_cannot_have_multiple_default_exports` (TS2528), not TS2300 —
+    // `binder.go:224-244`, overriding the enum and block-scoped message choices.
+    // Reported on every declaration involved, and with no name argument.
+    let arena = Arena::new();
+    let bound = bind_as(&arena, "export default class D { }\nexport default { };\n", "a.ts");
+    let codes: Vec<u32> = bound.result.diagnostics().iter().map(|d| d.message.code()).collect();
+    assert_eq!(codes, vec![2528, 2528], "one per declaration, got {codes:?}");
+    assert!(
+        bound.result.diagnostics().iter().all(|d| d.args.is_empty()),
+        "the message takes no name argument"
+    );
+}
+
+#[test]
 fn object_define_property_declares_what_it_names() {
     let arena = Arena::new();
     let bound =

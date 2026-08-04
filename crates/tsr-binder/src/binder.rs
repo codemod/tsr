@@ -2913,20 +2913,52 @@ impl<'a, 'n> Binder<'a, 'n> {
                 // the code reported only the latest.
                 let enum_conflict = existing_flags.intersects(SymbolFlags::ENUM)
                     || flags.intersects(SymbolFlags::ENUM);
-                let message = if enum_conflict {
+                let mut message = if enum_conflict {
                     &messages::ENUM_DECLARATIONS_CAN_ONLY_MERGE_WITH_NAMESPACE_OR_OTHER_ENUM_DECLARATIONS
                 } else if existing_flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
                     &messages::CANNOT_REDECLARE_BLOCK_SCOPED_VARIABLE_0
                 } else {
                     &messages::DUPLICATE_IDENTIFIER_0
                 };
+                // Upstream tracks "does the message take the name as an argument"
+                // separately from which message it is (`messageNeedsName`,
+                // `binder.go:222`); it was previously derived from `enum_conflict`,
+                // which worked only while the enum message was the sole nameless one.
+                let mut message_needs_name = !enum_conflict;
+
+                // A second `export default` in one module is
+                // `A_module_cannot_have_multiple_default_exports` (TS2528), not a
+                // duplicate identifier — upstream's `binder.go:224-244`, checked
+                // after the enum case and overriding it.
+                //
+                // Upstream reaches this through two conditions: `isDefaultExport`,
+                // and separately an `ExportAssignment` that is not `export =` (so
+                // that `export default { }` after `export default class` is caught,
+                // since that form carries no `default` *modifier* to test). Both are
+                // detected here as `name == INTERNAL_DEFAULT`, which is equivalent
+                // rather than a shortcut: `getDeclarationName` maps a non-`export =`
+                // export assignment to `InternalSymbolNameDefault` (`binder.go:302`)
+                // and `declareSymbolEx` names the export half of any default export
+                // `default` (`binder.go:158`). Nothing else in the language can be
+                // filed under that name — it is not a spellable binding — so the two
+                // upstream branches and this one test cover the same set.
+                //
+                // The related-info chain upstream attaches (`binder.go:265-275`:
+                // `Another_export_default_is_here`, `and_here`,
+                // `The_first_export_default_is_here`) is **not** ported: `Diagnostic`
+                // carries no related information yet, and the `diagnostics` suite
+                // compares codes and positions only. Tracked in bd tsr-y4u.23.
+                if name == INTERNAL_DEFAULT && !self.symbols.get(existing).declarations.is_empty() {
+                    message = &messages::A_MODULE_CANNOT_HAVE_MULTIPLE_DEFAULT_EXPORTS;
+                    message_needs_name = false;
+                }
 
                 let report = |binder: &mut Self, at: NodeId| {
                     let span = binder.declaration_name_span(at);
-                    binder.diagnostics.push(if enum_conflict {
-                        Diagnostic::new(message, span)
-                    } else {
+                    binder.diagnostics.push(if message_needs_name {
                         Diagnostic::with_args(message, span, [name.to_string()])
+                    } else {
+                        Diagnostic::new(message, span)
                     });
                 };
                 let previous: Vec<NodeId> = self.symbols.get(existing).declarations.to_vec();
@@ -3056,11 +3088,21 @@ fn anonymous_declaration(node: Node<'_>) -> Option<(&str, SymbolFlags)> {
             (INTERNAL_TYPE, SymbolFlags::TYPE_LITERAL)
         }
         Node::JsxAttributes(_) => (INTERNAL_JSX_ATTRIBUTES, SymbolFlags::OBJECT_LITERAL),
-        // A *named* class expression declares its name into the enclosing block,
-        // as upstream's `bindClassLikeDeclaration` does; only an unnamed one is
-        // anonymous.
-        Node::ClassExpression(class) if class.name.is_none() => {
-            (INTERNAL_CLASS, SymbolFlags::CLASS)
+        // A class expression is anonymous whether or not it has a name.
+        // `bindClassLikeDeclaration` splits on the *kind*, not on the name
+        // (`binder.go:942-951`): a `ClassDeclaration` goes through
+        // `bindBlockScopedDeclaration`, a `ClassExpression` always through
+        // `bindAnonymousDeclaration`, which takes the written name as the symbol's
+        // name and puts the symbol in no table.
+        //
+        // The comment here used to claim the opposite — that a named class
+        // expression declares into the enclosing block "as upstream does". It does
+        // not, and the consequence was that `const C9 = class C { }` collided with
+        // a `class C` in the same file. The name of a named class expression is
+        // visible only *inside* it, which is the same rule as `FunctionExpression`
+        // immediately below, and that one was already right.
+        Node::ClassExpression(class) => {
+            (class.name.map_or(INTERNAL_CLASS, |name| name.text), SymbolFlags::CLASS)
         }
         // `var obj = function f() {}` declares `f`, but *nowhere*: the name is
         // visible only inside the function, so upstream gives it a symbol in no

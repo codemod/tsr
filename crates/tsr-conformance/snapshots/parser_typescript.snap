@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 parser_typescript Summary:
 What a pass means: a file TypeScript reports no errors for parses with no diagnostics
-Passed         : 4999/5031 (99.36%)
-Failed         : 32
+Passed         : 5000/5031 (99.38%)
+Failed         : 31
 Skipped        : 7413 (excluded from the denominator)
 
   757  skipped: configuration-varied baselines; needs per-configuration runs
@@ -17,8 +17,6 @@ compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused
   declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: 5 diagnostic(s), first is TS1005 at 338..339: '>' expected.
 compiler/declarationEmitHigherOrderRetainedGenerics
   declarationEmitHigherOrderRetainedGenerics.ts: 8 diagnostic(s), first is TS1005 at 2405..2406: '?' expected.
-compiler/implementsInClassExpression
-  implementsInClassExpression.ts: 3 diagnostic(s), first is TS1005 at 67..70: '{' expected.
 compiler/intersectionSatisfiesConstraint
   intersectionSatisfiesConstraint.ts: 10 diagnostic(s), first is TS1005 at 415..416: '?' expected.
 compiler/jsxPreserveWithJsInput

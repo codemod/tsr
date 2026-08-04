@@ -7,6 +7,35 @@ use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
     /// `class C<T> extends B implements I { … }`.
+    /// Whether the `implements` at the cursor opens a heritage clause rather than
+    /// naming the class.
+    ///
+    /// Upstream's `isImplementsClause` (`internal/parser/parser.go:1806`), used by
+    /// `parseNameOfClassDeclarationOrExpression` (`:1791`) with the comment that
+    /// says why it has to exist: `implements` is a *future reserved* word, so it is
+    /// a legal binding identifier outside strict mode, and `class implements … `
+    /// is genuinely ambiguous between
+    ///
+    /// - a class expression with no name, where `implements` starts the heritage
+    ///   clause, and
+    /// - a class named `implements`.
+    ///
+    /// Upstream resolves it by looking one token past `implements`: an identifier
+    /// or keyword there means a heritage clause. Without this,
+    /// `const C = class implements number {}` parsed as a class *named*
+    /// `implements` — and two of them in one file were a duplicate identifier,
+    /// which is how it was found (6 of the TS2300 over-reports in
+    /// `compiler/classImplementsPrimitive` and `conformance/classExtendingPrimitive`).
+    fn is_implements_clause(&mut self) -> bool {
+        self.at(SyntaxKind::ImplementsKeyword)
+            && self.look_ahead(|parser| {
+                parser.next_token();
+                // Upstream's `tokenIsIdentifierOrKeyword`: every keyword kind sorts
+                // after `Identifier` (`internal/parser/utilities.go:20`).
+                parser.token.kind >= SyntaxKind::Identifier
+            })
+    }
+
     pub(crate) fn parse_class_declaration(
         &mut self,
         start: u32,
@@ -15,8 +44,9 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::ClassKeyword);
         // `export default class {}` has no name; `class require {}` has one that
         // happens to be a contextual keyword.
-        let name = if self.at(SyntaxKind::Identifier)
-            || crate::statement::is_contextual_keyword(self.token.kind)
+        let name = if (self.at(SyntaxKind::Identifier)
+            || crate::statement::is_contextual_keyword(self.token.kind))
+            && !self.is_implements_clause()
         {
             Some(self.parse_identifier())
         } else {

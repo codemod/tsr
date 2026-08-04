@@ -43,6 +43,19 @@ const SNIPPETS: &[(&str, &str)] = &[
         "import { a as a1 } from \"m\";\nexport { a as a1 } from \"m\";\na1;\n",
     ),
     (
+        "classes implementing primitives",
+        "class C implements number { }\nclass C2 implements string { }\n\nconst C4 = class implements number {}\nconst C5 = class implements string {}\n\nconst C7 = class A implements number { }\nconst C8 = class B implements string { }\n",
+    ),
+    (
+        "named class expression vs a class of the same name",
+        "class C { }\nconst C9 = class C { };\n",
+    ),
+    ("two default exports", "export default class D { }\nexport default function g() { }\n"),
+    (
+        "export default class then export default object",
+        "export default class D { }\nexport default { };\n",
+    ),
+    (
         "two getters, same name",
         "class C {\n    get x() { return 1; }\n    get x() { return 2; }\n}\n",
     ),

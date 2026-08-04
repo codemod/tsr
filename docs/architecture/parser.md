@@ -165,6 +165,29 @@ class. Against that, the parser now *reports* errors on six error-recovery cases
 it used to mis-parse quietly, which costs the binder suite six judged cases; see
 [binder.md](binder.md#the-denominator-moved-by-six-and-not-on-purpose).
 
+### `class implements` is the same question, one token later
+
+`implements` is a *future reserved* word, so it is a legal binding identifier
+outside strict mode, and `class implements … ` is ambiguous:
+
+```ts
+const C = class implements number {};   // no name; `implements` opens the clause
+const D = class implements {};          // a class named `implements`
+```
+
+Upstream disambiguates by looking one token past `implements` — an identifier or
+keyword means a heritage clause (`isImplementsClause`, `parser.go:1806`, used by
+`parseNameOfClassDeclarationOrExpression`, `:1791`). Both directions matter, and the
+test asserts both: a fix that always answered "heritage clause" would lose the
+second line.
+
+Missing this made every `class implements T` a class *named* `implements`, so two of
+them in one file were a duplicate identifier — found as a binder TS2300, six of them,
+and fixed here because a wrong name is what the binder is handed. See
+[ADR-0026](../adr/0026-class-expressions-and-multiple-default-exports.md), which also
+records that the fix moved the `binder_symbols` and `printer_round_trip`
+**denominators** by two: units that had not parsed now do.
+
 ## Not yet built
 
 - **The JSDoc reparser** — `@type` and `@param` promoted to real annotations in

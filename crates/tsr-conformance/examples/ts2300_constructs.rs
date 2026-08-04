@@ -99,7 +99,11 @@ fn main() {
             for (label, line, column) in found {
                 *buckets.entry(label.clone()).or_default() += 1;
                 let entry = samples.entry(label).or_default();
-                if entry.len() < 2 {
+                // Every case, not a sample of two. The buckets started at 4,132 in
+                // one construct, where two examples were all that was useful; the
+                // tail is now small enough that the individual cases are the
+                // instrument and aggregation hides them.
+                if entry.len() < 40 {
                     entry.push(format!("{} {}({line},{column})", case.name, unit.name));
                 }
             }

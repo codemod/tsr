@@ -382,6 +382,13 @@ The failure it caused is worth keeping in mind when reading `classify`: a class 
 `Destination::Locals` for a type parameter resolved to the enclosing **file**, and
 the `T` of `class A<T>` merged with the `T` of `class B<T>` into a single symbol.
 
+A class **expression** goes in no table at all, named or not:
+`bindClassLikeDeclaration` splits on the kind, not on the name
+(`binder.go:942-951`), sending every class expression through
+`bindAnonymousDeclaration`. The name of `const C9 = class C { }` is visible only
+inside it — the same rule as a named function expression. See
+[ADR-0026](../adr/0026-class-expressions-and-multiple-default-exports.md).
+
 A fourth wrong-table defect sat one level further out, in
 `is_exported_from_container` rather than in `classify`: an **export specifier** is an
 export of its container unconditionally, and there is no `export` modifier on the

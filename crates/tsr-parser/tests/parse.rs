@@ -309,6 +309,42 @@ fn class_declarations() {
 }
 
 #[test]
+fn class_implements_is_a_heritage_clause_not_a_name() {
+    // `implements` is a future reserved word, so it is a legal binding identifier
+    // outside strict mode and `class implements … ` is ambiguous. Upstream looks one
+    // token past it: an identifier or keyword means a heritage clause
+    // (`isImplementsClause`, `parser.go:1806`). Read as a name instead, two
+    // `class implements` expressions in one file became a duplicate identifier.
+    /// The class expression a `const C = class … ` statement initialises.
+    fn class_of(statement: Statement<'_>) -> &tsr_ast::ClassExpression<'_> {
+        let Statement::VariableStatement(variable) = statement else { panic!("a variable") };
+        let list = variable.declaration_list.expect("a declaration list");
+        let Some(Expression::ClassExpression(class)) = list.declarations[0].initializer else {
+            panic!("a class expression")
+        };
+        class
+    }
+
+    let arena = Arena::new();
+    let heritage = statements(
+        &arena,
+        "const C = class implements number {};\nconst D = class implements string {};\n",
+    );
+    assert_eq!(heritage.len(), 2);
+    for statement in heritage {
+        let class = class_of(*statement);
+        assert!(class.name.is_none(), "`implements` opens the heritage clause");
+        assert_eq!(class.heritage_clauses.len(), 1, "the `implements` clause is present");
+    }
+
+    // The name is still read when `implements` is not followed by a type — that is
+    // the other half of the ambiguity, and it must keep working.
+    let named = statements(&arena, "const C = class implements {};\n");
+    let class = class_of(named[0]);
+    assert_eq!(class.name.map(|name| name.text), Some("implements"), "a class named `implements`");
+}
+
+#[test]
 fn interface_declarations() {
     let arena = Arena::new();
     let source = "
