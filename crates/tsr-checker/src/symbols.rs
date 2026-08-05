@@ -697,9 +697,48 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::PropertySignature => {
                 self.get_widened_type_for_variable_like_declaration(declaration)
             }
-            // Unported: property assignments, shorthand, methods, export
-            // assignments, binary/call assignment declarations, JSX attributes
-            // and enum members.
+            // `checkPropertyAssignment` (`checker.go:16611`), which is
+            // `checkExpressionForMutableLocation` on the initialiser.
+            //
+            // **The same call `objects.rs` makes for the literal's printed
+            // member text**, deliberately: the member symbol's type and the
+            // text the object literal prints must not drift, and sharing the
+            // function is what guarantees it rather than two rules that agree
+            // today. It also carries the widening boundary for free —
+            // `var o = { a: 1 }` gives the member `number`, not `1`, because
+            // freshness stops at the property boundary. Written without it,
+            // 2,500 numeric members would print `1` where upstream prints
+            // `number`, turning gaps into wrong answers.
+            SyntaxKind::PropertyAssignment => {
+                let Some(Node::PropertyAssignment(assignment)) = self.node_map.get(declaration)
+                else {
+                    return self.intrinsics.error;
+                };
+                match assignment.initializer {
+                    Some(initializer) => self.check_expression_for_mutable_location(initializer),
+                    None => self.intrinsics.error,
+                }
+            }
+            // `checkShorthandPropertyAssignment` (`checker.go:16613`). Upstream
+            // passes `inDestructuringPattern: true` here, which is what makes it
+            // read the **name** rather than an `ObjectAssignmentInitializer` —
+            // the same rule `objects.rs` follows for `{ a }`.
+            SyntaxKind::ShorthandPropertyAssignment => {
+                let Some(Node::ShorthandPropertyAssignment(shorthand)) =
+                    self.node_map.get(declaration)
+                else {
+                    return self.intrinsics.error;
+                };
+                match shorthand.name {
+                    tsr_ast::PropertyName::Identifier(name) => self
+                        .check_expression_for_mutable_location(tsr_ast::Expression::Identifier(
+                            name,
+                        )),
+                    _ => self.intrinsics.error,
+                }
+            }
+            // Unported: methods, export assignments, binary/call assignment
+            // declarations, JSX attributes and enum members.
             _ => self.intrinsics.error,
         };
 

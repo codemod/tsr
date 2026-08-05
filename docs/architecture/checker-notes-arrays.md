@@ -449,3 +449,47 @@ type every consumer of the binder shares.
 flags disagree with its declaration kind. Merged declarations are where to look —
 `export interface I {}` beside `export const I = 1` — and the arm answers
 `errorType` rather than guessing when the lookup misses.
+
+## Object-literal member symbols: the lookup was never the problem (2026-08-05)
+
+`var o = { a: 1 }; o.a` answered `errorType` — while the literal's own type
+printed `{ a: number; }` correctly. **8,549 lines across 1,571 cases.**
+
+The row is named for the declaration kind, and the name points at the wrong
+step. `objects.rs` gives the literal an `__object` symbol as its members table,
+so `get_property_of_type` **finds** `a` without trouble. What failed was the step
+after: `get_type_of_symbol` on a `PROPERTY` whose declaration is a
+`PropertyAssignment`, which the variable/parameter/property worker had no arm
+for. Two arms in one match, `checker.go:16611` and `:16613`.
+
+### Concentration, checked before predicting
+
+Top ten cases are **24.9%** of the row and the largest single case is 11.7%,
+spread over 1,571 cases. That check has changed the answer three times this
+cycle — the `+=` row was 96% one file — so it is now run before any prediction.
+
+By initialiser kind: NumericLiteral 2,500, StringLiteral 1,938, AsExpression
+1,069, ArrowFunction 630, ObjectLiteralExpression 483, ShorthandPropertyAssignment
+409, Identifier 345, booleans 336, ArrayLiteralExpression 156.
+
+### Sharing the call is what pins the widening
+
+Both arms route to `check_expression_for_mutable_location` — **the same function
+`objects.rs` calls to build the literal's printed member text**. That is a
+deliberate choice over writing the equivalent rule twice, and it buys two things.
+
+The member symbol's type and the literal's printed text cannot drift, because
+there is one rule rather than two that agree today. And the widening boundary
+comes for free: `var o = { a: 1 }` gives the member `number`, not `1`, because
+freshness stops at the property boundary.
+
+That second point is the failure mode this arm existed to avoid. Written with a
+plain `check_expression`, every numeric member would print `1` where upstream
+prints `number` — **2,500 gaps converted into 2,500 wrong answers**, which this
+cycle established is a worse trade than leaving them. The mutation that swaps
+the widened call for the raw one reddens three tests, so the boundary is pinned
+rather than assumed.
+
+`const o = { a: 1 }` also gives `number`: `as const` is what would keep `1`, and
+it is unported. The widening is a property of the property boundary, not of how
+the object was bound.
