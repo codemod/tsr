@@ -53,6 +53,12 @@ impl<'a> NodeMap<'a> {
         Self { nodes: Vec::with_capacity(nodes) }
     }
 
+    /// Reserve room for `additional` more nodes, mirroring
+    /// [`NodeTable::reserve`](crate::NodeTable::reserve).
+    pub fn reserve(&mut self, additional: usize) {
+        self.nodes.reserve(additional);
+    }
+
     /// How many nodes are recorded.
     #[must_use]
     pub fn len(&self) -> usize {

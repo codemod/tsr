@@ -33,11 +33,21 @@ pub use generated::{alias::*, kind::SyntaxKind, nodes::*, visit};
 use tsr_core::{Span, define_index};
 
 define_index! {
-    /// Identifies a node within a single source file.
+    /// Identifies a node within the [`NodeTable`] it was assigned from.
     ///
-    /// Assigned by the parser and used to key every side table. Scoped per file,
-    /// not per program: a `NodeId` is only meaningful alongside the file it came
-    /// from.
+    /// Assigned by the parser and used to key every side table. **The scope is
+    /// the table, not the file** — `NodeTable::push` hands out `self.len()`, so
+    /// parsing several files into one table numbers them all uniquely, which is
+    /// what `tsr_parser::parse_into` does for the files of a program
+    /// ([ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)).
+    /// Parsing each file into its own table, which is what
+    /// `tsr_parser::parse_with_options` does, makes the scope the file.
+    ///
+    /// This doc comment previously read "scoped per file, not per program", and
+    /// that was the invariant the checker was built against: it is why handing
+    /// it a symbol from another file reads the wrong declarations. The property
+    /// was never enforced by anything — it was a description of how the parser
+    /// happened to be called.
     pub struct NodeId;
 }
 
@@ -128,6 +138,20 @@ impl NodeTable {
             span: Vec::with_capacity(nodes),
             flags: Vec::with_capacity(nodes),
         }
+    }
+
+    /// Reserve room for `additional` more nodes.
+    ///
+    /// The append-to-a-shared-table counterpart of [`NodeTable::with_capacity`],
+    /// and it exists for the same measured reason: four parallel vectors mean
+    /// four growth reallocations per doubling. A table that several files parse
+    /// into cannot be sized once at construction, so each file reserves its own
+    /// estimate as it arrives.
+    pub fn reserve(&mut self, additional: usize) {
+        self.parent.reserve(additional);
+        self.kind.reserve(additional);
+        self.span.reserve(additional);
+        self.flags.reserve(additional);
     }
 
     /// Number of nodes recorded.

@@ -218,6 +218,49 @@ impl<'a> Parser<'a> {
     /// Create a parser with explicit options.
     #[must_use]
     pub fn with_options(arena: &'a Arena, source: &'a str, options: ParseOptions) -> Self {
+        // One node per ~10 bytes is what the corpus shows: checker.ts is 3.15 MB
+        // for 304,884 nodes, dom.generated.d.ts 2.35 MB for 124,103. Estimating
+        // low would reintroduce the growth this avoids, so this takes the denser
+        // of the two.
+        let estimate = source.len() / 10;
+        Self::with_tables(
+            arena,
+            source,
+            options,
+            NodeTable::with_capacity(estimate),
+            tsr_ast::NodeMap::with_capacity(estimate),
+        )
+    }
+
+    /// Create a parser that **appends** to tables another file has already
+    /// written to.
+    ///
+    /// This is what makes a [`NodeId`](tsr_ast::NodeId) unique across a whole
+    /// program rather than only within one file: `NodeTable::push` hands out
+    /// `self.len()`, so a table that arrives non-empty continues the numbering
+    /// instead of restarting it. Nothing else has to change for that to hold —
+    /// in particular speculative rollback still works, because
+    /// `restore_state` truncates to an *absolute* length it recorded on the way
+    /// in, not to zero.
+    ///
+    /// The two tables are taken and returned by value rather than borrowed for
+    /// the parser's lifetime, because [`Parser`] owns them while it runs; see
+    /// [`crate::parse_into`], which threads them for the caller.
+    ///
+    /// Every file's nodes therefore occupy one **contiguous** id range, which is
+    /// the property that lets the file behind an id be recovered without a
+    /// per-node column — see [`crate::ParsedInto::node_range`].
+    #[must_use]
+    pub fn with_tables(
+        arena: &'a Arena,
+        source: &'a str,
+        options: ParseOptions,
+        mut nodes: NodeTable,
+        mut node_map: tsr_ast::NodeMap<'a>,
+    ) -> Self {
+        let estimate = source.len() / 10;
+        nodes.reserve(estimate);
+        node_map.reserve(estimate);
         let script_kind = options.script_kind;
         let mut scanner = Scanner::new(source);
         let token = scanner.scan();
@@ -230,12 +273,8 @@ impl<'a> Parser<'a> {
             token,
             token_value,
             diagnostics: Vec::new(),
-            // One node per ~10 bytes is what the corpus shows: checker.ts is
-            // 3.15 MB for 304,884 nodes, dom.generated.d.ts 2.35 MB for 124,103.
-            // Estimating low would reintroduce the growth this avoids, so this
-            // takes the denser of the two.
-            nodes: NodeTable::with_capacity(source.len() / 10),
-            node_map: tsr_ast::NodeMap::with_capacity(source.len() / 10),
+            nodes,
+            node_map,
             no_in: 0,
             jsdoc: Vec::new(),
             parse_jsdoc: options.jsdoc,
