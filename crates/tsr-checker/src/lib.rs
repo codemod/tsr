@@ -17,14 +17,25 @@
 //! - Literal and keyword expression types, with interning.
 //! - [`type_to_string`](Checker::type_to_string) for those types, matching the
 //!   form a `.types` baseline compares against.
+//! - [`get_type_of_symbol`](Checker::get_type_of_symbol) for variables,
+//!   parameters and properties, with the lazy memo and circularity detection.
+//! - [`get_type_from_type_node`](Checker::get_type_from_type_node) for the
+//!   keyword, literal and parenthesised type forms.
+//! - Literal **freshness** — the `freshType`/`regularType` pair that makes
+//!   `const x = "a"` be `"a"` while `let x = "a"` is `string`.
 //!
 //! # What does not exist
 //!
 //! Everything else, and the list is the honest measure of distance:
 //!
-//! - **No declaration types.** `getTypeOfSymbol` is unported, so a variable,
-//!   parameter or property has no type — only the *expression* forms above do.
-//!   This is why `checker_types` still reads 0%.
+//! - **No narrowing.** An identifier reference yields the *declared* type;
+//!   upstream reaches `getFlowTypeOfReference` and would narrow it. The binder
+//!   builds the flow graph and nothing reads it yet.
+//! - **No type references.** `interface I {}` cannot be used as an annotation:
+//!   `getTypeFromTypeNode` covers the keyword, literal and parenthesised forms
+//!   and yields `errorType` for everything else.
+//! - **No functions, classes, enums, accessors, aliases or destructuring.**
+//!   Their symbol shapes fall through `getTypeOfSymbol` to `errorType`.
 //! - **No object, union, intersection, generic, conditional or indexed-access
 //!   types.** `boolean` is an intrinsic here; upstream builds it as the union
 //!   `false | true`, which will change how it prints in some positions.
@@ -45,14 +56,12 @@
 //! [ADR-0013](../../../docs/adr/0013-checker-memoisation.md) and
 //! `crates/tsr-checker-spike`.
 //!
-//! # What blocks the next slice
+//! # Why `checker_types` still reads 0%
 //!
-//! `getTypeOfSymbol` cannot be written yet: **nothing maps a `NodeId` back to a
-//! typed node**, so the checker can reach a symbol's `value_declaration` position
-//! but not the declaration's annotation or initialiser. Measured cost of the
-//! obvious fix and the cheaper alternatives are in
-//! `docs/architecture/checker.md`; the decision is `bd tsr-4sc.4`, which blocks
-//! `bd tsr-4sc.2`.
+//! Because nothing renders these types in `.types` baseline form. The checker can
+//! now answer "what is the type of `x`"; the walker that emits
+//! `>x : string` at the positions upstream emits them is `bd tsr-4sc.3`, and it
+//! is what will first move the number.
 //!
 //! # The oracle is proved; the producer is not
 //!
@@ -73,9 +82,11 @@ pub mod checker;
 pub mod flags;
 pub mod intrinsics;
 pub mod printing;
+pub mod resolution;
 pub mod types;
 
 pub use checker::Checker;
 pub use flags::TypeFlags;
 pub use intrinsics::Intrinsics;
+pub use resolution::{PropertyName, Resolutions};
 pub use types::{Type, TypeData, TypeId, TypeStore};

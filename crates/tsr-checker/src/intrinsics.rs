@@ -65,10 +65,17 @@ pub struct Intrinsics {
     pub never: TypeId,
     /// `nonPrimitiveType` — `checker.go:1009`, spelled `object`.
     pub non_primitive: TypeId,
-    /// `trueType`. Upstream creates it as a fresh boolean literal.
+    /// `trueType` — the **fresh** `true`, which is what a `true` *expression*
+    /// has. Upstream creates `regularTrueType` first and `trueType` as its fresh
+    /// twin; that pair is what makes `let b = true` widen to `boolean` while
+    /// `let b: true` stays `true`.
     pub true_type: TypeId,
-    /// `falseType`.
+    /// `falseType` — the fresh `false`.
     pub false_type: TypeId,
+    /// `regularTrueType`, the non-fresh `true` a literal type node yields.
+    pub regular_true: TypeId,
+    /// `regularFalseType`.
+    pub regular_false: TypeId,
 }
 
 impl Intrinsics {
@@ -92,10 +99,28 @@ impl Intrinsics {
             void: store.new_intrinsic(TypeFlags::VOID, "void"),
             never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             non_primitive: store.new_intrinsic(TypeFlags::NON_PRIMITIVE, "object"),
-            true_type: store
-                .intern(TypeFlags::BOOLEAN_LITERAL, crate::types::TypeData::BooleanLiteral(true)),
-            false_type: store
-                .intern(TypeFlags::BOOLEAN_LITERAL, crate::types::TypeData::BooleanLiteral(false)),
+            // Regular first, then fresh, matching upstream's creation order so
+            // the ids stay comparable when debugging against it.
+            regular_true: store.intern_literal(
+                TypeFlags::BOOLEAN_LITERAL,
+                crate::types::TypeData::BooleanLiteral(true),
+                false,
+            ),
+            regular_false: store.intern_literal(
+                TypeFlags::BOOLEAN_LITERAL,
+                crate::types::TypeData::BooleanLiteral(false),
+                false,
+            ),
+            true_type: store.intern_literal(
+                TypeFlags::BOOLEAN_LITERAL,
+                crate::types::TypeData::BooleanLiteral(true),
+                true,
+            ),
+            false_type: store.intern_literal(
+                TypeFlags::BOOLEAN_LITERAL,
+                crate::types::TypeData::BooleanLiteral(false),
+                true,
+            ),
         }
     }
 }

@@ -66,6 +66,20 @@ pub struct Type {
     pub flags: TypeFlags,
     /// The kind-specific payload.
     pub data: TypeData,
+    /// Whether this is the *fresh* form of a literal type.
+    ///
+    /// Upstream keeps a `freshType`/`regularType` pair on `LiteralType` and
+    /// asks `isFreshLiteralType(t)` — which is `t.freshType == t`, i.e. pointer
+    /// identity (`checker.go`). Here the two forms are two interned types
+    /// differing only in this bit, so the same question is `TypeId` equality.
+    ///
+    /// It decides one visible thing: `getWidenedLiteralType`
+    /// (`checker.go:25487`) widens a literal **only if it is fresh**. A literal
+    /// written as an expression is fresh, so `let x = "a"` widens to `string`;
+    /// a literal arriving from a type node is regular, so `let x: "a"` stays
+    /// `"a"`. Both print identically, which is why this is a field and not
+    /// something recoverable from the printed form.
+    pub fresh: bool,
 }
 
 /// Every type the checker has created, interned.
@@ -85,7 +99,7 @@ pub struct Type {
 pub struct TypeStore {
     types: Vec<Type>,
     /// Literal types only. See the note above on why intrinsics are excluded.
-    interned: FxHashMap<(TypeFlags, TypeData), TypeId>,
+    interned: FxHashMap<(TypeFlags, TypeData, bool), TypeId>,
 }
 
 impl TypeStore {
@@ -121,7 +135,7 @@ impl TypeStore {
     ///
     /// Ported from `Checker.newIntrinsicType` (`checker.go:25017`).
     pub fn new_intrinsic(&mut self, flags: TypeFlags, name: &'static str) -> TypeId {
-        self.push(Type { flags, data: TypeData::Intrinsic { name } })
+        self.push(Type { flags, data: TypeData::Intrinsic { name }, fresh: false })
     }
 
     /// Create or reuse a literal type.
@@ -129,11 +143,20 @@ impl TypeStore {
     /// Interned: `"a"` written twice is one type, which is what makes literal
     /// identity comparable by [`TypeId`].
     pub fn intern(&mut self, flags: TypeFlags, data: TypeData) -> TypeId {
-        if let Some(&existing) = self.interned.get(&(flags, data.clone())) {
+        self.intern_literal(flags, data, false)
+    }
+
+    /// Create or reuse a literal type in its fresh or regular form.
+    ///
+    /// The two forms are separate interned types, so `TypeId` equality answers
+    /// `isFreshLiteralType` the way pointer identity does upstream. They print
+    /// the same string, exactly as `anyType` and `errorType` do.
+    pub fn intern_literal(&mut self, flags: TypeFlags, data: TypeData, fresh: bool) -> TypeId {
+        if let Some(&existing) = self.interned.get(&(flags, data.clone(), fresh)) {
             return existing;
         }
-        let id = self.push(Type { flags, data: data.clone() });
-        self.interned.insert((flags, data), id);
+        let id = self.push(Type { flags, data: data.clone(), fresh });
+        self.interned.insert((flags, data, fresh), id);
         id
     }
 

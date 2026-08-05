@@ -19,13 +19,21 @@ table. `checker_types` reads **0/9,538** and that is correct, not a bug.
 | Intrinsics | Created in upstream's order (`checker.go:975`–`1015`) |
 | Literal & keyword expression types | With interning |
 | `type_to_string` | For the above, in `.types` baseline form |
-| Literal widening | The direction only — see below |
+| **Declaration types** | `getTypeOfSymbol` for variables, parameters and properties (`bd tsr-4sc.2`) |
+| **Type nodes** | `getTypeFromTypeNode` for the keyword, literal and parenthesised forms |
+| **Literal freshness** | The `freshType`/`regularType` pair, which is what makes `const x = "a"` be `"a"` and `let x = "a"` be `string` |
+| **Circularity detection** | The resolution stack, `pushTypeResolution`/`popTypeResolution` |
+| **Identifier references** | Resolve the name, take the symbol's type — with no narrowing |
 
-**What does not exist:** declaration types (`getTypeOfSymbol`), type nodes,
-object/union/intersection/generic/conditional/indexed-access types,
+**What does not exist:** object/union/intersection/generic/conditional/
+indexed-access types, type references (so `interface I` is unusable as an
+annotation), functions, classes, enums, accessors, aliases, destructuring,
 assignability, inference, overload resolution, control-flow narrowing, and every
-one of the checker's diagnostics. `bd tsr-4sc.2` is the next slice; the
-structural blocker under it is now cleared — see below.
+one of the checker's diagnostics.
+
+`checker_types` still reads **0/9,538**, and that is correct: the checker can now
+type a declaration, but nothing renders those types in `.types` baseline form.
+That producer is `bd tsr-4sc.3`, and it is what will first move the number.
 
 ## Reaching a declaration from a symbol — the blocker, now cleared
 
@@ -99,6 +107,51 @@ recorded here because the summaries are what the next session will read first.
   cycle they mark **every frame from the cycle start onward** as failed — so all
   participants in the cycle resolve to an error, not only the symbol that closed
   it. A boolean "currently resolving" flag per symbol does not reproduce that.
+
+## What the declaration slice does *not* do, stated precisely
+
+Three limits worth knowing before reading a `checker_types` failure, because each
+produces a plausible-looking wrong answer rather than an obvious gap.
+
+- **No control-flow narrowing.** `checkIdentifier` is ported only as far as
+  "resolve the name, take the symbol's type", so a reference yields the
+  *declared* type. Upstream reaches `getFlowTypeOfReference` here, so a reference
+  to `let x = "a"` narrows to `"a"` where the assignment dominates; ours says
+  `string`. The binder builds the flow graph already and nothing reads it.
+- **The annotation branch of `reportCircularityError` is unreachable today.**
+  A circular *initialiser* returns `anyType` and is tested end to end; a circular
+  *type annotation* returns `errorType` and cannot yet be triggered, because the
+  type nodes that could close such a cycle — `typeof x`, a type reference — are
+  unported and yield `errorType` without recursing. The branch is written because
+  it is upstream's behaviour, and it is recorded here as untested rather than
+  presented as working.
+- **The symbol-flags dispatch is currently redundant.** `getTypeOfSymbol` tests
+  `SymbolFlags::VARIABLE | PROPERTY` before taking the variable path, exactly as
+  upstream does. For every symbol shape this slice reaches, deleting that test
+  changes nothing — a non-variable symbol's declaration kind is rejected by the
+  worker's match and lands on the same `errorType`. Mutating it turns no test
+  red, and that is stated rather than papered over with a test that would not
+  bite.
+
+## A correction the tests forced
+
+The first version of `a_reference_takes_the_type_of_what_it_resolves_to`
+asserted that `const a = "x"; let b = a;` gives `b : "x"`, on the assumption that
+a *reference* could not carry a fresh literal type. It gives `string`, and the
+implementation was right.
+
+**Freshness propagates through a `const`.**
+`getWidenedLiteralTypeForInitializer` (`checker.go:16897`) returns the
+initialiser's type *unchanged* when the declaration is constant — and that type
+is the fresh literal `checkExpression` produced. So `a` holds a fresh `"x"`, and
+the `let` still has something to widen. The contrast that pins it is
+`let a: "x" = "x"; let b = a;`, where `a`'s type came from a type *node* and is
+therefore regular, so `b` stays `"x"`.
+
+That contrast is also the only thing in the suite that distinguishes freshness at
+all: deleting the freshness check from `getWidenedLiteralType` turned **no test
+red** until that case was written, because every other path either starts from a
+fresh literal or returns an annotation without widening.
 
 ## Two decisions that shape the rest
 
