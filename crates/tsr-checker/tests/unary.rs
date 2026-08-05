@@ -72,10 +72,10 @@ fn typeof_is_the_sorted_union_of_the_eight_result_strings() {
 #[test]
 fn typeof_does_not_inherit_a_gap_from_its_operand() {
     // `checkTypeOfExpression` (`checker.go:10617`) discards the operand's type
-    // entirely, so this is the one form where an unportable operand does *not*
-    // make the answer a gap. `class C {}` gives `new C()` — an unported form —
-    // as an operand whose own type is `error`.
-    assert_eq!(type_of_last("class C {}\nconst t = typeof new C();"), TYPEOF);
+    // entirely, so this is the one form where an operand this port cannot type
+    // does *not* make the answer a gap. The operand here is a variable whose
+    // annotation names a type that does not resolve, so its own type is `error`.
+    assert_eq!(type_of_last("var u: Unresolved;\nconst t = typeof u;"), TYPEOF);
 }
 
 // ------------------------------------------------- prefix `-` and `+` ---
@@ -168,5 +168,11 @@ fn an_operand_this_port_cannot_type_makes_the_result_a_gap() {
     // The only thing the answer depends on is whether the operand is
     // bigint-like, and an `error` operand is exactly the case where that is
     // unknown — so `number` would be a guess.
-    assert_eq!(type_of_last("class C {}\nconst x = -new C();"), "error");
+    //
+    // The operand is a variable with an unresolvable annotation rather than an
+    // unported *expression* form, deliberately: this fixture used `new C()`
+    // until `new` was ported, at which point it started asserting the opposite
+    // of what it says. An unresolved name stays a gap however much of the
+    // expression grammar lands later.
+    assert_eq!(type_of_last("var u: Unresolved;\nconst x = -u;"), "error");
 }

@@ -169,6 +169,8 @@ impl Checker<'_, '_> {
             Expression::PostfixUnaryExpression(node) => self.check_postfix_unary_expression(node),
             // `checkConditionalExpression` (`checker.go:10934`).
             Expression::ConditionalExpression(node) => self.check_conditional_expression(node),
+            // `resolveNewExpression` (`checker.go:8575`).
+            Expression::NewExpression(node) => self.check_new_expression(node),
             _ => self.intrinsics.error,
         }
     }
@@ -534,6 +536,90 @@ impl Checker<'_, '_> {
         // An enum literal carries STRING_LITERAL or NUMBER_LITERAL as well, so
         // the flag test alone would let it through.
         !t.flags.intersects(TypeFlags::ENUM_LIKE) && SAFE.contains(t.flags)
+    }
+
+    /// The type of `new C()`.
+    ///
+    /// Ported from `Checker.resolveNewExpression` (`checker.go:8575`), reduced to
+    /// the single shape whose answer does not need a construct signature.
+    ///
+    /// # Why this does not go through signatures at all
+    ///
+    /// Upstream takes the callee's apparent type, pulls its
+    /// `SignatureKindConstruct` signatures and runs `resolveCall` over them; the
+    /// result is that signature's return type. [`crate::signatures::Signature`]
+    /// **has no construct flag** — `signatures.rs` says so where it refuses to
+    /// fold `ConstructorTypeNode` into the function-type arm — so that route is
+    /// closed.
+    ///
+    /// It is closed but not needed for the common case, because of a fact about
+    /// classes rather than about signatures: a class's implicit construct
+    /// signature returns the class's *instance* type, and a constructor cannot
+    /// carry a return type annotation to make it return anything else. So for a
+    /// class callee the answer is `getDeclaredTypeOfSymbol` on the class symbol,
+    /// which this port already computes, and the signature is not on the path to
+    /// it. 160 baseline lines record `>new C() : C`.
+    ///
+    /// This is a **reduction, not a shortcut**: it answers exactly the cases
+    /// where the signature would have been redundant, and gaps every case where
+    /// the signature actually carries information.
+    ///
+    /// # What gaps, and why each one has to
+    ///
+    /// - **A generic class.** `new C<T>()` needs `inferTypeArguments`, and the
+    ///   uninstantiated instance type would print `C<T>` where upstream prints
+    ///   the inferred `C<number>`.
+    /// - **Explicit type arguments**, for the same reason, and matching
+    ///   [`Self::check_call_expression`]'s rule.
+    /// - **An abstract class.** Upstream reports and answers `errorType`
+    ///   (`checker.go:8620`), so this is upstream's own answer rather than a
+    ///   local gap.
+    /// - **Any non-class callee.** `new Date()` prints `Date` upstream, but it
+    ///   goes through a `DateConstructor` *interface* with a real construct
+    ///   signature member; there is nothing about it this port can shortcut, and
+    ///   48 baseline lines of `>new StringHashTable() : any` are a reminder that
+    ///   the non-class cases do not all answer the obvious thing.
+    fn check_new_expression(&mut self, node: &tsr_ast::NewExpression<'_>) -> TypeId {
+        let error = self.intrinsics.error;
+        if !node.type_arguments.is_empty() {
+            return error;
+        }
+        let Some(callee) = node.expression else { return error };
+        let callee_type = self.check_expression(callee);
+        // The callee's type is the class's *static* side, which
+        // `getTypeOfFuncClassEnumModule` gives as an anonymous type carrying the
+        // class symbol. Reaching the symbol through the type rather than through
+        // the callee's syntax is what makes `new (C)()` and an aliased class
+        // work the same way.
+        let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data else {
+            return error;
+        };
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS) {
+            return error;
+        }
+        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+        else {
+            return error;
+        };
+        let (type_parameters, modifiers) = match self.node_map.get(declaration) {
+            Some(Node::ClassDeclaration(class)) => (class.type_parameters, class.modifiers),
+            Some(Node::ClassExpression(class)) => (class.type_parameters, class.modifiers),
+            _ => return error,
+        };
+        if !type_parameters.is_empty() {
+            return error;
+        }
+        // `ast.HasModifier(valueDecl, ast.ModifierFlagsAbstract)` — upstream
+        // reports "Cannot create an instance of an abstract class" and answers
+        // `errorType`, so gapping here agrees with upstream rather than
+        // diverging from it.
+        if modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::AbstractKeyword)
+        }) {
+            return error;
+        }
+        self.get_declared_type_of_symbol(symbol)
     }
 }
 

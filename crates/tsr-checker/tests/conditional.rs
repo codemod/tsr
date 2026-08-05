@@ -104,7 +104,12 @@ fn an_object_branch_is_a_gap_because_subtype_reduction_would_collapse_it() {
 fn a_gap_in_a_branch_is_a_gap_in_the_conditional() {
     // Printing the branch we could type would claim the conditional has that
     // type, which is a wrong line rather than a missing one.
-    assert_eq!(type_of_last("var c: boolean;\nclass C {}\nconst x = c ? 1 : new C();"), "error");
+    //
+    // The unportable branch is a variable with an unresolvable annotation, so
+    // this exercises the `branch == error` arm specifically. An object-typed
+    // branch would also gap, but through the subtype-reduction fence instead —
+    // a different rule, tested above.
+    assert_eq!(type_of_last("var c: boolean;\nvar u: Unresolved;\nconst x = c ? 1 : u;"), "error");
 }
 
 #[test]

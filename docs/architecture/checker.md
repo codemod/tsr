@@ -3012,3 +3012,51 @@ literal flags, because their reduction is `unions.rs`'s question.
 primitives that this port gaps, or one where it prints a union and upstream
 prints a single type. The second would mean the fence is too loose, which is the
 more dangerous direction and the reason the whitelist is narrow.
+
+### `new C()` answers without a construct signature (2026-08-05)
+
+`resolveNewExpression` (`checker.go:8575`) takes the callee's apparent type,
+pulls its `SignatureKindConstruct` signatures, and runs `resolveCall` over them.
+`Signature` in this port has no construct flag — `signatures.rs` says so where it
+refuses to fold `ConstructorTypeNode` into the function-type arm — so that route
+is closed, and the obvious conclusion is that `new` is blocked behind construct
+signatures. It is not, for the most common shape.
+
+The forcing fact is about classes rather than about signatures: **a class's
+implicit construct signature returns the class's instance type, and a constructor
+cannot carry a return type annotation to make it return anything else.** So for a
+class callee the answer is `getDeclaredTypeOfSymbol` on the class symbol, which
+this port already computes, and the signature is not on the path to it. That is
+160 baseline lines of `>new C() : C`.
+
+This is a reduction rather than a shortcut: it answers exactly the cases where
+the signature would have been redundant, and gaps every case where the signature
+carries information — a generic class (needs `inferTypeArguments`), explicit type
+arguments, an abstract class (where `errorType` is upstream's own answer,
+`checker.go:8620`), and every non-class callee. `new Date()` prints `Date`
+upstream but goes through a `DateConstructor` interface with a real construct
+signature member, and `>new StringHashTable() : any` appears 48 times as a
+reminder that the non-class cases do not all answer the obvious thing.
+
+The rejected alternative was to wait for construct signatures and port `new`
+with them. It wins when `Signature` grows a construct flag, at which point this
+function should become a special case *inside* the signature path rather than a
+detour around it. It was rejected now because construct signatures are a large
+piece of work and this covers 3,056 gap lines without prejudicing it.
+
+**How we would know this is wrong:** a baseline `>new C()` line over a
+non-generic, non-abstract class whose printed type is not the class name.
+
+#### A test fixture that asserted the opposite of its comment
+
+Worth recording as a hazard rather than a decision. Two tests written for the
+unary and conditional slices used `new C()` as their example of "an expression
+this port cannot type". Porting `new` in the next commit turned `-new C()` from
+`error` into `number` — which is upstream's correct answer — so one test failed
+loudly and the other kept passing for an entirely different reason than its
+comment claimed.
+
+The lesson is that a fixture standing in for "unported" must use something that
+stays unported. Both now use a variable whose annotation names an unresolvable
+type, which is a gap that no amount of expression-grammar porting will close. A
+gap test whose fixture is a *form* rather than a *failure* has a shelf life.
