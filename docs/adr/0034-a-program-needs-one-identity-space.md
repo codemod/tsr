@@ -104,13 +104,79 @@ itself.
 **One `NodeTable` across files implies one arena across files.** `NodeMap<'a>`
 borrows typed nodes from the parse arena
 ([ADR-0033](0033-the-parser-fills-the-node-map.md)), so program-wide `NodeId`s
-mean the *program* owns the allocator and every file parses into it. That is a
-`tsr-parser` change, and its blast radius reaches past the checker: the printer,
-the declaration transform, and every parse-only conformance suite consume a
-parse result today and would have to consume a program-of-one-file instead.
-The expectation is that they degrade to exactly that and change by nothing.
-**That is a prediction, not a finding.** ADR-0033 exists because this repository
-once predicted a fill was free and measured +16.1%.
+mean every file parses into one allocator. That is a `tsr-parser` change, and
+its blast radius reaches past the checker: the printer, the declaration
+transform, and every parse-only conformance suite consume a parse result today
+and would have to consume a program-of-one-file instead. The expectation is that
+they degrade to exactly that and change by nothing. **That is a prediction, not
+a finding.** ADR-0033 exists because this repository once predicted a fill was
+free and measured +16.1%.
+
+*Measured so far:* zero. Every one of those crates builds and tests green
+across the parser and binder halves of this widening, because the single-file
+entry points (`parse_with_options`, `bind`) kept their signatures and are now
+defined as the shared-table ones over fresh tables. The prediction is not
+discharged until `Program` actually shares an arena.
+
+### Who owns the arena: the caller
+
+Decided 2026-08-05, after the alternatives met the code.
+
+```rust
+let arena   = tsr_core::Arena::new();
+let program = Program::load(&arena, host, options);   // Program<'a> borrows
+```
+
+Not the loader and not the `Program`. **The arena's extent is the compilation**,
+and both of those are borrowers: handing ownership from the loader to the
+program would encode a transfer that has no meaning, since the loader does not
+stop needing the memory, it stops existing. It is also how the conformance
+harness must call it anyway — 12,444 cases each want an arena scoped to the
+case and dropped at its end, which is a scope under this design and an ownership
+dance under any other.
+
+**The file texts and names live in the arena too, and this is what makes the
+design work.** A `Symbol`'s name borrows the source text
+(`FileInfo { name: &'a str, text: &'a str }`) — which is *why*
+`crates/tsr-compiler/src/file.rs` owns each file's text inside its `self_cell`
+today. The arena was never the only thing that cell was holding for. Under
+caller-ownership the loader reads a file from the host and copies its text and
+name into the arena with `Arena::alloc_str` (`crates/tsr-core/src/arena.rs:159`),
+after which every borrow points at the arena alone. The cost is one extra copy
+of text we already hold in memory.
+
+With that, **`self_cell` leaves `ProgramFile` entirely rather than moving up a
+level.** Nothing about it is load-bearing: it exists solely because parse and
+bind results borrow from an arena that had nowhere else to live.
+
+*Consequence accepted:* `Program` becomes lifetime-parameterised, so it cannot
+be returned from a function that created its own arena, and anything storing one
+grows a lifetime. That is a real ergonomic tax and it is the reason to choose
+otherwise. **How we would know this was wrong:** a caller that genuinely needs
+an owning `Program` — a language service holding one across requests is the
+plausible case. The answer then is `self_cell` around the arena at the *top*
+level, which is one self-referential type instead of one per file, and strictly
+better than what exists today.
+
+**One shared `SymbolStore` serialises binding.** Added 2026-08-05, on contact
+with the code. `Program::bind_source_files` binds with rayon `par_iter_mut`
+today, and `bind_into` accumulates into one store, so binding a *program*
+becomes sequential. Upstream binds files in parallel (`BindSourceFiles` on a
+work group) and can, because its symbols are pointers with no shared allocator
+between them.
+
+For the conformance corpus this does not bite — parallelism moves to the case
+level, where the harness already parallelises, and the 15–17 ms per-case figure
+in [architecture/program.md](../architecture/program.md) is already the
+sequential number. For a real `tsc` over a large project it would, and nobody
+has measured it.
+
+The escape hatch is mechanical, which is why it is recorded rather than built:
+bind each file into its own store in parallel, then merge with a `SymbolId`
+offset. Ids are indices, so offsetting is arithmetic, and by then the node table
+is already shared. **How we would know it was needed:** a wall-clock regression
+on a multi-file build that does not appear on the corpus, whose profile is
+dominated by `bind` on one thread.
 
 **So it is measured, not argued.** ADR-0033 put the current shape at −17.0% for
 parse+bind and +7.4% for parse-only. Whatever program-wide identity is built has
