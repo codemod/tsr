@@ -65,6 +65,18 @@ fn bundled_libs() -> &'static [(String, String)] {
                 libs.push((format!("{LIB_DIRECTORY}/{name}"), text));
             }
         }
+        // Sorted, because `read_dir` yields in filesystem order and the binder
+        // takes **first-in-wins** when two files declare the same global
+        // (`binder.rs:522`). `interface Array<T>` is declared in 8 of these
+        // files and `String` in 11, so *which* declaration survives — and
+        // therefore which members a lib type has — depended on directory order.
+        // A conformance number that varies with the filesystem is not a
+        // measurement, and two machines could disagree about the same commit.
+        //
+        // Declaration merging (`bd tsr-9or.1`) makes the choice moot for merged
+        // symbols, but the sort is what makes the number reproducible *now*,
+        // and it keeps the pre- and post-merge measurements comparable.
+        libs.sort_by(|(a, _), (b, _)| a.cmp(b));
         libs
     })
     .as_slice()
