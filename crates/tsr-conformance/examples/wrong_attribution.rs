@@ -70,6 +70,23 @@
 //! `getTypeOfSymbol`; answering `typeof C` where upstream says `C` is those two
 //! collapsed.
 //!
+//! # The model is effectively THREE arms: lib can never fire here
+//!
+//! `checker_types` produces through `types_producer::assertions_for_case`, and
+//! that function binds **each unit on its own** — its own arena, its own
+//! `BindResult`, its own `Checker`, no `Program`, no lib files, nothing
+//! cross-unit. So the lib arm can only fire on a name that resolves *nowhere* and
+//! happens to be spelled like a lib name, and it reads 0 wrong (4,224 lines
+//! overall).
+//!
+//! The consequence is larger than this probe and was verified independently
+//! against the producer's source: **lib loading cannot move `checker_types` at
+//! all** until the producer is rewired to build a program. That is a property of
+//! the *measurement path*, not of any particular commit — no amount of lib work
+//! pays a measurable gradient until it changes. The arm is kept and printed
+//! because "it reads zero" is the evidence for that claim and asserting it is
+//! not; a non-zero reading would mean the reading of the producer is wrong.
+//!
 //! # The type-parameter arm reads zero, and that is NOT "no effect"
 //!
 //! The positive control says the arm fires 52 times over all 261,042 aligned
@@ -504,6 +521,17 @@ fn report(total: &Tally, arms: &[Cause]) {
          \x20   ever fire on a name that resolves NOWHERE and is spelled like a lib\n\
          \x20   name. If it is near zero that is a property of this entry point, NOT\n\
          \x20   evidence that lib loading is irrelevant to the corpus."
+    );
+    println!(
+        "  * The model is therefore EFFECTIVELY THREE ARMS. The lib arm is kept and\n\
+         \x20   printed because a zero reading is the evidence for that; a non-zero one\n\
+         \x20   would mean the producer does something other than what its source says."
+    );
+    println!(
+        "  * The type-parameter arm CANNOT see its own change: a `.types` line is\n\
+         \x20   emitted for the declaration, not for the type reference inside its\n\
+         \x20   annotation, so `class C<T> {{ p: T }}` yields a line for `p` -- a PROPERTY\n\
+         \x20   symbol, which lands in the control. Its zero is unreadable, not a zero."
     );
     println!(
         "  * Buckets are first-match-wins in the order printed. The non-exclusive\n\
