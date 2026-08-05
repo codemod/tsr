@@ -79,6 +79,13 @@ struct Upstream {
     lengths: BTreeMap<String, usize>,
     /// Declared symbol name → the packages declaring it.
     symbols: BTreeMap<String, BTreeSet<String>>,
+    /// Struct fields, **qualified only**: `SourceFile.GlobalExports`.
+    ///
+    /// A separate set rather than an entry in `symbols`, because `symbols` is
+    /// looked up by the *last* dotted segment — the first being a package or a
+    /// method receiver. A field must never resolve from its bare name (`Name` and
+    /// `Kind` exist in dozens of structs), so it is matched on the whole string.
+    fields: BTreeSet<String>,
     /// Every package (directory) name under `internal/`.
     ///
     /// Needed to tell `ast.SourceFile` — a package qualifier — from
@@ -92,16 +99,18 @@ struct Upstream {
 impl Upstream {
     /// Index every Go declaration in the tree.
     ///
-    /// Declarations only — `func`, `type`, `const`, `var` and methods. Struct
-    /// *fields* are deliberately not indexed: a field name like `Name` or `Kind`
-    /// exists in dozens of structs, so indexing them would make almost any symbol
-    /// resolve and the check would pass vacuously.
+    /// Declarations — `func`, `type`, `const`, `var` and methods — plus struct
+    /// fields, which are indexed **only** in qualified `Type.Field` form. A bare
+    /// field name like `Name` or `Kind` exists in dozens of structs, so resolving
+    /// one would make almost any span resolve and the check would pass vacuously;
+    /// `SourceFile.GlobalExports` carries its struct and cannot.
     fn index(root: &Path) -> Result<Self> {
         let mut upstream = Self {
             root: root.to_path_buf(),
             files: BTreeSet::new(),
             lengths: BTreeMap::new(),
             symbols: BTreeMap::new(),
+            fields: BTreeSet::new(),
             packages: BTreeSet::new(),
         };
         let internal = root.join("internal");
@@ -138,7 +147,11 @@ impl Upstream {
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_default();
             for name in declarations(&source) {
-                self.symbols.entry(name).or_default().insert(package.clone());
+                if name.contains('.') {
+                    self.fields.insert(name);
+                } else {
+                    self.symbols.entry(name).or_default().insert(package.clone());
+                }
             }
             self.packages.insert(package);
         }
@@ -175,6 +188,10 @@ impl Upstream {
                 }
             }
             Reference::Symbol(symbol) => {
+                // A qualified struct field is matched whole; see `fields`.
+                if self.fields.contains(symbol) {
+                    return None;
+                }
                 // `ast.SourceFile` qualifies by package; `Printer.emitSourceFile`
                 // is receiver notation for a method. Only the first constrains
                 // where the symbol may live.
@@ -207,12 +224,46 @@ impl Upstream {
     }
 }
 
-/// Top-level Go declarations in one file.
+/// Top-level Go declarations in one file, plus struct fields as `Type.Field`.
+///
+/// Fields are indexed **only in qualified form**. A bare field name is still not a
+/// resolvable symbol, which is the point of the original exclusion: `Name` and
+/// `Kind` exist in dozens of structs, so indexing them bare would make almost any
+/// span resolve and the check would pass vacuously. `SourceFile.GlobalExports`
+/// carries the struct, so it is precise and cannot resolve by accident.
+///
+/// Adding them was forced by measurement, not tidiness. Broadening the anchor
+/// phrasings to include `Upstream:`/`Upstream's` surfaced 114 previously unchecked
+/// references and 13 failures, of which five were citations of real struct fields
+/// (`SourceFile.GlobalExports`, `BodyBase.EndFlowNode`) — false failures of exactly
+/// the kind this module says cost more than a missed check. A struct field is a
+/// legitimate thing for ported code to cite; the checker port will cite hundreds.
 fn declarations(source: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut in_block = None::<&str>;
+    // The `type X struct {` currently open, so its fields can be qualified.
+    let mut in_struct = None::<String>;
     for line in source.lines() {
         let trimmed = line.trim_start();
+        // Fields belong to the struct being read. Closing brace at column zero
+        // ends it — Go's gofmt guarantees that, and the alternative is counting
+        // braces through nested literals for no gain.
+        if let Some(struct_name) = &in_struct {
+            if line.starts_with('}') {
+                in_struct = None;
+            } else if leading_identifier(trimmed).is_some() {
+                // `Pos, End int` declares two fields on one line: every token that
+                // ends in a comma is a field, and so is the one that stops the run.
+                for token in trimmed.split_whitespace() {
+                    let Some(name) = leading_identifier(token) else { break };
+                    names.push(format!("{struct_name}.{name}"));
+                    if !token.ends_with(',') {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
         // `const (` / `var (` / `type (` blocks declare one name per line.
         if let Some(keyword) = in_block {
             if trimmed.starts_with(')') {
@@ -228,7 +279,10 @@ fn declarations(source: &str) -> Vec<String> {
                 if rest.trim() == "(" {
                     in_block = Some(keyword);
                 } else if let Some(name) = leading_identifier(rest) {
-                    names.push(name);
+                    names.push(name.clone());
+                    if keyword == "type " && rest.trim_end().ends_with("struct {") {
+                        in_struct = Some(name);
+                    }
                 }
             }
         }
@@ -254,36 +308,86 @@ fn leading_identifier(text: &str) -> Option<String> {
     if first.is_ascii_digit() { None } else { Some(name) }
 }
 
-/// Anchor phrasings in use. Checked against the tree rather than invented:
-/// `Corresponds to` 277, `Ported from` 234, `Stands in for` 5.
 /// Anchor phrasings in use. Taken from the tree rather than invented:
 /// `Corresponds to` 277, `Ported from` 234, `Stands in for` 5.
 ///
-/// A speculative fourth entry, `"ports "`, was removed: it is a substring of
-/// "reports", "supports", "imports" and "exports", so it turned ordinary prose
-/// into anchors and then reported their backticks as missing Go declarations.
+/// A speculative entry, `"ports "`, was removed: it is a substring of "reports",
+/// "supports", "imports" and "exports", so it turned ordinary prose into anchors
+/// and then reported their backticks as missing Go declarations.
+///
+/// **`Upstream:` and `Upstream's` were tried and rejected**, and the attempt is
+/// worth recording because the motivation was real. `tsr-binder` reported 7 anchors
+/// while containing 89 upstream citations, so a whole session's worth of new line
+/// numbers had gone in unverified. Adding those two phrases did check 114 more
+/// references — and produced 11 failures that were almost all prose, because
+/// "Upstream's" introduces a sentence at least as often as a citation:
+/// "Upstream's struct has 27 fields; the ones absent here are the visitors it
+/// builds in its constructor" grabbed a backtick from the middle of the following
+/// clause. That is the `"ports "` failure again, one layer up.
+///
+/// The lesson is that a *phrase* cannot make an ambiguous span checkable. What
+/// solved the actual problem was [`positions_in`]: a `` `path.go:N` `` span is
+/// self-identifying and is now checked wherever it appears, phrase or no phrase.
 const PHRASINGS: &[&str] = &["Ported from", "Corresponds to", "Stands in for"];
+
+/// Every `path.go` or `path.go:N` span in one comment line.
+///
+/// **Not gated on an anchor phrase.** A backticked span ending in `.go`, or in
+/// `.go:` and digits, cannot be anything but a claim about upstream: it is not
+/// prose, not a Rust path, and not a Go symbol. So it is checked wherever it
+/// appears — including mid-sentence, which is where most of them are written:
+/// "the message selection (`binder.go:214` block scoped → TS2451)".
+///
+/// This is what a phrase list cannot do. Requiring `Ported from` before a line
+/// number left 27 `file.go:N` references in `tsr-binder` unchecked; broadening the
+/// phrases to reach them swept in prose instead (see [`PHRASINGS`]). Positions are
+/// self-identifying, so they need no introduction; symbols are ambiguous, so they
+/// still do.
+fn positions_in(text: &str) -> Vec<Reference> {
+    backticked(text)
+        .iter()
+        .filter_map(|span| match classify(span) {
+            Some(reference @ (Reference::Path(_) | Reference::Line(..))) => Some(reference),
+            _ => None,
+        })
+        .collect()
+}
 
 /// Extract every anchor from one Rust file.
 fn anchors_in(path: &Path, source: &str) -> Vec<Anchor> {
     let lines: Vec<&str> = source.lines().collect();
     let mut anchors = Vec::new();
+    // Lines already claimed by a phrase anchor's wrap window. Without this, the
+    // continuation line of `Ported from \`X\`\n/// (\`file.go:63\`)` becomes a
+    // second, position-only anchor and the reference is counted twice — which is
+    // how the existing extraction test caught this.
+    let mut claimed = BTreeSet::new();
     for (index, line) in lines.iter().enumerate() {
         if !is_comment(line) {
             continue;
         }
         let Some(phrase) = PHRASINGS.iter().find(|phrase| line.contains(**phrase)) else {
+            // No anchor phrase, but a cited file or line still has to resolve.
+            let positions = positions_in(line);
+            if !positions.is_empty() && !claimed.contains(&index) {
+                anchors.push(Anchor {
+                    file: path.to_path_buf(),
+                    line: index + 1,
+                    references: positions,
+                });
+            }
             continue;
         };
         // An anchor's claim can wrap, so the window is this comment line and up to
         // two continuations.
-        let window: String = lines[index..]
+        let window_lines: Vec<&str> = lines[index..]
             .iter()
             .take(3)
             .take_while(|following| is_comment(following))
             .copied()
-            .collect::<Vec<_>>()
-            .join(" ");
+            .collect();
+        claimed.extend(index..index + window_lines.len());
+        let window = window_lines.join(" ");
         let after = window.find(*phrase).map_or("", |at| &window[at + phrase.len()..]);
         let references = references_in(after);
         if !references.is_empty() {
@@ -539,13 +643,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn go_declarations_are_indexed_but_struct_fields_are_not() {
+    fn go_declarations_are_indexed_and_struct_fields_only_qualified() {
         let source = "\
 package printer
 
 type Printer struct {
 	writer textWriter
 	Name   string
+	Pos, End int
 }
 
 func NewPrinter() *Printer { return nil }
@@ -566,9 +671,17 @@ var defaultIndentSize = 4
         assert!(names.contains(&"LFNone".to_string()), "const blocks declare one name per line");
         assert!(names.contains(&"LFMultiLine".to_string()));
         assert!(names.contains(&"defaultIndentSize".to_string()));
-        // A field name would make almost any symbol resolve, and the check would
-        // pass vacuously.
-        assert!(!names.contains(&"writer".to_string()), "struct fields must not be indexed");
+        // A **bare** field name would make almost any span resolve and the check
+        // would pass vacuously, so fields are indexed only with their struct.
+        assert!(!names.contains(&"writer".to_string()), "a bare field must not resolve");
+        assert!(!names.contains(&"Name".to_string()), "a bare field must not resolve");
+        assert!(names.contains(&"Printer.writer".to_string()), "qualified fields resolve");
+        assert!(names.contains(&"Printer.Name".to_string()));
+        // `Pos, End int` declares two fields on one line.
+        assert!(names.contains(&"Printer.Pos".to_string()));
+        assert!(names.contains(&"Printer.End".to_string()));
+        // The struct ends at the closing brace; what follows is not a field.
+        assert!(!names.contains(&"Printer.NewPrinter".to_string()));
     }
 
     #[test]
@@ -616,6 +729,32 @@ pub struct Transformer;
                 Reference::Symbol("DeclarationTransformer".into()),
             ]
         );
+    }
+
+    #[test]
+    fn a_cited_line_is_checked_without_an_anchor_phrase() {
+        // Most line citations are written mid-sentence, with no "Ported from" in
+        // front. Requiring the phrase left 27 of them unchecked in `tsr-binder`.
+        let source = "\
+        // Half is already ported — the message selection (`binder.go:214` block
+        // scoped → TS2451), and reporting on every declaration (`binder.go:259`).
+        let x = 1;
+";
+        let anchors = anchors_in(Path::new("x.rs"), source);
+        let references: Vec<&Reference> = anchors.iter().flat_map(|a| &a.references).collect();
+        assert!(references.contains(&&Reference::Line("binder.go".into(), 214)));
+        assert!(references.contains(&&Reference::Line("binder.go".into(), 259)));
+    }
+
+    #[test]
+    fn prose_without_a_phrase_or_a_path_is_not_an_anchor() {
+        // The guard against the `"ports "` and `Upstream's` failures: an ordinary
+        // comment full of backticks claims nothing about upstream.
+        let source = "\
+        // `self.container` is the nearest `HAS_LOCALS` container, and `T` is not.
+        let x = 1;
+";
+        assert!(anchors_in(Path::new("x.rs"), source).is_empty());
     }
 
     #[test]

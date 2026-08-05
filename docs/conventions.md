@@ -21,7 +21,11 @@ mechanical drift tracking and manual review of every upstream commit.
 
 **Anchors are checked.** `cargo xtask anchors` verifies that every cited file,
 line and Go declaration still resolves against the pinned submodule, and CI fails
-if one does not. Pointed at a newer checkout with `--upstream`, the same check *is*
+if one does not. A cited **file or line is checked wherever it appears**, phrase or
+no phrase — `` (`binder.go:214`) `` mid-sentence counts, because a `.go:N` span
+cannot be anything but a claim about upstream. A cited **Go declaration** needs one
+of the phrases above in front of it, since a bare backticked name is otherwise
+indistinguishable from prose. Pointed at a newer checkout with `--upstream`, the same check *is*
 the drift report. An anchor nobody verifies is worse than no anchor, because it is
 believed — the tool found four broken ones on its first run, three of them written
 the previous day. See [architecture/upstream-anchors.md](architecture/upstream-anchors.md).

@@ -48,16 +48,28 @@ Three kinds of claim, extracted from anchor comments:
 | A file and line | `` `internal/printer/printer.go:4745` `` | the file is at least that long |
 | A Go declaration | `` `ast.SourceFile` ``, `` `Printer.emitList` `` | an index of every `func`, `type`, `const`, `var` and method under `internal/` |
 
-Struct **fields** are deliberately not indexed. A field named `Name` or `Kind`
-exists in dozens of structs, so indexing them would make almost any symbol resolve
-and the check would pass vacuously. The cost is that an anchor naming a field is
-invisible to the tool; the alternative is a check that cannot fail.
+Struct **fields** are indexed, but **only qualified**: `SourceFile.GlobalExports`
+resolves, a bare `GlobalExports` does not. The original rule excluded fields
+entirely, on the grounds that a field named `Name` or `Kind` exists in dozens of
+structs and indexing them would make almost any symbol resolve. That reasoning is
+right about bare names and does not apply to qualified ones — `SourceFile.GlobalExports`
+cannot resolve by accident — and ported code legitimately cites fields. Resolution
+matches the whole string, so the anti-vacuity property is kept.
 
-### The claims it will not make
+### Positions are checked wherever they appear; symbols need a phrase
 
-Only what the anchor *phrase* introduces — the first backticked span after
-`Ported from` / `Corresponds to` / `Stands in for` — plus any `.go` path in the
-same anchor. Everything else in the comment is ignored.
+A backticked span ending in `.go`, or `.go:` and digits, is checked **with or
+without an anchor phrase**. It cannot be anything else: not prose, not a Rust path,
+not a Go symbol. Most line citations are written mid-sentence —
+
+> the message selection (`binder.go:214` block scoped → TS2451)
+
+— and requiring `Ported from` in front of them left **27 such references in
+`tsr-binder` unchecked**, including a whole session's worth written the same day.
+
+A Go *symbol*, by contrast, is only claimed when an anchor phrase introduces it:
+the first backticked span after `Ported from` / `Corresponds to` / `Stands in for`.
+Everything else in the comment is ignored.
 
 That rule was arrived at the hard way. An earlier version classified every
 backticked span in an anchor comment and reported 42 failures: `TS9017`,
@@ -69,6 +81,21 @@ gate.
 A related trap in the same pass: `PHRASINGS` briefly included `"ports "`, which is
 a substring of *reports*, *supports*, *imports* and *exports*. It turned ordinary
 sentences into anchors and then disbelieved their backticks.
+
+**The same trap caught a second time, one layer up.** `tsr-binder` reported 7
+anchors while containing 89 upstream citations, so `Upstream:` and `Upstream's`
+were added to `PHRASINGS` to reach them. That did check 114 more references — and
+produced 11 failures that were almost all prose, because "Upstream's" introduces a
+sentence at least as often as a citation:
+
+> Upstream's struct has 27 fields; the ones absent here are the visitors it builds
+> in its constructor
+
+which grabbed a backtick from the middle of the following clause. Both phrasings
+were reverted. The lesson is that **a phrase cannot make an ambiguous span
+checkable**; what solved the real problem was checking self-identifying positions
+unconditionally, above. `tsr-binder` went from 7 anchors to 35 that way, with no
+comment rewritten.
 
 ## What it found on its first run
 
