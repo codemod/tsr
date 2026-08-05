@@ -195,6 +195,21 @@ pub mod counters {
         /// not exist" for most of these, but an incomplete member lookup here
         /// lands in the same row.
         callee_member_absent = "      of which: no such member",
+        /// **Subset of `no such member`.** The receiver's type HAS a member
+        /// table and the name is not in it — the lookup ran and answered no,
+        /// which is upstream's answer too.
+        member_absent_looked_up = "        receiver has members, name absent",
+        /// **Subset.** An intrinsic receiver (`string`, `number`, `boolean`).
+        /// `get_property_of_type` returns `None` before reading the name, and
+        /// upstream *does* have members here — `charAt`, `toFixed`. Ours.
+        member_absent_intrinsic = "        receiver is an intrinsic",
+        /// **Subset.** A union or intersection receiver: no member table, and
+        /// upstream distributes the lookup. Ours.
+        member_absent_composite = "        receiver is a union or intersection",
+        /// **Subset.** A `Named` type whose members this port never built. Ours.
+        member_absent_named_no_members = "        receiver is Named without members",
+        /// **Subset.** A literal type receiver, or any other shape. Ours.
+        member_absent_other = "        receiver is another shape",
         /// **Subset.** The member exists and types as `error` — this port found
         /// the symbol and could not type it. The actionable half.
         callee_member_type_error = "      of which: member types as error",
@@ -378,6 +393,25 @@ impl Checker<'_, '_> {
                 };
                 if member.is_none() {
                     bump(&COUNTERS.callee_member_absent);
+                    // Split by the RECEIVER's shape, because
+                    // `get_property_of_type` (`members.rs:163`) returns `None`
+                    // for every shape but these two **before** it reads the
+                    // name. "The lookup ran and said no" and "we never looked"
+                    // are the same row otherwise, and they want opposite
+                    // conclusions: the first is upstream's answer too.
+                    bump(match self.store.get(receiver).data {
+                        TypeData::Named { members: Some(_), .. } | TypeData::Anonymous { .. } => {
+                            &COUNTERS.member_absent_looked_up
+                        }
+                        TypeData::Intrinsic { .. } => &COUNTERS.member_absent_intrinsic,
+                        TypeData::Union { .. } | TypeData::Intersection { .. } => {
+                            &COUNTERS.member_absent_composite
+                        }
+                        TypeData::Named { members: None, .. } => {
+                            &COUNTERS.member_absent_named_no_members
+                        }
+                        _ => &COUNTERS.member_absent_other,
+                    });
                 } else if callee_type == error {
                     bump(&COUNTERS.callee_member_type_error);
                 } else {

@@ -66,6 +66,8 @@ fn share(count: u64, total: u64) -> f64 {
 fn concentrated(snapshot: &counters::Snapshot) -> u64 {
     match std::env::var("TSR_FUNNEL_CONCENTRATION").as_deref() {
         Ok("member-error") => snapshot.callee_member_type_error,
+        Ok("member-absent-intrinsic") => snapshot.member_absent_intrinsic,
+        Ok("member-absent-named") => snapshot.member_absent_named_no_members,
         _ => snapshot.callee_not_anonymous,
     }
 }
@@ -186,6 +188,18 @@ fn main() {
                 counters.callee_member_absent
                     + counters.callee_member_type_error
                     + counters.callee_member_not_object
+            )
+    );
+    println!(
+        "{:<48}{:>8}",
+        "UNCLASSIFIED (no such member)",
+        signed(counters.callee_member_absent)
+            - signed(
+                counters.member_absent_looked_up
+                    + counters.member_absent_intrinsic
+                    + counters.member_absent_composite
+                    + counters.member_absent_named_no_members
+                    + counters.member_absent_other
             )
     );
     let selection = counters.generic_candidate

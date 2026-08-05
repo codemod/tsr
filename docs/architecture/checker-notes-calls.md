@@ -243,6 +243,81 @@ inference from this one — writing it down as `tsr-qk9` would be the "a row nam
 after a declaration kind is usually not about that kind" error again, one
 paragraph after recording it.
 
+## `bd tsr-s2k`: 89% of "no such member" is a lookup that never ran
+
+The 1,985 was the one row still conflating "the lookup ran and said no" —
+upstream's answer too — with "this port never looked", because
+`get_property_of_type` (`members.rs:163`) returns `None` for every receiver
+shape but `Named`-with-members and `Anonymous` **before it reads the name**.
+Splitting by the receiver's `TypeData` variant, with its own control bucket:
+
+```text
+      of which: no such member                      1985
+        receiver has members, name absent            216   10.9%
+        receiver is an intrinsic                     474   23.9%
+        receiver is a union or intersection          168    8.5%
+        receiver is Named without members           1011   50.9%
+        receiver is another shape                    116    5.8%
+UNCLASSIFIED (no such member)                          0
+```
+
+Control bucket zero, so this is a partition of 1,985. Nodes, not lines.
+
+- **216 (10.9%) are not ours.** The receiver had a member table and the name was
+  not in it. Upstream reports "property does not exist" here too. Subtract them.
+- **1,769 (89.1%) are a lookup that never ran.** The mechanism is a single line
+  of `get_property_of_type`, and the hypothesis behind `tsr-s2k` is confirmed.
+- **The largest single shape is `Named` without a member table: 1,011, 50.9%.**
+
+### And the 1,011 is the most concentrated thing on this page
+
+```text
+concentration by case: 1011 over 253 cases
+    122   12.1%  compiler/promiseType
+    122   12.1%  compiler/promiseTypeStrictNull
+     65    6.4%  compiler/promisePermutations
+     65    6.4%  compiler/promisePermutations2
+     65    6.4%  compiler/promisePermutations3
+     36    3.6%  compiler/controlFlowArrays
+     20    2.0%  compiler/mapUpsert
+top 10 hold 53.0%
+```
+
+**The top five baselines are all `Promise`, and they are 439 of 1,011 — 43.4%.**
+Ten baselines hold over half. This is the `largeControlFlowGraph` shape arriving
+one level down: a row that looks like a mechanism and is substantially five
+files about one lib-declared generic interface whose members this port does not
+build.
+
+That does not make it worthless — those are 439 real nodes and five cases — but
+it settles the ranking question. **This is a case-gate item, not a gradient
+item**, and it should be labelled that way even though it is the largest thing on
+this page. 4.0 nodes per affected case over 253 cases, with half in ten files, is
+the narrow-and-deep signature `docs/conventions.md` says to rank *for cases* and
+against the gradient. The stated goal is a gradient, so a large number here must
+not recruit anyone into calling it a gradient item.
+
+### It confirms the mechanism and it does not restore the large-row strategy
+
+The falsifier as stated was *"if most of the 1,985 are one receiver-shape
+mechanism, that is a single ~2,000-node item and the large-row strategy comes
+back."* Measured, both halves of that need correcting:
+
+- "Most" holds, barely: 1,011 is 50.9% of 1,985 — but of the **10,265** it is
+  **9.8%**, and of the 16,305 calls checked it is 6.2%.
+- "~2,000" does not hold. The largest single mechanism is **1,011 nodes**, half
+  the figure the falsifier was set at. The 1,769 total spans **four** different
+  receiver shapes, and only if all four are fixed by one change does it read as
+  one item — which is a claim about `get_property_of_type`'s structure that this
+  probe does not make.
+
+So the verdict stands, with the number moved: the largest confirmed mechanism on
+the call path is ~1,011 nodes, against 12,289 lines as the row was originally
+ranked. That is still an order of magnitude down, and it is **not a `calls.rs`
+item** — it is member-table construction for `Named` types, and any line yield
+depends on how many of those 1,011 receivers this port could build members for
+at all, which is the same kind-2 chain as everything else on this page.
+
 ## Concentration: the row is distributed, and it does not evaporate
 
 `docs/conventions.md` makes this the *first* command, because on an earlier row

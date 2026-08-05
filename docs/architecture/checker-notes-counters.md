@@ -1,5 +1,16 @@
 # Where a call stops: the overload attribution histogram
 
+> **SUPERSEDED 2026-08-05 — every number below was measured without the bundled
+> lib files.** The probe that produced them bypassed
+> `types_producer::assertions_for_case`, which is what the gradient is scored
+> through and which loads the libs. The population is 10,265, not 12,015; the
+> parameter gate is 218, not 99; and the "this harness loads no lib files"
+> caveat in section 3 is **false** — it cites `binder_suite.rs`, which
+> deliberately has no libs, rather than `types_producer.rs`, which does.
+> Current numbers, the split of the 10,265 by why, and the concentration
+> rankings: [`checker-notes-calls.md`](checker-notes-calls.md).
+> (Header added by another author under `bd tsr-dgd`; the body is unedited.)
+
 Status: measured at `78cfcba` + this commit, over the 9,538-case `.types`
 corpus population.
 
