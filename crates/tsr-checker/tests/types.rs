@@ -1432,9 +1432,23 @@ fn a_signature_prints_a_parameters_annotation_as_written_not_the_symbols_type() 
     // makes that swap, and `(value?: string | undefined)` appears nowhere in the
     // corpus.
     //
-    // Only the signature side is asserted here. The declaration side belongs to
-    // `crate::optionality` and depends on a `strictNullChecks` assumption that is
-    // not this test's to pin.
+    // **Both directions, on the same declaration.** Asserting only the signature
+    // would pass under a printer that dropped `| undefined` *everywhere*,
+    // including from the parameter's own line — where upstream wants it. The two
+    // are different questions with different right answers, and it is the pair
+    // that pins the rule.
+    //
+    // Worth being exact about what each half covers, because they are not
+    // symmetric: the first assertion goes through `get_type_of_symbol` and does
+    // **not** touch the signature printer at all, so it guards the *pair* against
+    // being collapsed by a change on either side rather than guarding this
+    // crate's printer. The printer itself is pinned by the second, and both
+    // branches of its rule are mutation-verified — using the symbol type turns
+    // this red, and dropping the unannotated branch turns
+    // `an_unannotated_parameter_is_any_only_where_no_contextual_type_can_supply_one`
+    // red.
+    assert_eq!(type_of_nested_declaration("function f(x?: number) {}", "x"), "number | undefined");
+    assert_eq!(type_of_declaration("function f(x?: number) {}", "f"), "(x?: number) => void");
     assert_eq!(
         type_of_declaration("declare function f(x?: number): void;", "f"),
         "(x?: number) => void"
