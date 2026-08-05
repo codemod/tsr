@@ -365,6 +365,35 @@ pub fn type_at_location(
         }
     }
 
+    // **The left of a qualified name in type position prints `any`.**
+    //
+    // `A` in `function test(a: A.Outer)` records `>A : any` upstream, and the
+    // route it takes there is worth stating because the answer looks like a
+    // claim and is not. `getTypeOfNode` falls **all the way through** for that
+    // node — the *left* of a qualified name is not itself part of a type node,
+    // is not an expression node, and is no declaration form — so upstream
+    // returns `errorType`. The writer then renders it, and because `errorType`
+    // carries `TypeFlagsAny` the node builder prints `any`.
+    //
+    // Ours reached the expression fall-through below and answered `typeof A`,
+    // which is a **wrong answer where upstream has a computed one**. That is the
+    // second-largest parent kind among wrong identifier lines: 4,455 of them,
+    // 97.3% of the `QualifiedName` population, measured independently by two
+    // agents before either knew the other was looking.
+    //
+    // This is the same shape as the `extends`-clause compensation above — a
+    // rendering rule that lives in upstream's **baseline writer**, not in its
+    // checker — which is why it belongs here rather than in `tsr-checker`. The
+    // checker still has no answer for this node and should not pretend to; the
+    // producer knows what upstream's writer prints for it.
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(parent) == SyntaxKind::QualifiedName
+        && let Some(Node::QualifiedName(qualified)) = map.get(parent)
+        && qualified.right.and_then(|right| right.node_id) != Some(id)
+    {
+        return checker.type_to_string(checker.intrinsics().any);
+    }
+
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
         let id = checker.check_expression(expression);
         return checker.type_to_string(id);
