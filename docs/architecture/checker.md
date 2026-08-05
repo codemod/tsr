@@ -3240,3 +3240,155 @@ not. Two assertions bound it — an interface's members must stay in `members`
 (`binder.go:438-439`) and an enum's must be in `exports` *and absent from*
 `members`, because a symbol in both tables lets a lookup succeed against the
 wrong one and hides exactly the class of bug this fixes.
+
+## Aliases: the same-file slice, and why it is small (`bd tsr-4sc.9`)
+
+`getTypeOfSymbol` answered `errorType` for a `SymbolFlags::ALIAS` symbol, worth
+**4,298 aligned lines** at `e24b7ca` (2,604 declaration-name + 1,694 reference).
+The arm now ports `getTypeOfAlias` (`checker.go:18598`) for `import q = M`, and
+the honest headline is that it addresses **at most 558 of those 4,298** — an
+eighth. The measurement mattered more than the code here, so it is recorded
+first.
+
+### The measurement, before the work
+
+Counted over the corpus at `9e459cf`
+(`vendor/typescript-go/_submodules/TypeScript/tests/cases`, 18,876 `.ts` files),
+splitting multi-file cases on `// @filename:` so "same unit" means what the
+checker sees:
+
+| form | count | status |
+|---|---|---|
+| `import X = require(...)` | 764 | cross-file, blocked |
+| `import X = <entity name>` | 442 | |
+| — root declared in the same unit | 378 | |
+| — — and a **bare identifier** | 131 | **ported** (+427 identifier occurrences) |
+| — — a qualified name | 247 | gapped, see below |
+| ES `import ... from` | 2,948 | cross-file, blocked |
+
+So the ported form is 131 declarations with an upper bound of 558 lines, the
+427 being every identifier occurrence and therefore an over-count. The remaining
+~3,700 lines are **not** waiting on more checker work: they need globals merged
+across files (`crates/tsr-compiler/src/lib.rs:24`, ADR-0034, `bd tsr-9or.1`) or
+symbol accessibility. Assigning "aliases" as a 4,298-line item would have
+overstated the available work by roughly 8×.
+
+### An alias prints its target's name, except when it prints its own
+
+This is the trap, and it is visible in one baseline. `compiler/aliasBug.types`:
+
+```text
+import provide = foo;
+>provide : typeof foo
+
+import booz = foo.bar.baz;
+>booz : typeof booz
+```
+
+The bare form prints the **target's** name; the qualified form prints the
+**alias's own**. It is not two rules. Upstream's node builder emits the shortest
+accessible chain to a symbol, and an alias declaration always creates a one-link
+chain to its target. For `foo` the direct name is already one link and wins; for
+`foo.bar.baz` the direct chain is three links and loses to `booz`.
+
+This port has no symbol-accessibility machinery, so the qualified form is
+**gapped** rather than resolved. Resolving it is easy — a walk over `exports` —
+which is exactly what makes it dangerous: the resolution succeeds and the
+printed line is still wrong.
+
+**This was measured, not predicted.** Implementing the walk as a mutation and
+running the test prints `typeof baz` where upstream prints `typeof booz`. The
+gap decision rests on that observed string, not on an argument about it.
+
+**What would have to change for the qualified form to win:** a
+`symbolToTypeNode` that picks names by accessibility rather than by declaration.
+That is a renderer capability, not an alias one, and it would also change how
+`typeof` prints elsewhere — so it belongs to whoever ports the node builder's
+name resolution, not to this arm.
+
+### One compensation for a binder divergence, made explicit
+
+`getSymbolOfPartOfRightHandSideOfImportEquals` (`checker.go:14474`) documents its
+own meanings:
+
+```text
+import a = |b|;    // Namespace
+import a = |b.c|;  // Value, type, namespace
+```
+
+A bare identifier resolves in `NAMESPACE` **only**. But
+`Binder::resolve_name`'s `locals` lookup is deliberately not meaning-filtered
+(`crates/tsr-binder/src/lib.rs:300`), so `const x = 1; import q = x;` resolved
+`x` and answered `1` — a wrong line, and one no baseline records, because
+upstream rejects the alias outright.
+
+The filter is therefore re-applied in the checker at that one call site. The
+alternative, fixing `Binder::resolve_name`, was rejected: its unfiltered
+behaviour is load-bearing for its other callers and documented as such, and this
+arm should not be the thing that changes resolver semantics for everyone.
+**How I would know this was wrong:** if a second call site needs the same
+re-check, the compensation belongs in the binder after all and this becomes the
+first of a pattern rather than a one-off.
+
+A consequence worth naming because it looks like a bug: `import q = C` for a
+class `C` answers `errorType`, because `SymbolFlags::NAMESPACE` covers modules
+and enums but not classes. That is upstream's meaning at `checker.go:14486`, so
+the arm is right and the line is a genuine gap.
+
+### The `VALUE` test is a stack-overflow guard
+
+`getTypeOfAlias` answers the target's type only if the target is a value
+(`checker.go:18612`). Upstream's comment explains that this is not tidiness:
+without it, `getTypeOfSymbol` on a type-only target recurses straight back into
+`getTypeOfAlias`. `import q = I` for an interface answers `errorType`, and the
+way to a type symbol's type is `getDeclaredTypeOfSymbol`.
+
+### `yield` answers `any`, and why that is not a rule violation (2026-08-05)
+
+`check_yield_expression` is the only place in `expressions.rs` that returns
+`anyType`, so it needs justifying against the `errorType`-not-`anyType` rule.
+
+The rule forbids answering `any` for a form we could not compute. It does not
+forbid answering `any` where **upstream's own computation returns `anyType`** —
+`signatures.rs` already does exactly this for a declaration with no body. 430 of
+roughly 540 `>yield` baseline lines are `any`, and two paths in
+`checkYieldExpression` return it unconditionally: no containing function
+(`checker.go:10963`), and a containing function that is not a generator
+(`checker.go:10967`).
+
+The second is the load-bearing one, and the reason is **ordering**: that return
+happens before the function reads the return annotation or any contextual type.
+So it cannot be perturbed by the contextual typing this port does not have. A
+path that merely *usually* answers `any` would not qualify; this one always does.
+
+Inside a real generator with no return annotation, upstream ends at
+`getContextualIterationType(IterationTypeKindNext, fn)` falling back to `anyType`
+(`checker.go:11005`). Without contextual typing this port would always take the
+fallback — right when the function has no contextual type, wrong when it has one.
+The fence is therefore on the **container's kind** rather than on the yield: a
+function declaration and a class method cannot be contextually typed; a function
+expression, an arrow and an object-literal method can. The first two answer, the
+rest gap.
+
+A generator *with* a return annotation gaps, and this is the case that shows the
+`any` above is a decision rather than a blanket: upstream computes the next type
+of the annotation, and `Generator<number>`'s next type is `unknown`, not `any`.
+Answering `any` there would be a wrong line, not a conservative one.
+
+**How we would know this is wrong:** a `>yield` baseline line inside a plain
+generator function declaration that prints anything but `any`.
+
+#### A second test that pinned nothing until a mutation proved it
+
+The test for "an arrow is not transparent in `GetContainingFunction`" originally
+used `function* g() { var h = () => { yield 1; }; }`. Removing `ArrowFunction`
+from the containing-function walk left it **green**: with the arrow transparent
+the walk reaches `g`, which is a generator with no annotation, which also answers
+`any`. The two readings were indistinguishable on that fixture.
+
+The fixture now gives the enclosing generator a return annotation, so the
+transparent reading reaches `g` and gaps while the correct reading stops at the
+arrow and answers `any`. This is the second time in this slice that a mutation
+that failed to redden exposed a test asserting less than it claimed — the first
+was the `typeof` constituent order. Both were found only because every test was
+mutation-checked, and neither would have been found by reading the test.

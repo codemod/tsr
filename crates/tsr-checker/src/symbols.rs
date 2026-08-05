@@ -10,7 +10,7 @@
 //! symbol declares. A class `C` **declares** the instance type `C` and **has**
 //! the type `typeof C`.
 
-use tsr_ast::{Expression, Node, NodeFlags, NodeId, SyntaxKind, TypeNode};
+use tsr_ast::{Expression, ModuleReference, Node, NodeFlags, NodeId, SyntaxKind, TypeNode};
 use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
@@ -70,9 +70,154 @@ impl<'a> Checker<'a, '_> {
         if flags.intersects(SymbolFlags::ENUM_MEMBER) {
             return self.get_type_of_enum_member(symbol);
         }
-        // Unported: accessors, aliases, and the four `CheckFlags` shapes
-        // upstream tests first (deferred, instantiated, mapped, reverse-mapped).
+        // `checker.go:16518`.
+        if flags.intersects(SymbolFlags::ALIAS) {
+            return self.get_type_of_alias(symbol);
+        }
+        // Unported: accessors, and the four `CheckFlags` shapes upstream tests
+        // first (deferred, instantiated, mapped, reverse-mapped).
         self.intrinsics.error
+    }
+
+    /// The type of an alias symbol — `import q = M.a`.
+    ///
+    /// Ported from `Checker.getTypeOfAlias` (`checker.go:18598`): resolve the
+    /// alias to its target, and answer the target's type **only if the target is
+    /// a value**. Upstream's comment on that test is worth keeping, because it
+    /// is not merely a correctness check — without it, `getTypeOfSymbol` on a
+    /// type-only target recurses back into this function and overflows the
+    /// stack. A type-only target is `errorType`, and the way to its type is
+    /// `getDeclaredTypeOfSymbol`.
+    ///
+    /// # Only the same-file slice, and the rest is not a checker problem
+    ///
+    /// `resolve_alias` below answers `None` for an `import q = require("m")` or
+    /// any ES `import ... from`, so those keep answering `errorType`. That is
+    /// not a gap this module can close: cross-file targets need globals merged
+    /// across files, which this port does not do
+    /// (`crates/tsr-compiler/src/lib.rs:24`, ADR-0034, `bd tsr-9or.1`).
+    /// Measured over the corpus at `9e459cf`: 1,218 `import X =` declarations,
+    /// of which 764 are `require(...)` and 442 name an entity; 378 of those 442
+    /// have their root declared in the same unit, and 131 of THOSE are a bare
+    /// identifier rather than a qualified name (the qualified form is gapped for
+    /// a separate reason — see [`Checker::resolve_alias`]). So this arm
+    /// addresses **at most 558 of the ALIAS bucket's 4,298 lines** (131
+    /// declaration names plus 427 identifier occurrences, the latter an
+    /// over-count). The remaining ~3,700 sit behind `bd tsr-9or.1` and behind
+    /// symbol accessibility, not behind more work in this module.
+    fn get_type_of_alias(&mut self, symbol: SymbolId) -> TypeId {
+        if let Some(&cached) = self.symbol_types.get(&symbol) {
+            return cached;
+        }
+        // `checker.go:18601`. `import a = a` reaches its own symbol, and the
+        // frame is what upstream uses to answer `errorType` rather than recur.
+        if !self.resolutions.push(symbol, PropertyName::Type) {
+            return self.intrinsics.error;
+        }
+        let target = self.resolve_alias(symbol);
+        let computed = match target {
+            // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
+            // stack-overflow guard, not a nicety.
+            Some(target)
+                if self.binder.symbols().get(target).flags.intersects(SymbolFlags::VALUE) =>
+            {
+                self.get_type_of_symbol(target)
+            }
+            _ => self.intrinsics.error,
+        };
+        let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
+        self.symbol_types.insert(symbol, computed);
+        computed
+    }
+
+    /// The symbol an alias names, for the forms that resolve inside one file.
+    ///
+    /// Ported from `Checker.resolveAlias` (`checker.go:16266`) reduced to its
+    /// `getTargetOfImportEqualsDeclaration` (`checker.go:14439`) case, and from
+    /// `getSymbolOfPartOfRightHandSideOfImportEquals` (`checker.go:14474`) for
+    /// the meaning to resolve in. That function's three-case comment is the
+    /// whole specification, and the two meanings are **not** interchangeable:
+    ///
+    /// ```text
+    /// import a = |b|;    // Namespace
+    /// import a = |b.c|;  // Value, type, namespace
+    /// ```
+    ///
+    /// A bare identifier resolves in `NAMESPACE` only, so `const x = 1; import
+    /// a = x;` finds nothing and answers `errorType` — which is upstream's
+    /// answer, not a gap. Resolving it in `VALUE` too would "fix" that line into
+    /// a wrong one.
+    ///
+    /// # Only the bare identifier is ported, and the baselines say why
+    ///
+    /// Resolving `import booz = foo.bar.baz` is easy — walk `exports` — and the
+    /// answer would still be wrong, because the *printed* form does not name the
+    /// target. `compiler/aliasBug.types` records
+    ///
+    /// ```text
+    /// import provide = foo;
+    /// >provide : typeof foo
+    ///
+    /// import booz = foo.bar.baz;
+    /// >booz : typeof booz
+    /// ```
+    ///
+    /// The bare form prints the **target's** name and the qualified form prints
+    /// the **alias's own**. That is not two rules: upstream's node builder emits
+    /// the shortest accessible chain to the symbol, and an alias declaration
+    /// always creates a one-link chain. For `foo` the direct name is already one
+    /// link and wins; for `foo.bar.baz` it is three, so `booz` wins. This port
+    /// has no symbol-accessibility machinery, so it would print `typeof baz` —
+    /// a wrong line. The qualified form therefore answers `errorType`.
+    ///
+    /// **`ExternalModuleReference` answers `None` deliberately** — see
+    /// [`Checker::get_type_of_alias`] for why that is `bd tsr-9or.1` and not
+    /// this module's to close.
+    fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+        let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+        let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
+            // Every other alias form — ES import clauses, export specifiers,
+            // `export =` — reaches its target through module resolution.
+            return None;
+        };
+        match node.module_reference? {
+            ModuleReference::Identifier(name) => {
+                let found = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    name.node_id?,
+                    name.text,
+                    SymbolFlags::NAMESPACE,
+                )?;
+                // **The meaning has to be re-checked here**, because
+                // `Binder::resolve_name`'s `locals` lookup is deliberately not
+                // meaning-filtered (`crates/tsr-binder/src/lib.rs:300`) while
+                // upstream's is. Without this, `const x = 1; import q = x;`
+                // resolves `x` and answers `1`, and `1` is a *wrong line* rather
+                // than a missing one — upstream rejects the alias, and no
+                // baseline in the corpus records the form at all.
+                //
+                // A filter in the checker rather than a fix in the binder,
+                // because the binder's divergence is load-bearing for its other
+                // callers and is not mine to change; this restores upstream's
+                // meaning at this one call site.
+                self.binder
+                    .symbols()
+                    .get(found)
+                    .flags
+                    .intersects(SymbolFlags::NAMESPACE)
+                    .then_some(found)
+            }
+            // Resolvable, but not printable — see above.
+            // Two gaps that share an answer but not a reason, and the reasons
+            // are worth keeping apart even though the arms are merged here to
+            // satisfy `clippy::match_same_arms`. A qualified name RESOLVES
+            // fine and prints wrong, for want of symbol accessibility (see
+            // above). An external module reference does not resolve at all, for
+            // want of cross-file globals (`bd tsr-9or.1`, `checker.go:14441`).
+            // Closing one does nothing for the other.
+            ModuleReference::QualifiedName(_) | ModuleReference::ExternalModuleReference(_) => None,
+        }
     }
 
     /// The type of an enum member symbol.
