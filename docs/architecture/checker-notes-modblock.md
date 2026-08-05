@@ -37,7 +37,8 @@ unit is restated on every table.
 5. **`bd tsr-4r4`'s 105-line disagreement is not an instrument defect.** It is a
    comparison across `c60b086`, which moved the row by **113 lines**. At one pin
    the three instruments agree to 1 line and to the case. §8.
-6. **A number in `checker-notes-symbols.md` needs correcting as a consequence:**
+6. **A number in `checker-notes-symbols.md` needs correcting as a consequence
+   (`bd tsr-95i`):**
    `export { q }`'s "population 198" is the **post-build residue**, so the
    47.5% conversion rate is quoted against the wrong denominator. §8.
 
@@ -340,9 +341,9 @@ complete, and it fails too — which is what stops this from being a shrug.
    190 are downstream. A further 223 lines would turn from `error` into a
    **wrong** answer, which is a real cost in the column this project uses to
    decide a row is safe to leave alone, and 638 hit a next blocker immediately.
-2. **A type for a module object** (`getTypeOfSymbol` for a namespace import;
-   upstream's `tryFindAmbientModule` at `checker.go:15533` is the neighbouring
-   half). This is the larger item — 3,539 seam-only lines of ceiling, unmeasured
+2. **A type for a module object** — `bd tsr-6ph` (`getTypeOfSymbol` for a
+   namespace import; `getTargetOfNamespaceImport`, `checker.go:14628`). This is
+   the larger item — 3,539 seam-only lines of ceiling, unmeasured
    — and it is the **only** route to the 1,590 receiver-gap lines, because
    `ns.foo` needs the namespace's type and not the alias's target.
 
@@ -406,8 +407,8 @@ the "gap" is that build. The residual is **7 lines**, and it is localised: this
 probe and the split disagree only on `import * as ns from` (256 against 259) and
 `export as namespace N` (46 against 50), plus the unclassified merged
 `import`/`interface` symbol (3 against 1). All three sit in forms that carry
-none of §7's conclusions. `bd tsr-4r4` should be requoted as a 7-line
-form-classification difference in two named forms.
+none of §7's conclusions. `bd tsr-4r4` carries this resolution and should be requoted
+as a 7-line form-classification difference in two named forms.
 
 ### `export { q }`'s population of 198 is the post-build residue
 
@@ -430,8 +431,9 @@ are:
 | net right lines | +94 | +94 (19 became `wrong`, not `right`) |
 | conversion rate | 94/198 = **47.5%** | 94/311 = **~30%** (gap closure 113/311 = ~36%) |
 
-The prediction's *population* leg was scored a hit against a number measured
-after the thing it predicted had already happened. The **direction of the
+`bd tsr-95i` carries the correction. The prediction's *population* leg was
+scored a hit against a number measured after the thing it predicted had already
+happened. The **direction of the
 correction is against the more optimistic reading**, which is why §4's 39.8% and
 44.7% should be read as the better prior for the cross-file forms, not 47.5%.
 
@@ -454,7 +456,7 @@ is wrong. Nothing in `checker-notes-symbols.md` describes such a run, and its
 - **The specifier resolver's own coverage.** 708 seam-only lines name no file in
   the program. **225 of them name a `declare module "x"` in the same program** —
   an ambient-module table (`tryFindAmbientModule`, `checker.go:15533`), which is
-  a third work item and needs no file graph at all. The rest are bare specifiers
+  a third work item — `bd tsr-okq` — and needs no file graph at all. The rest are bare specifiers
   (`react`, `foo`, `jquery`, `path`) that no module graph in this corpus
   resolves either. The probe prints the top unresolved specifiers on every run
   so this coverage is visible rather than asserted.
