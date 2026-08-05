@@ -695,3 +695,413 @@ SYMBOL_SPLIT_SHARE_CHECKER=1 cargo run -p tsr-conformance --example symbol_dispa
 # 1,027. rank_board itself only needs re-running if a per-case diff is wanted.
 cargo run -p tsr-conformance --example rank_board --release
 ```
+
+---
+
+# Cycle 12 — the cross-file half of row 10
+
+Everything above is the same-file half, landed in `c60b086`. This section is the
+cross-file arm. Every upstream line number here came from `grep -n` on the
+**declaration** at the pinned submodule `5b1047d10`, not from counting inside a
+`sed` window — three anchors were wrong in three different ways in one session
+before that rule was applied, and one of them (`checker.go:550-566`, described
+as "the `Program` interface") *resolved* while naming a fragment of a method
+list, so `cargo run -p xtask -- anchors` would have stayed at 0 unresolved.
+
+## 11. The seam is far smaller than "the checker needs a program"
+
+§4 recorded 1,956 cross-file lines as *"kind 2, blocked on a `Checker::new`
+signature change"* and left it there. Reading the compiler first would have
+shown the blocker is one step, not a subsystem:
+
+**[ADR-0034](../adr/0034-a-program-needs-one-identity-space.md) already gave a
+program one `NodeTable`, one `NodeMap` and one `BindResult`.**
+`Program::bind_source_files` (`crates/tsr-compiler/src/lib.rs`) accumulates
+every file into one `SymbolStore` through `tsr_binder::bind_into`, so a
+`SymbolId` names one symbol across the program and its declarations index the
+same node table the checker is reading. **A checker built over a `Program`
+therefore already sees every file's symbols.** Nothing about cross-file *symbol
+access* was missing.
+
+What was missing is one map: specifier text to file. That is upstream's
+`GetResolvedModule` (`internal/compiler/program.go:521`), a lookup on
+`(file.Path(), {Name, Mode})` — and the whole of what
+`crate::resolution::ModuleHost` asks for:
+
+```rust
+fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId>;
+```
+
+Both ids are `SourceFile` node ids, which is the identity ADR-0034 created. The
+checker names no path type, no `ResolvedModule` and no `ResolutionMode`.
+
+Upstream's `Program` interface (`checker.go:547`, held as the field at
+`checker.go:581`) has eighteen methods because `resolveExternalModule`
+(`checker.go:15149`) reports fourteen distinct diagnostics. **None of them
+changes which symbol is returned**, and none is ported, so the trait is one
+method. `tsr_compiler::Program` implements it; ADR-0041 records why the
+dependency runs that way round.
+
+### The correction this makes to §4
+
+§4's phrase *"blocked on a `Checker::new` signature change"* was right about the
+symptom and wrong about the size. The honest form: **blocked on a
+specifier-to-file map, which did not exist anywhere.** The loader computed every
+one of those answers during its walk and discarded them —
+`crates/tsr-compiler/src/loader.rs` mentioned `resolvedModules` only in comments
+describing what upstream does. So the item was *build the cache*, not *expose
+it*, and that is a bigger job than "a signature change" while being a much
+smaller one than "the checker needs a program".
+
+## 12. The form to build first is decided by the *printed* answer, not by the resolution
+
+The obvious order is cheapest-resolution-first: `import a = require("./m")` (433
+lines) and `import * as ns from "./m"` (259) reach a module symbol directly and
+need no name lookup at all. **Building those first would have converted zero
+lines and added 692 wrong ones.**
+
+Measured over `vendor/typescript-go/testdata/baselines/reference/submodule`,
+the assertion on the declaration name:
+
+| form | what the baseline records |
+|---|---|
+| `import * as X from …` | `typeof cjs` 236, `typeof type` 184, `typeof cjsi` 172, `typeof mjs` 156, `typeof React` 58, `typeof ns` 17 |
+| `import X = require(…)` | `typeof React` 71, `typeof mod` 21, `typeof Backbone` 21, `typeof moduleA` 11 |
+
+```
+conformance/exportAsNamespace4(module=commonjs).types
+  import * as ns from './0';
+  >ns : typeof ns
+```
+
+It is always the **local alias**, never the module. Upstream's node builder
+emits the shortest accessible chain to the symbol; a module symbol's name in
+this port is the file path with its extension stripped
+(`bind_source_file_as_external_module`), so this port would print `typeof /0`.
+A gap turned into a wrong line, in the column ADR-0038 and ADR-0039 exist to
+keep separable.
+
+**This is not a new discovery, and that is what makes it credible.** It is the
+mechanism already documented on `Checker::resolve_alias` for the qualified
+`import a = foo.bar.baz` — `compiler/aliasBug.types` records `>booz : typeof
+booz` for the three-link chain and `>provide : typeof foo` for the one-link one.
+One known limitation reaching two more forms. `bd tsr-4jk` carries it, and the
+three should be ranked together behind symbol accessibility rather than
+separately.
+
+A named import has no such problem: its target is an ordinary export symbol
+carrying its own name — `number`, `typeof A`, `() => void`, `0`.
+
+### The general rule, which is not about aliases
+
+`docs/conventions.md` already says *"count the lines a failure blocks, not the
+lines where the form appears"* and *"bucket by the shape of the answer"*. This
+adds a third question that comes **before** either, and it is the one that
+decides whether a slice is worth building at all:
+
+> **Can this port spell the answer?** Resolution and rendering are separate
+> capabilities, and a form can be fully resolvable and still unprintable. Check
+> the baseline's *right-hand side* for the form before ranking it, because a row
+> that answers with a name only symbol accessibility can produce converts
+> nothing and costs wrong lines.
+
+Two minutes of `grep` over `.types` files answers it. It reversed the build
+order here.
+
+## 13. What was built: `getExternalModuleMember`, serving both forms
+
+`getExternalModuleMember` (`checker.go:14667`) is reached from
+`getTargetOfImportSpecifier` (`checker.go:14647`) and from
+`getTargetOfExportSpecifier`'s module-specifier case (`checker.go:14966`). **One
+function, so `import { x } from "./m"` and `export { q } from "./m"` are one arm
+and not two** — 890 + 134 = **1,024 lines**.
+
+The chain, and what each step reduces to here:
+
+| upstream | ported as | reduction |
+|---|---|---|
+| `resolveExternalModuleName` `:15101` → `…Worker` `:15122` → `resolveExternalModule` `:15149` | `resolve_external_module_name` | 190 lines to 4 steps; the rest is diagnostics |
+| `resolveESModuleSymbol` `:15568` | — | reduces to the next row: its synthetic-default arms are guarded by `namespaceImport != nil \|\| IsImportCall`, and a *named* import is neither |
+| `resolveExternalModuleSymbol` `:15556` | `resolve_external_module_symbol` | the `export=` lookup |
+| `getExportOfModule` `:14789` | `get_export_of_module` | the `MODULE` guard and one table lookup; `resolveSymbolEx` `:14432` is the identity under `dontResolveAlias` |
+
+### Deliberately not ported, each a miss and never a wrong target
+
+- **`export =` modules.** Upstream reads the member off
+  `getTypeOfSymbol(targetSymbol)` through `getPropertyOfTypeEx` and may combine
+  a value symbol with a type symbol. The arm declines the form.
+- **`export *` re-exports.** `getExportsOfSymbol` (`checker.go:15920`) resolves
+  star exports in `getExportsOfModuleWorker` (`checker.go:16148`); this reads
+  the binder's `exports` table directly.
+- **Ambient modules.** `tryFindAmbientModule` (`checker.go:15154`) runs *before*
+  the host is consulted, so a program whose `"fs"` is `declare module "fs"` gaps
+  here.
+- **`getMergedSymbol`** on the module symbol, and **string-literal export
+  names** (`import { "a-b" as c }`).
+
+### The alternative, taken seriously
+
+**Resolve the module symbol and answer `getTypeOfSymbol` on it directly**,
+skipping the name lookup — which is what the `import * as ns` form would need
+anyway, so one arm could have served four forms instead of two. Rejected on §12:
+three of those four print the alias's own name and would answer wrongly.
+
+**What would make it win:** symbol accessibility, so the printer chooses a name
+per reference site instead of fixing it at type creation
+(`crate::types::TypeData::Named`). At that point all four forms are one arm and
+`bd tsr-4jk`'s 692 lines join `bd tsr-93f`'s 158.
+
+## 14. The cycle guard: three candidates, and reading picked the wrong one twice
+
+A cross-file re-export cycle is real —
+
+```ts
+// a.ts
+export { q } from "./b";
+// b.ts
+export { q } from "./a";
+```
+
+— and `docs/conventions.md` is explicit that a port which passes the corpus and
+hangs on a real program is the worse failure. So the first thing written was
+upstream's own guard: `resolveAlias` pushes
+`TypeSystemPropertyNameAliasTarget` (`checker.go:16272`), so a
+`PropertyName::AliasTarget` variant and a push/pop went into `resolution.rs` and
+`symbols.rs`.
+
+**It could not fire, and it was deleted rather than shipped.**
+
+| candidate | measured |
+|---|---|
+| remove `resolve_alias`'s `AliasTarget` frame | all 12 tests **green** |
+| disable `get_type_of_alias`'s `PropertyName::Type` frame | all 12 tests **green** |
+| delete `\|\| seen.contains(&target)` from `get_symbol_flags` | the cycle fixture **hangs** |
+
+The real guard is `get_symbol_flags`'s visited set — upstream's own
+`seenSymbols` (`checker.go:16368`). `getTypeOfAlias` takes its `VALUE` test over
+the alias *chain*, so the loop is closed in the chain walk, and the walk stops
+on a repeat.
+
+The `AliasTarget` frame is unreachable **structurally, not incidentally**, which
+is what makes deleting it safe rather than lucky: `resolve_alias` is not
+self-recursive here. Its four arms reach `Binder::resolve_name`,
+`export_specifier_target`, `import_specifier_target` and
+`get_external_module_member`, and none of those calls back into `resolve_alias`
+or `get_type_of_symbol` — they read symbol tables. Upstream's *does* recurse,
+through `resolveIndirectionAlias` (`checker.go:16293`), which this port does not
+have. **Whoever ports that must restore the frame**, and the cycle test is what
+will hang if they do not.
+
+### Why it was deleted rather than kept as insurance
+
+`docs/conventions.md` records the same failure one level up: a control bucket
+that could only ever read zero, and the rule that *a control only proves a
+partition if a line can actually reach it*. A guard nobody can make fire reads
+as safety and supplies none — and unlike the control bucket, this one carried a
+doc comment asserting it was "the variant that makes cross-file aliases
+terminate", which was false. Keeping it would have been documenting an intention
+as though it were built.
+
+**The generalisation is about method, not about aliases.** The frame was written
+from a correct reading of upstream and a correct statement of the hazard, and it
+was still the wrong mechanism. Faithfulness to upstream is not evidence that a
+guard is load-bearing *here*, because what recurses upstream may not recurse in
+a port that has left a function out. The check is one mutation, and it found the
+answer that two rounds of reading had missed.
+
+## 15. The tests, and the harness question the briefing raised
+
+`crates/tsr-checker/tests/cross_file_aliases.rs`, 12 tests.
+
+**The single-file unit harness does support two files, and no harness change was
+needed** — this was raised as a likely blocker and is not one.
+`tsr_parser::parse_into` takes the node table and map by `&mut` so ids continue
+rather than restart, and `tsr_binder::bind_into` accumulates into one
+`SymbolStore`. Both are already dev-dependencies of `tsr-checker`. The fixture
+helper is `Program::parse` + `Program::bind_source_files` reduced to what a test
+needs; `tsr-compiler` is *not* a dependency and could not be, since it depends
+on `tsr-checker`.
+
+Seven mutations, each confirmed with `grep -c` returning exactly 1 **before** the
+test ran. The tests pair as (1,2), (4,5), (6,7) — one behaviour change each —
+and **within every pair the two mutations are disjoint**. Across pairs they
+overlap, structurally: a mutation that disables the export lookup disables every
+arm that performs one. Three of the seven redden exactly one test each. The full
+table is in the test file's module docs, including the two that did **not** bite.
+
+Controls pinned by **construction** rather than arithmetic, per
+`docs/conventions.md`'s newest section:
+
+- `a_named_import_from_an_unresolved_module_is_a_gap` — the fixture set contains
+  no file called `nope`, so the host *cannot* answer `Some` whatever the checker
+  does.
+- `the_same_fixture_gaps_with_no_host` — the identical program under
+  `Checker::new`. This is the additivity claim as a measurement rather than an
+  argument.
+- `no_lib_control` — `var x: number[]` is a gap *here*, so a reader who meets an
+  unexpected gap can tell "missing library" from "missing arm" without
+  re-deriving it. No fixture names `Array`, `Promise` or `number[]`.
+
+## 16. PREDICTION — recorded before any measurement
+
+**This arm converts nothing on its own.** `crates/tsr-conformance/src/types_producer.rs`
+still builds its checker with `Checker::new`, so no host reaches it. The
+prediction is for the tip at which the checker arm, the loader's resolution
+cache and that one call site are all in.
+
+### Population — a ceiling, from `examples/symbol_dispatch_split.rs`, full corpus
+
+| form | lines |
+|---|---:|
+| `import { x } from "./m"` | 890 |
+| `export { q } from "./m"` | 134 |
+| **total** | **1,024** |
+
+Predicted population **1,024**, and the split between the two forms should be
+about **87% / 13%**.
+
+### Rate — two multipliers, stated separately because that is what diagnoses a miss
+
+§7 scored the previous prediction a MISS that decomposed: population held to 1%,
+rate missed by 7.5 points. Quoting one range again would forfeit that.
+
+- **Leg 1 — the type-only cap: 0.475.** Measured, not assumed: the sibling
+  same-file form `export { q }` converted 94 of 198. It shares the mechanism
+  exactly — the same `getTypeOfAlias` `VALUE` test, so `import { I }` for an
+  interface answers `errorType` here where upstream prints `any`.
+- **Leg 2 — the cross-file-only gaps: 0.80, and this is the leg I expect to be
+  wrong.** `export =`, `export *`, ambient modules, `getMergedSymbol` and
+  string-literal export names are all declined by this arm and **none of them
+  exists in the same-file form**, so leg 1 contains no discount for any of them.
+  0.80 is a guess. Nothing measures it, and I am recording it as a guess rather
+  than dressing it as a bound.
+
+**Predicted lines: 1,024 × 0.475 × 0.80 ≈ 389; range 300–490.**
+**Predicted cases: +25 to +55, point +40.** The row's `finishes 117` is the best
+case-gate profile on the board and the same-file arm delivered 9.4 lines per
+case, but the cross-file half is half as concentrated (top-10 15.5% against
+34.8%), so it should touch more cases and finish proportionally fewer.
+
+### What must NOT move
+
+- **`import * as ns from "./m"` (259), `import a = require("./m")` (433) and
+  `import d from "./m"` (232) must contribute exactly zero** — 924 lines. Held
+  by `resolve_alias`'s fallthrough. **If any of them moves, §12 is wrong and
+  this arm is emitting the wrong-name form**, which is the failure that matters
+  most here. No test is red without that fallthrough, because it is a default
+  arm — so this is the check that has to be made on the run.
+- **Wrong lines must not rise in the affected cases.** A rise means the arm is
+  finding a symbol upstream would not; the merged-module-symbol case is where to
+  look.
+- **The same-file `export { q }` count (198 lines / 94 converted) must be
+  unchanged.** Mutation 5 pins it locally; the corpus is what confirms it.
+- **The `any`-credited count must not move.** Nothing in this arm answers `any`.
+
+### How this could be right for the wrong reason
+
+1. **The total lands in range but the split is not 87/13.** If most of the gain
+   is `export { q } from` (134 lines, so at most 13% of the ceiling), the total
+   can only be right by the `import { x }` form under-converting and something
+   else over-converting. **Score the two forms separately or the prediction is
+   unfalsifiable.**
+2. **The gain comes from somewhere else the host unblocked.** Passing a host to
+   the conformance checker enables this arm *and* changes nothing else only if
+   nothing else consults it. Control: the same corpus run with `Checker::new`
+   must be bit-identical to the baseline. Without that control, any movement is
+   attributable to "cross-file resolution" in general rather than to this arm.
+3. **Leg 1 and leg 2 cancel.** If the cross-file type-only share is *lower* than
+   the same-file one (plausible — `export { q }` is idiomatic for re-exporting
+   types, `import { x }` less so) while leg 2's gaps are commoner than 0.80,
+   the product can land while both legs are wrong. The diagnostic is the
+   answer histogram of the converted lines: if the `any`-upstream share of the
+   *unconverted* remainder is not close to 52.5%, leg 1 is wrong whatever the
+   total did.
+
+## 16b. PREDICTION, REVISED — leg 1's prior was measured post-build
+
+Registered **before** any run, and **beside** the prediction above rather than
+replacing it, because the two disagree and the same run scores both. What
+changed is an *input*, not an outcome; that is what makes revising legitimate
+here and reinterpreting a result afterwards not.
+
+### The escape hatch, closed
+
+`bd tsr-95i` names the one thing that would kill the correction: a run of
+`symbol_dispatch_split.rs` from a worktree holding its source on top of
+`c60b086^` with the `symbols.rs` arm reverted, which would make 198 a genuine
+*pre*-build population.
+
+**No such run happened.** `git log --diff-filter=A --
+crates/tsr-conformance/examples/symbol_dispatch_split.rs` returns `c60b086` —
+the instrument was added *by* the commit that built the arm — and §10 above
+records the full-corpus run as a lead task performed after it. This slice ran no
+corpus measurement of any kind this cycle. So the correction stands, and
+**§7's 47.5% and §4's `198` are post-build figures throughout this page**.
+
+### Two independent methods now bracket the answer, and they do not agree
+
+| method | leg 1 | scope discount | lines |
+|---|---:|---:|---:|
+| **A — the sibling, corrected.** `export { q }` pre-build ≈311, of which 94 became right | 0.30 | 0.80 | **246** |
+| **B — the direct measurement.** `module_blocked` mocked past the blocker: 39.8% and 44.7% on the two cross-file halves | 0.42 | 0.85 | **366** |
+
+**B is the more direct bucket and A is the proxy**, which by
+`docs/conventions.md`'s own rule — *pre-register on the most direct bucket your
+instrument produces* — argues for B. But B's mock resolves forms this arm
+**declines** (`export =`, `export *`, ambient modules, string-literal export
+names), so it is an upper bound on what this arm can do; the 0.85 is the
+correction for that and it is a guess, labelled as one, exactly as leg 2 was.
+
+**Revised: 300 lines, range 246–366** — the bracket the two methods span, point
+between them. I am not confident which method is right, and saying so is the
+point: **the run adjudicates between two sizing methods as well as scoring the
+arm**, which is worth more than either alone. If the answer lands near 246, the
+corrected-sibling method wins and every future arm in this family should be
+sized that way; near 366, the mocked measurement wins.
+
+**The original prediction (389, floor 300) sits above both brackets and is
+therefore likely a miss. Recorded here before the run rather than explained
+after it.**
+
+### Cases, revised down hard
+
+**+5 to +20, point +10**, from +25 to +55 / point +40.
+
+The level-4 probe measured the sibling alias row finishing **0.0% of its cases
+even at the ceiling**, its pre-registered rule holding exactly. And walking every
+gap line to its blocking leaves found **6,074 lines wholly behind cross-file
+aliases**, of which **3,539 — 58.3% — wait on a *second* item**: a type for a
+module object, `bd tsr-6ph`, which is the only route to the receiver-gap lines.
+
+**This arm is the first of at least two, and the second is not this slice's.**
+That is the honest frame, and it demotes §4's *"best case-gate profile on the
+board"* for this half specifically: a row can have a high `finishes` at its
+ceiling and finish almost nothing at the first of two steps toward it. The
+case-efficiency of the same-file arm (9.4 lines per case) does not transfer,
+because the same-file arm *was* the whole chain and this one is not.
+
+**This is a gradient item, not a case item.**
+
+## 17. Open, and named rather than left implicit
+
+- **The wire-up is not this slice's.** `types_producer.rs:768` must become
+  `Checker::with_module_host(…, Some(program))` before anything is measurable.
+- **§9's 105-line disagreement is RESOLVED, and it was never an instrument
+  defect** (`bd tsr-4r4`). It is a **pin difference**: `rank_board`'s 2,535 was
+  measured at `c60b086^`, and `symbol_dispatch_split.rs` was added *by*
+  `c60b086`, across which the row fell 113 lines. Residual disagreement is
+  **7 lines**, in `import * as ns` and `export as namespace N`.
+
+  §9 spent two cycles excluding compiler drift, keying, cause splits and probe
+  perturbation — every one of those exclusions was sound, and the question was
+  wrong. **Two instruments were compared as though they stood at one commit when
+  the second could not exist at the first.** That is the same class as the
+  `writer_guards` denominator problem: a comparison whose two sides are not over
+  the same population, where every check *inside* each side passes. The habit it
+  argues for is cheap — before reconciling two instruments, run
+  `git log --diff-filter=A` on both and confirm they can stand at the same
+  commit.
+- **Nobody has split the 433 `import a = require` lines by whether the target
+  module writes `export =`.** That sub-case *is* spellable — the target is an
+  ordinary named symbol — so it is buildable today while the other 692 are not.
+  One bucket in `symbol_dispatch_split.rs` sizes it. `bd tsr-4jk`.

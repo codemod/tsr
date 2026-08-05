@@ -1,7 +1,12 @@
-//! Circularity detection: the type resolution stack.
+//! Circularity detection, and the seam through which the checker reaches
+//! another file.
 //!
 //! Ported from `Checker.pushTypeResolution`, `popTypeResolution` and
 //! `findResolutionCycleStartIndex` (`internal/checker/checker.go:18758`–`18794`).
+//!
+//! It also holds [`ModuleHost`], the slice of upstream's `Program` interface
+//! (`checker.go:547`) that the checker needs in order to resolve a module
+//! specifier — the one thing a cross-file alias cannot compute for itself.
 //!
 //! # Why a stack rather than a flag
 //!
@@ -31,6 +36,67 @@
 //! out deliberately, with the behaviour unchanged: without it the search simply
 //! scans further, and a memoised entry never reaches the stack anyway because the
 //! caller returns before pushing.
+
+use tsr_ast::NodeId;
+
+/// How the checker reaches another file.
+///
+/// Upstream's checker does not take a concrete `Program`. It takes an
+/// **interface**, declared inside the checker package itself
+/// (`internal/checker/checker.go:547`), held as the field `program Program`
+/// (`checker.go:581`), whose one relevant method here is
+/// `GetResolvedModule` (`checker.go:558`, implemented at
+/// `internal/compiler/program.go:521` as a lookup keyed on
+/// `(file.Path(), {Name, Mode})`). This trait is that interface reduced to the
+/// single question `resolveExternalModule` (`checker.go:15149`) asks of it, and
+/// it lives here for the same reason upstream's lives in `checker.go`: the
+/// checker owns the shape of what it needs, and `tsr-compiler` depends on
+/// `tsr-checker` rather than the other way round.
+///
+/// # Why this is one method and not sixteen
+///
+/// Upstream's interface carries eighteen methods because upstream's
+/// `resolveExternalModule` reports fourteen distinct diagnostics — about `.ts`
+/// extensions, about rewritten relative imports, about a `CommonJS` file reaching
+/// an ES module. **None of that is ported**, and the arm that is ported needs
+/// exactly one fact: which file a specifier names. Adding the rest now would be
+/// documenting an intention as though it were built.
+///
+/// # Why the ids are node ids and not paths
+///
+/// [ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md) gave
+/// a program one `NodeTable`, one `NodeMap` and one `BindResult`, so a
+/// [`tsr_binder::SymbolId`] already names one symbol across every file
+/// (`crates/tsr-compiler/src/lib.rs`, `Program::bind_source_files`). That is
+/// what makes this seam small: the checker does not need cross-file *symbol*
+/// access, because it already has it. It needs only the specifier-to-file map,
+/// and a `SourceFile` node id is how a file is named inside that identity space.
+///
+/// The consequence is that `tsr-checker` names no path type, no
+/// `ResolvedModule` and no `ResolutionMode` — all three are the host's
+/// vocabulary. If a mode is ever needed to disambiguate two resolutions of one
+/// specifier in one file, this method grows a parameter and the single call site
+/// in [`crate::symbols`] follows.
+pub trait ModuleHost {
+    /// The file a module specifier names, or `None` if it names none.
+    ///
+    /// `Program.GetResolvedModule` (`internal/compiler/program.go:521`)
+    /// composed with `GetSourceFileForResolvedModule`, which is how
+    /// `resolveExternalModule` uses it (`checker.go:15149`).
+    ///
+    /// Both ids are **`SourceFile` node ids**. `None` covers upstream's
+    /// unresolved module *and* its resolved-to-a-file-not-in-the-program case;
+    /// the checker treats them alike because both answer `errorType`, and
+    /// telling them apart is a diagnostic distinction this port has no consumer
+    /// for.
+    ///
+    /// **Not the same as "the file is not a module."** That is
+    /// `sourceFile.Symbol == nil` (`checker.go:15321`), which the checker tests
+    /// for itself with `BindResult::symbol_of` on the returned id — so a host
+    /// that answers `Some` for a plain script is answering correctly, and the
+    /// checker still gaps.
+    fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId>;
+}
 
 /// Which lazily-computed property of an entity is being resolved.
 ///
