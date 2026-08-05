@@ -51,11 +51,35 @@ impl Checker<'_, '_> {
             return error;
         };
         let receiver_type = self.check_expression(receiver);
+        // `isAnyLike` (`checker.go:11266`) and the branch it guards
+        // (`checker.go:11314`): a property access on `any` is `any`, whatever
+        // the property name.
+        //
+        // This is the other half of the same cause as element access — see
+        // [`crate::indexed`]. 6,329 of 27,140 property-access lines in the
+        // baselines answer `any`, against a gap row of 8,154, so an `any`
+        // receiver is most of what this row is. `anyPropertyAccess.types`
+        // records both spellings failing together, which is why they are ported
+        // together.
+        //
+        // **Upstream distinguishes `errorType` from `anyType` inside this very
+        // branch** — `if c.isErrorType(apparentType) { return c.errorType }`
+        // (`checker.go:11318`) sits between `isAnyLike` and the return. This
+        // port gets that for free by testing **identity** against
+        // `intrinsics.any`: `errorType` is a different type with the same `ANY`
+        // flag, so it cannot match, and a `TypeFlags::ANY` test would answer
+        // `any` for every gap in the corpus. That is the single most dangerous
+        // edit that could be made to this function, and it would look like a
+        // large win in the measurement.
+        if receiver_type == self.intrinsics.any {
+            return self.intrinsics.any;
+        }
         // No explicit test for an `errorType` receiver: it is an intrinsic and
         // never carries a members table, so the lookup below misses and answers
         // `errorType` anyway. An earlier draft guarded it and no mutation could
         // make the guard observable, so it was removed rather than kept as
-        // decoration.
+        // decoration. The identity test above is what keeps that true now that
+        // an `ANY`-flagged type has a fast path.
         match self.get_property_of_type(receiver_type, name.text) {
             Some(property) => self.get_type_of_symbol(property),
             None => error,

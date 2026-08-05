@@ -1,4 +1,4 @@
-//! Element access on an `any` receiver.
+//! Access on an `any` receiver — both spellings.
 //!
 //! The single largest cause in the element-access gap row: of 12,905
 //! element-access lines in the `.types` baselines under
@@ -6,8 +6,12 @@
 //! answer `any`, because the receiver is `any`. `conformance/anyPropertyAccess.types`
 //! is the canonical case.
 //!
+//! `a[i]` and `a.b` are the same cause and are ported together, because
+//! `anyPropertyAccess.types` records both spellings failing in the same files —
+//! fixing one alone would not flip a file under a whole-line case gate.
+//!
 //! These tests pin both halves: that an `any` receiver answers `any`, and that
-//! the arm cannot be reached by a receiver this port merely failed to type.
+//! the arms cannot be reached by a receiver this port merely failed to type.
 
 use tsr_ast::Statement;
 use tsr_checker::Checker;
@@ -137,4 +141,37 @@ fn a_typed_receiver_still_resolves_normally() {
     assert_eq!(type_of_last("var o: { b: number };\nconst x = o[\"b\"];"), "number");
     assert_eq!(type_of_last("var m: { [k: string]: number };\nconst x = m[\"k\"];"), "number");
     assert_eq!(type_of_last("var m: { [k: number]: string };\nconst x = m[0];"), "string");
+}
+
+// --------------------------------------------------- property access, `a.b` ---
+
+#[test]
+fn an_any_receiver_makes_a_property_access_any() {
+    // `isAnyLike` (`checker.go:11266`) into the branch at `checker.go:11314`.
+    // The property name is irrelevant — upstream never looks it up.
+    assert_eq!(type_of_last("var a: any;\nconst x = a.b;"), "any");
+    assert_eq!(type_of_last("var a: any;\nconst x = a.anythingAtAll;"), "any");
+}
+
+#[test]
+fn an_implicit_any_parameter_receiver_works_for_property_access_too() {
+    assert_eq!(type_of_first_return("function f(p) { return p.b; }"), "any");
+}
+
+#[test]
+fn a_property_access_on_an_untypeable_receiver_is_still_a_gap() {
+    // Upstream guards this INSIDE the `isAnyLike` branch —
+    // `if c.isErrorType(apparentType) { return c.errorType }` (`checker.go:11318`)
+    // — because `errorType` is any-like there too. This port gets it from the
+    // identity test: `errorType` is a different type carrying the same `ANY`
+    // flag, so it cannot match. A `TypeFlags::ANY` test here would answer `any`
+    // for every gap in the corpus and look like a large win.
+    assert_eq!(type_of_last("var u: Unresolved;\nconst x = u.b;"), "error");
+}
+
+#[test]
+fn a_typed_receiver_still_resolves_its_properties() {
+    // The new arm must not shadow the real lookup.
+    assert_eq!(type_of_last("var o: { b: number };\nconst x = o.b;"), "number");
+    assert_eq!(type_of_last("var o: { b: number };\nconst x = o.missing;"), "error");
 }

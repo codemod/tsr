@@ -252,3 +252,55 @@ This is the sixth instance of the exercises-versus-discriminates problem in this
 workstream, and the first where the overclaiming comment was one I had written
 myself: the test said it pinned the identity-versus-flag distinction, and it
 never could. The comment now says what the test actually establishes.
+
+## The property-access half of the same cause (2026-08-05)
+
+`a.b` on an `any` receiver, ported in the same cycle as `a[i]` and for the same
+reason: `conformance/anyPropertyAccess.types` records both spellings failing in
+the same files, so under a whole-line case gate fixing one alone would move the
+gradient while the case count barely budged, and we would learn nothing about
+which half mattered.
+
+Property-access lines in the baselines: **27,140 total, 6,329 answer `any`**,
+against a gap row of 8,154. So an `any` receiver is most of what that row is,
+even though it is a much smaller *share* of all property accesses (23%) than it
+is of element accesses (88%) — most property accesses already resolve.
+
+### Upstream guards `errorType` inside this very branch
+
+The precise anchor is worth having, because it settles the design question
+rather than leaving it to local judgement. `isAnyLike` (`checker.go:11266`)
+guards a branch at `checker.go:11314`, and *inside* that branch, before the
+return, sits:
+
+```go
+if c.isErrorType(apparentType) {
+    return c.errorType
+}
+return apparentType
+```
+
+(`checker.go:11318`). Upstream considers `errorType` any-like and then
+explicitly refuses to answer `any` for it. This port gets the same result by
+testing **identity** against `intrinsics.any`: `errorType` is a different type
+carrying the same `ANY` flag, so it cannot match.
+
+**A `TypeFlags::ANY` test instead would answer `any` for every gap in the
+corpus** — and it would look like an enormous win in the measurement. It is the
+single most dangerous edit available in either of these two functions, which is
+why both carry the reasoning inline rather than a bare comparison.
+
+### The same guard is load-bearing in one file and decoration in the other
+
+Only mutation could tell them apart, and it is a neat illustration of why the
+rule is worth the cost:
+
+- In `members.rs` the identity test **is** load-bearing. Swapping it for a flag
+  test reddens `a_property_access_on_an_untypeable_receiver_is_still_a_gap`,
+  because nothing else stands between `errorType` and the `any` answer.
+- In `indexed.rs` the same swap leaves every test **green**, because the
+  `object_type == error` guard at the top of the function already returned. The
+  test there is documented as defence in depth rather than claimed as coverage.
+
+Identical code, identical intent, opposite testability — decided by what happens
+to sit above it. Reading either function would not reveal which was which.
