@@ -466,6 +466,92 @@ are 87.22% right and 721 of their misses are wrong answers rather than gaps),
 and `bd tsr-bb4.1` (per-configuration runs, still worth doing only when the rate
 makes the denominator matter).
 
+## The re-ranking, cycle 2 (2026-08-05, four slices in parallel)
+
+Four items landed together — `getTypeOfFuncClassEnumModule` (`bd tsr-4sc.8`),
+unions (`bd tsr-4sc.9`), the type-parameter resolution arm (`bd tsr-y4u.21`) and
+lib loading (`bd tsr-9or.1`). Measured at `4533f73`:
+
+| | cases | gradient |
+|---|---:|---:|
+| start of cycle (`78cfcba`) | 596 | 36.17% |
+| inherited members only (`2a0dc19`) | 602 | 36.23% |
+| **all four integrated** | **1,076** | **41.27%** |
+
+**+480 cases and +5.10 points.** Every guard rail flat to the case:
+`binder_symbols` 8,292/8,459, `printer_round_trip` 11,681/11,737,
+`parser_typescript` 5,000/5,031, `file_loader` 96/96.
+
+Three buckets left 0.00% at once, which is what the ranking predicted:
+
+```text
+function/signature   0.00% -> 16.48%   (9,133 lines right)
+typeof               0.00% -> 52.68%   (8,382)
+union                0.00% -> 18.90%   (2,580)
+named reference     34.95% -> 40.07%
+generic reference   34.97% -> 38.06%
+```
+
+### The finding: wrong answers nearly doubled, and that is now a ranked item
+
+The gap pool shrank and the **wrong** pool grew, which no previous cycle saw:
+
+| | before | after |
+|---|---:|---:|
+| `Identifier`, wrong | 12,558 | **22,360** |
+| intrinsic bucket, wrong | 7,603 | **12,964** |
+| union bucket, wrong | 1,819 | **3,549** |
+| named reference, wrong | 1,740 | **3,340** |
+
+A *gap* is missing work; a **wrong** answer is a defect in what is ported, and it
+fails a line exactly as loudly while looking like a result. Roughly 9,800 new
+wrong `Identifier` lines arrived with the symbol-typing slice — expected in
+direction, since a symbol that previously had no type now has one and can
+therefore be *wrong*, but not measured until now. The commonest exact
+substitution is `number -> any`, 5,295 lines: we answer the implicit any where
+upstream infers a real type.
+
+**This is the first cycle where "fix what is ported" outranks parts of "port more",
+and it was invisible until the porting happened.** Same lesson as inherited
+members emerging only after property access landed.
+
+### What the histogram says is next
+
+Over the 247,581 lines still answered `errorType`:
+
+| where the checker stops | lines | share |
+|---|---:|---:|
+| an expression we do not compute | 84,232 | 34.02% |
+| an initialiser we do not compute | 43,113 | 17.41% |
+| a type node we cannot resolve | 40,004 | 16.16% |
+| a property access whose receiver we cannot type | 28,044 | 11.33% |
+| a symbol kind `getTypeOfSymbol` does not handle | 16,830 | 6.80% |
+| a property access whose property we cannot find | 15,928 | 6.43% |
+| a free name that does not resolve, value position | 10,535 | 4.26% |
+
+The individual stops, which is what ranks work:
+
+```text
+15,867  CallExpression          — the largest single unported form
+13,549  ElementAccessExpression
+10,807  a variable initialised by an array literal
+10,513  a property access whose receiver is an identifier we cannot type
+ 6,999  ObjectLiteralExpression
+ 6,978  AsExpression
+ 5,596  ArrowFunction
+```
+
+And the single largest *substitution* in the whole corpus: **`any -> error`,
+50,473 lines** — upstream answers `any` and we gap. Those are unannotated
+parameters and error types flowing outward, and they need the signature and
+contextual-typing machinery rather than a new node kind. That figure is the
+strongest argument yet that the next big slice is calls and signatures rather
+than more type nodes.
+
+The array bucket is still **0.00%** (12,050 gaps) and lib attribution still reads
+**18,385 lines, 7.43% of gaps** — both now blocked on `bd tsr-0e9`, program-wide
+identity, and neither is separately rankable.
+
 ## The binary operators, and one deliberate deviation
 
 Ported 2026-08-05 (`bd tsr-4sc.13`, first slice). `checkBinaryLikeExpression`
