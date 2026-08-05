@@ -1,5 +1,38 @@
 # The typed-receiver call: what the 557 answer once the blocker is gone
 
+> **CORRECTED 2026-08-05 (cycle 10). The demonstration below stands; its
+> population does not.** This page attributed 97 of the **557** to the
+> instantiation shape. **Not one of the 557 can be that shape**, and the reason
+> is structural rather than statistical:
+> `create_type_reference` (`crates/tsr-checker/src/declared.rs:514`) builds every
+> instantiated reference with `members: None`, and `get_property_of_type`
+> (`crates/tsr-checker/src/members.rs:203-206`) returns `None` on its `_` arm for
+> a `Named` without a member table **before it reads the name**. So a receiver
+> carrying type arguments can never reach *"member found, member types as
+> `error`"* — it lands in *"no such member"*, in the `receiver is Named without
+> members` sub-row of the **1,011** measured in
+> [`checker-notes-calls.md`](checker-notes-calls.md). Fixture `A` of the
+> demonstration below is not a member of the 557 at all.
+>
+> The error was summing `promiseType` (51) and `promiseTypeStrictNull` (46) out
+> of the 557's **case-concentration** table, which says which *files* those nodes
+> are in and nothing about their *mechanism*. The Promise nodes of the
+> instantiation shape are the 122 + 122 inside the 1,011. This is
+> `docs/conventions.md`'s *"a number can be true and answer a different
+> question"*, and specifically its *"a row named after one case is about that
+> case"* trap — which the paragraph immediately below correctly refuses for
+> `typedArrays` and then commits for `promiseType` three lines earlier.
+>
+> Found by the agent building `bd tsr-fua`, whose brief (mine) specified a
+> counter that would have read **zero**; verified independently against both
+> source lines before this header was written. Corrected here rather than only in
+> [`checker-notes-inst.md`](checker-notes-inst.md), because a wrong claim left
+> standing where it was made is how a limitation outlives its own fix.
+>
+> [`checker-notes-calls.md`](checker-notes-calls.md) got this right and is not
+> affected: it labelled the same three-baseline observation *"a suggestive shape
+> and it is **not** measured here"* and explicitly declined the inference.
+
 Status: demonstrated 2026-08-05 against `HEAD` at the time of writing, for
 `bd tsr-gdy`. **No production code changed.** The deliverable for a kind-2 item
 is a demonstration, not an estimate — `docs/conventions.md`, "For a
@@ -80,8 +113,15 @@ interfaces are unported", and it is the one the fixtures support.
 
 ## What this does *not* show
 
-`promiseType` + `promiseTypeStrictNull` are 97 of the 557 (17.4%) and are
-`Promise<T>` members — the shape above, exactly. **`typedArrays` is the largest
+> **This paragraph is the corrected claim. See the header.** The "97 of the 557
+> (17.4%)" is wrong: no member of the 557 carries type arguments on its receiver,
+> so the instantiation shape's coverage of *this row* is **0**, and the Promise
+> nodes of that shape live in the 1,011 instead. The sentence is kept as written
+> because the reasoning that produced it — a case-concentration table read as a
+> mechanism split — is the part worth not repeating.
+
+~~`promiseType` + `promiseTypeStrictNull` are 97 of the 557 (17.4%) and are
+`Promise<T>` members — the shape above, exactly.~~ **`typedArrays` is the largest
 single case at 54 (9.7%) and is not this shape.** Its calls are
 `Int8Array.from(obj)` and `Int8Array.of(...obj)`, whose receiver is the
 *non-generic* `Int8ArrayConstructor`. Those signatures reference `ArrayLike` and
@@ -90,11 +130,27 @@ and this page makes no claim about them. Attributing the whole 557 to
 instantiation on the strength of the Promise share would be the "a row named
 after one case is about that case" error this project keeps writing down.
 
-The honest split of the 557 by mechanism has **not** been measured. One more
+~~The honest split of the 557 by mechanism has **not** been measured. One more
 counter at `crates/tsr-checker/src/calls.rs:416`, keyed on whether the receiver
 type carries type arguments, would give it, and would say whether the
 demonstrated fix is worth 17% of the row or most of it. Until it runs, the
-demonstrated mechanism covers a measured 17.4% and an unmeasured remainder.
+demonstrated mechanism covers a measured 17.4% and an unmeasured remainder.~~
+
+**Superseded 2026-08-05.** The proposed counter was built (`bd tsr-fua`,
+`d59bee2^..d59bee2`) and it had to be moved: keyed on the 557 it would have read
+zero, for the structural reason in the header. It now partitions the parent row,
+`property access: receiver is typed` (2,562), a second way — *type arguments and
+no member found* (the population `bd tsr-el3.2` acts on), *type arguments and
+member found* (a control that must read zero), and *no type arguments*. The
+question this paragraph wanted answered is real; it was pointed at the wrong row.
+
+**The demonstrated mechanism's coverage of the 557 is 0, not 17.4%.** What the
+demonstration establishes is unchanged and is worth restating without the bad
+number attached: on a receiver whose named type carries type arguments,
+hand-instantiating the declaration makes the call answer correctly, *including*
+when the return type is the type parameter. That is sufficiency on the shape. It
+says nothing about how many corpus nodes have the shape, which is what the moved
+counter is for.
 
 ## The confound, recorded because it produced two false findings
 
