@@ -162,9 +162,15 @@ impl<'a> Checker<'a, '_> {
     fn export_symbol_of(&self, marker: SymbolId) -> Option<SymbolId> {
         let entry = self.binder.symbols().get(marker);
         let name = entry.name;
-        let file = self.source_file_of(*entry.declarations.first()?)?;
-        let module = self.binder.symbol_of(file)?;
-        self.binder.symbols().get(module).exports.get(name).copied()
+        let mut current = Some(*entry.declarations.first()?);
+        while let Some(id) = current {
+            if self.nodes.kind(id) == SyntaxKind::SourceFile {
+                let module = self.binder.symbol_of(id)?;
+                return self.binder.symbols().get(module).exports.get(name).copied();
+            }
+            current = self.nodes.parent(id);
+        }
+        None
     }
 
     /// The type of a `get`/`set` accessor symbol.
@@ -353,23 +359,12 @@ impl<'a> Checker<'a, '_> {
     /// # The visited set is upstream's, not a local invention
     ///
     /// `seenSymbols` (`checker.go:16368`) is what stops `import a = b; export {
-    /// a }` style chains from looping, and it is not a defensive cap.
-    ///
-    /// **It is also the only thing that makes a cross-file re-export cycle
-    /// terminate in this port**, which was not true when it was written and is
-    /// measured now. `a.ts` re-exporting `q` from `b.ts` while `b.ts` re-exports
-    /// `q` from `a.ts` closes its loop *here*, in the chain walk, because
-    /// `getTypeOfAlias`'s `VALUE` test runs over this function and
-    /// [`Checker::resolve_alias`] is not itself recursive. Deleting
-    /// `seen.contains(&target)` below **hangs**
-    /// `tests/cross_file_aliases.rs::a_re_export_cycle_between_two_files_terminates`;
-    /// that mutation is what pins this line, and it is the only one that does.
-    ///
-    /// An earlier draft of the cross-file arm added upstream's own
-    /// `AliasTarget` resolution frame instead, on the assumption that it was the
-    /// termination guard. It was not, and it could not fire at all — see
-    /// [`Checker::resolve_alias`] for the measurement and for what would make it
-    /// necessary.
+    /// a }` style chains from looping, and it is needed here for the same reason
+    /// and not as a defensive cap: this port's `resolutions` stack keys on
+    /// `PropertyName`, which has no `AliasTarget` variant
+    /// (`crate::resolution::PropertyName`) and adding one would be a change to a
+    /// file this slice does not own. Upstream's own guard is therefore the one
+    /// ported, which is the better outcome anyway.
     ///
     /// # One divergence, and it is in the safe direction
     ///
@@ -479,71 +474,15 @@ impl<'a> Checker<'a, '_> {
     /// (*"merged declarations are where to look — `export interface I {}` beside
     /// `export const I = 1`"*), so the control found the predicted failure and
     /// the prediction is what makes one line worth acting on.
-    /// # Upstream's circularity frame is deliberately **not** ported, and this
-    /// is the evidence
-    ///
-    /// `resolveAlias` pushes `TypeSystemPropertyNameAliasTarget`
-    /// (`checker.go:16272`) and, on failure, reports
-    /// `Circular_definition_of_import_alias_0`. Two files re-exporting through
-    /// each other is a real shape, so that frame was written here first —
-    /// a `PropertyName::AliasTarget` variant and a push/pop around the dispatch
-    /// below.
-    ///
-    /// **It was measured and it could not fire, so it was removed.** With the
-    /// frame disabled, every test in `tests/cross_file_aliases.rs` stays green,
-    /// including the two-file re-export cycle. The reason is structural rather
-    /// than a property of those fixtures: **this function is not
-    /// self-recursive.** Its four arms reach `Binder::resolve_name`,
-    /// [`Checker::export_specifier_target`],
-    /// [`Checker::import_specifier_target`] and
-    /// [`Checker::get_external_module_member`], and none of those calls back
-    /// into `resolve_alias` or into `get_type_of_symbol` — they read symbol
-    /// tables. Upstream's does recurse, through `resolveIndirectionAlias`
-    /// (`checker.go:16293`), which this port does not have.
-    ///
-    /// A guard nobody can make fire reads as safety and supplies none;
-    /// `docs/conventions.md` records the same failure one level up, in a control
-    /// bucket that could only ever read zero. **What would make it necessary:**
-    /// porting `resolveIndirectionAlias`, or any arm that resolves a target's
-    /// own alias from inside this function. Whoever does that must restore the
-    /// frame, and `a_re_export_cycle_between_two_files_terminates` is the test
-    /// that will hang if they do not.
-    ///
-    /// # What *does* make a cycle terminate, and it is not this function
-    ///
-    /// [`Checker::get_symbol_flags`]'s visited set — upstream's own
-    /// `seenSymbols` (`checker.go:16368`). `getTypeOfAlias` takes its `VALUE`
-    /// test over the alias *chain*, so the chain walk is where a loop is closed,
-    /// and the walk stops on a repeat. Deleting `seen.contains(&target)` there
-    /// **hangs** `a_re_export_cycle_between_two_files_terminates`, which is the
-    /// mutation that pins it.
-    ///
-    /// # Not memoised, where upstream memoises
-    ///
-    /// Upstream stores the answer in `aliasSymbolLinks[symbol].aliasTarget` and
-    /// so computes each alias target once. This recomputes. The cost is repeated
-    /// work on a chain, bounded because [`Checker::get_type_of_alias`] memoises
-    /// the *type* in [`Checker::symbol_types`] and that is what every caller
-    /// ultimately wants.
     fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
-        match self.nodes.kind(declaration) {
-            // `getTargetOfExportSpecifier` (`checker.go:14951`) — both halves,
-            // `export { q }` and `export { q } from "./m"`.
-            SyntaxKind::ExportSpecifier => return self.export_specifier_target(declaration),
-            // `getTargetOfImportSpecifier` (`checker.go:14647`).
-            SyntaxKind::ImportSpecifier => return self.import_specifier_target(declaration),
-            _ => {}
+        if self.nodes.kind(declaration) == SyntaxKind::ExportSpecifier {
+            return self.export_specifier_target(declaration);
         }
         let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
-            // Every other alias form — an import clause, a namespace import,
-            // `export =` — reaches its target through module resolution and
-            // then prints the **alias's own** name rather than the target's.
-            // `bd tsr-4jk` has the measurement: `import * as ns from "./m"`
-            // records `>ns : typeof ns`, so resolving it in this port would
-            // print `typeof <the stripped file path>` — a wrong line where a
-            // gap stands. Same mechanism as the qualified `import a = b.c`
-            // below, and it is why those forms are not built here.
+            // Every other alias form — ES import clauses, `export =`, and an
+            // export specifier that names a module — reaches its target through
+            // module resolution.
             return None;
         };
         match node.module_reference? {
@@ -679,16 +618,10 @@ impl<'a> Checker<'a, '_> {
         // The grandparent is the `ExportDeclaration`: specifier -> NamedExports
         // -> ExportDeclaration. Its module specifier is the whole test.
         let clause = self.nodes.parent(declaration)?;
-        let declaration_of_export = self.nodes.parent(clause)?;
-        let export = self.node_map.get(declaration_of_export)?;
+        let export = self.node_map.get(self.nodes.parent(clause)?)?;
         let Node::ExportDeclaration(export) = export else { return None };
         if export.module_specifier.is_some() {
-            // `case exportDeclaration.ModuleSpecifier() != nil:
-            // getExternalModuleMember(exportDeclaration, node, …)`
-            // (`checker.go:14966`). The *export declaration* is the node the
-            // specifier is read from, which is why the id is threaded rather
-            // than the specifier's own.
-            return self.get_external_module_member(declaration_of_export, declaration);
+            return None;
         }
         // `node.PropertyNameOrName()`: `export { q as r }` looks up `q`.
         let name = match specifier.property_name.or(specifier.name)? {
@@ -702,252 +635,6 @@ impl<'a> Checker<'a, '_> {
             name.text,
             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
         )
-    }
-
-    /// The symbol an **import specifier** names — `import { x } from "./m"`.
-    ///
-    /// Ported from `Checker.getTargetOfImportSpecifier` (`checker.go:14647`),
-    /// reduced to its second half. Upstream's first half handles
-    /// `import { default as d }` through `getTargetOfModuleDefault`
-    /// (`checker.go:14536`); for a module that has a real `export default`, that
-    /// function reduces to `resolveExportByName(moduleSymbol, "default", …)`,
-    /// which is the same `exports` lookup the fall-through below performs. The
-    /// two differ only where there is **no** real default and upstream
-    /// synthesises one — unported, and a miss rather than a wrong target.
-    ///
-    /// `root := node.Parent.Parent.Parent` (`checker.go:14658`) is the
-    /// `ImportDeclaration`: specifier → `NamedImports` → `ImportClause` →
-    /// `ImportDeclaration`. Upstream's `IsBindingElement` case is the JS
-    /// destructured-`require` form, which this port does not reach.
-    fn import_specifier_target(&mut self, declaration: NodeId) -> Option<SymbolId> {
-        let named_imports = self.nodes.parent(declaration)?;
-        let clause = self.nodes.parent(named_imports)?;
-        let import = self.nodes.parent(clause)?;
-        self.get_external_module_member(import, declaration)
-    }
-
-    /// The symbol a named import or re-export names inside another module.
-    ///
-    /// Ported from `Checker.getExternalModuleMember` (`checker.go:14667`) with
-    /// `dontResolveAlias = true`, which is what both callers pass. `node` is the
-    /// `ImportDeclaration` or `ExportDeclaration` that carries the module
-    /// specifier; `specifier` is the `ImportSpecifier` or `ExportSpecifier` that
-    /// carries the name.
-    ///
-    /// **This one function serves both cross-file forms this arm builds** —
-    /// `import { x } from "./m"` and `export { q } from "./m"` — which is why
-    /// they are one item and not two. Upstream reaches it from
-    /// `getTargetOfImportSpecifier` (`checker.go:14647`) and from
-    /// `getTargetOfExportSpecifier`'s module-specifier case
-    /// (`checker.go:14966`).
-    ///
-    /// # Why these two forms and not the ones that reach a module symbol
-    ///
-    /// `import * as ns from "./m"` and `import a = require("./m")` resolve
-    /// *more* easily — they need no name lookup at all — and are deliberately
-    /// not built. Their declaration name prints the **local alias**, not the
-    /// module: `conformance/exportAsNamespace4(module=commonjs).types` records
-    /// `>ns : typeof ns` for `import * as ns from './0'`, because upstream's
-    /// node builder emits the shortest accessible chain to the symbol. A module
-    /// symbol's name here is the file path with its extension stripped
-    /// (`bind_source_file_as_external_module`, `crates/tsr-binder/src/binder.rs`),
-    /// so this port would print `typeof /0` — a **wrong** line where a gap
-    /// stands. That is the same limitation already documented on
-    /// [`Checker::resolve_alias`] for `import a = foo.bar.baz`, reaching two
-    /// more forms; `bd tsr-4jk` carries the measurement (692 lines).
-    ///
-    /// A named import has no such problem, because the target is an ordinary
-    /// export symbol carrying its own name.
-    ///
-    /// # What is deliberately not ported, each a miss and never a wrong target
-    ///
-    /// - **A module with `export =`.** Upstream reads the member off
-    ///   `getTypeOfSymbol(targetSymbol)` via `getPropertyOfTypeEx` and may
-    ///   combine a value symbol with a type symbol
-    ///   (`combineValueAndTypeSymbols`). Both are real machinery; this answers
-    ///   `None` when `exports` holds `export=`, so nothing is guessed.
-    /// - **`export *` re-exports.** `getExportOfModule` reads
-    ///   `getExportsOfSymbol` (`checker.go:15920`), which resolves star exports
-    ///   through `getExportsOfModuleWorker` (`checker.go:16148`). This reads the
-    ///   binder's `exports` table directly, so a name that arrives only through
-    ///   `export * from "./n"` is not found.
-    /// - **A shorthand ambient module** (`isShorthandAmbientModuleSymbol`,
-    ///   `internal/checker/utilities.go:198`), which upstream answers with the
-    ///   module symbol itself. Unreachable here: ambient modules are
-    ///   `tryFindAmbientModule`, which
-    ///   [`Checker::resolve_external_module_name`] does not port.
-    fn get_external_module_member(&mut self, node: NodeId, specifier: NodeId) -> Option<SymbolId> {
-        let module_specifier = self.external_module_name(node)?;
-        let module_symbol = self.resolve_external_module_name(node, module_specifier)?;
-        // `specifier.PropertyNameOrName()` (`checker.go:14677`). A string
-        // literal name — `import { "a-b" as c }` — is a valid module export
-        // name upstream; it is not looked up here because
-        // `SymbolTable` keys are the identifier text and the two spellings have
-        // not been checked to agree. `None` is a miss.
-        let name = match self.node_map.get(specifier)? {
-            Node::ImportSpecifier(node) => {
-                node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
-            }
-            Node::ExportSpecifier(node) => node.property_name.or(node.name),
-            _ => return None,
-        }?;
-        let tsr_ast::ModuleExportName::Identifier(name) = name else { return None };
-        // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
-        // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
-        // for both callers here: its synthetic-default and
-        // `cloneTypeAsModuleType` arms are guarded by `namespaceImport != nil ||
-        // IsImportCall(referenceParent)`, and a *named* import or re-export is
-        // neither.
-        if self.resolve_external_module_symbol(module_symbol) != module_symbol {
-            // The `export =` case, gapped above.
-            return None;
-        }
-        self.get_export_of_module(module_symbol, name.text)
-    }
-
-    /// One export of a module, by name.
-    ///
-    /// Ported from `Checker.getExportOfModule` (`checker.go:14789`) with
-    /// `dontResolveAlias = true`, under which its `resolveSymbolEx`
-    /// (`checker.go:14432`) is the identity — so the whole function is the
-    /// `SymbolFlagsModule` guard and one table lookup.
-    ///
-    /// The guard is not decoration: `getExternalModuleMember` can hand this a
-    /// symbol that is not a module, and upstream answers `nil` rather than
-    /// searching a table that means something else.
-    fn get_export_of_module(&self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
-        let entry = self.binder.symbols().get(symbol);
-        if !entry.flags.intersects(SymbolFlags::MODULE) {
-            return None;
-        }
-        entry.exports.get(name).copied()
-    }
-
-    /// Ported from `Checker.resolveExternalModuleSymbol`
-    /// (`checker.go:15556`): a module that writes `export = X` is, for every
-    /// purpose downstream, `X`.
-    ///
-    /// Returns the module symbol unchanged when there is no `export =`, which is
-    /// upstream's fallthrough. The caller uses the *difference* as the test for
-    /// whether an `export =` is present, so this is one function rather than a
-    /// bool and a symbol.
-    ///
-    /// `resolveSymbolEx(…, dontResolveAlias)` is applied by upstream to the
-    /// `export=` symbol; with `dontResolveAlias = true` it is the identity, and
-    /// the only caller here passes `true`.
-    fn resolve_external_module_symbol(&self, module_symbol: SymbolId) -> SymbolId {
-        // `ast.InternalSymbolNameExportEquals` (`internal/ast/symbol.go:66`).
-        // Spelled here rather than imported because the binder's constant is
-        // `pub(crate)`; both are anchored to the same upstream line, and a test
-        // in `tests/cross_file_aliases.rs` pins the spelling by construction.
-        const EXPORT_EQUALS: &str = "export=";
-        self.binder
-            .symbols()
-            .get(module_symbol)
-            .exports
-            .get(EXPORT_EQUALS)
-            .copied()
-            .unwrap_or(module_symbol)
-    }
-
-    /// The module symbol a specifier names — the one step a cross-file alias
-    /// cannot take alone.
-    ///
-    /// Ported from `Checker.resolveExternalModuleName` (`checker.go:15101`)
-    /// through `resolveExternalModuleNameWorker` (`checker.go:15122`) into
-    /// `resolveExternalModule` (`checker.go:15149`), reduced to the path that
-    /// produces a symbol. Upstream's function is 190 lines, of which this ports
-    /// four steps:
-    ///
-    /// 1. the specifier must be a string literal
-    ///    (`IsStringLiteralLike`, `checker.go:15123`);
-    /// 2. the host maps `(importing file, text)` to a file
-    ///    ([`crate::resolution::ModuleHost`]);
-    /// 3. the file's own symbol **is** the module symbol
-    ///    (`crates/tsr-binder/src/binder.rs`,
-    ///    `bind_source_file_as_external_module`), which is upstream's
-    ///    `sourceFile.Symbol` at `checker.go:15321`;
-    /// 4. `nil` when the file has no symbol — upstream's
-    ///    `File_0_is_not_a_module`.
-    ///
-    /// Everything else in those 190 lines is diagnostics: fourteen distinct
-    /// messages about `.ts` extensions, rewritten relative imports and a
-    /// `CommonJS` file reaching an ES module. None of it changes which symbol is
-    /// returned.
-    ///
-    /// # Three resolutions that are not ported, all misses
-    ///
-    /// - **`tryFindAmbientModule`** (`checker.go:15154`), which answers
-    ///   `declare module "fs"` **before** the host is consulted. A program whose
-    ///   `"fs"` is ambient therefore gaps here where upstream resolves.
-    /// - **Pattern ambient modules** (`declare module "foo/*"`), upstream's
-    ///   fallback after the host misses.
-    /// - **`getMergedSymbol`** on the result: a module symbol that merges with a
-    ///   module augmentation is answered unmerged.
-    ///
-    /// Each is a `None`, so each is an `errorType` — a gap, never a wrong
-    /// target.
-    ///
-    /// # With no host, this answers `None` and the behaviour is today's
-    ///
-    /// [`Checker::module_host`] is `None` for a checker built over a single
-    /// bound file, which is every call site that existed before this arm. Such a
-    /// checker answers `errorType` for every cross-file alias, which is exactly
-    /// what it answered before — the arm is additive by construction rather than
-    /// by test.
-    fn resolve_external_module_name(
-        &mut self,
-        location: NodeId,
-        module_specifier: NodeId,
-    ) -> Option<SymbolId> {
-        let Node::StringLiteral(literal) = self.node_map.get(module_specifier)? else {
-            // `resolveExternalModuleNameWorker` returns `nil` for anything that
-            // is not a string literal (`checker.go:15123`).
-            return None;
-        };
-        let importing_file = self.source_file_of(location)?;
-        let target = self.module_host?.resolved_module(importing_file, literal.text)?;
-        // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
-        // that is not an external module — upstream's `File_0_is_not_a_module` —
-        // and it is the reason the host answers a *file* rather than a symbol:
-        // resolving to a plain script is a successful resolution with no module
-        // symbol at the end of it, and only the checker can tell those apart.
-        self.binder.symbol_of(target)
-    }
-
-    /// The module specifier of an `ImportDeclaration` or an `ExportDeclaration`.
-    ///
-    /// Ported from `ast.GetExternalModuleName` (`internal/ast/utilities.go:1903`)
-    /// over the two kinds [`Checker::get_external_module_member`] is reached
-    /// with. Upstream also covers `ImportEqualsDeclaration`, `ModuleDeclaration`
-    /// and `ImportTypeNode`; none of those reaches this function in this port,
-    /// and listing a kind whose caller does not exist would be an intention
-    /// documented as though it were built.
-    fn external_module_name(&self, node: NodeId) -> Option<NodeId> {
-        let specifier = match self.node_map.get(node)? {
-            Node::ImportDeclaration(node) => node.module_specifier,
-            Node::ExportDeclaration(node) => node.module_specifier,
-            _ => return None,
-        }?;
-        specifier.node_id()
-    }
-
-    /// The `SourceFile` a node belongs to (`ast.GetSourceFileOfNode`).
-    ///
-    /// A parent walk, because [ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)
-    /// keeps the back-edge in [`tsr_ast::NodeTable`] rather than on the node.
-    /// Under [ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)
-    /// one table spans every file of a program, so the id this returns
-    /// identifies a file across the whole program and is what
-    /// [`crate::resolution::ModuleHost`] is keyed on.
-    fn source_file_of(&self, node: NodeId) -> Option<NodeId> {
-        let mut current = node;
-        loop {
-            if self.nodes.kind(current) == SyntaxKind::SourceFile {
-                return Some(current);
-            }
-            current = self.nodes.parent(current)?;
-        }
     }
 
     /// The type of an enum member symbol.

@@ -1339,3 +1339,22 @@ side: counting only the rows that name a defect **under**-counts, because the
 lines they block are in other rows or in no row at all. **Before quoting a row as
 a deliverable, ask both — what in this row will not convert, and what outside it
 will.**
+
+#### And do not truncate the output of the command that assigns the identifier
+
+`bd create … | tail -2` prints the priority and status lines and **cuts the line
+carrying the new id**. An id was then quoted from memory in two handoffs and in a
+document, and it had never existed: the real issue was `tsr-lgf`, the cited one
+`tsr-6yg`. A teammate found nothing behind the citation and refiled the incident
+rather than leave a dangling reference, which produced a duplicate — the better
+of the two errors, since **a citation nobody can follow is worse than no
+citation, because it reads as provenance.**
+
+This is the same rule as re-reading what you store, one step earlier: there the
+risk is that the stored text was mangled, here that the identifier you quote was
+never read at all. **Read the line that names the thing you are about to cite.**
+
+A cheap standing check, and one page was audited this way in a single loop:
+resolve every commit hash and every `bd` id a document cites. `xtask anchors`
+already does exactly this for upstream file:line references; commit hashes and
+issue ids are the same class of reference and have no gate.
