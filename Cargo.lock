@@ -280,6 +280,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tsr-checker"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "rustc-hash",
+ "tsr-ast",
+ "tsr-binder",
+ "tsr-core",
+ "tsr-diagnostics",
+ "tsr-parser",
+]
+
+[[package]]
 name = "tsr-checker-spike"
 version = "0.1.0"
 dependencies = [

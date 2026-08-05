@@ -1,0 +1,23 @@
+[package]
+name = "tsr-checker"
+description = "The type checker: types, relations, and the diagnostics that come from them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+bitflags = { workspace = true }
+rustc-hash = { workspace = true }
+tsr-ast = { workspace = true }
+tsr-binder = { workspace = true }
+tsr-core = { workspace = true }
+tsr-diagnostics = { workspace = true }
+
+[dev-dependencies]
+tsr-parser = { workspace = true }
+
+[lints]
+workspace = true
