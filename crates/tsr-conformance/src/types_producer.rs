@@ -17,6 +17,7 @@
 //! **Get that number high before believing anything about types.**
 
 use tsr_ast::{Node, NodeId, NodeMap, NodeTable, SyntaxKind, Tree, predicates, push_children};
+use tsr_binder::SymbolFlags;
 
 use crate::types_baseline::{FileTypes, TypeAssertion};
 
@@ -378,7 +379,17 @@ fn type_node_reason(
     let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
         return "TypeReference qualified name".to_string();
     };
-    match name.node_id.and_then(|node| binder.resolve(nodes, node, name.text)) {
+    // `SymbolFlags::TYPE`, because this mirrors `declared.rs`'s
+    // `get_type_from_type_reference`, which passes exactly that
+    // (upstream's `SymbolFlagsType` at a type reference). Passing the old
+    // unfiltered meaning here would make the instrument answer a question the
+    // checker no longer asks — the drift that produced the 22,768-line phantom
+    // finding, and the reason this function mirrors the code it explains line
+    // for line rather than approximating it.
+    match name
+        .node_id
+        .and_then(|node| binder.resolve_name(nodes, map, node, name.text, SymbolFlags::TYPE))
+    {
         // The name is carried in the reason so the report can histogram it; see
         // `examples/types_shapes.rs`, which splits it back off. It is the direct
         // test of "is this a lib type": `Array` and `Promise` are, `Foo` is not.
@@ -509,8 +520,13 @@ pub fn gap_reason(
                 .filter(|&parent| map.get(parent).and_then(|p| p.name_id()) == Some(id))
                 .map(|parent| format!("the name of a {:?}", nodes.kind(parent)));
             let what = member.unwrap_or_else(|| "reference".to_string());
-            return match identifier.node_id.and_then(|n| binder.resolve(nodes, n, identifier.text))
-            {
+            // `SymbolFlags::VALUE`, mirroring `expressions.rs`'s identifier arm.
+            // The meaning is not cosmetic here: a narrower or wider one than the
+            // checker's would reclassify gap lines in the histogram, attributing
+            // them to a cause the checker did not take.
+            return match identifier.node_id.and_then(|n| {
+                binder.resolve_name(nodes, map, n, identifier.text, SymbolFlags::VALUE)
+            }) {
                 Some(symbol) => format!("{what}, {}", describe(checker, symbol)),
                 None => format!("{what}, the name does not resolve"),
             };
