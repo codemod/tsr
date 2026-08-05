@@ -301,23 +301,32 @@ Built 2026-08-05 (`crates/tsr-conformance/src/types_producer.rs`), measured by
 `cargo run -p tsr-conformance --example types_walker --release` over the same
 9,538 cases the suite judges:
 
-| | first build | + `GetMeaningFromDeclaration` | + heritage clauses |
-|---|---:|---:|---:|
-| assertion lines upstream | 478,954 | 478,954 | 478,954 |
-| assertion lines we emit | 499,816 | 481,365 | **479,771** |
-| text agreement | 311,705 (65.08%) | 436,072 (91.05%) | **457,775 (95.58%)** |
-| cases with the right count | 5,602 (58.73%) | 8,143 (85.37%) | **8,629 (90.47%)** |
-| cases matching every line | 5,376 (56.36%) | 7,877 (82.59%) | **8,350 (87.54%)** |
+Against upstream's 478,954 assertion lines throughout:
 
-Two ports, both of predicates already named as missing, took this from two-thirds
-to 95.58%. `GetMeaningFromDeclaration` was worth 26 points, because type
-declarations are dense in the corpus and every one of their names was producing a
-line upstream drops. `isPartOfTypeExpressionWithTypeArguments` was worth a further
-4.5, and it is the more interesting of the two: the two halves of a class header
-are **not symmetric**, because `class C extends B` evaluates `B` as a value and
-gets a line while `class C implements I` names a type and gets none.
+| | first build | + meaning | + heritage | + `const` modifier | + instance state |
+|---|---:|---:|---:|---:|---:|
+| lines we emit | 499,816 | 481,365 | 479,771 | 479,767 | **479,019** |
+| **excess** | +20,862 | +2,411 | +817 | +813 | **+65** |
+| text agreement | 65.08% | 91.05% | 95.58% | 95.58% | **97.77%** |
+| cases with right count | 58.73% | 85.37% | 90.47% | 90.48% | **94.14%** |
+| cases matching every line | 56.36% | 82.59% | 87.54% | 87.57% | **91.10%** |
 
-Over-emission fell from 20,862 excess lines to **817**.
+Four ports took this from two-thirds to 97.77%, and **excess emission from 20,862
+lines to 65**:
+
+- `GetMeaningFromDeclaration`, worth 26 points. Type declarations are dense in
+  the corpus and every one of their names was producing a line upstream drops.
+- `isPartOfTypeExpressionWithTypeArguments`, worth 4.5. The two halves of a class
+  header are **not symmetric**: `class C extends B` evaluates `B` as a value and
+  gets a line, `class C implements I` names a type and gets none.
+- `permitConstAsModifier` **in the parser**, worth almost nothing here but a real
+  fidelity fix — `static const H = 1` was parsed as *two* members named `const`
+  and `H`, where upstream has one named `H` with an erroneous modifier. Found by
+  diffing trees rather than guessing at a predicate, which was the right call:
+  the symptom looked like a walker bug and was not.
+- `GetModuleInstanceState`, worth 2.2 points and — more tellingly — most of the
+  remaining excess. A namespace has a value side only when *instantiated*, so
+  `namespace N {}` and `namespace N { interface I {} }` contribute no name.
 
 **No type is involved in any of those numbers.** They are the prefix test
 described above, so they measure node selection and text extraction alone.
@@ -325,18 +334,19 @@ described above, so they measure node selection and text extraction alone.
 Two causes account for most of the gap, both visible in the sampled first
 divergences and both known rather than mysterious:
 
-- **Keyword tokens reach the output** (`ours: const`, `ours: return`), which the
-  selection predicates should have rejected. This is now the *dominant* remaining
-  cause in the sampled divergences. Every sampled case is **invalid TypeScript**
-  — `ClassDeclarationWithInvalidConstOnPropertyDeclaration` is named for it — so
-  the likeliest explanation is that our error recovery builds a different tree
-  than upstream's rather than that a predicate is wrong. Not yet separated, and
-  separating it is the next step: compare the two trees on one such case before
-  touching any predicate.
-- **Type-only namespaces**, per the `GetModuleInstanceState` approximation
-  above.
+- **65 excess lines**, 0.014% of the total. Whatever remains is now rare enough
+  that it is worth finding case by case rather than by pattern.
+- **`export { ... }` inside a namespace** answers `Instantiated` unconditionally,
+  because `getModuleInstanceStateForAliasTarget` resolves the specifier against
+  enclosing statements and that is a name resolution this predicate should not be
+  doing. Upstream's own fallback on a failed lookup is `Instantiated`, so the
+  error stays one-directional: over-emit, never under-emit.
+- **The keyword-token cases have been resolved** — they were a *parser* error
+  recovery difference, not a predicate defect, and the fix is above. Recorded
+  because the symptom pointed at the wrong component and only a tree diff
+  separated them.
 
-Read 95.58% as *the walker is mostly right and its remaining errors are
+Read 97.77% as *the walker is mostly right and its remaining errors are
 concentrated in two identified places*, not as a pass rate. The bar for wiring it
 into the suite is that the residual be small enough that a moving gradient means
 the checker rather than the walker.

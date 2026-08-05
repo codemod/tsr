@@ -323,6 +323,39 @@ mod tests {
     }
 
     #[test]
+    fn a_namespace_name_appears_only_when_the_namespace_has_a_value_side() {
+        // `GetModuleInstanceState`. A namespace holding nothing but types emits
+        // no value, so upstream drops its name; one holding a `const` keeps it.
+        // Worth 2.2 points of walker agreement and, more tellingly, took excess
+        // lines from 813 to 65 — empty and type-only namespaces are common in
+        // the corpus.
+        assert_eq!(texts("namespace N {}"), Vec::<String>::new());
+        assert_eq!(texts("namespace N { interface I {} }"), Vec::<String>::new());
+        assert!(texts("namespace M { export const x = 1; }").contains(&"M".to_string()));
+        // Nesting takes the highest state of the contents, so an inner value
+        // instantiates the outer namespace too.
+        let nested = texts("namespace A { export namespace B { export const x = 1; } }");
+        assert!(nested.contains(&"A".to_string()) && nested.contains(&"B".to_string()));
+        // An ambient module is instantiated without looking inside it, and its
+        // name **does** get a line even though it is a string literal — the
+        // value-meaning drop applies only to identifiers.
+        // `compiler/missingFunctionImplementation2.types` records
+        // `declare module "./x" {` as `>"./x" : typeof import("./x")`.
+        assert_eq!(texts(r#"declare module "m" {}"#), [r#""m""#]);
+    }
+
+    #[test]
+    fn an_import_counts_as_a_value_only_when_it_is_re_exported() {
+        // The other arm of the worker: a plain import inside a namespace leaves
+        // it non-instantiated, an `export import` does not.
+        // Only the namespace *name* is at stake here — the import's own name and
+        // the entity it references still get lines either way, which is why this
+        // asserts on `N` rather than on the whole list.
+        assert!(!texts("namespace N { import x = A.B; }").contains(&"N".to_string()));
+        assert!(texts("namespace N { export import x = A.B; }").contains(&"N".to_string()));
+    }
+
+    #[test]
     fn a_type_aliass_own_name_is_kept_although_it_declares_no_value() {
         // Upstream's exception, and its reason: "for a complex type alias
         // `type T = ...`, showing T : T isn't very helpful" — but the name is

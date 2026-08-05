@@ -1236,11 +1236,8 @@ fn const_is_a_modifier_on_a_class_member_not_a_member_name() {
         .filter(|id| parsed.nodes.kind(*id) == tsr_ast::SyntaxKind::PropertyDeclaration)
         .collect();
     assert_eq!(members.len(), 1, "one member, not two");
-    let name = parsed
-        .node_map
-        .get(members[0])
-        .and_then(|n| n.name_id())
-        .expect("the member has a name");
+    let name =
+        parsed.node_map.get(members[0]).and_then(|n| n.name_id()).expect("the member has a name");
     let span = parsed.nodes.span(name);
     assert_eq!(&"class C {\n  static const H = 1;\n}"[span.start as usize..span.end as usize], "H");
 }

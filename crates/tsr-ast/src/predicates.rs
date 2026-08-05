@@ -17,7 +17,7 @@
 //! so the parent id comes from [`NodeTable`] and the parent's fields from
 //! [`NodeMap`] — which is what [`Tree`] bundles.
 
-use crate::{Node, NodeId, NodeMap, NodeTable, SyntaxKind};
+use crate::{ModifierLike, Node, NodeId, NodeMap, NodeTable, SyntaxKind};
 
 /// A parsed file's side tables, together.
 ///
@@ -424,17 +424,8 @@ impl SemanticMeaning {
 /// **value** — which is what keeps `interface I` and an import's names out of a
 /// `.types` baseline while `const x` stays in.
 ///
-/// # The module case is approximated
-///
-/// Upstream answers `Namespace | Value` for an ambient module and for one whose
-/// `GetModuleInstanceState` is `Instantiated`, and bare `Namespace` otherwise —
-/// i.e. a namespace containing only types has no value side and its name is
-/// dropped. `GetModuleInstanceState` is a recursive analysis this port does not
-/// have, so `ModuleDeclaration` answers `Namespace | Value` unconditionally.
-///
-/// **The error is one-directional**: a type-only namespace keeps a line upstream
-/// would drop, so we over-emit rather than under-emit. Recorded in
-/// `docs/architecture/checker-oracle.md` and owned by `bd tsr-4sc.3`.
+/// The module case now goes through [`module_instance_state`], which has its own
+/// documented gap around `export { ... }` clauses.
 #[must_use]
 #[allow(
     clippy::match_same_arms,
@@ -469,20 +460,25 @@ pub fn meaning_from_declaration(id: NodeId, tree: Tree<'_, '_>) -> SemanticMeani
             SemanticMeaning::VALUE | SemanticMeaning::TYPE
         }
 
-        // Two upstream arms with the same answer, merged because clippy rejects
-        // identical bodies — but they are there for different reasons.
-        //
-        // `SourceFile` is `Namespace | Value` outright: an external module can be
-        // a value.
-        //
-        // `ModuleDeclaration` is `Namespace | Value` only when the module is
-        // ambient or *instantiated*; a namespace holding nothing but types is
-        // bare `Namespace` upstream, and its name gets no line. That distinction
-        // needs `GetModuleInstanceState`, which is not ported — see this
-        // function's doc comment. The error over-emits rather than under-emits.
-        SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile => {
-            SemanticMeaning::NAMESPACE | SemanticMeaning::VALUE
+        // A namespace has a value side only when it is *instantiated* — or is an
+        // ambient module, which upstream tests first. A namespace holding
+        // nothing but types is bare `Namespace`, and its name gets no `.types`
+        // line. See [`module_instance_state`].
+        SyntaxKind::ModuleDeclaration => {
+            let ambient = matches!(
+                tree.node(id),
+                Some(Node::ModuleDeclaration(n))
+                    if matches!(n.name, Some(crate::ModuleName::StringLiteral(_)))
+            );
+            if ambient || module_instance_state(id, tree) == ModuleInstanceState::Instantiated {
+                SemanticMeaning::NAMESPACE | SemanticMeaning::VALUE
+            } else {
+                SemanticMeaning::NAMESPACE
+            }
         }
+
+        // An external module can be a value.
+        SyntaxKind::SourceFile => SemanticMeaning::NAMESPACE | SemanticMeaning::VALUE,
 
         SyntaxKind::EnumDeclaration
         | SyntaxKind::NamedImports
@@ -494,4 +490,109 @@ pub fn meaning_from_declaration(id: NodeId, tree: Tree<'_, '_>) -> SemanticMeani
 
         _ => SemanticMeaning::ALL,
     }
+}
+
+/// Whether a namespace has a value side.
+///
+/// Ported from `ModuleInstanceState` (`utilities.go:2310`). Ordered, because
+/// upstream compares with `>`: a module block takes the *highest* state of its
+/// children.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ModuleInstanceState {
+    /// Contains only types — no value is emitted and the name denotes no value.
+    NonInstantiated,
+    /// Contains only `const enum`s.
+    ConstEnumOnly,
+    /// Contains something with a value side.
+    Instantiated,
+}
+
+/// Whether the module at `id` is instantiated.
+///
+/// Ported from `getModuleInstanceStateWorker` (`utilities.go:2352`). This is what
+/// decides whether a namespace's *name* gets a `.types` line: `namespace N {}`
+/// and `namespace N { interface I {} }` have no value side, so upstream drops
+/// their names, while `namespace M { export const x = 1 }` keeps its.
+///
+/// # What is not ported
+///
+/// `getModuleInstanceStateForAliasTarget` (`:2405`) — for `export { x }` inside a
+/// namespace, upstream resolves `x` against the enclosing statements to decide
+/// whether the re-export names a value. That is a name resolution this predicate
+/// has no business doing, and upstream's own fallback when it cannot find the
+/// target is `Instantiated`. So an `export { ... }` clause answers `Instantiated`
+/// here, which is upstream's answer whenever the lookup fails and its answer for
+/// most cases where it succeeds.
+///
+/// **The error is one-directional**: a namespace that upstream would call
+/// non-instantiated may be called instantiated here, so its name keeps a line it
+/// should not have. Over-emission, never under-emission.
+///
+/// The `visited` cycle guard is not ported either: it exists for the alias-target
+/// walk, which is what can revisit a node.
+#[must_use]
+pub fn module_instance_state(id: NodeId, tree: Tree<'_, '_>) -> ModuleInstanceState {
+    let Some(Node::ModuleDeclaration(module)) = tree.node(id) else {
+        return ModuleInstanceState::Instantiated;
+    };
+    // `declare module "x";` with no body is instantiated.
+    let Some(body) = module.body else { return ModuleInstanceState::Instantiated };
+    state_of(Node::from(body), tree)
+}
+
+/// `getModuleInstanceStateWorker` for one node.
+fn state_of(node: Node<'_>, tree: Tree<'_, '_>) -> ModuleInstanceState {
+    let Some(id) = node.node_id() else { return ModuleInstanceState::Instantiated };
+    match tree.kind(id) {
+        SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeAliasDeclaration => {
+            ModuleInstanceState::NonInstantiated
+        }
+        SyntaxKind::EnumDeclaration => {
+            if has_modifier(node, SyntaxKind::ConstKeyword) {
+                ModuleInstanceState::ConstEnumOnly
+            } else {
+                ModuleInstanceState::Instantiated
+            }
+        }
+        // An import contributes a value only when it is re-exported.
+        SyntaxKind::ImportDeclaration | SyntaxKind::ImportEqualsDeclaration => {
+            if has_modifier(node, SyntaxKind::ExportKeyword) {
+                ModuleInstanceState::Instantiated
+            } else {
+                ModuleInstanceState::NonInstantiated
+            }
+        }
+        SyntaxKind::ModuleBlock => {
+            let Some(Node::ModuleBlock(block)) = tree.node(id) else {
+                return ModuleInstanceState::Instantiated;
+            };
+            // The highest state of any statement, short-circuiting on
+            // `Instantiated` exactly as upstream's `ForEachChild` callback does
+            // by returning `true`.
+            let mut state = ModuleInstanceState::NonInstantiated;
+            for statement in block.statements {
+                let child = state_of(Node::from(*statement), tree);
+                if child > state {
+                    state = child;
+                }
+                if state == ModuleInstanceState::Instantiated {
+                    break;
+                }
+            }
+            state
+        }
+        SyntaxKind::ModuleDeclaration => module_instance_state(id, tree),
+        _ => ModuleInstanceState::Instantiated,
+    }
+}
+
+/// Whether a node carries a given keyword modifier.
+fn has_modifier(node: Node<'_>, keyword: SyntaxKind) -> bool {
+    let modifiers = match node {
+        Node::EnumDeclaration(n) => n.modifiers,
+        Node::ImportDeclaration(n) => n.modifiers,
+        Node::ImportEqualsDeclaration(n) => n.modifiers,
+        _ => return false,
+    };
+    modifiers.iter().any(|m| matches!(m, ModifierLike::Token(t) if t.kind == keyword))
 }
