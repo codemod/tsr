@@ -386,12 +386,42 @@ pub fn type_at_location(
     // checker — which is why it belongs here rather than in `tsr-checker`. The
     // checker still has no answer for this node and should not pretend to; the
     // producer knows what upstream's writer prints for it.
+    // **Except inside a `typeof`, where the left keeps its value type.** Added
+    // after the first version of this rule cost 120 lines in the `typeof`
+    // bucket: `typeof M.C` records `>M : typeof M`, not `>M : any`.
+    //
+    // Upstream draws the line in two places and both say the same thing.
+    // `isPartOfTypeNodeInParent` opens with `if parent.Kind == KindTypeQuery {
+    // return false }`, and `IsExpressionNode`'s `QualifiedName` arm walks up
+    // through nested qualified names and then asks `IsTypeQueryNode`. For
+    // `typeof M.C` that is **true**, so `M` is an expression node and
+    // `getTypeOfNode` answers `getRegularTypeOfExpression` — `typeof M`. For
+    // `A.Outer` it is false, everything falls through to `errorType`, and the
+    // writer prints `any`.
+    //
+    // `conformance/recursiveTypesWithTypeof.types` pins it: `var g: typeof g.x`
+    // records `>g : { x: typeof g; }` for the *left* of the qualified name —
+    // typed as an expression, not as `any`.
+    //
+    // The walk is up through **nested** qualified names, because `typeof A.B.C`
+    // nests them and only the outermost parent is the `TypeQuery`.
     if let Some(parent) = nodes.parent(id)
         && nodes.kind(parent) == SyntaxKind::QualifiedName
         && let Some(Node::QualifiedName(qualified)) = map.get(parent)
         && qualified.right.and_then(|right| right.node_id) != Some(id)
     {
-        return checker.type_to_string(checker.intrinsics().any);
+        let mut outermost = parent;
+        while let Some(above) = nodes.parent(outermost) {
+            if nodes.kind(above) != SyntaxKind::QualifiedName {
+                break;
+            }
+            outermost = above;
+        }
+        let in_type_query =
+            nodes.parent(outermost).is_some_and(|above| nodes.kind(above) == SyntaxKind::TypeQuery);
+        if !in_type_query {
+            return checker.type_to_string(checker.intrinsics().any);
+        }
     }
 
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
@@ -961,6 +991,26 @@ mod tests {
                 ("x".to_string(), "typeof A".to_string()), // a variable holding it
                 ("A".to_string(), "typeof A".to_string()), // a value reference
             ],
+        );
+    }
+
+    #[test]
+    fn the_left_of_a_qualified_name_is_any_except_inside_a_typeof() {
+        // Both directions, because the first version of this rule had only one
+        // and cost about 120 lines in the `typeof` bucket. `A.Outer` in type
+        // position falls through `getTypeOfNode` to `errorType` and the writer
+        // prints `any`; `typeof M.C` makes `M` an *expression node*, so it keeps
+        // its value type. Pinned by `conformance/recursiveTypesWithTypeof.types`.
+        let in_type = typed("namespace A { export type Outer = { id: string } }\nlet w: A.Outer;");
+        assert!(
+            in_type.contains(&("A".to_string(), "any".to_string())),
+            "the left of a qualified type name is `any`: {in_type:?}"
+        );
+
+        let in_query = typed("namespace M { export class C {} }\ndeclare const v: typeof M.C;");
+        assert!(
+            in_query.contains(&("M".to_string(), "typeof M".to_string())),
+            "inside a type query the left keeps its value type: {in_query:?}"
         );
     }
 
