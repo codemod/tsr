@@ -95,3 +95,34 @@ fn a_shorthand_naming_something_unresolvable_is_a_gap() {
 // pass whether or not the guard existed, which is a decoration rather than
 // coverage. The guard stays because it becomes load-bearing the moment
 // destructuring lands; the reasoning is beside the code.
+
+// ------------------------------------------------ numeric property names ---
+
+#[test]
+fn a_numeric_property_name_prints_unquoted() {
+    // `{ 0: number; }` appears 63 times in the baselines and `{ 1: string; }`
+    // 30 — numeric names are what an array-like object literal looks like, so
+    // this is not an exotic spelling.
+    assert_eq!(type_of_last("const o = { 0: 1 };"), "{ 0: number; }");
+    assert_eq!(type_of_last("const o = { 1: \"a\" };"), "{ 1: string; }");
+}
+
+#[test]
+fn a_numeric_name_prints_its_value_not_its_spelling() {
+    // The same `normalise_number` the numeric *literal type* uses, which is what
+    // stops `1e3` printing one way as a name and another as a type. Writing the
+    // source text through unchanged is the plausible shortcut and fails here.
+    assert_eq!(type_of_last("const o = { 1.0: 1 };"), "{ 1: number; }");
+    assert_eq!(type_of_last("const o = { 1e3: 1 };"), "{ 1000: number; }");
+}
+
+#[test]
+fn a_non_identifier_string_name_is_still_a_gap() {
+    // `{ "a-b": string; }` is 6 baseline lines and `{ "resolution-mode": string; }`
+    // is 24, so this is worth having — but printing it needs `printing::quote`,
+    // which is private to that module and carries a deliberately incomplete
+    // escape table (`bd tsr-4sc.1`). Duplicating the table here would create two
+    // that must be corrected together, which is exactly the drift
+    // `render_object_type` exists to prevent. Reported to the lead instead.
+    assert_eq!(type_of_last("const o = { \"a-b\": 1 };"), "error");
+}

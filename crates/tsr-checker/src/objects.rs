@@ -39,7 +39,7 @@
 
 use tsr_ast::ObjectLiteralExpression;
 
-use crate::{checker::Checker, flags::TypeFlags, signatures::Signature, types::TypeId};
+use crate::{checker::Checker, flags::TypeFlags, printing, signatures::Signature, types::TypeId};
 
 /// One rendered member of a structural object type.
 ///
@@ -310,6 +310,18 @@ impl Checker<'_, '_> {
                     if is_identifier_text(literal.text) =>
                 {
                     literal.text.to_string()
+                }
+                // A **numeric** name prints as its normalised value with no
+                // quotes: `{ 0: number; }`, and `{ 1.0: x }` prints `1`. The
+                // corpus is thick with these — 63 lines of `{ 0: number; }`
+                // alone — because they are what an array-like object literal
+                // looks like.
+                //
+                // `normalise_number` is the same function the numeric *literal
+                // type* uses, which is what stops `{ 1e3: x }` printing `1e3`
+                // here and `1000` there.
+                tsr_ast::PropertyName::NumericLiteral(literal) => {
+                    printing::normalise_number(literal.text)
                 }
                 _ => return error,
             };
