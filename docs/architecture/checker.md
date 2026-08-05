@@ -459,6 +459,43 @@ divergence recorded above, which must be **replaced** by a real union rather tha
 extended. Narrowing still adds no bucket of its own and still cannot be seen by
 this histogram; it becomes measurable once 1 and 2 land.
 
+**Superseded 2026-08-05, and the prediction in that last sentence was wrong.**
+It was true of the *shape histogram* and never true of the **baselines**:
+upstream records both a declaration's declared type and every narrowed
+reference, so the population was findable all along without asking this port
+anything. It steered the ranking for four cycles on that basis.
+
+Measured by `crates/tsr-conformance/examples/narrowing_cost.rs`, which reads
+baselines only — no corpus run, no checker:
+
+```text
+3,418 bare-name + 238 dotted = 3,656 lines across 609 baseline files
+0.78% of the 468,921 aligned lines
+```
+
+An **upper bound twice over**: a line is only lost to narrowing if the declared
+type can be computed at all (43.40% today), and the walker is positional, so a
+case that fails earlier loses these regardless. Realistically well under a
+thousand.
+
+**The filter is the measurement.** Unfiltered — "the reference differs from the
+declared type" — reads **24,016**, seven times larger and worthless, dominated
+by generic instantiation, names shared across scopes, and property names
+colliding with variable names. Three shapes are counted, split at top-level `|`
+respecting bracket depth, because a substring test counts nested unions: the
+exact error that inflated a union denominator from 17,532 to 30,943 one cycle
+earlier. Two independent implementations agree to the line.
+
+**Decision: not built.** 3,656 upper-bound lines do not carry
+`getTypeAtFlowNode`, the flow walk, the guard forms, `getTypeFacts`, and real
+recursion limits which — unlike the instantiation case — *are* load-bearing.
+
+The honest case for narrowing, which does not show in the count: these are
+**wrong answers, not gaps**, the pool the histogram cannot separate from real
+defects. That argument carried `bd tsr-tl8` at 21,939 lines. At 3,656 it does
+not carry the item, but it is why narrowing stays on the list rather than being
+closed.
+
 Unchanged from the previous ranking and repeated only so they are not lost:
 `bd tsr-tl8` (the member-name defect, 21,939 lines and the one place this port
 can answer *wrongly* where a gap belongs), `bd tsr-4sc.1` (printing — literals
