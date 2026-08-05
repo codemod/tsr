@@ -1875,3 +1875,90 @@ appears 10,073 times in signature position against 958 for `?: X | undefined`,
 and the second set is `@strict: true` cases. After this fix the signature half is
 insensitive to the assumption, so what remains to decide is only the declaration
 line.
+
+## Narrowing, measured at last: 3,656 lines, and the prediction retires
+
+`bd tsr-4sc.11` has been ranked on a prediction for four cycles. This document
+said narrowing "adds no bucket of its own and cannot be seen by this histogram;
+it becomes measurable once items 1 and 2 land". Both landed, so the prediction
+came due — and the second half of it turns out to have been wrong in a useful
+way. Narrowing is invisible to the *shape* histogram and it was never invisible
+to the **baselines**.
+
+### The instrument reads baselines only
+
+`crates/tsr-conformance/examples/narrowing_cost.rs`. No corpus run, no checker,
+no contention with anyone else's measurement — seconds to re-run. Upstream's own
+`.types` baseline records both halves of every narrowing:
+
+```text
+var strOrBool: string | boolean;
+>strOrBool : string | boolean      ← the declared type
+if (typeof strOrBool === "boolean") {
+    bool = strOrBool;
+>strOrBool : boolean               ← narrowed
+```
+
+For each name, the **first** assertion in a file section is its declared type;
+any later assertion that is a strict narrowing of it is a line this port answers
+**wrongly** today, because `checkIdentifier` is ported only as far as "resolve
+the name, take the symbol's type".
+
+### The number
+
+```text
+                                     bare name  a.b / this.x
+union constituent(s)                      2385           229
+literal of the primitive                   871             8
+literals of the constituents               162             1
+total                                     3418           238
+```
+
+**3,656 lines across 609 baseline files — 0.78% of the 468,921 aligned lines**,
+and that is an *upper bound* twice over: a line is only lost to narrowing if this
+port can compute the declared type at all (43.40% today), and the walker's
+comparison is positional, so a case already failing earlier loses these lines
+regardless. The realistic figure is **well under a thousand**.
+
+### The filter is the measurement
+
+An unfiltered "the reference's type differs from the declared type" count reads
+**24,016** — nearly seven times larger and worthless. Inspecting the residue
+shows why: generic instantiation (`f` declared `(x: "foo") => "foo"`, referenced
+as `(x: T) => T`), two different symbols sharing a name across scopes, and
+property names colliding with variable names. Only three shapes are counted: a
+proper subset of the declared union's constituents, a literal of the declared
+primitive, and constituents that are literals of the declared ones. Splitting is
+at **top-level** `|` respecting bracket depth, because a substring test counts
+nested unions — the same error that inflated a union denominator from 17,532 to
+30,943 one cycle earlier.
+
+The two implementations were written independently — a throwaway script and the
+committed example — and agree to the line, which is the only reason to trust a
+number produced by a filter this aggressive.
+
+### The decision: not built
+
+**Narrowing is not worth building yet, and this is the record that retires the
+ranking rather than deferring it again.** 3,656 upper-bound lines against a build
+that needs `getTypeAtFlowNode`, the flow-graph walk, the guard forms, and
+`getTypeFacts` — the same large table the logical operators are blocked on — plus
+real recursion limits (`bd tsr-el3.2`), which unlike the instantiation case are
+load-bearing here because the recursion is genuine.
+
+For comparison, intersections are 1,082 gap lines, sit entirely in `declared.rs`,
+and reuse the ordering, interning and printing machinery unions already built.
+Fewer lines, a fraction of the work.
+
+**One thing that does not show in the line count, and is the honest case for
+narrowing:** these 3,656 are *wrong answers*, not gaps. They are in the pool the
+histogram cannot separate from real defects, which is the same argument that made
+`bd tsr-tl8` worth doing at 21,939 lines. At 3,656 it does not carry the item on
+its own, but it is why narrowing should not fall off the list entirely.
+
+**How this would be shown wrong.** The bound assumes a narrowed reference is
+always a *strict* narrowing of the declared type as printed. Narrowing that
+produces a type not expressible as a subset of the declared constituents — an
+intersection from a `this`-based guard, or `NonNullable<T>` on a type parameter —
+is invisible to this filter. If someone finds that population is large, re-run
+with a looser filter and a manual audit of the residue.
