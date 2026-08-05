@@ -1068,3 +1068,51 @@ This is the same family as "a row named after a symbol flag is usually not about
 that flag", one level down: there the *name* pointed at the wrong step, here the
 *syntax* did. The corrective is identical — resolve to the concrete thing (the
 dispatch arm, the message code) before building on the reading.
+
+### A control bucket over a classifier whose last arm is a default cannot fire
+
+This project leans on control buckets harder than on any other check. *"All three
+control buckets read zero, and that is the only evidence the sub-rows are a
+partition rather than a list of seven things that happen to be true."* The check
+is sound — and it has a failure mode that reads exactly like success.
+
+`rank_board`'s `cause()` classifier is four arms with a **default**:
+
+```rust
+if reason.contains("the receiver is a gap") { PropagatedNamed }
+else if gapped_below                        { PropagatedSpan }
+else if reason.contains("/ initialiser ") || reason.contains("/ annotation ") { Unknown }
+else                                        { Terminal }
+```
+
+Beside it: `CONTROL UNATTRIBUTED by the TERMINAL/PROPAGATED split = 0 (must be 0)`.
+**That control is structurally incapable of reading anything but zero**, because
+`cause()` is total — every line receives one of four labels, so nothing is ever
+unattributed. It has read zero on every run and proved nothing on any of them.
+
+The damage was not the vacuous control; it was what the default *absorbed*.
+`Terminal` was read across the board as **"the prerequisite is met, so the row
+size is its worth"**, when what it means is **"none of three evidence patterns
+matched"**. For a declaration-name row those cannot match by construction —
+`gapped_below` is a span test and a declaration name spans only itself — so such
+rows fall to `Terminal` whatever they actually depend on. One row so labelled,
+2,618 lines, measured at **68.6% propagation** when someone finally looked;
+building it would have converted zero.
+
+So, two rules:
+
+1. **A control bucket only proves a partition if a line can actually reach it.**
+   Before quoting one, ask what input would make it non-zero. If the classifier's
+   last arm is `else`, `_ =>`, or `default:`, the answer is *nothing*, and the
+   control is decoration. Give the classifier an explicit terminal arm and let
+   the genuinely unmatched fall through to the control.
+2. **Never let the semantically loaded label be the default arm.** `Terminal`
+   here is the strongest claim the classifier makes — kind 1, size equals worth —
+   and it was the arm that required no evidence. Name the default `UNKNOWN` and
+   make every load-bearing label earn a positive test.
+
+The mutation discipline does not catch this and cannot. Mutations were written
+for three of the four arms and each went red; **a mutation to a default branch is
+invisible, because everything that stops matching it still lands there.** The
+tell is not a failing test, it is reading the classifier and asking which arm
+would notice being wrong.

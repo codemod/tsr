@@ -1,5 +1,49 @@
 # The ranked board for `checker_types`
 
+> **CORRECTED 2026-08-05 (cycle 11). `TERMINAL` does not mean what this page
+> reads it as, and the control bucket that appears to guarantee it cannot fire.**
+>
+> `cause()` (`crates/tsr-conformance/examples/rank_board.rs:127`) is four arms with
+> a **default**:
+>
+> ```rust
+> if reason.contains("the receiver is a gap") { PropagatedNamed }
+> else if gapped_below                        { PropagatedSpan }
+> else if reason.contains("/ initialiser ") || reason.contains("/ annotation ") { Unknown }
+> else                                        { Terminal }   // <-- the default
+> ```
+>
+> So `TERMINAL` means **"none of three evidence patterns matched"**, not "the
+> prerequisite is met". §4 below reads it as the second. For a *declaration-name*
+> row the difference is total: `gapped_below` is a span test and a declaration
+> name spans only itself, so no line can ever be below it, and a reason ending
+> `/ neither` contains neither `initialiser` nor `annotation`. **Such a row falls
+> to `Terminal` by construction, whatever it actually depends on.**
+>
+> Row 9 is the demonstration. Ranked here as `TERMINAL / kind 1`, it measures
+> **68.6% propagation, 17.6% lib globals, 13.1% local — and none of the local part
+> is in the module this page names.** Building it would have converted zero lines.
+> See [`checker-notes-symbols.md`](checker-notes-symbols.md) and `bd tsr-eyn`.
+>
+> **`CONTROL UNATTRIBUTED by the TERMINAL/PROPAGATED split = 0` is vacuous.**
+> `cause()` is total — every line gets one of four labels — so nothing can ever be
+> unattributed and that control is structurally incapable of reading non-zero. It
+> reads zero on every run and proves nothing. The page's other controls are sound:
+> `family()` has a genuine `UNCLASSIFIED` arm, and when it *was* non-zero it found
+> two real work items (5,743 + 1,145 lines).
+>
+> **What survives.** Every *count* on this page is correct; the concentration
+> columns, the family split, the level-4 statistic and the case/gradient
+> separation all stand. What must be requoted is the **34.92% TERMINAL** figure and
+> every per-row `KIND` label derived from it: read them as an **upper bound on
+> kind 1**, not a measurement of it. A row labelled `TERMINAL` here has not been
+> shown to be terminal; it has been shown that this classifier found no evidence
+> against it.
+>
+> Found by the agent assigned rows 9 and 10, after a briefing (mine) that repeated
+> this page's `KIND` column as established. Recorded here rather than only in a
+> successor file, because two agents were briefed off this page.
+
 Status: measured 2026-08-05 at **`33e3bd5`**, over the 9,538-case `.types`
 population, from one pinned binary in an isolated worktree. The instrument is
 `crates/tsr-conformance/examples/rank_board.rs`, added in the same commit as
