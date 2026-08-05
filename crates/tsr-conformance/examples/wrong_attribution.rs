@@ -3,6 +3,38 @@
 //!
 //! `cargo run -p tsr-conformance --example wrong_attribution --release`
 //!
+//! > **CORRECTED 2026-08-05 (`bd tsr-qj4`) — every number in the sections below
+//! > that predates this header was measured WITHOUT the bundled lib files.**
+//! > This probe built one `Checker` per *file*, with no `Program`, so every
+//! > `Math.trunc`, `Object.assign`, `Promise` member and array method in the
+//! > corpus answered `error` where upstream computes a real type. It now routes
+//! > through `types_producer::assertions_for_case_with_ids`, the entry point
+//! > `types_suite.rs` scores the gradient through. Measured at `9bbb36f`, one
+//! > pinned binary per side, the same tip both times:
+//! >
+//! > ```text
+//! >                              lib-less (WRONG)   with libs (correct)
+//! > aligned lines                        468,921            468,900
+//! > gaps (we said error)         173,537 (37.01%)   139,612 (29.77%)
+//! > wrong (a claim)               22,067 ( 4.71%)    37,489 ( 8.00%)
+//! >   of which Identifier                 17,828             31,067
+//! > lib arm, positive control              4,224                397
+//! > `typeof {upstream}` defect             1,086                 88
+//! > ```
+//! >
+//! > The corrected `wrong` total, **37,489**, is exactly what
+//! > `examples/rank_board.rs` reports over the same population by an
+//! > independently written path — the cross-check that says the two are now
+//! > measuring one compiler. The third row is the one that changes conclusions:
+//! > a third of what this probe called a **gap** was a lib file it never loaded,
+//! > and those lines are wrong answers, not missing ones.
+//! >
+//! > The claim below that "**lib loading cannot move `checker_types` at all**"
+//! > is **false** and was false when written, for the same reason the identical
+//! > caveat in `checker-notes-calls.md` was: it reads `binder_suite.rs`, which
+//! > deliberately has no libs, as though it were `types_producer.rs`, which has
+//! > them. `docs/architecture/checker-notes-any.md` records the correction.
+//!
 //! # The question the histogram structurally cannot answer
 //!
 //! `examples/types_shapes.rs` buckets a mismatch by upstream's *answer shape* and
@@ -71,6 +103,11 @@
 //! collapsed.
 //!
 //! # The model is effectively THREE arms: lib can never fire here
+//!
+//! **FALSE — superseded by the header at the top of this file.** The producer
+//! does build a program and does load every bundled lib; this section read
+//! `binder_suite.rs` for `types_producer.rs`. It is left in place rather than
+//! deleted because the wrong turn is the useful part of the record.
 //!
 //! `checker_types` produces through `types_producer::assertions_for_case`, and
 //! that function binds **each unit on its own** — its own arena, its own
@@ -791,49 +828,25 @@ fn main() {
             let Ok(parsed) = case.load() else { return tally };
             tally.cases = 1;
 
-            for expected_file in &expected {
-                let Some(unit) = parsed.files.iter().find(|u| {
-                    tsr_conformance::binder_suite::same_unit(&u.name, &expected_file.file)
-                }) else {
-                    continue;
-                };
-                if tsr_parser::ScriptKind::from_file_name(&unit.name)
-                    == tsr_parser::ScriptKind::Json
-                {
-                    continue;
-                }
-                let arena = tsr_core::Arena::new();
-                let options = tsr_parser::ParseOptions {
-                    jsdoc: false,
-                    ..tsr_parser::ParseOptions::for_file(&unit.name)
-                };
-                let file = tsr_parser::parse_with_options(&arena, &unit.content, options);
-                let bound = tsr_binder::bind(
-                    file.source_file,
-                    &file.nodes,
-                    tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
-                );
-                let mut checker = tsr_checker::Checker::new(&bound, &file.nodes, &file.node_map);
-                // The ids come back through the closure the producer already
-                // takes, in the walker's own order — so `ids[i]` is the node
-                // behind `rendered[i]` without re-deriving the walk.
-                let mut ids = Vec::new();
-                let rendered = types_producer::assertions_for_file(
-                    &Node::SourceFile(file.source_file),
-                    &unit.content,
-                    &file.nodes,
-                    &file.node_map,
-                    |id| {
-                        ids.push(id);
-                        types_producer::type_at_location(
-                            &mut checker,
-                            &bound,
-                            &file.nodes,
-                            &file.node_map,
-                            id,
-                        )
-                    },
-                );
+            // **One program per case, with the bundled libs in it.** This is the
+            // entry point `types_suite.rs` scores the gradient through, and
+            // routing through it is not optional: the per-unit shape this probe
+            // used until `bd tsr-qj4` built a `Checker` per *file* with no libs
+            // and no program, so every `Math.trunc`, `Object.assign`, `Promise`
+            // member and array method in the corpus answered `error` where
+            // upstream computes a real type. See `docs/conventions.md`,
+            // "A probe that re-implements the harness is measuring a different
+            // compiler" — this is the fourth instance and the third file.
+            let arena = tsr_core::Arena::new();
+            let (program, ours, ids_by_file) =
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+            let nodes = program.nodes();
+            let node_map = program.node_map();
+            let bound = program.binder();
+
+            for (index, expected_file) in expected.iter().enumerate() {
+                let Some(rendered) = ours.get(index) else { continue };
+                let Some(ids) = ids_by_file.get(index) else { continue };
                 assert_eq!(ids.len(), rendered.len(), "one recorded id per rendered line");
 
                 for (position, want) in expected_file.assertions.iter().enumerate() {
@@ -850,9 +863,9 @@ fn main() {
                     if got.kind == SyntaxKind::Identifier {
                         tally.control_total += 1;
                         let matched = causes_of(
-                            &bound,
-                            &file.nodes,
-                            &file.node_map,
+                            bound,
+                            nodes,
+                            node_map,
                             ids[position],
                             &got.text,
                             want_type,
@@ -860,9 +873,7 @@ fn main() {
                             &lib_names,
                             &Cause::ORDER,
                         );
-                        if symbol_of_identifier(&bound, &file.nodes, &file.node_map, ids[position])
-                            .is_none()
-                        {
+                        if symbol_of_identifier(bound, nodes, node_map, ids[position]).is_none() {
                             tally.control_unresolved += 1;
                         }
                         for arm in matched {
@@ -876,7 +887,7 @@ fn main() {
                         tally.gaps += 1;
                         tally.gap_lines += 1;
                         if let Some(bucket) =
-                            function_type_gap(&bound, &file.nodes, &file.node_map, ids[position])
+                            function_type_gap(bound, nodes, node_map, ids[position])
                         {
                             *tally.function_type_gaps.entry(bucket).or_default() += 1;
                         }
@@ -896,8 +907,7 @@ fn main() {
                     // (it would have matched), so the test is one-sided.
                     if got.type_string == "any" {
                         tally.implicit_any_total += 1;
-                        let why =
-                            implicit_any_causes(&bound, &file.nodes, &file.node_map, ids[position]);
+                        let why = implicit_any_causes(bound, nodes, node_map, ids[position]);
                         if why.is_empty() {
                             tally.implicit_any_unattributed += 1;
                         }
@@ -908,19 +918,15 @@ fn main() {
                         // types this parameter is the *function's* position, two
                         // levels up from the parameter.
                         if why.contains(&"parameter, no annotation and no initialiser") {
-                            let context = symbol_of_identifier(
-                                &bound,
-                                &file.nodes,
-                                &file.node_map,
-                                ids[position],
-                            )
-                            .and_then(|s| bound.symbols().get(s).value_declaration)
-                            .and_then(|parameter| file.nodes.parent(parameter))
-                            .and_then(|function| file.nodes.parent(function))
-                            .map_or_else(
-                                || "<no enclosing context>".to_string(),
-                                |ctx| format!("{:?}", file.nodes.kind(ctx)),
-                            );
+                            let context =
+                                symbol_of_identifier(bound, nodes, node_map, ids[position])
+                                    .and_then(|s| bound.symbols().get(s).value_declaration)
+                                    .and_then(|parameter| nodes.parent(parameter))
+                                    .and_then(|function| nodes.parent(function))
+                                    .map_or_else(
+                                        || "<no enclosing context>".to_string(),
+                                        |ctx| format!("{:?}", nodes.kind(ctx)),
+                                    );
                             *tally.contextual_parameter_context.entry(context).or_default() += 1;
                         }
                     }
@@ -928,26 +934,21 @@ fn main() {
                     *tally.wrong_by_strictness.entry(strictness).or_default() += 1;
                     // The mirror of the target shape: we added `| undefined`
                     // and upstream did not.
-                    let parent = file.nodes.parent(ids[position]).map_or_else(
-                        || "<root>".to_string(),
-                        |p| format!("{:?}", file.nodes.kind(p)),
-                    );
+                    let parent = nodes
+                        .parent(ids[position])
+                        .map_or_else(|| "<root>".to_string(), |p| format!("{:?}", nodes.kind(p)));
                     *tally.wrong_by_parent.entry(parent.clone()).or_default() += 1;
-                    let flags =
-                        symbol_of_identifier(&bound, &file.nodes, &file.node_map, ids[position])
-                            .map_or_else(
-                                || "<unresolved>".to_string(),
-                                |symbol| format!("{:?}", bound.symbols().get(symbol).flags),
-                            );
+                    let flags = symbol_of_identifier(bound, nodes, node_map, ids[position])
+                        .map_or_else(
+                            || "<unresolved>".to_string(),
+                            |symbol| format!("{:?}", bound.symbols().get(symbol).flags),
+                        );
                     *tally.wrong_by_flags.entry(flags).or_default() += 1;
                     if parent == "QualifiedName" {
-                        let grandparent = file
-                            .nodes
-                            .parent(ids[position])
-                            .and_then(|p| file.nodes.parent(p))
-                            .map_or_else(
+                        let grandparent =
+                            nodes.parent(ids[position]).and_then(|p| nodes.parent(p)).map_or_else(
                                 || "<root>".to_string(),
-                                |g| format!("{:?}", file.nodes.kind(g)),
+                                |g| format!("{:?}", nodes.kind(g)),
                             );
                         *tally.qualified_name_grandparent.entry(grandparent).or_default() += 1;
                     }
@@ -960,7 +961,7 @@ fn main() {
                     }
                     if want_type == format!("{} | undefined", got.type_string) {
                         tally.missing_undefined += 1;
-                        if type_parameters_in_scope(&bound, &file.nodes, ids[position])
+                        if type_parameters_in_scope(bound, nodes, ids[position])
                             .contains(&got.type_string)
                         {
                             tally.missing_undefined_on_type_parameter += 1;
@@ -972,9 +973,9 @@ fn main() {
                         .or_default() += 1;
 
                     let matched = causes_of(
-                        &bound,
-                        &file.nodes,
-                        &file.node_map,
+                        bound,
+                        nodes,
+                        node_map,
                         ids[position],
                         &got.text,
                         want_type,
@@ -1032,16 +1033,19 @@ fn report(total: &Tally, arms: &[Cause]) {
          \x20   how much of the increase it can explain -- it does not measure it."
     );
     println!(
-        "  * The `checker_types` producer binds each unit ON ITS OWN and loads no\n\
-         \x20   lib files (`assertions_for_case`, no program). So the lib arm can only\n\
-         \x20   ever fire on a name that resolves NOWHERE and is spelled like a lib\n\
-         \x20   name. If it is near zero that is a property of this entry point, NOT\n\
-         \x20   evidence that lib loading is irrelevant to the corpus."
+        "  * CORRECTED 2026-08-05 (`bd tsr-qj4`). This probe used to build one\n\
+         \x20   Checker per FILE with no program and no lib files. It now routes\n\
+         \x20   through `types_producer::assertions_for_case_with_ids`, which is what\n\
+         \x20   the gradient is scored through: one program per case, every bundled\n\
+         \x20   lib in it. Every number this probe printed before that is measured on\n\
+         \x20   a different compiler -- see docs/architecture/checker-notes-any.md."
     );
     println!(
-        "  * The model is therefore EFFECTIVELY THREE ARMS. The lib arm is kept and\n\
-         \x20   printed because a zero reading is the evidence for that; a non-zero one\n\
-         \x20   would mean the producer does something other than what its source says."
+        "  * The lib arm reads 0 among the WRONG lines. That is now a reading about\n\
+         \x20   the corpus and not about the entry point: the positive control below\n\
+         \x20   shows the arm firing, and its population fell 4224 -> 397 when the\n\
+         \x20   libs were loaded, because names it used to see as unresolved now\n\
+         \x20   resolve to a real lib symbol."
     );
     println!(
         "  * The type-parameter arm CANNOT see its own change: a `.types` line is\n\

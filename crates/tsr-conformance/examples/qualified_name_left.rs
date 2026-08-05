@@ -8,6 +8,28 @@
 //! the substitution, and splits it by the structural position of the identifier
 //! within the qualified name, which is what decides which upstream rule applies.
 //!
+//! > **CORRECTED 2026-08-05 (`bd tsr-qj4`).** Every number below this header
+//! > that predates it was measured on the lib-less per-unit path: one
+//! > `Checker` per *file*, no `Program`, no bundled libs. This probe now routes
+//! > through `types_producer::assertions_for_case_with_ids`, which is what the
+//! > gradient is scored through. Re-measured at `9bbb36f`:
+//! >
+//! > ```text
+//! > arm                                        control    right    wrong      gap
+//! > left of qualified name, under `typeof`         186       79        2      105
+//! > left of qualified name, under a TypeReference 5266     5266        0        0
+//! > left of qualified name, other grandparent      173      132       32        9
+//! > right of qualified name (the type name)        508        3       42      463
+//! > UNATTRIBUTED (control bucket)                    0
+//! > ```
+//! >
+//! > **The verdict holds and the magnitudes fell by more than half**: the item
+//! > is **76** wrong lines, not 174, and the `TypeReference` arm is still
+//! > zero-wrong over the same 5,266. The 133-line import-equals rule is now 41 —
+//! > `cb173ea`'s exemption landed in between, so the fall is not attributable to
+//! > the instrument alone and this pair does not separate the two causes.
+//! > See `docs/architecture/checker-notes-any.md`.
+//!
 //! # Arms
 //!
 //! | arm | the node |
@@ -214,46 +236,21 @@ fn main() {
             let Ok(parsed) = case.load() else { return tally };
             tally.cases = 1;
 
-            for expected_file in &expected {
-                let Some(unit) = parsed.files.iter().find(|u| {
-                    tsr_conformance::binder_suite::same_unit(&u.name, &expected_file.file)
-                }) else {
-                    continue;
-                };
-                if tsr_parser::ScriptKind::from_file_name(&unit.name)
-                    == tsr_parser::ScriptKind::Json
-                {
-                    continue;
-                }
-                let arena = tsr_core::Arena::new();
-                let options = tsr_parser::ParseOptions {
-                    jsdoc: false,
-                    ..tsr_parser::ParseOptions::for_file(&unit.name)
-                };
-                let file = tsr_parser::parse_with_options(&arena, &unit.content, options);
-                let bound = tsr_binder::bind(
-                    file.source_file,
-                    &file.nodes,
-                    tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
-                );
-                let mut checker = tsr_checker::Checker::new(&bound, &file.nodes, &file.node_map);
-                let mut ids = Vec::new();
-                let rendered = types_producer::assertions_for_file(
-                    &Node::SourceFile(file.source_file),
-                    &unit.content,
-                    &file.nodes,
-                    &file.node_map,
-                    |id| {
-                        ids.push(id);
-                        types_producer::type_at_location(
-                            &mut checker,
-                            &bound,
-                            &file.nodes,
-                            &file.node_map,
-                            id,
-                        )
-                    },
-                );
+            // **One program per case, with the bundled libs in it** — the entry
+            // point `types_suite.rs` scores the gradient through. The per-unit
+            // shape this loop used until `bd tsr-qj4` built a `Checker` per
+            // *file* with no program and no libs, so every lib-declared name in
+            // the corpus answered `error`. See `docs/conventions.md`, "A probe
+            // that re-implements the harness is measuring a different compiler".
+            let arena = tsr_core::Arena::new();
+            let (program, ours, ids_by_file) =
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+            let nodes = program.nodes();
+            let node_map = program.node_map();
+
+            for (index, expected_file) in expected.iter().enumerate() {
+                let Some(rendered) = ours.get(index) else { continue };
+                let Some(ids) = ids_by_file.get(index) else { continue };
                 assert_eq!(ids.len(), rendered.len(), "one recorded id per rendered line");
 
                 for (position, want) in expected_file.assertions.iter().enumerate() {
@@ -271,8 +268,8 @@ fn main() {
                     if got.kind != SyntaxKind::Identifier {
                         continue;
                     }
-                    let parent_is_qualified = nodes_parent_is_qualified(&file.nodes, ids[position]);
-                    let arm = arm_of(&file.nodes, &file.node_map, ids[position]);
+                    let parent_is_qualified = nodes_parent_is_qualified(nodes, ids[position]);
+                    let arm = arm_of(nodes, node_map, ids[position]);
                     match arm {
                         Some(arm) => *tally.control.entry(arm).or_default() += 1,
                         // The control bucket: parent IS a `QualifiedName` and yet
@@ -292,7 +289,7 @@ fn main() {
                     if arm == Arm::LeftOther {
                         *tally
                             .other_enclosing
-                            .entry((enclosing_kind(&file.nodes, ids[position]), correct))
+                            .entry((enclosing_kind(nodes, ids[position]), correct))
                             .or_default() += 1;
                     }
                     if correct {
