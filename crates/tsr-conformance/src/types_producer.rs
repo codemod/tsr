@@ -655,7 +655,7 @@ fn type_node_reason(
             let member = literal
                 .members
                 .iter()
-                .filter_map(|member| member.node_id())
+                .filter_map(tsr_ast::TypeElement::node_id)
                 .map(|member| type_node_reason(binder, nodes, map, member))
                 .next();
             if let Some(member) = member {
