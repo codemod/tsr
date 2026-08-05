@@ -28,6 +28,27 @@ impl<'a> Checker<'a, '_> {
     /// tell a gap from a result.
     pub fn get_type_of_symbol(&mut self, symbol: SymbolId) -> TypeId {
         let flags = self.binder.symbols().get(symbol).flags;
+        // `checker.go:16506`, and it is the **first** flags branch upstream
+        // takes — before variable/property and before function/method.
+        //
+        // `getTypeOfAccessors` is unported, so this answers `errorType`; the
+        // point of the branch is *where* it sits. Omitting it let an accessor
+        // that merges with a method — `interface I { get x(): number; x():
+        // number; set x(value: number) }`, which carries
+        // `METHOD | GET_ACCESSOR | SET_ACCESSOR` — fall through to
+        // `getTypeOfFuncClassEnumModule` and print `() => number` where upstream
+        // prints `number`. A wrong answer produced by a *missing dispatch arm*
+        // rather than by a wrong one, which is why no fixture built from a
+        // single accessor could reproduce it.
+        //
+        // Only the second boundary is observable. Placed after variable/property
+        // instead, an accessor merged with a *property* would take the variable
+        // worker and reach the same `errorType` by a different route, so no test
+        // can tell those two orders apart — it is upstream's order because it is
+        // upstream's, and it starts to matter when `getTypeOfAccessors` lands.
+        if flags.intersects(SymbolFlags::ACCESSOR) {
+            return self.intrinsics.error;
+        }
         if flags.intersects(SymbolFlags::VARIABLE | SymbolFlags::PROPERTY) {
             return self.get_type_of_variable_or_parameter_or_property(symbol);
         }

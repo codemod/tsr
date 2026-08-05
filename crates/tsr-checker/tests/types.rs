@@ -1486,3 +1486,34 @@ fn a_function_carrying_expando_properties_is_a_gap_not_its_bare_signature() {
         "typeof f"
     );
 }
+
+#[test]
+fn an_accessor_symbol_is_a_gap_even_when_it_merges_with_a_method() {
+    // Upstream's **first** flags branch (`checker.go:16506`), before
+    // variable/property and before function/method. `getTypeOfAccessors` is
+    // unported, so the answer is `errorType`; the point of the branch is where
+    // it sits.
+    //
+    // Omitting it let an accessor that merges with a *method* — this symbol
+    // carries `METHOD | GET_ACCESSOR | SET_ACCESSOR` — fall through to
+    // `getTypeOfFuncClassEnumModule` and print `() => number` where upstream
+    // prints `number`. A wrong answer caused by a **missing dispatch arm**, not
+    // a wrong one, which is why no fixture built from a lone accessor
+    // reproduced it: those already gapped, and only the merge reached the arm.
+    // Found by dumping one corpus baseline's assertions beside upstream's with
+    // node kinds attached, after three hand-built reductions all came back
+    // clean.
+    assert_eq!(
+        type_of_member(
+            "interface I { get x(): number; x(): number; set x(value: number); }",
+            "I",
+            "x"
+        ),
+        "error"
+    );
+    // A lone accessor was already a gap and stays one.
+    assert_eq!(type_of_member("interface I { get x(): number; }", "I", "x"), "error");
+    // **The other direction**: a plain method must still print its signature.
+    // The guard is on the accessor flags, not on merged symbols in general.
+    assert_eq!(type_of_member("interface I { x(): number; }", "I", "x"), "() => number");
+}
