@@ -1279,6 +1279,51 @@ the 2,170 explicitly-non-strict cases is a wrong line rather than a gap — the
 same shape of cost as before, one fifth of the size, and pointing the other way.
 `bd tsr-5s2` removes the assumption entirely.
 
+### What the correction was actually worth: +0.20 points, and why that is the right size
+
+Measured at `d27db6f`: `checker_types` 1,076 → 1,077 cases, gradient 41.27% →
+**41.47%**, about **938 lines**. Set against a wrong-union pool of 3,549 that
+looks like a third of the diagnosis, and the gap is worth recording, because
+**two of the numbers that framed it were mine and both were too big.**
+
+**The denominator was wrong, the same way the `@strict` count was.** "37.2% of
+30,943 union baseline lines mention `null` or `undefined`" came from a substring
+test for `" | "` anywhere in the printed type, which counts a nested union inside
+a signature or an object type as a union line. Splitting on **top-level** `|`
+only, respecting bracket depth: there are **17,532** union assertion lines, not
+30,943, and **6,899** of them mention `null` or `undefined` at top level. Same
+error class as inferring the strict population from its complement — a quick test
+standing in for the real predicate.
+
+**A union line passes only if *every* constituent is right.** Fixing the
+nullability of a line whose other constituents are still gaps leaves it exactly
+as failing as before. Classifying the non-nullable constituents of those 6,899:
+
+| the rest of the union is | lines | share |
+|---|---:|---:|
+| intrinsics and literals only | 3,896 | 56.3% |
+| …plus a bare name that must resolve | 1,201 | 17.4% |
+| a signature, array, object or generic constituent | 1,817 | 26.3% |
+
+So the addressable pool was never 3,549. Take the 3,896, scale by the share of
+baseline lines the walker aligns (468,921 of 594,122, 78.9%) — about 3,070 — and
+then by the rate at which this checker types the enclosing construct at all
+(41.47%): **roughly 1,260 lines realistically reachable.** The measured 938 is
+about three quarters of that, which is a good result rather than a shortfall.
+
+**And it cost almost nothing.** The risk this correction accepted was the 2,170
+explicitly `@strict: false` cases, where the port now keeps nullable constituents
+upstream drops. Counted: **15 lines** across the whole corpus. Small for a
+structural reason rather than by luck — upstream drops those constituents in
+non-strict cases, so its own baselines have almost no top-level nullable unions
+to disagree with.
+
+**The lesson is the object-literal lesson from the other direction.** A bucket
+names the answer's shape, not the feature that computes it; and *fixing one
+dimension of a line does not make the line pass*. When a correction is worth a
+fraction of the pool it addressed, the first thing to check is whether the pool
+was measured with the same predicate the score uses.
+
 ### Nullable constituents sort first and print last
 
 The correction above made a second rule reachable that had been recorded as
