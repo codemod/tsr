@@ -9,6 +9,25 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+# Serialised against `perf.yml`, which shares this runner label.
+#
+# Measured 2026-08-05: the perf gate failed with `checker.ts` at 1.320 and
+# `dom.generated.d.ts` at 1.449 while the code had not regressed — the same
+# benchmark on an idle machine reads 23.31 ms and 8.94 ms, against baselines of
+# 22.50 and 8.97. Saturating the host and changing nothing else reproduces the
+# CI numbers within 6%. Upstream's half of that run came in *faster* than its
+# recorded baseline, so the runner was not slow; our benchmark's window was
+# contended, and this job is what contended for it.
+#
+# `cancel-in-progress: false`, deliberately: the point is to make the two jobs
+# take turns, not to have either kill the other. The cost is throughput on
+# concurrent pushes; a benchmark that measures the neighbours is worth less than
+# no benchmark, because it fails loudly and trains people to re-run it. See
+# [ADR-0009](../../docs/adr/0009-performance-gate.md) and `bd tsr-1xm`.
+concurrency:
+  group: self-hosted-exclusive
+  cancel-in-progress: false
+
 jobs:
   test:
     name: build, test, lint

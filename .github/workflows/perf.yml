@@ -25,10 +25,21 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
-# A benchmark racing another benchmark measures the contention, not the code.
+# A benchmark racing another benchmark measures the contention, not the code —
+# and racing anything else measures it just as badly. The group is shared with
+# `ci.yml`, which holds the same runner label, and is deliberately not keyed on
+# the ref: two refs benchmarking at once contend exactly as much as two jobs on
+# one ref do.
+#
+# `cancel-in-progress` was `true` here until 2026-08-05 and was part of the
+# problem rather than the cure. Cancelling a superseded perf run does not stop
+# its `Conformance rates` step — release, rayon, 12,444 cases, `if: always()` —
+# from saturating the host while the replacement run starts benchmarking, and
+# our benchmark is the *first* thing `xtask perf` does. Queueing is what was
+# actually wanted. See `bd tsr-1xm` for the measurement.
 concurrency:
-  group: perf-${{ github.ref }}
-  cancel-in-progress: true
+  group: self-hosted-exclusive
+  cancel-in-progress: false
 
 jobs:
   compare:

@@ -119,10 +119,19 @@ pub fn run(root: &Path) -> Result<()> {
     // Report everything before failing, so one run tells you about every breach
     // rather than only the first.
     let mut failures = Vec::new();
-    for row in rows.iter().chain(&bind_rows) {
+    // Labelled by which measurement it came from. The two collections were
+    // chained bare until 2026-08-05, which made a failure unattributable: the
+    // fixture names are the same in both, so `checker.ts: wall-clock ratio 1.320`
+    // could be the parse gate or the parse+bind gate, and telling them apart
+    // meant matching the reported tsgo figure against the table in
+    // `docs/architecture/performance.md` by hand.
+    let labelled = rows.iter().map(|row| ("parse", row));
+    let labelled = labelled.chain(bind_rows.iter().map(|row| ("parse+bind", row)));
+    for (measurement, row) in labelled {
         if row.gated && row.ratio() > MAX_WALL_RATIO {
             failures.push(format!(
-                "{}: wall-clock ratio {:.3} exceeds {MAX_WALL_RATIO:.2} ({:.3} ms vs {:.3} ms)",
+                "{measurement} {}: wall-clock ratio {:.3} exceeds {MAX_WALL_RATIO:.2} \
+                 ({:.3} ms vs {:.3} ms)",
                 row.fixture,
                 row.ratio(),
                 row.tsr_ns / 1e6,

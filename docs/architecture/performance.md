@@ -91,6 +91,55 @@ machine it was made on, so the tsgo half of the parse+bind comparison could not 
 re-run and the first CI run is the real test. The ratio would have to more than
 double before the gate fires.
 
+### The gate fired, and it was measuring the runner — 2026-08-05
+
+CI failed with `checker.ts` at 1.320 and `dom.generated.d.ts` at 1.449, both
+against the 1.10 ceiling. **No code had regressed.** The parse benchmark at
+`e24b7ca`, on an idle machine (`uptime` load 0.08):
+
+| Fixture | baseline above | idle | 32 cores saturated | CI, failing |
+|---|---:|---:|---:|---:|
+| `checker.ts` | 22.50 ms | **23.31 ms** | **44.42 ms** | 41.78 ms |
+| `dom.generated.d.ts` | 8.97 ms | **8.94 ms** | **18.27 ms** | 17.68 ms |
+
+The saturated column is the same binary on the same input with 32 `dd
+if=/dev/zero of=/dev/null` streams alongside it. **Adding load and changing
+nothing else reproduces both CI numbers within 6%**, which is the falsifier: had
+the idle column moved, or had the loaded column failed to reach CI's figures,
+this diagnosis would be wrong and a real regression would be the explanation.
+
+The asymmetry is what identifies the cause. Upstream's half of the same failing
+run read 31.649 ms and 12.205 ms — *faster* than the 32.72 and 12.96 recorded in
+the table above. A slow runner would have slowed both sides. Only our window was
+contended, and our benchmark is the first thing `xtask perf` runs.
+
+Two harness defects, both now fixed:
+
+- **`ci.yml` had no `concurrency` group** and shares the `[self-hosted, Linux,
+  X64]` label with `perf.yml`, so a push to `main` dispatched both onto one host.
+  Both workflows now share the group `self-hosted-exclusive` with
+  `cancel-in-progress: false`. Queueing, not cancelling: `perf.yml`'s own
+  `cancel-in-progress: true` was part of the problem, because cancelling a
+  superseded run does not stop its `Conformance rates` step — release, rayon,
+  12,444 cases, `if: always()` — from saturating the host while the replacement
+  run begins benchmarking.
+- **The failure message could not be attributed to a gate.** `rows` and
+  `bind_rows` were chained bare, and the fixture names are identical in both, so
+  `checker.ts: wall-clock ratio 1.320` might have been the parse gate or the
+  parse+bind gate. Identifying it required matching the reported 31.649 ms
+  against this file's tsgo column by hand. The message now carries the
+  measurement's name.
+
+The alternative considered and rejected was **raising `MAX_WALL_RATIO`**. It
+would have made this run pass without making the number mean anything, and
+ADR-0009's argument against a self-regression ratchet applies with equal force to
+a threshold loosened until it stops firing: a gate whose correct response is
+routinely "re-run it" trains people to ignore it. What would change that: if
+serialising the runner turns out not to hold the ratios steady across a dozen
+runs, then the noise is not job contention and the threshold — or the choice to
+gate wall clock on shared hardware at all — is the thing to revisit. `bd
+tsr-1xm`.
+
 ### The trap in benchmarking a binder
 
 `BindSourceFile` upstream is idempotent: it checks `file.IsBound()` and returns.
