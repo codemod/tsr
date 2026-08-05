@@ -78,11 +78,17 @@
 //! evidence until something deliberately wrong has been pushed through the whole
 //! path and seen to go red.
 
+pub mod binary;
 pub mod checker;
+pub mod declared;
+pub mod expressions;
 pub mod flags;
 pub mod intrinsics;
+pub mod literals;
+pub mod members;
 pub mod printing;
 pub mod resolution;
+pub mod symbols;
 pub mod types;
 
 pub use checker::Checker;

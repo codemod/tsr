@@ -35,6 +35,42 @@ one of the checker's diagnostics.
 type a declaration, but nothing renders those types in `.types` baseline form.
 That producer is `bd tsr-4sc.3`, and it is what will first move the number.
 
+## One module per upstream concern, not one file
+
+Upstream keeps the whole checker in a single 60,269-line `checker.go`. That is
+not a shape worth reproducing, and it stopped being workable here at ~1,200
+lines: every ranked item on the histogram below lands in the same file, so any
+two people working the ranking in parallel collide on it.
+
+`crates/tsr-checker/src/` is therefore split by **upstream concern**, so a
+reader who knows `checker.go` can find the arm they want:
+
+| module | upstream | answers |
+|---|---|---|
+| `checker.rs` | the `Checker` struct and its links | what the checker remembers |
+| `expressions.rs` | `checkExpression` | the type of an expression |
+| `binary.rs` | `checkBinaryLikeExpression` | `a + b`, `a === b`, `a = b` |
+| `members.rs` | `checkPropertyAccessExpression`, `getPropertyOfType` | `a.b` |
+| `symbols.rs` | `getTypeOfSymbol` | the type a *value* symbol has |
+| `declared.rs` | `getTypeFromTypeNode`, `getDeclaredTypeOfSymbol` | what a type node and a *type* symbol denote |
+| `literals.rs` | `getWidenedLiteralType` and its pair | fresh versus regular |
+
+Rust allows several `impl` blocks on one type across modules, so this is a
+file-boundary change and not a design change: the methods, their names and
+their bodies are untouched. The only substantive edit is that `Checker`'s
+fields became `pub(crate)`, because each module writes to a memo.
+
+**The rejected alternative was splitting by size** — carving the largest
+functions out into `checker_2.rs` and so on. It would have been quicker and it
+would have made the map useless: the value here is that `getTypeOfSymbol` and
+`getDeclaredTypeOfSymbol` are in *different* files, because conflating those two
+questions is the specific mistake this document already warns about twice.
+
+The split was verified rather than assumed: `types_shapes --release` was run
+before and after and its whole output diffed **byte-identical**, 173,260/468,921
+either way. A refactor that moves a number is a bug, and that is checkable in one
+command.
+
 ## Reaching a declaration from a symbol — the blocker, now cleared
 
 Found 2026-08-05 on starting `bd tsr-4sc.2`, and structural rather than a matter
