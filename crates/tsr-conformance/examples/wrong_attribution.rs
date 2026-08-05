@@ -294,6 +294,24 @@ struct Tally {
     implicit_any_unattributed: usize,
     /// The population being bucketed, as the denominator.
     implicit_any_total: usize,
+    /// Every wrong `Identifier` line by the **parent kind** of the node that
+    /// produced it.
+    ///
+    /// The cheapest question the probe was not asking, and it has already found
+    /// one defect: every one of the 1,086 `X -> typeof X` lines shared the
+    /// parent `ExpressionWithTypeArguments`, which is a class `extends` clause.
+    /// Upstream's checker answers `typeof A` there too and its **baseline
+    /// writer** compensates (`type_symbol_baseline.go:371`, labelled a
+    /// workaround in its own comment) -- so the defect was in neither of the two
+    /// candidate places, and one parent kind was the whole of it.
+    wrong_by_parent: HashMap<String, usize>,
+    /// Over-application restricted to cases where `strictNullChecks` is
+    /// *genuinely on*, by parent kind.
+    ///
+    /// These are the 125 lines the option cannot explain: upstream adds
+    /// `| undefined` in these cases too, so something else about the rule is
+    /// wrong. Bucketed by parent because that is what worked for the 1,086.
+    over_application_strict_on: HashMap<String, usize>,
 }
 
 impl Tally {
@@ -335,6 +353,12 @@ impl Tally {
         }
         self.implicit_any_unattributed += other.implicit_any_unattributed;
         self.implicit_any_total += other.implicit_any_total;
+        for (k, v) in other.wrong_by_parent {
+            *self.wrong_by_parent.entry(k).or_default() += v;
+        }
+        for (k, v) in other.over_application_strict_on {
+            *self.over_application_strict_on.entry(k).or_default() += v;
+        }
         for (bucket, examples) in other.samples {
             let slot = self.samples.entry(bucket).or_default();
             for example in examples {
@@ -743,8 +767,17 @@ fn main() {
                     *tally.wrong_by_strictness.entry(strictness).or_default() += 1;
                     // The mirror of the target shape: we added `| undefined`
                     // and upstream did not.
+                    let parent = file.nodes.parent(ids[position]).map_or_else(
+                        || "<root>".to_string(),
+                        |p| format!("{:?}", file.nodes.kind(p)),
+                    );
+                    *tally.wrong_by_parent.entry(parent.clone()).or_default() += 1;
                     if got.type_string == format!("{want_type} | undefined") {
                         *tally.over_application.entry(strictness).or_default() += 1;
+                        // The 125 the option cannot explain.
+                        if strictness == "strict: true" || strictness == "strictNullChecks: true" {
+                            *tally.over_application_strict_on.entry(parent).or_default() += 1;
+                        }
                     }
                     if want_type == format!("{} | undefined", got.type_string) {
                         tally.missing_undefined += 1;
@@ -949,6 +982,34 @@ fn report(total: &Tally, arms: &[Cause]) {
             pct(over, *wrong_here),
             pct(over, over_total)
         );
+    }
+
+    println!("\n--- WRONG LINES BY PARENT KIND ---");
+    println!(
+        "  (the question that cracked the 1,086: every one of them had parent\n\
+        \x20  ExpressionWithTypeArguments. A defect concentrated in one parent kind\n\
+        \x20  is one rule; one spread evenly is a population.)"
+    );
+    let mut rows: Vec<_> =
+        total.wrong_by_parent.iter().map(|(kind, count)| (*count, kind.as_str())).collect();
+    rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (count, kind) in rows.iter().take(12) {
+        println!("  {kind:<42} {count:>8}  {:>6.2}%", pct(*count, total.identifiers));
+    }
+
+    println!("\n--- THE {} OVER-APPLICATIONS `strictNullChecks` CANNOT EXPLAIN ---", {
+        let n: usize = total.over_application_strict_on.values().sum();
+        n
+    });
+    let strict_on_total: usize = total.over_application_strict_on.values().sum();
+    let mut rows: Vec<_> = total
+        .over_application_strict_on
+        .iter()
+        .map(|(kind, count)| (*count, kind.as_str()))
+        .collect();
+    rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (count, kind) in rows.iter().take(10) {
+        println!("  {kind:<42} {count:>8}  {:>6.2}%", pct(*count, strict_on_total));
     }
 
     println!("\n--- POSITIVE CONTROL: the same arms over ALL aligned Identifier lines ---");
