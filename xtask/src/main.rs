@@ -93,7 +93,7 @@ fn codegen() -> Result<()> {
 
     write_generated(&out_dir.join("kind.rs"), &gen_kind::generate(&ast)?)?;
     write_generated(&out_dir.join("nodes.rs"), &gen_nodes::generate_nodes(&ast, &nullability)?)?;
-    write_generated(&out_dir.join("alias.rs"), &gen_nodes::generate_aliases(&ast)?)?;
+    write_generated(&out_dir.join("alias.rs"), &gen_nodes::generate_aliases(&ast, &nullability)?)?;
     write_generated(&out_dir.join("visit.rs"), &gen_nodes::generate_visit(&ast, &nullability)?)?;
 
     // A machine-readable record of what the generator saw, so the conformance test

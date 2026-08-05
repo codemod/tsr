@@ -1096,3 +1096,76 @@ fn a_declarations_annotation_is_reachable_through_the_map() {
     assert!(found.r#type.is_some(), "the annotation must be reachable");
     assert!(found.initializer.is_some(), "the initialiser must be reachable");
 }
+
+// ---------------------------------------------------------------------------
+// The generated named-child accessors (`bd tsr-5e7.8`).
+//
+// `Node::name_id`, `expression_id` and `initializer_id` exist because upstream's
+// node-selection predicates all ask "is this node its parent's name / expression
+// / initializer?" — an identity question, so an id is the whole answer. Tested
+// here rather than in tsr-ast because a tree is what exercises them.
+// ---------------------------------------------------------------------------
+
+/// Every node of a parse, by a `push_children` walk.
+fn all_nodes(root: tsr_ast::Node<'_>) -> Vec<tsr_ast::Node<'_>> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    let mut kids = Vec::new();
+    while let Some(node) = stack.pop() {
+        out.push(node);
+        kids.clear();
+        tsr_ast::push_children(node, &mut kids);
+        stack.extend(kids.iter().copied());
+    }
+    out
+}
+
+#[test]
+fn a_named_child_accessor_returns_an_actual_child() {
+    // The invariant that makes the accessors usable for identity questions: what
+    // they return must be a *child* of the node, not some other node that
+    // happens to have an id. A generator emitting the wrong field would still
+    // return `Some`, and only this catches that.
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(
+        &arena,
+        "const a: string = 'x';\n\
+         function f(p = 1) { return p; }\n\
+         class C { m = 2; get g() { return 1; } }\n\
+         const o = { k: 3 };\n\
+         a.b;\n",
+    );
+    let mut checked = 0;
+    for node in all_nodes(tsr_ast::Node::SourceFile(parsed.source_file)) {
+        let mut kids = Vec::new();
+        tsr_ast::push_children(node, &mut kids);
+        let child_ids: Vec<_> = kids.iter().filter_map(tsr_ast::Node::node_id).collect();
+        for id in
+            [node.name_id(), node.expression_id(), node.initializer_id()].into_iter().flatten()
+        {
+            assert!(
+                child_ids.contains(&id),
+                "{:?} returned {id:?}, which is not one of its children",
+                parsed.nodes.kind(node.node_id().expect("registered"))
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 10, "the fixture must actually exercise the accessors, saw {checked}");
+}
+
+#[test]
+fn every_named_child_accessor_fires_on_something() {
+    // The bug this exists for: `ast.json` spells the fields `name`, `Expression`
+    // and `Initializer` — not uniformly lower-case. Matching the wrong spelling
+    // emits an accessor with **zero match arms**, which compiles cleanly and
+    // returns `None` for every node in the language. That shipped once and was
+    // caught by counting generated arms, not by any test.
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, "const a = b.c;\nfunction f(p = 1) {}\n");
+    let nodes = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file));
+
+    assert!(nodes.iter().any(|n| n.name_id().is_some()), "no node answered name_id");
+    assert!(nodes.iter().any(|n| n.expression_id().is_some()), "no node answered expression_id");
+    assert!(nodes.iter().any(|n| n.initializer_id().is_some()), "no node answered initializer_id");
+}

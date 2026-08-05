@@ -532,7 +532,7 @@ pub fn generate_nodes(ast: &AstDefinition, nullability: &GoNullability) -> Resul
 }
 
 /// Generate the alias union enums plus the top-level `Node` enum.
-pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
+pub fn generate_aliases(ast: &AstDefinition, nullability: &GoNullability) -> Result<String> {
     let mut out = String::with_capacity(256 * 1024);
     out.push_str(
         "//! Union types over AST nodes.\n\
@@ -574,6 +574,8 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
         writeln!(out, "            Node::{name}(n) => n.node_id(),")?;
     }
     out.push_str("        }\n    }\n}\n\n");
+
+    out.push_str(&generate_named_child_accessors(ast, nullability)?);
 
     let mut alias_members: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for alias_name in ast.nodes.aliases.keys() {
@@ -684,6 +686,104 @@ pub fn generate_aliases(ast: &AstDefinition) -> Result<String> {
 /// across a moving upstream is how traversal silently misses new syntax. oxc
 /// reaches the same conclusion — its `tasks/ast_tools` is ~20k LOC for the same
 /// reason.
+/// The named single-child fields the checker needs to reach through the `Node`
+/// union.
+///
+/// Every one of upstream's node-selection predicates asks the same question in a
+/// different costume — `parent.Initializer() == node`, `name.Parent.Name() ==
+/// name`, `parent.AsQualifiedName().Right == node` — so what the caller wants is
+/// an **id to compare**, not a typed child. See
+/// `docs/architecture/checker-oracle.md`.
+/// The `ast.json` spelling is **not** uniform: `name` is lower-case while
+/// `Expression` and `Initializer` are capitalised, mirroring upstream's Go field
+/// names. Getting this wrong emits an accessor with zero match arms that compiles
+/// cleanly and always returns `None` — which is why the generated arm counts are
+/// asserted in `crates/tsr-ast/tests/`.
+const NAMED_CHILD_ACCESSORS: &[(&str, &str)] =
+    &[("name", "name_id"), ("Expression", "expression_id"), ("Initializer", "initializer_id")];
+
+/// Emit `Node::name_id`, `Node::expression_id` and `Node::initializer_id`.
+///
+/// Generated rather than hand-written for exactly the reason `node_id` is: 41
+/// definitions carry a `name`, 37 an `expression` and 10 an `initializer`, and a
+/// hand-rolled match over them rots the next time `ast.json` grows a node.
+///
+/// Only **single** node-typed fields get an arm. A list-typed field has no single
+/// id to return, and a non-node field (a `&str`, a flag) has none at all; both
+/// fall through to `None`.
+fn generate_named_child_accessors(
+    ast: &AstDefinition,
+    nullability: &GoNullability,
+) -> Result<String> {
+    let mut out = String::new();
+    out.push_str("impl Node<'_> {\n");
+    for (field_name, method) in NAMED_CHILD_ACCESSORS {
+        // Arms first, because whether the `HasNodeId` import is needed depends on
+        // them: a field typed as a *concrete* node has a `node_id` field that
+        // shadows the accessor, so the trait must be in scope — while a field
+        // typed as an alias resolves inherently and the import would be unused.
+        // Emitting it unconditionally fails `-D warnings` on generated code.
+        let mut arms = String::new();
+        let mut needs_trait = false;
+        for def_name in ast.nodes.definitions.keys() {
+            let fields = resolve_fields(ast, nullability, def_name)?;
+            let Some(field) = fields.iter().find(|f| f.name == *field_name) else { continue };
+            let Some((arm, concrete)) = named_child_arm(ast, field) else { continue };
+            needs_trait |= concrete;
+            writeln!(arms, "            Node::{def_name}(n) => {arm},")?;
+        }
+        writeln!(
+            out,
+            "    /// The id of this node's `{field_name}` child, if it has one.\n    \
+             ///\n    \
+             /// `None` when the node kind has no such field, when the field is\n    \
+             /// absent, or when it is a list — there is no single id to return.\n    \
+             #[must_use]\n    \
+             pub fn {method}(&self) -> Option<crate::NodeId> {{"
+        )?;
+        if needs_trait {
+            out.push_str("        use crate::HasNodeId as _;\n");
+        }
+        out.push_str("        match self {\n");
+        out.push_str(&arms);
+        out.push_str("            _ => None,\n        }\n    }\n");
+    }
+    out.push_str("}\n\n");
+    Ok(out)
+}
+
+/// How to read one named field's id, or `None` if it is not a single node.
+///
+/// Mirrors [`child_id_call`]'s type analysis, minus the list case: a list has no
+/// single id.
+fn named_child_arm(ast: &AstDefinition, field: &ResolvedField) -> Option<(String, bool)> {
+    let ty = &field.rust_type;
+    let name = &field.rust_name;
+
+    if !ty.contains("'a") || ty.contains("str") || ty.contains("&'a [") {
+        return None;
+    }
+    let inner = ty.trim_start_matches("Option<").trim_end_matches('>').trim_start_matches("&'a ");
+    let base = inner.split('<').next().unwrap_or(inner);
+    let is_alias = ast.nodes.aliases.contains_key(base) || base == "Node";
+    let is_node = ast.nodes.definitions.contains_key(base);
+    if !is_alias && !is_node && base != "Token" {
+        return None;
+    }
+
+    // `?` rather than `and_then`: it reads better, and it avoids a redundant
+    // closure that `-D warnings` rejects in generated code. The semantics are the
+    // ones wanted — an absent field means the accessor answers `None`.
+    let arm = if ty.starts_with("Option<") {
+        format!("n.{name}?.node_id()")
+    } else {
+        format!("n.{name}.node_id()")
+    };
+    // `true` when the field's static type is a concrete node, which is what makes
+    // the `HasNodeId` import necessary.
+    Some((arm, is_node || base == "Token"))
+}
+
 pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Result<String> {
     let mut out = String::with_capacity(256 * 1024);
     out.push_str(

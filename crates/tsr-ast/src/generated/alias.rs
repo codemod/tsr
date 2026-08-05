@@ -610,6 +610,128 @@ impl Node<'_> {
     }
 }
 
+impl Node<'_> {
+    /// The id of this node's `name` child, if it has one.
+    ///
+    /// `None` when the node kind has no such field, when the field is
+    /// absent, or when it is a list — there is no single id to return.
+    #[must_use]
+    pub fn name_id(&self) -> Option<crate::NodeId> {
+        use crate::HasNodeId as _;
+        match self {
+            Node::BindingElement(n) => n.name?.node_id(),
+            Node::ClassDeclaration(n) => n.name?.node_id(),
+            Node::ClassExpression(n) => n.name?.node_id(),
+            Node::EnumDeclaration(n) => n.name?.node_id(),
+            Node::EnumMember(n) => n.name.node_id(),
+            Node::ExportSpecifier(n) => n.name?.node_id(),
+            Node::FunctionDeclaration(n) => n.name?.node_id(),
+            Node::FunctionExpression(n) => n.name?.node_id(),
+            Node::GetAccessorDeclaration(n) => n.name.node_id(),
+            Node::ImportAttribute(n) => n.name?.node_id(),
+            Node::ImportClause(n) => n.name?.node_id(),
+            Node::ImportEqualsDeclaration(n) => n.name?.node_id(),
+            Node::ImportSpecifier(n) => n.name?.node_id(),
+            Node::InterfaceDeclaration(n) => n.name?.node_id(),
+            Node::JSDocCallbackTag(n) => n.name?.node_id(),
+            Node::JSDocLink(n) => n.name?.node_id(),
+            Node::JSDocLinkCode(n) => n.name?.node_id(),
+            Node::JSDocLinkPlain(n) => n.name?.node_id(),
+            Node::JSDocNameReference(n) => n.name?.node_id(),
+            Node::JSDocParameterOrPropertyTag(n) => n.name?.node_id(),
+            Node::JSDocTypedefTag(n) => n.name?.node_id(),
+            Node::JsxAttribute(n) => n.name?.node_id(),
+            Node::JsxNamespacedName(n) => n.name?.node_id(),
+            Node::MetaProperty(n) => n.name?.node_id(),
+            Node::MethodDeclaration(n) => n.name.node_id(),
+            Node::MethodSignatureDeclaration(n) => n.name.node_id(),
+            Node::ModuleDeclaration(n) => n.name?.node_id(),
+            Node::NamedTupleMember(n) => n.name?.node_id(),
+            Node::NamespaceExport(n) => n.name?.node_id(),
+            Node::NamespaceExportDeclaration(n) => n.name?.node_id(),
+            Node::NamespaceImport(n) => n.name?.node_id(),
+            Node::ParameterDeclaration(n) => n.name?.node_id(),
+            Node::PropertyAccessExpression(n) => n.name?.node_id(),
+            Node::PropertyAssignment(n) => n.name.node_id(),
+            Node::PropertyDeclaration(n) => n.name.node_id(),
+            Node::PropertySignatureDeclaration(n) => n.name.node_id(),
+            Node::SetAccessorDeclaration(n) => n.name.node_id(),
+            Node::ShorthandPropertyAssignment(n) => n.name.node_id(),
+            Node::TypeAliasDeclaration(n) => n.name?.node_id(),
+            Node::TypeParameterDeclaration(n) => n.name?.node_id(),
+            Node::VariableDeclaration(n) => n.name?.node_id(),
+            _ => None,
+        }
+    }
+    /// The id of this node's `Expression` child, if it has one.
+    ///
+    /// `None` when the node kind has no such field, when the field is
+    /// absent, or when it is a list — there is no single id to return.
+    #[must_use]
+    pub fn expression_id(&self) -> Option<crate::NodeId> {
+        match self {
+            Node::AsExpression(n) => n.expression?.node_id(),
+            Node::AwaitExpression(n) => n.expression?.node_id(),
+            Node::CallExpression(n) => n.expression?.node_id(),
+            Node::CaseOrDefaultClause(n) => n.expression?.node_id(),
+            Node::ComputedPropertyName(n) => n.expression?.node_id(),
+            Node::Decorator(n) => n.expression?.node_id(),
+            Node::DeleteExpression(n) => n.expression?.node_id(),
+            Node::DoStatement(n) => n.expression?.node_id(),
+            Node::ElementAccessExpression(n) => n.expression?.node_id(),
+            Node::ExportAssignment(n) => n.expression?.node_id(),
+            Node::ExpressionStatement(n) => n.expression?.node_id(),
+            Node::ExpressionWithTypeArguments(n) => n.expression?.node_id(),
+            Node::ExternalModuleReference(n) => n.expression?.node_id(),
+            Node::ForInOrOfStatement(n) => n.expression?.node_id(),
+            Node::IfStatement(n) => n.expression?.node_id(),
+            Node::JsxExpression(n) => n.expression?.node_id(),
+            Node::JsxSpreadAttribute(n) => n.expression?.node_id(),
+            Node::NewExpression(n) => n.expression?.node_id(),
+            Node::NonNullExpression(n) => n.expression?.node_id(),
+            Node::ParenthesizedExpression(n) => n.expression?.node_id(),
+            Node::PartiallyEmittedExpression(n) => n.expression?.node_id(),
+            Node::PropertyAccessExpression(n) => n.expression?.node_id(),
+            Node::ReturnStatement(n) => n.expression?.node_id(),
+            Node::SatisfiesExpression(n) => n.expression?.node_id(),
+            Node::SpreadAssignment(n) => n.expression?.node_id(),
+            Node::SpreadElement(n) => n.expression?.node_id(),
+            Node::SwitchStatement(n) => n.expression?.node_id(),
+            Node::SyntheticReferenceExpression(n) => n.expression?.node_id(),
+            Node::TemplateSpan(n) => n.expression?.node_id(),
+            Node::ThrowStatement(n) => n.expression?.node_id(),
+            Node::TypeAssertion(n) => n.expression?.node_id(),
+            Node::TypeOfExpression(n) => n.expression?.node_id(),
+            Node::TypeParameterDeclaration(n) => n.expression?.node_id(),
+            Node::VoidExpression(n) => n.expression?.node_id(),
+            Node::WhileStatement(n) => n.expression?.node_id(),
+            Node::WithStatement(n) => n.expression?.node_id(),
+            Node::YieldExpression(n) => n.expression?.node_id(),
+            _ => None,
+        }
+    }
+    /// The id of this node's `Initializer` child, if it has one.
+    ///
+    /// `None` when the node kind has no such field, when the field is
+    /// absent, or when it is a list — there is no single id to return.
+    #[must_use]
+    pub fn initializer_id(&self) -> Option<crate::NodeId> {
+        match self {
+            Node::BindingElement(n) => n.initializer?.node_id(),
+            Node::EnumMember(n) => n.initializer?.node_id(),
+            Node::ForInOrOfStatement(n) => n.initializer?.node_id(),
+            Node::ForStatement(n) => n.initializer?.node_id(),
+            Node::JsxAttribute(n) => n.initializer?.node_id(),
+            Node::ParameterDeclaration(n) => n.initializer?.node_id(),
+            Node::PropertyAssignment(n) => n.initializer?.node_id(),
+            Node::PropertyDeclaration(n) => n.initializer?.node_id(),
+            Node::PropertySignatureDeclaration(n) => n.initializer?.node_id(),
+            Node::VariableDeclaration(n) => n.initializer?.node_id(),
+            _ => None,
+        }
+    }
+}
+
 /// The `AccessExpression` union.
 ///
 /// Corresponds to typescript-go's `ast.AccessExpression`.
