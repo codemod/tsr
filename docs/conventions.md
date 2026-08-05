@@ -168,3 +168,19 @@ same failure as the roll-up in
 **A zero from an instrument that cannot see the thing is not a zero.** Report it
 as untested. This matters most when the instrument is measuring its author's own
 work, where the favourable reading is the one nobody will question.
+
+## Build before committing a file another agent is also editing
+
+`git commit -- <paths>` instead of `git add` then `git commit` protects against a
+concurrent stage sweeping *whole files* into your commit — a race that happened
+on 2026-08-05 and is visible in the commit's file list.
+
+It does not protect against the subtler form, which happened the same day: **one
+file that two agents are editing**, where committing it takes *half* of a change
+whose other half lives in a different file. `TypeData::Anonymous` was committed
+into `types.rs` without the matching arm in `printing.rs`, and `origin/main` did
+not compile for four commits. The file list looked exactly right.
+
+Only building catches it. Run `cargo build -p <crate>` immediately before any
+`git commit -- <paths>` that touches a file outside your sole ownership. Seconds,
+not a full gate.
