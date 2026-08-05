@@ -88,6 +88,7 @@ pub mod literals;
 pub mod members;
 pub mod printing;
 pub mod resolution;
+pub mod signatures;
 pub mod symbols;
 pub mod types;
 

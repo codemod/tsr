@@ -954,3 +954,326 @@ Upstream reads only the `extends` clause for base types
 (`getEffectiveBaseTypeNode`). An `implements` clause is checked for conformance
 and inherits no members. The clause token is the only thing that distinguishes
 the two, and dropping that test turns a test red.
+
+## Function, class, enum and module symbols (`bd tsr-4sc.8`)
+
+Ranked first by the histogram at `78cfcba`: 35,488 gap lines — 12.58% of all
+gaps — were a symbol kind `getTypeOfSymbol` did not handle (7,485 function
+declarations, 7,227 classes, 5,686 methods, 5,569 modules, 2,449 enums), and it
+is the only route to the two largest answer buckets still reading **0.00%**:
+function/signature at 55,421 lines (11.82% of every aligned line) and `typeof` at
+15,912.
+
+### `typeof C` is not a second feature; it is this one's printed form
+
+The most useful thing read out of upstream while porting this, and the thing that
+collapses two ranked items into one. `getTypeOfFuncClassEnumModuleWorker`
+(`checker.go:16912`) builds **the same type** for all five symbol kinds — an
+anonymous object type whose symbol is that symbol. What differs is the *node
+builder*:
+
+- `shouldEmitTypeOfSymbol` (`nodebuilderimpl.go:2801`) answers yes for a class,
+  an enum or a value module, so `symbolToTypeNode` emits a type **query** and the
+  line reads `typeof C`.
+- For a function or a method it answers no, because
+  `shouldWriteTypeOfFunctionSymbol` (`nodebuilderimpl.go:2760`) requires
+  `FlagsUseTypeOfFunction` and the `.types` baseline writer does not set it. So
+  the type expands structurally into its call signatures and the line reads
+  `(x: string) => void`.
+
+`bd tsr-4sc.10` — the `typeof` **type query node** — remains a separate and much
+smaller item. What it is not is the source of the 15,912-line `typeof` bucket.
+
+### What a signature answers exactly, and where it stops
+
+`crates/tsr-checker/src/signatures.rs` builds a [`Signature`] only when every
+part of it can be spelled the way the baseline writer spells it. A `.types`
+comparison is whole-line, so a signature that is right in three places and
+plausible in the fourth fails identically to one that is wrong everywhere — and
+is worse than a gap, because `examples/types_shapes.rs` would count it as a
+*wrong answer* and mis-rank the work that follows.
+
+| answered exactly | gapped, and why |
+|---|---|
+| a return **annotation** | an inferred return from a body containing `return` — a subtype-reduced union (`bd tsr-4sc.9`) |
+| **no body** → `any` (`checker.go:20016`) | an inferred `async` or generator return — `Promise<T>`, a global (`bd tsr-9or.1`) |
+| a **block body with no `return`** → `void` | an inferred return where `mayReturnNever` holds — a function expression, an arrow, an object-literal method: upstream answers `never` or `void` by end-of-body **reachability**, which is the flow graph, built by the binder and read by nothing |
+| parameter types, via `getTypeOfSymbol` on the parameter symbol | a **destructuring** parameter — `parameterToParameterDeclarationName` invents a name and the name is compared verbatim |
+| `?`, `...`, and defaulted-parameter optionality | any parameter, constraint, default or return type that is itself a gap |
+| type parameters with constraint and default | a type parameter carrying `const`/`in`/`out` — the modifiers are read off *every* declaration of its symbol, a merge this port does not do |
+| **one** call signature | an overload **set**: two or more signatures print as a type literal `{ (): void; (x: string): void; }` (`nodebuilderimpl.go:2690`), a rendering this slice does not build |
+
+Two of these are worth stating in full because they look like details and decide
+thousands of lines.
+
+**A body with no `return` is `void`, and a body that only throws is also `void`.**
+`checkAndAggregateReturnExpressionTypes` (`checker.go:20259`) is never-returning
+only when `hasReturnOfTypeNever || mayReturnNever(fn)`, and `mayReturnNever`
+(`checker.go:20312`) is false for a function declaration and for a class method.
+So `function f() { throw 1; }` is `() => void` — which reads like a bug and is
+upstream's answer, and is why the reachability question does not arise for the
+two commonest kinds.
+
+**A defaulted parameter is optional only from `minArgumentCount` onward.**
+`isOptionalParameter` (`utilities.go:303`) returns `parameterIndex >=
+getMinArgumentCountEx(signature, …VoidIsNonOptional)`, and with that flag the
+function returns the syntactic `minArgumentCount` unchanged. So
+`function f(x = 1)` prints `(x?: number) => void` while
+`function f(x = 1, y: number)` prints `(x: number, y: number) => void`. Treating
+every defaulted parameter as optional is the obvious implementation and is wrong
+on the second line. Both spellings were taken from
+`conformance/callSignaturesWithParameterInitializers.types` rather than reasoned
+about.
+
+### Three divergences accepted, and how each would be shown wrong
+
+1. **The printed name of a type query is unqualified.** A class declared inside
+   `namespace M` gets `typeof C`; upstream writes `typeof M.C` at a reference
+   site that cannot see `C` directly, and `typeof C` at one that can. This is the
+   same divergence already recorded above for named types and has the same single
+   cause — the name is computed once at creation and upstream computes it per
+   reference site, from `enclosingDeclaration`. It is accepted because a *bare
+   identifier* reference is the overwhelmingly common shape and is unqualified in
+   upstream too: if you can write `C`, `C` is reachable unqualified from there.
+   **Wrong if** the corpus shows a large population of qualified `M.C` lines
+   scoring as wrong answers rather than as gaps; today they mostly gap earlier,
+   because `M.C` is a property access into a namespace's `exports` and nothing
+   reads that table.
+2. **`typeof C` carries no members at all.** A class's statics and a namespace's
+   exports live in the symbol's `exports` table, and `TypeData::Named` points
+   `getPropertyOfType` at `members`. Passing the symbol here would resolve `C.x`
+   against the *instance* members — a wrong answer where a gap belongs, which is
+   the exact failure the `errorType`-not-`anyType` rule exists to prevent. So
+   `C.staticProp` and `M.x` stay gaps. The fix is a second members source on the
+   type, not a different symbol, and it belongs with whoever owns `members.rs`.
+3. **A class whose base constructor is a type variable prints `typeof C`, where
+   upstream prints an intersection.** `getBaseTypeVariableOfClass`
+   (`checker.go:16936`) needs `getBaseConstructorTypeOfClass`, which needs
+   `checkExpression` on the heritage clause and construct signatures — neither
+   exists. **Wrong if** mixin-shaped classes turn out to be a measurable
+   population; `class C extends B` for an ordinary `B` is unaffected and is the
+   common case.
+
+### A resolution frame upstream does not need, added because this port is eager
+
+Upstream's worker creates an *empty* object type and resolves its signatures only
+when asked; the recursion guard lives in `getReturnTypeOfSignature`
+(`checker.go:20004`). This port computes a named type's printed form **once, at
+creation**, so building a function symbol's type *is* resolving its signature.
+The `pushTypeResolution` frame therefore moves from the return type to
+`getTypeOfFuncClassEnumModule`. It is a consequence of the eager-printing
+divergence rather than an invention, and it is stated in the code at the site.
+
+The other half of that judgement went the other way, and follows the precedent
+`declared.rs` set for instantiation depth: **no guard was added around return-type
+inference**, because with a `return`-carrying body gapped there is no path from a
+function symbol's type back to itself. `typeof f` is unported (`bd tsr-4sc.10`),
+a heritage clause is not read, and an annotation reaches only declared types,
+which have their own frames. A guard there today would be a guard around a loop
+that does not exist.
+
+### "Immediately precedes" had to be re-derived, not transliterated
+
+`getSignaturesOfSymbol` (`checker.go:19806`) drops the *implementation* of an
+overload set, so
+
+```text
+function fn4a(x?: number, y: string);
+function fn4a() { }
+```
+
+prints `(x?: number, y: string) => any` — the overload's signature, with `any`
+because the overload has no body. Upstream detects the implementation with
+`decl.Pos() == previous.End()`, where `Pos()` is the **full** start, the offset
+just past the previous token with trivia included; the equality means "with
+nothing but trivia between them".
+
+This port's spans start *after* leading trivia
+([checker-oracle.md](checker-oracle.md), on the baseline writer's line text), so
+the transliterated comparison is false for every overload set written on two
+lines — and it was: the test read `error` until it was changed to ask whether the
+declaration is the very next child of the shared parent, which answers the same
+question from the data this port has. Transliterating a position comparison
+across a different span convention is a silent behaviour change, and this one was
+caught only because the expected string had been taken from a baseline first.
+
+### One limit is recorded rather than tested
+
+`this` is kept out of `Signature::parameters` and prepended by the printer,
+exactly as upstream does — and **no mutation makes that observable**. Folding
+`this` into `parameters` shifts `minArgumentCount` by one *and* every value
+parameter's index by one, and the only consumer is
+`parameterIndex >= minArgumentCount`, so both sides move together and no printed
+line changes. The field is kept because it becomes load-bearing with
+`getTypeAtPosition` and call-argument checking; it is not covered by a test that
+would not bite, on the same reasoning as the two binary-operator guards above.
+
+## Unions, and `boolean` stops being an intrinsic
+
+Ported 2026-08-05 (`bd tsr-4sc.9`), fifth on the re-ranking above: 13,648
+assertion lines whose expected answer contains a top-level `|`, reading 0.00%
+right, plus three things outside that bucket — `boolean`, the enum divergence,
+and the logical operators. Two of the three landed. The third did not, and the
+reason is the most useful thing this slice found.
+
+### The order is the answer
+
+A union is compared verbatim, so its constituent order is as much the answer as
+its constituent set, and getting it wrong fails a line while *looking* like a
+formatting bug. The order is `CompareTypes` (`utilities.go:415`): sort-order
+flags first, then the type's name, then per-kind data, then creation order. The
+first of those is the numeric value of `TypeFlags`, which this port carried
+across one-for-one for exactly this reason and which is now load-bearing rather
+than merely documented as such.
+
+`var x: number | string` prints `string | number` — `STRING` is `1 << 5`,
+`NUMBER` is `1 << 6` — and upstream records precisely that
+(`baselines/reference/submodule/compiler/implicitConstParameters.types:15`).
+Every ordering test in `crates/tsr-checker/tests/unions.rs` writes its
+constituents in an order the answer does not preserve, because a test whose
+fixture happens to be in sorted order proves nothing.
+
+**One prediction was wrong and the implementation was right, again.** `number | "a"`
+was expected to print `"a" | number`; it prints `number | "a"`, because
+`STRING_LITERAL` is `1 << 10` and sorts *after* `NUMBER`. Upstream's baselines
+say `>x : number | "bar"`. That is the eighth time this has happened here, and
+the rule holds: check a baseline before "fixing" the code.
+
+### `strictNullChecks` is assumed off, and the assumption is measured
+
+`addTypesToUnion` (`checker.go:25793`) **drops `null` and `undefined`
+constituents entirely** when `strictNullChecks` is off. So `string | undefined`
+is `string` under upstream's default options and `string | undefined` under
+`--strict`, and the difference is not a corner: it touches most unions that
+mention either type.
+
+This port has no compiler options — nothing constructs a
+`tsr_core::CompilerOptions` and `Checker::new` takes a bound file and nothing
+else — so one behaviour had to be chosen.
+
+**Off was chosen**, on three grounds. It is upstream's default. **1,351 of the
+corpus's 12,444 cases (10.9%)** set `@strict` or `@strictNullChecks`, so it is
+also the majority behaviour by an order of magnitude — measured with a grep over
+`_submodules/TypeScript/tests/cases`, not assumed. And it is the assumption the
+rest of the crate already makes implicitly: nothing adds `undefined` to an
+optional parameter's type either, which is the same option seen from a different
+arm.
+
+**The consequence accepted is bad and worth stating plainly:** in a `@strict`
+case, every union mentioning `null` or `undefined` is now a *wrong* line rather
+than a gap, and `types_shapes.rs` cannot separate those from real defects. The
+alternative — gapping any union with a nullable constituent — would have cost
+the 89% to protect the instrument on the 11%.
+
+**How this would be shown wrong.** When the checker can read the case's options
+(`bd tsr-5s2`, behind the program object `bd tsr-9or.1`) the assumption becomes a
+one-line lookup, and the branch is already in the right place. If the corpus
+shows the strict cases carry disproportionately many union lines, this should be
+revisited before then.
+
+### `boolean` is the union `false | true`, and that is observable
+
+Upstream builds `booleanType` with `getUnionType` at `checker.go:1002`, and it
+prints as a keyword because a union of exactly the two boolean literal types
+carries `TypeFlagsBoolean`, which the node builder tests *before* it reaches its
+union branch (`nodebuilderimpl.go:3255`). This port now does the same.
+
+The point is not the printed form, which was already right. It is that
+`boolean` **flattens**: `boolean | true` reduces to `boolean`, because the union
+is expanded into its constituents, deduplicated, and put back together. An
+intrinsic `boolean` cannot do that, and would have printed `true | boolean`.
+
+The one place the port cannot follow upstream literally is creation order:
+`booleanType` is built inside `Intrinsics::create`, where the general path — a
+`Checker` method — does not yet exist. `create_boolean_type` constructs it
+directly, and the claim that the shortcut is *exact* rather than approximate is
+not left to the reader: `boolean_is_the_union_of_the_two_boolean_literal_types`
+writes `true | false` in source and asserts the resulting `TypeId` **is**
+`intrinsics.boolean`. Interning is what makes that assertion possible, and it is
+what makes it worth writing.
+
+**A wrong call, caught by a test.** `formatUnionTypes` (`printer.go:383`) was
+first judged unreachable and left unported, on the argument that the keyword
+check already handles `boolean`. It does not: the keyword check fires only for a
+union of *exactly* two boolean literals, so `string | boolean` printed
+`string | false | true`. The function is now ported for its boolean clause,
+and the keyword check is no longer consulted for printing at all — it would be a
+branch the collapse already covers. Its other two clauses (nullable reordering,
+enum collapsing) really are unreachable, for reasons stated in the code rather
+than guarded against.
+
+### The enum divergence, replaced
+
+An enum's declared type is now the union of its members' types, carrying
+`ENUM_LITERAL` and the enum's symbol, and printing `E` — because the node
+builder renders an enum-like type from its **symbol** (`nodebuilderimpl.go:3260`)
+rather than from its constituents. That printing rule was read out of upstream
+before the code was written, not assumed to fall out.
+
+Printing therefore cannot distinguish the new type from the old one, which is why
+`an_enum_declares_a_real_union_that_prints_as_the_enum_name` asserts about the
+*type* — `UNION` in the flags, one constituent per member, a symbol — and not
+only about the string. Reverting the arm to the old named type turns it red;
+nothing about the printed line would have.
+
+**What is left of the divergence, and it is much smaller.** Upstream asks
+`getEnumMemberValue` for each member and interns an enum literal type on
+(value, enum symbol). This port has no constant evaluator, so every member takes
+upstream's *own* fallback for an unevaluable member, `createComputedEnumType`.
+The printed form, the constituent count and the per-member identities are all
+upstream's; two members that share a value are two types here where upstream has
+one. `bd tsr-8pz`.
+
+**One deliberate deviation, confined to one-member enums.** Upstream collapses a
+one-constituent union to the constituent, so `enum E { A }` declares the type
+`E.A` — which still prints `E`, because the node builder asks
+`getDeclaredTypeOfSymbol(parent) == t` and substitutes the enum's name. This port
+prints from text computed when a type is created and cannot ask a question whose
+answer arrives later, so it keeps the one-element union. The printed line is
+right in both positions and the type is one layer thicker than upstream's. When
+printing reads the store instead of a cached string, this special case must go.
+
+### Three limits recorded rather than approximated
+
+- **A union containing a *named* union is a gap.** Upstream keeps `E` unexpanded
+  inside `E | string` through a denormalised `origin` and `addNamedUnions`
+  (`checker.go:25705`). Without it the constituents would be printed —
+  `E.A | E.B | string` — which is a wrong line rather than a missing one.
+  `bd tsr-ha6`.
+- **Named types sort by their printed text, not by their symbol.** Upstream
+  compares symbol names and then alias type-argument lists (`utilities.go:608`).
+  The two agree for every plain named type and disagree for two references to
+  the same generic: `C<string> | C<number>` keeps that order upstream and is
+  reversed here. Fixing it means giving `TypeData::Named` a symbol and an
+  argument list, which is a reshape of a type two workstreams share.
+  `bd tsr-bgz`.
+- **No construction limit is ported, and this time that was a real question.**
+  Unlike the instantiation case, union construction *is* a recursion. It is a
+  recursion over the **source nesting of type nodes**, which is finite in a
+  parsed file; the one shape that could be unbounded, a self-referential generic
+  alias, terminates because a generic alias's body is never expanded. What
+  upstream's depth of 100 and count of 5,000,000 (`checker.go:22111`) actually
+  guard is `instantiateType`, which is what makes unions of unions grow. They
+  belong there, `bd tsr-el3.2` owns them, and they are not optional then.
+
+### The logical operators are still a gap, and unions were not what they needed
+
+`&&`, `||` and `??` were ranked with this item — 1,860 corpus lines — on the
+reasoning that they compute a union of their operands. They do, and unions were
+not the blocker.
+
+- `&&` unions `extractDefinitelyFalsyTypes(getBaseTypeOfLiteralType(right))` with
+  the right type when `strictNullChecks` is **off**, and
+  `extractDefinitelyFalsyTypes(left)` with the right type when it is **on**
+  (`checker.go:12495`). Those are different answers, not different spellings of
+  one: for `a: string` and `b: number` the first is `number` and the second is
+  `"" | number`.
+- `||` and `??` reduce with `UnionReductionSubtype`, which is `removeSubtypes`
+  (`checker.go:25934`) and needs assignability.
+- All three gate on `hasTypeFacts` (`checker.go:30982`), a large table whose
+  every arm branches on `strictNullChecks`.
+
+So the operators need compiler options and assignability, and answering them
+without either would produce wrong lines rather than missing ones — the one thing
+this port has consistently refused to do. They move to `bd tsr-5s2` with the
+options work, and the arm in `binary.rs` now says so instead of blaming unions.
