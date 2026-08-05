@@ -2638,3 +2638,70 @@ is not upstream's order — `getSignaturesOfSymbol` walks `symbol.declarations`,
 and if the binder ever appends out of source order the whole rendering shifts
 without any test here noticing, since every fixture has monotonically ordered
 declarations.
+
+## Verifying whether a checker feature is ported — 2026-08-05
+
+Four of one cycle's five assignments were dispatched at work that was already
+finished. The cause was a single bad probe, and it is worth recording because
+the probe looks right.
+
+**`SyntaxKind::Foo` does not appear in the checker's dispatch.** The checker
+matches on the AST enum variant, not on the kind:
+
+```rust
+crates/tsr-checker/src/declared.rs:62
+    TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
+crates/tsr-checker/src/expressions.rs:128
+    Expression::BinaryExpression(node) => self.check_binary_expression(node),
+crates/tsr-checker/src/declared.rs:602
+    let Some(Node::EnumDeclaration(node)) = self.node_map.get(declaration)
+```
+
+So `grep -rn 'SyntaxKind::ArrayType' crates/tsr-checker/src` returns **nothing**
+for a feature that is fully ported — `bc3e7d8` implements array types at
+`declared.rs:335` with `readonly T[]` as a distinct global, `T[]` printing keyed
+on the target symbol, and interning that makes `string[]` and `Array<string>`
+one `TypeId`. The false negative hits every node whose variant is named
+`<Kind>Node`. The probes that work are `grep 'ArrayTypeNode'`,
+`grep 'Expression::<Variant>'`, or reading the dispatch.
+
+**Being unported is not the same as being reachable.** Overload resolution in
+`calls.rs` really was unwritten, and building it would still have produced
+nothing: `symbols.rs:172` returned `errorType` for any callee with two or more
+call signatures, so the callee was already `errorType` and the overload arm was
+unreachable. `calls.rs` said so in its own comment — *"That arm is unobservable
+today"* — and the item was assigned anyway. An item's status is two questions,
+not one: is it written, and can it run? Printing the overload set (`6b701cc`)
+was the answer, and it moved the gradient 51.96% → 52.60% on its own.
+
+**A teammate's reading of a shared working tree is not a statement about the
+branch.** Agents in this session share one checkout. One reported `main` red
+with a named failing test; the test passed at `HEAD` — it had measured another
+agent's mid-edit state. Check `git show HEAD:<path>` or a clean tree before
+believing a regression report.
+
+### The cheap check that would have prevented all of it
+
+Before assigning, read the arm. Two of the four were visible in five lines:
+
+```rust
+crates/tsr-checker/src/symbols.rs:67
+    // Unported: accessors, enum members, aliases, and the four `CheckFlags`
+    // shapes upstream tests first (deferred, instantiated, mapped,
+    // reverse-mapped).
+    self.intrinsics.error
+```
+
+That comment is a live, accurate list of what `getTypeOfSymbol` does not answer,
+maintained next to the code that does the answering. It is worth more than the
+histogram for deciding what is open, because the histogram says where lines are
+lost and this says why. **Prefer a doc comment beside the fallthrough to a grep,
+and prefer both to a remembered board** — the remembered board was stale in four
+places at once, having been assembled before `bc3e7d8`, `038def4` and the
+index-signature work landed.
+
+A caveat that cuts the other way: `indexed.rs`'s module doc claimed index
+signatures were a gap after they had been wired, and that stale doc is what
+caused one of the four bad assignments. It was corrected in `4058fb1`. A comment
+beside the code is the best available signal and still needs the same treatment
+as any other claim — check that it still describes the code beneath it.
