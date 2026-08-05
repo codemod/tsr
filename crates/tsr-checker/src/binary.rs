@@ -20,10 +20,10 @@ impl Checker<'_, '_> {
     /// they do not become available at the same time. Ported: assignment, the
     /// arithmetic/bitwise/shift family, `+`, the relational and equality
     /// families, `in`, `instanceof` and the comma operator. Not ported: the
-    /// logical operators, which compute a *union* of the operands
-    /// (`bd tsr-4sc.9`), and destructuring assignment, whose left-hand side is
-    /// an object or array literal pattern (`bd tsr-4sc.13`). Both yield
-    /// `errorType`.
+    /// logical operators — which need `getTypeFacts` and `strictNullChecks`
+    /// rather than unions, see the arm below (`bd tsr-5s2`) — and destructuring
+    /// assignment, whose left-hand side is an object or array literal pattern
+    /// (`bd tsr-4sc.13`). Both yield `errorType`.
     ///
     /// Nothing here reports a diagnostic: upstream's arms are mostly error
     /// reporting, and the result type is computed independently of it. That is
@@ -121,9 +121,20 @@ impl Checker<'_, '_> {
             // lookup, so it joins the arm rather than getting one of its own.
             | SyntaxKind::InstanceOfKeyword => self.intrinsics.boolean,
 
-            // The logical operators build a union of the operands, and unions do
-            // not exist yet (`bd tsr-4sc.9`). `errorType`, not the left type,
-            // which would be right only when the left operand is never falsy.
+            // The logical operators build a union of the operands, and unions
+            // now exist — but the union each one builds is *not* determined by
+            // the operand types alone. `&&` unions
+            // `extractDefinitelyFalsyTypes(getBaseTypeOfLiteralType(right))` with
+            // the right type when `strictNullChecks` is off and
+            // `extractDefinitelyFalsyTypes(left)` with it when it is on
+            // (`checker.go:12495`); `||` and `??` reduce with
+            // `UnionReductionSubtype`, which needs assignability. Both also need
+            // `getTypeFacts` (`checker.go:30982`), whose every arm branches on
+            // `strictNullChecks`. This port has no compiler options, so answering
+            // would be a wrong line rather than a missing one. `bd tsr-5s2`.
+            //
+            // `errorType`, not the left type, which would be right only when the
+            // left operand is never falsy.
             _ => error,
         }
     }

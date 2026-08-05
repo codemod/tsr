@@ -36,9 +36,9 @@
 //!   and yields `errorType` for everything else.
 //! - **No functions, classes, enums, accessors, aliases or destructuring.**
 //!   Their symbol shapes fall through `getTypeOfSymbol` to `errorType`.
-//! - **No object, union, intersection, generic, conditional or indexed-access
-//!   types.** `boolean` is an intrinsic here; upstream builds it as the union
-//!   `false | true`, which will change how it prints in some positions.
+//! - **No intersection, conditional or indexed-access types.** Unions exist
+//!   ([`unions`]), and with them `boolean` is what upstream makes it — the union
+//!   `false | true` — rather than an intrinsic.
 //! - **No assignability, inference, or overload resolution.**
 //! - **No control-flow narrowing.** The binder builds the flow graph
 //!   (`tsr-binder`) and nothing reads it yet.
@@ -91,6 +91,7 @@ pub mod resolution;
 pub mod signatures;
 pub mod symbols;
 pub mod types;
+pub mod unions;
 
 pub use checker::Checker;
 pub use flags::TypeFlags;

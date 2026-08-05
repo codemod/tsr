@@ -83,6 +83,37 @@ pub enum TypeData {
         /// substitutes yet. A gap is the honest answer there.
         members: Option<SymbolId>,
     },
+    /// A union type: `A | B`.
+    ///
+    /// Upstream's `UnionType` (`types.go`), carrying the constituent list. The
+    /// list is **sorted by `CompareTypes` and deduplicated** before it reaches
+    /// here — see [`crate::unions`] — and that order is printed verbatim in
+    /// every `.types` baseline, so it is part of the type's identity rather
+    /// than a rendering detail.
+    Union {
+        /// The printed form, computed once at creation.
+        ///
+        /// Same divergence as [`TypeData::Named`], for a different reason:
+        /// [`crate::printing::type_to_string`] takes a single [`Type`] and has
+        /// no way back to the store, so a form that depends on the
+        /// *constituents* has to be rendered while they are still reachable.
+        /// It is exact rather than approximate because every constituent
+        /// already exists when the union is built.
+        text: String,
+        /// The constituents, sorted and deduplicated.
+        types: Vec<TypeId>,
+        /// The symbol this union prints as, where it has one.
+        ///
+        /// Upstream splits this over two fields — `Type.symbol` for an enum's
+        /// declared type (`checker.go:23902`) and `Type.alias.symbol` for the
+        /// body of a named type alias (`checker.go:23711`) — and the node
+        /// builder reaches them through two different branches. They are one
+        /// field here because in every case this port reaches, both branches do
+        /// the same thing: print the symbol's name instead of the constituents.
+        /// A *generic* alias is where the two would part company, since its
+        /// printed form carries type arguments, and that case is a gap.
+        symbol: Option<SymbolId>,
+    },
 }
 
 /// One type.
@@ -200,6 +231,23 @@ impl TypeStore {
         let id = self.push(Type { flags, data: data.clone(), fresh });
         self.interned.insert((flags, data, fresh), id);
         id
+    }
+
+    /// Create or reuse a union type.
+    ///
+    /// Ported from `Checker.getUnionTypeFromSortedList`'s cache
+    /// (`checker.go:25736`), which keys `c.unionTypes` on the sorted constituent
+    /// ids together with the alias — upstream's `getUnionKey`
+    /// (`checker.go:17508`). Here the whole [`TypeData::Union`] payload is the
+    /// key, which is the same key plus two fields derived from it: the printed
+    /// text is a function of the constituents and the symbol, and the flags are
+    /// a function of the constituents.
+    ///
+    /// **Interning a union is not an optimisation.** `A | B` written twice must
+    /// be one type, or the first relation check written compares two handles
+    /// that should have been equal.
+    pub fn intern_union(&mut self, flags: TypeFlags, data: TypeData) -> TypeId {
+        self.intern_literal(flags, data, false)
     }
 
     fn push(&mut self, ty: Type) -> TypeId {

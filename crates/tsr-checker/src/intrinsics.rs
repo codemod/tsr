@@ -53,9 +53,16 @@ pub struct Intrinsics {
     pub number: TypeId,
     /// `bigint_type` — `checker.go:993`.
     pub bigint: TypeId,
-    /// `booleanType`. Upstream builds it as the union `false | true` rather than
-    /// as an intrinsic; until unions exist it is an intrinsic here, which is a
-    /// **known divergence** — see the crate docs and `bd tsr-4sc.1`.
+    /// `booleanType` — `checker.go:1002`, and **not an intrinsic**: upstream
+    /// builds it as the union `false | true`, and so does this
+    /// ([`crate::unions::create_boolean_type`]). It prints `boolean` because a
+    /// union of exactly the two boolean literal types carries
+    /// [`TypeFlags::BOOLEAN`], which the node builder tests before it ever
+    /// reaches its union branch (`nodebuilderimpl.go:3255`).
+    ///
+    /// That it is a union rather than an intrinsic is observable: `boolean` in a
+    /// union flattens into its two constituents, so `boolean | true` reduces to
+    /// `boolean` instead of printing as two members.
     pub boolean: TypeId,
     /// `esSymbolType` — `checker.go:1003`.
     pub es_symbol: TypeId,
@@ -85,42 +92,48 @@ impl Intrinsics {
     /// keeping it makes the ids stable and comparable against upstream when
     /// debugging.
     pub fn create(store: &mut TypeStore) -> Self {
+        let literal = |store: &mut TypeStore, value: bool, fresh: bool| {
+            store.intern_literal(
+                TypeFlags::BOOLEAN_LITERAL,
+                crate::types::TypeData::BooleanLiteral(value),
+                fresh,
+            )
+        };
+        // Upstream's order (`checker.go:975`–`1015`), which now has to be
+        // followed rather than merely preferred: `booleanType` is the *union* of
+        // the two regular boolean literal types, so those must exist first.
+        let any = store.new_intrinsic(TypeFlags::ANY, "any");
+        let error = store.new_intrinsic(TypeFlags::ANY, "error");
+        let unknown = store.new_intrinsic(TypeFlags::UNKNOWN, "unknown");
+        let undefined = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
+        let null = store.new_intrinsic(TypeFlags::NULL, "null");
+        let string = store.new_intrinsic(TypeFlags::STRING, "string");
+        let number = store.new_intrinsic(TypeFlags::NUMBER, "number");
+        let bigint = store.new_intrinsic(TypeFlags::BIG_INT, "bigint");
+        // Regular first, then fresh, as upstream creates them.
+        let regular_false = literal(store, false, false);
+        let false_type = literal(store, false, true);
+        let regular_true = literal(store, true, false);
+        let true_type = literal(store, true, true);
+        let boolean = crate::unions::create_boolean_type(store, regular_false, regular_true);
         Self {
-            any: store.new_intrinsic(TypeFlags::ANY, "any"),
-            error: store.new_intrinsic(TypeFlags::ANY, "error"),
-            unknown: store.new_intrinsic(TypeFlags::UNKNOWN, "unknown"),
-            undefined: store.new_intrinsic(TypeFlags::UNDEFINED, "undefined"),
-            null: store.new_intrinsic(TypeFlags::NULL, "null"),
-            string: store.new_intrinsic(TypeFlags::STRING, "string"),
-            number: store.new_intrinsic(TypeFlags::NUMBER, "number"),
-            bigint: store.new_intrinsic(TypeFlags::BIG_INT, "bigint"),
-            boolean: store.new_intrinsic(TypeFlags::BOOLEAN, "boolean"),
+            any,
+            error,
+            unknown,
+            undefined,
+            null,
+            string,
+            number,
+            bigint,
+            boolean,
             es_symbol: store.new_intrinsic(TypeFlags::ES_SYMBOL, "symbol"),
             void: store.new_intrinsic(TypeFlags::VOID, "void"),
             never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             non_primitive: store.new_intrinsic(TypeFlags::NON_PRIMITIVE, "object"),
-            // Regular first, then fresh, matching upstream's creation order so
-            // the ids stay comparable when debugging against it.
-            regular_true: store.intern_literal(
-                TypeFlags::BOOLEAN_LITERAL,
-                crate::types::TypeData::BooleanLiteral(true),
-                false,
-            ),
-            regular_false: store.intern_literal(
-                TypeFlags::BOOLEAN_LITERAL,
-                crate::types::TypeData::BooleanLiteral(false),
-                false,
-            ),
-            true_type: store.intern_literal(
-                TypeFlags::BOOLEAN_LITERAL,
-                crate::types::TypeData::BooleanLiteral(true),
-                true,
-            ),
-            false_type: store.intern_literal(
-                TypeFlags::BOOLEAN_LITERAL,
-                crate::types::TypeData::BooleanLiteral(false),
-                true,
-            ),
+            regular_true,
+            regular_false,
+            true_type,
+            false_type,
         }
     }
 }

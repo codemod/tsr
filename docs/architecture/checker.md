@@ -585,12 +585,16 @@ declarations in the corpus.
 
 ### Three divergences, all of them visible here rather than in the code
 
-1. **An enum's declared type is a named type, not a union.** Upstream builds the
-   union of its members' literal types (`checker.go:23874`), which happens to
-   print as the enum's name. Without unions (`bd tsr-4sc.9`) this port creates a
-   type that prints the same string and has none of the behaviour. The printed
-   line is right; nothing else about it is. It must be **replaced** when unions
-   land, not extended.
+1. **~~An enum's declared type is a named type, not a union.~~ REPLACED
+   2026-08-05 by `bd tsr-4sc.9`.** The record is corrected in place rather than
+   deleted, because the shape of the mistake is the useful part: this port built
+   a type that printed the enum's name and had none of a union's behaviour, and
+   the note said in terms that it must be *replaced* rather than extended. It
+   was. `getDeclaredTypeOfEnum` now builds the union of the members' types
+   exactly as upstream does (`checker.go:23874`), and it still prints `E` — see
+   "Unions, and `boolean` stops being an intrinsic" below for why that printing
+   is upstream's rule and not a coincidence. What survives of the divergence is
+   much smaller and is recorded there: the member *values* are not evaluated.
 2. **The printed name is computed once, at creation.** Upstream's node builder
    renders a name from the type's symbol under scoping rules this port has no
    equivalent of. Identity is unaffected — one type per symbol, via the

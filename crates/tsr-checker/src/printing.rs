@@ -24,11 +24,21 @@ pub fn type_to_string(ty: &Type) -> String {
         TypeData::StringLiteral(value) => quote(value),
         TypeData::BigIntLiteral(text) => format!("{text}n"),
         TypeData::BooleanLiteral(value) => value.to_string(),
-        // A number prints its normalised text, and a named type prints the form
-        // computed when it was created — see `TypeData::Named` for why that is a
-        // renderer divergence rather than a data-model one. Same body, two
-        // unrelated reasons.
-        TypeData::NumberLiteral(text) | TypeData::Named { text, .. } => text.clone(),
+        // One body, three unrelated reasons — kept as one arm because clippy's
+        // `match_same_arms` is a workspace gate and splitting them to hold three
+        // comments would fail it:
+        //
+        // - a **number** prints its normalised text, since `1.0` and `0x1` are
+        //   both the type `1` and source text cannot be used;
+        // - a **named** type prints the form computed when it was created — see
+        //   `TypeData::Named` for why that is a renderer divergence rather than a
+        //   data-model one;
+        // - a **union** prints a form computed when it was *built*, because that
+        //   form depends on the constituents and this function takes a single
+        //   `Type` with no way back to the store. See `TypeData::Union::text`.
+        TypeData::NumberLiteral(text)
+        | TypeData::Named { text, .. }
+        | TypeData::Union { text, .. } => text.clone(),
     }
 }
 

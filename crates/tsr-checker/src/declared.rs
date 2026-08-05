@@ -57,6 +57,7 @@ impl<'a> Checker<'a, '_> {
                 .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner)),
             TypeNode::TypeReferenceNode(node) => self.get_type_from_type_reference(node),
             TypeNode::TypeLiteralNode(node) => self.get_type_from_type_literal(node),
+            TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
             _ => self.intrinsics.error,
         }
     }
@@ -155,6 +156,73 @@ impl<'a> Checker<'a, '_> {
         // whose members table is where a property access on this type looks.
         let members = node.node_id.and_then(|id| self.binder.symbol_of(id));
         self.store.new_named(TypeFlags::OBJECT, printed, members)
+    }
+
+    /// Ported from `Checker.getTypeFromUnionTypeNode` (`checker.go:24209`).
+    ///
+    /// The constituents in source order, then [`Checker::get_union_type`], which
+    /// sorts, deduplicates and reduces them. `type T = number | string` prints
+    /// `string | number`: source order is not the answer.
+    ///
+    /// # A gap in a constituent is a gap in the union — upstream's own rule
+    ///
+    /// `A | Unported` is not `A | any`, which is the call this port already made
+    /// for a generic reference's type arguments. Here **no deviation is needed**:
+    /// `errorType` carries `TypeFlagsAny`, so `getUnionTypeWorker` reduces any
+    /// union containing one to `errorType` (`checker.go:25659`). An early return
+    /// guarding the constituent loop was written first and then removed — it
+    /// could not be made observable, because the reduction answers identically.
+    ///
+    /// # The alias
+    ///
+    /// `getAliasForTypeNode` (`checker.go:23711`) attaches the enclosing type
+    /// alias's symbol to the union, which is what makes `type T8 = string | boolean`
+    /// record `>T8 : T8` while `var x8: string | boolean` records the constituents
+    /// (`baselines/reference/submodule/conformance/typeAliases.types:76`). A
+    /// *generic* alias would print its type arguments too — `Tree<T>` — so it is
+    /// a gap rather than a `Tree` that drops them.
+    fn get_type_from_union_type_node(&mut self, node: &tsr_ast::UnionTypeNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
+        let types = node
+            .types
+            .iter()
+            .map(|constituent| self.get_type_from_type_node(*constituent))
+            .collect::<Vec<_>>();
+        match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+            None => self.get_union_type(&types),
+            Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
+                self.get_named_union_type(&types, TypeFlags::empty(), alias)
+            }
+            Some(_) => error,
+        }
+    }
+
+    /// Ported from `Checker.getAliasSymbolForTypeNode` (`checker.go:23719`).
+    ///
+    /// The host is the nearest ancestor that is not a parenthesised type or a
+    /// `readonly` type operator, and it names the type only when it is a type
+    /// alias declaration.
+    fn alias_symbol_for_type_node(&self, node: tsr_ast::NodeId) -> Option<SymbolId> {
+        let mut host = self.nodes.parent(node)?;
+        loop {
+            let kind = self.nodes.kind(host);
+            let transparent = kind == SyntaxKind::ParenthesizedType
+                || kind == SyntaxKind::TypeOperator
+                    && matches!(
+                        self.node_map.get(host),
+                        Some(Node::TypeOperatorNode(operator))
+                            if operator.operator.kind == SyntaxKind::ReadonlyKeyword
+                    );
+            if !transparent {
+                break;
+            }
+            host = self.nodes.parent(host)?;
+        }
+        if self.nodes.kind(host) == SyntaxKind::TypeAliasDeclaration {
+            self.binder.symbol_of(host)
+        } else {
+            None
+        }
     }
 
     /// A reference to a generic type: `C<number>`, `Tree<T>`.
@@ -263,21 +331,75 @@ impl<'a> Checker<'a, '_> {
         } else if flags.contains(SymbolFlags::TYPE_ALIAS) {
             self.get_declared_type_of_type_alias(symbol)
         } else if flags.intersects(SymbolFlags::ENUM) {
-            // **A divergence, and a visible one.** Upstream's declared type of an
-            // enum is the *union of its members\' literal types*
-            // (`checker.go:23874`), which happens to print as the enum\'s name.
-            // Without unions (`bd tsr-4sc.9`) this is a named type that prints
-            // the same string and has none of the behaviour: it cannot be
-            // narrowed to a member, and `E.A` is not assignable to it because
-            // nothing is assignable to anything yet. It is here because the
-            // printed line is right and the alternative is a gap on every enum;
-            // it must be replaced, not extended, when unions land.
-            self.new_named_type(symbol, TypeFlags::ENUM, false)
+            self.get_declared_type_of_enum(symbol)
         } else {
             self.intrinsics.error
         };
         self.declared_types.insert(symbol, computed);
         computed
+    }
+
+    /// Ported from `Checker.getDeclaredTypeOfEnum` (`checker.go:23874`).
+    ///
+    /// **This replaces a divergence rather than extending it.** Until unions
+    /// existed, an enum's declared type here was a named type that printed the
+    /// enum's name and had none of a union's behaviour. It is now what upstream
+    /// builds: the union of the members' types, printing as the enum's name
+    /// because the node builder renders an enum-like type from its symbol
+    /// (`nodebuilderimpl.go:3260`) rather than from its constituents.
+    ///
+    /// # The member values are not evaluated, and that is the remaining gap
+    ///
+    /// Upstream asks `getEnumMemberValue` for each member and builds an
+    /// *enum literal* type from the value — `getEnumLiteralType`
+    /// (`checker.go:25362`) — falling back to `createComputedEnumType` when the
+    /// evaluator cannot produce a constant. This port has no constant evaluator
+    /// (`bd tsr-8pz`), so **every** member takes the fallback: a distinct type per member
+    /// symbol, flagged `ENUM`, printing `E.A`.
+    ///
+    /// The consequence is narrow and worth stating: the enum type's *printed*
+    /// form, its constituent count and its per-member identities are all
+    /// upstream's, and two members that share a value are two types here where
+    /// upstream interns them into one. Nothing observable depends on that yet
+    /// because nothing compares enum members for value equality.
+    fn get_declared_type_of_enum(&mut self, symbol: SymbolId) -> TypeId {
+        let declarations =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        let mut members = Vec::new();
+        for declaration in declarations {
+            let Some(Node::EnumDeclaration(node)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            for member in node.members {
+                // `hasBindableName` (`checker.go:23879`), asked of the binder: a
+                // member the binder gave no symbol to is one whose name is a
+                // non-literal computed expression, and upstream skips it too.
+                let Some(member_symbol) = member.node_id.and_then(|id| self.binder.symbol_of(id))
+                else {
+                    continue;
+                };
+                let member_name = self.binder.symbols().get(member_symbol).name.to_string();
+                let member_type =
+                    self.store.new_named(TypeFlags::ENUM, format!("{name}.{member_name}"), None);
+                // `checker.go:23890`: the member's own declared type is the
+                // *fresh* form of its literal type. Currently unobservable —
+                // reaching it needs `E.A` in type position, which is a qualified
+                // name and unported — and written because it is upstream's line
+                // and because it is what keeps the member types created once.
+                let fresh = self.get_fresh_type_of_literal_type(member_type);
+                self.declared_types.insert(member_symbol, fresh);
+                members.push(member_type);
+            }
+        }
+        if members.is_empty() {
+            // `createComputedEnumType(symbol)` (`checker.go:23901`): an enum with
+            // no bindable members is not a union at all.
+            return self.new_named_type(symbol, TypeFlags::ENUM, false);
+        }
+        // `checker.go:23904`: a union enum type carries `ENUM_LITERAL` and the
+        // enum's symbol, which is what it prints as.
+        self.get_named_union_type(&members, TypeFlags::ENUM_LITERAL, symbol)
     }
 
     /// Ported from `Checker.getDeclaredTypeOfClassOrInterface`
