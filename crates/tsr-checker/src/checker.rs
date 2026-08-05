@@ -63,6 +63,21 @@ pub struct Checker<'a, 'n> {
     /// (`types.go`, `LiteralType.regularType`). A side table here, for the same
     /// reason the binder uses one: the stored type is immutable once created.
     pub(crate) regular_types: FxHashMap<TypeId, TypeId>,
+    /// An enum *member* type -> the enum symbol that declares it.
+    ///
+    /// Upstream needs no such table: `getBaseTypeOfEnumLikeType`
+    /// (`checker.go:25470`) reads `t.symbol` off the type and walks to its
+    /// parent. [`crate::types::TypeData::Named`] carries no symbol — the whole
+    /// point of ADR-0003 is that a back-edge like type -> symbol lives in an
+    /// id-keyed side table rather than as a field — so the edge lives here,
+    /// keyed by [`TypeId`].
+    ///
+    /// **The parent hop is collapsed.** Upstream stores the *member's* symbol
+    /// and calls `getParentOfSymbol` to reach the enum; this stores the enum
+    /// symbol directly, because that is the only thing any reader wants and the
+    /// member symbol is already the key's origin. The consequence to accept: a
+    /// future caller wanting the member symbol itself cannot get it from here.
+    pub(crate) enum_member_owners: FxHashMap<TypeId, SymbolId>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
     /// `(generic symbol, type arguments) -> the instantiated reference`,
@@ -125,6 +140,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             computations: 0,
             node_types: FxHashMap::default(),
             regular_types: FxHashMap::default(),
+            enum_member_owners: FxHashMap::default(),
             symbol_types: FxHashMap::default(),
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),

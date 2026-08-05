@@ -418,13 +418,13 @@ fn an_enum_member_is_a_property_of_typeof_e() {
 }
 
 #[test]
-#[ignore = "blocked on `get_widened_literal_type` (crates/tsr-checker/src/literals.rs), \
-            another workstream's file: it has no `EnumLike` arm, so an enum literal \
-            survives widening. Upstream widens a *fresh* enum literal to the base enum \
-            type (`getWidenedLiteralType`, checker.go:25487-25490). Deliberately NOT \
-            rewritten to assert today's `E.A`, which would pin the inferior answer. \
-            Reachable only since the binder fix — before it, this line was a gap."]
 fn a_var_initialised_from_an_enum_member_widens_to_the_enum() {
+    // This test carried an `#[ignore]` from the commit that made the line
+    // reachable until the commit that made it right, with the baseline quoted
+    // throughout rather than rewritten to assert the wrong answer of the day.
+    // Removing the attribute *is* the verification: nothing about the assertion
+    // changed, only whether the checker could satisfy it.
+    //
     // Quoted, not extrapolated. `submodule/conformance/enumAssignability.types`
     // for `enum E { A }`:
     //
@@ -441,4 +441,32 @@ fn a_var_initialised_from_an_enum_member_widens_to_the_enum() {
     // two printed types, which is what makes this widening and not a property of
     // the enum.
     assert_eq!(type_of("enum E { A }\nvar e = E.A;", "e"), "E");
+    // A multi-member enum too, so the assertion is not satisfied by the
+    // single-member collapse it would be easy to mistake this rule for: `E` is a
+    // union of two here and `E.A` still widens to the whole enum.
+    assert_eq!(type_of("enum E { A, B }\nvar e = E.A;", "e"), "E");
+
+    // **Three controls against over-widening**, because an arm placed first in
+    // the chain can swallow more than it should.
+    //
+    // A `const` keeps the member type — `submodule/conformance/
+    // validEnumAssignments.types:31` records `>E.A : E.A` — and it reaches this
+    // function not at all, because `getWidenedLiteralTypeForInitializer` returns
+    // early for a constant (`checker.go:16898`).
+    assert_eq!(type_of("enum E { A, B }\nconst v = E.A;", "v"), "E.A");
+    // The enum type itself is not a member type and must come back unchanged.
+    //
+    // **What stops it is `!fresh`, not the table** — probed rather than assumed,
+    // because the reverse is the natural guess: the enum type is `EnumLike`, so
+    // the flags test alone would match it. Measured, it is
+    // `fresh=false, flags=ENUM_LITERAL | UNION`, and it carries no
+    // `enum_member_owners` entry either. So `get_widened_literal_type` returns
+    // at its first line and the enum arm never sees it. The table check is the
+    // *second* line of defence here rather than the first, and this control
+    // therefore pins the freshness gate; it would still hold if the table check
+    // were removed, which is why it is described as covering that and not more.
+    assert_eq!(type_of("enum E { A, B }\ndeclare var d: E;\nvar e = d;", "e"), "E");
+    // And the four literal arms the enum arm now sits in front of still widen.
+    assert_eq!(type_of("var s = \"a\";", "s"), "string");
+    assert_eq!(type_of("var n = 1;", "n"), "number");
 }

@@ -620,6 +620,21 @@ impl<'a> Checker<'a, '_> {
                 // and because it is what keeps the member types created once.
                 let fresh = self.get_fresh_type_of_literal_type(member_type);
                 self.declared_types.insert(member_symbol, fresh);
+                // The type -> enum back-edge that `getBaseTypeOfEnumLikeType`
+                // (`checker.go:25470`) reads as `t.symbol`, which
+                // `TypeData::Named` does not carry. Recorded here, at the one
+                // place a member type is created, because anywhere else would
+                // have to reconstruct which enum a type belongs to.
+                //
+                // **Both forms, not just the fresh one.** Upstream's symbol
+                // lives on the type, not on its freshness, so both spellings of
+                // the same literal answer `getBaseTypeOfEnumLikeType`
+                // identically. Only the fresh one is reachable through
+                // `get_widened_literal_type`, which returns early for a regular
+                // type; the regular entry is what keeps the function a fact
+                // about the type rather than about how it was reached.
+                self.enum_member_owners.insert(member_type, symbol);
+                self.enum_member_owners.insert(fresh, symbol);
                 members.push(member_type);
             }
         }
