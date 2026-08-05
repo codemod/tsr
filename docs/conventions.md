@@ -1032,3 +1032,39 @@ than not flagging it**, because the caveat reads as diligence and licenses the
 very number it warns about. A caveat is only doing work if something downstream
 is *blocked* on it. If you write one and then quote past it, delete the number,
 not the caveat.
+
+### Read the values a `switch` assigns, not the shape of the `switch`
+
+ADR-0040 asserted that upstream's TS2322 message is "an output of the relation
+walk", on the strength of `reportRelationError` (`relater.go:4780-4797`) being a
+`switch` that assigns to one `message` variable through five branches. That
+reading made a call-site formatter look unfaithful and produced decision (3), a
+reporting twin taking an error node.
+
+**It is wrong, and one `grep` says so.** Each branch assigns a *different*
+`Message`, and in this codebase a `Message` carries its own code
+(`internal/diagnostics/diagnostics_generated.go`):
+
+| branch | message | code |
+|---|---|---:|
+| `relation == comparableRelation` | `Type_0_is_not_comparable_to_type_1` | **2678** |
+| `sourceType == targetType` | `…Two_different_types_with_this_name_exist…` | **2719** |
+| `exactOptionalPropertyTypes` | `…with_exactOptionalPropertyTypes…` | **2375** |
+| string-literal suggestion | `…Did_you_mean_2` | **2820** |
+| fallthrough | `Type_0_is_not_assignable_to_type_1` | **2322** |
+
+**The switch is five diagnostics, not five renderings of one.** So filtering on
+2322 *already* selects the fallthrough branch, every alternative arm is
+separately unreachable for it, and 0 of 2,888 TS2322 header texts in the corpus
+are anything else. A call-site formatter is faithful, and decision (3) was
+over-engineering — struck through in place rather than deleted.
+
+The general form: **a control-flow shape is not evidence about what the code
+produces.** "Five branches assigning one variable" reads as *five ways to say the
+same thing* and is equally consistent with *five different things*. Only the
+assigned values distinguish them, and they were one `grep` away.
+
+This is the same family as "a row named after a symbol flag is usually not about
+that flag", one level down: there the *name* pointed at the wrong step, here the
+*syntax* did. The corrective is identical — resolve to the concrete thing (the
+dispatch arm, the message code) before building on the reading.
