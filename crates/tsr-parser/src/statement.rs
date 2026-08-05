@@ -282,6 +282,26 @@ impl<'a> Parser<'a> {
     /// modifiers: `@dec public readonly x` and `public @dec x` are both accepted
     /// by the grammar.
     pub(crate) fn parse_modifiers(&mut self) -> Vec<ModifierLike<'a>> {
+        self.parse_modifiers_ex(false)
+    }
+
+    /// `parseModifiersEx`'s `permitConstAsModifier` (`parser.go:3859`).
+    ///
+    /// `const` is a modifier in two places upstream and a declaration keyword
+    /// everywhere else: on a **class member** (`parser.go:1854`) and on a **type
+    /// parameter** (`:3230`). Type parameters already handle it in
+    /// `types.rs`; this is the class-member half.
+    ///
+    /// It matters for error recovery rather than for valid code. `static const H
+    /// = 1` is not legal TypeScript, and what upstream does with it is parse
+    /// `const` as an erroneous modifier and `H` as the member's name. Without
+    /// this, our parser ends the modifier run at `static`, takes `const` as the
+    /// member *name*, and then reads `H = 1` as a second member — two
+    /// declarations where upstream has one, with different names.
+    pub(crate) fn parse_modifiers_ex(
+        &mut self,
+        permit_const_as_modifier: bool,
+    ) -> Vec<ModifierLike<'a>> {
         let mut modifiers = Vec::new();
         let mut seen_static = false;
         loop {
@@ -293,11 +313,26 @@ impl<'a> Parser<'a> {
             if !is_modifier(kind) {
                 break;
             }
-            // `const` is a modifier only in `const enum`. Everywhere else it opens
-            // a variable declaration, and consuming it here would leave
-            // `export const a = 1` looking like a bare expression.
-            if kind == SyntaxKind::ConstKeyword && !self.next_is_enum() {
-                break;
+            // `const` opens a variable declaration in most positions, and
+            // consuming it here would leave `export const a = 1` looking like a
+            // bare expression. It is a modifier in exactly two cases: before
+            // `enum`, and — where the caller permits it — on a class member,
+            // which is `nextTokenIsOnSameLineAndCanFollowModifier`
+            // (`parser.go:4040`). Upstream's comment on the line-break test:
+            // *"so that when 'const' is a standalone declaration, we don't issue
+            // an error"*.
+            if kind == SyntaxKind::ConstKeyword {
+                let is_modifier_here = if permit_const_as_modifier {
+                    self.look_ahead(|p| {
+                        p.next_token();
+                        !p.token.has_preceding_line_break() && can_follow_modifier(p.token.kind)
+                    })
+                } else {
+                    self.next_is_enum()
+                };
+                if !is_modifier_here {
+                    break;
+                }
             }
             // A modifier keyword can also be a member *name*:
             // `interface I { abstract(): void }` declares a method called

@@ -1217,3 +1217,46 @@ fn is_declaration_node_matches_ast_jsons_declaration_base() {
     assert_eq!(seen.get(&K::CallExpression), Some(&true));
     assert_eq!(seen.get(&K::BinaryExpression), Some(&true));
 }
+
+#[test]
+fn const_is_a_modifier_on_a_class_member_not_a_member_name() {
+    // `static const H = 1` is not legal TypeScript, and what upstream does with
+    // it decides the shape of the tree every later stage sees: `const` is an
+    // erroneous *modifier* and `H` is the member's name — one declaration, not
+    // two. `permitConstAsModifier` (`parser.go:1854`, `:3919`).
+    //
+    // Without this the modifier run ended at `static`, `const` became the
+    // member name, and `H = 1` was read as a *second* member. The `.types`
+    // producer then emitted `>const` where upstream emits `>H`.
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, "class C {\n  static const H = 1;\n}");
+    let members: Vec<_> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+        .into_iter()
+        .filter_map(|n| n.node_id())
+        .filter(|id| parsed.nodes.kind(*id) == tsr_ast::SyntaxKind::PropertyDeclaration)
+        .collect();
+    assert_eq!(members.len(), 1, "one member, not two");
+    let name = parsed
+        .node_map
+        .get(members[0])
+        .and_then(|n| n.name_id())
+        .expect("the member has a name");
+    let span = parsed.nodes.span(name);
+    assert_eq!(&"class C {\n  static const H = 1;\n}"[span.start as usize..span.end as usize], "H");
+}
+
+#[test]
+fn const_still_opens_a_declaration_everywhere_else() {
+    // The other half of `permitConstAsModifier`: outside a class member `const`
+    // is a declaration keyword, and consuming it as a modifier would leave
+    // `export const a = 1` looking like a bare expression.
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, "export const a = 1;");
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics.len());
+    let kinds: Vec<_> = all_nodes(tsr_ast::Node::SourceFile(parsed.source_file))
+        .into_iter()
+        .filter_map(|n| n.node_id())
+        .map(|id| parsed.nodes.kind(id))
+        .collect();
+    assert!(kinds.contains(&tsr_ast::SyntaxKind::VariableStatement));
+}

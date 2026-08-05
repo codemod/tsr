@@ -226,7 +226,9 @@ impl<'a> Parser<'a> {
             )));
         }
 
-        let modifiers = self.parse_modifiers();
+        // A class member is one of the two positions where `const` is a
+        // modifier rather than a declaration keyword; see `parse_modifiers_ex`.
+        let modifiers = self.parse_modifiers_ex(true);
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
 

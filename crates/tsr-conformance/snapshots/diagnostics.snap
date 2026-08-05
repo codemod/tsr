@@ -33,13 +33,13 @@ compiler/ClassDeclaration24
 compiler/ClassDeclaration25
   2 missing (first TS2391 at ClassDeclaration25.ts(6,5))
 compiler/ClassDeclaration26
-  3 unexpected (first TS1005 at ClassDeclaration26.ts(2,18)), 5 missing
+  2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/ClassDeclaration8
   1 missing (first TS2390 at ClassDeclaration8.ts(2,3))
 compiler/ClassDeclaration9
   1 missing (first TS2391 at ClassDeclaration9.ts(2,4))
 compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
-  1 unexpected (first TS1005 at ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts(2,16)), 1 missing
+  1 missing (first TS1248 at ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts(2,16))
 compiler/ExportAssignment7
   2 missing (first TS2309 at ExportAssignment7.ts(4,1))
 compiler/ExportAssignment8
