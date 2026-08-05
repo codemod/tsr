@@ -31,8 +31,8 @@ impl<'a> Checker<'a, '_> {
         // `checker.go:16506`, and it is the **first** flags branch upstream
         // takes — before variable/property and before function/method.
         //
-        // `getTypeOfAccessors` is unported, so this answers `errorType`; the
-        // point of the branch is *where* it sits. Omitting it let an accessor
+        // The branch's *position* mattered before `getTypeOfAccessors` landed
+        // and still does. Omitting it let an accessor
         // that merges with a method — `interface I { get x(): number; x():
         // number; set x(value: number) }`, which carries
         // `METHOD | GET_ACCESSOR | SET_ACCESSOR` — fall through to
@@ -45,9 +45,12 @@ impl<'a> Checker<'a, '_> {
         // instead, an accessor merged with a *property* would take the variable
         // worker and reach the same `errorType` by a different route, so no test
         // can tell those two orders apart — it is upstream's order because it is
-        // upstream's, and it starts to matter when `getTypeOfAccessors` lands.
+        // upstream's. Now that `getTypeOfAccessors` answers rather than gapping,
+        // the first boundary is observable too: an accessor merged with a method
+        // answers the accessor's type where the function worker would have
+        // printed a signature.
         if flags.intersects(SymbolFlags::ACCESSOR) {
-            return self.intrinsics.error;
+            return self.get_type_of_accessors(symbol);
         }
         if flags.intersects(SymbolFlags::VARIABLE | SymbolFlags::PROPERTY) {
             return self.get_type_of_variable_or_parameter_or_property(symbol);
@@ -74,9 +77,114 @@ impl<'a> Checker<'a, '_> {
         if flags.intersects(SymbolFlags::ALIAS) {
             return self.get_type_of_alias(symbol);
         }
-        // Unported: accessors, and the four `CheckFlags` shapes upstream tests
-        // first (deferred, instantiated, mapped, reverse-mapped).
+        // Every `SymbolFlags` shape upstream dispatches on is now answered. What
+        // remains unported is the four `CheckFlags` shapes upstream tests
+        // *before* any of them — deferred, instantiated, mapped, reverse-mapped.
         self.intrinsics.error
+    }
+
+    /// The type of a `get`/`set` accessor symbol.
+    ///
+    /// Ported from `Checker.getTypeOfAccessors` (`checker.go:18511`), which
+    /// tries four sources **in order** and falls back to `anyType`:
+    ///
+    /// 1. the getter's return annotation (`checker.go:18522`),
+    /// 2. else the setter's parameter annotation (`checker.go:18524`),
+    /// 3. else an auto-accessor property's annotation (`checker.go:18527`),
+    /// 4. else the getter's inferred body return type (`checker.go:18531`),
+    /// 5. else `anyType`, with an implicit-any diagnostic (`checker.go:18545`).
+    ///
+    /// **1, 2 and 5 are ported; 3 and 4 gap.** The order is the whole content of
+    /// the function and is not negotiable: `compiler/accessorBodyInTypeContext.types`
+    /// records `set foo(v: any) { }` as `>foo : any`, so a setter annotation is a
+    /// real answer and not a fallback.
+    ///
+    /// # Why 5 answers `any` and not `errorType`
+    ///
+    /// Everywhere else in this module an unported form answers `errorType`,
+    /// because `errorType` is how a gap stays separable from a computed answer.
+    /// Here `anyType` **is** upstream's computed answer — an accessor with no
+    /// annotation anywhere and no getter body is implicitly `any`, and upstream
+    /// reports it rather than failing. Answering `errorType` would turn a line
+    /// this port gets right into a line it reports as missing.
+    ///
+    /// The distinction is only safe because case 4 is separated out first: a
+    /// getter *with a body* would be inferred upstream, so it gaps here rather
+    /// than falling into the `any` arm and claiming an answer it did not compute.
+    /// That separation is the one piece of this function that is not a
+    /// transliteration, and it is what stops `any` from becoming a lie.
+    fn get_type_of_accessors(&mut self, symbol: SymbolId) -> TypeId {
+        if let Some(&cached) = self.symbol_types.get(&symbol) {
+            return cached;
+        }
+        // `checker.go:18514`: `get x(): typeof this.x` reaches its own symbol.
+        if !self.resolutions.push(symbol, PropertyName::Type) {
+            return self.intrinsics.error;
+        }
+        let computed = self.get_type_of_accessors_worker(symbol);
+        let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
+        self.symbol_types.insert(symbol, computed);
+        computed
+    }
+
+    fn get_type_of_accessors_worker(&mut self, symbol: SymbolId) -> TypeId {
+        let declarations =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
+        let mut getter = None;
+        let mut setter = None;
+        let mut other = false;
+        for declaration in declarations {
+            match self.node_map.get(declaration) {
+                Some(Node::GetAccessorDeclaration(_)) => getter = Some(declaration),
+                Some(Node::SetAccessorDeclaration(_)) => setter = Some(declaration),
+                // An auto-accessor property (`accessor x = 1`) is upstream's
+                // case 3/5 and needs `getWidenedTypeForVariableLikeDeclaration`
+                // over a declaration this arm does not otherwise handle. Noted
+                // rather than guessed at.
+                _ => other = true,
+            }
+        }
+        // `checker.go:18522` then `:18524` — the getter's annotation wins over
+        // the setter's, and only the *order* makes the two distinguishable when
+        // both are annotated with different types.
+        if let Some(annotation) = getter.and_then(|node| self.accessor_annotation(node)) {
+            return self.get_type_from_type_node(annotation);
+        }
+        if let Some(annotation) = setter.and_then(|node| self.accessor_annotation(node)) {
+            return self.get_type_from_type_node(annotation);
+        }
+        if other {
+            return self.intrinsics.error;
+        }
+        // `checker.go:18529`: an unannotated getter *with a body* is inferred
+        // from that body. `getReturnTypeFromBody` is reachable only through
+        // `crate::signatures`, which does not expose it, so this gaps — and it
+        // must gap **before** the `any` arm below, or an inferable accessor
+        // would claim `any`. `compiler/accessorBodyInTypeContext.types` records
+        // `get foo() { return 0 }` as `>foo : number`, not `any`.
+        if let Some(getter) = getter
+            && matches!(self.node_map.get(getter), Some(Node::GetAccessorDeclaration(node)) if node.body.is_some())
+        {
+            return self.intrinsics.error;
+        }
+        // `checker.go:18545`. Upstream's answer, not this port's shrug.
+        self.intrinsics.any
+    }
+
+    /// The type node an accessor declares, by `getAnnotatedAccessorTypeNode`
+    /// (`checker.go:20106`).
+    ///
+    /// A getter annotates its **return type**; a setter annotates its **first
+    /// parameter** — `getEffectiveSetAccessorTypeAnnotationNode`
+    /// (`checker.go:20118`). Reading `node.r#type` for both would silently
+    /// answer `None` for every setter, since a setter's own `r#type` slot is
+    /// only ever filled by a grammar error.
+    fn accessor_annotation(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+        match self.node_map.get(declaration)? {
+            Node::GetAccessorDeclaration(node) => node.r#type,
+            Node::SetAccessorDeclaration(node) => node.parameters.first()?.r#type,
+            _ => None,
+        }
     }
 
     /// The type of an alias symbol — `import q = M.a`.

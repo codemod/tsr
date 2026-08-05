@@ -1608,11 +1608,9 @@ fn a_function_carrying_expando_properties_is_a_gap_not_its_bare_signature() {
 }
 
 #[test]
-fn an_accessor_symbol_is_a_gap_even_when_it_merges_with_a_method() {
+fn an_accessor_symbol_takes_the_accessor_arm_even_when_it_merges_with_a_method() {
     // Upstream's **first** flags branch (`checker.go:16506`), before
-    // variable/property and before function/method. `getTypeOfAccessors` is
-    // unported, so the answer is `errorType`; the point of the branch is where
-    // it sits.
+    // variable/property and before function/method.
     //
     // Omitting it let an accessor that merges with a *method* — this symbol
     // carries `METHOD | GET_ACCESSOR | SET_ACCESSOR` — fall through to
@@ -1623,16 +1621,24 @@ fn an_accessor_symbol_is_a_gap_even_when_it_merges_with_a_method() {
     // Found by dumping one corpus baseline's assertions beside upstream's with
     // node kinds attached, after three hand-built reductions all came back
     // clean.
+    //
+    // This test asserted `error` on both accessor cases while
+    // `getTypeOfAccessors` was unported, pinning the branch's *position* through
+    // the only evidence available at the time. The arm now answers, so both
+    // assertions state upstream's actual line — `number`, exactly what the
+    // comment above always said upstream prints. The branch position is now
+    // observable as a correct answer rather than as a shared gap, which is a
+    // strictly stronger test than the one it replaces.
     assert_eq!(
         type_of_member(
             "interface I { get x(): number; x(): number; set x(value: number); }",
             "I",
             "x"
         ),
-        "error"
+        "number"
     );
-    // A lone accessor was already a gap and stays one.
-    assert_eq!(type_of_member("interface I { get x(): number; }", "I", "x"), "error");
+    // A lone accessor takes the same arm.
+    assert_eq!(type_of_member("interface I { get x(): number; }", "I", "x"), "number");
     // **The other direction**: a plain method must still print its signature.
     // The guard is on the accessor flags, not on merged symbols in general.
     assert_eq!(type_of_member("interface I { x(): number; }", "I", "x"), "() => number");
