@@ -878,3 +878,81 @@ fourth time, and the fourth time is worth a stronger rule than the first three
 produced: **when you quote a rate, name the instrument that produced it in the
 same sentence.** "58.17%" is unfalsifiable; "58.17% on `writer_guards`'s aligned
 population" invites exactly the check that found this.
+
+### Size a positional arm from the flattened run, never from the attributed one
+
+The label-name guard predicted **209** and converted **597** — 2.9× low — and
+`docs/architecture/checker-notes-guard.md` diagnosed it correctly at the time:
+upstream's writer condition is a **conjunction**, attribution gives the dominant
+arm precedence, so every line a subordinate arm would convert is already counted
+under the dominant one. It then drew the weaker conclusion available — *"every
+positional figure in that table is an under-estimate"* — and left the multiplier
+unknown.
+
+The repair is mechanical and it is now tested rather than asserted. The
+instrument already has a mutation that answers it: `WRITER_GUARDS_FLATTEN=1`
+drops the dominant arm from the attribution order and lets the subordinate arms
+claim what they would actually convert. **That column is the answer to "what is
+this arm worth to port". The attributed column answers "which guard does upstream
+use here".** Two true numbers, two different questions.
+
+Scored on two arms in one commit, both predicted before building:
+
+| arm | attributed | **flattened** | measured |
+|---|---:|---:|---:|
+| label name (re-derived with libs) | 209 | 594 | **594** |
+| binding element: the property name | 192 | 428 | **428** |
+
+Exact, twice. The generalisation is not about the writer guards: **whenever an
+instrument attributes a line to the first of several conditions that could each
+have claimed it, its per-condition counts are answers about upstream's control
+flow and not about your work.** Ask whether your instrument's attribution order
+is modelling something — here, upstream's own conjunction — because if it is,
+that model is silently subtracting from every subordinate row.
+
+#### The corollary that saved a build
+
+A clean signature is a hypothesis, not a licence. Two positions in that table
+have near-identical syntax and opposite dispatch: the property name of a binding
+element (`const { a: b } = x`) is `errorType` by construction, because
+`getTypeOfNode` (`checker.go:31927`) falls off its end — `IsInExpressionContext`
+tests `parent.Initializer() == node` and `IsDeclarationName` tests
+`parent.Name() == name`, and a binding element's `Name()` is the *bound* name.
+The property name of an **import specifier** looks the same and is not, because
+`IsDeclarationNameOrImportPropertyName` has an explicit `KindImportSpecifier`
+case, so upstream reaches `getTypeOfSymbol` and holds a real type — 37 of 123.
+
+**Port the position, not the arm, and trace the dispatch before trusting the
+signature.** The same check found that the qualified-name-left position was
+already covered and holds 141 of its arm's 25,681 claims — a true claim, and far
+narrower than its row name reads.
+
+### A ratio is robust to an instrument defect only if the defect lands outside its denominator
+
+Worth separating from the rule above because the reasoning nearly went wrong in
+the confident direction.
+
+When `writer_guards` was found to be lib-less (see the previous section), the
+prediction stated in the briefing was that the **control rate** — 392 of 5,603,
+7.0%, the entire empirical basis for refusing to port `hadErrorBaseline` — was
+the leg at risk, and that the **concentration** leg would survive untouched.
+
+Measured, it was backwards. The control rate went **7.0% → 7.06%**, the most
+stable number in the table; the concentration leg fell from **49.1% to 33.4%**.
+Both survived, so the conclusion held, but the risk assessment was wrong and it
+was asserted in a briefing.
+
+The tempting explanation — "the defect inflates both columns of the ratio, so
+ratios are robust" — is also wrong, and predicts too much. What actually
+happened: the lib-less lines were real and numerous (the control bucket's
+`-> other` column fell 39,310 → 31,661, ~7,650 lines a loaded lib resolves) but
+they land where upstream holds a **real type**, which is *outside* the
+any-flagged denominator the ratio is taken over. They never entered either side
+of it.
+
+So the usable rule is narrower than "ratios are robust": **a ratio is robust to a
+defect whose lines land outside its denominator, and is not robust to one whose
+lines land inside.** An absolute count, or a share of a total, has no such
+protection — which is why the concentration leg moved and the rate did not.
+Deciding which case you are in costs one bucket in the probe and is not
+available from the argument.
