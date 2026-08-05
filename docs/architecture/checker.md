@@ -1411,3 +1411,121 @@ whole blocker for it — `getTypeFacts` and `extractDefinitelyFalsyTypes` are, a
 those are real work rather than a lookup. `||` and `??` are unchanged: they still
 need subtype reduction and therefore assignability. Do not read `bd tsr-5s2`
 landing as automatically closing the operators.
+
+## Calls, function expressions and arrows (`bd tsr-4sc.8`, second slice)
+
+`CallExpression` was the largest single unported form in the corpus — 15,867 gap
+lines — with arrows at 5,596 and function expressions at 1,418. They are one item
+rather than three: all of them are a **signature** and the anonymous object type
+that carries it, reached from three directions.
+
+### The data-model change, and why it was not a field
+
+`getTypeOfFuncClassEnumModule` built a type that could *print* a signature and
+could not *answer* one, because the printed string was all it kept. A call needs
+the signature back. `TypeData::Anonymous { text, symbol }` is the new variant —
+upstream's `newObjectType(ObjectFlagsAnonymous, symbol)` (`checker.go:16925`).
+
+It is deliberately **not** a second field on `TypeData::Named`, because the two
+fields point at different tables and one of them must stay unreachable.
+`Named.members` is where `getPropertyOfType` looks; for `typeof C` that table has
+to be absent, since a class's *instance* members are not `typeof C`'s properties
+and answering `C.x` from them would be a wrong symbol rather than an empty
+lookup. What a call needs is the symbol's **declarations**, which is where
+`getSignaturesOfSymbol` (`checker.go:19806`) reads signatures from. One field
+serving both would make one of the two lookups wrong.
+
+The payoff is that a call resolves through the callee's *type*, exactly as
+upstream does, so `const h = g; h()` works — a lookup keyed on the callee's
+*name* would have gapped it and would have been the easier thing to write.
+
+### Overload resolution is a cliff and was not approached
+
+`resolveCall` (`checker.go:9563`) picks among candidates by assignability, with
+inference for generic ones. There is neither here, so **two or more call
+signatures is a gap**, and so is a call to a generic signature — its return type
+depends on what `T` was inferred as, and answering the uninstantiated `T` would
+print a type variable where upstream prints `number`.
+
+Arguments are not checked at all. That is sound rather than a shortcut for the
+case that *is* answered: a non-generic signature's return type does not depend on
+its arguments, and every diagnostic is `bd tsr-5e7.6`.
+
+### Reachability, replaced by something that refuses to guess
+
+Upstream separates `never` from `void` for a body with no `return` by asking the
+flow graph whether the body's end is reachable (`functionHasImplicitReturn`,
+`checker.go:20255`). `mayReturnNever` (`checker.go:20312`) means this question
+only arises for a function expression, an arrow, or an object-literal method — a
+function declaration's empty body is `void` either way, which is why the first
+slice could ignore it entirely.
+
+The binder builds the flow graph and nothing reads it. Rather than approximate
+it, `block_completes_normally` answers **only where the grammar forces the
+answer** and returns "don't know" otherwise:
+
+| statement | answer |
+|---|---|
+| `throw` | ends the block, and everything after it is dead |
+| `if`/`else` where both halves end the block | ends the block |
+| `if` with no `else` | completes |
+| a declaration, `;`, `debugger` | completes |
+| an expression statement **containing no call** | completes |
+| an expression statement containing a call | **don't know** |
+| a loop, `switch`, `try`, a label | **don't know** |
+
+`() => { throw 1; }` is therefore `() => never` and `() => { let a = 1; }` is
+`() => void`, both exactly. **The cost is measured and deliberate:**
+`() => { console.log(1); }` is a gap where upstream says `() => void`, because a
+call can be typed `never` and this port cannot yet type most calls. The
+alternative — assuming a call completes — turns every `never`-returning helper
+into a wrong `void`, and a wrong answer is indistinguishable from a result in the
+histogram. **How this would be shown wrong:** if the corpus shows the
+call-in-body case dominating the arrow population, the rule should become "assume
+a call completes unless its type is known to be `never`" once calls to lib
+functions resolve.
+
+### The implicit `any` reverses sign here, and that is the sharpest edge in the slice
+
+Everywhere else in this port an unannotated parameter is `anyType` — a *computed*
+answer, which is why `get_widened_type_for_variable_like_declaration` uses `any`
+and not `error`. Inside a function **expression** that stops being true:
+
+```text
+const f: (x: number) => void = x => {};
+>x : number
+```
+
+Upstream types `x` from the contextual signature. Answering `any` there is a
+wrong line wearing the costume of a computed one — the precise failure the
+`errorType`-not-`anyType` rule exists to prevent, arriving from the opposite
+direction.
+
+So `has_no_contextual_type` must *show* that nothing can supply a contextual type
+before an unannotated parameter is answered, and it recognises exactly one shape:
+the initialiser of a `var`/`let`/`const` with no type annotation. Every other
+position — a call argument, an annotated declaration, an object-literal property,
+a `return` expression, an `as` — can supply one, and this refuses to guess which.
+The same test guards a literal return: `const f = () => 1` is `() => number`
+because nothing supplied a contextual return type, and `const f: () => 1 = …`
+is not.
+
+Real contextual typing is the next item here and it is **blocked on function type
+nodes**: `getTypeFromTypeNode` has no `FunctionTypeNode` arm, so
+`(x: number) => void` in annotation position is `errorType` and there is no
+contextual signature to read even where one exists. That arm lives in
+`declared.rs`.
+
+### Two guards that no mutation can reach, both kept
+
+Recorded rather than covered by tests that would not bite, on the standard this
+document already applies to the `this`-parameter exclusion and the two binary
+operator guards.
+
+- **The single-candidate test in `calls.rs`.** An overload set has no printed
+  type yet, so the callee is already `errorType` before a call reaches signature
+  resolution. The guard becomes the only thing between a call and a guess the
+  moment overload sets print as `{ (): void; (x: string): void; }`.
+- **`resolve_call_signature` on a non-anonymous type.** An interface with a call
+  signature member and a function *type node* both resolve to nothing today, for
+  the separate reasons above.

@@ -1181,3 +1181,135 @@ fn a_function_symbols_type_is_memoised_on_the_symbol() {
     assert_eq!(first, second, "one type per symbol");
     assert_eq!(checker.type_count(), count, "the second ask creates no type");
 }
+
+// ---------------------------------------------------------------------------
+// Calls, function expressions and arrows (`bd tsr-4sc.8`, second slice).
+//
+// `CallExpression` is the largest single unported form in the corpus at 15,867
+// gap lines; arrows and function expressions are a further 7,014. All three are
+// the same machinery reached from three directions — a signature, and the
+// anonymous object type that carries it.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_call_has_the_return_type_of_the_signature_it_resolves_to() {
+    assert_eq!(type_of_declaration("declare function g(): number;\nconst x = g();", "x"), "number");
+    assert_eq!(type_of_declaration("declare function g(): void;\nconst x = g();", "x"), "void");
+    // A body-less declaration returns `any`, and a call to it therefore does too
+    // — a computed answer that must not be confused with a gap.
+    assert_eq!(type_of_declaration("declare function g();\nconst x = g();", "x"), "any");
+    // An inferred `void` return survives the call.
+    assert_eq!(type_of_declaration("function g() {}\nconst x = g();", "x"), "void");
+    // Arguments are not checked and do not change the answer for a
+    // non-generic signature, which is the whole reason skipping them is sound.
+    assert_eq!(
+        type_of_declaration("declare function g(a: number): string;\nconst x = g(1);", "x"),
+        "string"
+    );
+}
+
+#[test]
+fn a_call_through_a_variable_resolves_because_the_type_carries_its_symbol() {
+    // The reason `TypeData::Anonymous` exists rather than a lookup from the
+    // callee's *name*: the callee here is a variable, and upstream asks the
+    // callee's **type** for its signatures.
+    assert_eq!(
+        type_of_declaration("function g(): void {}\nconst h = g;\nconst x = h();", "x"),
+        "void"
+    );
+    assert_eq!(type_of_declaration("const f = () => {};\nconst x = f();", "x"), "void");
+}
+
+#[test]
+fn a_call_this_slice_cannot_resolve_is_a_gap_and_not_the_first_candidate() {
+    // Overload resolution needs assignability. Taking the first candidate would
+    // answer `number` here and be wrong for every call that picks a later one.
+    //
+    // **This line is currently enforced one level earlier than it reads.** An
+    // overload set has no printed type yet, so the callee is already `errorType`
+    // before the call is resolved, and mutating the single-candidate test in
+    // `calls.rs` turns nothing red. That guard is kept rather than deleted
+    // because it becomes the only thing standing between a call and a guess the
+    // moment an overload set prints as `{ (): void; (x: string): void; }` — a
+    // named future change, which is the same standard the `this`-parameter
+    // exclusion is held to.
+    assert_eq!(
+        type_of_declaration(
+            "declare function g(): number;\ndeclare function g(a: string): string;\nconst x = g();",
+            "x"
+        ),
+        "error"
+    );
+    // A generic signature's return type depends on inference, so the
+    // uninstantiated `T` would be a wrong answer rather than a missing one.
+    assert_eq!(
+        type_of_declaration("declare function g<T>(a: T): T;\nconst x = g(1);", "x"),
+        "error"
+    );
+    // A class is not callable: upstream reports and answers `errorType`.
+    assert_eq!(type_of_declaration("class K {}\nconst x = K();", "x"), "error");
+    // An optional chain and explicit type arguments are both unported forms.
+    assert_eq!(
+        type_of_declaration("declare function g(): number;\nconst x = g?.();", "x"),
+        "error"
+    );
+}
+
+#[test]
+fn a_function_expression_and_an_arrow_are_their_signature() {
+    assert_eq!(type_of_declaration("const f = () => {};", "f"), "() => void");
+    assert_eq!(type_of_declaration("const f = function () {};", "f"), "() => void");
+    assert_eq!(type_of_declaration("const f = (x: number) => {};", "f"), "(x: number) => void");
+    // A concise body is its expression's type, widened —
+    // `getReturnTypeFromBody`'s `!ast.IsBlock(body)` arm.
+    assert_eq!(type_of_declaration("const f = () => 1;", "f"), "() => number");
+    assert_eq!(type_of_declaration("const f = (): number => 1;", "f"), "() => number");
+}
+
+#[test]
+fn an_arrow_that_cannot_complete_is_never_and_one_that_can_is_void() {
+    // The distinction upstream draws with `functionHasImplicitReturn` — the flow
+    // graph — and this port draws syntactically, answering only where the grammar
+    // forces it. `mayReturnNever` is what makes an arrow different from a
+    // function declaration, whose empty body is `void` either way.
+    assert_eq!(type_of_declaration("const f = () => { throw 1; };", "f"), "() => never");
+    assert_eq!(type_of_declaration("const f = () => { let a = 1; };", "f"), "() => void");
+    // Both halves of the `if` end the block, so the block ends.
+    assert_eq!(
+        type_of_declaration(
+            "const f = (b: boolean) => { if (b) { throw 1; } else { throw 2; } };",
+            "f"
+        ),
+        "(b: boolean) => never"
+    );
+    // Only one half does, so control can still reach the end.
+    assert_eq!(
+        type_of_declaration("const f = (b: boolean) => { if (b) { throw 1; } };", "f"),
+        "(b: boolean) => void"
+    );
+    // A call in the body could be `never`-returning, and this port cannot yet
+    // tell. It refuses rather than assuming the block completes.
+    assert_eq!(type_of_declaration("const f = () => { g(); };", "f"), "error");
+    // A loop is decidable and needs the real analysis to be decided correctly.
+    assert_eq!(type_of_declaration("const f = () => { while (true) {} };", "f"), "error");
+}
+
+#[test]
+fn an_unannotated_parameter_is_any_only_where_no_contextual_type_can_supply_one() {
+    // The assertions go through the *initialiser* rather than the declaration,
+    // because a declaration with an annotation takes the annotation and would
+    // report `error` for an unrelated reason — a function **type node** is
+    // itself unported, which is what blocks real contextual typing.
+    //
+    // The one place in this port where the implicit `any` is not safe: upstream
+    // types `x` from the contextual signature, so answering `any` would be a
+    // wrong line dressed as a computed one.
+    assert_eq!(type_of_initialiser("const f = x => {};"), "(x: any) => void");
+    assert_eq!(type_of_initialiser("const f: (x: number) => void = x => {};"), "error");
+    // The same test guards a literal return. `const f = () => 1` widens to
+    // `() => number` because nothing supplied a contextual return type;
+    // `const f: () => 1 = () => 1` does not, because something did — so the
+    // annotated form is a gap rather than the widened guess.
+    assert_eq!(type_of_initialiser("const f = () => 1;"), "() => number");
+    assert_eq!(type_of_initialiser("const f: () => 1 = () => 1;"), "error");
+}

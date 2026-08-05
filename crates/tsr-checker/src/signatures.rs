@@ -88,6 +88,20 @@ pub struct Signature {
     pub r#type: TypeId,
 }
 
+/// A function-like declaration's body.
+///
+/// Upstream reaches this through one accessor, `declaration.Body()`, and asks
+/// `ast.IsBlock` about the result (`checker.go:20135`); only an arrow can carry
+/// the other shape. The distinction is in the type here because it decides which
+/// arm of `getReturnTypeFromBody` runs.
+#[derive(Debug, Clone, Copy)]
+enum Body<'a> {
+    /// A `{ … }` body.
+    Block(NodeId),
+    /// A concise arrow body, `x => x + 1`.
+    Expression(tsr_ast::Expression<'a>),
+}
+
 /// The parts of a function-like declaration a signature is built from.
 ///
 /// Upstream reaches these through `*ast.Node` accessors (`declaration.Parameters()`,
@@ -100,7 +114,7 @@ struct SignatureParts<'a> {
     type_parameters: &'a [&'a TypeParameterDeclaration<'a>],
     parameters: &'a [&'a ParameterDeclaration<'a>],
     return_annotation: Option<TypeNode<'a>>,
-    body: Option<NodeId>,
+    body: Option<Body<'a>>,
     /// `mayReturnNever` (`checker.go:20312`): true for a function expression, an
     /// arrow, and a method of an object literal.
     may_return_never: bool,
@@ -203,11 +217,13 @@ impl<'a> Checker<'a, '_> {
     /// - **An inferred return type of an `async` or generator function**, which
     ///   is `Promise<T>` or `Generator<...>` — a reference to a global that does
     ///   not exist here (`bd tsr-9or.1`).
-    /// - **An inferred return type where `mayReturnNever` holds** — a function
-    ///   expression, an arrow, or a method of an object literal. Upstream
-    ///   answers `never` or `void` there depending on whether the end of the body
-    ///   is reachable (`functionHasImplicitReturn`), and reachability is the flow
-    ///   graph, which the binder builds and nothing reads.
+    /// - **An inferred return type where `mayReturnNever` holds and the body's
+    ///   end cannot be decided syntactically** — see
+    ///   [`Checker::block_completes_normally`], which answers `void`/`never`
+    ///   where the grammar forces it and refuses otherwise.
+    /// - **A concise arrow body whose type is a literal, in a position that could
+    ///   supply a contextual return type** — see
+    ///   [`Checker::has_no_contextual_type`].
     pub(crate) fn get_signature_from_declaration(
         &mut self,
         declaration: NodeId,
@@ -276,12 +292,12 @@ impl<'a> Checker<'a, '_> {
 
     /// `getReturnTypeOfSignature`'s `default` arm (`checker.go:20013`) and the
     /// part of `getReturnTypeFromBody` (`checker.go:20126`) that can be answered
-    /// without unions or a flow graph.
+    /// without unions.
     fn return_type_of(
         &mut self,
         declaration: NodeId,
         annotation: Option<TypeNode<'a>>,
-        body: Option<NodeId>,
+        body: Option<Body<'a>>,
         modifiers: &[ModifierLike<'_>],
         asterisk: bool,
         may_return_never: bool,
@@ -303,16 +319,63 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        if may_return_never || self.body_has_return_statement(body, declaration) {
+        let block = match body {
+            // `getReturnTypeFromBody`'s first arm, `!ast.IsBlock(body)`
+            // (`checker.go:20135`): a concise arrow body is simply its
+            // expression's type.
+            Body::Expression(expression) => {
+                return self.concise_return_type(declaration, expression);
+            }
+            Body::Block(block) => block,
+        };
+        if self.body_has_return_statement(block, declaration) {
             return None;
         }
-        // Zero return statements, no implicit-return question to ask: upstream's
-        // `checkAndAggregateReturnExpressionTypes` yields no types and is not
-        // never-returning, so `getReturnTypeFromBody` answers `voidType`
-        // (`checker.go:20200`). This holds even for a body that only throws,
-        // because `mayReturnNever` is false for a function declaration and a
-        // class method.
-        Some(self.intrinsics.void)
+        if !may_return_never {
+            // Zero return statements and `mayReturnNever` false, so upstream's
+            // `checkAndAggregateReturnExpressionTypes` yields no types and is not
+            // never-returning: `getReturnTypeFromBody` answers `voidType`
+            // (`checker.go:20200`). This holds even for a body that only throws.
+            return Some(self.intrinsics.void);
+        }
+        // A function expression, an arrow, or an object-literal method with no
+        // `return`. Upstream separates `never` from `void` here by asking whether
+        // the **end of the body is reachable** (`functionHasImplicitReturn`,
+        // `checker.go:20255`), which reads the flow graph. See
+        // [`Checker::block_completes_normally`] for the conservative syntactic
+        // stand-in and what it refuses to decide.
+        match self.block_completes_normally(block, declaration) {
+            Some(true) => Some(self.intrinsics.void),
+            Some(false) => Some(self.intrinsics.never),
+            None => None,
+        }
+    }
+
+    /// The type of a concise arrow body, `x => x + 1`.
+    ///
+    /// Ported from `getReturnTypeFromBody`'s non-block arm (`checker.go:20135`)
+    /// together with the widening its tail applies
+    /// (`getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded`,
+    /// `checker.go:20221`). A **unit** result is where the two part company:
+    /// `const f = () => 1` is `() => number` because nothing supplied a
+    /// contextual return type, and `const f: () => 1 = () => 1` is `() => 1`
+    /// because something did. So a literal result is answered only where the
+    /// absence of a contextual type can be *shown* — see
+    /// [`Checker::has_no_contextual_type`] — and gapped otherwise.
+    fn concise_return_type(
+        &mut self,
+        declaration: NodeId,
+        expression: tsr_ast::Expression<'a>,
+    ) -> Option<TypeId> {
+        let id = self.check_expression(expression);
+        if id == self.intrinsics.error {
+            return None;
+        }
+        let widened = self.get_widened_literal_type(id);
+        if widened != id && !self.has_no_contextual_type(declaration) {
+            return None;
+        }
+        Some(widened)
     }
 
     /// Whether `body` contains a `return` statement belonging to `owner`.
@@ -338,6 +401,144 @@ impl<'a> Checker<'a, '_> {
             stack.extend(children.iter().copied());
         }
         false
+    }
+
+    /// Whether the end of a block is reachable — `Some(true)` yes, `Some(false)`
+    /// no, `None` **refuses to say**.
+    ///
+    /// A conservative syntactic stand-in for `functionHasImplicitReturn`
+    /// (`checker.go:20255`), which asks the flow graph whether a function body's
+    /// end flow node is reachable. The binder builds that graph and nothing reads
+    /// it yet, so rather than approximate it this answers only the shapes where
+    /// the answer is forced by the grammar, and gaps the rest.
+    ///
+    /// It is called only for a body with **no `return` statement**, which is what
+    /// makes the enumeration short. In that situation a block's end is
+    /// unreachable exactly when control cannot leave it normally, and the only
+    /// syntactic ways to arrange that are `throw`, a loop with no exit, and a
+    /// call to something typed `never`. So:
+    ///
+    /// - `throw` ends the block — `Some(false)`, and everything after it is dead.
+    /// - `if`/`else` where **both** halves end the block ends it too.
+    /// - a declaration, an empty statement or a `debugger` always completes.
+    /// - an expression statement completes **unless it contains a call**, since
+    ///   a `never`-returning call ends the block and this port cannot yet type
+    ///   most calls — `None`.
+    /// - a loop, a `switch`, a `try`, a labelled statement: `None`. Each *can*
+    ///   be decided, and each needs the real analysis to decide correctly.
+    ///
+    /// The cost is measurable and deliberate: `() => { console.log(1); }` is a
+    /// gap until calls can be typed, where upstream says `() => void`. The
+    /// alternative — assuming a call completes — turns every `never`-returning
+    /// helper into a wrong `void`, and a wrong answer here is worse than a gap
+    /// because it is indistinguishable from a result in the histogram.
+    fn block_completes_normally(&self, block: NodeId, owner: NodeId) -> Option<bool> {
+        let node = self.node_map.get(block)?;
+        let mut children = Vec::new();
+        tsr_ast::push_children(node, &mut children);
+        for child in children {
+            let Some(id) = child.node_id() else { continue };
+            match self.statement_completes_normally(id, owner) {
+                // Unreachable from here on, which is the answer for the block.
+                Some(false) => return Some(false),
+                Some(true) => {}
+                None => return None,
+            }
+        }
+        Some(true)
+    }
+
+    /// One statement's contribution to [`Checker::block_completes_normally`].
+    fn statement_completes_normally(&self, id: NodeId, owner: NodeId) -> Option<bool> {
+        match self.nodes.kind(id) {
+            SyntaxKind::ThrowStatement => Some(false),
+            SyntaxKind::Block => self.block_completes_normally(id, owner),
+            SyntaxKind::IfStatement => {
+                let Some(Node::IfStatement(node)) = self.node_map.get(id) else { return None };
+                let then = node
+                    .then_statement
+                    .and_then(|s| s.node_id())
+                    .map_or(Some(true), |s| self.statement_completes_normally(s, owner))?;
+                // No `else` means the `if` can always be skipped.
+                let Some(otherwise) = node.else_statement else { return Some(true) };
+                let otherwise = otherwise
+                    .node_id()
+                    .map_or(Some(true), |s| self.statement_completes_normally(s, owner))?;
+                Some(then || otherwise)
+            }
+            SyntaxKind::VariableStatement
+            | SyntaxKind::EmptyStatement
+            | SyntaxKind::DebuggerStatement
+            | SyntaxKind::FunctionDeclaration
+            | SyntaxKind::ClassDeclaration
+            | SyntaxKind::InterfaceDeclaration
+            | SyntaxKind::TypeAliasDeclaration
+            | SyntaxKind::EnumDeclaration
+            | SyntaxKind::ModuleDeclaration
+            | SyntaxKind::ImportDeclaration
+            | SyntaxKind::ImportEqualsDeclaration => Some(true),
+            // `Some(true)` when nothing in it can fail to return; `None` when a
+            // call is in the way, because a `never`-returning call ends the block.
+            SyntaxKind::ExpressionStatement => (!self.contains_a_call(id)).then_some(true),
+            // Every remaining statement form — loops, `switch`, `try`, labels,
+            // `with`, `for…of` — can be decided and needs the real analysis to be
+            // decided correctly.
+            _ => None,
+        }
+    }
+
+    /// Whether a subtree contains a call or `new`, without entering a nested
+    /// function.
+    ///
+    /// The one thing standing between an expression statement and "this
+    /// completes": a call to a `never`-returning function ends the block.
+    fn contains_a_call(&self, root: NodeId) -> bool {
+        let Some(node) = self.node_map.get(root) else { return true };
+        let mut stack = vec![node];
+        let mut children = Vec::new();
+        while let Some(node) = stack.pop() {
+            if let Some(id) = node.node_id() {
+                if id != root && self.signature_parts_of(id).is_some() {
+                    continue;
+                }
+                if matches!(
+                    self.nodes.kind(id),
+                    SyntaxKind::CallExpression
+                        | SyntaxKind::NewExpression
+                        | SyntaxKind::TaggedTemplateExpression
+                ) {
+                    return true;
+                }
+            }
+            children.clear();
+            tsr_ast::push_children(node, &mut children);
+            stack.extend(children.iter().copied());
+        }
+        false
+    }
+
+    /// Whether this function-like node demonstrably has **no** contextual type.
+    ///
+    /// A conservative stand-in for the absence of
+    /// `getContextualSignatureForFunctionLikeDeclaration` (`checker.go:20226`).
+    /// It decides two things that would otherwise be wrong answers rather than
+    /// gaps: whether an unannotated parameter is really `any`, and whether a
+    /// literal return widens.
+    ///
+    /// Only one shape is recognised — the initialiser of a `var`/`let`/`const`
+    /// with **no type annotation**, which is `const f = …` and is where most
+    /// function expressions in the corpus live. Every other position (a call
+    /// argument, an annotated declaration, an object-literal property, a
+    /// `return` expression, an `as`) can supply a contextual type, and this
+    /// refuses to guess which.
+    fn has_no_contextual_type(&self, declaration: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(declaration) else { return false };
+        matches!(
+            self.node_map.get(parent),
+            Some(Node::VariableDeclaration(node))
+                if node.r#type.is_none()
+                    && node.initializer.and_then(|i| Node::from(i).node_id()) == Some(declaration)
+        )
     }
 
     /// One parameter, or `None` for a form whose printed name this port cannot
@@ -399,7 +600,7 @@ impl<'a> Checker<'a, '_> {
                 type_parameters: node.type_parameters,
                 parameters: node.parameters,
                 return_annotation: node.r#type,
-                body: node.body.and_then(|body| body.node_id()),
+                body: node.body.and_then(|body| body.node_id()).map(Body::Block),
                 may_return_never: false,
             }),
             Node::MethodDeclaration(node) => Some(SignatureParts {
@@ -408,7 +609,7 @@ impl<'a> Checker<'a, '_> {
                 type_parameters: node.type_parameters,
                 parameters: node.parameters,
                 return_annotation: node.r#type,
-                body: node.body.and_then(|body| body.node_id()),
+                body: node.body.and_then(|body| body.node_id()).map(Body::Block),
                 // `mayReturnNever` (`checker.go:20312`) is true for a method of an
                 // *object literal* only.
                 may_return_never: self.nodes.parent(id).is_some_and(|parent| {
@@ -430,20 +631,70 @@ impl<'a> Checker<'a, '_> {
                 type_parameters: node.type_parameters,
                 parameters: node.parameters,
                 return_annotation: node.r#type,
-                body: node.body.and_then(|body| body.node_id()),
+                body: node.body.and_then(|body| body.node_id()).map(Body::Block),
                 may_return_never: true,
             }),
             Node::ArrowFunction(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
-                asterisk: false,
+                // An arrow cannot be a generator, but the parser accepts
+                // `async *() =>` in error recovery, so the token is read rather
+                // than assumed absent.
+                asterisk: node.asterisk_token.is_some(),
                 type_parameters: node.type_parameters,
                 parameters: node.parameters,
                 return_annotation: node.r#type,
-                body: node.body.and_then(|body| body.node_id()),
+                body: node.body.map(|body| match tsr_ast::Expression::try_from(Node::from(body)) {
+                    // A concise body is an *expression*; a block is not, which is
+                    // exactly the test `getReturnTypeFromBody` makes with
+                    // `ast.IsBlock` (`checker.go:20135`).
+                    Ok(expression) => Body::Expression(expression),
+                    Err(_) => {
+                        Body::Block(body.node_id().expect("a parsed arrow body is registered"))
+                    }
+                }),
                 may_return_never: true,
             }),
             _ => None,
         }
+    }
+
+    /// The type of a function expression or arrow function.
+    ///
+    /// Ported from `Checker.checkFunctionExpressionOrObjectLiteralMethod`
+    /// (`checker.go:9077`) into `getTypeOfSymbol` on the function's own symbol —
+    /// the binder gives every function expression and arrow one (`__function`,
+    /// or its name where it has one), and its type is the anonymous object type
+    /// carrying that one signature. So this is the same arm
+    /// `getTypeOfFuncClassEnumModule` already provides, reached from an
+    /// expression instead of from a name.
+    ///
+    /// # An unannotated parameter is a wrong answer waiting to happen
+    ///
+    /// This is the one place in this port where the implicit `any` is not safe.
+    /// `getTypeOfSymbol` on an unannotated parameter answers `anyType`, which is
+    /// upstream's answer *only when nothing supplies a contextual type*. In
+    ///
+    /// ```text
+    /// const f: (x: number) => void = x => {};
+    /// >x : number
+    /// ```
+    ///
+    /// upstream types `x` from the contextual signature and this port would print
+    /// `any` — a wrong line dressed as a computed one. So a function expression
+    /// with any unannotated parameter is answered only where
+    /// [`Checker::has_no_contextual_type`] can *show* there is no contextual type,
+    /// and gapped otherwise. Contextual typing itself is the next item here; it
+    /// needs function **type nodes**, which `getTypeFromTypeNode` does not yet
+    /// have.
+    pub(crate) fn get_type_of_function_expression(&mut self, node: NodeId) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(parts) = self.signature_parts_of(node) else { return error };
+        let unannotated = parts.parameters.iter().any(|parameter| parameter.r#type.is_none());
+        if unannotated && !self.has_no_contextual_type(node) {
+            return error;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return error };
+        self.get_type_of_symbol(symbol)
     }
 
     /// Render a signature as a `FunctionTypeNode` is printed: `<T>(x?: A, ...r: B[]) => C`.

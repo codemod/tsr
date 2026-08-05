@@ -113,6 +113,18 @@ impl Checker<'_, '_> {
             Expression::PropertyAccessExpression(node) => {
                 self.check_property_access_expression(node)
             }
+            Expression::CallExpression(node) => self.check_call_expression(node),
+            // `checkFunctionExpressionOrObjectLiteralMethod` (`checker.go:9077`).
+            // Both kinds answer through the function's own symbol, which is the
+            // same arm `getTypeOfFuncClassEnumModule` serves — see
+            // [`Checker::get_type_of_function_expression`] for the one place that
+            // is not safe, an unannotated parameter under a contextual type.
+            Expression::FunctionExpression(node) => node
+                .node_id
+                .map_or(self.intrinsics.error, |id| self.get_type_of_function_expression(id)),
+            Expression::ArrowFunction(node) => node
+                .node_id
+                .map_or(self.intrinsics.error, |id| self.get_type_of_function_expression(id)),
             _ => self.intrinsics.error,
         }
     }

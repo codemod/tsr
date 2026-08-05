@@ -79,6 +79,7 @@
 //! path and seen to go red.
 
 pub mod binary;
+pub mod calls;
 pub mod checker;
 pub mod declared;
 pub mod expressions;

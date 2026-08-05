@@ -136,7 +136,7 @@ impl<'a> Checker<'a, '_> {
         // nothing; what matters is that the function case comes last.
         if flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS) {
             let printed = format!("typeof {name}");
-            return self.store.new_named(TypeFlags::OBJECT, printed, None);
+            return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol);
         }
         let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
             return self.intrinsics.error;
@@ -150,7 +150,7 @@ impl<'a> Checker<'a, '_> {
         // be a wrong answer where a gap belongs.
         let [signature] = signatures.as_slice() else { return self.intrinsics.error };
         let printed = self.signature_to_string(signature);
-        self.store.new_named(TypeFlags::OBJECT, printed, None)
+        self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol)
     }
 
     /// Whether `symbolToTypeNode` would spell this symbol as something other than
