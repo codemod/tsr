@@ -13,8 +13,11 @@ second.
 
 ## 0. Status
 
-**This page is a pre-registration and an instrument, not yet a measurement.**
-The open issue is `bd tsr-gzx`.
+**Measured** over the 9,538-case `.types` population at `b484ea9`, in an
+isolated worktree: §5 is the result and §3's prediction is scored in §5.1. One
+question is **open** and blocks quoting the shares — the three-line disagreement
+with `rank_board` in §5.2 — and one follow-on measurement is pre-registered in
+§5.5. The open issue is `bd tsr-gzx`.
 `crates/tsr-conformance/examples/member_shapes.rs` exists, its classifier is
 mutation-checked, and it has been exercised on capped subsets. The corpus run is
 the lead's, serialised, in an isolated worktree. **Every number below that is
@@ -137,16 +140,19 @@ row 6 *is* the access, row 5 is its name child, one hop up through
 The residual is what the pairing claim rests on. "They look paired" is not an
 explanation of eleven lines; a named bucket is.
 
-### Five control buckets, printed unconditionally
+### Six control buckets, printed unconditionally
 
 - rows-5/6 lines that reached no receiver shape
 - the line's node is not a property access or its name child
 - **the reason says no such property and `get_property_of_type` finds one** —
-  the sharpest of the five: `access_reason` reaches this row only when the
+  the sharpest of the six: `access_reason` reaches this row only when the
   lookup answered `None`, so a hit means the probe and the producer have drifted
   and nothing below it is a partition
 - shape roll-up − rows 5/6 total
 - pairing − rows 5/6 total
+- **row 5, a leaf, counted as `propagated/span`** — added after §5.3, and it is
+  the one whose value is fixed by the structure of the thing measured rather
+  than by the measurement
 
 There is deliberately **no `other` receiver-shape bucket**. The match producing a
 shape is exhaustive over `TypeData`, so a new type variant is a compile error
@@ -154,7 +160,7 @@ rather than a silent row of leftovers — the stronger form of the same control.
 runtime bucket that can only ever read zero is decoration, which this project
 deletes.
 
-### Three named mutations, each red, none reddening another
+### Six named mutations, each red, none reddening another
 
 Checked in `main` on every run rather than under `#[cfg(test)]`, for
 `rank_board`'s reason: Cargo does not run tests inside an example without a
@@ -165,11 +171,15 @@ manifest change, and `crates/tsr-conformance/Cargo.toml` is shared.
 | **MU1** — `row_of` drops the `has no such property` guard, admitting `the receiver is a gap` | 1 | red at the gapped-receiver assertion; would have added ~13,500 lines of rows 3/4 to the population |
 | **MU2** — the cheap cut matches an intrinsic name *anywhere* in the printed form | 1 | red at `Promise<number>` → `Named`; `Promise<number>` contains `number` |
 | **MU3** — both prefixes map to `Row::MemberName` | 1 | red at the access-row assertion; pairing would read 100% by construction |
+| **MU4** — the span test's polarity inverted | 1 | the `row 5 as propagated/span` control reads **65** instead of 0 on a 400-case subset. **This is the bug §5.3 records making**, and it is caught by a runtime control rather than an assertion because no fixture-free assertion can see it |
+| **MU5** — `agreement` drops the subset test | 1 | red: "upstream holding a strict subset of our constituents is narrowing"; `upstream is NARROWER` would collapse into `differs` and the flow.rs-vs-members.rs question would be unanswerable |
+| **MU6** — the union rule becomes *any* constituent instead of *every* | 1 | red: "a union with one of two constituents holding the property is Partial"; this single edit moves the whole composite bucket from "not ours" to "ours" while nothing real changes |
 
-Each panicked on its **own** assertion with the others passing. MU3 is the one
-that matters most: it is precisely the bug that would make the pairing result
-true by construction, which is the way this measurement could be right for the
-wrong reason.
+Each panicked on its **own** assertion with the others passing. MU3 and MU6 are
+the two that matter most, and for the same reason: each is an edit that would
+make a *desirable* answer come out — pairing at 100%, the composite bucket
+actionable — with nothing real behind it. MU4 is the one that actually
+happened.
 
 ### The denominator, stated rather than assumed
 
@@ -318,27 +328,195 @@ one-line control caught it, and the control is
 
 ---
 
-## 5. Subset readings — NOT the measurement
+## 5. The measurement
 
-Recorded so the full run can be compared against something, and labelled
-because an alphabetical prefix of the corpus is the worst possible sample of a
-corpus whose case names cluster by feature.
+Full corpus at `b484ea9`, isolated worktree, own target directory: **9,538 cases
+judged, 478,954 upstream lines, 291,799 exactly matched (60.92%)**. That last
+figure matches the lead's independent tip run, so the probe is on the gradient's
+population and not on a resembling one — the check `writer_guards` failed.
 
-| capped run | cases judged | rows 5+6 | paired | unpaired |
-|---|---:|---:|---:|---:|
-| `TSR_MEMBER_SHAPES_LIMIT=150` | 112 | 10 | 100% | 0 |
-| `TSR_MEMBER_SHAPES_LIMIT=400` | 333 | 130 | 100% | 0 |
-| `TSR_MEMBER_SHAPES_LIMIT=1200` | 1,004 | 372 | 100% | 0 |
+**All five control buckets read zero.** A sixth was added afterwards; see §5.3.
 
-Every control bucket read zero in all three. The gradient over the 1,004-case
-prefix reads 66.31%, against the board's corpus-wide 60.83% — the prefix is
-easier than the corpus, which is the sampling bias stated above showing itself
-in the one number that can be compared. **That difference is the reason none of
-the shape shares below should be quoted.**
+```
+row 5  member name, the receiver has no such property      4016
+row 6  property access, the receiver has no such prop.     4008
+sum                                                        8024
+```
 
-Shape split on the 1,004-case prefix, for orientation only: `Named without
-members` 54.3%, `has members, name absent` 17.2%, `intrinsic` 12.4%,
-`Anonymous` 7.5%, `union or intersection` 5.4%, `literal` 3.2%.
+### 5.1 The prediction, scored: 1 hit, 2 misses
+
+| # | predicted | measured | verdict |
+|---|---|---|---|
+| 1 | ≥99% of access nodes carry both lines; residual not `different reason` | **4,008 of 4,016 (99.8%)**; residual 2 unaligned + 6 RIGHT, **0 different reason** | **HIT** |
+| 2 | `Named without members` largest at ≥40%; `Intrinsic + Literal` second at 10–25%; `has members` 10–20% | largest ✓ but **37.2%**; `Intrinsic + Literal` **fifth at 9.6%**; `has members` **19.7%** ✓ | **MISS** |
+| 3 | `Intrinsic + Literal` is 800–2,000 lines | **774** | **MISS** |
+
+Scored honestly and the pattern is the one `docs/conventions.md` predicts. The
+hit was the leg with a **mechanism plus a code reading that could have been
+wrong** — `type_at_location:299-315` types the `b` of `a.b` by *calling*
+`check_property_access_expression`, so the two lines are one call's answer. The
+misses were the two legs whose only support was the call-path precedent, i.e. a
+mechanism story with no cross-check, which is 12-for-12 the losing method.
+
+**The shape I did not predict at all is the finding.** `union or intersection`
+is **2,235 lines, 27.9%**, the second-largest bucket and the largest that is
+neither parked nor an upstream error. Nobody had reasoned about it — including
+the call-path measurement, where composites were 8.5% and unremarkable.
+
+```
+  1581  19.7%  has members, name absent      NOT OURS — upstream errors too
+  2988  37.2%  Named without members         PARKED (bd tsr-4qx)
+  2235  27.9%  union or intersection         <- largest actionable
+   562   7.0%  intrinsic (getApparentType)
+   446   5.6%  Anonymous, name absent in exports
+   212   2.6%  literal (getApparentType)
+```
+
+**Actionable ≈ 3,455 lines, not 8,024 and not 4,016.** The call path's
+"89% was a lookup that never ran" reproduces here at one level up, with
+different arithmetic: **19.7% is a genuine missing property** against 10.9%
+there.
+
+### 5.2 OPEN: three lines that `rank_board` and this probe disagree on
+
+The board reads 4,016 and **4,005**; this probe reads 4,016 and **4,008** at a
+commit with no checker change in between (the gradient is 291,799 at both). Row
+5 agrees exactly; row 6 is off by three.
+
+**Three lines is 0.07% and §6 of this page says an unreconciled numerator gap
+makes every share on the page unquotable.** That rule is applied to this page's
+own numbers rather than only to other people's: the shares in §5.1 are reported
+because the *lead* re-derived the population independently, and the ownership
+conclusion in §5.4 does not turn on three lines — but the disagreement is open
+and is being measured, not argued.
+
+**The hypothesis, and it is not yet confirmed.** `rank_board` keys every gap by
+`(row_key, cause)` and prints **one ranking section per cause**
+(`GRADIENT RANKING A — TERMINAL`, `B — PROPAGATED`, `C — DEPENDENT-UNKNOWN`).
+Its 4,016 appears under A and its 4,005 under B, so **4,005 is row 6's
+*propagated/span* count and not row 6's total**. If three row-6 lines are
+TERMINAL, they are a 3-line row in ranking A — and ranking A is truncated at
+261 lines in the saved output, so it would not print. That is consistent with
+the evidence and is exactly the kind of "consistent" this page refuses to call
+confirmation.
+
+Two independent facts support it and neither settles it: two earlier
+`rank_board` runs at another commit read **4,014 / 4,006**, a difference of
+**8** — the same difference this probe measures at 4,016 / 4,008 — while the
+board's published pair differs by 11.
+
+The probe now buckets rows 5/6 by `rank_board`'s own span test, copied rather
+than re-derived, and **names** the row-6 TERMINAL lines with their case and
+source text. One run settles it. If the count is not exactly 3, the hypothesis
+is wrong and something else is being counted differently.
+
+### 5.3 A bug I made, and the control that now catches it
+
+The span test was copied correctly and **its polarity was not**. `rank_board`
+binds `below[i] = true` to mean *nothing gapped below* and then passes
+`!gapped_below` into `cause()`. Reading the expression without its use, I
+mapped `true` to `propagated/span`, and the capped run printed row 5 as 100%
+propagated and row 6 as 100% terminal — a table that is perfectly plausible if
+you do not already know that **row 5 is a leaf**.
+
+That is the fix and it is also the control. Nothing can be nested strictly
+inside the span of the `b` in `a.b`, so `propagated/span` is impossible for row
+5 *by construction*, and a sixth control bucket now prints it:
+
+```
+CONTROL row 5 (a LEAF) counted as propagated/span    = 0
+```
+
+Under the inverted polarity, applied deliberately as mutation **MU4**, it reads
+**65** on a 400-case subset instead of 0. This is the general lesson restated:
+copying an expression is not copying its meaning, and the cheapest guard against
+that is a bucket whose value is fixed by the *structure* of what is measured
+rather than by the measurement.
+
+### 5.4 Ownership: the union bucket is not obviously ours, and the names say so
+
+The lead's challenge, which is `docs/conventions.md`'s "a row named after a
+mechanism is usually not about that mechanism" arriving a fourth time. The
+property names in the composite bucket are `foo` 340, **`kind` 222**,
+`length` 184, `type` 72, and the top cases are `controlFlowOptionalChain` (372,
+16.6%), `controlFlowAliasing`, `discriminatedUnionTypes1`,
+`discriminantPropertyCheck`. **`kind` and `type` on a union, in files named
+after discriminant narrowing, is a narrowing signature.** If upstream never had
+a union at that position, the owner is `crates/tsr-checker/src/flow.rs` and not
+this file.
+
+So the probe now answers it two ways, and the second is the decisive one:
+
+1. **Does upstream even have our type there?** Upstream's assertion for the
+   *receiver's own position* against our printed receiver type, classified as
+   `same` / `same constituents, different print order` / **`upstream is
+   NARROWER`** / `differs another way`. On a 1,500-case subset the raw pairs
+   were dominated by `DIFFERS`, and classifying them showed that reading to be
+   worthless as it stood: `upstream Set<number>` vs `ours Set<number> |
+   Set<string>` is narrowing, but `upstream string[] | number[]` vs
+   `ours number[] | string[]` is **our union sort order**, and
+   `upstream { type: 'string'; … }` vs `ours Nested` is **alias printing**.
+   Three different findings under one `DIFFERS`.
+2. **Probe past the blocker, not at it.** `docs/conventions.md`: a probe at the
+   blocker only shows it is live; ask what the form answers once it is removed.
+   The probe strips the nullish constituents upstream's `checkNonNullExpression`
+   removes before the lookup, then asks `get_property_of_type` of **each
+   remaining constituent**, and applies upstream's own rule
+   (`getPropertyOfUnionOrIntersectionType`): a union answers only if *every*
+   constituent has the property, an intersection if *any* does. The three
+   outcomes are `a distribution arm WOULD find it` (ours, `members.rs`),
+   `some constituents have it` (upstream errors too), and **`NO constituent has
+   it`** — in which case the union is *not* the blocker and the work is
+   somewhere else entirely.
+
+On the 1,500-case subset that split 46.4% / 3.6% / **50.0%**, which is why no
+number from it is quoted here and why the corpus run is worth its cost: half the
+bucket may not be a union problem at all.
+
+### 5.5 Pre-registered for run 2, before it is run
+
+Registered now so it cannot be fitted afterwards. The composite bucket was
+**not** pre-registered before run 1 — it was not a bucket anyone expected to
+matter — and inventing a rule for it after seeing 2,235 is exactly the failure
+`docs/conventions.md` records as "the first version of this method became fitted
+by being invented to explain a number already seen".
+
+- **Reconciliation, and it gates everything else.** Row 6 must read **4,005
+  propagated/span + 3 TERMINAL**, and the three named lines must be real. Any
+  other split leaves the two instruments unreconciled and this page's shares
+  stay unquotable.
+- **Build the union distribution arm in `members.rs` only if** `a distribution
+  arm WOULD find it` is **≥ 1,200 lines** (over half the bucket) **and**
+  `upstream is NARROWER` is **≤ 33%** of the bucket. Both legs on the
+  sub-population, never the parent's.
+- **If `NO constituent has it` is the largest outcome, this is not a
+  `members.rs` item** and the finding is that the composite bucket chains into
+  the constituents' own member tables — `bd tsr-4qx` and the apparent type — and
+  should be reported as such rather than claimed.
+- **The case axis is already decided and it is negative.** The composite
+  bucket's level-4 `0` bucket is **1.1%** (2 of 189 cases) with a median of 19
+  other failing lines — the **worst profile on the page**, and worse than the
+  parent row's 6.8%. Whatever run 2 says, **this is a gradient item or it is
+  nothing**; it must not be sold as a case item. The healthiest `0` bucket on
+  the page, 14.4%, belongs to `has members, name absent`, which is the one shape
+  that is *not* our defect.
+
+### 5.6 The pre-registered gradient rule fired, and it said no
+
+§3 registered: build `getApparentType` if `Intrinsic + Literal` is ≥ 1,000 lines
+**and** its top-1 case share is ≤ 25%. Measured: **774 lines** (562 + 212),
+top-1 4.3% and 17.9%. The concentration leg passes and **the size leg fails**,
+so the rule says **do not build it**, and it is not being built.
+
+Recording that plainly matters more than the decision does. The rule was written
+before the number existed, the number came in 23% under the floor, and the
+temptation to read "774 ≈ 1,000, and the concentration is excellent" is exactly
+what a pre-registration is for. The property names confirm the *diagnosis* was
+right — `toString` 112, `length` 100, `charAt` 38, `toUpperCase` 28 on receivers
+printing `string` 248, `number` 150 — so this is a correctly identified item
+that is simply smaller than the bar. `getApparentType` stays unbuilt and
+correctly diagnosed, which is a better outcome than a fitted rule that licensed
+it.
 
 ---
 
@@ -357,3 +535,16 @@ members` 54.3%, `has members, name absent` 17.2%, `intrinsic` 12.4%,
 - **`Intrinsic + Literal` clears the gradient bar and the property names in that
   bucket are not `String`/`Number`/`Boolean` members.** The count would be right
   and the diagnosis wrong, which is the failure this project keeps recording.
+  *Measured: it did not clear the bar (774 against 1,000) and the names are
+  `toString`, `length`, `charAt`, `toUpperCase`. Right diagnosis, too small.*
+- **The row-6 TERMINAL count is not 3.** §5.2's hypothesis is that `rank_board`
+  prints per cause and its 4,005 is a cause bucket. If run 2 reads any other
+  number, that explanation is wrong, and the two instruments disagree about
+  something not yet identified — in which case §5.1's shares are the thing to
+  stop quoting first.
+- **The composite bucket's `NO constituent has it` outcome dominates.** Then the
+  2,235 lines are not a union-lookup item, the largest actionable bucket on this
+  page dissolves into `bd tsr-4qx` and the apparent type, and the honest
+  statement is that rows 5/6 contain **no `members.rs` item above the bar at
+  all**. That is a real possible outcome of run 2 and it is written here before
+  it is known.

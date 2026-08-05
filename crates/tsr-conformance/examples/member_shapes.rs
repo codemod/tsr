@@ -58,7 +58,7 @@
 //!
 //! # Control buckets
 //!
-//! Five, printed unconditionally, and every one must read zero. They are the
+//! Six, printed unconditionally, and every one must read zero. They are the
 //! only evidence these buckets partition rather than merely being true:
 //!
 //! - `rows 5/6 lines not classified into a receiver shape`
@@ -66,6 +66,13 @@
 //! - `the line's node is not a property access or its name child`
 //! - `pairing: lines - (2 x paired + name only + access only)`
 //! - `shape roll-up - rows 5/6 total`
+//! - **`row 5 (a LEAF) counted as propagated/span`** — row 5 is the `b` of
+//!   `a.b`, so nothing can be nested strictly inside its span and this is
+//!   impossible *by construction*. It exists because the span test was first
+//!   copied from `rank_board` with its polarity inverted, producing an entirely
+//!   plausible table; see `docs/architecture/checker-notes-members.md` §5.3.
+//!   A control whose value is fixed by the structure of what is measured, rather
+//!   than by the measurement, is the only kind that catches this class of bug.
 //!
 //! # Denominator
 //!
@@ -301,6 +308,60 @@ fn check_classifier() {
         Some("A | B"),
         "the receiver's printed type is the tail of the reason"
     );
+
+    // THE DISTRIBUTION RULE. A union needs EVERY constituent to have the
+    // property; an intersection needs any one. Swapping them would move the
+    // whole composite bucket into "ours" without anything changing.
+    assert_eq!(
+        distributed_outcome(true, 1, 2),
+        Distributed::Partial,
+        "a union with one of two constituents holding the property is Partial"
+    );
+    assert_eq!(
+        distributed_outcome(false, 1, 2),
+        Distributed::WouldFind,
+        "an intersection needs only one constituent to hold the property"
+    );
+    assert_eq!(
+        distributed_outcome(true, 0, 2),
+        Distributed::NoneHaveIt,
+        "no constituent holding the property means the union is not the blocker"
+    );
+
+    // THE NARROWING TEST. `upstream A` against `ours A | undefined` is upstream
+    // being NARROWER — narrowing, or a nullish constituent it removed — and not
+    // a print-order difference. Collapsing the two would hide the one result
+    // that decides whether the composite bucket belongs to flow.rs.
+    assert_eq!(
+        agreement("A | B", "B | A"),
+        Agreement::SameSetDifferentOrder,
+        "the same constituents in another order is a printing difference"
+    );
+    assert_eq!(
+        agreement("A", "A | undefined"),
+        Agreement::UpstreamNarrower,
+        "upstream holding a strict subset of our constituents is narrowing"
+    );
+    assert_eq!(agreement("A", "B"), Agreement::Differs, "a different type is not narrowing");
+
+    // THE RECONCILIATION'S OWN ASSUMPTION, asserted rather than assumed. Rows
+    // 5/6 can only ever be TERMINAL or propagated/span under `rank_board`'s
+    // `cause()`: their reason contains neither "the receiver is a gap" (that is
+    // rows 3/4) nor "/ initialiser " nor "/ annotation ", which are the only
+    // routes to the other two causes. If that stops being true, this probe's
+    // two-variant `Cause` silently merges a third bucket into one of these and
+    // the reconciliation is worthless.
+    for reason in [
+        "member name, the receiver has no such property: A | B",
+        "property access, the receiver has no such property: Promise<number>",
+    ] {
+        assert!(
+            !reason.contains("the receiver is a gap")
+                && !reason.contains("/ initialiser ")
+                && !reason.contains("/ annotation "),
+            "rows 5/6 must reach only TERMINAL or propagated/span in rank_board's cause()"
+        );
+    }
 }
 
 /// What happened to the *other* line of an access that contributed only one.
@@ -355,6 +416,179 @@ impl Unpaired {
     }
 }
 
+/// `rank_board`'s TERMINAL / PROPAGATED split, reproduced here for exactly one
+/// purpose: reconciling this probe's row totals against the board's.
+///
+/// The board reads 4,016 and **4,005**; this probe read 4,016 and **4,008** at
+/// the same commit, with no checker change in between. Three lines is 0.07% and
+/// waving it through is precisely what `docs/conventions.md` forbids — an
+/// unexplained numerator gap means two instruments are not measuring the same
+/// thing, which is how `writer_guards`'s rate was quoted as the gradient for
+/// four documents.
+///
+/// The hypothesis this measures: **`rank_board` keys every gap row by
+/// `(row_key, cause)` and prints its rankings per cause**, so the board's 4,005
+/// is the row's *propagated/span* count and not its total. Row 5 is a leaf —
+/// nothing can be nested inside it — so it is 100% TERMINAL and matches
+/// exactly, which is consistent. If that is right, this probe will read
+/// **4,005 propagated + 3 terminal** for row 6 and the instruments agree
+/// exactly.
+///
+/// The span test is copied from `rank_board` rather than re-derived: a
+/// reconciliation whose two sides were computed differently reconciles nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+enum Cause {
+    /// Nothing gapped strictly inside this node's span.
+    Terminal,
+    /// Something inside the span gapped — for row 6 that is normally its own
+    /// name child, which is row 5.
+    PropagatedSpan,
+}
+
+impl Cause {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Terminal => "TERMINAL",
+            Self::PropagatedSpan => "propagated/span",
+        }
+    }
+}
+
+/// What a union or intersection receiver would answer **if the lookup were
+/// distributed over its constituents** — the "probe past the blocker" that
+/// `docs/conventions.md` requires for a dependency-gated form.
+///
+/// Probing the blocker itself only shows it is live. This asks the question one
+/// step further on: strip `undefined` and `null` (upstream's
+/// `checkNonNullExpression` runs before the lookup) and ask
+/// `get_property_of_type` of each remaining constituent. Upstream's rule is
+/// `getPropertyOfUnionOrIntersectionType`: a **union** answers only if *every*
+/// constituent has the property, an **intersection** if *any* does.
+///
+/// This is what separates a members-lookup item from a narrowing item. If the
+/// constituents have the property, a distribution arm in
+/// `crates/tsr-checker/src/members.rs` finds it and the work is mine. If they
+/// do not, the union is not the blocker and the owner is upstream of it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+enum Distributed {
+    /// Upstream's rule is satisfied by the constituents we already have: a
+    /// distribution arm would find the property today.
+    WouldFind,
+    /// Some constituents have it and the rule is not satisfied. Upstream
+    /// reports "property does not exist on some constituent" here too — mixed,
+    /// and not straightforwardly ours.
+    Partial,
+    /// No constituent has the property. The union is **not** the blocker; the
+    /// constituents' own member tables are, which chains into `bd tsr-4qx` or
+    /// the apparent type.
+    NoneHaveIt,
+}
+
+impl Distributed {
+    fn label(self) -> &'static str {
+        match self {
+            Self::WouldFind => "a distribution arm WOULD find it (ours, members.rs)",
+            Self::Partial => "some constituents have it (upstream errors too)",
+            Self::NoneHaveIt => "NO constituent has it (the union is not the blocker)",
+        }
+    }
+
+    fn all() -> [Self; 3] {
+        [Self::WouldFind, Self::Partial, Self::NoneHaveIt]
+    }
+}
+
+/// How upstream's own type for the receiver *position* relates to ours.
+///
+/// The lead's challenge, and it is the right one: `kind` and `type` on a union,
+/// in files named `discriminantPropertyCheck` and `controlFlowAliasing`, is a
+/// **narrowing** signature. If upstream never had a union there, the work is in
+/// `crates/tsr-checker/src/flow.rs` and not in `members.rs`, and calling it a
+/// union-lookup item would be `docs/conventions.md`'s "a row named after a
+/// mechanism is usually not about that mechanism" for the fourth time.
+///
+/// The constituent sets are compared by splitting the printed form on `" | "`,
+/// which is a **heuristic**: it mis-splits a nested function type such as
+/// `(() => void) | ((a: number) => void)`. It is labelled one, and it is not
+/// what the ownership decision rests on — [`Distributed`] is. Its job is to say
+/// whether the raw `DIFFERS` count is narrowing or merely constituent order.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+enum Agreement {
+    /// Identical printed form.
+    Same,
+    /// The same constituents in a different printed order — our union sort is
+    /// not upstream's. A printing difference, not a typing one.
+    SameSetDifferentOrder,
+    /// Upstream's constituents are a strict subset of ours: upstream had a
+    /// **narrower** type at that position. Narrowing, or a nullish constituent
+    /// upstream removed. **Not a members.rs item.**
+    UpstreamNarrower,
+    /// Neither — an alias printed as its name, or a genuinely different type.
+    Differs,
+    /// The receiver has no aligned assertion to compare against.
+    NoComparison,
+}
+
+impl Agreement {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Same => "upstream's receiver type is ours, exactly",
+            Self::SameSetDifferentOrder => "same constituents, different print order (ours)",
+            Self::UpstreamNarrower => "upstream is NARROWER (narrowing — flow.rs, not ours)",
+            Self::Differs => "differs another way (alias printing, or a real difference)",
+            Self::NoComparison => "no aligned receiver line to compare",
+        }
+    }
+
+    fn all() -> [Self; 5] {
+        [
+            Self::Same,
+            Self::SameSetDifferentOrder,
+            Self::UpstreamNarrower,
+            Self::Differs,
+            Self::NoComparison,
+        ]
+    }
+}
+
+/// Upstream's rule, `getPropertyOfUnionOrIntersectionType`, as a function so it
+/// can be asserted rather than read: a **union** answers only when *every*
+/// remaining constituent has the property; an **intersection** when *any* does.
+///
+/// Getting this backwards is the single edit that would turn the composite
+/// bucket from "not ours" into "ours" in the output while changing nothing
+/// real, which is why it is a named mutation rather than an inline expression.
+fn distributed_outcome(is_union: bool, found: usize, kept: usize) -> Distributed {
+    if found == 0 {
+        Distributed::NoneHaveIt
+    } else if !is_union || found == kept {
+        Distributed::WouldFind
+    } else {
+        Distributed::Partial
+    }
+}
+
+/// Compare upstream's printed receiver type with ours. See [`Agreement`] for
+/// why the constituent split is a heuristic.
+fn agreement(theirs: &str, ours: &str) -> Agreement {
+    if theirs == ours {
+        return Agreement::Same;
+    }
+    let mut their_parts: Vec<&str> = theirs.split(" | ").map(str::trim).collect();
+    let mut our_parts: Vec<&str> = ours.split(" | ").map(str::trim).collect();
+    their_parts.sort_unstable();
+    their_parts.dedup();
+    our_parts.sort_unstable();
+    our_parts.dedup();
+    if their_parts == our_parts {
+        return Agreement::SameSetDifferentOrder;
+    }
+    if their_parts.iter().all(|part| our_parts.contains(part)) {
+        return Agreement::UpstreamNarrower;
+    }
+    Agreement::Differs
+}
+
 /// One case's contribution.
 struct CaseReport {
     name: String,
@@ -379,6 +613,23 @@ struct CaseReport {
     access_only: usize,
     /// Why each unpaired access is unpaired.
     unpaired: HashMap<Unpaired, usize>,
+    /// Rows 5/6 lines by `(row, cause)` — the reconciliation against the board.
+    causes: HashMap<(Row, Cause), usize>,
+    /// The row-6 lines whose cause is TERMINAL, named rather than counted:
+    /// `(case, the assertion text)`. Bounded, because three lines need three
+    /// examples and a runaway list would mean the hypothesis is wrong anyway.
+    terminal_examples: Vec<(String, String)>,
+    /// What a distributed lookup would answer, for composite receivers only.
+    distributed: HashMap<Distributed, usize>,
+    /// Composite-receiver lines whose access is an optional chain (`a?.b`),
+    /// and lines whose union carried `undefined` or `null` at all.
+    optional_chain: usize,
+    nullish_in_union: usize,
+    /// Upstream's own type for the receiver's position, against ours, for
+    /// composite receivers: `(upstream, ours)`, bounded per case.
+    receiver_pairs: HashMap<(String, String), usize>,
+    /// The same comparison, classified rather than listed.
+    agreements: HashMap<Agreement, usize>,
     /// The property name that was not found, by shape — bounded per case.
     names: HashMap<(Shape, String), usize>,
     /// The receiver's printed type for the intrinsic bucket, so the
@@ -445,6 +696,13 @@ fn main() {
                 name_only: 0,
                 access_only: 0,
                 unpaired: HashMap::new(),
+                causes: HashMap::new(),
+                terminal_examples: Vec::new(),
+                distributed: HashMap::new(),
+                optional_chain: 0,
+                nullish_in_union: 0,
+                receiver_pairs: HashMap::new(),
+                agreements: HashMap::new(),
                 names: HashMap::new(),
                 intrinsics: HashMap::new(),
                 control_not_access: 0,
@@ -469,6 +727,28 @@ fn main() {
                         position_of.entry(*id).or_insert(position);
                     }
                 }
+
+                // `rank_board`'s span test, copied verbatim so the two sides of
+                // the reconciliation are computed the same way. The walker emits
+                // in source preorder, so a node's descendants are the contiguous
+                // run of later lines whose span lies inside its own.
+                let below: Vec<bool> = match (our_file, our_ids) {
+                    (Some(file), Some(line_ids)) if file.len() == line_ids.len() => (0..file.len())
+                        .map(|i| {
+                            if file[i].type_string != "error" {
+                                return true;
+                            }
+                            let outer = nodes.span(line_ids[i]);
+                            !(i + 1..file.len())
+                                .take_while(|&j| {
+                                    let inner = nodes.span(line_ids[j]);
+                                    inner.start >= outer.start && inner.end <= outer.end
+                                })
+                                .any(|j| file[j].type_string == "error")
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
 
                 for (position, want) in expected_file.assertions.iter().enumerate() {
                     report.expected += 1;
@@ -563,7 +843,109 @@ fn main() {
                         *report.names.entry((shape, name.text.to_string())).or_default() += 1;
                     }
                     if matches!(shape, Shape::Intrinsic | Shape::Literal) {
-                        *report.intrinsics.entry(printed).or_default() += 1;
+                        *report.intrinsics.entry(printed.clone()).or_default() += 1;
+                    }
+
+                    // THE RECONCILIATION. `rank_board` keys each row by
+                    // `(row_key, cause)` and prints its rankings per cause, so
+                    // its 4,005 may be row 6's *propagated/span* count rather
+                    // than row 6's total. Bucketing by the same span test says
+                    // so or refutes it.
+                    //
+                    // **The polarity is the trap and it caught me.** `below[i]`
+                    // is `true` when *nothing* gapped below — `rank_board` names
+                    // the binding `gapped_below` and then passes `!gapped_below`
+                    // into `cause()`. Copying the expression without its use
+                    // inverted the whole split, and the smoke run reported row 5
+                    // as 100% propagated and row 6 as 100% terminal, which is
+                    // exactly backwards. The control below is what makes that
+                    // self-detecting rather than a plausible-looking table.
+                    let line_cause = match below.get(position) {
+                        Some(true) => Cause::Terminal,
+                        // No span data is not evidence of TERMINAL. `rank_board`
+                        // counts that case as UNATTRIBUTED and its control reads
+                        // zero, so the arm is unreachable in practice and is
+                        // written to fail loudly rather than to guess.
+                        Some(false) => Cause::PropagatedSpan,
+                        None => {
+                            report.control_not_access += 1;
+                            continue;
+                        }
+                    };
+                    *report.causes.entry((row, line_cause)).or_default() += 1;
+                    if row == Row::Access
+                        && line_cause == Cause::Terminal
+                        && report.terminal_examples.len() < 8
+                    {
+                        report.terminal_examples.push((case.name.clone(), got.text.clone()));
+                    }
+
+                    // PROBE PAST THE BLOCKER, for the composite receivers.
+                    // `docs/conventions.md`: a probe at the blocker only shows
+                    // it is live; the question is what the form answers once it
+                    // is removed. Strip the nullish constituents upstream's
+                    // `checkNonNullExpression` removes before the lookup, then
+                    // ask each remaining constituent for the name.
+                    if shape == Shape::Composite {
+                        if access.question_dot_token.is_some() {
+                            report.optional_chain += 1;
+                        }
+                        let (constituents, is_union) = match &checker.type_of(receiver_type).data {
+                            TypeData::Union { types, .. } => (types.clone(), true),
+                            TypeData::Intersection { types, .. } => (types.clone(), false),
+                            _ => (Vec::new(), true),
+                        };
+                        let kept: Vec<_> = constituents
+                            .iter()
+                            .copied()
+                            .filter(|&constituent| {
+                                !matches!(
+                                    &checker.type_of(constituent).data,
+                                    TypeData::Intrinsic { name: "undefined" | "null" }
+                                )
+                            })
+                            .collect();
+                        if kept.len() != constituents.len() {
+                            report.nullish_in_union += 1;
+                        }
+                        let found = kept
+                            .iter()
+                            .filter(|&&constituent| {
+                                checker.get_property_of_type(constituent, name.text).is_some()
+                            })
+                            .count();
+                        // Upstream's rule, `getPropertyOfUnionOrIntersectionType`:
+                        // a union answers only if every constituent has the
+                        // property; an intersection if any does.
+                        let outcome = distributed_outcome(is_union, found, kept.len());
+                        *report.distributed.entry(outcome).or_default() += 1;
+
+                        // And upstream's own answer for the receiver position,
+                        // which is what says whether our union is even the type
+                        // upstream had there. `kind`/`type` on a union in files
+                        // named after discriminant narrowing is a narrowing
+                        // signature until this says otherwise.
+                        let their_type = receiver
+                            .node_id()
+                            .and_then(|receiver_id| position_of.get(&receiver_id))
+                            .and_then(|&receiver_position| {
+                                let their = expected_file.assertions.get(receiver_position)?;
+                                let ours = our_file.and_then(|file| file.get(receiver_position))?;
+                                their
+                                    .text
+                                    .strip_prefix(&format!("{} : ", ours.text))
+                                    .map(str::to_string)
+                            });
+                        let verdict = their_type
+                            .as_ref()
+                            .map_or(Agreement::NoComparison, |their| agreement(their, &printed));
+                        *report.agreements.entry(verdict).or_default() += 1;
+                        if let Some(their) = their_type
+                            && report.receiver_pairs.len() < 200
+                        {
+                            *report.receiver_pairs.entry((their, printed.clone())).or_default() +=
+                                1;
+                        }
                     }
                 }
 
@@ -696,6 +1078,12 @@ fn report(reports: &[CaseReport]) {
     let mut residuals: HashMap<String, usize> = HashMap::new();
     let (mut paired, mut name_only, mut access_only) = (0usize, 0usize, 0usize);
     let mut unpaired: HashMap<Unpaired, usize> = HashMap::new();
+    let mut causes: HashMap<(Row, Cause), usize> = HashMap::new();
+    let mut distributed: HashMap<Distributed, usize> = HashMap::new();
+    let mut receiver_pairs: HashMap<(String, String), usize> = HashMap::new();
+    let mut agreements: HashMap<Agreement, usize> = HashMap::new();
+    let mut terminal_examples: Vec<(String, String)> = Vec::new();
+    let (mut optional_chain, mut nullish_in_union) = (0usize, 0usize);
     let (mut not_access, mut lookup_found, mut unclassified) = (0usize, 0usize, 0usize);
     let (mut expected, mut matched) = (0usize, 0usize);
 
@@ -726,6 +1114,21 @@ fn report(reports: &[CaseReport]) {
         for (key, count) in &case.unpaired {
             *unpaired.entry(*key).or_default() += count;
         }
+        for (key, count) in &case.causes {
+            *causes.entry(*key).or_default() += count;
+        }
+        for (key, count) in &case.distributed {
+            *distributed.entry(*key).or_default() += count;
+        }
+        for (key, count) in &case.agreements {
+            *agreements.entry(*key).or_default() += count;
+        }
+        for (key, count) in &case.receiver_pairs {
+            *receiver_pairs.entry(key.clone()).or_default() += count;
+        }
+        terminal_examples.extend(case.terminal_examples.iter().cloned());
+        optional_chain += case.optional_chain;
+        nullish_in_union += case.nullish_in_union;
         paired += case.paired;
         name_only += case.name_only;
         access_only += case.access_only;
@@ -766,6 +1169,54 @@ fn report(reports: &[CaseReport]) {
     for outcome in Unpaired::all() {
         let count = unpaired.get(&outcome).copied().unwrap_or_default();
         println!("      {count:>6}  {}", outcome.label());
+    }
+
+    println!();
+    println!("RECONCILIATION WITH rank_board — rows 5/6 by rank_board's own cause split");
+    println!("  the board prints its rankings PER CAUSE, so its 4,005 may be row 6's");
+    println!("  propagated/span count and not row 6's total. Measured:");
+    for row in [Row::MemberName, Row::Access] {
+        let label = match row {
+            Row::MemberName => "row 5 (member name)",
+            Row::Access => "row 6 (property access)",
+        };
+        for kind in [Cause::Terminal, Cause::PropagatedSpan] {
+            let count = causes.get(&(row, kind)).copied().unwrap_or_default();
+            println!("      {count:>7}  {label:<24} {}", kind.label());
+        }
+    }
+    println!("  row 5 is a LEAF — nothing can be nested inside `b`, so a non-zero");
+    println!("  propagated/span count for it means the span test's polarity is inverted.");
+    println!("  the row-6 TERMINAL lines, named (up to 8):");
+    for (case, text) in terminal_examples.iter().take(8) {
+        println!("      {case}:  {text}");
+    }
+
+    println!();
+    println!("PROBE PAST THE BLOCKER — what a DISTRIBUTED lookup would answer");
+    println!("  (composite receivers only; nullish constituents stripped first, as");
+    println!("   upstream's checkNonNullExpression does before the lookup)");
+    let composite: usize = distributed.values().sum();
+    for outcome in Distributed::all() {
+        let count = distributed.get(&outcome).copied().unwrap_or_default();
+        println!("      {count:>7}  {:>5.1}%  {}", pct(count, composite), outcome.label());
+    }
+    println!("      {optional_chain:>7}  of those are an optional chain `a?.b`");
+    println!("      {nullish_in_union:>7}  of those had `undefined` or `null` in the union");
+    println!("  upstream's type for the receiver POSITION against ours, classified:");
+    for verdict in Agreement::all() {
+        let count = agreements.get(&verdict).copied().unwrap_or_default();
+        println!("      {count:>7}  {:>5.1}%  {}", pct(count, composite), verdict.label());
+    }
+    println!("  and the raw pairs (top 12; the split on ` | ` above is a heuristic):");
+    let mut pairs: Vec<_> = receiver_pairs
+        .iter()
+        .map(|((theirs, ours), count)| (*count, theirs.clone(), ours.clone()))
+        .collect();
+    pairs.sort_unstable_by(|a, b| b.cmp(a));
+    for (count, theirs, ours) in pairs.iter().take(12) {
+        let verdict = if theirs == ours { "SAME" } else { "DIFFERS" };
+        println!("      {count:>6}  {verdict:<8} upstream {theirs}  |  ours {ours}");
     }
 
     println!();
@@ -846,5 +1297,14 @@ fn report(reports: &[CaseReport]) {
     println!(
         "  CONTROL pairing - rows 5/6 total                     = {}",
         delta(paired * 2 + name_only + access_only, total)
+    );
+    // The sixth control, added after the span test's polarity was copied
+    // inverted and produced a table that looked entirely plausible: row 5 is the
+    // `b` of `a.b`, a leaf, so no line can be nested strictly inside its span
+    // and `propagated/span` is impossible for it by construction. This reads
+    // 4,016 rather than 0 the moment the polarity flips.
+    println!(
+        "  CONTROL row 5 (a LEAF) counted as propagated/span    = {}",
+        causes.get(&(Row::MemberName, Cause::PropagatedSpan)).copied().unwrap_or_default()
     );
 }
