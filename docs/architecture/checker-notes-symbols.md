@@ -20,7 +20,7 @@ number handed to this slice was off by two.
    mechanism is the exact trap `checker-notes-rank.md` §4 documents.** Measured
    on the `conformance/` half of the corpus: **56.4% of it is a parameter
    annotation that is itself a gap**, 17.6% is `async`/generator waiting on
-   `Promise`/`Generator`, 11.1% is a destructuring parameter, 9.9% is a return
+   `Promise`/`Generator`, 10.9% is a destructuring parameter, 9.9% is a return
    expression that is itself a gap. Nothing in it is `symbols.rs` work, and
    almost none of it is terminal.
 3. **Row 10 splits 23% same-file / 77% cross-file**, and the same-file half is
@@ -395,9 +395,8 @@ The probe in §3 shows what that looks like — `function f(x: number[]) {}` ans
 ## 7. Prediction
 
 **Rows:** row 10's same-file half, and only the `export { q }` form of it.
-**Commit pair:** `61aa1e5^..61aa1e5` — verify with `git log --oneline 61aa1e5^..61aa1e5`
-returning exactly one line. *(Filled in at commit; see the git log if this reads
-as a placeholder.)*
+**Commit pair:** `c60b086^..c60b086` — verify with `git log --oneline c60b086^..c60b086`
+returning exactly one line.
 **Mechanism:** `resolve_alias` now dispatches `ExportSpecifier` to a local
 `resolveEntityName`, and `get_symbol_flags` follows the alias chain so the value
 test does not reject an alias target.
