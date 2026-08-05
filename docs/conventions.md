@@ -956,3 +956,36 @@ lines land inside.** An absolute count, or a share of a total, has no such
 protection — which is why the concentration leg moved and the rate did not.
 Deciding which case you are in costs one bucket in the probe and is not
 available from the argument.
+
+### Pre-register on the most direct bucket your instrument produces, not on a proxy
+
+The level-4 probe for `bd tsr-4qx` printed a histogram of remaining failures per
+affected case, with buckets `0 / 1–5 / 6–10 / 11–25 / 26–100 / >100`. The
+question being decided was *"would closing this row finish any case?"*. The
+decision rule pre-registered against it was **"≥25% of cases at ≤10 remaining"**
+— a proxy, reasoned as "≤10 is roughly what 4.13 nodes per case could finish".
+
+The direct answer was the **`0` bucket, one row above the proxy**, and it read
+**0.0%**. The rule did not look at it.
+
+Measured, the proxy said *build* (29.8% ≥ 25%) and the direct bucket said the row
+finishes **no case at all**. They disagreed, and the build was avoided only
+because a separately-registered override — about the concentration of the top
+cases — happened to reach the same conclusion by another route. **That is luck,
+not method.**
+
+This is a distinct failure from the ones already catalogued here. Building the
+wrong instrument is caught by a control bucket. Building the *right* instrument
+and reading a derived row off it is caught by nothing, because every number
+involved is correct and the partition is sound. It is the same family as *"a
+number can be true and answer a different question"*, arriving one level in:
+**the instrument answered the question directly, and the rule was written against
+a quantity computed from the answer instead.**
+
+So, when pre-registering a threshold: look down the list of buckets the
+instrument will actually print and ask which one *is* the question. If one of
+them is, the rule goes on that bucket. A proxy is only legitimate when no bucket
+answers directly — and then it should be labelled a proxy, so the next reader
+knows the rule is one inference away from the evidence.
+
+The agent that wrote the rule found and recorded this against itself.
