@@ -221,7 +221,7 @@ pub mod counters {
         /// 2,562 the three `of which` rows above do, by whether the receiver's
         /// type **carries type arguments**: whether it came out of
         /// `create_type_reference` (`crate::declared`) as `C<number>` rather
-        /// than as `C`. That is the discriminator for `bd tsr-el3.2`,
+        /// than as `C`. That is the discriminator for `bd tsr-4qx`,
         /// instantiated members, and nothing measured so far separates it.
         ///
         /// Receiver carries type arguments and the member lookup found
@@ -238,7 +238,7 @@ pub mod counters {
         /// invariant is the load-bearing fact of `bd tsr-fua`; a counter
         /// re-derives it on every corpus run instead of trusting this comment.
         ///
-        /// It stops being a control the moment step 4 of `bd tsr-el3.2` flips
+        /// It stops being a control the moment step 4 of `bd tsr-4qx` flips
         /// `create_type_reference` to `Some(symbol)`, at which point this row
         /// becomes the measurement of how many generic receivers newly resolve
         /// a member.
@@ -473,7 +473,7 @@ impl Checker<'_, '_> {
                 // the split above on purpose — the question "is this an
                 // instantiated generic" is about the receiver's *provenance*
                 // and the split above is about the member lookup's outcome,
-                // and only the join of the two sizes `bd tsr-el3.2`.
+                // and only the join of the two sizes `bd tsr-4qx`.
                 bump(match (self.receiver_carries_type_arguments(receiver), member.is_some()) {
                     (true, false) => &COUNTERS.receiver_generic_member_absent,
                     (true, true) => &COUNTERS.receiver_generic_member_found,
@@ -873,7 +873,7 @@ mod tests {
     ///
     /// Mutation that reddens this: pass `Some(symbol)` instead of `None` to
     /// `new_named` in `create_type_reference` — which is step 4 of
-    /// `bd tsr-el3.2`, so this test is both the falsifier for the finding and
+    /// `bd tsr-4qx`, so this test is both the falsifier for the finding and
     /// the tripwire for the change that ends it. It reddens neither sibling
     /// above: `receiver_carries_type_arguments` reads the reverse index, which
     /// that mutation does not touch.

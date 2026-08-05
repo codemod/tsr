@@ -118,7 +118,7 @@ impl Checker<'_, '_> {
         // `get_property_of_type` + `get_type_of_symbol`, because the symbol
         // carries the *uninstantiated* declaration: `c["a"]` on a `C<number>`
         // whose member is declared `a: T` must answer `number`, and only the
-        // seam can know that. It answers identically today (`bd tsr-el3.2`).
+        // seam can know that. It answers identically today (`bd tsr-4qx`).
         if let Some(property_type) = self.get_type_of_property_of_type(object_type, &name) {
             return property_type;
         }

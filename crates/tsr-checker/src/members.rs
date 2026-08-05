@@ -132,7 +132,7 @@ impl Checker<'_, '_> {
     /// the other"* in `docs/conventions.md`.
     ///
     /// So this is the single place instantiation can be added once and be true
-    /// everywhere, which is `bd tsr-el3.2`. **Today it adds no instantiation and
+    /// everywhere, which is `bd tsr-4qx`. **Today it adds no instantiation and
     /// changes no answer** — that is deliberate, and it is what makes the
     /// change that does add it a one-function change rather than a three-site
     /// one.

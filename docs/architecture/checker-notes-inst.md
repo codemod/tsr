@@ -13,8 +13,22 @@
 > The same wrong claim is in `checker-notes-recv.md` ("97 of the 557, 17.4%");
 > that page is another agent's and has not been edited here.
 
+> **Second correction, same day: the `bd` id was wrong too.** This page, its two
+> siblings and several source comments cited **`bd tsr-el3.2`** for instantiated
+> members. `tsr-el3.2` is *"Checker: port upstream's algorithmic recursion
+> limits"*; the instantiated-members item is **`bd tsr-4qx`**. The wrong id had
+> been copied forward through three documents and into commit messages, and it
+> was caught only by running `bd show` instead of trusting the citation — which
+> is the same failure `docs/conventions.md` records under *"The anchors gate does
+> not see your briefing"*, one identifier class over. `cargo run -p xtask --
+> anchors` validates upstream line numbers and does **not** validate `bd` ids, so
+> nothing would have caught this. The citations in this workstream's files are
+> corrected; `checker-notes-recv.md` still carries the wrong one. Note that the
+> two items are genuinely related — `tsr-4qx` step 3 pulls in `tsr-el3.2`'s
+> `instantiationDepth` guard — which is exactly why the confusion survived.
+
 Status: designed 2026-08-05, **no production code changed**. Written for the
-item `bd tsr-el3.2` names and that
+item `bd tsr-4qx` names and that
 [`checker-notes-recv.md`](checker-notes-recv.md) demonstrated is the blocker for
 the 557 typed-receiver calls. The finding below is why this agent did not build
 it, stated so the next one starts from the seam rather than from the symptom.
@@ -342,7 +356,7 @@ a population instead of measuring it.
 
 **Status of the build.** Steps 1 and 2 are landed and change no answer. Steps 3
 and 4 are **not built**, and this page does not pretend otherwise — `bd
-tsr-el3.2` remains open. They are held on the concentration run above, because
+tsr-4qx` remains open. They are held on the concentration run above, because
 the honest scope statement differs between "a 929-node gradient item" and "five
 `Promise` baselines and a long tail", and the second is a workstream rather than
 a slice.

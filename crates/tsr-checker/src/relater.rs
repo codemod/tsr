@@ -394,7 +394,7 @@ impl Relater<'_, '_, '_> {
             // not degrade to a gap, it promotes the next overload candidate and
             // yields a confident wrong type (`docs/conventions.md`, "A
             // conservative `false` is safe for one kind of consumer and unsafe
-            // for the other"). Answers identically today; `bd tsr-el3.2`.
+            // for the other"). Answers identically today; `bd tsr-4qx`.
             //
             // `None` still means *no such property* — a property that exists
             // and does not type answers `Some(errorType)` — so the existence

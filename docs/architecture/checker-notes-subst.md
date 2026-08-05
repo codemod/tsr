@@ -86,7 +86,7 @@ rejection listed is still payable and nothing new is bought. A second consumer o
 the same *shape* is evidence the side table is the right home, not evidence
 against it.
 
-The same holds for step 3 of `bd tsr-el3.2` (instantiating a member's type inside
+The same holds for step 3 of `bd tsr-4qx` (instantiating a member's type inside
 `get_type_of_property_of_type`): it starts from the receiver's `TypeId` and wants
 the pair. Two consumers of that shape, zero of the other.
 
@@ -126,9 +126,10 @@ unequal. That is the failure mode `checker.md` warns about — answering a type
   and `instantiationCount` because a mapper can build unboundedly deep types
   from bounded source. Nothing here can: every argument reached came from a
   written type node, so recursion is bounded by source nesting. **That ceases
-  to hold the moment a generic's members are instantiated** — `bd tsr-el3.2`.
+  to hold the moment a generic's members are instantiated** — `bd tsr-4qx`.
 
-  **Re-examined 2026-08-05, when that item was built up to step 3.** The
+  **Re-examined 2026-08-05, when that item was built up to step 2** (steps 3
+  and 4 are **not** built). The
   falsifier is half-fired and the half that fired is already contained:
 
   - *Inside one `instantiate_type` call*, nothing changes. A member's declared
@@ -147,7 +148,8 @@ unequal. That is the failure mode `checker.md` warns about — answering a type
     overflow on mutually recursive interfaces) and it is what makes this a
     performance question rather than a hang.
 
-  So the guard `bd tsr-el3.2` adds is upstream's `instantiationDepth`
+  So the guard `bd tsr-4qx` adds, borrowed from `bd tsr-el3.2`, is
+  upstream's `instantiationDepth`
   (`checker.go:22111`, limit 100, yielding `errorType`) and **not** a lowering
   of `MAX_DEPTH` to upstream's `isDeeplyNestedType` depth of 3
   (`relater.go:3113`). Lowering it would change answers on non-generic code

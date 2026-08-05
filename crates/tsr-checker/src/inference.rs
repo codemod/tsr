@@ -258,7 +258,7 @@ impl Checker<'_, '_> {
     /// unboundedly deep types from a bounded source. Nothing here can: every
     /// argument reached is one that a *written* type node already produced, so
     /// the recursion is bounded by the source nesting. That stops being true the
-    /// moment a generic's members are instantiated, which is `bd tsr-el3.2`.
+    /// moment a generic's members are instantiated, which is `bd tsr-4qx`.
     pub(crate) fn instantiate_type(
         &mut self,
         id: TypeId,
