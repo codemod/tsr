@@ -196,13 +196,22 @@ impl Suite for CheckerTypes {
             return skip("the .types baseline has no assertions");
         }
 
-        // No producer yet: nothing renders our checker's types in baseline form
-        // (`bd tsr-4sc.2`). The case is `Unsupported` rather than `Failed` — we
-        // cannot run, as opposed to running and being wrong — and it still carries
-        // its full denominator, so the gradient counts every assertion the
-        // checker owes from the day the row reads 0%.
+        // The checker computes declaration and literal types as of `bd tsr-4sc.2`,
+        // and `crate::types_producer` renders them in baseline form — but the two
+        // are **deliberately not connected yet**. The walker agrees with upstream
+        // on 65.08% of assertion *text* (`examples/types_walker`), so a gradient
+        // taken now would mostly measure the walker rather than the checker, and
+        // a non-zero row would read as checker progress that has not happened.
+        // Wired up when walker agreement is high; `bd tsr-4sc.3`.
+        //
+        // `Unsupported` rather than `Failed` — we decline to run, as opposed to
+        // running and being wrong — and it still carries its full denominator, so
+        // the gradient counts every assertion the checker owes from the day the
+        // row reads 0%.
         Judgement {
-            outcome: Outcome::Unsupported { reason: "no checker (bd tsr-4sc)".into() },
+            outcome: Outcome::Unsupported {
+                reason: "producer not wired to the suite (bd tsr-4sc.3)".into(),
+            },
             lines: Some(LineTally { matched: 0, total: assertions }),
         }
     }

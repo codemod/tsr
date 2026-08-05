@@ -7,7 +7,7 @@ Assertion lines: 0/478954 (0.00%)  — a gradient, not a pass rate
 Unsupported    : 9538
 Skipped        : 2906 (excluded from the denominator)
 
-  9538  no checker (bd tsr-4sc)
+  9538  producer not wired to the suite (bd tsr-4sc.3)
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
   135  skipped: the .types baseline has no assertions
   924  skipped: upstream recorded no .types baseline
