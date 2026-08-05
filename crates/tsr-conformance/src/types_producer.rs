@@ -468,6 +468,40 @@ pub fn type_at_location(
         }
     }
 
+    // **A label name prints `any`, and the writer is what decides it** — the
+    // third of the eight guards at `type_symbol_baseline.go:380`, and the second
+    // ported after `isIntrinsicJsxTag`.
+    //
+    // A label is not a value: it lives in its own namespace, `resolveName` never
+    // sees it, and upstream's `checkIdentifier` answers **`errorType`** — the
+    // same answer this port already gives. The `any` is the writer falling
+    // through to the node builder because `!ast.IsLabelName(node)` failed.
+    //
+    // This arm was measured before it was ported, and it is the *only* one of the
+    // seven unported guards whose measurement recommends porting it: **209 corpus
+    // lines, 209 of which upstream answers `any`, with an empty residue.** A 100%
+    // conversion rate and a zero `-> other` column is the signature of a position
+    // where upstream *always* holds `errorType`, which is what makes converting
+    // it a faithful port rather than a string match on a different path. The
+    // dominant guard, `hadErrorBaseline`, has the opposite shape — 39,412
+    // conversions of which ~93% are lines where upstream computed a genuine
+    // `anyType` this port cannot — and is deliberately **not** ported. See
+    // docs/architecture/checker-notes-guard.md for both measurements.
+    //
+    // The `IsTypeAny` precondition is upstream's and is load-bearing here for a
+    // port-specific reason, not a theoretical one: given `const outer = 1;`,
+    // *this* checker resolves the label `outer` to the variable and answers `1`.
+    // Upstream does not share that namespace, so the line is ours to be wrong
+    // about either way — but converting it would be an unmeasured change riding
+    // along with a measured one, and the 209 lines never included it.
+    if is_label_name(id, nodes, map) {
+        let label = tsr_ast::Expression::try_from(node)
+            .map_or(error, |expression| checker.check_expression(expression));
+        if label == error {
+            return checker.type_to_string(checker.intrinsics().any);
+        }
+    }
+
     // **An intrinsic JSX tag name prints `any`, and the checker is not what
     // decides that** — the writer is, exactly as for the two compensations
     // above.
@@ -536,6 +570,32 @@ pub fn type_at_location(
         return checker.type_to_string(id);
     }
     checker.type_to_string(error)
+}
+
+/// Whether this identifier is a label name.
+///
+/// Ported from `ast.IsLabelName` (`internal/ast/utilities.go:2263`), which is the
+/// disjunction of two predicates:
+///
+/// ```go
+/// return IsLabelOfLabeledStatement(node) || IsJumpStatementTarget(node)
+/// ```
+///
+/// Both halves matter. `outer: while (true) { break outer; }` produces **two**
+/// assertion lines for `outer`, and a guard keyed only on the declaration would
+/// convert one of them.
+fn is_label_name(id: NodeId, nodes: &NodeTable, map: &NodeMap<'_>) -> bool {
+    if nodes.kind(id) != SyntaxKind::Identifier {
+        return false;
+    }
+    let Some(parent) = nodes.parent(id) else { return false };
+    let label = match map.get(parent) {
+        Some(Node::LabeledStatement(statement)) => statement.label,
+        Some(Node::BreakStatement(statement)) => statement.label,
+        Some(Node::ContinueStatement(statement)) => statement.label,
+        _ => return false,
+    };
+    label.and_then(|label| label.node_id) == Some(id)
 }
 
 /// The tag name of a JSX opening, closing or self-closing element.
@@ -1119,6 +1179,43 @@ mod tests {
             .expect("a tag name line");
         assert_ne!(tag, "any", "in {out:?}");
         assert_eq!(tag, "() => number", "in {out:?}");
+    }
+
+    #[test]
+    fn a_label_name_prints_any() {
+        // Both halves of `ast.IsLabelName` — the label *of* a labeled statement
+        // and the *target* of a jump — in one fixture, because they are separate
+        // predicates upstream and a guard keyed on only the first fixes half the
+        // population while looking like a whole fix.
+        //
+        // Our checker answers the error type for both, correctly and for
+        // upstream's reason: a label is not a value and the name does not
+        // resolve. The writer is what turns that into `any`. The corpus arm is
+        // 209 lines, all 209 answering `any` upstream with an empty residue — the
+        // signature of a position where upstream always holds `errorType`. See
+        // docs/architecture/checker-notes-guard.md.
+        let out = typed("outer: while (true) { break outer; }");
+        let labels: Vec<_> =
+            out.iter().filter(|(text, _)| text == "outer").map(|(_, ty)| ty.as_str()).collect();
+        assert_eq!(labels, ["any", "any"], "in {out:?}");
+    }
+
+    #[test]
+    fn a_label_shadowing_a_value_keeps_the_type_we_computed() {
+        // Upstream's `IsTypeAny` precondition, and the case that separates a port
+        // of the guard from "a label position prints `any`". A label shares no
+        // namespace with a value upstream, but *this* checker resolves the
+        // identifier to the variable and answers `1` — so the precondition is not
+        // satisfied and the guard must not fire.
+        //
+        // The plausible wrong implementation — convert every label position
+        // unconditionally — prints `any` on the label lines below. Those are
+        // lines the 209-line measurement never claimed, so converting them would
+        // ship an unmeasured change under a measured one.
+        let out = typed("const outer = 1;\nouter: while (true) { outer; }");
+        let labels: Vec<_> =
+            out.iter().filter(|(text, _)| text == "outer").map(|(_, ty)| ty.as_str()).collect();
+        assert_eq!(labels, ["1", "1", "1"], "in {out:?}");
     }
 
     /// Assertion texts for a source, with types stubbed out.

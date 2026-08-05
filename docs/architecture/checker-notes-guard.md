@@ -15,6 +15,12 @@ of it at `bea80b9`, from a single pinned binary.
 about 1,500, and one guard — `hadErrorBaseline` — accounts for 39,412 lines that
 would be credited for a type this port does not compute.**
 
+> **Corrected after porting.** The per-guard figures below are attribution
+> counts, and for the *positional* arms they under-state what porting the arm is
+> worth — the label arm measured 209 and converted 597, 2.9× low. See
+> "Ported: the label-name guard, and why 209 was the wrong number" at the end.
+> The `hadErrorBaseline` verdict is unaffected: it is the arm that absorbs.
+
 ## The instrument
 
 One arm per guard, attributed in **upstream's written order**
@@ -142,7 +148,7 @@ answer, and it is the one the ceilings were filed to prevent being missed.
 Read the arms as *positions*, in the errors-baseline-free cases where the writer's
 decision is genuinely positional:
 
-- **Label name — 209 claims, 209 convert, 0 `-> other`.** A 100% conversion rate
+- **Label name — 209 claims, 209 convert, 0 `-> other`. Now ported.** A 100% conversion rate
   with an empty residue is the signature of a position where upstream *always*
   holds `errorType`, and it is the same shape as the already-ported
   `isIntrinsicJsxTag` arm. Small, clean, and free of the false-credit problem
@@ -180,3 +186,73 @@ shape regardless of the false-credit argument.
   `crates/tsr-checker` edits in the tree at `bea80b9`. The arm *shape* is robust —
   the same run before their edits gave 39,412 / 356 / 452 / 209 / 238 / 92
   identically — but the totals will drift.
+
+## Ported: the label-name guard, and why 209 was the wrong number
+
+The label arm is the one this measurement recommended porting, and it is now in
+`type_at_location` with `is_label_name` beside `jsx_tag_name_of`. Re-measured on
+the same instrument, the arm reads **0 / 0 / 0 / 0** — the ported-JSX signature,
+meaning its lines have been converted away from `error` and the arm can no longer
+claim them.
+
+**It converted 597 lines, not 209.** The accounting closes exactly:
+
+| | before | after | delta |
+|---|---|---|---|
+| gradient | 272,181 (58.0441%) | 272,778 (58.1714%) | **+597** |
+| lines we print as `error` | 175,044 | 174,444 | −600 |
+| `label name` arm claims | 209 | 0 | −209 |
+| `hadErrorBaseline` arm claims | 119,166 | 118,775 | −391 |
+| `hadErrorBaseline` arm `-> any` | 39,412 | 39,024 | −388 |
+| wrong | 22,088 | 22,091 | +3 |
+
+600 label-name lines left the `error` population: 209 from fast-path-live cases
+and **391 that were sitting inside cases with an errors baseline**. 597 of the 600
+convert to right (209 + 388); the other 3 are lines upstream answers with a real
+type, so they stay wrong — differently wrong, at no cost, since they were wrong
+before.
+
+**The 209 was a true number answering a different question.** Attribution gives
+`hadErrorBaseline` precedence, because the guard that fires first is the one that
+decides upstream's line — so every label name in the 56.3% of cases carrying an
+errors baseline was counted under the dominant arm, not under `label name`. The
+209 answered *"how many label-name lines sit in fast-path-live cases"*. The
+question being asked was *"how many lines does porting the label guard convert"*,
+and the conjunction means either guard alone sends the line to the node builder.
+
+This is the failure `docs/conventions.md` describes under *"A number can be true
+and answer a different question"*, arriving from a direction that section does not
+yet cover: **an attribution order chosen to model upstream's control flow hides,
+under its dominant arm, the very lines a subordinate arm would convert.** The
+per-guard split reads correctly as *"which guard does upstream use here"* and
+incorrectly as *"what is this guard worth to port"*. Every remaining positional
+arm in the table above is therefore an **under**-estimate by roughly the same
+factor, and none of that changes the `hadErrorBaseline` verdict — it is the arm
+that absorbs, not one that is absorbed.
+
+The error ran 2.9× low. Recorded as a miss.
+
+### Controls that held
+
+- No line that was right could break: the guard fires only where our type is the
+  error type, upstream prints `: error` on 0 of 317,893 aligned lines in
+  errors-baseline cases, and the label arm's `-> error` column was 0. The measured
+  `wrong` delta of +3 with a `right` delta of +597 and no offsetting loss confirms
+  it.
+- The JSX element lines that print `error` — the named control — cannot move: the
+  guard tests `LabeledStatement`/`BreakStatement`/`ContinueStatement` parents
+  only, and the intrinsic JSX arm still reads 0/0/0/0.
+- `aligned` unchanged at 468,921; `CONTRADICTIONS` still 0.
+
+### The two tests, and the mutation that reddens each
+
+| test | mutation | result |
+|---|---|---|
+| `a_label_name_prints_any` | drop the jump-target half of `IsLabelName` | `["any", "error"]` — converts the declaration, leaves the `break` target |
+| `a_label_shadowing_a_value_keeps_the_type_we_computed` | drop the `IsTypeAny` precondition | `["1", "any", "1"]` — converts a label our checker resolved to a value |
+
+Neither mutation reddens the other test, so they discriminate different things.
+The second is not hypothetical: given `const outer = 1;`, this checker resolves
+the label `outer` to the variable and answers `1`, because it does not keep labels
+in a separate namespace. Upstream never faces that, which is exactly why the
+precondition has to be carried across rather than reasoned away.
