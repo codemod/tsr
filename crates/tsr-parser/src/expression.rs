@@ -510,6 +510,16 @@ impl<'a> Parser<'a> {
     fn parse_new_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
         self.next_token();
+        // Where the *callee* begins, after `new`. The member chain below is
+        // finished from here rather than from `start`, because the `new` keyword
+        // belongs to the `NewExpression` and not to its callee: in
+        // `new provide.Provide()` the property access spans `provide.Provide`,
+        // and upstream's `.types` baseline records exactly that
+        // (`compiler/aliasBug.types`: `>provide.Provide : typeof provide.Provide`).
+        // Finishing from `start` gave it `new provide.Provide`, which was the
+        // largest single source of `.types` walker divergence once the
+        // predicates were right.
+        let callee_start = self.pos();
         let mut callee = self.parse_primary_expression();
         // `new a.b.C()` — the callee is a member chain, but not a call, since the
         // parentheses belong to `new`.
@@ -523,7 +533,7 @@ impl<'a> Parser<'a> {
                     Some(MemberName::Identifier(name)),
                 ),
                 SyntaxKind::PropertyAccessExpression,
-                start,
+                callee_start,
             );
             callee = Expression::PropertyAccessExpression(node);
         }

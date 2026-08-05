@@ -303,13 +303,13 @@ Built 2026-08-05 (`crates/tsr-conformance/src/types_producer.rs`), measured by
 
 Against upstream's 478,954 assertion lines throughout:
 
-| | first build | + meaning | + heritage | + `const` modifier | + instance state |
-|---|---:|---:|---:|---:|---:|
-| lines we emit | 499,816 | 481,365 | 479,771 | 479,767 | **479,019** |
-| **excess** | +20,862 | +2,411 | +817 | +813 | **+65** |
-| text agreement | 65.08% | 91.05% | 95.58% | 95.58% | **97.77%** |
-| cases with right count | 58.73% | 85.37% | 90.47% | 90.48% | **94.14%** |
-| cases matching every line | 56.36% | 82.59% | 87.54% | 87.57% | **91.10%** |
+| | first build | + meaning | + heritage | + `const` | + instance state | + callee span |
+|---|---:|---:|---:|---:|---:|---:|
+| lines we emit | 499,816 | 481,365 | 479,771 | 479,767 | 479,019 | **479,019** |
+| **excess** | +20,862 | +2,411 | +817 | +813 | +65 | **+65** |
+| text agreement | 65.08% | 91.05% | 95.58% | 95.58% | 97.77% | **97.85%** |
+| cases with right count | 58.73% | 85.37% | 90.47% | 90.48% | 94.14% | **94.14%** |
+| cases matching every line | 56.36% | 82.59% | 87.54% | 87.57% | 91.10% | **92.44%** |
 
 Four ports took this from two-thirds to 97.77%, and **excess emission from 20,862
 lines to 65**:
@@ -327,6 +327,13 @@ lines to 65**:
 - `GetModuleInstanceState`, worth 2.2 points and — more tellingly — most of the
   remaining excess. A namespace has a value side only when *instantiated*, so
   `namespace N {}` and `namespace N { interface I {} }` contribute no name.
+- **A `new` expression's callee span** in the parser. In `new provide.Provide()`
+  the property access spans `provide.Provide`; it was being finished from the
+  `new` position and spanned `new provide.Provide`. Invisible to the printer,
+  which round-trips either way, and wrong for every consumer that reads a node's
+  source text. Worth only 0.08 points on lines but **1.3 on whole cases** — 128
+  more cases match every line — because the shape is common and one wrong line
+  fails a case.
 
 **No type is involved in any of those numbers.** They are the prefix test
 described above, so they measure node selection and text extraction alone.

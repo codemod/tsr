@@ -1257,3 +1257,36 @@ fn const_still_opens_a_declaration_everywhere_else() {
         .collect();
     assert!(kinds.contains(&tsr_ast::SyntaxKind::VariableStatement));
 }
+
+#[test]
+fn a_new_expressions_callee_span_excludes_the_new_keyword() {
+    // `new` belongs to the NewExpression, not to its callee. In
+    // `new provide.Provide()` the property access spans `provide.Provide`;
+    // finishing it from the `new` position gave it `new provide.Provide`, which
+    // is invisible in the printer (the text round-trips either way) and wrong in
+    // every consumer that reads a node's source text. Upstream's baseline
+    // `compiler/aliasBug.types` records `>provide.Provide : typeof provide.Provide`.
+    let source = "var p = new provide.Provide();";
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let mut seen = Vec::new();
+    for node in all_nodes(tsr_ast::Node::SourceFile(parsed.source_file)) {
+        let Some(id) = node.node_id() else { continue };
+        let kind = parsed.nodes.kind(id);
+        if matches!(
+            kind,
+            tsr_ast::SyntaxKind::PropertyAccessExpression | tsr_ast::SyntaxKind::NewExpression
+        ) {
+            let span = parsed.nodes.span(id);
+            seen.push((kind, &source[span.start as usize..span.end as usize]));
+        }
+    }
+    assert!(
+        seen.contains(&(tsr_ast::SyntaxKind::NewExpression, "new provide.Provide()")),
+        "{seen:?}"
+    );
+    assert!(
+        seen.contains(&(tsr_ast::SyntaxKind::PropertyAccessExpression, "provide.Provide")),
+        "the callee must not swallow `new`: {seen:?}"
+    );
+}
