@@ -1358,3 +1358,34 @@ A cheap standing check, and one page was audited this way in a single loop:
 resolve every commit hash and every `bd` id a document cites. `xtask anchors`
 already does exactly this for upstream file:line references; commit hashes and
 issue ids are the same class of reference and have no gate.
+
+#### The cascade runs both ways: a fix un-gaps lines you did not aim at
+
+The rule above measured a fix converting **1.66×** the lines its row contained,
+and read that as good news. The same mechanism can run the other way, and the
+sign is not a property of the fix — it is a property of what the newly-computable
+type can be **named**.
+
+Measured on the module-object item (`bd tsr-6ph`, `d8452aa`). Giving
+`get_type_of_symbol` a real type for a module symbol would convert **577** lines
+whose answers are ordinary and spellable. It would also un-gap every line that
+asserts *the module object itself* — 648 `typeof ns`, 83 `typeof ns.x`, 461
+`import("m").W` — and those would print the module symbol's name, which in this
+port is the **file path**: `/aliasAssignments_moduleA` where upstream prints
+`typeof moduleA`.
+
+**577 converted against 1,192 manufactured wrong. 2.1 wrong per converted.**
+
+So the item is not "small"; it is **negative**, and no amount of care inside the
+577 changes that, because the damage is in lines the slice never targeted. A
+sizing method that counts only the intended row cannot see this — it is the
+cascade rule's own blind spot, pointed the other way.
+
+**Before building, ask what else becomes computable, and whether *those* answers
+can be spelled.** Same one-`grep` check as "can this port spell the answer?",
+applied to the collateral rather than the target. And note the escape that
+usually exists and must be established rather than assumed: the alias's own
+reference position is syntactically distinguishable from a member access hanging
+off it, so *"port the position, not the arm"* may still recover the 577 — but
+only if the rendering path and the checker's internal type can disagree for one
+node, which nobody has shown here (`bd tsr-6j2`).
