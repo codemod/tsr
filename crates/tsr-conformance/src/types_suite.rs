@@ -208,50 +208,13 @@ impl Suite for CheckerTypes {
 
         // One rendered section per baseline section, in the baseline's order, so
         // position `i` on one side is position `i` on the other.
-        let mut ours = Vec::new();
-        for expected_file in &files {
-            let Some(unit) = parsed
-                .files
-                .iter()
-                .find(|u| crate::binder_suite::same_unit(&u.name, &expected_file.file))
-            else {
-                ours.push(FileTypes { file: expected_file.file.clone(), assertions: Vec::new() });
-                continue;
-            };
-            let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-            if kind == tsr_parser::ScriptKind::Json {
-                ours.push(FileTypes { file: expected_file.file.clone(), assertions: Vec::new() });
-                continue;
-            }
-            let arena = tsr_core::Arena::new();
-            let options = tsr_parser::ParseOptions {
-                jsdoc: false,
-                ..tsr_parser::ParseOptions::for_file(&unit.name)
-            };
-            let file = tsr_parser::parse_with_options(&arena, &unit.content, options);
-            let bound = tsr_binder::bind(
-                file.source_file,
-                &file.nodes,
-                tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
-            );
-            let mut checker = tsr_checker::Checker::new(&bound, &file.nodes, &file.node_map);
-            let rendered = types_producer::assertions_for_file(
-                &tsr_ast::Node::SourceFile(file.source_file),
-                &unit.content,
-                &file.nodes,
-                &file.node_map,
-                |id| {
-                    types_producer::type_at_location(
-                        &mut checker,
-                        &bound,
-                        &file.nodes,
-                        &file.node_map,
-                        id,
-                    )
-                },
-            );
-            ours.push(types_producer::to_file_types(&expected_file.file, &rendered));
-        }
+        let ours: Vec<FileTypes> = types_producer::assertions_for_case(&parsed, &files, false)
+            .iter()
+            .zip(&files)
+            .map(|(rendered, expected_file)| {
+                types_producer::to_file_types(&expected_file.file, rendered)
+            })
+            .collect();
 
         let comparison = compare(&files, &ours);
         Judgement {

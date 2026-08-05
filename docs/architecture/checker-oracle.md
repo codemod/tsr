@@ -386,6 +386,105 @@ of them through the `Node` union. They have to be **generated**
 than hand-written, for the reason that dispatch is generated in the first place.
 `bd tsr-5e7.8`, blocking `bd tsr-4sc.3`.
 
+## The failure histogram (`bd tsr-4sc.6`)
+
+`examples/types_shapes.rs`, 2026-08-05. The gate says how many cases pass and the
+gradient says how many lines do; neither says **what** is failing, and the
+ranking of 60,269 lines of remaining checker was being made without that. The
+results and the re-ranking they forced are in
+[checker.md](checker.md#the-order-the-rest-is-built-in-and-why); this section is
+the instrument.
+
+### The alignment test is the split
+
+A `.types` line is `>{expression} : {type}` and cannot be split — the expression
+may contain `" : "` — which is why the suite compares whole lines. But a
+histogram needs upstream's *type*, on its own. It gets it without splitting
+anything: where our walker produced the same expression text at the same
+position, upstream's line **starts with** `{our text} : ` and everything after
+that prefix is exactly upstream's type.
+
+That is only available for lines the walker aligned, which is the point rather
+than a limitation: 468,921 of 478,954 lines (97.91%), and the other 10,033 are
+reported as their own row and attributed to nothing. A line the walker lost is
+not evidence about the checker, and the *reason* this document insists on
+measuring the walker separately is that a wrong walker and a wrong checker are
+indistinguishable in the gradient.
+
+(97.91% here against 97.85% in the walker table above: the same test over the
+same population, counted per line rather than per line-with-a-produced-line. The
+tables are not in conflict and neither number has been corrected.)
+
+### Three dimensions, because one of them cannot rank work
+
+- **Upstream's answer shape** — the bucket table. `crate::type_shape::classify`
+  reads the *printed* form, since a baseline records nothing else.
+- **Gap versus wrong.** A line we answered `error` on is an unported form; a line
+  we answered anything else on is a defect in what is ported. 350,184 against
+  11,499, and the two want completely different work.
+- **Where the checker stopped**, for every gap line: `types_producer::gap_reason`
+  names the construct — an expression form, an annotation, a symbol kind with no
+  type, a name that does not resolve. This is the dimension that actually ranked
+  the work, and the shape table could not have supplied it: `a + b` → `number` is
+  an *intrinsic answer* that needs binary-operator checking.
+
+### The classifier was mutation-proved before it was believed
+
+`type_shape::classify` decides every share in the table, so it got the same
+treatment as the judge. Seven tests, each checked against a deliberately weakened
+classifier:
+
+| mutation of `classify` | tests that went red |
+|---|---|
+| ignore bracket depth when scanning for operators | `a_function_type_returning_a_union…`, `an_operator_inside_brackets…` |
+| let a top-level `\|` beat an earlier `=>` | `a_function_type_returning_a_union…` |
+| stop skipping quoted text while scanning | `a_separator_inside_a_string_literal…` |
+| treat any trailing `]` as an array suffix | `an_indexed_access_is_not_an_array`, `the_plain_shapes` |
+| drop the keyword rejections | `what_is_not_a_name` |
+| do not consult the intrinsic table | `the_plain_shapes`, `a_wrapped_type…` |
+| do not unwrap enclosing parentheses | `a_wrapped_type…` |
+| do not recognise literals | `the_plain_shapes`, `a_separator_inside_a_string_literal…` |
+
+Every mutation turned at least one test red and every test was turned red by at
+least one mutation. The precedence tests are the ones that earn their place:
+`() => void | number` is a *signature* returning a union, because upstream writes
+`(() => void) | number` when it means the other thing, so the leftmost top-level
+operator decides and three independent `contains` checks would misfile the two
+largest tail buckets.
+
+An eighth guard was **removed** rather than tested: the array check also
+required the head to be bracket-balanced, and no mutation could make that
+observable, because TypeScript closes every object, tuple and type-argument list
+before a `[]` suffix. Untestable code that cannot be shown to matter is
+complexity, not safety.
+
+### The instrumentation invented a finding, and was caught by reading it
+
+`gap_reason` first reported **22,768 lines** as *"a declaration name whose parent
+bound no symbol"* — a startling number, and false. It had taken the
+declaration-name branch as soon as a node was its parent's `name`, while
+`type_at_location` takes that branch only when the parent actually bound a
+symbol. Every one of those lines was the `b` of an `a.b`: a `PropertyAccess`
+binds no symbol, so the real code falls through and resolves `b` **as a free
+name in the enclosing scope**.
+
+Two things came out of that. The instrument now mirrors the code it explains,
+line for line — an explanation that does not follow the implementation reports
+its own behaviour. And the fall-through is a real defect (`bd tsr-tl8`): today
+those names mostly fail to resolve and answer `errorType`, but a local called `b`
+in scope would give `a.b` that local's type, which is a wrong answer where a gap
+belongs — the exact failure the `errorType`-not-`anyType` rule exists to prevent.
+
+### `errorType` prints `error`, not `any`
+
+[checker.md](checker.md) said gaps and `any` were indistinguishable in output.
+They are not: `errorType` carries the intrinsic name `error` (upstream's own,
+`checker.go:979`) and `type_to_string` prints it. That is what makes the
+gap/wrong split above possible at all. The correction is recorded at the
+paragraph that was wrong. Upstream prints `error` on 1,436 of its own baseline
+lines, so a gap *can* coincide with a right answer — rarely, and never silently
+across a bucket.
+
 ## What is still missing for Phase 4
 
 - **Per-configuration runs** (`bd tsr-bb4.1`), which would return 1,397 cases to

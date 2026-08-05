@@ -28,6 +28,15 @@ pub struct Assertion {
     pub text: String,
     /// The rendered type.
     pub type_string: String,
+    /// The node the line came from. Carried for `examples/types_shapes.rs`,
+    /// which ranks the checker's remaining work by *what* we failed on — the
+    /// answer's shape alone cannot do that, because `f()` → `string` is an
+    /// intrinsic answer that needs call resolution.
+    pub kind: SyntaxKind,
+    /// Why the answer was `error`, when [`assertions_for_case`] was asked to
+    /// explain and it was. `None` otherwise — including for every run of the
+    /// suite, which does not pay for it.
+    pub reason: Option<String>,
 }
 
 impl Assertion {
@@ -165,7 +174,7 @@ pub fn assertions_for_file(
         }
         let text = source_text(source, nodes.span(id));
         let type_string = type_of(id);
-        out.push(Assertion { text, type_string });
+        out.push(Assertion { text, type_string, kind: tree.kind(id), reason: None });
     }
     out
 }
@@ -204,6 +213,173 @@ pub fn type_at_location(
         return checker.type_to_string(id);
     }
     checker.type_to_string(error)
+}
+
+/// Render every baseline section of a case, in the baseline's order.
+///
+/// One entry per `expected` section, so position *i* on one side is position *i*
+/// on the other, and a section we have no unit for comes back empty rather than
+/// absent — the alignment is what [`crate::types_suite::compare`] compares.
+///
+/// Shared by the suite and by `examples/types_shapes.rs` so the histogram is
+/// taken over exactly what the gate judges. Returns [`Assertion`]s with the two
+/// halves still apart, because the histogram needs the type alone and the suite
+/// needs the whole line; [`to_file_types`] makes the latter.
+#[must_use]
+pub fn assertions_for_case(
+    case: &crate::TestCase,
+    expected: &[FileTypes],
+    explain: bool,
+) -> Vec<Vec<Assertion>> {
+    let mut ours = Vec::new();
+    for expected_file in expected {
+        let Some(unit) = case
+            .files
+            .iter()
+            .find(|u| crate::binder_suite::same_unit(&u.name, &expected_file.file))
+        else {
+            ours.push(Vec::new());
+            continue;
+        };
+        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
+            ours.push(Vec::new());
+            continue;
+        }
+        let arena = tsr_core::Arena::new();
+        let options = tsr_parser::ParseOptions {
+            jsdoc: false,
+            ..tsr_parser::ParseOptions::for_file(&unit.name)
+        };
+        let file = tsr_parser::parse_with_options(&arena, &unit.content, options);
+        let bound = tsr_binder::bind(
+            file.source_file,
+            &file.nodes,
+            tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
+        );
+        let mut checker = tsr_checker::Checker::new(&bound, &file.nodes, &file.node_map);
+        let mut gaps = Vec::new();
+        let mut rendered = assertions_for_file(
+            &Node::SourceFile(file.source_file),
+            &unit.content,
+            &file.nodes,
+            &file.node_map,
+            |id| {
+                let answer =
+                    type_at_location(&mut checker, &bound, &file.nodes, &file.node_map, id);
+                if explain && answer == "error" {
+                    gaps.push(id);
+                }
+                answer
+            },
+        );
+        if explain {
+            let mut gaps = gaps.into_iter();
+            for assertion in &mut rendered {
+                if assertion.type_string == "error" {
+                    let id = gaps.next().expect("one recorded gap per `error` line");
+                    assertion.reason =
+                        Some(gap_reason(&mut checker, &bound, &file.nodes, &file.node_map, id));
+                }
+            }
+        }
+        ours.push(rendered);
+    }
+    ours
+}
+
+/// Why [`type_at_location`] answered `error`, for a line that it did.
+///
+/// The gap total alone does not rank work — it says the checker is unfinished,
+/// which was known. What ranks work is *where the answer stopped*: an
+/// unresolvable name is a lib-file or cross-file problem (`bd tsr-9or.1`), a
+/// resolved symbol with no type is `getTypeOfSymbol` (`bd tsr-4sc.7`), and an
+/// expression form the worker does not match is that form's own port.
+///
+/// This re-derives the cause rather than being threaded through the checker, so
+/// that [`type_at_location`] stays the single description of what we answer. It
+/// is only ever asked about a line that already came back `error`.
+#[must_use]
+pub fn gap_reason(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    binder: &tsr_binder::BindResult<'_>,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    id: NodeId,
+) -> String {
+    let error = checker.intrinsics().error;
+    let Some(node) = map.get(id) else { return "no node".to_string() };
+
+    // The symbol's flags *and* the kind of its value declaration, because those
+    // are the two things upstream's `getTypeOfSymbol` dispatches on: the flags
+    // choose the worker and the declaration kind chooses the branch inside it
+    // (`checker.go:16509`, `:16578`). Either alone leaves the next step ambiguous.
+    let describe = |checker: &mut tsr_checker::Checker<'_, '_>, symbol| {
+        let symbols = binder.symbols();
+        let flags = symbols.get(symbol).flags;
+        let declaration = symbols
+            .get(symbol)
+            .value_declaration
+            .map_or_else(|| "no value declaration".to_string(), |d| format!("{:?}", nodes.kind(d)));
+        if checker.get_type_of_symbol(symbol) == error {
+            // For a variable-like declaration, which half stopped: upstream takes
+            // the annotation when there is one and the initialiser otherwise
+            // (`checker.go:16652`), so naming the node that was not understood
+            // separates "type nodes are unported" from "expressions are".
+            let half = symbols.get(symbol).value_declaration.and_then(|d| map.get(d)).map_or_else(
+                String::new,
+                |node| match (node.type_id(), node.initializer_id()) {
+                    (Some(annotation), _) => format!(" / annotation {:?}", nodes.kind(annotation)),
+                    (None, Some(initializer)) => {
+                        format!(" / initialiser {:?}", nodes.kind(initializer))
+                    }
+                    (None, None) => " / neither".to_string(),
+                },
+            );
+            format!("symbol has no type: {flags:?} / {declaration}{half}")
+        } else {
+            "symbol has a type (the line differs for another reason)".to_string()
+        }
+    };
+
+    // Mirrors [`type_at_location`] exactly, **including its fall-through**: the
+    // declaration-name branch applies only when the parent actually bound a
+    // symbol, and otherwise the node is tried as an expression. An earlier draft
+    // of this returned "no symbol bound" as soon as the node was its parent's
+    // `name`, and reported 22,768 lines that way — every one of them the `b` of
+    // an `a.b`, which `type_at_location` in fact answers through the identifier
+    // path. An instrumentation that does not follow the code it explains invents
+    // its own findings.
+    if let Some(parent) = nodes.parent(id)
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+        && let Some(symbol) = binder.symbol_of(parent)
+    {
+        return format!("declaration name, {}", describe(checker, symbol));
+    }
+
+    if let Ok(expression) = tsr_ast::Expression::try_from(node) {
+        if let tsr_ast::Expression::Identifier(identifier) = expression {
+            // A member name — the `b` of `a.b` — reaches here too, because its
+            // parent binds no symbol and nothing else claims it. It is called out
+            // rather than counted as an ordinary reference, because resolving it
+            // as a free name is not merely a gap: a local called `b` in scope
+            // would give it that local's type. `bd tsr-tl8`.
+            let member = nodes
+                .parent(id)
+                .filter(|&parent| map.get(parent).and_then(|p| p.name_id()) == Some(id))
+                .map(|parent| format!("the name of a {:?}", nodes.kind(parent)));
+            let what = member.unwrap_or_else(|| "reference".to_string());
+            return match identifier.node_id.and_then(|n| binder.resolve(nodes, n, identifier.text))
+            {
+                Some(symbol) => format!("{what}, {}", describe(checker, symbol)),
+                None => format!("{what}, the name does not resolve"),
+            };
+        }
+        // "answered error", not "form not ported": a ported form propagates its
+        // operand's `error` — a parenthesised expression is the visible case —
+        // so this names the node that produced the gap and not its cause.
+        return format!("expression answered error: {:?}", nodes.kind(id));
+    }
+    format!("neither a declaration name nor an expression: {:?}", nodes.kind(id))
 }
 
 /// How far our walker agrees with upstream's, **ignoring types entirely**.
@@ -251,6 +427,17 @@ pub fn to_file_types(name: &str, assertions: &[Assertion]) -> FileTypes {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An assertion with the fields the agreement test does not look at filled
+    /// in, so those tests keep saying what they are about.
+    fn assertion(text: &str, type_string: &str) -> Assertion {
+        Assertion {
+            text: text.to_string(),
+            type_string: type_string.to_string(),
+            kind: SyntaxKind::Identifier,
+            reason: None,
+        }
+    }
 
     /// Assertion texts for a source, with types stubbed out.
     fn texts(source: &str) -> Vec<String> {
@@ -421,10 +608,7 @@ mod tests {
                 TypeAssertion { text: "1 : 1".into() },
             ],
         }];
-        let ours = vec![vec![
-            Assertion { text: "x".into(), type_string: "totally wrong".into() },
-            Assertion { text: "1".into(), type_string: "also wrong".into() },
-        ]];
+        let ours = vec![vec![assertion("x", "totally wrong"), assertion("1", "also wrong")]];
         let agreement = walker_agreement(&expected, &ours);
         assert_eq!(agreement.matched, 2, "both texts match though both types are wrong");
         assert_eq!(agreement.expected, 2);
@@ -439,7 +623,7 @@ mod tests {
             file: "a.ts".into(),
             assertions: vec![TypeAssertion { text: "a.b : X".into() }],
         }];
-        let ours = vec![vec![Assertion { text: "a".into(), type_string: "X".into() }]];
+        let ours = vec![vec![assertion("a", "X")]];
         assert_eq!(walker_agreement(&expected, &ours).matched, 0);
     }
 }

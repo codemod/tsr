@@ -155,51 +155,125 @@ fresh literal or returns an annotation without widening.
 
 ## The order the rest is built in, and why
 
-Ranked 2026-08-05 by impact against effort and feasibility, with dependencies
-respected. The evidence is the distribution of **answer shapes** across all
-512,800 assertion lines in the corpus baselines:
+**Re-ranked 2026-08-05 against a measurement, replacing a ranking made from
+answer shapes alone.** The shape table is kept because it is still the honest
+picture of the *target*; what changed is that it ranked the work badly, and the
+section after it says why. The instrument is `examples/types_shapes.rs`
+(`bd tsr-4sc.6`), described in [checker-oracle.md](checker-oracle.md).
 
-| upstream's answer | share | do we produce it? |
-|---|---:|---|
-| intrinsic (`string`, `number`, `any`…) | 35.30% | partly |
-| literal (`"a"`, `1`, `true`) | 18.86% | yes |
-| named type reference (`C`, `M.I`) | 14.25% | no |
-| function/signature (`() => void`) | 12.96% | no |
-| object literal type | 4.83% | no |
-| `typeof X` | 3.44% | no |
-| union | 3.33% | no |
-| generic reference | 3.03% | no |
-| array | 2.47% | no |
+Shares are over the **468,921 assertion lines the walker aligns**, which is the
+population `checker_types` judges. An earlier count over all 512,800 corpus lines
+gave 35.30% / 18.86% / 14.25% / 12.96% for the first four rows; the differences
+are the different population, not a corrected number.
 
-**Read that table as an upper bound per feature, not a work estimate.** A bucket
-is the shape of the *answer*, not the feature needed to compute it: `f()` →
-`string` is an intrinsic answer that requires full call resolution.
+| upstream's answer | share | we get it right | misses: unported | misses: wrong |
+|---|---:|---:|---:|---:|
+| intrinsic (`string`, `number`, `any`…) | 35.06% | **23.54%** | 118,484 | 7,219 |
+| literal (`"a"`, `1`, `true`) | 19.55% | **74.24%** | 23,000 | 620 |
+| named type reference (`C`, `M.I`) | 13.44% | 0.74% | 61,251 | 1,298 |
+| function/signature (`() => void`) | 11.82% | 0.00% | 55,182 | 239 |
+| object literal type | 5.69% | 0.00% | 26,505 | 181 |
+| `typeof X` | 3.39% | 0.00% | 15,868 | 44 |
+| generic reference | 3.20% | 0.00% | 14,861 | 132 |
+| union | 2.91% | 0.00% | 12,436 | 1,212 |
+| array | 2.66% | 0.00% | 12,072 | 419 |
+| other / intersection | 2.27% | 0.00% | 10,525 | 135 |
 
-**The most important open question is in the first two rows.** We nominally cover
-intrinsic + literal = 54.16% and the gradient reads 22.39%, so we are getting
-under half of what we supposedly support, and nothing currently explains it.
+*Unported* is a line we answered `errorType` on; *wrong* is a line we answered
+something else on and disagreed. The split is readable only because this port
+renders `errorType` as `error` and not as `any` — see the correction below.
 
-1. **`bd tsr-4sc.6` — bucket the failures by answer shape.** Cheap; the walker,
-   the checker wiring and the comparison all exist. It answers the 54%→22%
-   question and decides whether lib files or object types are the bigger prize.
-   *Nothing below should start before this reports.*
-2. **`bd tsr-4sc.1` — printing gaps.** Number boundaries at 1e21/1e-6 and the
-   escape table. Literals are 18.86% of lines and we *claim* them, so a printing
-   bug fails them silently and gets misattributed to the checker.
-3. **`bd tsr-9or.1` — lib files.** Without `lib.d.ts` every reference to a global
-   is `errorType`. High feasibility: `module_resolution` and `file_loader` are
-   both at 100%, so the machinery exists.
-4. **`bd tsr-4sc.7` — object types and `getDeclaredTypeOfSymbol`.** ~19% directly
-   and it gates 5, 6 and 7.
-5. **`bd tsr-4sc.8` — signatures and function types.** 12.96%. Needs 4, because
-   upstream models a function type as an object type with call signatures.
-6. **`bd tsr-4sc.9` — unions**, which is also what lets `boolean` stop being a
-   fake intrinsic. Reach beyond its 3.33%, because it changes how `boolean`
-   prints everywhere.
-7. **`bd tsr-4sc.10` — `typeof` queries.** 3.44%, nearly free once 4 and 5 land.
-8. **`bd tsr-4sc.11` — control-flow narrowing.** Adds no bucket; fixes the
-   *correctness* of reference lines across all of them, so its true impact is
-   probably larger than this rank. Step 1 will say.
+### The 54% → 22% question, answered
+
+We nominally cover intrinsic + literal = 54.6% of lines and the gradient reads
+22.39%. The shortfall is **not spread across the two buckets**:
+
+- **Literals are 74.24% right** and close to done; their residual is
+  overwhelmingly gaps rather than wrong answers (23,000 against 620).
+- **Intrinsics are 23.54% right**, and that one row is essentially the entire
+  shortfall. 34% of the intrinsic bucket is upstream answering `any` — 55,976
+  lines — which is a computed answer (an unannotated parameter, an error type
+  flowing outward) and not a free win.
+- **Every other shape is 0.00%.** Nothing is scoring by accident, and the 107,238
+  matched lines are all in the two claimed buckets.
+
+### What a bucket cannot say, and what the histogram says
+
+A bucket names the *answer*, never the work: `a + b` → `number` is an intrinsic
+answer that needs binary-operator checking. So the same run reports where the
+checker stopped on each of the 350,184 `error` lines.
+
+| where it stopped | lines | share of gaps |
+|---|---:|---:|
+| an expression we do not compute | 141,036 | 40.27% |
+| a type node we cannot resolve (an annotation) | 73,687 | 21.04% |
+| an initialiser expression we do not compute | 48,095 | 13.73% |
+| a symbol kind `getTypeOfSymbol` does not handle | 43,732 | 12.49% |
+| a member name resolved as if it were free (`bd tsr-tl8`) | 21,939 | 6.26% |
+| other | 11,160 | 3.19% |
+| **a free name that does not resolve** | **10,535** | **3.01%** |
+
+The commonest individual stops:
+
+```text
+BinaryExpression                                             39,035
+PropertyAccessExpression                                     23,732
+CallExpression                                               15,867
+ElementAccessExpression                                      13,549
+Parameter, annotation TypeReference               10,157 +    6,217
+VariableDeclaration, initialiser ArrayLiteral                10,807
+FunctionDeclaration / ClassDeclaration, no type at all  7,485 + 7,227
+ModuleDeclaration, no type at all                             5,569
+```
+
+**Three of those change the plan.**
+
+1. **Lib files are not the blocker they were ranked as.** Names that do not
+   resolve at all are 3.01% of gaps, and the commonest is `undefined` (1,675) —
+   an intrinsic, not a global. `Symbol`, `console`, `Promise`, `Object`, `Math`
+   and `Array` together are under 1,500 lines. `bd tsr-9or.1` was ranked third on
+   the reasoning that *"without `lib.d.ts` every reference to a global is
+   `errorType`"*; measured, that is worth ~2% of aligned lines **directly**. It
+   remains necessary — most of what a global would unlock sits behind the
+   expression work below, so this is a lower bound and not a verdict — but it is
+   not the next move.
+2. **The largest item was not on the list at all.** The remaining expression
+   forms are 40% of gaps and had no ranked entry, precisely because no answer
+   shape corresponds to them. This is the failure mode the bucket table was
+   documented as having, now observed rather than hypothesised.
+3. **Named references are 13.44% of lines at 0.74%, and the road to them runs
+   through annotations.** 73,687 gap lines are a declaration whose *annotation*
+   we cannot resolve, dominated by `TypeReference` — `getTypeFromTypeNode` into
+   `getDeclaredTypeOfSymbol`, which is `bd tsr-4sc.7`, and it pays in the
+   named-reference and intrinsic buckets both.
+
+### The ranking that follows
+
+1. **`bd tsr-4sc.13` — the remaining expression forms**, in measured order:
+   binary, property access, call, element access. 40% of gaps and the largest
+   single item in the corpus. Property access and call need 2 for anything but
+   the simplest receivers, so the honest first slice is the binary operators.
+2. **`bd tsr-4sc.7` — `getTypeFromTypeNode` and `getDeclaredTypeOfSymbol`.** 21%
+   of gaps sit on an annotation, and it gates 3, 5 and 7.
+3. **`bd tsr-4sc.8` — `getTypeOfFuncClassEnumModule`.** 12.5% of gaps are a
+   symbol whose kind has no type at all: 7,485 function declarations, 7,227
+   classes, 5,569 modules.
+4. **`bd tsr-tl8` — the member-name defect.** Worth no lines today, and ranked
+   above things that are, because it is the one place this port can answer
+   *wrongly* where a gap belongs.
+5. **`bd tsr-4sc.1` — printing gaps.** Literals are 74% right and 620 of their
+   misses are wrong answers rather than gaps — `true` → `boolean` is 181 of
+   them, which is a widening defect and not a printing one. Small, and now
+   measurable line by line.
+6. **`bd tsr-9or.1` — lib files.** Demoted from third by the measurement above.
+7. **`bd tsr-4sc.9` — unions**, which is also what lets `boolean` stop being a
+   fake intrinsic, and **`bd tsr-4sc.10` — `typeof` queries**, nearly free once
+   2 and 3 land.
+8. **`bd tsr-4sc.11` — control-flow narrowing.** Still last, and still probably
+   underranked: it changes the *correctness* of reference lines everywhere and
+   the histogram cannot see it, because a line we answer `error` on would be
+   wrong with or without narrowing. It becomes measurable once 1 and 2 land, and
+   should be re-ranked then rather than now.
 9. **`bd tsr-bb4.1` — per-configuration runs.** Returns 1,397 cases to
    `checker_types`. Worth doing when the rate is high enough that the denominator
    matters; doing it now only makes the number look worse for no information.
@@ -267,8 +341,18 @@ is `TypeId` equality, which is what lets a relation check compare `"a"` to `"a"`
 without comparing strings.
 
 This is also why every unported expression form yields `errorType` rather than
-`anyType`. Both print `any`; only one of them is a claim that the answer *is*
-`any`. A gap must never be indistinguishable from a result.
+`anyType`. A gap must never be indistinguishable from a result.
+
+**Correction (2026-08-05):** this paragraph previously said *"both print `any`;
+only one of them is a claim that the answer is `any`"*. They do not both print
+`any`. `TypeStore::new_intrinsic` gives `errorType` the intrinsic name `error`,
+exactly as upstream does (`checker.go:979`), and `type_to_string` prints that
+name, so a gap appears in `.types` output as `error`. The consequence is better
+than the original claim rather than worse: `examples/types_shapes.rs` separates
+"unported" from "wrong" on every one of the 361,683 mismatched lines, and that
+distinction is what the ranking above is built on. Upstream's own baselines print
+`error` on 1,436 lines, so a coincidental match is possible and rare rather than
+impossible.
 
 ## Printing is under test, not a convenience
 
