@@ -122,16 +122,14 @@ impl Checker<'_, '_> {
             | SyntaxKind::InstanceOfKeyword => self.intrinsics.boolean,
 
             // The logical operators build a union of the operands, and unions
-            // now exist — but the union each one builds is *not* determined by
-            // the operand types alone. `&&` unions
-            // `extractDefinitelyFalsyTypes(getBaseTypeOfLiteralType(right))` with
-            // the right type when `strictNullChecks` is off and
-            // `extractDefinitelyFalsyTypes(left)` with it when it is on
-            // (`checker.go:12495`); `||` and `??` reduce with
-            // `UnionReductionSubtype`, which needs assignability. Both also need
-            // `getTypeFacts` (`checker.go:30982`), whose every arm branches on
-            // `strictNullChecks`. This port has no compiler options, so answering
-            // would be a wrong line rather than a missing one. `bd tsr-5s2`.
+            // now exist — but the union is not determined by the operand types
+            // alone. `&&` unions `extractDefinitelyFalsyTypes(left)` with the
+            // right type (`checker.go:12495`), and `extractDefinitelyFalsyTypes`
+            // reaches `getTypeFacts` (`checker.go:30982`), a large table this
+            // port does not have. `||` and `??` additionally reduce with
+            // `UnionReductionSubtype`, which is `removeSubtypes` and needs
+            // assignability. Answering without either would be a wrong line
+            // rather than a missing one. `bd tsr-5s2`.
             //
             // `errorType`, not the left type, which would be right only when the
             // left operand is never falsy.

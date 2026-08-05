@@ -17,27 +17,36 @@
 //! `string | number`, because `STRING` is `1 << 5` and `NUMBER` is `1 << 6`
 //! (`baselines/reference/submodule/compiler/implicitConstParameters.types:15`).
 //!
-//! # `strictNullChecks` is assumed off, and that is visible here
+//! # `strictNullChecks` is assumed **on**, and that is visible here
 //!
-//! `addTypesToUnion` (`checker.go:25793`) **drops `null` and `undefined`
-//! constituents entirely** when `strictNullChecks` is off, so `string | undefined`
-//! is `string` under upstream's default options and `string | undefined` under
-//! `--strict`. This port has no compiler options at all — nothing constructs a
-//! `tsr_core::CompilerOptions` and [`Checker::new`](crate::Checker::new) takes a
-//! bound file and nothing else — so one of the two behaviours has to be picked.
+//! `addTypesToUnion` (`checker.go:25783`) **drops `null` and `undefined`
+//! constituents entirely** when `strictNullChecks` is *off*, so
+//! `let opt: number | undefined` prints `number` under `@strict: false` and
+//! `number | undefined` otherwise. This port has no compiler options at all —
+//! nothing constructs a `tsr_core::CompilerOptions` and
+//! [`Checker::new`](crate::Checker::new) takes a bound file and nothing else —
+//! so one of the two behaviours has to be picked.
 //!
-//! **Off is picked**, on two grounds: it is upstream's default, and 1,351 of the
-//! corpus's 12,444 cases (10.9%) set `@strict` or `@strictNullChecks`, so it is
-//! also the majority behaviour by an order of magnitude. It is additionally the
-//! assumption the rest of this crate already makes implicitly — nothing adds
-//! `undefined` to an optional parameter's type either.
+//! **On is picked, and this reverses the first answer.** The first version of
+//! this module assumed *off*, reasoning that it was upstream's default. It is
+//! not. `CompilerOptions.GetStrictOptionValue` (`internal/core/compileroptions.go:294`)
+//! returns `options.Strict != TSFalse`, so an **unset** `strict` yields
+//! `strictNullChecks: true`. Counted over the corpus: 2,170 of 12,444 cases
+//! (17.4%) turn it off explicitly, 1,351 turn it on explicitly, and the
+//! remaining 8,923 leave it unset — **so it is on for 82.6% of cases**, not off
+//! for 89% as first recorded.
 //!
-//! **The consequence accepted:** every union mentioning `null` or `undefined` in
-//! a `@strict` case is a *wrong* line rather than a gap, and those lines cannot
-//! be distinguished from real defects by the histogram. **How this would be shown
-//! wrong:** when the checker can read the case's options (`bd tsr-5s2`, behind
-//! the program object `bd tsr-9or.1`) this assumption becomes a one-line lookup,
-//! and the ported code below has the branch in the right place already.
+//! Two baselines pin both directions, and they were what settled it:
+//! `predicateSemantics.ts` sets `@strict: false` and records `opt: number | undefined`
+//! as `>opt : number`, while `useRegexpGroups.ts` sets no strictness at all and
+//! records `>result : RegExpExecArray | null`.
+//!
+//! **The consequence accepted:** a union mentioning `null` or `undefined` in one
+//! of the 2,170 explicitly-non-strict cases is a *wrong* line rather than a gap.
+//! That is the same shape of cost as before and one fifth of the size. **How
+//! this would be shown wrong:** when the checker can read the case's options
+//! (`bd tsr-5s2`, behind the program object `bd tsr-9or.1`) the assumption
+//! becomes a one-line lookup, and the branch is already in the right place.
 //!
 //! # What is deliberately not here
 //!
@@ -149,11 +158,24 @@ fn create_union(
 /// testing the *value* of the second is the same question as upstream's identity
 /// comparison against `booleanType`'s last constituent.
 ///
-/// **Two of upstream's clauses are not here.** Nullable constituents are moved to
-/// the end of the printed list, and enum-like constituents are collapsed to their
-/// base enum type. Neither can occur: nullable types are dropped while the union
-/// is built (see the module docs), and an enum member only reaches a union
-/// through its own enum type, which is gapped.
+/// # Nullable constituents print last, whatever the sort says
+///
+/// `UNDEFINED` is `1 << 2` and `NULL` is `1 << 3`, so `CompareTypes` puts both
+/// at the *front* of the constituent list — and upstream prints them at the
+/// **end**, appending `c.nullType` and then `c.undefinedType` after everything
+/// else (`printer.go:407`). So `string | undefined` is stored `[undefined,
+/// string]` and printed `string | undefined`. This is not cosmetic: 6,811
+/// baseline lines end in `| undefined`, only 28 begin with a nullable
+/// constituent, and `null` never follows `undefined`.
+///
+/// The names are hardcoded because upstream appends the *canonical* intrinsics
+/// rather than the constituents it found — which is also how `nullWideningType`
+/// comes to print `null`. This port does not model the widening variants, so the
+/// two coincide.
+///
+/// **One of upstream's clauses is still not here.** Enum-like constituents are
+/// collapsed to their base enum type; an enum member only reaches a union
+/// through its own enum type, which is gapped (`bd tsr-8pz`).
 ///
 /// **This function was originally not ported at all**, on the argument that the
 /// `TypeFlagsBoolean` keyword check in the node builder (`nodebuilderimpl.go:3255`)
@@ -166,9 +188,15 @@ fn create_union(
 fn format_union_types(store: &TypeStore, types: &[TypeId]) -> Vec<String> {
     let is_boolean_literal = |id: TypeId| matches!(store.get(id).data, TypeData::BooleanLiteral(_));
     let mut printed = Vec::with_capacity(types.len());
+    let mut seen = TypeFlags::empty();
     let mut index = 0;
     while index < types.len() {
         let id = types[index];
+        seen |= store.get(id).flags;
+        if store.get(id).flags.intersects(TypeFlags::NULLABLE) {
+            index += 1;
+            continue;
+        }
         if is_boolean_literal(id)
             && matches!(
                 types.get(index + 1).map(|&next| &store.get(next).data),
@@ -181,6 +209,14 @@ fn format_union_types(store: &TypeStore, types: &[TypeId]) -> Vec<String> {
         }
         printed.push(printing::type_to_string(store.get(id)));
         index += 1;
+    }
+    // `null` first, then `undefined` — upstream's order (`printer.go:407`), and
+    // `>d : object | null | undefined` is what the baselines record.
+    if seen.contains(TypeFlags::NULL) {
+        printed.push("null".to_string());
+    }
+    if seen.contains(TypeFlags::UNDEFINED) {
+        printed.push("undefined".to_string());
     }
     printed
 }
@@ -332,15 +368,14 @@ impl Checker<'_, '_> {
         }
 
         if set.is_empty() {
-            // Everything was dropped. With `strictNullChecks` off that means the
-            // union was nothing but `null` and `undefined`, where upstream
-            // answers `nullWideningType` or `undefinedWideningType`
-            // (`checker.go:25692`) — types this port does not model and which
-            // are *not* `nullType` and `undefinedType`. Answering with those
-            // would merge identities upstream keeps apart, so this is a gap.
-            if includes.flags.intersects(TypeFlags::NULLABLE) {
-                return self.intrinsics.error;
-            }
+            // Every constituent was `never`, which is the only way to empty the
+            // set now that nullable types are kept. Upstream's other two answers
+            // here — `nullWideningType` and `undefinedWideningType`
+            // (`checker.go:25692`) — are reachable only with `strictNullChecks`
+            // off, so they are not ported rather than written and left dead.
+            // They come back with `bd tsr-5s2`, and they are *not* `nullType`
+            // and `undefinedType`: answering with those would merge identities
+            // upstream keeps apart.
             return self.intrinsics.never;
         }
 
@@ -363,9 +398,9 @@ impl Checker<'_, '_> {
 
     /// `Checker.addTypesToUnion` (`checker.go:25761`).
     ///
-    /// Flattens nested unions, drops `never`, drops nullable types (see the
-    /// module docs on `strictNullChecks`), then sorts by [`Self::compare_types`]
-    /// and removes adjacent duplicates.
+    /// Flattens nested unions, drops `never`, then sorts by
+    /// [`Self::compare_types`] and removes adjacent duplicates. Nullable types
+    /// are **kept** — see the module docs on `strictNullChecks`.
     fn add_types_to_union(&self, source: &[TypeId]) -> (Vec<TypeId>, Includes) {
         let mut types: Vec<TypeId> = Vec::with_capacity(source.len());
         let mut includes = Includes::default();
@@ -410,11 +445,11 @@ impl Checker<'_, '_> {
         if self.is_error(id) {
             includes.error = true;
         }
-        // `checker.go:25793`, with `strictNullChecks` assumed off — see the
-        // module docs. This is the single line the assumption lives on.
-        if flags.intersects(TypeFlags::NULLABLE) {
-            return;
-        }
+        // `checker.go:25783` drops `null` and `undefined` here when
+        // `strictNullChecks` is off. It is assumed **on** — see the module docs
+        // — so the drop does not happen and this is where it would go. The
+        // constituents survive into the type; `format_union_types` is what moves
+        // them to the end of the *printed* form.
         types.push(id);
     }
 

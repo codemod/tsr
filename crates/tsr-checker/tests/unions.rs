@@ -132,14 +132,34 @@ fn never_is_dropped_from_a_union() {
 }
 
 #[test]
-fn a_nullable_constituent_is_dropped_because_strict_null_checks_is_assumed_off() {
-    // Not an approximation: this is upstream's behaviour under its *default*
-    // options (`checker.go:25793`), which is what 89% of the corpus runs with.
-    // `UNDEFINED` is `1 << 2`, so keeping it would print `undefined | string`.
-    // See the module docs of `crate::unions` for why the option is assumed
-    // rather than read, and what would show the assumption to be wrong.
-    assert_eq!(type_of_annotation("var x: string | undefined;"), "string");
-    assert_eq!(type_of_annotation("var x: string | null;"), "string");
+fn a_nullable_constituent_is_kept_and_printed_last() {
+    // Two rules at once, and the second is the one a port gets wrong.
+    //
+    // Kept, because `strictNullChecks` is assumed **on** — upstream's behaviour
+    // whenever `strict` is unset, which is 82.6% of the corpus
+    // (`GetStrictOptionValue`, `internal/core/compileroptions.go:294`). The
+    // first version of this module assumed off and printed `string` here, which
+    // is what an explicitly `@strict: false` case records
+    // (`predicateSemantics.ts` → `>opt : number`) and not what the default does
+    // (`useRegexpGroups.ts` → `>result : RegExpExecArray | null`).
+    //
+    // Printed **last**, against the sort: `UNDEFINED` is `1 << 2` and `NULL` is
+    // `1 << 3`, so both sort to the *front* of the constituent list and upstream
+    // appends them at the end (`printer.go:407`). Sorting alone would print
+    // `undefined | string`, and 6,811 baseline lines end in `| undefined`.
+    assert_eq!(type_of_annotation("var x: string | undefined;"), "string | undefined");
+    assert_eq!(type_of_annotation("var x: string | null;"), "string | null");
+    assert_eq!(type_of_annotation("var x: undefined | string;"), "string | undefined");
+    // `null` before `undefined`, never the reverse — `>d : object | null | undefined`.
+    assert_eq!(
+        type_of_annotation("var x: undefined | object | null;"),
+        "object | null | undefined"
+    );
+    // Only nullable constituents: everything is appended, nothing precedes.
+    assert_eq!(type_of_annotation("var x: undefined | null;"), "null | undefined");
+    // The boolean collapse still fires with a nullable constituent in the list,
+    // which it would not if the two passes were fused.
+    assert_eq!(type_of_annotation("var x: boolean | undefined;"), "boolean | undefined");
 }
 
 #[test]

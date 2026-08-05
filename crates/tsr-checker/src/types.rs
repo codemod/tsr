@@ -83,6 +83,34 @@ pub enum TypeData {
         /// substitutes yet. A gap is the honest answer there.
         members: Option<SymbolId>,
     },
+    /// An **anonymous object type**, carrying the symbol whose declarations are
+    /// its signatures.
+    ///
+    /// Upstream's `newObjectType(ObjectFlagsAnonymous, symbol)`
+    /// (`checker.go:16925`) — what a function, method, class, enum or
+    /// value-module symbol *has*, and what a function expression or arrow *is*.
+    ///
+    /// **Why this is separate from [`TypeData::Named`] rather than a field on
+    /// it.** The two answer different questions about a symbol. `Named.members`
+    /// is where `getPropertyOfType` looks, and for `typeof C` that table must
+    /// stay unreachable — a class's *instance* members are not `typeof C`'s
+    /// properties, so pointing at them would answer `C.x` with the wrong symbol.
+    /// What a call needs is the opposite direction: the symbol's *declarations*,
+    /// which is where `getSignaturesOfSymbol` (`checker.go:19806`) reads call
+    /// signatures from. Merging the two fields would make one of the two lookups
+    /// wrong, and a wrong answer is worse here than a gap.
+    ///
+    /// The statics half is still missing and still a gap: a class's statics and a
+    /// namespace's exports live in the symbol's `exports` table and nothing reads
+    /// it (`docs/architecture/checker.md`).
+    Anonymous {
+        /// The printed form, computed once at creation — `typeof C`, or the
+        /// signature `(x: string) => void`. Same divergence as
+        /// [`TypeData::Named`], same cause.
+        text: String,
+        /// The symbol whose declarations carry this type's call signatures.
+        symbol: SymbolId,
+    },
     /// A union type: `A | B`.
     ///
     /// Upstream's `UnionType` (`types.go`), carrying the constituent list. The
@@ -209,6 +237,16 @@ impl TypeStore {
         members: Option<SymbolId>,
     ) -> TypeId {
         self.push(Type { flags, data: TypeData::Named { text: name, members }, fresh: false })
+    }
+
+    /// Create an anonymous object type carrying its symbol.
+    ///
+    /// Ported from `Checker.newObjectType` with `ObjectFlagsAnonymous`
+    /// (`checker.go:16925`). **Never interned**, for the same reason
+    /// [`TypeStore::new_named`] is not: identity is one type per symbol, and the
+    /// memo that provides it lives in the checker.
+    pub fn new_anonymous(&mut self, flags: TypeFlags, text: String, symbol: SymbolId) -> TypeId {
+        self.push(Type { flags, data: TypeData::Anonymous { text, symbol }, fresh: false })
     }
 
     /// Create or reuse a literal type.

@@ -1229,37 +1229,74 @@ was expected to print `"a" | number`; it prints `number | "a"`, because
 say `>x : number | "bar"`. That is the eighth time this has happened here, and
 the rule holds: check a baseline before "fixing" the code.
 
-### `strictNullChecks` is assumed off, and the assumption is measured
+### `strictNullChecks` is assumed **on** — a correction
 
-`addTypesToUnion` (`checker.go:25793`) **drops `null` and `undefined`
-constituents entirely** when `strictNullChecks` is off. So `string | undefined`
-is `string` under upstream's default options and `string | undefined` under
-`--strict`, and the difference is not a corner: it touches most unions that
-mention either type.
+**This section replaces an earlier one that said the opposite, and the number in
+it was wrong.** The original text is not preserved because it recorded a measured
+claim that is simply false; what is preserved, below, is how it was wrong and how
+it was caught, which is the part worth keeping.
 
-This port has no compiler options — nothing constructs a
-`tsr_core::CompilerOptions` and `Checker::new` takes a bound file and nothing
-else — so one behaviour had to be chosen.
+`addTypesToUnion` (`checker.go:25783`) **drops `null` and `undefined`
+constituents entirely** when `strictNullChecks` is off. So `let opt: number | undefined`
+is `number` with the option off and `number | undefined` with it on, and the
+difference touches most unions that mention either type. This port has no
+compiler options, so one behaviour had to be chosen.
 
-**Off was chosen**, on three grounds. It is upstream's default. **1,351 of the
-corpus's 12,444 cases (10.9%)** set `@strict` or `@strictNullChecks`, so it is
-also the majority behaviour by an order of magnitude — measured with a grep over
-`_submodules/TypeScript/tests/cases`, not assumed. And it is the assumption the
-rest of the crate already makes implicitly: nothing adds `undefined` to an
-optional parameter's type either, which is the same option seen from a different
-arm.
+**The first choice was "off", on the stated ground that it is upstream's
+default. It is not.** `CompilerOptions.GetStrictOptionValue`
+(`internal/core/compileroptions.go:294`) reads
 
-**The consequence accepted is bad and worth stating plainly:** in a `@strict`
-case, every union mentioning `null` or `undefined` is now a *wrong* line rather
-than a gap, and `types_shapes.rs` cannot separate those from real defects. The
-alternative — gapping any union with a nullable constituent — would have cost
-the 89% to protect the instrument on the 11%.
+```go
+if value != TSUnknown { return value == TSTrue }
+return options.Strict != TSFalse
+```
 
-**How this would be shown wrong.** When the checker can read the case's options
-(`bd tsr-5s2`, behind the program object `bd tsr-9or.1`) the assumption becomes a
-one-line lookup, and the branch is already in the right place. If the corpus
-shows the strict cases carry disproportionately many union lines, this should be
-revisited before then.
+so an **unset** `strict` yields `strictNullChecks: true`. Recounted over the
+corpus: **2,170 of 12,444 cases (17.4%) turn it off explicitly, 1,351 turn it on
+explicitly, and 8,923 leave it unset — so it is on for 82.6% of cases.** The
+earlier figure, "off for 89%", came from counting only the cases that set
+`@strict: true` and assuming the remainder were non-strict. That is the error:
+the remainder is not the complement.
+
+Two baselines pin both directions and are what settled it:
+
+```text
+predicateSemantics.ts     @strict: false   opt: number | undefined  →  >opt : number
+useRegexpGroups.ts        (nothing set)                             →  >result : RegExpExecArray | null
+```
+
+**How it was caught, and what that says about the instrument.** It was not caught
+by a test — every union test passed under the wrong assumption, because they all
+asserted the assumption. It was caught by the *conformance number*: the union
+bucket's wrong count went 1,819 → 3,549 on a slice that should only have
+converted gaps, and 37.2% of the corpus's 30,943 union baseline lines mention
+`null` or `undefined`. A bucket that answers more lines wrong than right is a
+signal that the rule is wrong rather than the coverage thin, and it is worth
+treating that ratio as a standing alarm.
+
+**The consequence accepted:** a union mentioning `null` or `undefined` in one of
+the 2,170 explicitly-non-strict cases is a wrong line rather than a gap — the
+same shape of cost as before, one fifth of the size, and pointing the other way.
+`bd tsr-5s2` removes the assumption entirely.
+
+### Nullable constituents sort first and print last
+
+The correction above made a second rule reachable that had been recorded as
+unreachable, and it is the kind that fails lines while looking like a formatting
+bug. `UNDEFINED` is `1 << 2` and `NULL` is `1 << 3`, so `CompareTypes` puts both
+at the **front** of the constituent list. Upstream prints them at the **end**,
+appending `c.nullType` and then `c.undefinedType` after everything else
+(`printer.go:407`). `string | undefined` is therefore *stored* `[undefined,
+string]` and *printed* `string | undefined`.
+
+Measured over the baselines rather than assumed: **6,811 lines end in
+`| undefined`, 28 begin with a nullable constituent, and `null` never follows
+`undefined`** — `>d : object | null | undefined`.
+
+`formatUnionTypes` was originally ported for its boolean clause only, with the
+nullable clause recorded as unreachable *because nullable types were dropped*.
+That justification died with the assumption it rested on. Both clauses are now
+ported; the enum clause remains genuinely unreachable (`bd tsr-8pz`).
 
 ### `boolean` is the union `false | true`, and that is observable
 
@@ -1367,3 +1404,10 @@ So the operators need compiler options and assignability, and answering them
 without either would produce wrong lines rather than missing ones — the one thing
 this port has consistently refused to do. They move to `bd tsr-5s2` with the
 options work, and the arm in `binary.rs` now says so instead of blaming unions.
+
+**Amended after the `strictNullChecks` correction above.** With the option known
+to default *on*, `&&` takes its second branch, so the option is no longer the
+whole blocker for it — `getTypeFacts` and `extractDefinitelyFalsyTypes` are, and
+those are real work rather than a lookup. `||` and `??` are unchanged: they still
+need subtype reduction and therefore assignability. Do not read `bd tsr-5s2`
+landing as automatically closing the operators.
