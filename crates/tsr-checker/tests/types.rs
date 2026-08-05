@@ -341,10 +341,13 @@ fn a_self_referential_initialiser_resolves_instead_of_hanging() {
 
 #[test]
 fn a_symbol_shape_this_slice_does_not_port_is_an_error_type() {
-    // A function symbol goes to `getTypeOfFuncClassEnumModule`, unported. It must
+    // An accessor symbol goes to `getTypeOfAccessors`, which is unported. It must
     // read as a gap rather than as `any`.
+    //
+    // This test used to name a *function* symbol, which now has a type
+    // (`bd tsr-4sc.8`). The shape moved; the discipline did not.
     let arena = Arena::new();
-    let source = "function f() {}";
+    let source = "class C { get a() { return 1; } }";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
         parsed.source_file,
@@ -352,10 +355,12 @@ fn a_symbol_shape_this_slice_does_not_port_is_an_error_type() {
         tsr_binder::FileInfo { name: "test.ts", text: source },
     );
     let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
-    let symbol = bound.lookup_local(root, "f").expect("`f` is declared");
+    let class = bound.lookup_local(root, "C").expect("`C` is declared");
+    let symbol = *bound.symbols().get(class).members.get("a").expect("`a` is a member");
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_type_of_symbol(symbol);
     assert_eq!(id, checker.intrinsics().error);
+    assert_ne!(id, checker.intrinsics().any);
 }
 
 #[test]
@@ -860,15 +865,9 @@ fn a_property_that_is_not_there_is_a_gap_and_not_a_free_name() {
     assert_eq!(type_of_declaration("const x = unknownThing.a;", "x"), "error");
     // A primitive receiver needs the apparent type from lib.d.ts (bd tsr-9or.1).
     assert_eq!(type_of_declaration(r#"const x = "abc".length;"#, "x"), "error");
-    // Inherited members are not in the derived symbol's table.
-    assert_eq!(
-        type_of_declaration(
-            "class B { a: number; }\nclass C extends B {}\n\
-                             declare const c: C;\nconst x = c.a;",
-            "x"
-        ),
-        "error"
-    );
+    // Inherited members *were* a gap here and are no longer: base types are now
+    // walked (`tests/members.rs`). The assertion is removed rather than inverted,
+    // because the positive case belongs with the code that answers it.
     // An instantiated generic would find its target's *uninstantiated* members,
     // which would answer `T` where upstream answers `number`.
     assert_eq!(
@@ -940,4 +939,245 @@ fn this_inside_a_class_is_the_class_this_type() {
     );
     // Outside any class there is no container this port can answer for.
     assert_eq!(type_of_nested_declaration("const x = this;", "x"), "error");
+}
+
+// ---------------------------------------------------------------------------
+// Function, class, enum and module symbols: `getTypeOfFuncClassEnumModule`
+// (`bd tsr-4sc.8`).
+//
+// Ranked first by `examples/types_shapes.rs` at `78cfcba`: 35,488 gap lines are
+// a symbol kind `getTypeOfSymbol` did not handle, and this is the only route to
+// the two largest answer buckets still reading 0.00% — function/signature
+// (55,421 lines) and `typeof X` (15,912), which is what a class or module
+// symbol's type *prints* as rather than a separate feature.
+//
+// Every expected string below was taken from a corpus baseline under
+// `vendor/typescript-go/testdata/baselines/reference/`, not from intuition: the
+// whole line is compared verbatim, so the spelling is the thing under test.
+// ---------------------------------------------------------------------------
+
+/// The printed type of a member named `member` of the top-level declaration
+/// named `owner`.
+///
+/// [`type_of_declaration`] reaches only a file's own locals, and a method lives
+/// in its class's or interface's members table.
+fn type_of_member(source: &str, owner: &str, member: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let owner = bound.lookup_local(root, owner).unwrap_or_else(|| panic!("`{owner}` is declared"));
+    let symbol = *bound
+        .symbols()
+        .get(owner)
+        .members
+        .get(member)
+        .unwrap_or_else(|| panic!("`{member}` is a member"));
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let id = checker.get_type_of_symbol(symbol);
+    checker.type_to_string(id)
+}
+
+#[test]
+fn a_function_symbol_is_its_call_signature() {
+    // `conformance/typedefModuleExportsIndirect2.types` records `>f : () => void`
+    // for a body with no `return`, and
+    // `submodule/conformance/parserFunctionDeclaration1.types` records
+    // `>F : () => any` for `declare function F();` — a body-less declaration's
+    // return type is `any`, which is a computed answer and not a gap.
+    assert_eq!(type_of_declaration("function f() {}", "f"), "() => void");
+    assert_eq!(type_of_declaration("function f(x: string) {}", "f"), "(x: string) => void");
+    assert_eq!(type_of_declaration("declare function f();", "f"), "() => any");
+    assert_eq!(type_of_declaration("function f(): number { return 1; }", "f"), "() => number");
+    // A method reaches the same arm: `getTypeOfSymbol` sends `SymbolFlagsMethod`
+    // to `getTypeOfFuncClassEnumModule` alongside `SymbolFlagsFunction`.
+    assert_eq!(type_of_member("interface I { m(): void }", "I", "m"), "() => void");
+    assert_eq!(
+        type_of_member("class C { m(x: number): void {} }", "C", "m"),
+        "(x: number) => void"
+    );
+}
+
+#[test]
+fn a_void_return_is_inferred_only_where_no_return_statement_exists() {
+    // Upstream's `checkAndAggregateReturnExpressionTypes` yields no types and is
+    // not never-returning for a *function declaration*, so `getReturnTypeFromBody`
+    // answers `void` — and it does so even for a body that only throws, because
+    // `mayReturnNever` is false for this kind.
+    assert_eq!(type_of_declaration("function f() { throw 1; }", "f"), "() => void");
+    // A `return` with an expression needs a union of the return types, which is
+    // `bd tsr-4sc.9`. It must read as a gap, not as `void`.
+    assert_eq!(type_of_declaration("function f() { return 1; }", "f"), "error");
+    // Async and generator return types are `Promise<T>` and `Generator<...>`,
+    // references to globals that do not exist here (`bd tsr-9or.1`).
+    assert_eq!(type_of_declaration("async function f() {}", "f"), "error");
+    assert_eq!(type_of_declaration("function* f() {}", "f"), "error");
+    // A `return` inside a *nested* function belongs to that function, so the
+    // outer one still infers `void`. This is `ForEachReturnStatement`'s contract.
+    assert_eq!(
+        type_of_declaration("function f() { function g() { return 1; } }", "f"),
+        "() => void"
+    );
+}
+
+#[test]
+fn an_overload_set_takes_the_overload_signature_and_not_the_implementation() {
+    // `submodule/conformance/functionOverloadErrorsSyntax.types` records
+    // `>fn4a : (x?: number, y: string) => any` for exactly this shape: the
+    // implementation contributes no signature, so the printed type is the
+    // overload's — including its `any` return, since the overload has no body.
+    assert_eq!(
+        type_of_declaration("function f(x?: number, y: string);\nfunction f() {}", "f"),
+        "(x?: number, y: string) => any"
+    );
+    // Two *overloads* print as a type literal of call signatures,
+    // `{ (): void; (x: string): void; }` (`nodebuilderimpl.go:2690` emits a bare
+    // function type only for a single call signature). That rendering is
+    // unported, and the first signature dressed up as the whole would be a wrong
+    // answer where a gap belongs.
+    assert_eq!(type_of_member("interface I { m(): void; m(x: string): void }", "I", "m"), "error");
+}
+
+#[test]
+fn a_defaulted_parameter_is_optional_only_from_the_minimum_argument_count() {
+    // `submodule/conformance/callSignaturesWithParameterInitializers.types`:
+    // `function foo(x = 1) { }` records `>foo : (x?: number) => void`. The
+    // parameter's own type is the *widened* initialiser, `number` and not `1`.
+    assert_eq!(type_of_declaration("function f(x = 1) {}", "f"), "(x?: number) => void");
+    // With a required parameter after it, `x` is at index 0 and the minimum
+    // argument count is 2, so upstream's `isOptionalParameter` says no —
+    // `parameterIndex >= minArgumentCount` is false. Treating every defaulted
+    // parameter as optional would print `(x?: number, y: number)` here.
+    assert_eq!(
+        type_of_declaration("function f(x = 1, y: number) {}", "f"),
+        "(x: number, y: number) => void"
+    );
+    // A `?` token is optional outright, whatever follows it.
+    assert_eq!(
+        type_of_declaration("function f(x?: number, y: number) {}", "f"),
+        "(x?: number, y: number) => void"
+    );
+}
+
+#[test]
+fn a_this_parameter_is_printed_first() {
+    // Upstream keeps `this` out of `signature.parameters` and the node builder
+    // prepends it (`nodebuilderimpl.go:1792`). `docs/architecture/
+    // checker-oracle.md` quotes `(this: any) => void` as a real baseline shape.
+    assert_eq!(type_of_declaration("function f(this: any) {}", "f"), "(this: any) => void");
+    assert_eq!(
+        type_of_declaration("function f(this: any, x = 1) {}", "f"),
+        "(this: any, x?: number) => void"
+    );
+    // **The exclusion itself is unobservable today**, and that is said here
+    // rather than pinned by a test that would not bite. Folding `this` into
+    // `parameters` shifts `minArgumentCount` by exactly one *and* shifts every
+    // value parameter's list index by one, and the only thing either feeds is
+    // `parameterIndex >= minArgumentCount` — so both sides move together and no
+    // printed line changes. It becomes load-bearing with `getTypeAtPosition`
+    // and call-argument checking, which is why the field is kept rather than
+    // flattened; the same reasoning as the two guards recorded in
+    // `docs/architecture/checker.md` under the binary operators.
+}
+
+#[test]
+fn a_generic_function_prints_its_type_parameters() {
+    assert_eq!(type_of_declaration("function f<T>(p: T): T { return p; }", "f"), "<T>(p: T) => T");
+    assert_eq!(
+        type_of_declaration("function f<T extends string>(p: T): void {}", "f"),
+        "<T extends string>(p: T) => void"
+    );
+    assert_eq!(
+        type_of_declaration("function f<T = number>(p: T): void {}", "f"),
+        "<T = number>(p: T) => void"
+    );
+}
+
+#[test]
+fn a_class_enum_or_namespace_symbol_prints_as_a_type_query() {
+    // The whole `typeof X` answer bucket — 15,912 corpus lines — is this arm.
+    // A class's *declaration name* still records the instance type `C`
+    // (`get_declared_type_of_symbol`); this is what a *reference* to it is.
+    assert_eq!(type_of_declaration("class C {}", "C"), "typeof C");
+    assert_eq!(type_of_declaration("enum E { A }", "E"), "typeof E");
+    assert_eq!(type_of_declaration("namespace M { export const x = 1; }", "M"), "typeof M");
+    // A merged function-and-namespace symbol takes the `typeof` form:
+    // `shouldEmitTypeOfSymbol` (`nodebuilderimpl.go:2801`) tests enum and value
+    // module as an `||` before falling through to the function case.
+    assert_eq!(
+        type_of_declaration("function f() {}\nnamespace f { export const x = 1; }", "f"),
+        "typeof f"
+    );
+}
+
+#[test]
+fn a_shorthand_ambient_module_is_any_and_not_a_gap() {
+    // `isShorthandAmbientModuleSymbol` (`utilities.go:198`) is the first branch of
+    // `getTypeOfFuncClassEnumModuleWorker`, and `anyType` there is a computed
+    // answer — a module with no body genuinely has no known shape.
+    // The binder stores a string module's name unquoted, which is why the guard
+    // below is on the declaration's name *node* and not on the stored text.
+    assert_eq!(type_of_declaration("declare module \"x\";", "x"), "any");
+    // With a body it is an ordinary value module, and upstream spells it
+    // `typeof import("x")` — a form this port does not build, so a gap rather
+    // than the `typeof x` its stored name would produce.
+    assert_eq!(
+        type_of_declaration("declare module \"x\" { export const a: number; }", "x"),
+        "error"
+    );
+}
+
+#[test]
+fn a_type_query_carries_no_members_so_a_static_access_is_a_gap() {
+    // `typeof C`'s properties are the class's *statics*, which live in the
+    // symbol's `exports` table; `TypeData::Named` points `getPropertyOfType` at
+    // `members`. Pointing it there would answer `C.x` with the *instance* `x` —
+    // a wrong answer where a gap belongs, which is the one failure the
+    // `errorType`-not-`anyType` rule exists to prevent.
+    assert_eq!(
+        type_of_declaration("class C { static s: string; x: number; }\nconst v = C.x;", "v"),
+        "error"
+    );
+    assert_eq!(type_of_declaration("class C { static s: string; }\nconst v = C.s;", "v"), "error");
+}
+
+#[test]
+fn a_signature_this_port_cannot_print_exactly_is_a_gap() {
+    // A destructuring parameter: `parameterToParameterDeclarationName` invents a
+    // name for a binding pattern, and an invented name compared verbatim is a
+    // guess.
+    assert_eq!(type_of_declaration("function f({ a }: { a: string }) {}", "f"), "error");
+    // A parameter whose own type is a gap makes the whole signature a gap.
+    // `string[]` is an array type node, still unported (`bd tsr-9or.1`).
+    assert_eq!(type_of_declaration("function f(...r: string[]) {}", "f"), "error");
+    // Likewise a constraint that does not resolve.
+    assert_eq!(type_of_declaration("function f<T extends string[]>(): void {}", "f"), "error");
+}
+
+#[test]
+fn a_function_symbols_type_is_memoised_on_the_symbol() {
+    // The same memo upstream uses — `valueSymbolLinks.resolvedType` — so asking
+    // twice must give the same *identity* and not two types that print alike.
+    // Identity is what a relation check will compare.
+    let arena = Arena::new();
+    let source = "function f(x: string) {}";
+    let parsed = tsr_parser::parse(&arena, source);
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let symbol = bound.lookup_local(root, "f").expect("`f` is declared");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let first = checker.get_type_of_symbol(symbol);
+    let count = checker.type_count();
+    let second = checker.get_type_of_symbol(symbol);
+    assert_eq!(first, second, "one type per symbol");
+    assert_eq!(checker.type_count(), count, "the second ask creates no type");
 }

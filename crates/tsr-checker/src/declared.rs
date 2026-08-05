@@ -80,7 +80,13 @@ impl<'a> Checker<'a, '_> {
             return error;
         };
         let Some(id) = name.node_id else { return error };
-        let Some(symbol) = self.binder.resolve(self.nodes, id, name.text) else {
+        // `SymbolFlags::TYPE` is upstream's meaning for a type reference
+        // (`resolveTypeReferenceName`). It is what lets the resolver consult an
+        // enclosing class's or interface's `members` for a type parameter — see
+        // `BindResult::resolve_name`.
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, id, name.text, SymbolFlags::TYPE)
+        else {
             return error;
         };
         let parameters = self.local_type_parameters_of(symbol).len();

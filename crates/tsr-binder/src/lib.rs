@@ -233,27 +233,8 @@ impl<'a> BindResult<'a> {
         self.locals.get(&container)?.get(name).copied()
     }
 
-    /// Resolve `name` from `start`, walking outward through enclosing scopes.
-    ///
-    /// The lexical half of name resolution, with **no meaning** — which is
-    /// upstream's `meaning == 0`, and therefore skips every arm of
-    /// `(*NameResolver).Resolve` that is gated on one, including the class and
-    /// interface arm [`BindResult::resolve_name`] exists for. It consults
-    /// `locals` and nothing else.
-    ///
-    /// **Superseded.** The two checker call sites
-    /// (`tsr-checker/src/declared.rs`, `tsr-checker/src/expressions.rs`) should
-    /// move to [`BindResult::resolve_name`] with the meaning upstream passes —
-    /// `SymbolFlags::TYPE` for a type reference, `SymbolFlags::VALUE` for an
-    /// identifier expression — at which point this goes away. Until they do, a
-    /// type parameter of a class or interface is unreachable from the checker;
-    /// see `bd tsr-y4u.21`.
-    #[must_use]
-    pub fn resolve(&self, nodes: &NodeTable, start: NodeId, name: &str) -> Option<SymbolId> {
-        self.resolve_inner(nodes, None, start, name, SymbolFlags::empty())
-    }
-
-    /// Resolve `name` from `start` for a particular *meaning*.
+    /// Resolve `name` from `start` for a particular *meaning*, walking outward
+    /// through enclosing scopes.
     ///
     /// Ported from `(*NameResolver).Resolve` (`internal/binder/nameresolver.go`),
     /// restricted to the two arms this port has the tables for: a location's
@@ -289,12 +270,14 @@ impl<'a> BindResult<'a> {
     /// ever *adds* a table to consult.
     ///
     /// The `locals` lookup is **not** meaning-filtered, which upstream's is. That
-    /// is the pre-existing behaviour of [`BindResult::resolve`] and changing it is
-    /// a separate question with its own regression surface — filtering would, for
-    /// one, stop an `import X = Y` alias resolving for a value reference, since
-    /// `SymbolFlags::ALIAS` is not in `SymbolFlags::VALUE` and nothing here
-    /// follows aliases yet. Left as it was, deliberately; `bd tsr-y4u.12` owns
-    /// the alias half.
+    /// is the behaviour the meaning-less predecessor of this function had, and
+    /// changing it is a separate question with its own regression surface —
+    /// filtering would, for one, stop an `import X = Y` alias resolving for a
+    /// value reference, since `SymbolFlags::ALIAS` is not in `SymbolFlags::VALUE`
+    /// and nothing here follows aliases yet. Left as it was, deliberately;
+    /// `bd tsr-y4u.12` owns the alias half. That is also what makes this a pure
+    /// widening over [`BindResult::resolve`]: **every answer that gives, this
+    /// gives**, and the only new answers come from the members arm below.
     #[must_use]
     pub fn resolve_name(
         &self,
@@ -307,12 +290,32 @@ impl<'a> BindResult<'a> {
         self.resolve_inner(nodes, Some(node_map), start, name, meaning)
     }
 
+    /// Resolve `name` from `start` with **no meaning**, consulting `locals` only.
+    ///
+    /// Upstream's `meaning == 0`: `r.lookup` returns nothing for it
+    /// (`nameresolver.go:423`), so every meaning-gated arm — including the class
+    /// and interface arm — is skipped, and this is exactly the walk that existed
+    /// before [`BindResult::resolve_name`].
+    ///
+    /// **This should not exist, and it is kept for one measured reason.** Its two
+    /// checker callers have moved to `resolve_name` with the meaning upstream
+    /// passes. Two callers remain in `tsr-conformance`'s `types_producer.rs`, and
+    /// giving *those* a meaning is a judgement about what the baseline producer is
+    /// printing at each site, not a mechanical substitution — it belongs to that
+    /// crate's owner. Converting them blind would also change the producer under a
+    /// corpus measurement in flight, which is how a number becomes uninterpretable.
+    ///
+    /// Delete this when those two move. Tracked on `bd tsr-y4u.21`.
+    #[must_use]
+    pub fn resolve(&self, nodes: &NodeTable, start: NodeId, name: &str) -> Option<SymbolId> {
+        self.resolve_inner(nodes, None, start, name, SymbolFlags::empty())
+    }
+
     /// The body of both resolvers.
     ///
-    /// `node_map` is optional because [`BindResult::resolve`] passes an empty
-    /// meaning and so can never reach the arm that reads modifiers. When it is
-    /// `None` the static-member rule below cannot be evaluated, and the arm is
-    /// unreachable for exactly that reason rather than by luck.
+    /// `node_map` is `None` only from [`BindResult::resolve`], which passes an
+    /// empty meaning and therefore cannot reach the arm that reads modifiers. The
+    /// arm is unreachable for that reason rather than by luck.
     fn resolve_inner(
         &self,
         nodes: &NodeTable,
@@ -364,6 +367,7 @@ impl<'a> BindResult<'a> {
                 // answering the type parameter here would be answering a question
                 // upstream refuses.
                 if last.is_some_and(|l| is_static_member(node_map, l)) {
+                    // Upstream returns nil here, not the symbol.
                     return None;
                 }
                 return Some(found);
@@ -407,9 +411,13 @@ impl<'a> BindResult<'a> {
 /// Ported from `ast.IsStatic` (`internal/ast/utilities.go`), for the one caller
 /// above.
 ///
-/// `false` when there is no [`NodeMap`] to read the modifiers from, which is only
-/// the meaning-less [`BindResult::resolve`] path — where the caller cannot reach
-/// this at all.
+/// This is why [`BindResult::resolve_name`] takes a [`NodeMap`]: staticness is a
+/// *modifier*, which lives in the typed node, and the resolver otherwise walks
+/// entirely through [`NodeTable`] ids
+/// ([ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)).
+///
+/// `false` when there is no map, which is only the meaning-less
+/// [`BindResult::resolve`] path — where the caller cannot reach this at all.
 fn is_static_member(node_map: Option<&NodeMap<'_>>, node: NodeId) -> bool {
     let Some(node) = node_map.and_then(|map| map.get(node)) else { return false };
     let modifiers = match node {

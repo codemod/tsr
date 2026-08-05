@@ -229,10 +229,10 @@ fn lexical_resolution_walks_outward_and_stops_at_the_nearest_binding() {
     let function_id = function.node_id().expect("registered");
 
     // From inside the function, both the parameter and the outer var resolve.
-    assert!(bound.result.resolve(bound.nodes(), function_id, "shadow").is_some());
-    assert!(bound.result.resolve(bound.nodes(), function_id, "outer").is_some());
+    assert!(resolve_value(&bound, function_id, "shadow").is_some());
+    assert!(resolve_value(&bound, function_id, "outer").is_some());
     // The parameter is not visible from the file scope.
-    assert!(bound.result.resolve(bound.nodes(), bound.root(), "shadow").is_none());
+    assert!(resolve_value(&bound, bound.root(), "shadow").is_none());
 }
 
 #[test]
@@ -1095,6 +1095,11 @@ fn resolve_type(bound: &Bound<'_>, from: tsr_ast::NodeId, name: &str) -> Option<
     bound.result.resolve_name(bound.nodes(), &bound.parsed.node_map, from, name, SymbolFlags::TYPE)
 }
 
+/// `resolve_name` with the meaning upstream passes for an identifier expression.
+fn resolve_value(bound: &Bound<'_>, from: tsr_ast::NodeId, name: &str) -> Option<SymbolId> {
+    bound.result.resolve_name(bound.nodes(), &bound.parsed.node_map, from, name, SymbolFlags::VALUE)
+}
+
 /// Whether `symbol` is a type parameter declared directly by `container`.
 fn is_type_parameter_of(bound: &Bound<'_>, symbol: SymbolId, container: tsr_ast::NodeId) -> bool {
     let symbol = bound.result.symbols().get(symbol);
@@ -1118,9 +1123,12 @@ fn a_class_type_parameter_resolves_from_a_member_annotation() {
         is_type_parameter_of(&bound, found, class),
         "the answer must be the class's own type parameter, not something of the same name"
     );
-    // The locals-only walk finds nothing, which is the whole reason the members
-    // arm exists — and why `bd tsr-y4u.21` read this as "bound nowhere".
-    assert!(bound.result.resolve(bound.nodes(), reference, "T").is_none());
+    // No `locals` table anywhere on the walk holds `T` — which is the whole
+    // reason the members arm exists, and why `bd tsr-y4u.21` read this as "bound
+    // nowhere". In value meaning the arm still *runs*: `VALUE & TYPE` is
+    // `CLASS | ENUM | ENUM_MEMBER`, not empty. It is the filter, not the arm,
+    // that excludes a type parameter — which is upstream's arithmetic exactly.
+    assert!(resolve_value(&bound, reference, "T").is_none());
 }
 
 #[test]
@@ -1134,7 +1142,7 @@ fn an_interface_type_parameter_resolves_from_a_member_annotation() {
 
     let found = resolve_type(&bound, reference, "T").expect("`T` is in scope inside its interface");
     assert!(is_type_parameter_of(&bound, found, interface));
-    assert!(bound.result.resolve(bound.nodes(), reference, "T").is_none());
+    assert!(resolve_value(&bound, reference, "T").is_none());
 }
 
 #[test]

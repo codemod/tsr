@@ -861,13 +861,38 @@ so does an unresolved name. It was rejected because the two are different claims
 and the difference surfaces the moment `getTypeOfFuncClassEnumModule` or a
 diagnostic exists. `meaning` is therefore a parameter, exactly as upstream's is.
 
-**What that cost:** a signature change on a function two checker modules call.
-`resolve` is kept, delegating with an empty meaning — which is upstream's
-`meaning == 0` and disables every meaning-gated arm, so its behaviour is
-unchanged bit for bit — and is to be deleted once
-`tsr-checker/src/declared.rs` and `tsr-checker/src/expressions.rs` pass
-`SymbolFlags::TYPE` and `SymbolFlags::VALUE` respectively. Until they do, the
-2,330 lines above do not move: the resolver can answer, and nothing asks it.
+**What that cost:** a signature change on a function four modules call.
+`tsr-checker/src/declared.rs` and `tsr-checker/src/expressions.rs` have moved to
+`resolve_name` with `SymbolFlags::TYPE` and `SymbolFlags::VALUE`, which are the
+meanings upstream passes for a type reference and an identifier expression. That
+is what makes the 2,330 lines above reachable at all: the arm answers, and now
+something asks it.
+
+`resolve` survives, delegating with an empty meaning — upstream's `meaning == 0`,
+for which `r.lookup` returns nothing (`nameresolver.go:423`), so every
+meaning-gated arm is skipped and its behaviour is unchanged bit for bit. It
+survives for **two callers in `tsr-conformance/src/types_producer.rs`**, and the
+reason it was not simply converted is worth recording: choosing a meaning there
+is a judgement about what the baseline producer is printing at each site, not a
+mechanical substitution, and converting them blind would have changed the
+producer underneath a corpus measurement in flight. A number produced by a
+resolver that changed mid-run is not interpretable. Delete `resolve` when those
+two move.
+
+**Why the migration is safe to do piecemeal:** the widening is strictly additive.
+`resolve_name` consults the same `locals` tables in the same order with no
+meaning filter on them, so every answer `resolve` gives, `resolve_name` gives;
+the only new answers come from the members arm, which is gated on
+`meaning & SymbolFlags::TYPE`. Measured rather than asserted: moving both checker
+call sites changed exactly one test result in `tsr-checker/tests/types.rs`, and
+that one was the assertion pinning the *old* inherited-members answer.
+
+One piece of arithmetic that is easy to get backwards, and was: `VALUE & TYPE` is
+**not** empty — it is `CLASS | ENUM | ENUM_MEMBER`. A value reference therefore
+does enter the members arm; it is the *filter*, not the arm, that excludes a type
+parameter. That is upstream's `meaning & SymbolFlagsType` exactly, and no class or
+interface members table can hold a `CLASS` or `ENUM` symbol anyway, so the arm is
+empty in practice for a value lookup.
 
 ### What is deliberately still missing
 
@@ -907,16 +932,35 @@ along with `lexical_resolution_walks_outward_and_stops_at_the_nearest_binding`.
 
 ### Tests, and the mutation each one answers
 
-Seven tests in `tests/bind.rs`, each verified red under a specific mutation.
-`binder_symbols` is not evidence for any of them — nothing about *binding*
-changed here.
+Seven in `tests/bind.rs` and three in `tsr-checker/tests/members.rs`, each
+verified red under a specific mutation. `binder_symbols` is not evidence for any
+of them — nothing about *binding* changed here, which is also the prediction that
+suite should confirm by staying exactly flat.
 
 | test | mutation that turns it red |
 |---|---|
-| `a_class_type_parameter_resolves_from_a_member_annotation` | remove the class arm; remove the meaning filter (the contrast against `resolve` goes) |
+| `a_class_type_parameter_resolves_from_a_member_annotation` | remove the class arm; remove the meaning filter (the value-meaning contrast goes) |
 | `an_interface_type_parameter_resolves_from_a_member_annotation` | the same two |
 | `a_class_expression_type_parameter_resolves_too` | remove the class arm |
 | `a_value_reference_does_not_find_a_type_parameter` | remove the meaning filter |
 | `a_static_member_cannot_reference_the_class_type_parameter` | remove the §3.4.1 rule |
 | `a_merged_interfaces_type_parameter_is_not_visible_in_the_class` | remove `isTypeParameterSymbolDeclaredInContainer` |
 | `a_methods_own_type_parameter_shadows_the_classs` | make a `locals` hit not win outright |
+
+The three in the checker are the ones that matter for *this* change, and the
+reason is the trap the whole section is about. **The binder was binding `T`
+correctly the entire time**, so any test asserting through the symbol would have
+passed before the arm existed — passed for the wrong reason. These assert the
+printed type of a member, which was `any` before:
+
+| test | fixture | before | after |
+|---|---|---|---|
+| `a_class_type_parameter_resolves_in_a_member_annotation` | `class C<T> { p: T }`, `class C<T, U> { p: U }` | `any` | `T`, `U` |
+| `an_interface_type_parameter_resolves_in_a_member_annotation` | `interface I<T> { p: T }` | `any` | `T` |
+| `a_type_parameter_shadowed_by_an_outer_declaration_still_wins` | `type T = string;` + `class C<T> { p: T }` | **`string`** | `T` |
+
+Each is red under two independent mutations: removing the class arm, and passing
+the wrong meaning at the call site. The third is the one worth keeping if only
+one could be: without the arm the walk sails past the class and reaches the file's
+`type T = string`, so the answer is not a gap but a **wrong type that looks
+right** — the failure mode the `errorType` discipline exists to prevent.

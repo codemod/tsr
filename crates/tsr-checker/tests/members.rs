@@ -212,3 +212,61 @@ fn a_base_that_cannot_be_followed_does_not_let_a_later_base_answer_in_its_place(
                   interface I extends A, B<number> {}";
     assert_eq!(property_of(source, "I", "p"), None);
 }
+
+// ---------------------------------------------------------------------------
+// A class's or interface's type parameters, reached from the checker.
+//
+// The binder was already filing these correctly (`bd tsr-y4u.21`, corrected);
+// what was missing was the resolver arm that reads the members table, and then
+// a call site passing a meaning. These assert the whole path — annotation ->
+// `get_type_from_type_reference` -> `resolve_name(.., SymbolFlags::TYPE)` ->
+// `getDeclaredTypeOfSymbol` -> the printed name.
+//
+// **Before the arm existed these printed `any`**, because the reference resolved
+// to nothing and `errorType` prints `any`. That is exactly the trap the method
+// warns about: the binder bound `T` correctly all along, so a test written
+// against the *symbol* would have passed for the wrong reason. These go through
+// the printed type of a member, which did not.
+// ---------------------------------------------------------------------------
+
+/// The printed type of `property` on the top-level type `owner`.
+fn type_of_property(source: &str, owner: &str, property: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::HasNodeId::node_id(parsed.source_file).expect("registered");
+    let owner = bound.lookup_local(root, owner).expect("the owner is declared at the top level");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let declared = checker.get_declared_type_of_symbol(owner);
+    let found = checker.get_property_of_type(declared, property).expect("the property is found");
+    let ty = checker.get_type_of_symbol(found);
+    checker.type_to_string(ty)
+}
+
+#[test]
+fn a_class_type_parameter_resolves_in_a_member_annotation() {
+    assert_eq!(type_of_property("class C<T> { p: T; }", "C", "p"), "T");
+    // Two parameters, so the answer is the right one and not merely "a type
+    // parameter" — `U` and `T` print differently.
+    assert_eq!(type_of_property("class C<T, U> { p: U; }", "C", "p"), "U");
+}
+
+#[test]
+fn an_interface_type_parameter_resolves_in_a_member_annotation() {
+    assert_eq!(type_of_property("interface I<T> { p: T }", "I", "p"), "T");
+}
+
+#[test]
+fn a_type_parameter_shadowed_by_an_outer_declaration_still_wins() {
+    // `type T = string` at the file scope and `T` as the class's parameter. The
+    // walk reaches the class before the file, so the parameter wins and the
+    // member prints `T`, not `string`. Without the members arm the walk would
+    // sail past the class and answer `string` — a *wrong* answer rather than a
+    // gap, which is the failure mode worth a test of its own.
+    assert_eq!(type_of_property("type T = string;\nclass C<T> { p: T; }", "C", "p"), "T");
+}

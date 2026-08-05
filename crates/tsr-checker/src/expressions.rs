@@ -7,6 +7,7 @@
 //! answers "what is the type of this expression" is here.
 
 use tsr_ast::{Expression, Node, NodeId, SyntaxKind};
+use tsr_binder::SymbolFlags;
 
 use crate::{
     checker::Checker,
@@ -90,7 +91,17 @@ impl Checker<'_, '_> {
             // baseline will disagree wherever narrowing applies.
             Expression::Identifier(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
-                match self.binder.resolve(self.nodes, id, node.text) {
+                // `SymbolFlags::VALUE` is upstream's meaning for an identifier
+                // expression (`checkIdentifier` -> `getResolvedSymbol`). It is
+                // what keeps an enclosing class's type parameter from being
+                // resolved here — see `BindResult::resolve_name`.
+                match self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    node.text,
+                    SymbolFlags::VALUE,
+                ) {
                     Some(symbol) => self.get_type_of_symbol(symbol),
                     None => self.intrinsics.error,
                 }
