@@ -1725,3 +1725,153 @@ builder special case** keyed on `sym == b.ch.globalArrayType.symbol`
 `checkArrayLiteral` (`checker.go:8021`) is dominated by contextual typing —
 tuple context, spread elements, const context — so computing the element type is
 not the hard part.
+
+## Type assertions, and the two rules behind one node kind
+
+Ported 2026-08-05, cycle 4. `AsExpression` was 6,978 gap lines and
+`TypeAssertionExpression` 712 — the largest remaining item needing no
+assignability, no inference and no lib globals.
+
+An assertion looks like one construct and is two, and they are opposites:
+
+- **`x as T` discards the operand's type entirely** and answers
+  `getTypeFromTypeNode(T)`. The operand is checked only so its own baseline
+  lines exist and so the assignability diagnostic can be reported — upstream
+  defers even that (`checkAssertionDeferred`, `checker.go:12315`). The
+  consequence is that an assertion **pays where nothing else does**:
+  `unknownThing as string` is `string`, because a gap in the operand cannot
+  reach the answer.
+- **`x as const` has no type to resolve at all** and answers
+  `getRegularTypeOfLiteralType` of the *operand's* type.
+
+So `const` has to be recognised **before** the type node is resolved. Upstream
+makes the same point from the other side: `resolveName` has a special case so
+that the `const` in a const assertion is never resolved (`utilities.go:134`).
+
+### The `const` arm is ported and unreachable, and the cause is in the parser
+
+`crates/tsr-parser/src/types.rs:981` parses a type reference's entity name with
+`parse_identifier`, where upstream uses
+`parseEntityName(allowReservedWords: true)` (`parser.go:2897`). So `x as const`
+parses to a `TypeReferenceNode` whose `type_name` is `None` — **and no
+diagnostic is reported** — and `isConstTypeReference` can never match. All 257
+const assertions in the corpus are gaps, and so is any type reference with a
+keyword segment such as `X.default`. `bd tsr-0ao`.
+
+Mutating the order of the two arms turns **no test red**, and that is recorded in
+the module rather than covered by a test that could not bite. The arm is kept
+because it is upstream's behaviour and becomes load-bearing the instant the
+parser is fixed. Its tests exist and are `#[ignore]`d naming the issue, so they
+turn green on their own rather than needing to be remembered — and they are
+deliberately **not** rewritten to assert today's `errorType`, which would pin the
+inferior answer.
+
+**This is the better form of the "currently unobservable" note.** This document
+carries several such notes, and the `strictNullChecks` correction showed how they
+fail: a guard correctly marked "cannot fire today" becomes load-bearing when an
+unrelated fix lands, and nothing flags it. A note with a **named unblocking
+event** and an `#[ignore]`d test attached does flag it, because the test starts
+passing. The existing notes — the symbol-flags dispatch in `getTypeOfSymbol`, the
+destructuring check in `binary.rs`, the order of `+`'s numeric and string tests —
+have no such attachment and should acquire one.
+
+### A const assertion on an object literal would be wrong twice over
+
+`{ a: 1 } as const` is `{ readonly a: 1; }`
+(`baselines/reference/submodule/conformance/es2020IntlAPIs.types:188`), and this
+port would answer `{ a: number; }`. Two independent things are missing, and only
+one is obvious:
+
+1. **The members are `readonly` and unwidened**, and that does not happen in
+   `checkAssertion` at all — it happens inside `checkObjectLiteral`, which asks
+   `isConstContext` (`checker.go:13615`) and, when true, takes the regular type
+   instead of the widened one and sets `CheckFlagsReadonly`. `isConstContext`
+   recurses through enclosing parentheses, array literals, spreads and property
+   assignments, so an assertion many levels up still reaches every member.
+2. **A string member would print with the wrong quotes.** A string literal type
+   prints double-quoted standing alone and **preserves the source's quote style
+   inside an object type**:
+
+```text
+const options1 = { localeMatcher: 'lookup' } as const;
+>options1 : { readonly localeMatcher: 'lookup'; }
+>'lookup' : "lookup"
+```
+
+The same type, two spellings, because the node builder reuses the source type
+node for the member. This port normalises every string literal to double quotes,
+so it would fail the line even with `isConstContext` ported.
+
+Porting only the first would give right answers for numbers and wrong lines for
+every string — worse than a gap and much harder to spot. `bd tsr-7ja` owns both
+halves together. An **array literal** operand needs no guard: array literals are
+unported, so the operand's type is already `errorType` and it propagates.
+
+## Element access, and one interaction with optionality (`bd tsr-4sc.8`, third slice)
+
+13,549 gap lines — the largest single unported form left once calls landed.
+
+### `a["b"]` is a property access, and upstream says so
+
+The whole slice is one observation. `getPropertyNameFromIndex` (`checker.go:21786`)
+derives a property **name from the index's *type***, and
+`getPropertyTypeForIndexType` then calls the same `getPropertyOfType` that
+property access calls. So an element access with a literal index is not a second
+kind of lookup; `crates/tsr-checker/src/indexed.rs` is that observation plus the
+cases where no name can be derived.
+
+Taking the name from the index's *type* rather than its *syntax* is upstream's
+choice and it pays immediately:
+
+```text
+const k = "b";
+a[k]        // k's type is the literal "b", so this resolves
+```
+
+A syntactic reading sees an identifier and gaps. Because a `const` initialised
+with a string literal keeps its literal type — the freshness rule this crate
+already had — the type-directed reading answers it. `let k = "b"` widens to
+`string`, names no property, and is a gap: the same rule read from the other
+side, and the assertion that distinguishes the two implementations.
+
+Gaps, each named: a non-literal index (needs index signatures, which no type here
+has), an optional chain, a `unique symbol` index, and a name that is not a
+property of the receiver — including arrays and tuples, whose members live in
+`lib.d.ts` (`bd tsr-9or.1`).
+
+### A signature prints a parameter's annotation, not the parameter's type
+
+Found by two existing tests going red when `crate::optionality` landed, and it is
+a genuine defect in the *printer* that was invisible until then.
+
+Upstream records **both** spellings of the same optional parameter
+(`compiler/assertionWithNoArgument.types`, a `@strict: true` case):
+
+```text
+export function assertWeird(value?: string): asserts value {
+>assertWeird : (value?: string) => asserts value
+>value : string | undefined
+```
+
+The declaration line prints `getTypeOfSymbol`, which carries the `| undefined` a
+`?` adds. The signature prints the annotation **as written**, because
+`symbolToParameterDeclaration` hands the type to `serializeTypeForDeclaration`
+(`nodebuilderimpl.go:2216`), which reuses the written type node rather than
+re-printing the computed type.
+
+This port took `getTypeOfSymbol` for both. That was accidentally right while an
+optional parameter's type was just `number`, and became wrong the moment
+optionality was ported — printing `(value?: string | undefined)`, a spelling that
+appears nowhere in the corpus. `parameter_of` now prefers the annotation.
+
+**This is a printer fix, not an argument against optionality.** The baseline
+above is the evidence that adding `| undefined` to the *symbol's* type is right;
+what was wrong was reusing that type in a position where upstream reuses the
+syntax. The two questions were conflated because, before, they had the same
+answer.
+
+Corpus counts, for whoever revisits the `strictNullChecks` assumption: `?: X`
+appears 10,073 times in signature position against 958 for `?: X | undefined`,
+and the second set is `@strict: true` cases. After this fix the signature half is
+insensitive to the assumption, so what remains to decide is only the declaration
+line.

@@ -1,0 +1,143 @@
+//! Type assertions: `x as T` and `<T>x`.
+//!
+//! Ported from `Checker.checkAssertion` (`checker.go:12287`).
+//!
+//! # Two unrelated rules behind one node kind
+//!
+//! An assertion looks like one construct and is two. `x as T` **discards the
+//! operand's type entirely** and answers `getTypeFromTypeNode(T)` — the operand
+//! is checked only so that the assignability diagnostic can be reported, and
+//! upstream defers even that (`checkAssertionDeferred`, `checker.go:12315`).
+//! `x as const` does the opposite: it has no type to resolve at all, and answers
+//! `getRegularTypeOfLiteralType` of the **operand's** type.
+//!
+//! That is why `const` must be recognised *before* the type node is resolved.
+//! Letting it resolve as a name would look for a type called `const`, find
+//! nothing, and answer `errorType` on every const assertion in the corpus.
+//! Upstream makes the same point from the other side: `resolveName` has a
+//! special case so that the `const` in a const assertion is never resolved
+//! (`utilities.go:134`).
+//!
+//! # The `const` arm is ported and **currently unreachable**, for a parser reason
+//!
+//! `crates/tsr-parser/src/types.rs:981` parses a type reference's entity name
+//! with `parse_identifier`, where upstream uses
+//! `parseEntityName(allowReservedWords: true)` (`parser.go:2897`). So `x as const`
+//! parses to a `TypeReferenceNode` whose `type_name` is `None` — **with no
+//! diagnostic** — and [`is_const_type_reference`] can never match. Every const
+//! assertion in the corpus is a gap today, and 257 of them exist.
+//!
+//! Mutating the order of the two arms below therefore turns **no test red**, and
+//! that is stated here rather than covered by a test that could not bite. The
+//! arm is kept because it is upstream's behaviour and becomes load-bearing the
+//! instant `bd tsr-0ao` lands; its tests exist and are `#[ignore]`d naming that
+//! issue, so they turn green on their own rather than needing to be remembered.
+//! They are deliberately **not** rewritten to assert today's `errorType`, which
+//! would pin the inferior answer.
+//!
+//! # Nothing here checks that the assertion is legal
+//!
+//! Upstream's deferred half asks whether the operand is comparable to the target
+//! and reports when it is not. This port has no assignability and no
+//! diagnostics, so the answer is the asserted type either way — which is
+//! upstream's answer too, since the diagnostic does not change the type.
+
+use tsr_ast::{Expression, Node, NodeId, TypeNode};
+
+use crate::{checker::Checker, types::TypeId};
+
+impl<'a> Checker<'a, '_> {
+    /// Ported from `Checker.checkAssertion` (`checker.go:12287`).
+    ///
+    /// Takes the node's id rather than the node, because `checkExpression`'s
+    /// dispatch has a free lifetime and `getTypeFromTypeNode` needs the
+    /// checker's. `NodeMap` is the way back
+    /// ([ADR-0033](../../../docs/adr/0033-the-parser-fills-the-node-map.md)),
+    /// and it is the same route the function-expression arm already takes.
+    pub(crate) fn check_assertion(&mut self, node: NodeId) -> TypeId {
+        let error = self.intrinsics.error;
+        let (type_node, operand) = match self.node_map.get(node) {
+            Some(Node::AsExpression(node)) => (node.r#type, node.expression),
+            Some(Node::TypeAssertion(node)) => (node.r#type, node.expression),
+            _ => return error,
+        };
+        let (Some(type_node), Some(operand)) = (type_node, operand) else {
+            return error;
+        };
+        if is_const_type_reference(type_node) {
+            return self.check_const_assertion(operand);
+        }
+        // The operand is checked for its diagnostics and its type is discarded.
+        // Upstream checks it here and defers the comparison
+        // (`checker.go:12298`); this port has neither diagnostic, so the call
+        // exists only to type the operand's own baseline lines — `>x` still
+        // gets a line of its own inside `x as T`.
+        let _ = self.check_expression(operand);
+        self.get_type_from_type_node(type_node)
+    }
+
+    /// The `const` arm of `checkAssertion` (`checker.go:12303`).
+    ///
+    /// `getRegularTypeOfLiteralType(exprType)` — the operand's type, made
+    /// regular. `1 as const` is `1` rather than widening to `number`, which is
+    /// the whole point of the form.
+    ///
+    /// # An object literal operand is a gap, for two independent reasons
+    ///
+    /// `{ a: 1 } as const` is `{ readonly a: 1; }`
+    /// (`baselines/reference/submodule/conformance/es2020IntlAPIs.types:188`),
+    /// and this port would answer `{ a: number; }`. Both halves of that are
+    /// wrong and only one of them is obvious:
+    ///
+    /// 1. **The members are `readonly` and unwidened.** That does not happen
+    ///    here — it happens inside `checkObjectLiteral`, which asks
+    ///    `isConstContext` (`checker.go:13615`) and, when it is true, takes the
+    ///    regular type instead of the widened one and sets `CheckFlagsReadonly`.
+    ///    `isConstContext` recurses through enclosing parentheses, array
+    ///    literals, spreads and property assignments, so a const assertion many
+    ///    levels up still reaches every member.
+    /// 2. **The member's printed form would use the wrong quotes.** A string
+    ///    literal type prints double-quoted standing alone and **preserves the
+    ///    source's quote style inside an object type**:
+    ///
+    ///    ```text
+    ///    const options1 = { localeMatcher: 'lookup' } as const;
+    ///    >options1 : { readonly localeMatcher: 'lookup'; }
+    ///    >'lookup' : "lookup"
+    ///    ```
+    ///
+    ///    The same type, two spellings, because the node builder reuses the
+    ///    source type node for the member. This port normalises every string
+    ///    literal to double quotes, so it would fail the line even with
+    ///    `isConstContext` ported.
+    ///
+    /// Porting only the first would produce `{ readonly a: 1; }` for numbers and
+    /// a wrong line for every string, which is worse than a gap and much harder
+    /// to spot. `bd tsr-7ja` owns both halves together.
+    ///
+    /// An **array literal** operand needs no guard: array literals are unported,
+    /// so the operand's type is already `errorType` and it propagates.
+    fn check_const_assertion(&mut self, operand: Expression<'a>) -> TypeId {
+        if matches!(operand, Expression::ObjectLiteralExpression(_)) {
+            return self.intrinsics.error;
+        }
+        let operand_type = self.check_expression(operand);
+        self.get_regular_type_of_literal_type(operand_type)
+    }
+}
+
+/// `isConstTypeReference` (`utilities.go:128`).
+///
+/// A bare `const` in type position: a type reference, no type arguments, whose
+/// name is the identifier `const`. The arity test is upstream's and is not
+/// decoration — `const<T>` is a reference to a type *named* `const`, which is a
+/// legal if perverse declaration, and treating it as a const assertion would
+/// silently answer the operand's type.
+fn is_const_type_reference(node: TypeNode<'_>) -> bool {
+    let TypeNode::TypeReferenceNode(reference) = node else { return false };
+    reference.type_arguments.is_empty()
+        && matches!(
+            reference.type_name,
+            Some(tsr_ast::EntityName::Identifier(name)) if name.text == "const"
+        )
+}

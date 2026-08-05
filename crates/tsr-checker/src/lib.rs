@@ -78,16 +78,19 @@
 //! evidence until something deliberately wrong has been pushed through the whole
 //! path and seen to go red.
 
+pub mod assertions;
 pub mod binary;
 pub mod calls;
 pub mod checker;
 pub mod declared;
 pub mod expressions;
 pub mod flags;
+pub mod indexed;
 pub mod intrinsics;
 pub mod literals;
 pub mod members;
 pub mod objects;
+pub mod optionality;
 pub mod printing;
 pub mod resolution;
 pub mod signatures;

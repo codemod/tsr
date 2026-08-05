@@ -119,6 +119,15 @@ impl Checker<'_, '_> {
             // identically and is computed by unrelated code — see
             // [`crate::objects`].
             Expression::ObjectLiteralExpression(node) => self.check_object_literal(node),
+            // `checkAssertion` (`checker.go:12287`). Both spellings of the same
+            // construct, and `const` is recognised before the type node is
+            // resolved — see [`crate::assertions`].
+            Expression::AsExpression(node) => {
+                node.node_id.map_or(self.intrinsics.error, |id| self.check_assertion(id))
+            }
+            Expression::TypeAssertion(node) => {
+                node.node_id.map_or(self.intrinsics.error, |id| self.check_assertion(id))
+            }
             // `checkFunctionExpressionOrObjectLiteralMethod` (`checker.go:9077`).
             // Both kinds answer through the function's own symbol, which is the
             // same arm `getTypeOfFuncClassEnumModule` serves — see
