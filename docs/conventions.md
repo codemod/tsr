@@ -124,3 +124,47 @@ The general form, which is the same failure as the instrumentation ones in
 [checker-oracle.md](architecture/checker-oracle.md): **a check that appears to
 pass while measuring something else is worse than no check**, because it also
 spends the credibility that a real check would have earned.
+
+## A measurement is attributable to a commit, or it is not a measurement
+
+Two traps, both hit on 2026-08-05 while four agents shared one workspace.
+
+**Never take a number from a working tree that holds other people's unfinished
+edits.** A probe run in the shared tree read 22,360 and then 21,485 twenty
+minutes later. Neither was wrong; the tree moved. Pin the measurement to a commit
+in a `git worktree`, always. The symptom that caught it is the durable part: a
+mutation appeared to move lines *into* a bucket that first-match-wins precedence
+cannot reach, which is impossible — and noticing an impossible result is a more
+reliable detector that the substrate moved than any assertion about freshness.
+
+**`git worktree add` does not populate submodules.** The corpus is then absent
+and the run silently judges nothing rather than failing. Symlink
+`vendor/typescript-go` into the worktree before measuring.
+
+## A probe needs a control bucket and a positive control, and they are different
+
+An attribution probe that sorts every line into one of N causes produces a tidy
+table whether or not its model is right. Two separate guards, both of which
+earned their place the day they were written:
+
+- **A control bucket** — "attributed to none of the causes" — printed
+  unconditionally, including at zero. On its first run it was the *majority* at
+  51.44%, which is what revealed that most of the population predated the changes
+  being attributed.
+- **A positive control per cause**, counting how often the arm fires at all.
+  Without it, an arm reading zero is unreadable: it cannot be distinguished from
+  an arm asking the wrong question. One arm read 0 wrong lines and its positive
+  control read 52 firings over 261,042 candidate lines — absurdly low, which
+  exposed a defect in the *model*: a `.types` line is emitted for the declaration,
+  not for the type reference inside its annotation, so `class C<T> { p: T }`
+  produces a line for `p`, a `PROPERTY` symbol, and an arm asking what the
+  identifier resolves to can never see it.
+
+Report the arms **non-exclusively** as well, with a "matched more than one arm"
+count, so first-match-wins precedence cannot hide a doubly-explained line — the
+same failure as the roll-up in
+[checker-oracle.md](architecture/checker-oracle.md).
+
+**A zero from an instrument that cannot see the thing is not a zero.** Report it
+as untested. This matters most when the instrument is measuring its author's own
+work, where the favourable reading is the one nobody will question.
