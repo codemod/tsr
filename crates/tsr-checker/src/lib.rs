@@ -45,14 +45,29 @@
 //! [ADR-0013](../../../docs/adr/0013-checker-memoisation.md) and
 //! `crates/tsr-checker-spike`.
 //!
-//! # The oracle is unproven, and that is a live risk
+//! # What blocks the next slice
 //!
-//! `checker_types` has reported 0% since it was added, which means **its judging
-//! path has never executed**. `docs/architecture/checker-oracle.md` is explicit
-//! that the first time that suite is non-zero it must be mutation-tested — fed
-//! deliberately wrong types and confirmed to go red — before any number from it is
-//! believed. That is the same failure `file_loader` was caught by. Nothing in this
-//! crate has changed that yet.
+//! `getTypeOfSymbol` cannot be written yet: **nothing maps a `NodeId` back to a
+//! typed node**, so the checker can reach a symbol's `value_declaration` position
+//! but not the declaration's annotation or initialiser. Measured cost of the
+//! obvious fix and the cheaper alternatives are in
+//! `docs/architecture/checker.md`; the decision is `bd tsr-4sc.4`, which blocks
+//! `bd tsr-4sc.2`.
+//!
+//! # The oracle is proved; the producer is not
+//!
+//! `checker_types` reported 0% from the day it was added and had no comparison
+//! code at all, which made its judging path exactly as unproven as a suite
+//! reading 100% on its first run. That was closed on 2026-08-05 — before any
+//! checker work was measured with it — by writing `types_suite::compare` and
+//! verifying its eight tests against seven deliberately weakened judges
+//! (`docs/architecture/checker-oracle.md`).
+//!
+//! What is still unproven is the **producer**: nothing renders this crate's types
+//! in `.types` baseline form (`bd tsr-4sc.3`), so the judge has only ever been fed
+//! an empty left-hand side. The first non-zero `checker_types` number is not
+//! evidence until something deliberately wrong has been pushed through the whole
+//! path and seen to go red.
 
 pub mod checker;
 pub mod flags;
