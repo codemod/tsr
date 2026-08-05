@@ -2178,6 +2178,44 @@ impl<'a, 'n> Binder<'a, 'n> {
         {
             return Some((flags, Destination::Exports));
         }
+
+        // An enum's members belong to the enum's **exports**, not its members.
+        // Upstream's switch has a whole branch for it
+        // (`internal/binder/binder.go:436-437`):
+        //
+        // ```go
+        // case ast.KindEnumDeclaration:
+        //     return b.declareSymbol(ast.GetExports(b.container.Symbol()), ...)
+        // ```
+        //
+        // `classify` answers per-kind and had `Destination::Members` for
+        // `Node::EnumMember`, so `E.A` was unreachable from `typeof E`: the
+        // checker's `getPropertyOfType` reads `exports` for an anonymous type
+        // (`checker.go:20672`), correctly, and the member was not in it. That
+        // was ~1,560 assertion lines answering `error`, and the checker side
+        // was already complete — `get_type_of_enum_member` answers `E.A` when
+        // handed the symbol.
+        //
+        // **Same container-not-kind reasoning as the two branches above**, and
+        // the third instance of it: the type-parameter case already routes an
+        // enum container to `Exports` at the top of this function for exactly
+        // upstream's reason. This is that rule applied to the members the enum
+        // actually has.
+        //
+        // Gated on `Members` although upstream's branch is unconditional on the
+        // container. `classify` puts nothing else in an enum body — an enum can
+        // hold only enum members — so the two agree on every tree the parser
+        // produces from valid syntax, and restricting it this way means a node
+        // the parser recovered into an enum body cannot be moved into a table
+        // on the strength of a guess.
+        if destination == Destination::Members
+            && matches!(
+                self.ancestors.last().map(|(_, parent)| *parent),
+                Some(Node::EnumDeclaration(_))
+            )
+        {
+            return Some((flags, Destination::Exports));
+        }
         Some((flags, destination))
     }
 

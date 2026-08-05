@@ -377,29 +377,50 @@ fn the_shapes_typeof_x_still_gaps() {
     // builds an anonymous type over `bindFunctionOrConstructorType`'s `__type`
     // symbol, whose table holds `__call` rather than properties.
     assert_eq!(value_property("let f: (x: number) => string;", "f", "foo"), None);
+}
 
-    // **An enum member**, and the cause is *not* in this file. Upstream's binder
-    // files an enum member in the enum symbol's `exports`
-    // (`internal/binder/binder.go:436-437`: the `KindEnumDeclaration` case calls
-    // `declareSymbol(ast.GetExports(...))`). This port's binder classifies
-    // `Node::EnumMember` as `Destination::Members`
-    // (`crates/tsr-binder/src/binder.rs:3700`) and its container-based remap
-    // (`:2172`) covers only the class/static split, so the member lands in
-    // `members` and this lookup — correctly reading `exports` — misses it.
+#[test]
+fn an_enum_member_is_a_property_of_typeof_e() {
+    // This was a gap until the binder stopped filing enum members in the wrong
+    // table. Upstream's `declareSymbolAndAddToSymbolTable` has a case of its own
+    // for an enum container, and it takes `exports`
+    // (`internal/binder/binder.go:436-437`); this port had `Node::EnumMember`
+    // classified as `Destination::Members`, so the lookup above — which reads
+    // `exports`, correctly — could never find it.
+    assert_eq!(
+        value_property("enum E { A, B }", "E", "B"),
+        Some(("B".to_string(), SymbolFlags::ENUM_MEMBER))
+    );
+
+    // `submodule/conformance/validEnumAssignments.types:31` records
+    // `>E.A : E.A` for the property access itself. A `const` declaration keeps
+    // the initialiser's type unwidened (`checker.go:16898`), so the declared
+    // type is that same `E.A`.
+    assert_eq!(type_of("enum E { A, B }\nconst v = E.A;", "v"), "E.A");
+}
+
+#[test]
+#[ignore = "blocked on `get_widened_literal_type` (crates/tsr-checker/src/literals.rs), \
+            another workstream's file: it has no `EnumLike` arm, so an enum literal \
+            survives widening. Upstream widens a *fresh* enum literal to the base enum \
+            type (`getWidenedLiteralType`, checker.go:25487-25490). Deliberately NOT \
+            rewritten to assert today's `E.A`, which would pin the inferior answer. \
+            Reachable only since the binder fix — before it, this line was a gap."]
+fn a_var_initialised_from_an_enum_member_widens_to_the_enum() {
+    // Quoted, not extrapolated. `submodule/conformance/enumAssignability.types`
+    // for `enum E { A }`:
     //
-    // Deliberately *not* worked around by reading `members` for an enum symbol:
-    // that would paper a binder divergence over inside the checker, and the
-    // checker is not where it is wrong.
+    // ```text
+    // var e = E.A;
+    // >e : E        (:15)
+    // >E.A : E      (:16)
+    // >E : typeof E (:17)
+    // ```
     //
-    // **This is now the only thing blocking the bucket.** An earlier draft of
-    // this comment said the workaround would buy nothing because
-    // `getTypeOfSymbol` had no `SymbolFlags::ENUM_MEMBER` arm. That was true when
-    // written and is **false now** — `crate::symbols` grew
-    // `get_type_of_enum_member` in the same cycle. Probed directly: for
-    // `enum E { A }` the enum symbol's `exports` is empty, its `members` holds
-    // `A`, and `get_type_of_symbol` on that member symbol already answers `E.A`.
-    // So the one-line binder change is all that stands between this gap and a
-    // correct answer, and this test is what will go red when it lands.
-    assert_eq!(value_property("enum E { A }", "E", "A"), None);
-    assert_eq!(type_of("enum E { A }\nvar r = E.A;", "r"), "error");
+    // and `submodule/conformance/validNumberAssignments.types:29-30` records the
+    // same two lines for the same shape. Note the *declaration* site in both
+    // files prints `>A : E.A` (`enumAssignability.types:8`) — the same symbol,
+    // two printed types, which is what makes this widening and not a property of
+    // the enum.
+    assert_eq!(type_of("enum E { A }\nvar e = E.A;", "e"), "E");
 }

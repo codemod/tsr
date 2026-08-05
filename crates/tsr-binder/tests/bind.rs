@@ -135,21 +135,38 @@ fn class_members_go_on_the_class_not_in_the_enclosing_scope() {
 }
 
 #[test]
-fn interface_members_and_enum_members_land_on_their_owner() {
+fn an_interface_takes_members_and_an_enum_takes_exports() {
     let arena = Arena::new();
     let bound = bind(&arena, "interface I { a: number; b(): void }\nenum E { X, Y }");
 
+    // `declareSymbolAndAddToSymbolTable`'s interface branch is
+    // `declareSymbol(ast.GetMembers(...))` (`internal/binder/binder.go:438-439`).
     let interface = bound.result.lookup_local(bound.root(), "I").expect("interface I");
     let mut members: Vec<&str> =
         bound.result.symbols().get(interface).members.keys().copied().collect();
     members.sort_unstable();
     assert_eq!(members, ["a", "b"]);
 
+    // The enum branch is its own case one line earlier and takes the **other**
+    // table: `declareSymbol(ast.GetExports(...))`
+    // (`internal/binder/binder.go:436-437`).
+    //
+    // This assertion read `members` until the container-aware remap landed, which
+    // pinned a real divergence from upstream: the checker reads `exports` for a
+    // `typeof E` receiver (`checker.go:20672`), so `E.X` resolved to nothing and
+    // ~1,560 assertion lines answered `error`. The two tables are asserted
+    // together, and the interface half is what keeps the fix from being "move
+    // everything to exports".
     let enumeration = bound.result.lookup_local(bound.root(), "E").expect("enum E");
     let mut values: Vec<&str> =
-        bound.result.symbols().get(enumeration).members.keys().copied().collect();
+        bound.result.symbols().get(enumeration).exports.keys().copied().collect();
     values.sort_unstable();
     assert_eq!(values, ["X", "Y"]);
+    assert!(
+        bound.result.symbols().get(enumeration).members.is_empty(),
+        "an enum member must be in `exports` and nowhere else — a symbol in both \
+         tables would let a lookup succeed against the wrong one"
+    );
 }
 
 #[test]

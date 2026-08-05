@@ -3183,3 +3183,60 @@ acceptable failure; a printed line that differs is not. The narrowest probe is a
 class method against an object-literal method with the same body, since those two
 sit on opposite sides of `is_contextually_typed_function` and nothing else
 distinguishes them.
+
+## The enum-member table, and the correction it forced
+
+The `typeof X` section above ends by naming a binder divergence as the sole
+remaining blocker on enum member access. This is that fix, and it is recorded
+here rather than only in the binder because the *consequence* is a checker one.
+
+`declareSymbolAndAddToSymbolTable` gives an enum container a case of its own,
+and it takes the export table (`internal/binder/binder.go:436-437`):
+
+```go
+case ast.KindEnumDeclaration:
+    return b.declareSymbol(ast.GetExports(b.container.Symbol()), ...)
+```
+
+This port answered per *kind* — `Node::EnumMember => Destination::Members` — so
+an enum member landed in `members`, while `getPropertyOfType` reads `exports`
+for an anonymous type (`checker.go:20672`). Correct on both sides
+independently, and unable to meet. The remap is container-aware in the same
+shape as the class/static split directly above it, which is the third time this
+file has had to learn that upstream's table choice comes from the container and
+not from the declaration's kind.
+
+### The measurement that mattered was not the one I expected
+
+Making the lookup succeed exposed a *second* defect that had been invisible
+while the lookup failed, and it is a wrong answer rather than a gap:
+
+```text
+enum E { A }
+var e = E.A;
+>e : E           conformance/enumAssignability.types:15
+>E.A : E         conformance/enumAssignability.types:16
+```
+
+This port prints `E.A` for that line. `getWidenedLiteralType`
+(`checker.go:25487-25490`) widens a **fresh** enum literal to the base enum
+type, and `crate::literals` has no `EnumLike` arm. The same file shows the same
+symbol printing both ways — `>A : E.A` at the declaration
+(`enumAssignability.types:8`), `>A : E` at the use — which is what identifies
+this as widening rather than a property of the enum.
+
+That defect is older than this change and belongs to another file; what this
+change did was make it *reachable*. It is recorded as an ignored test rather
+than a rewritten one, because rewriting it to assert today's `E.A` would pin the
+inferior answer and remove the only marker that the widening arm is missing.
+`const v = E.A` is unaffected and correct — a `const` declaration keeps the
+initialiser's type (`checker.go:16898`).
+
+### How you would know this is wrong
+
+The guard rail is `binder_symbols`, not `checker_types`: this moves symbols
+between tables, so a drop there means the remap fires on a container it should
+not. Two assertions bound it — an interface's members must stay in `members`
+(`binder.go:438-439`) and an enum's must be in `exports` *and absent from*
+`members`, because a symbol in both tables lets a lookup succeed against the
+wrong one and hides exactly the class of bug this fixes.
