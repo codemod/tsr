@@ -564,3 +564,68 @@ recording because they change what "run `wrong_attribution`" costs:
 If it is ever taken and the 555 did **not** drop, the correction belongs in
 `crates/tsr-checker/src/members.rs`, where the ownership is asserted — not
 quietly here.
+
+## Cycle 10, measured: the object-literal arm moved +22, against 120–200 predicted
+
+Measured by the lead, not by this workstream. Isolated pair
+**`2e00f90^..2e00f90`** (verified one commit with `git log --oneline`), each side
+run in its own `git worktree add --detach` with its own submodule checkout and
+its own target dir, so no teammate's edits are inside either measurement. Both
+snapshots confirmed freshly written with `git status --porcelain` before being
+read — see the trap recorded in `checker-notes-arrays.md`, where a checked-in
+snapshot was nearly read as a measurement.
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| assertion lines | 291,349/478,954 | 291,371/478,954 | **+22** |
+| cases | 2,128/9,538 | 2,128/9,538 | **0** |
+
+**This is a miss, and a large one: predicted 120–200, delivered 22.** Between 5.5×
+and 9× high. Recorded as a miss on the project scoreboard, which now stands at
+4 hits, 8 misses.
+
+### What held, and it is not nothing
+
+The prediction's *"must not move"* clause was **passing-case count**, and it did
+not move — 2,128 both sides. The stated success shape was "wrong → right with the
+gap column flat", and because both wrong→right and gap→right add to `right`, the
++22 is the whole conversion however it splits. Nothing regressed.
+
+### What the miss does and does not tell us
+
+The arm's own sizing was the careful part of this cycle's work and should not be
+discarded with the prediction: the headline 297 was correctly cut to **66
+reachable in 33 files, footprint 259 assertion lines**, by splitting on what
+supplies the enclosing object literal's own contextual type. That cut was the
+right move and it was measured.
+
+22 of a 259-line footprint is an **8.5% conversion rate**, and the two candidate
+explanations are not separable from this number:
+
+1. the 66 reachable sites are reachable in principle and something later in the
+   chain still gaps them — the kind-2 chain exposing its next link, exactly as
+   `docs/conventions.md` warns happens when a named blocker is removed; or
+2. the 259-line footprint over-counts what the 66 sites actually block.
+
+**Distinguishing them needs the wrong-versus-gap split, which is the same
+instrument this page's other falsifier is already blocked on** —
+`crates/tsr-conformance/examples/wrong_attribution.rs`, still on the lib-less
+per-unit path (`bd tsr-qj4`). That is now the second open question on this page
+waiting on one instrument fix, which is a stronger argument for doing it than
+either question made alone.
+
+### The estimate's shape, named so it is not repeated
+
+This is the same failure as the export-markers miss scored the same day
+(`checker-notes-arrays.md`): **a measured population was quoted as a predicted
+conversion.** The 259-line footprint is a *ceiling* — it is what the 66 sites
+touch, not what fixing them converts — and 120–200 is 46–77% of it. Neither miss
+stated an expected conversion *rate* separately from the population, and neither
+said what would make the rate low. The correction is one sentence in the
+prediction and it is now recorded in `docs/conventions.md`.
+
+Worth stating plainly against the temptation to read a small number kindly: this
+page pre-registered "a flat gradient with an improved right/wrong split is the
+success case", which is a *correct and honest* thing to have written before
+measuring — and it is not what this prediction said. This prediction named
+120–200 lines. It got 22.
