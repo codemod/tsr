@@ -275,51 +275,19 @@ impl<'a> BindResult<'a> {
     /// filtering would, for one, stop an `import X = Y` alias resolving for a
     /// value reference, since `SymbolFlags::ALIAS` is not in `SymbolFlags::VALUE`
     /// and nothing here follows aliases yet. Left as it was, deliberately;
-    /// `bd tsr-y4u.12` owns the alias half. That is also what makes this a pure
-    /// widening over [`BindResult::resolve`]: **every answer that gives, this
-    /// gives**, and the only new answers come from the members arm below.
+    /// `bd tsr-y4u.12` owns the alias half. That is also what made replacing the
+    /// meaning-less `resolve` a pure widening: it read the same `locals` in the
+    /// same order, so every answer it gave, this gives, and the only new answers
+    /// come from the members arm below. `resolve` is gone — all four callers
+    /// (`declared.rs`, `expressions.rs`, `members.rs`, and `tsr-conformance`'s
+    /// `types_producer.rs` twice) now pass the meaning upstream passes at that
+    /// site. A meaning-less shim would have been a resolver that answers a
+    /// question upstream never asks, kept alive by nobody re-checking it.
     #[must_use]
     pub fn resolve_name(
         &self,
         nodes: &NodeTable,
         node_map: &NodeMap<'a>,
-        start: NodeId,
-        name: &str,
-        meaning: SymbolFlags,
-    ) -> Option<SymbolId> {
-        self.resolve_inner(nodes, Some(node_map), start, name, meaning)
-    }
-
-    /// Resolve `name` from `start` with **no meaning**, consulting `locals` only.
-    ///
-    /// Upstream's `meaning == 0`: `r.lookup` returns nothing for it
-    /// (`nameresolver.go:423`), so every meaning-gated arm — including the class
-    /// and interface arm — is skipped, and this is exactly the walk that existed
-    /// before [`BindResult::resolve_name`].
-    ///
-    /// **This should not exist, and it is kept for one measured reason.** Its two
-    /// checker callers have moved to `resolve_name` with the meaning upstream
-    /// passes. Two callers remain in `tsr-conformance`'s `types_producer.rs`, and
-    /// giving *those* a meaning is a judgement about what the baseline producer is
-    /// printing at each site, not a mechanical substitution — it belongs to that
-    /// crate's owner. Converting them blind would also change the producer under a
-    /// corpus measurement in flight, which is how a number becomes uninterpretable.
-    ///
-    /// Delete this when those two move. Tracked on `bd tsr-y4u.21`.
-    #[must_use]
-    pub fn resolve(&self, nodes: &NodeTable, start: NodeId, name: &str) -> Option<SymbolId> {
-        self.resolve_inner(nodes, None, start, name, SymbolFlags::empty())
-    }
-
-    /// The body of both resolvers.
-    ///
-    /// `node_map` is `None` only from [`BindResult::resolve`], which passes an
-    /// empty meaning and therefore cannot reach the arm that reads modifiers. The
-    /// arm is unreachable for that reason rather than by luck.
-    fn resolve_inner(
-        &self,
-        nodes: &NodeTable,
-        node_map: Option<&NodeMap<'a>>,
         start: NodeId,
         name: &str,
         meaning: SymbolFlags,
@@ -416,10 +384,10 @@ impl<'a> BindResult<'a> {
 /// entirely through [`NodeTable`] ids
 /// ([ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)).
 ///
-/// `false` when there is no map, which is only the meaning-less
-/// [`BindResult::resolve`] path — where the caller cannot reach this at all.
-fn is_static_member(node_map: Option<&NodeMap<'_>>, node: NodeId) -> bool {
-    let Some(node) = node_map.and_then(|map| map.get(node)) else { return false };
+/// `false` for an id with no node behind it, which [`NodeMap::get`] answers with
+/// `None` rather than a panic.
+fn is_static_member(node_map: &NodeMap<'_>, node: NodeId) -> bool {
+    let Some(node) = node_map.get(node) else { return false };
     let modifiers = match node {
         tsr_ast::Node::ClassStaticBlockDeclaration(_) => return true,
         tsr_ast::Node::PropertyDeclaration(n) => n.modifiers,

@@ -776,10 +776,11 @@ Filed as `tsr-y4u.9`.
 
 ---
 
-## Name resolution: `resolve`, and why it needs a meaning
+## Name resolution: `resolve_name`, and why it needs a meaning
 
-`BindResult::resolve` walks a node's ancestors consulting each one's `locals`.
-That is the lexical half of upstream's `(*NameResolver).Resolve`
+`BindResult::resolve` — since replaced by `resolve_name`, see below — walked a
+node's ancestors consulting each one's `locals` and nothing else. That is the
+lexical half of upstream's `(*NameResolver).Resolve`
 (`internal/binder/nameresolver.go`), and for a long time it was enough, because
 every construct the checker had reached files its declarations in a `locals`
 table.
@@ -868,24 +869,55 @@ meanings upstream passes for a type reference and an identifier expression. That
 is what makes the 2,330 lines above reachable at all: the arm answers, and now
 something asks it.
 
-`resolve` survives, delegating with an empty meaning — upstream's `meaning == 0`,
-for which `r.lookup` returns nothing (`nameresolver.go:423`), so every
-meaning-gated arm is skipped and its behaviour is unchanged bit for bit. It
-survives for **two callers in `tsr-conformance/src/types_producer.rs`**, and the
-reason it was not simply converted is worth recording: choosing a meaning there
-is a judgement about what the baseline producer is printing at each site, not a
-mechanical substitution, and converting them blind would have changed the
-producer underneath a corpus measurement in flight. A number produced by a
-resolver that changed mid-run is not interpretable. Delete `resolve` when those
-two move.
+**`resolve` is gone.** It survived one commit as a shim delegating with an empty
+meaning — upstream's `meaning == 0`, for which `r.lookup` returns nothing
+(`nameresolver.go:423`), so every meaning-gated arm is skipped — because deleting
+it revealed **two more callers than anyone had counted**, in
+`tsr-conformance/src/types_producer.rs`. Choosing a meaning there is a judgement
+about what the baseline producer prints at each site, not a mechanical
+substitution, and converting them blind would have moved the producer underneath a
+corpus measurement in flight; a number from a resolver that changed mid-run is not
+interpretable. Once that run finished, `types_producer.rs` moved to
+`SymbolFlags::TYPE` at its type-reference site — mirroring `declared.rs` line for
+line, which is the property that instrument needs — and `resolve` was deleted.
 
-**Why the migration is safe to do piecemeal:** the widening is strictly additive.
+A meaning-less resolver is not a harmless convenience. It answers a question
+upstream never asks, and the failure mode is a caller nobody re-checks quietly
+getting the wrong symbol years later. That is why it went rather than being kept
+"just for the producer".
+
+**Why the migration was safe to do piecemeal:** the widening is strictly additive.
 `resolve_name` consults the same `locals` tables in the same order with no
-meaning filter on them, so every answer `resolve` gives, `resolve_name` gives;
-the only new answers come from the members arm, which is gated on
+meaning filter on them, so every answer `resolve` gave, `resolve_name` gives; the
+only new answers come from the members arm, which is gated on
 `meaning & SymbolFlags::TYPE`. Measured rather than asserted: moving both checker
 call sites changed exactly one test result in `tsr-checker/tests/types.rs`, and
 that one was the assertion pinning the *old* inherited-members answer.
+
+### What the corpus said
+
+Measured 2026-08-05 at `c8bf249`, which carried the members walk but **not** the
+call-site change, so it prices the inherited-members half alone:
+
+| suite | before | after |
+|---|---:|---:|
+| `binder_symbols` | 8,292/8,459 (98.03%) | **unchanged, to the case** |
+| `printer_round_trip` | 11,681/11,737 | unchanged |
+| `parser_typescript` | 5,000/5,031 | unchanged |
+| `checker_types` cases | 596 | **602** |
+| `checker_types` gradient | 36.17% | **36.23%** |
+
+`binder_symbols` being *exactly* flat was a stated prediction with a real chance
+of failing — a resolution change that had accidentally disturbed a symbol table
+would have shown up here — so it is evidence rather than a formality.
+
+The gradient moved ~290 lines against a histogram prediction of at most ~1,184
+(886 "no such property on a receiver we typed" plus 298 on a `this`). Landing well
+under the ceiling is the expected shape, because many of those lines sit in cases
+that fail for other reasons too. **The slice did what the measurement said it
+would and no more**, which is worth more than a surprise would have been: it is
+the histogram earning its credibility. The type-parameter half is not in these
+numbers — it became reachable only at `2c9fae5`.
 
 One piece of arithmetic that is easy to get backwards, and was: `VALUE & TYPE` is
 **not** empty — it is `CLASS | ENUM | ENUM_MEMBER`. A value reference therefore
