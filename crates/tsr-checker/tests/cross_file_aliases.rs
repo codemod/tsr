@@ -45,6 +45,19 @@
 //! | 5 | route the no-specifier case through `get_external_module_member` too | [`a_same_file_export_specifier_still_resolves_locally`] **only** |
 //! | 6 | delete `|| seen.contains(&target)` from `get_symbol_flags` | [`a_re_export_cycle_between_two_files_terminates`] — by **hanging** |
 //! | 7 | take `get_type_of_alias`'s `VALUE` test over raw flags | [`a_two_link_re_export_chain_across_three_files_resolves`] **only** |
+//! | 8 | `SyntaxKind::ImportSpecifier => return None` in `resolve_alias` | [`a_same_file_export_specifier_naming_an_import_converts_too`] + 2 others |
+//!
+//! Tests 8 and 9 —
+//! [`a_same_file_export_specifier_naming_an_import_converts_too`] and
+//! [`a_same_file_export_specifier_naming_a_re_export_converts_too`] — were added
+//! **after** the corpus run, and they are not new behaviour. They reproduce a
+//! **registered must-not-move condition that moved**: the same-file
+//! `export { q }` row fell 198 -> 165, which §16 of
+//! `docs/architecture/checker-notes-symbols.md` had predicted would not change.
+//! Each is red under the arm that explains it (8 above; 9 under mutation 4), and
+//! test 8 carries its own discriminator in the body — the identical fixture
+//! asserted to gap with **no** host, which is what makes it evidence that this
+//! arm caused the movement rather than a story that it could have.
 //!
 //! The tests pair as (1, 2), (4, 5) and (6, 7), one behaviour change each, and
 //! **within every pair the two mutations are disjoint** — neither test can be
@@ -200,6 +213,32 @@ fn type_of_alias(fixture: &Fixture<'_>, name: &str, with_host: bool) -> String {
     checker.type_to_string(id)
 }
 
+/// [`type_of_alias`] restricted to one specifier kind.
+///
+/// Needed only where a fixture holds an import specifier **and** an export
+/// specifier of the same name — `import { x } from "./m"; export { x };` — which
+/// is exactly the shape that explains the moved same-file row. Picking "the last
+/// one" there would depend on declaration order rather than on the kind under
+/// test.
+fn type_of_alias_of_kind(
+    fixture: &Fixture<'_>,
+    name: &str,
+    kind: SyntaxKind,
+    with_host: bool,
+) -> String {
+    let host: Option<&dyn ModuleHost> = if with_host { Some(&fixture.host) } else { None };
+    let mut checker =
+        Checker::with_module_host(&fixture.bound, &fixture.nodes, &fixture.node_map, host);
+    let symbol = (0..u32::try_from(fixture.nodes.len()).expect("node count fits in u32"))
+        .map(NodeId::new)
+        .filter(|&id| fixture.nodes.kind(id) == kind)
+        .filter_map(|id| fixture.bound.symbol_of(id))
+        .find(|&s| fixture.bound.symbols().get(s).name == name)
+        .unwrap_or_else(|| panic!("no {kind:?} named `{name}`"));
+    let id = checker.get_type_of_symbol(symbol);
+    checker.type_to_string(id)
+}
+
 /// The type of a variable declared in the last fixture file, by symbol name.
 ///
 /// Only [`no_lib_control`] needs this; it is here rather than inline so the
@@ -296,6 +335,55 @@ fn a_named_import_from_a_file_that_is_not_a_module_is_a_gap() {
     let fixture =
         program(&arena, &[("s", "var x: number = 1;\n"), ("a", "import { x } from \"./s\";\n")]);
     assert_eq!(type_of_alias(&fixture, "x", true), "error");
+}
+
+#[test]
+fn a_same_file_export_specifier_naming_an_import_converts_too() {
+    // **The registered must-not-move condition that MOVED, reproduced.**
+    //
+    // `docs/architecture/checker-notes-symbols.md` §16 named the same-file
+    // `export { q }` row as unchanged by this arm. It fell 198 -> 165 on the
+    // corpus. This test is the mechanism, isolated: the specifier is same-file
+    // and its lookup is untouched, but its **target** is an import alias that
+    // could not resolve before.
+    //
+    // `getTypeOfAlias` (`checker.go:18598`) takes its `VALUE` test over
+    // `getSymbolFlags` (`checker.go:16367`), which walks the alias *chain*. So
+    // `export { x }` naming `import { x } from "./m"` was `errorType` for a
+    // reason that had nothing to do with the export specifier: the chain ended
+    // at an alias with no `VALUE` bit, because the import arm did not exist.
+    //
+    // The same-file row was therefore never a population of same-file *work* —
+    // it is a population of same-file *syntax*, and some of it was blocked
+    // cross-file all along.
+    let arena = Arena::new();
+    let fixture = program(&arena, &[M, ("a", "import { x } from \"./m\";\nexport { x };\n")]);
+    assert_eq!(type_of_alias_of_kind(&fixture, "x", SyntaxKind::ExportSpecifier, true), "number");
+    // And it is the arm that did it: without the host the same fixture gaps.
+    assert_eq!(type_of_alias_of_kind(&fixture, "x", SyntaxKind::ExportSpecifier, false), "error");
+}
+
+#[test]
+fn a_same_file_export_specifier_naming_a_re_export_converts_too() {
+    // The second of exactly two routes by which a same-file specifier can
+    // convert, enumerated from the diff rather than guessed: its target is an
+    // export specifier that *does* carry a module specifier.
+    //
+    // Together with the test above this closes the question the corpus raised.
+    // The same-file lookup itself is byte-identical across `fa29e66^..fa29e66`
+    // — `export_specifier_target`'s `module_specifier.is_none()` branch was not
+    // touched — so a same-file line can only have converted through its target,
+    // and its target is reached by one of these two new arms.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            M,
+            ("b", "export { x } from \"./m\";\n"),
+            ("a", "import { x } from \"./b\";\nexport { x };\n"),
+        ],
+    );
+    assert_eq!(type_of_alias_of_kind(&fixture, "x", SyntaxKind::ExportSpecifier, true), "number");
 }
 
 #[test]

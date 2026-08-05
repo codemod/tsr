@@ -1105,3 +1105,251 @@ because the same-file arm *was* the whole chain and this one is not.
   module writes `export =`.** That sub-case *is* spellable — the target is an
   ordinary named symbol — so it is buildable today while the other 692 are not.
   One bucket in `symbol_dispatch_split.rs` sizes it. `bd tsr-4jk`.
+
+---
+
+## 18. SCORED — both predictions miss on lines, and the decomposition says why
+
+Measured by the lead in isolated detached worktrees with their own submodule
+checkouts. `fa29e66^..fa29e66` verified as one commit.
+
+```
+  baseline (8d20c28)   291,895 / 478,954   2,138 cases   60.94%
+  fa29e66              292,606 / 478,954   2,173 cases   61.09%
+                          +711 lines          +35 cases
+```
+
+Rails flat: `module_resolution` 95/95, `file_loader` 96/96, `binder_symbols`
+8,292/8,459, `printer_round_trip` 11,681/11,737, `parser_typescript` 5,000/5,031.
+
+| leg | §16 original | §16b revised | measured | verdict |
+|---|---|---|---:|---|
+| lines | 389 (300–490) | 300 (246–366) | **+711** | **both MISS**; original 1.83× under, revised 2.37× |
+| cases | +40 (+25 to +55) | +10 (+5 to +20) | **+35** | **original HITS**, revised MISSES |
+| population | 1,024 | 1,024 | rows fell 461 | held as a ceiling on rows |
+| form split | 87 / 13 | 87 / 13 | **86.2 / 13.8** | **HIT** |
+| the 924-line zero | unchanged | unchanged | **unchanged, exactly** | **HIT** |
+
+```
+  import { x } from   890 -> 521   -369   86.2%
+  export { q } from   134 ->  75    -59   13.8%
+  import * as ns      259 -> 259      0
+  import a = require  433 -> 433      0
+  import d from       232 -> 232      0
+```
+
+### The miss is one factor, and it is a factor nobody had
+
+**389 is an excellent prediction of the wrong quantity.** The two target rows
+lost **428** lines; 389 is **91%** of that — a 9% error on rows, the tightest
+number this slice has produced. The prediction was built from row rates, and it
+was reported as a *gradient* number with an implicit cascade multiplier of
+**1.0**.
+
+The measured multiplier is **1.66**. `389 × 1.66 = 646`, against 711.
+
+So the miss does not decompose into "population right, rate wrong" as §7's did.
+Population held, rate held, **and a third factor existed that neither
+prediction had a slot for**. §19 is that factor.
+
+### `bd tsr-95i` is reopened against its own evidence, and the correction moved leg 1 the wrong way
+
+This is not "the revised one was close in spirit". It is quantitative:
+
+```
+  row conversion, the two predicted forms   428 / 1,024 = 41.8%
+  implied leg 1, holding leg 2 at 0.80              0.522
+```
+
+- original leg 1: **0.475** — 9% below the implied truth
+- corrected leg 1: **0.30** — **43% below it**
+
+**The 47.5% prior was closer to the measured rate than the 30% that replaced
+it.** Counting the same-file row's 33 lines as well (§20 shows they are this
+arm's) the row rate is 45.0% and implied leg 1 is 0.56, further above 0.475
+still.
+
+The correction's reasoning was sound — 198 *is* a post-build population, and I
+verified that independently — and its conclusion about the *direction* of the
+error was wrong. `bd tsr-95i` should carry that: **a post-build population makes
+the denominator too small, which inflates the rate; but the same build also
+removed lines from the numerator's row, and the two do not cancel in the
+direction assumed.** Nobody worked out which effect dominated before the number
+was revised, and the honest reading is that the revision was made under time
+pressure on an argument, against a prior that had been *measured*.
+
+The rule this buys, and it is the one I would want applied to me next time:
+**do not replace a measured prior with a reasoned correction unless the
+correction is itself measured.** 0.475 was measured on 198 real lines. 0.30 was
+inferred. A prediction is not improved by making its inputs more sophisticated;
+it is improved by making them more measured.
+
+#### The caveat on this verdict, closed rather than flagged
+
+Everything above holds **leg 2 at the guessed 0.80**, and a first draft of this
+section said so and then quoted the verdict anyway. `docs/conventions.md`:
+*"Flagging a risk and then propagating the number is worse than not flagging
+it… If you write one and then quote past it, delete the number, not the
+caveat."* So the caveat is worked out instead:
+
+| leg 2 | implied leg 1 | \|0.475 − t\| | \|0.30 − t\| | closer |
+|---:|---:|---:|---:|---|
+| 0.6 | 0.697 | 0.222 | 0.397 | 0.475 |
+| 0.7 | 0.597 | 0.122 | 0.297 | 0.475 |
+| 0.8 | 0.522 | 0.047 | 0.222 | 0.475 |
+| 0.9 | 0.464 | 0.011 | 0.164 | 0.475 |
+| 1.0 | 0.418 | 0.057 | 0.118 | 0.475 |
+
+The two candidates are equidistant only at implied leg 1 = 0.3875, which needs
+**leg 2 = 1.079**. Leg 2 is a *discount* for forms the arm declines, so
+**leg 2 ≤ 1.0 by construction** and the crossover is unreachable.
+
+**For every physically possible value of the unmeasured input, 0.475 is closer
+to the truth than 0.30.** The verdict does not rest on the guess. That is a
+control pinned by construction rather than by arithmetic — the class
+`docs/conventions.md` prefers — and it is what the caveat should have been the
+first time. The leg-2 bucket is still worth measuring, for the *next*
+prediction rather than for this verdict.
+
+### Method B beat method A on the quantity both were estimating
+
+§16b framed the run as adjudicating two sizing methods. On **rows** — which is
+what both methods actually estimate — it did:
+
+| | predicts rows | measured 428 | error |
+|---|---:|---:|---:|
+| A, the corrected sibling proxy | 246 | | 1.74× under |
+| B, `module_blocked`'s direct measurement | 366 | | 1.17× under |
+
+**The direct measurement won, as `docs/conventions.md`'s "pre-register on the
+most direct bucket" predicts.** My §16b split the difference between them and
+was therefore worse than B alone. Averaging a measurement with a proxy discards
+the reason the measurement is better.
+
+### Cases: I overrode my own row's profile with a different row's
+
++35 measured, inside §16's +25 to +55 and well outside §16b's +5 to +20.
+
+The revision cut cases 4× on the finding that *"the sibling alias row finishes
+0.0% of its cases even at the ceiling"*. **That is the `reference …
+SymbolFlags(ALIAS)` row, which §4 of this page records at `finishes 0`. This arm
+is in the `declaration name …` row, which §4 records at `finishes 117` — the
+highest on the board.** Both numbers were already on this page, four sections
+above the revision, and I applied the wrong one.
+
+Same disease as everything else catalogued here: **a number that is true and
+answers a different question.** The tell was available for free — the two rows
+differ by one word in their names and by 117 in the statistic being reasoned
+about.
+
+## 19. The fifth sizing question: conversions cascade past the row
+
+The four levels in `docs/conventions.md` predict lines *within a row* and cases.
+None of them predicts this:
+
+```
+  lines that left the two predicted rows          428
+  lines that left every row that moved            461   (+ same-file, §20)
+  gradient gain                                   711
+  converted while in NO alias row at all          250
+```
+
+**1.66× against the predicted population; 1.54× against every row that moved.**
+Both are true and answer different questions — 1.66 is what a *planner* wants
+(how much does my row population under-count the gain), 1.54 is what a
+*mechanism* reader wants (what share of the gain landed outside any row that
+moved).
+
+The 250 lines are references to the imported names and accesses through them.
+`import { f } from "./m"; f();` puts one line in the alias row — the declaration
+name `f` — and the *call* is a separate assertion line that answered `errorType`
+only because its callee did. Nothing in any row histogram attributes that line
+to the alias.
+
+So, stated as a question to ask before sizing:
+
+> **How many lines answer wrongly only because this one does?** A row counts the
+> lines that *name* the defect. It does not count the lines downstream of them,
+> and for anything a *reference* can point at — a symbol, a module, a callee —
+> that downstream set is larger than the row.
+
+This is the mirror image of a rule already recorded. `docs/conventions.md` warns
+that summing rows which share a downstream function **over**-counts, because
+83% were turned back earlier. This is the same edge walked the other way, and it
+**under**-counts. The two together say the honest form: *walk the dependency
+edge in both directions and count once.*
+
+**Why the same-file arm did not show this and this one does:** `export { q }`
+converted 94 lines and flipped 10 cases with no cascade visible, because a
+re-exported name is mostly not *used* in the file that re-exports it. An
+imported name is imported in order to be used. **The cascade multiplier is a
+property of the form, not of the fix**, which is why it cannot be carried
+forward as a constant — the next arm needs its own.
+
+## 20. The must-not-move condition that moved, explained and tested
+
+```
+  export { q }  (SAME FILE)   198 -> 165   -33
+```
+
+§16 named this row unchanged. It fell 33, and the explanation is **not** that
+the shared function "also helps same-file cases" — that would be a
+rationalisation, and it is wrong: `export_specifier_target`'s
+`module_specifier.is_none()` branch is **byte-identical** across
+`fa29e66^..fa29e66`, verified on the diff. The same-file lookup did not change
+at all.
+
+A same-file specifier can therefore only have converted through its **target**,
+and there are exactly two routes, enumerated from the diff rather than guessed:
+
+1. the target is an **import specifier** — `import { x } from "./m"; export { x };`
+2. the target is a **re-export** — `export { x } from "./m"` in another file
+
+`getTypeOfAlias` takes its `VALUE` test over `getSymbolFlags`
+(`checker.go:16367`), which walks the alias *chain*. Both shapes previously
+ended the walk at an alias carrying no `VALUE` bit, so the answer was
+`errorType` **for a reason that had nothing to do with the export specifier**.
+
+Both are now tests —
+`a_same_file_export_specifier_naming_an_import_converts_too` and
+`a_same_file_export_specifier_naming_a_re_export_converts_too` — and the first
+asserts the same fixture **gaps with no host**, which is what makes it evidence
+that this arm did it rather than a story that it could have.
+
+### What the row actually is, which is the finding
+
+**The same-file / cross-file split in §4 is a split by *syntax*, not by *work*.**
+33 of the 198 "same-file" lines were blocked cross-file all along, through their
+targets. §4 presented 423 same-file lines as *"kind 1 — genuinely terminal,
+blocked on nothing"*, and at least 8% of the largest form in it was kind 2.
+
+That is a correction to §4 and it generalises past this row: **classifying a
+line by the syntax at its own position says nothing about where its
+dependencies live.** The alias chain is exactly the mechanism that carries a
+dependency somewhere the classifier cannot see it — which is the same reason
+`rank_board` calls this whole family `TERMINAL` by default (§1).
+
+## 21. The zero-control could not be run, so failure mode (b) is untested
+
+§16's failure mode (b) — *"the gain comes from something else the host
+unblocked"* — was to be settled by `1e4bddb^..1e4bddb`, a seam wired with no
+cross-file arm behind it, which must read exactly zero.
+
+**`ce83aed` and `1e4bddb` do not compile** (`bd tsr-6yg`): `checker.rs` imports
+`ModuleHost` at `ce83aed`, and `trait ModuleHost` first appears in `fa29e66`.
+The runs failed and left the committed snapshots in place, which read exactly
+the baseline — so the control very nearly reported "exactly zero" while having
+measured nothing at all.
+
+So **+711 is the seam and this arm together, and the attribution to this arm is
+an argument rather than a measurement.** The argument: nothing else in the tree
+calls `resolved_module` — one `grep` confirms the only callers are
+`Checker::resolve_external_module_name` and the trait impl — so the host is
+inert without this arm. That is strong and it is not the control.
+
+**The control is still available and costs one commit**: revert `symbols.rs` to
+`fa29e66^` on top of `fa29e66`, keeping the trait so the tree builds, and run
+it. Anyone doubting the attribution should do that rather than re-argue it.
+`bd tsr-6yg` carries the ordering rule that would have prevented it — **the
+first commit must be the one that builds alone, which is the declaration, not
+the consumer** — and "blocking is not the same as first" is the compressed form.
