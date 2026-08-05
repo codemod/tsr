@@ -304,9 +304,7 @@ dependencies = [
 name = "tsr-compiler"
 version = "0.1.0"
 dependencies = [
- "rayon",
  "rustc-hash",
- "self_cell",
  "tsr-ast",
  "tsr-binder",
  "tsr-core",

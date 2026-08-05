@@ -39,9 +39,10 @@
 mod file;
 pub mod loader;
 
-use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use tsr_core::CompilerOptions;
+use tsr_ast::{NodeMap, NodeTable};
+use tsr_binder::{BindResult, FileInfo};
+use tsr_core::{Arena, CompilerOptions};
 use tsr_path::{Path, to_path};
 
 pub use file::ProgramFile;
@@ -80,12 +81,19 @@ impl Default for ProgramOptions {
 }
 
 /// A set of files compiled together.
+///
+/// Lifetime-parameterised because the program borrows the arena its files were
+/// parsed into, which the **caller** owns (ADR-0034, "Who owns the arena"). The
+/// accepted cost is that a `Program` cannot be returned from a function that
+/// created its own arena; the escape hatch, if a language service ever needs
+/// one, is a `self_cell` around the arena at the top level — one
+/// self-referential type instead of one per file.
 #[derive(Debug)]
-pub struct Program {
+pub struct Program<'a> {
     options: CompilerOptions,
     /// In the order they were given, which is the order diagnostics are
     /// reported in.
-    files: Vec<ProgramFile>,
+    files: Vec<ProgramFile<'a>>,
     /// Canonical path to its index in `files`.
     ///
     /// Upstream keys `filesByPath` by `*ast.SourceFile`; an index is the same
@@ -97,25 +105,56 @@ pub struct Program {
     /// front (`filesparser.go:518`); the boundary is kept rather than the two
     /// slices, because everything else about a lib file is ordinary.
     lib_file_count: usize,
+    /// Kind, span and parent for every node of **every** file
+    /// ([ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)).
+    nodes: NodeTable,
+    /// The typed node behind each id, over the same numbering.
+    node_map: NodeMap<'a>,
+    /// Every symbol of every bound file, in one store.
+    ///
+    /// One rather than one per file, which is the whole of the widening: a
+    /// `SymbolId` names one symbol across the program, and its declarations
+    /// index `nodes`, so a symbol from another file can be handed to the checker
+    /// without reading the wrong file's declarations.
+    binder: BindResult<'a>,
+    /// How many leading entries of `files` have been bound.
+    ///
+    /// Upstream's per-file `file.IsBound()`, coarsened to a prefix because one
+    /// `SymbolStore` is filled by one sequential accumulation. See
+    /// [`Program::bind_source_files`].
+    bound_file_count: usize,
 }
 
-impl Program {
-    /// Parse every file and bind it.
+impl<'a> Program<'a> {
+    /// Parse every file into `arena` and bind it.
     ///
-    /// Upstream splits these — `NewProgram` parses, `BindSourceFiles` binds on
-    /// demand — and so does this, one line apart. They are separate because
-    /// binding is the expensive half and a consumer that only wants syntax
-    /// should not pay for it; [`Program::parse`] is that entry point.
+    /// Named for the arena rather than `new` because the arena is the
+    /// load-bearing argument: it is what every file's tree, name, text and
+    /// symbol borrows from, and its extent *is* the compilation (ADR-0034). A
+    /// `new` that took it as a first parameter would read as an implementation
+    /// detail; it is the contract.
+    ///
+    /// Upstream splits parse and bind — `NewProgram` parses, `BindSourceFiles`
+    /// binds on demand — and so does this, one line apart. They are separate
+    /// because binding is the expensive half and a consumer that only wants
+    /// syntax should not pay for it; [`Program::parse`] is that entry point.
     #[must_use]
-    pub fn new(options: ProgramOptions) -> Self {
-        let mut program = Self::parse(options);
+    pub fn in_arena(arena: &'a Arena, options: ProgramOptions) -> Self {
+        let mut program = Self::parse(arena, options);
         program.bind_source_files();
         program
     }
 
-    /// Parse every file, without binding.
+    /// Parse every file into `arena`, without binding.
+    ///
+    /// **Sequential, where this used to be a rayon `into_par_iter`.** One arena
+    /// and one node table cannot be filled from several threads, and the ids
+    /// have to continue the numbering in a defined order — the same
+    /// serialisation ADR-0034 records for binding, arriving one phase earlier.
+    /// Parallelism moves out to the caller, which is where the conformance
+    /// harness already has it: a case per worker, an arena per case.
     #[must_use]
-    pub fn parse(options: ProgramOptions) -> Self {
+    pub fn parse(arena: &'a Arena, options: ProgramOptions) -> Self {
         let ProgramOptions {
             files,
             compiler_options,
@@ -123,15 +162,24 @@ impl Program {
             use_case_sensitive_file_names,
         } = options;
 
-        // One arena per file and no shared state, so this is a plain parallel
-        // map — the same reason the conformance harness parallelises by case.
-        let parsed: Vec<ProgramFile> = files
-            .into_par_iter()
-            .map(|(file_name, text)| {
-                let path = to_path(&file_name, &current_directory, use_case_sensitive_file_names);
-                ProgramFile::parse(path, file_name, text)
-            })
-            .collect();
+        let mut nodes = NodeTable::new();
+        let mut node_map = NodeMap::new();
+        let mut parsed: Vec<ProgramFile<'a>> = Vec::with_capacity(files.len());
+        for (file_name, text) in files {
+            let path = to_path(&file_name, &current_directory, use_case_sensitive_file_names);
+            // Copied into the arena for the reason the loader copies: the
+            // symbol store outlives any per-file storage. See
+            // `ProgramFile`'s module docs.
+            let file_name: &'a str = arena.alloc_str(&file_name);
+            let text: &'a str = arena.alloc_str(&text);
+            let parse_options = tsr_parser::ParseOptions {
+                script_kind: tsr_parser::ScriptKind::from_file_name(file_name),
+                ..Default::default()
+            };
+            let into =
+                tsr_parser::parse_into(arena, text, parse_options, &mut nodes, &mut node_map);
+            parsed.push(ProgramFile::new(path, file_name, text, into));
+        }
 
         // First spelling wins, as upstream's `filesByPath` does: a file added
         // twice under two spellings of one path is one file, and the later one
@@ -141,7 +189,16 @@ impl Program {
             files_by_path.entry(file.path().clone()).or_insert(index);
         }
 
-        Self { options: compiler_options, files: parsed, files_by_path, lib_file_count: 0 }
+        Self {
+            options: compiler_options,
+            files: parsed,
+            files_by_path,
+            lib_file_count: 0,
+            nodes,
+            node_map,
+            binder: BindResult::empty(),
+            bound_file_count: 0,
+        }
     }
 
     /// Discover the program's files from its roots, then parse and bind them.
@@ -161,11 +218,12 @@ impl Program {
     /// on demand.
     #[must_use]
     pub fn from_root_files(
+        arena: &'a Arena,
         host: &dyn tsr_module::types::ResolutionHost,
         options: loader::LoadOptions,
     ) -> Self {
         let compiler_options = options.compiler_options.clone();
-        let loaded = loader::FileLoader::load(host, options);
+        let loaded = loader::FileLoader::load(arena, host, options);
 
         let mut files_by_path = FxHashMap::default();
         for (index, file) in loaded.files.iter().enumerate() {
@@ -177,6 +235,10 @@ impl Program {
             files: loaded.files,
             files_by_path,
             lib_file_count: loaded.lib_file_count,
+            nodes: loaded.nodes,
+            node_map: loaded.node_map,
+            binder: BindResult::empty(),
+            bound_file_count: 0,
         };
         program.bind_source_files();
         program
@@ -184,11 +246,29 @@ impl Program {
 
     /// Bind every file that is not bound (`Program.BindSourceFiles`).
     ///
-    /// Parallel across files, because each one is independent: a file's symbols
-    /// depend only on that file. What crosses files — resolving an import to
-    /// another file's exports — is the checker's, and happens after.
+    /// **Sequential, where this used to be a rayon `par_iter_mut`.**
+    /// `bind_into` accumulates into one `SymbolStore`, so a program binds in one
+    /// pass, in file order — libs first, because a global interface declared in
+    /// several files merges in the order the files were added. Upstream binds in
+    /// parallel and can, because its symbols are pointers with no shared
+    /// allocator between them; ADR-0034 records the trade and the escape hatch
+    /// (bind per file into its own store, merge with a `SymbolId` offset).
+    ///
+    /// Idempotent, as upstream's `file.IsBound()` guard makes it: only the files
+    /// past `bound_file_count` are bound, so calling this twice binds nothing
+    /// the second time.
     pub fn bind_source_files(&mut self) {
-        self.files.par_iter_mut().for_each(ProgramFile::bind);
+        for index in self.bound_file_count..self.files.len() {
+            let file = &self.files[index];
+            let previous = std::mem::replace(&mut self.binder, BindResult::empty());
+            self.binder = tsr_binder::bind_into(
+                previous,
+                file.source_file(),
+                &self.nodes,
+                FileInfo { name: file.file_name(), text: file.text() },
+            );
+        }
+        self.bound_file_count = self.files.len();
     }
 
     /// The options every file is compiled under.
@@ -197,11 +277,46 @@ impl Program {
         &self.options
     }
 
+    /// Kind, span and parent for every node of every file.
+    ///
+    /// One table for the program, not one per file: see
+    /// [ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md).
+    /// A `Span` inside it is still an offset into *its own* file's text, which
+    /// [`ProgramFile::contains`] is how you find.
+    #[must_use]
+    pub fn nodes(&self) -> &NodeTable {
+        &self.nodes
+    }
+
+    /// The typed node behind each id.
+    #[must_use]
+    pub fn node_map(&self) -> &NodeMap<'a> {
+        &self.node_map
+    }
+
+    /// Every symbol of every bound file, in one store.
+    ///
+    /// This is what a checker over a whole program takes, together with
+    /// [`Program::nodes`] and [`Program::node_map`].
+    #[must_use]
+    pub fn binder(&self) -> &BindResult<'a> {
+        &self.binder
+    }
+
+    /// How many of [`Program::source_files`] have been bound.
+    ///
+    /// Upstream's `file.IsBound()` per file; a prefix here because binding is
+    /// one sequential accumulation into one store.
+    #[must_use]
+    pub fn bound_file_count(&self) -> usize {
+        self.bound_file_count
+    }
+
     /// Every file, in the order given (`Program.SourceFiles`).
     ///
     /// Lib files lead, when there are any. See [`Program::lib_files`].
     #[must_use]
-    pub fn source_files(&self) -> &[ProgramFile] {
+    pub fn source_files(&self) -> &[ProgramFile<'a>] {
         &self.files
     }
 
@@ -211,19 +326,19 @@ impl Program {
     /// merges in the order the files were added, so `lib.es5.d.ts`'s `Array`
     /// comes before `lib.es2015.iterable.d.ts`'s additions to it.
     #[must_use]
-    pub fn lib_files(&self) -> &[ProgramFile] {
+    pub fn lib_files(&self) -> &[ProgramFile<'a>] {
         &self.files[..self.lib_file_count]
     }
 
     /// Everything that is not a lib file, in the order the loader reached it.
     #[must_use]
-    pub fn root_and_referenced_files(&self) -> &[ProgramFile] {
+    pub fn root_and_referenced_files(&self) -> &[ProgramFile<'a>] {
         &self.files[self.lib_file_count..]
     }
 
     /// The file with this canonical path (`Program.GetSourceFileByPath`).
     #[must_use]
-    pub fn source_file_by_path(&self, path: &Path) -> Option<&ProgramFile> {
+    pub fn source_file_by_path(&self, path: &Path) -> Option<&ProgramFile<'a>> {
         self.files_by_path.get(path).map(|index| &self.files[*index])
     }
 
@@ -231,7 +346,11 @@ impl Program {
     ///
     /// Canonicalises the name first, so `./a.ts` and `/a.ts` find the same file.
     #[must_use]
-    pub fn source_file(&self, file_name: &str, current_directory: &str) -> Option<&ProgramFile> {
+    pub fn source_file(
+        &self,
+        file_name: &str,
+        current_directory: &str,
+    ) -> Option<&ProgramFile<'a>> {
         // The case sensitivity a program was built with is not stored, because
         // it is recoverable: a path that round-trips through the case-sensitive
         // conversion unchanged was built that way.
@@ -258,38 +377,49 @@ impl Program {
 mod tests {
     use super::*;
 
-    fn program(files: &[(&str, &str)]) -> Program {
-        Program::new(ProgramOptions {
-            files: files
-                .iter()
-                .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
-                .collect(),
-            ..Default::default()
-        })
+    fn program<'a>(arena: &'a Arena, files: &[(&str, &str)]) -> Program<'a> {
+        Program::in_arena(
+            arena,
+            ProgramOptions {
+                files: files
+                    .iter()
+                    .map(|(name, text)| ((*name).to_string(), (*text).to_string()))
+                    .collect(),
+                ..Default::default()
+            },
+        )
     }
 
     #[test]
     fn a_program_holds_more_than_one_file_and_binds_them_all() {
-        let program = program(&[("a.ts", "export const x = 1;"), ("b.ts", "const y = 2;")]);
+        let arena = Arena::new();
+        let program = program(&arena, &[("a.ts", "export const x = 1;"), ("b.ts", "const y = 2;")]);
         assert_eq!(program.source_files().len(), 2);
-        assert!(program.source_files().iter().all(ProgramFile::is_bound));
+        assert_eq!(program.bound_file_count(), 2);
     }
 
     #[test]
-    fn each_file_keeps_its_own_symbols() {
-        // The point of the whole slice: two files, two symbol tables, one object
-        // that can see both.
-        let program = program(&[("a.ts", "const x = 1;"), ("b.ts", "const y = 2;")]);
+    fn every_files_symbols_are_in_one_store_and_stay_distinguishable() {
+        // Was `each_file_keeps_its_own_symbols`, and the rename is the change:
+        // there is one store now, so the property worth asserting is that a
+        // symbol is still attributable to the file that declared it — by the
+        // node range its declaration falls in, which is the only thing that
+        // answers "which text does this span index" once ids span the program.
+        let arena = Arena::new();
+        let program = program(&arena, &[("a.ts", "const x = 1;"), ("b.ts", "const y = 2;")]);
         let names: Vec<Vec<String>> = program
             .source_files()
             .iter()
             .map(|file| {
-                file.with_bound(|_, bound| {
-                    let mut names: Vec<String> =
-                        bound.symbols().iter().map(|(_, s)| s.name.to_string()).collect();
-                    names.sort();
-                    names
-                })
+                let mut names: Vec<String> = program
+                    .binder()
+                    .symbols()
+                    .iter()
+                    .filter(|(_, s)| s.declarations.iter().any(|d| file.contains(*d)))
+                    .map(|(_, s)| s.name.to_string())
+                    .collect();
+                names.sort();
+                names
             })
             .collect();
         assert_eq!(names, vec![vec!["x".to_string()], vec!["y".to_string()]]);
@@ -297,7 +427,8 @@ mod tests {
 
     #[test]
     fn a_file_is_reachable_by_either_spelling_of_its_path() {
-        let program = program(&[("a.ts", "const x = 1;")]);
+        let arena = Arena::new();
+        let program = program(&arena, &[("a.ts", "const x = 1;")]);
         assert!(program.source_file("a.ts", "/").is_some());
         assert!(program.source_file("./a.ts", "/").is_some());
         assert!(program.source_file("/a.ts", "").is_some());
@@ -306,21 +437,39 @@ mod tests {
 
     #[test]
     fn parsing_and_binding_are_separate_phases() {
-        let mut program = Program::parse(ProgramOptions {
-            files: vec![("a.ts".to_string(), "const x = 1;".to_string())],
-            ..Default::default()
-        });
-        assert!(!program.source_files()[0].is_bound(), "parse does not bind");
+        let arena = Arena::new();
+        let mut program = Program::parse(
+            &arena,
+            ProgramOptions {
+                files: vec![("a.ts".to_string(), "const x = 1;".to_string())],
+                ..Default::default()
+            },
+        );
+        assert_eq!(program.bound_file_count(), 0, "parse does not bind");
+        assert_eq!(program.binder().symbols().len(), 0);
         program.bind_source_files();
-        assert!(program.source_files()[0].is_bound());
+        assert_eq!(program.bound_file_count(), 1);
+        let after_one = program.binder().flow().len();
+        assert!(after_one > 0);
         // Binding twice is a no-op, as upstream's `IsBound()` guard makes it.
+        //
+        // Asserted on the **flow-node count**, and that choice is the test. The
+        // obvious assertion — the symbol count — cannot fail: re-binding a file
+        // into a store that already holds it finds each name already in its
+        // container's table and merges into the existing symbol, so a second
+        // pass leaves the count alone whether or not the guard is there.
+        // Verified by mutation: with the `bound_file_count` guard removed the
+        // symbol count is unchanged and the flow count doubles. Flow nodes are
+        // appended unconditionally, so they are the part of a bind that a
+        // repeat cannot hide.
         program.bind_source_files();
-        assert!(program.source_files()[0].is_bound());
+        assert_eq!(program.binder().flow().len(), after_one, "a second bind adds nothing");
     }
 
     #[test]
     fn parse_diagnostics_are_reported_against_the_file_that_produced_them() {
-        let program = program(&[("good.ts", "const x = 1;"), ("bad.ts", "const = ;")]);
+        let arena = Arena::new();
+        let program = program(&arena, &[("good.ts", "const x = 1;"), ("bad.ts", "const = ;")]);
         let diagnostics = program.syntactic_diagnostics();
         assert!(!diagnostics.is_empty());
         assert!(diagnostics.iter().all(|(path, _)| path.as_str().ends_with("bad.ts")));
@@ -330,20 +479,25 @@ mod tests {
     fn a_dialect_follows_the_extension() {
         // `.tsx` reads a leading `<` as JSX and `.ts` does not; the program has
         // to decide per file, not per program.
-        let program = program(&[("a.tsx", "const e = <X />;\ndeclare const X: any;")]);
+        let arena = Arena::new();
+        let program = program(&arena, &[("a.tsx", "const e = <X />;\ndeclare const X: any;")]);
         assert!(program.syntactic_diagnostics().is_empty());
     }
 
     #[test]
     fn the_options_reach_the_program() {
-        let program = Program::new(ProgramOptions {
-            files: vec![("a.ts".to_string(), "const x = 1;".to_string())],
-            compiler_options: CompilerOptions {
-                target: tsr_core::ScriptTarget::ES2020,
+        let arena = Arena::new();
+        let program = Program::in_arena(
+            &arena,
+            ProgramOptions {
+                files: vec![("a.ts".to_string(), "const x = 1;".to_string())],
+                compiler_options: CompilerOptions {
+                    target: tsr_core::ScriptTarget::ES2020,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            ..Default::default()
-        });
+        );
         assert_eq!(program.compiler_options().emit_script_target(), tsr_core::ScriptTarget::ES2020);
     }
 
@@ -384,7 +538,9 @@ mod tests {
             ("/a.ts".to_string(), "import { b } from \"./b\";\nexport const a = b;\n".to_string()),
             ("/b.ts".to_string(), "export const b = 1;\n".to_string()),
         ];
+        let arena = Arena::new();
         let program = Program::from_root_files(
+            &arena,
             &host(&files),
             LoadOptions { root_file_names: vec!["/a.ts".to_string()], ..Default::default() },
         );
@@ -392,7 +548,7 @@ mod tests {
             program.source_files().iter().map(ProgramFile::file_name).collect();
         names.sort_unstable();
         assert_eq!(names, ["/a.ts", "/b.ts"], "`b.ts` was never named, only imported");
-        assert!(program.source_files().iter().all(ProgramFile::is_bound));
+        assert_eq!(program.bound_file_count(), 2);
     }
 
     #[test]
@@ -409,7 +565,9 @@ mod tests {
             ("/a.ts".to_string(), "const x = 1;\n".to_string()),
             ("/libs/lib.es5.d.ts".to_string(), text),
         ];
+        let arena = Arena::new();
         let program = Program::from_root_files(
+            &arena,
             &host(&files),
             LoadOptions {
                 compiler_options: CompilerOptions {
@@ -426,9 +584,10 @@ mod tests {
         assert_eq!(program.source_files()[0].file_name(), "/libs/lib.es5.d.ts", "libs lead");
         assert!(program.syntactic_diagnostics().is_empty(), "the shipped lib file must parse");
 
+        let lib = &program.lib_files()[0];
         let declares = |name: &str| {
-            program.lib_files()[0].with_bound(|_, bound| {
-                bound.symbols().iter().any(|(_, symbol)| symbol.name == name)
+            program.binder().symbols().iter().any(|(_, symbol)| {
+                symbol.name == name && symbol.declarations.iter().any(|d| lib.contains(*d))
             })
         };
         assert!(declares("Array"), "the whole point of loading a lib file");
@@ -437,17 +596,20 @@ mod tests {
     }
 
     #[test]
-    fn a_lib_files_symbols_are_still_the_lib_files_own() {
-        // The limit this slice stops at, asserted so it cannot be mistaken for a
-        // capability: the program holds the lib file's symbols, and a *different*
-        // file still cannot resolve a name into them. Nothing merges them into a
-        // global scope, and the identity problem in the way is
-        // docs/adr/0034-a-program-needs-one-identity-space.md.
+    fn a_lib_files_symbols_are_the_whole_programs() {
+        // **Inverted, not deleted.** This test was
+        // `a_lib_files_symbols_are_still_the_lib_files_own` and asserted the
+        // limit: a lib file's declarations were bound but invisible from every
+        // other file, because a `SymbolId` and a `NodeId` meant one thing per
+        // file. Program-wide identity is exactly the change that flips its
+        // answer, so it is kept as the record of what moved — ADR-0034.
         let files = [
             ("/a.ts".to_string(), "const x = 1;\n".to_string()),
             ("/libs/lib.es5.d.ts".to_string(), "declare var globalThing: number;\n".to_string()),
         ];
+        let arena = Arena::new();
         let program = Program::from_root_files(
+            &arena,
             &host(&files),
             LoadOptions {
                 compiler_options: CompilerOptions {
@@ -459,39 +621,55 @@ mod tests {
             },
         );
         let a = program.source_file("/a.ts", "/").expect("the root file is in the program");
-        let resolves = |name: &str| {
-            a.with_bound_and_map(|source_file, bound, node_map| {
-                source_file
-                    .node_id
-                    .and_then(|id| {
-                        bound.resolve_name(
-                            a.nodes(),
-                            node_map,
-                            id,
-                            name,
-                            tsr_binder::SymbolFlags::VALUE,
-                        )
-                    })
-                    .is_some()
+        let lib = &program.lib_files()[0];
+        let resolve = |name: &str| {
+            a.source_file().node_id.and_then(|id| {
+                program.binder().resolve_name(
+                    program.nodes(),
+                    program.node_map(),
+                    id,
+                    name,
+                    tsr_binder::SymbolFlags::VALUE,
+                )
             })
         };
-        // The positive control. Without it this test passes just as well when the
-        // resolution call answers `None` for everything, and "cross-file
-        // resolution does not work" is exactly what that looks like. Verified by
-        // mutation: forcing `resolves` to `false` turns this line red.
-        //
-        // It does **not** guard the `meaning` argument. `BindResult::lookup_local`
-        // is deliberately not meaning-filtered (see its docs), so passing
-        // `SymbolFlags::empty()` here changes no answer — checked, and stated
-        // rather than left as an implied guarantee.
-        assert!(resolves("x"), "a name in the file's own scope must resolve");
-        assert!(!resolves("globalThing"), "…and one in a lib file must not — see ADR-0034");
+        // The positive control, kept from the original: without it this test
+        // passes just as well when resolution answers `Some` for everything.
+        assert!(resolve("x").is_some(), "a name in the file's own scope must resolve");
+        let global = resolve("globalThing").expect("a lib file's global is now visible from /a.ts");
+
+        // Not merely "something came back". The symbol has to be *the lib
+        // file's own declaration*, which is the half that per-file identity
+        // could not have delivered even with a name table: an id resolved
+        // against the wrong node table would still have produced a symbol.
+        let declarations = &program.binder().symbols().get(global).declarations;
+        assert!(
+            declarations.iter().all(|d| lib.contains(*d)),
+            "the symbol's declarations must index the lib file's own range of the shared table"
+        );
+        assert!(
+            declarations.iter().all(|d| !a.contains(*d)),
+            "…and not /a.ts's, which is what reading the wrong file's declarations looks like"
+        );
     }
 
     #[test]
-    fn files_are_sendable_so_binding_can_be_parallel() {
+    fn a_program_is_still_sendable_although_binding_is_no_longer_parallel() {
+        // Renamed rather than deleted, because half of what it asserted stopped
+        // being true and the other half became *more* load-bearing. Binding is
+        // sequential now (one `SymbolStore`), so `Send` is no longer what makes
+        // it parallel — but a corpus run still moves a whole case to a worker,
+        // and that is what this holds in place.
+        //
+        // It survives the widening only because the arena is *borrowed*: a
+        // `Program<'a>` holds `&'a` references into it, and `&T: Send` needs
+        // `T: Sync`, which the AST is by ADR-0012's compile-time assertion. An
+        // owning `Program` would not be `Send`, since the arena's bump pointer
+        // is a `Cell`. That is the practical shape of ADR-0034's
+        // caller-owns-the-arena decision: the arena is created inside the
+        // worker, and the program is what crosses.
         const fn assert_send<T: Send>() {}
-        assert_send::<ProgramFile>();
-        assert_send::<Program>();
+        assert_send::<ProgramFile<'_>>();
+        assert_send::<Program<'_>>();
     }
 }

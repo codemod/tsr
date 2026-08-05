@@ -142,8 +142,15 @@ pub struct LoadOptions {
 
 /// Everything one load produced (`compiler.processedFiles`, reduced to what
 /// exists).
+///
+/// Carries the program's **shared** node table and node map as well as the
+/// files, because under program-wide identity
+/// ([ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md))
+/// the loader is what fills them: it parses every file it reaches to find that
+/// file's imports, so parsing again into fresh tables would be both a second
+/// pass over 3.9 MB of lib text and a second, incompatible set of ids.
 #[derive(Debug, Default)]
-pub struct LoadedFiles {
+pub struct LoadedFiles<'a> {
     /// Every file the walk reached, **lib files first**.
     ///
     /// Upstream's `allFiles := append(libFiles, files...)`
@@ -164,7 +171,11 @@ pub struct LoadedFiles {
     /// A file the host could not read appears in neither this nor
     /// [`LoadedFiles::file_names`]: it is upstream's `missingFiles`, which is a
     /// diagnostic rather than a member of the program.
-    pub files: Vec<ProgramFile>,
+    pub files: Vec<ProgramFile<'a>>,
+    /// Kind, span and parent for every node of **every** file, in load order.
+    pub nodes: tsr_ast::NodeTable,
+    /// The typed node behind each id, over the same shared numbering.
+    pub node_map: tsr_ast::NodeMap<'a>,
     /// Every resolution requested, in replay order.
     pub requests: Vec<ResolutionRequest>,
     /// Every trace line the resolver produced, in replay order.
@@ -196,7 +207,7 @@ struct Depth {
 }
 
 /// One file the walk wants (`compiler.parseTask`).
-struct ParseTask {
+struct ParseTask<'a> {
     file_name: String,
     path: Path,
     /// Whether this is the synthetic task that resolves `types`/`@types`.
@@ -217,7 +228,7 @@ struct ParseTask {
     loaded: bool,
     /// The parsed file (`parseTask.file`). `None` when the host could not read
     /// it, which is upstream's `missingFiles`.
-    file: Option<ProgramFile>,
+    file: Option<ProgramFile<'a>>,
     sub_tasks: Vec<usize>,
     metadata: SourceFileMetaData,
     type_resolutions_trace: Vec<Trace>,
@@ -226,7 +237,7 @@ struct ParseTask {
     resolution_requests: Vec<ResolutionRequest>,
 }
 
-impl ParseTask {
+impl ParseTask<'_> {
     fn new(file_name: String, path: Path) -> Self {
         Self {
             file_name,
@@ -253,11 +264,26 @@ struct ResolvedRef {
 }
 
 /// The walk (`compiler.fileLoader` + `compiler.filesParser`).
-pub struct FileLoader<'host> {
+///
+/// Two lifetimes, deliberately: `'host` is the host and its file system, `'a`
+/// is the **arena the program is being built in**, which every parsed node,
+/// every file name and every file text borrows from. They are not the same
+/// extent — the conformance harness holds one host for a whole corpus run and
+/// one arena per case — and unifying them would make the shorter one infect the
+/// longer.
+pub struct FileLoader<'host, 'a> {
     host: &'host dyn ResolutionHost,
+    /// Where every file's tree, name and text is allocated. See ADR-0034,
+    /// "Who owns the arena": the caller owns it, and both this and
+    /// [`crate::Program`] borrow it.
+    arena: &'a tsr_core::Arena,
+    /// The program's shared node table, filled in load order.
+    nodes: tsr_ast::NodeTable,
+    /// The program's shared node map, over the same numbering.
+    node_map: tsr_ast::NodeMap<'a>,
     options: CompilerOptions,
     resolver: Resolver<'host>,
-    tasks: Vec<ParseTask>,
+    tasks: Vec<ParseTask<'a>>,
     root_tasks: Vec<usize>,
     /// The task that claimed each path. Upstream's `taskDataByPath`, minus the
     /// per-casing map: see [`FileLoader::process_task`].
@@ -270,14 +296,19 @@ pub struct FileLoader<'host> {
     default_library_path: String,
 }
 
-impl<'host> FileLoader<'host> {
-    /// Walk the program from `root_file_names` (`processAllProgramFiles`).
+impl<'host, 'a> FileLoader<'host, 'a> {
+    /// Walk the program from `root_file_names` (`processAllProgramFiles`),
+    /// parsing every file it reaches into `arena`.
     ///
     /// Root files are taken as given, which is what upstream does too — they
     /// come from `ParsedCommandLine.FileNames`, and turning a `tsconfig.json`
     /// into that list is `tsr-tsoptions`' job (bd tsr-9or slice 3).
     #[must_use]
-    pub fn load(host: &'host dyn ResolutionHost, load_options: LoadOptions) -> LoadedFiles {
+    pub fn load(
+        arena: &'a tsr_core::Arena,
+        host: &'host dyn ResolutionHost,
+        load_options: LoadOptions,
+    ) -> LoadedFiles<'a> {
         let LoadOptions { compiler_options: options, root_file_names, default_library_path } =
             load_options;
         // From `tsr-tsoptions`, as upstream's `fileloader.go` takes them from
@@ -290,6 +321,9 @@ impl<'host> FileLoader<'host> {
         let mut loader = Self {
             resolver: Resolver::new(host, options.clone()),
             host,
+            arena,
+            nodes: tsr_ast::NodeTable::new(),
+            node_map: tsr_ast::NodeMap::new(),
             max_node_module_js_depth: options.max_node_module_js_depth.unwrap_or(0),
             options,
             // As upstream normalises it once on construction (`fileloader.go:136`),
@@ -326,6 +360,11 @@ impl<'host> FileLoader<'host> {
             .into_iter()
             .map(|index| loader.tasks[index].file.take().expect("only read files are collected"))
             .collect();
+        // The shared tables travel with the files, because a `NodeId` is only
+        // meaningful beside them. Moved rather than rebuilt: they are the ones
+        // the files were parsed into.
+        result.nodes = loader.nodes;
+        result.node_map = loader.node_map;
         result
     }
 
@@ -470,7 +509,27 @@ impl<'host> FileLoader<'host> {
         };
 
         let Some(text) = self.host.fs().read_file(&file_name) else { return };
-        let file = ProgramFile::parse(self.tasks[index].path.clone(), file_name.clone(), text);
+
+        // The host's `String` is copied into the arena and then dropped. That
+        // copy is what lets `ProgramFile` own nothing: a `Symbol`'s name and the
+        // binder's `FileInfo` borrow the source text, so under one program-wide
+        // `SymbolStore` the text has to outlive every file — which the arena
+        // does and a per-file `String` does not. See ADR-0034, "Who owns the
+        // arena". The cost is one extra copy of text already in memory.
+        let arena = self.arena;
+        let text: &'a str = arena.alloc_str(&text);
+        let name: &'a str = arena.alloc_str(&file_name);
+
+        let options = tsr_parser::ParseOptions {
+            script_kind: tsr_parser::ScriptKind::from_file_name(name),
+            ..Default::default()
+        };
+        // Into the program's shared tables, not fresh ones: this is the parser
+        // half of the identity widening, and parsing into fresh tables here
+        // would give two files the same `NodeId`s.
+        let parsed =
+            tsr_parser::parse_into(arena, text, options, &mut self.nodes, &mut self.node_map);
+        let file = ProgramFile::new(self.tasks[index].path.clone(), name, text, parsed);
 
         // `/// <reference path="…" />` — a file, not a module: no resolver, no
         // trace, but it is a subtask and so it is walked, and what *it* imports
@@ -509,7 +568,22 @@ impl<'host> FileLoader<'host> {
             }
         }
 
-        self.resolve_imports_and_module_augmentations(index, &file);
+        // Collected here rather than inside the resolving walk below, because the
+        // node table is now the *loader's* and reading it needs a borrow that
+        // cannot coexist with the `&mut self` the walk takes. The order of the
+        // two is unchanged.
+        let metadata = self.tasks[index].metadata.clone();
+        let is_external_module = self.is_external_module(file.source_file(), &file_name, &metadata);
+        let references = tsr_parser::collect_external_module_references(
+            file.source_file(),
+            &self.nodes,
+            CollectOptions {
+                is_declaration_file: is_declaration_file_name(&file_name),
+                is_js_file: is_javascript_file(&file_name),
+                is_external_module,
+            },
+        );
+        self.resolve_imports_and_module_augmentations(index, references);
         self.tasks[index].file = Some(file);
     }
 
@@ -550,7 +624,7 @@ impl<'host> FileLoader<'host> {
     }
 
     /// `fileLoader.resolveTypeReferenceDirectives`.
-    fn resolve_type_reference_directives(&mut self, index: usize, file: &ProgramFile) {
+    fn resolve_type_reference_directives(&mut self, index: usize, file: &ProgramFile<'a>) {
         let directives = file.file_references().type_reference_directives.clone();
         if directives.is_empty() {
             return;
@@ -596,21 +670,15 @@ impl<'host> FileLoader<'host> {
     }
 
     /// `fileLoader.resolveImportsAndModuleAugmentations`.
-    fn resolve_imports_and_module_augmentations(&mut self, index: usize, file: &ProgramFile) {
+    fn resolve_imports_and_module_augmentations(
+        &mut self,
+        index: usize,
+        references: tsr_parser::ExternalModuleReferences,
+    ) {
         let file_name = self.tasks[index].file_name.clone();
         let metadata = self.tasks[index].metadata.clone();
         let is_js_file = is_javascript_file(&file_name);
         let is_declaration_file = is_declaration_file_name(&file_name);
-
-        let is_external_module = file
-            .with_ast(|source_file| self.is_external_module(source_file, &file_name, &metadata));
-        let references = file.with_ast(|source_file| {
-            tsr_parser::collect_external_module_references(
-                source_file,
-                file.nodes(),
-                CollectOptions { is_declaration_file, is_js_file, is_external_module },
-            )
-        });
 
         let mut specifiers: Vec<tsr_parser::ModuleSpecifier> = Vec::new();
         // `importHelpers`' `tslib` would come first. See the module docs.
@@ -996,7 +1064,7 @@ impl<'host> FileLoader<'host> {
     /// file out in the same order. Two values rather than one because the walk
     /// takes `&self` — the recursion visits a task's subtasks while borrowing
     /// it — and moving a `ProgramFile` out needs `&mut`.
-    fn collect_files(&self) -> (LoadedFiles, Vec<usize>) {
+    fn collect_files(&self) -> (LoadedFiles<'a>, Vec<usize>) {
         let mut result = LoadedFiles::default();
         let mut seen: FxHashSet<Path> = FxHashSet::default();
         // Upstream collects lib files into their own slice and concatenates
@@ -1042,7 +1110,7 @@ impl<'host> FileLoader<'host> {
         &self,
         index: usize,
         seen: &mut FxHashSet<Path>,
-        result: &mut LoadedFiles,
+        result: &mut LoadedFiles<'a>,
         libs: &mut Vec<usize>,
         rest: &mut Vec<usize>,
     ) {
@@ -1139,7 +1207,26 @@ mod tests {
         }
     }
 
-    fn load(files: &[(&str, &str)], roots: &[&str], options: CompilerOptions) -> LoadedFiles {
+    /// What a load produced, with everything that borrows the arena left
+    /// behind.
+    ///
+    /// The arena is created and dropped inside [`load_from`], so a
+    /// `LoadedFiles<'a>` cannot escape it. This suite judges the *walk* — which
+    /// files, in what order, and which resolutions — and none of that borrows;
+    /// keeping the trees alive would make every test name a lifetime for
+    /// nothing.
+    #[derive(Debug, Default)]
+    struct Loaded {
+        file_names: Vec<String>,
+        lib_file_count: usize,
+        /// How many files came back parsed, which is the claim that the loader
+        /// hands over what it already parsed rather than only naming it.
+        file_count: usize,
+        requests: Vec<ResolutionRequest>,
+        traces: Vec<Trace>,
+    }
+
+    fn load(files: &[(&str, &str)], roots: &[&str], options: CompilerOptions) -> Loaded {
         load_from(files, roots, options, "/libs")
     }
 
@@ -1148,7 +1235,7 @@ mod tests {
         roots: &[&str],
         options: CompilerOptions,
         default_library_path: &str,
-    ) -> LoadedFiles {
+    ) -> Loaded {
         let host = TestHost {
             fs: InMemoryFileSystem::new(
                 files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
@@ -1156,18 +1243,27 @@ mod tests {
                 true,
             ),
         };
-        FileLoader::load(
+        let arena = tsr_core::Arena::new();
+        let loaded = FileLoader::load(
+            &arena,
             &host,
             LoadOptions {
                 compiler_options: options,
                 root_file_names: roots.iter().map(|r| (*r).to_string()).collect(),
                 default_library_path: default_library_path.to_string(),
             },
-        )
+        );
+        Loaded {
+            file_names: loaded.file_names,
+            lib_file_count: loaded.lib_file_count,
+            file_count: loaded.files.len(),
+            requests: loaded.requests,
+            traces: loaded.traces,
+        }
     }
 
     /// The base names of the lib files a load produced, in program order.
-    fn libs(loaded: &LoadedFiles) -> Vec<&str> {
+    fn libs(loaded: &Loaded) -> Vec<&str> {
         loaded.file_names[..loaded.lib_file_count]
             .iter()
             .map(|name| name.rsplit('/').next().expect("a name has at least one segment"))
@@ -1178,7 +1274,7 @@ mod tests {
         CompilerOptions { trace_resolution: Tristate::True, ..CompilerOptions::default() }
     }
 
-    fn names(loaded: &LoadedFiles) -> Vec<(&str, &str)> {
+    fn names(loaded: &Loaded) -> Vec<(&str, &str)> {
         loaded.requests.iter().map(|r| (r.name.as_str(), r.containing_file.as_str())).collect()
     }
 
@@ -1362,7 +1458,7 @@ mod tests {
         lib_names: &[&str],
         roots: &[&str],
         options: CompilerOptions,
-    ) -> LoadedFiles {
+    ) -> Loaded {
         let all = with_libs(files, lib_names);
         let borrowed: Vec<(&str, &str)> =
             all.iter().map(|(name, _, text)| (name.as_str(), text.as_str())).collect();
@@ -1381,7 +1477,7 @@ mod tests {
         );
         assert_eq!(loaded.file_names, ["/libs/lib.d.ts", "/a.ts"]);
         assert_eq!(loaded.lib_file_count, 1);
-        assert_eq!(loaded.files.len(), 2, "the loader hands out what it parsed");
+        assert_eq!(loaded.file_count, 2, "the loader hands out what it parsed");
     }
 
     #[test]

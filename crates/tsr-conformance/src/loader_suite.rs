@@ -95,7 +95,12 @@ impl Suite for FileLoaderRequests {
         // what keeps this suite measuring resolution rather than lib loading —
         // a lib file resolves nothing, so a program that has one and a program
         // that does not produce the same trace.
+        // The arena the walk parses into. Scoped to this case and dropped with
+        // it, which is ADR-0034's caller-owns-the-arena shape at its smallest:
+        // this suite reads only the traces, so nothing borrowing it escapes.
+        let arena = tsr_core::Arena::new();
         let loaded = FileLoader::load(
+            &arena,
             &prepared.host,
             tsr_compiler::LoadOptions {
                 compiler_options: prepared.options.clone(),
@@ -135,7 +140,7 @@ fn requests_only(trace: &str) -> Vec<&str> {
 fn describe(
     expected: &[&str],
     actual: &[&str],
-    loaded: &tsr_compiler::LoadedFiles,
+    loaded: &tsr_compiler::LoadedFiles<'_>,
     options: &CompilerOptions,
 ) -> String {
     let difference = first_difference(&expected.join("\n"), &actual.join("\n"));

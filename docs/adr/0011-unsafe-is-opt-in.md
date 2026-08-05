@@ -31,6 +31,27 @@ The current set is three items, and it is meant to stay small enough to list her
 | `crates/tsr-parser/src/parsed_file.rs` — one `unsafe impl Send` | `self_cell` produces a type holding a pointer into its own storage, which suppresses the automatic `Send` derive even though every constituent is `Send`. |
 | `benches/parse.rs`, `examples/alloc_profile.rs` | `GlobalAlloc` is an unsafe trait, and there is no safe way to observe allocation. Both are tooling; neither ships in a binary. |
 
+### One exception removed, and one correction to this list
+
+**Removed 2026-08-05** by the identity widening
+([ADR-0034](0034-a-program-needs-one-identity-space.md)):
+`crates/tsr-compiler/src/file.rs` held a second `unsafe impl Send`, on
+`ProgramFile`, for the same `self_cell` reason as the row above it. Under
+program-wide identity a file owns no arena, no node table and no bind result —
+they all belong to the `Program` and outlive every file in it — so `ProgramFile`
+is a plain borrowing struct, `self_cell` leaves it entirely, and the `Send`
+impl is derived rather than asserted. `grep -rn "allow(unsafe_code)"` now
+returns exactly the four sites the three rows above describe.
+
+**And the list was one short.** That `ProgramFile` impl cited this ADR in its
+`SAFETY` comment and was never added to the table, so from `2a0dc19` until now
+the list read "three exceptions" while the tree held four. Recorded rather than
+silently corrected, because the argument in "Consequences accepted" below —
+*"if it grows past a handful, that is the signal that this ADR is being worked
+around"* — depends on the count being real, and a list nobody re-derives from
+the tree cannot carry that weight. The check is one `grep`; it is now run when
+this list is touched.
+
 `deny` rather than `forbid`: `forbid` cannot be lifted even by a documented
 `#[allow]`, which would force the arena into a crate of its own to no benefit.
 The cost of `deny` is that an exception is a one-line annotation — so the rule is

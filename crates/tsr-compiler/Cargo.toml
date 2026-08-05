@@ -17,9 +17,7 @@ tsr-parser = { workspace = true }
 tsr-path = { workspace = true }
 tsr-module = { workspace = true }
 tsr-tsoptions = { workspace = true }
-rayon = { workspace = true }
 rustc-hash = { workspace = true }
-self_cell = { workspace = true }
 
 [dev-dependencies]
 tsr-vfs = { workspace = true }

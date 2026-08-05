@@ -115,8 +115,16 @@ free and measured +16.1%.
 *Measured so far:* zero. Every one of those crates builds and tests green
 across the parser and binder halves of this widening, because the single-file
 entry points (`parse_with_options`, `bind`) kept their signatures and are now
-defined as the shared-table ones over fresh tables. The prediction is not
-discharged until `Program` actually shares an arena.
+defined as the shared-table ones over fresh tables.
+
+**Discharged 2026-08-05**, when `Program` took the shared arena. The prediction
+held: the printer, the declaration transform and every parse-only conformance
+suite were not touched and did not move, because none of them goes through
+`Program` — they call `parse_with_options`, which is still exactly `parse_into`
+over a fresh pair of tables. The blast radius the prediction feared turned out
+to stop at `tsr-compiler`'s own two consumers in `tsr-conformance`
+(`binder_suite`, `loader_suite`), plus the *fourth* cost below, which the
+prediction did not name at all.
 
 ### Who owns the arena: the caller
 
@@ -177,6 +185,46 @@ offset. Ids are indices, so offsetting is arithmetic, and by then the node table
 is already shared. **How we would know it was needed:** a wall-clock regression
 on a multi-file build that does not appear on the corpus, whose profile is
 dominated by `bind` on one thread.
+
+**A `Span` was never widened, and nothing made that a compile error.** Added
+2026-08-05, on building the thing — the fourth cost, found where the ADR's own
+"check one level down" note predicted a fourth would be.
+
+The argument above is that an *index* is only meaningful beside the table it
+indexes, so widen the table. A `Span` is an index too — into the file's **text**
+— and the text is the one thing a program does not have one of. Widening the
+node table therefore desynchronised the two: before, holding a file meant
+holding the only node table whose spans could be read against the only text you
+had, and the pairing was structural. Now `nodes.span(id)` returns a `Span` that
+is meaningful against exactly one of the program's files, and *which* one is not
+recoverable from the id's type.
+
+The failure mode is the bad kind. A span from `b.ts` read against `a.ts`'s text
+does not panic and does not produce an error value; it produces a **plausible
+line number from the wrong file**. `crates/tsr-conformance/src/binder_suite.rs`
+hit this on the first run of the widened program: it iterates the symbol store
+and converts each declaration's span to a line in the unit it is comparing, and
+the store now holds every unit's symbols.
+
+The countermeasure is `tsr_parser::ParsedInto::node_range`, carried on each
+`ProgramFile` and asked through `ProgramFile::contains`. It works because files
+are parsed one at a time, so a file's ids are one unbroken run — which is a
+property of the loader's sequencing, not of the type system. *Consequence
+accepted:* nothing enforces the pairing. A consumer that reads a span against a
+text without asking `contains` first compiles and answers wrongly.
+
+**How we would know this was the wrong countermeasure:** a second consumer
+making the same mistake. Two would say the discipline does not hold at review
+time, and the answer then is to make it structural — a `FileSpan`, or a
+`text_of(NodeId)` on `Program` that does the lookup, so the wrong thing is
+unspellable rather than merely discouraged.
+
+**Parsing serialises too, not only binding.** A footnote to the third cost
+rather than a fourth: `Program::parse` was a rayon `into_par_iter` over files
+with one arena each. One arena and one node table means one thread and a defined
+order, so it is now a `for` loop. The same escape hatch does not apply — node
+ids have to continue the numbering — and the same mitigation does: parallelism
+moves to the case level, which is where the conformance harness already has it.
 
 **So it is measured, not argued.** ADR-0033 put the current shape at −17.0% for
 parse+bind and +7.4% for parse-only. Whatever program-wide identity is built has
@@ -250,6 +298,11 @@ none of what the decision actually cost:
 | one arena implies the file **texts** too, because `Symbol.name` borrows source | ownership and lifetimes |
 | sharing a bound lib prefix gets **harder**, not easier — it cannot be extended without copying | allocation |
 | binding **serialises**, because one `SymbolStore` cannot be filled from several threads | concurrency |
+| a `Span` indexes the **text**, which was not widened, so a node no longer knows which text reads it | positions |
+
+The fourth was added on building it, and it is the one this table predicted:
+the argument is about ids and tables, and a `Span` is an id into the one table a
+program deliberately has many of.
 
 All three were invisible from the id-level argument and all three were visible on
 first contact with the code. Two of them reversed a plan that had been reasoned
@@ -265,6 +318,11 @@ argument about identity that missed ownership, allocation and concurrency. In
 each case the reasoning at its own level was sound.
 
 ## Consequences accepted
+
+> **The three bullets below describe the state of the tree when this ADR was
+> written, before the widening was built.** They are kept as written because
+> they are what the decision was taken against; what each one reads as now is
+> stated under it. Nothing here was silently edited.
 
 - **The lib files are loaded and inert.** A program built with
   `Program::from_root_files` holds `lib.es5.d.ts`, parsed and bound, and answers
@@ -283,6 +341,28 @@ each case the reasoning at its own level was sound.
   lib text per program, that is the reason the conformance `.types` producer was
   **not** rewired to build a program in this commit. See
   [architecture/program.md](../architecture/program.md).
+
+**As of the widening (2026-08-05):**
+
+- The lib files are **no longer inert**. `crates/tsr-compiler/src/lib.rs`'s
+  `a_lib_files_symbols_are_the_whole_programs` — the same test, inverted rather
+  than deleted — now asserts that `/a.ts` resolves a name declared in
+  `lib.es5.d.ts`, *and* that the symbol it gets back has its declarations inside
+  the lib file's own range of the shared node table. The second half is the part
+  per-file identity could not have delivered: a name-keyed table of foreign
+  symbols would have satisfied the first half and read the wrong file's
+  declarations, which is the unsoundness this ADR rejected.
+- **`ProgramFile` is `Send` by derivation, not by assertion.** The
+  `unsafe impl Send` and the `self_cell` under it are both gone; see
+  [ADR-0011](0011-unsafe-is-opt-in.md), whose exception list this shortens (and
+  which turned out to have been one short). A `Program<'a>` is still `Send`,
+  because it *borrows* the arena rather than owning it and the AST is `Sync`
+  ([ADR-0012](0012-ast-is-sync.md)) — so a corpus worker creates the arena and
+  the program is free to move. An owning `Program` would not be, since the
+  arena's bump pointer is a `Cell`; that is the concrete price of the
+  caller-owns-the-arena choice.
+- Whether the 18,387 lines move is the `.types` producer rewire's question, and
+  it is deliberately a **separate commit** so its delta is attributable.
 
 ## How we would know this was wrong
 

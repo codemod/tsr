@@ -17,15 +17,23 @@ why it still cannot resolve a name across its own files.
 ## Two ways in
 
 ```
-                     Program::new(files)                 ← a list, given
-root file names ──▶  Program::from_root_files(host, …)   ← a list, discovered
+                     Program::in_arena(&arena, files)          ← a list, given
+root file names ──▶  Program::from_root_files(&arena, host, …) ← a list, discovered
                           │
                           └─▶ FileLoader ──▶ imports, /// <reference />, libs
 ```
 
-`Program::new` takes the files. `Program::from_root_files` takes the roots and
-runs the [file loader](file-loader.md), which is upstream's shape:
+`Program::in_arena` takes the files. `Program::from_root_files` takes the roots
+and runs the [file loader](file-loader.md), which is upstream's shape:
 `NewProgram` calls `processAllProgramFiles` and takes the list back.
+
+**Both take the arena, and the caller owns it.** `Program<'a>` borrows it, and so
+does every file, tree, name, text and symbol in it — see
+[ADR-0034](../adr/0034-a-program-needs-one-identity-space.md), "Who owns the
+arena". A program's extent is a compilation, which is a scope; the conformance
+harness wants exactly that, one arena per case. `Program::in_arena` is named for
+the arena rather than called `new` because the argument is the contract, not a
+plumbing detail.
 
 **The loader hands over what it already parsed.** `parseTask.load` parses every
 file to find its imports, so `LoadedFiles::files` carries the `ProgramFile`s
@@ -33,8 +41,36 @@ rather than only their names. Before lib files that was a modest saving; with
 them it is not optional — `lib.dom.d.ts` alone is 2.3 MB, and the bundled
 directory is 3.9 MB.
 
+It also hands over the **shared node table and node map** the files were parsed
+into, because a `NodeId` is only meaningful beside them. The loader is what
+fills them: it copies each file's name and text into the arena with
+`Arena::alloc_str` and calls `tsr_parser::parse_into`, so every file of a
+program numbers its nodes in one sequence.
+
 Binding stays a separate phase, as upstream keeps it (`NewProgram` parses,
-`BindSourceFiles` binds).
+`BindSourceFiles` binds) — but it is now **one accumulation, not a `par_iter`**.
+`bind_into` fills one `SymbolStore`, in file order, libs first, and "which files
+are bound" is the prefix `Program::bound_file_count` rather than a flag per
+file. Upstream's `file.IsBound()` guard survives as "bind only past the
+prefix"; binding twice adds nothing, which is asserted on the flow-node count,
+because re-binding a file leaves the *symbol* count alone.
+
+### A file owns nothing, and a `Span` needs a file
+
+`ProgramFile` used to own an arena, a `NodeTable`, its text and its
+`BindResult`, held together by `self_cell`. All four moved to the `Program`, so
+it is a plain borrowing struct and the `self_cell` — and the `unsafe impl Send`
+under it, an unlisted exception to
+[ADR-0011](../adr/0011-unsafe-is-opt-in.md) — are gone.
+
+What arrived in their place is a question that did not exist before: **a `Span`
+is an offset into one file's text, and a `NodeId` no longer says which.** Each
+file carries the contiguous run of ids its parse claimed
+(`ProgramFile::node_range`, asked through `ProgramFile::contains`), and anything
+converting a span to a position has to consult it first. Getting this wrong is
+silent — a plausible line number from the wrong file — which is why it is
+recorded in ADR-0034 as an accepted consequence with a falsifier rather than
+left as a convention.
 
 ## Which lib files, and in what order
 
@@ -105,25 +141,31 @@ first task built from a *name* rather than from a probe, so it is the first that
 can be absent, and `collect_task` now drops an unread task rather than listing
 it.
 
-## What the program still cannot do
+## What the program can now do, and what it still cannot
 
-**Resolve a name across its own files.** A program holding `lib.es5.d.ts` has
-`Array` as a bound symbol and no other file can see it; a two-file case has both
-files and neither can name the other's declarations.
+**It resolves a name across its own files.** Added 2026-08-05 by the identity
+widening ([ADR-0034](../adr/0034-a-program-needs-one-identity-space.md)). A
+program holding `lib.es5.d.ts` answers `Array` from a user file, and the symbol
+it answers with has its declarations inside the lib file's own range of the
+shared node table — which is the half that matters, because a name-keyed table
+of foreign symbols would have answered the first half while reading the wrong
+file's declarations.
 
-This is not a missing globals table. It is that `SymbolId` and `NodeId` are
-indices into per-file tables, so a symbol from another file cannot be handed to
-the checker without reading the wrong file's declarations. The full argument,
-the alternatives, and the falsifiers are in
-[ADR-0034](../adr/0034-a-program-needs-one-identity-space.md).
+> **This section used to say the opposite**, and the sentence it replaces is
+> worth keeping in view: "*a program holding `lib.es5.d.ts` has `Array` as a
+> bound symbol and no other file can see it*". That was true from `2a0dc19`
+> until the widening landed, and the test that asserted it —
+> `a_lib_files_symbols_are_still_the_lib_files_own` — was **inverted rather than
+> deleted**, under the name `a_lib_files_symbols_are_the_whole_programs`. A
+> limit that becomes a capability leaves a better record as one test that
+> changed its answer than as one test removed and another added.
 
-Two consequences worth stating so they are not mistaken for capabilities:
+What is still missing is declaration merging, below. Two numbers are still open,
+and both belong to the `.types` producer rather than to this object:
 
-- Loading the lib files does **not** move the unresolved-name numbers. Measured
-  3,126 lines on a lib name in value position, 3,210 on one in type position,
-  12,051 in the array bucket — 18,387 in all, an upper bound taken in `2f6f0bf`.
-  All three are behind the
-  identity widening, not behind the loading.
+- Whether loading the lib files moves the unresolved-name numbers — 3,126 lines
+  on a lib name in value position, 3,210 in type position, 12,051 in the array
+  bucket, 18,387 in all, an upper bound taken in `2f6f0bf`.
 - The conformance `.types` producer was **not** rewired to build a program, so
   none of the lib work is visible to `checker_types` — the producer gives each
   unit its own arena, binds it alone, and gives it its own `Checker`

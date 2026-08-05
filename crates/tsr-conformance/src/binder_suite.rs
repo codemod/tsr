@@ -129,15 +129,22 @@ impl Suite for BinderSymbols {
         // below is still per file — the baseline is written per file — but the
         // files now exist in one object rather than one at a time, which is what
         // cross-file resolution will need.
-        let program = tsr_compiler::Program::new(tsr_compiler::ProgramOptions {
-            files: parsed
-                .files
-                .iter()
-                .filter(|unit| crate::scanner_suite::is_typescript_unit(&unit.name))
-                .map(|unit| (unit.name.clone(), unit.content.clone()))
-                .collect(),
-            ..Default::default()
-        });
+        // One arena for the case, dropped with it. Everything the program holds
+        // borrows from it, which is why it is a local of this function rather
+        // than something the suite owns — see ADR-0034.
+        let arena = tsr_core::Arena::new();
+        let program = tsr_compiler::Program::in_arena(
+            &arena,
+            tsr_compiler::ProgramOptions {
+                files: parsed
+                    .files
+                    .iter()
+                    .filter(|unit| crate::scanner_suite::is_typescript_unit(&unit.name))
+                    .map(|unit| (unit.name.clone(), unit.content.clone()))
+                    .collect(),
+                ..Default::default()
+            },
+        );
 
         for expected_file in &expected_files {
             let Some(unit) =
@@ -158,7 +165,9 @@ impl Suite for BinderSymbols {
             // One forward scan of the file, reused for every declaration position.
             let full_starts = symbols_baseline::FullStarts::scan(&unit.content);
 
-            let ours = file.with_bound(|_source_file, bound| {
+            let bound = program.binder();
+            let nodes = program.nodes();
+            let ours = {
                 // Which symbols share a declaration, so a `default` export can be
                 // displayed under the name its declaration was written with; see
                 // [`display_names`].
@@ -177,9 +186,23 @@ impl Suite for BinderSymbols {
                 let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
                     std::collections::HashMap::new();
                 for (id, symbol) in bound.symbols().iter() {
+                    // **Only this file's symbols.** Under program-wide identity
+                    // (ADR-0034) the store holds every unit's, and a `Span` is
+                    // still an offset into its own file's text — so a sibling
+                    // unit's declaration read against `unit.content` would
+                    // produce a line number from the wrong file rather than an
+                    // error. The expected side already drops cross-file symbols
+                    // (see below), so without this filter the comparison would
+                    // silently widen on garbage positions.
+                    if !symbol.declarations.iter().any(|d| file.contains(*d)) {
+                        continue;
+                    }
                     let mut declared = BTreeSet::new();
                     for declaration in &symbol.declarations {
-                        let span = file.nodes().span(*declaration);
+                        if !file.contains(*declaration) {
+                            continue;
+                        }
+                        let span = nodes.span(*declaration);
                         // Upstream reports the *full start*; see `symbols_baseline`.
                         let pos = full_starts.of(&unit.content, span.start);
                         let (line, _) = symbols_baseline::line_and_character(&unit.content, pos);
@@ -194,7 +217,7 @@ impl Suite for BinderSymbols {
                     // test slightly, since `C.m` would also match a `C.m` nested
                     // somewhere else entirely.
                     for full in
-                        display_names(bound, file.nodes(), id, &names_by_declaration, &unit.content)
+                        display_names(bound, nodes, id, &names_by_declaration, &unit.content)
                     {
                         for offset in dotted_suffixes(&full) {
                             ours.entry(full[offset..].to_string()).or_default().extend(&declared);
@@ -202,7 +225,7 @@ impl Suite for BinderSymbols {
                     }
                 }
                 ours
-            });
+            };
 
             // What upstream expects, deduplicated: the baseline repeats a symbol once
             // per occurrence, and a symbol is one fact however often it is used.
