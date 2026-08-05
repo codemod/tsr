@@ -339,3 +339,23 @@ Both learned twice the same afternoon, by different people, from opposite sides:
   instrument until shown otherwise.**
 - **Aggregates rank; per-file dumps diagnose.** The histogram says what to work
   on. It never says why a line is wrong, and no amount of re-aggregating it will.
+
+### A fourth sweep form: an approved-but-uncommitted edit is indistinguishable from the owner's own work
+
+The three forms above are about what a commit *takes*. This one is about what you
+*leave*.
+
+On 2026-08-05 an agent asked permission for a one-line arm in a contended file,
+was told to hold, and **left the edit sitting in the shared tree while waiting**.
+Another agent committed that file. Their commit called a method whose module was
+still untracked, and `origin/main` did not build until the next commit.
+
+Asking first is not enough, and the agent did ask. **An approved-but-uncommitted
+edit in someone else's active file is indistinguishable from their own work**, so
+it gets swept in good faith — the committer cannot tell it is not theirs, and an
+untracked module is invisible in their diff.
+
+**Hold the edit outside the tree and apply it in the minute before committing.**
+A worktree is the mechanism: verify there, keep the shared tree clean of your
+pending edit, and touch the contended file only when you are ready to commit it
+in the same act.
