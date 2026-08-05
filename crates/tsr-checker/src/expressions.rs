@@ -160,8 +160,239 @@ impl Checker<'_, '_> {
             Expression::ArrowFunction(node) => node
                 .node_id
                 .map_or(self.intrinsics.error, |id| self.get_type_of_function_expression(id)),
+            // `checkTypeOfExpression` (`checker.go:10617`). The operand's type is
+            // irrelevant to the answer — see below.
+            Expression::TypeOfExpression(node) => self.check_type_of_expression(node),
+            // `checkPrefixUnaryExpression` (`checker.go:10855`).
+            Expression::PrefixUnaryExpression(node) => self.check_prefix_unary_expression(node),
+            // `checkPostfixUnaryExpression` (`checker.go:10909`).
+            Expression::PostfixUnaryExpression(node) => self.check_postfix_unary_expression(node),
             _ => self.intrinsics.error,
         }
+    }
+
+    /// Ported from `Checker.checkTypeOfExpression` (`checker.go:10617`).
+    ///
+    /// # The operand's type does not reach the answer
+    ///
+    /// Upstream is two lines: check the operand, then return `typeofType`
+    /// regardless of what came back. So `typeof` is the one expression form here
+    /// whose result is **not** weakened by a gap in its operand —
+    /// `typeof someUnportedThing` is still the full union, and answering
+    /// `errorType` because the operand gapped would invent a gap upstream does not
+    /// have. The operand is still checked, because that is what populates the
+    /// operand's own line in the output.
+    ///
+    /// `typeofType` is built at `checker.go:1052` as the union of the sorted keys
+    /// of `typeofNEFacts`, so the constituent order is alphabetical rather than
+    /// the order a human would list them. 265 baseline lines record it exactly:
+    ///
+    /// ```text
+    /// >typeof x : "bigint" | "boolean" | "function" | "number" | "object" | "string" | "symbol" | "undefined"
+    /// ```
+    fn check_type_of_expression(&mut self, node: &tsr_ast::TypeOfExpression<'_>) -> TypeId {
+        if let Some(operand) = node.expression {
+            self.check_expression(operand);
+        }
+        self.get_typeof_type()
+    }
+
+    /// `typeofType` (`checker.go:1052`).
+    ///
+    /// Rebuilt per call rather than cached on the checker: both the string
+    /// literal types and the union are interned, so this is a lookup after the
+    /// first call and needs no field on `Checker`.
+    fn get_typeof_type(&mut self) -> TypeId {
+        // `slices.Sorted(maps.Keys(typeofNEFacts))` — alphabetical, and the
+        // union's constituent order follows the order the types are created in,
+        // so this list must stay sorted.
+        const NAMES: [&str; 8] =
+            ["bigint", "boolean", "function", "number", "object", "string", "symbol", "undefined"];
+        let types = NAMES
+            .iter()
+            .map(|name| {
+                // `getStringLiteralType` yields the **regular** form; only a
+                // string literal *expression* is fresh.
+                self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    TypeData::StringLiteral((*name).to_string()),
+                    false,
+                )
+            })
+            .collect::<Vec<_>>();
+        self.get_union_type(&types)
+    }
+
+    /// Ported from `Checker.checkPrefixUnaryExpression` (`checker.go:10855`).
+    ///
+    /// # A negated numeric literal is a literal, not `number`
+    ///
+    /// Upstream special-cases the operand being a numeric or bigint literal
+    /// *before* it looks at the operator's general rule, so `-1` is the literal
+    /// type `-1` and not `number`. The baselines record `>-1 : -1` and `>+1 : 1`,
+    /// against `>-x : number` and `>-true : number` for every non-literal operand.
+    /// Missing this case would be a plausible wrong line on every negative
+    /// constant in the corpus.
+    ///
+    /// Not ported, each a gap: an operand this port cannot type (see
+    /// [`Self::unary_result_type`] for why that is a gap rather than `number`),
+    /// and `!` on an operand whose truthiness is not decidable here.
+    fn check_prefix_unary_expression(
+        &mut self,
+        node: &tsr_ast::PrefixUnaryExpression<'_>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(operand) = node.operand else { return error };
+        let operand_type = self.check_expression(operand);
+        let operator = node.operator.kind;
+
+        // The literal special cases, which run before the operator's general
+        // rule. `getFreshTypeOfLiteralType` — a unary expression is an
+        // expression, so the literal it produces is fresh, exactly like the
+        // `NumericLiteral` arm above.
+        if let Expression::NumericLiteral(literal) = operand
+            && matches!(operator, SyntaxKind::MinusToken | SyntaxKind::PlusToken)
+        {
+            let normalised = printing::normalise_number(literal.text);
+            let text = if operator == SyntaxKind::MinusToken {
+                negate_number_text(&normalised)
+            } else {
+                Some(normalised)
+            };
+            // An unparseable literal keeps `normalise_number`'s fallback of the
+            // source text, which cannot be negated meaningfully; the scanner has
+            // already reported it, so this is a gap rather than a guess.
+            if let Some(text) = text {
+                return self.store.intern_literal(
+                    TypeFlags::NUMBER_LITERAL,
+                    TypeData::NumberLiteral(text),
+                    true,
+                );
+            }
+            return error;
+        }
+        // The bigint half of the same special case. `-1n` is the literal `-1n`;
+        // `+1n` is not a case at all, because unary `+` on a bigint is an error
+        // upstream rather than a literal.
+        if let Expression::BigIntLiteral(literal) = operand
+            && operator == SyntaxKind::MinusToken
+        {
+            let digits = literal.text.trim_end_matches('n');
+            return self.store.intern_literal(
+                TypeFlags::BIG_INT_LITERAL,
+                TypeData::BigIntLiteral(format!("-{digits}")),
+                true,
+            );
+        }
+
+        match operator {
+            // `+` returns `numberType` unconditionally — upstream reports on a
+            // bigint operand but still answers `number`, so there is no bigint
+            // gap on this arm.
+            SyntaxKind::PlusToken => self.intrinsics.number,
+            SyntaxKind::MinusToken | SyntaxKind::TildeToken => self.unary_result_type(operand_type),
+            SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken => {
+                self.unary_result_type(operand_type)
+            }
+            SyntaxKind::ExclamationToken => self.negated_truthiness_type(operand_type),
+            _ => error,
+        }
+    }
+
+    /// Ported from `Checker.checkPostfixUnaryExpression` (`checker.go:10909`).
+    ///
+    /// `x++` and `x--` have no literal special case — upstream goes straight to
+    /// `getUnaryResultType`, which is why `>i++ : number` even when `i` is the
+    /// literal type `0`.
+    fn check_postfix_unary_expression(
+        &mut self,
+        node: &tsr_ast::PostfixUnaryExpression<'_>,
+    ) -> TypeId {
+        let Some(operand) = node.operand else { return self.intrinsics.error };
+        let operand_type = self.check_expression(operand);
+        self.unary_result_type(operand_type)
+    }
+
+    /// Ported from `Checker.getUnaryResultType` (`checker.go:10923`).
+    ///
+    /// # The bigint arm is a gap, and the operand's type is why this can fail
+    ///
+    /// Upstream answers `number` for everything that is not bigint-like, and
+    /// `bigint` or `number | bigint` when it is. The bigint arm needs
+    /// `numberOrBigIntType` and `isTypeAssignableToKind` — an assignability
+    /// question this port cannot ask — so a bigint-like operand is a gap.
+    ///
+    /// That is also why an operand this port could not type is a gap rather than
+    /// `number`: the *only* thing the answer depends on is whether the operand is
+    /// bigint-like, and an `errorType` operand is precisely the case where that
+    /// is unknown. Answering `number` there would be right for most of the corpus
+    /// and wrong for every bigint, which is the guess this discipline exists to
+    /// prevent.
+    fn unary_result_type(&mut self, operand: TypeId) -> TypeId {
+        let flags = self.store.get(operand).flags;
+        if operand == self.intrinsics.error
+            || flags.intersects(TypeFlags::BIG_INT_LIKE)
+            // `any` and `unknown` could each be a bigint at runtime, and
+            // `maybeTypeOfKind` answers yes for them.
+            || flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return self.intrinsics.error;
+        }
+        self.intrinsics.number
+    }
+
+    /// The `!` arm of `checkPrefixUnaryExpression` (`checker.go:10887`).
+    ///
+    /// Upstream calls `getTypeFacts(operandType, TypeFactsTruthy|TypeFactsFalsy)`
+    /// and answers `false` when the operand can only be truthy, `true` when it
+    /// can only be falsy, and `boolean` when it could be either. `>!x : boolean`
+    /// is the common baseline line, but `!` on a literal is not `boolean` and
+    /// answering `boolean` everywhere would be a wrong line on each one.
+    ///
+    /// # Only the decidable half of `getTypeFacts` is ported
+    ///
+    /// A unit type has one truthiness and the primitives have both, which is
+    /// enough for the corpus shapes. Everything else — unions, objects,
+    /// intersections, type parameters, `never` — is a gap. An object type is
+    /// *always* truthy upstream and so would answer `false`, but that holds only
+    /// once `TypeFacts` distinguishes an object from a possibly-`undefined` one,
+    /// and guessing it here would be a wrong line on every optional value.
+    fn negated_truthiness_type(&mut self, operand: TypeId) -> TypeId {
+        if operand == self.intrinsics.error {
+            return self.intrinsics.error;
+        }
+        let (flags, data) = {
+            let t = self.store.get(operand);
+            (t.flags, t.data.clone())
+        };
+        // Always falsy: `!null`, `!undefined`, `!void` are all `true`.
+        if flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
+            return self.intrinsics.true_type;
+        }
+        let falsy = match data {
+            TypeData::BooleanLiteral(value) => !value,
+            TypeData::StringLiteral(text) => text.is_empty(),
+            // The normalised text, so `0`, `0.0` and `0x0` all arrive as `"0"`,
+            // and `0n` likewise for the bigint half.
+            TypeData::NumberLiteral(text) | TypeData::BigIntLiteral(text) => text == "0",
+            _ => {
+                // Both truthiness values are possible for the unit-less
+                // primitives, which is upstream's `Truthy|Falsy` and prints
+                // `boolean`.
+                return if flags.intersects(
+                    TypeFlags::STRING
+                        | TypeFlags::NUMBER
+                        | TypeFlags::BIG_INT
+                        | TypeFlags::BOOLEAN
+                        | TypeFlags::ANY_OR_UNKNOWN,
+                ) {
+                    self.intrinsics.boolean
+                } else {
+                    self.intrinsics.error
+                };
+            }
+        };
+        if falsy { self.intrinsics.true_type } else { self.intrinsics.false_type }
     }
 
     /// Ported from `Checker.checkThisExpression` (`checker.go:12077`), reduced to
@@ -214,4 +445,32 @@ impl Checker<'_, '_> {
         }
         self.intrinsics.error
     }
+}
+
+/// Negate a number literal's already-normalised text.
+///
+/// `getNumberLiteralType(-jsnum.FromString(text))` (`checker.go:10864`) negates
+/// the *value*, so the answer has to go back through the same normalisation the
+/// positive literal did rather than gaining a `-` on the front. The two differ on
+/// exactly one input: negative zero, which upstream prints `0` and the baselines
+/// record four times as `>-0 : 0`. Prefixing the text would print `-0`.
+///
+/// `None` when the text is not a parseable number, which is
+/// [`printing::normalise_number`]'s fallback for a literal the scanner has
+/// already reported on.
+fn negate_number_text(normalised: &str) -> Option<String> {
+    let value: f64 = normalised.parse().ok()?;
+    let negated = -value;
+    // `-0.0 == 0.0` is true in IEEE 754, so this catches negative zero without
+    // needing to inspect the sign bit, and turns it into the `0` upstream prints.
+    if negated == 0.0 {
+        return Some("0".to_string());
+    }
+    #[allow(clippy::float_cmp, reason = "exact integrality is the intended test")]
+    let is_integral = negated == negated.trunc();
+    Some(if is_integral && negated.abs() < 1e21 {
+        format!("{negated:.0}")
+    } else {
+        format!("{negated}")
+    })
 }

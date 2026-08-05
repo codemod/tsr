@@ -740,7 +740,9 @@ whole cases landed on the first slice — the largest case movement so far.
 
 `getDeclaredTypeOfSymbol` (`checker.go:23670`) in upstream's dispatch order:
 class and interface, type parameter, type alias, enum. Enum members and
-`import X = ...` aliases remain gaps.
+`import X = ...` aliases remain gaps *here* — note that an enum member does now
+have a `getTypeOfSymbol` answer, which is a different question and reaches its
+type by a different route; see "An enum member's type is read, not built" below.
 
 The one that is *not* obvious, and was taken from the baselines rather than
 guessed: **a type alias is transparent.** `conformance/typeAliases.types` records
@@ -2692,7 +2694,9 @@ crates/tsr-checker/src/symbols.rs:67
     self.intrinsics.error
 ```
 
-That comment is a live, accurate list of what `getTypeOfSymbol` does not answer,
+That comment has since lost its `enum members` entry, because the arm landed —
+the quote above is the state at the time of the incident, kept as written. The
+comment is a live, accurate list of what `getTypeOfSymbol` does not answer,
 maintained next to the code that does the answering. It is worth more than the
 histogram for deciding what is open, because the histogram says where lines are
 lost and this says why. **Prefer a doc comment beside the fallthrough to a grep,
@@ -2705,3 +2709,183 @@ signatures were a gap after they had been wired, and that stale doc is what
 caused one of the four bad assignments. It was corrected in `4058fb1`. A comment
 beside the code is the best available signal and still needs the same treatment
 as any other claim — check that it still describes the code beneath it.
+
+## An enum member's type is read, not built (`bd tsr-4sc.9`)
+
+`getTypeOfSymbol` answered `errorType` for an `ENUM_MEMBER` symbol until now,
+which cost **2,362 aligned lines** on the histogram taken at `e24b7ca` — the
+row `declaration name, symbol has no type: SymbolFlags(ENUM_MEMBER) /
+EnumMember / neither`. Every `>A : E.A` line in every enum baseline was a gap.
+
+### The forcing constraint: the member types already existed
+
+The obvious implementation is to build a literal type for the member from its
+name. That is the one thing this arm must **not** do. `038def4` had already made
+an enum's declared type the union of its members' types
+(`getDeclaredTypeOfEnum`, `checker.go:23874`), and building the union is what
+creates the member identities — `declared.rs` writes each member symbol's fresh
+type into `declared_types` as it goes. A second construction site would give one
+enum two sets of member identities that print alike and compare unequal, which is
+the same merged-identity failure the `errorType`/`anyType` and
+`silentNeverType`/`neverType` rules exist to prevent, only inverted: two types
+where upstream has one.
+
+Upstream is shaped to make this hard to get wrong, and reading it is what settled
+the design. `getTypeOfEnumMember` (`checker.go:18503`) is a memo over
+`getDeclaredTypeOfEnumMember` (`checker.go:23927`), whose body has no
+construction in it at all:
+
+```go
+enumType := c.getDeclaredTypeOfEnum(c.getParentOfSymbol(symbol))
+if links.declaredType == nil {
+    links.declaredType = enumType
+}
+```
+
+It forces the parent, then reads the link that forcing the parent filled in. The
+second read is not defensive coding — it is the entire mechanism. The port is the
+same two steps: `get_declared_type_of_symbol(parent)`, then
+`declared_types.get(&symbol)`, with upstream's own fallback to the enum type for
+a member the enum did not claim.
+
+**The alternative, taken seriously.** Build the member type in `symbols.rs` from
+the enum name and the member name — a three-line function, no dependency on
+`declared.rs`, and it produces the correct printed line for every fixture in the
+test file. It was rejected because "produces the correct string" is not the
+standard; the two `E.A` types would be distinct `TypeId`s, and the first thing to
+compare a member against its enum's constituents would fail for a reason with no
+visible cause. **What would have to change for it to win:** if `declared.rs` ever
+stopped populating `declared_types` for members as a side effect, the read-back
+would silently start returning the enum type via the fallback, and an explicit
+construction — in `declared.rs`, still one site — would be better than a silent
+wrong answer.
+
+**How I would know I was wrong.** `an_enum_member_has_the_member_type_the_enum_union_built`
+asks three questions of one fixture in one breath: `E.A` for the member,
+`typeof E` for the enum symbol, `E` for what the enum declares. If the read-back
+ever degrades to the fallback, the first answer becomes `E` and the test says so.
+
+### The name guard, which is this port's and not upstream's
+
+`enumWithQuotedElementName2.types` records
+
+```text
+   "fo'o",
+>"fo'o" : (typeof E)["fo'o"]
+```
+
+Upstream's node builder chooses between `E.A` and `(typeof E)["fo'o"]` at print
+time, on `scanner.IsIdentifierText` (`nodebuilderimpl.go:3269`). This port cannot
+make that choice: a member type's printed form is fixed when the union is built,
+because `printing::type_to_string` takes a single `Type` with no way back to the
+store. So a non-identifier member name answers `errorType` — a gap, not a guess.
+
+This was not a hypothetical. Running the test with the guard disabled prints
+`E.fo'o`, a spelling that appears in no baseline and would have been a wrong line
+scored as a right one.
+
+### Consequences accepted
+
+- **Two members of two same-named enums in different scopes share a fresh type.**
+  `intern_literal` keys on content, so `E.A` in two scopes interns to one fresh
+  type where upstream's `createComputedEnumType` makes one per symbol. This
+  predates this change — `declared.rs` computes the fresh form already — and is
+  unobservable until something compares enum members across scopes.
+- **`get_declared_type_of_symbol` has no `ENUM_MEMBER` arm**, so asking it about a
+  member symbol *before* the enum is forced would cache `errorType` against that
+  member, and the arm here would then return it. Unreachable today, because
+  `E.A` in type position is a qualified name and unported. The ordering is
+  load-bearing rather than incidental, and it is noted at the function.
+- **Const enums and computed member values are unaffected**, which is the
+  pleasant surprise: `computedEnumTypeWidening.types` prints `>A : E.A` for
+  members initialised by opaque function calls, so a member's *printed* form
+  never depends on its value. This port has no constant evaluator (`bd tsr-8pz`)
+  and still prints every member correctly.
+
+## Unary expressions and `typeof` (2026-08-05)
+
+`typeof`, the prefix operators and the postfix ones, in `expressions.rs`. Three
+judgment calls, each of which had an obvious answer that the baselines say is
+wrong.
+
+### The operand's *syntax* decides `-1`, not the operand's type
+
+The forcing constraint is that `>-1 : -1` and `>-x : number` are both in the
+baselines. Upstream checks `expr.Operand.Kind == ast.KindNumericLiteral`
+(`checker.go:10862`) **before** it reaches the operator's general rule, so the
+literal special case keys on the syntax of the operand rather than on its type.
+`-true` takes the general rule and is `number` even though `true` is a unit type;
+that line is in the baselines too and is what makes the distinction observable.
+
+The alternative was to key on the operand's *type* being a number literal, which
+reads more naturally in a port that already has the type in hand. It is wrong on
+`-true`, and it would also be wrong on `-x` where `x: 1` — upstream answers
+`number` there, because `x` is an identifier and not a literal. That option wins
+only if upstream changes the special case to a type test, which would be a
+breaking change to a large number of baselines.
+
+**How we would know this is wrong:** any baseline line of the form `>-<literal>`
+that prints `number`, or any `>-<identifier>` that prints a literal type.
+
+### Negation goes through the value, because of `-0`
+
+`getNumberLiteralType(-jsnum.FromString(text))` negates a *number*, so the result
+is re-normalised rather than having a `-` glued to the front. The two agree on
+every input except negative zero, which the baselines record four times as
+`>-0 : 0`. Prefixing the text prints `-0` and is wrong on exactly those lines.
+
+This is a small point with an outsized failure mode: the text-prefix version
+passes every test anyone would think to write except the one about zero, so it is
+pinned by `negative_zero_prints_as_zero` and by a comment naming IEEE 754 as the
+reason `negated == 0.0` catches it without inspecting the sign bit.
+
+### `!` needs the decidable half of `getTypeFacts`, and only that half
+
+`>!x : boolean` is the common line, but upstream's `!` arm asks
+`getTypeFacts(operandType, TypeFactsTruthy|TypeFactsFalsy)` and answers `false`
+when the operand can only be truthy and `true` when it can only be falsy
+(`checker.go:10887`). So `!true` is `false`, not `boolean`.
+
+Answering `boolean` everywhere was the rejected alternative. It is right for the
+majority of corpus lines and wrong for every `!` on a constant, which is the
+shape that appears in the conformance tests written *about* truthiness — a
+concentration of wrong answers exactly where the form is being exercised.
+
+What is ported is the half of `getTypeFacts` that a single type decides on its
+own: a unit type has one truthiness, and the unit-less primitives have both.
+Unions, objects, intersections, type parameters and `never` are gaps. An object
+type is always truthy upstream and would answer `false`, but that holds only once
+`TypeFacts` can distinguish an object from a possibly-`undefined` one, and
+guessing it now would be a wrong line on every optional value.
+
+### A bigint operand is a gap, and so is an operand we could not type
+
+`getUnaryResultType` (`checker.go:10923`) answers `bigint` or `number | bigint`
+for a bigint-like operand and `number` for everything else. The bigint arm needs
+`isTypeAssignableToKind` — an assignability question this port cannot ask — so it
+gaps.
+
+That is also the reason an `errorType` operand gaps rather than answering
+`number`. The *only* thing the result depends on is whether the operand is
+bigint-like, and an operand we could not type is precisely the case where that is
+unknown. Answering `number` would be right for most of the corpus and wrong for
+every bigint, which is the trade the `errorType`-not-`anyType` rule exists to
+refuse. This is worth stating because the reasoning runs opposite to `typeof`
+directly below it.
+
+### `typeof` is the one form a gap in the operand does not weaken
+
+`checkTypeOfExpression` (`checker.go:10617`) is two lines: check the operand,
+then return `typeofType` regardless of what came back. So `typeof <anything>` is
+the full eight-member union even when the operand's own line is a gap. Making the
+result inherit the operand's gap — the reflex everywhere else in this checker —
+would invent a gap upstream does not have. The operand is still checked, because
+that is what populates the operand's own line.
+
+`typeofType` is built from `slices.Sorted(maps.Keys(typeofNEFacts))`
+(`checker.go:1052`), so the constituents are alphabetical. The port does not rely
+on its own list order for that: `get_union_type` sorts by `compare_types`, and a
+mutation that scrambled the source list did **not** redden the test, which is how
+we learned the ordering guarantee lives in `unions.rs` rather than here. The test
+pins the printed string and the *set* of eight names, which is what this code
+actually decides.
