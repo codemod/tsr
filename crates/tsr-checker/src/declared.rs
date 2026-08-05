@@ -614,10 +614,19 @@ impl<'a> Checker<'a, '_> {
                 let member_type =
                     self.store.new_named(TypeFlags::ENUM, format!("{name}.{member_name}"), None);
                 // `checker.go:23890`: the member's own declared type is the
-                // *fresh* form of its literal type. Currently unobservable —
-                // reaching it needs `E.A` in type position, which is a qualified
-                // name and unported — and written because it is upstream's line
-                // and because it is what keeps the member types created once.
+                // *fresh* form of its literal type.
+                //
+                // **This is now load-bearing, and the comment that said it was
+                // unobservable is corrected rather than deleted.** It claimed
+                // reaching this needed `E.A` in type position — a qualified name,
+                // still unported — and that was true of the only route that
+                // existed when it was written. A second route arrived:
+                // `getWidenedLiteralType` widens an enum member only when it is
+                // *fresh* (`checker.go:25488`), so `var e = E.A` prints `E`
+                // because of this line and would print `E.A` without it. The
+                // freshness gate is what `crate::literals`'s enum arm tests
+                // first, and the control asserting the enum type itself does not
+                // widen is pinning exactly this call.
                 let fresh = self.get_fresh_type_of_literal_type(member_type);
                 self.declared_types.insert(member_symbol, fresh);
                 // The type -> enum back-edge that `getBaseTypeOfEnumLikeType`
