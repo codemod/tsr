@@ -368,7 +368,9 @@ Those two sentences are in tension and both are true, which is the point:
 **the row with the best case-gate profile on the board is three-quarters blocked
 behind a `Checker::new` signature change.** That makes the signature change an
 item worth ranking on its own, rather than a caveat attached to a row nobody can
-take.
+take — `bd tsr-mmd`, which also carries the sibling `reference … SymbolFlags(ALIAS)
+/ no value declaration` row (1,621 lines, `finishes 0`, same blocker). The two
+alias rows together are **4,156 lines**.
 
 ### The adjacent board row
 
