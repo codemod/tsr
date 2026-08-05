@@ -118,6 +118,11 @@ pub struct BindResult<'a> {
     locals: FxHashMap<NodeId, SymbolTable<'a>>,
     global_exports: SymbolTable<'a>,
     globals: SymbolTable<'a>,
+    /// The synthesised `undefined` global, if this bind created one.
+    ///
+    /// `None` when the program declared its own `undefined`, which must keep
+    /// its declared type — seeding the slot unconditionally would clobber it.
+    undefined_symbol: Option<SymbolId>,
     computed_names: FxHashMap<NodeId, NodeId>,
     diagnostics: Vec<Diagnostic>,
     flow: FlowStore,
@@ -145,6 +150,7 @@ impl<'a> BindResult<'a> {
             locals: FxHashMap::default(),
             global_exports: SymbolTable::default(),
             globals: SymbolTable::default(),
+            undefined_symbol: None,
             computed_names: FxHashMap::default(),
             diagnostics: Vec::new(),
             flow: FlowStore::new(),
@@ -384,6 +390,15 @@ impl<'a> BindResult<'a> {
         // Empty unless several files were bound into one result
         // ([`bind_into`]), so a file bound alone behaves exactly as before.
         self.globals.get(name).copied()
+    }
+
+    /// The synthesised `undefined` symbol, if this bind created one.
+    ///
+    /// `None` when the program declared its own, so the checker seeds a type
+    /// only for the symbol it is entitled to.
+    #[must_use]
+    pub fn undefined_symbol(&self) -> Option<SymbolId> {
+        self.undefined_symbol
     }
 
     /// Every name visible to the whole program (`c.globals`).

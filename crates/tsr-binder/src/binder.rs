@@ -244,6 +244,8 @@ pub(crate) struct Binder<'a, 'n> {
     /// `initializeChecker` (`:1296`). See [`Binder::merge_globals`] for why it
     /// is filled here rather than in the checker.
     globals: SymbolTable<'a>,
+    /// The synthesised `undefined` symbol, if this bind created one.
+    undefined_symbol: Option<SymbolId>,
 
     // ---- control flow ----
     flow: FlowStore,
@@ -324,6 +326,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             locals,
             global_exports,
             globals,
+            undefined_symbol,
             computed_names,
             diagnostics,
             mut flow,
@@ -357,6 +360,8 @@ impl<'a, 'n> Binder<'a, 'n> {
         Self {
             depth: 0,
             max_depth,
+            // Carried across files: a second file must not re-synthesise it.
+            undefined_symbol,
             nodes,
             symbols,
             node_symbols,
@@ -452,12 +457,14 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         self.merge_globals(root_id);
+        self.declare_synthesised_globals();
 
         BindResult {
             max_depth: self.max_depth,
             computed_names: self.computed_names,
             global_exports: self.global_exports,
             globals: self.globals,
+            undefined_symbol: self.undefined_symbol,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
             locals: self.locals,
@@ -505,6 +512,43 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// `lib.es5.d.ts` answered correctly. Measured before building: of 4,169
     /// corpus assertion lines that are a member access on a named lib global,
     /// 1,250 name a member that exists only in a non-base declaration.
+    /// The globals upstream synthesises rather than reads from a file.
+    ///
+    /// Ported from `Checker.initializeChecker` (`checker.go:955`), the line
+    /// that creates the synthesised `undefined` symbol. Upstream creates it in
+    /// the **checker** and
+    /// puts it in `c.globals`; this port keeps `globals` in the binder
+    /// ([`Binder::merge_globals`]), so the symbol is created here and its
+    /// *type* is seeded on the checker side, which is where upstream sets it
+    /// too (`valueSymbolLinks.resolvedType`, `checker.go:1345`).
+    ///
+    /// **`undefined` is not in any `lib.*.d.ts`.** It is the one global with no
+    /// declaration anywhere, which is why merging the lib files — the mechanism
+    /// that makes `Array` and `String` resolve — never produced it and every
+    /// `undefined` reference answered `errorType`.
+    ///
+    /// Inserted **after** `merge_globals` and only when the name is absent, so a
+    /// file that declares its own `undefined` keeps its declaration. Upstream
+    /// has the same order: the synthesised symbols are installed before the
+    /// program's files are merged, and `mergeGlobalSymbol` merges into whatever
+    /// is already there rather than replacing it.
+    ///
+    /// `arguments` is the next line of upstream's initialiser
+    /// (`checker.go:956`) and is deliberately **not** here: its type is
+    /// `IArguments` from `lib.d.ts`, which needs lib loading (`bd tsr-9or.1`),
+    /// and a symbol whose type cannot be answered is worse than no symbol —
+    /// it converts a resolution gap into a `getTypeOfSymbol` gap without
+    /// answering a single line.
+    fn declare_synthesised_globals(&mut self) {
+        if !self.globals.contains_key("undefined") {
+            // `SymbolFlagsProperty`, upstream's flag for it, which is what sends
+            // it to the variable/parameter/property arm in the checker.
+            let symbol = self.symbols.create("undefined", SymbolFlags::PROPERTY);
+            self.globals.insert("undefined", symbol);
+            self.undefined_symbol = Some(symbol);
+        }
+    }
+
     fn merge_globals(&mut self, root_id: NodeId) {
         // `ast.IsExternalOrCommonJSModule`. A module's top-level names are its
         // exports, not globals — which is the entire distinction between a

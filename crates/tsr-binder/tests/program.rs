@@ -267,6 +267,14 @@ fn a_file_bound_alone_resolves_exactly_as_it_always_did() {
     // invisible to a single-file consumer, and it is what is actually asserted.
     let root_locals = result.locals(root).expect("a script file has locals");
     for name in result.globals().keys() {
+        // `undefined` is synthesised rather than read from this file, so it is
+        // deliberately not one of its locals. It is also not a name the walk
+        // could have found before, which is the whole point of adding it — so
+        // the "adds no reachable name" property it is excluded from is exactly
+        // the property it is meant to break.
+        if *name == "undefined" {
+            continue;
+        }
         assert!(root_locals.contains_key(name), "global {name} is not a local of the only file");
     }
 }
@@ -283,7 +291,14 @@ fn a_module_bound_alone_has_no_globals_at_all() {
         &parsed.nodes,
         FileInfo { name: "m.ts", text: source },
     );
-    assert!(result.globals().is_empty(), "a module contributes no globals");
+    // The synthesised `undefined` is present for a module too, because it is a
+    // global of every program regardless of module-ness — upstream creates it in
+    // `initializeChecker` before any file is looked at. This assertion read
+    // `is_empty()` until then; what it is testing is that the MODULE contributes
+    // nothing, so it now names the one global that does not come from a file.
+    let contributed: Vec<_> =
+        result.globals().keys().filter(|name| **name != "undefined").collect();
+    assert!(contributed.is_empty(), "a module contributes no globals, found {contributed:?}");
 }
 
 #[test]

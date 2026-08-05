@@ -131,6 +131,18 @@ impl<'a, 'n> Checker<'a, 'n> {
     ) -> Self {
         let mut store = TypeStore::new();
         let intrinsics = Intrinsics::create(&mut store);
+        // `valueSymbolLinks.Get(c.undefinedSymbol).resolvedType`
+        // (`checker.go:1345`) — the synthesised `undefined` global has no
+        // declaration, so no dispatch arm can compute its type and upstream
+        // sets it directly. `symbol_types` IS that link table here, and
+        // `get_type_of_variable_or_parameter_or_property` reads it before doing
+        // any work, so seeding it is what makes the symbol answer at all.
+        //
+        // See `Binder::declare_synthesised_globals` for the other half.
+        let mut symbol_types = FxHashMap::default();
+        if let Some(undefined) = binder.undefined_symbol() {
+            symbol_types.insert(undefined, intrinsics.undefined);
+        }
         Self {
             store,
             intrinsics,
@@ -141,7 +153,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             node_types: FxHashMap::default(),
             regular_types: FxHashMap::default(),
             enum_member_owners: FxHashMap::default(),
-            symbol_types: FxHashMap::default(),
+            symbol_types,
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),
