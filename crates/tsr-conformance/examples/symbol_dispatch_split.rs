@@ -83,6 +83,9 @@ struct Counts {
     /// Controls.
     no_symbol_9: usize,
     no_symbol_10: usize,
+    /// The lines the row-9 split cannot account for, named so the next run
+    /// explains them instead of bounding them.
+    unexplained_9: Vec<String>,
     /// Cases touched, for the concentration check on the sub-population.
     by_case_9: BTreeMap<String, usize>,
     by_case_10_same_file: BTreeMap<String, usize>,
@@ -94,6 +97,7 @@ impl Counts {
         self.row_9 += other.row_9;
         self.row_10 += other.row_10;
         self.no_symbol_9 += other.no_symbol_9;
+        self.unexplained_9.extend(other.unexplained_9);
         self.no_symbol_10 += other.no_symbol_10;
         for (map, from) in [
             (&mut self.attributed_9, other.attributed_9),
@@ -174,6 +178,10 @@ fn main() {
             let node_map = program.node_map();
             let bound = program.binder();
             let mut checker = tsr_checker::Checker::new(bound, nodes, node_map);
+            // A SECOND checker over the same program, and it is load-bearing.
+            // See `classify_on_a_separate_checker` below.
+            let mut classifier = tsr_checker::Checker::new(bound, nodes, node_map);
+            let share = std::env::var("SYMBOL_SPLIT_SHARE_CHECKER").is_ok();
 
             let mut counts = Counts::default();
             for (index, expected_file) in expected.iter().enumerate() {
@@ -200,8 +208,11 @@ fn main() {
                             counts.no_symbol_9 += 1;
                             continue;
                         };
-                        let properties =
-                            function_properties(&mut checker, bound, node_map, nodes, symbol);
+                        let properties = if share {
+                            function_properties(&mut checker, bound, node_map, nodes, symbol)
+                        } else {
+                            function_properties(&mut classifier, bound, node_map, nodes, symbol)
+                        };
                         for property in &properties {
                             *counts.independent_9.entry(*property).or_default() += 1;
                         }
@@ -213,6 +224,20 @@ fn main() {
                             .copied()
                             .unwrap_or("UNEXPLAINED");
                         *counts.attributed_9.entry(first).or_default() += 1;
+                        // The residual, named rather than counted. A control
+                        // that reads non-zero has to be explicable on the next
+                        // run without a second instrument, so the lines it
+                        // holds are printed with their case and their source.
+                        if first == "UNEXPLAINED" {
+                            let span = nodes.span(id);
+                            counts.unexplained_9.push(format!(
+                                "{}  {}:{}  `{}`",
+                                case.name,
+                                index,
+                                span.start,
+                                got.text.trim()
+                            ));
+                        }
                     } else if reason == ROW_10 {
                         counts.row_10 += 1;
                         let Some((_, declaration)) = declaration_of(bound, nodes, id) else {
@@ -551,10 +576,27 @@ fn report(counts: &Counts) {
         .map(|(_, count)| *count)
         .sum();
     println!("  row 10: UNCLASSIFIED KIND {unclassified}");
-    println!(
-        "  row 9:  UNEXPLAINED       {}",
-        counts.attributed_9.get("UNEXPLAINED").copied().unwrap_or_default()
-    );
+    let unexplained = counts.attributed_9.get("UNEXPLAINED").copied().unwrap_or_default();
+    println!("  row 9:  UNEXPLAINED       {unexplained}");
+    if unexplained > 0 {
+        // `docs/conventions.md`: a sub-row measured against a non-zero residual
+        // is a lower bound, so the residual is printed in full rather than
+        // summarised. It is bounded by construction — a control that needs
+        // truncating is not a control.
+        println!("\n  Every UNEXPLAINED line, so the next run can name its cause:");
+        let mut lines = counts.unexplained_9.clone();
+        lines.sort_unstable();
+        for line in &lines {
+            println!("    {line}");
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let share = 100.0 * unexplained as f64 / counts.row_9 as f64;
+        println!(
+            "\n  *** The row-9 sub-rows below are LOWER BOUNDS: {unexplained} of {} lines\n\
+             *** ({share:.1}%) are not accounted for by any listed property.",
+            counts.row_9,
+        );
+    }
 
     println!(
         "\n## Row 9 — SymbolFlags(FUNCTION) / FunctionDeclaration / neither: {} lines, {} cases",

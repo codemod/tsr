@@ -455,8 +455,27 @@ impl<'a> Checker<'a, '_> {
     ///
     /// See [`Checker::export_specifier_target`] for the measurement and for the
     /// two forms that stay gapped.
+    ///
+    /// # The declaration is the **last alias-shaped** one, not the first
+    ///
+    /// `getDeclarationOfAliasSymbol` (`checker.go:16397`) is
+    /// `core.FindLast(symbol.Declarations, ast.IsAliasSymbolDeclaration)`, and
+    /// both halves of that matter for a **merged** symbol. `interface I { }`
+    /// beside `export { I }` gives one symbol carrying `INTERFACE | ALIAS` whose
+    /// `declarations[0]` is the `InterfaceDeclaration` — a node with no alias
+    /// target at all. Reading `.first()` handed that node to the match below,
+    /// which fell through to `None`, and the symbol answered `errorType` for a
+    /// reason that had nothing to do with aliases.
+    ///
+    /// Found as **one line** in `examples/symbol_dispatch_split.rs`'s
+    /// `UNCLASSIFIED KIND` control on the full corpus. One line is not why it is
+    /// fixed: this is the exact shape recorded as the falsifier for the
+    /// export-marker arm in `docs/architecture/checker-notes-arrays.md`
+    /// (*"merged declarations are where to look — `export interface I {}` beside
+    /// `export const I = 1`"*), so the control found the predicted failure and
+    /// the prediction is what makes one line worth acting on.
     fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
-        let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+        let declaration = self.declaration_of_alias_symbol(symbol)?;
         if self.nodes.kind(declaration) == SyntaxKind::ExportSpecifier {
             return self.export_specifier_target(declaration);
         }
@@ -504,6 +523,47 @@ impl<'a> Checker<'a, '_> {
             // Closing one does nothing for the other.
             ModuleReference::QualifiedName(_) | ModuleReference::ExternalModuleReference(_) => None,
         }
+    }
+
+    /// The declaration an alias symbol's target is read from.
+    ///
+    /// Ported from `Checker.getDeclarationOfAliasSymbol` (`checker.go:16397`),
+    /// `core.FindLast(symbol.Declarations, ast.IsAliasSymbolDeclaration)`, over
+    /// the `IsAliasSymbolDeclaration` kinds (`ast/utilities.go:2631`) this port
+    /// can reach.
+    ///
+    /// # Which kinds are listed, and why the unreachable ones still are
+    ///
+    /// The predicate is a filter, so listing a kind [`Checker::resolve_alias`]
+    /// answers `None` for costs nothing and buys the right *selection*: for
+    /// `import a = require("./m")` merged with something else, the alias
+    /// declaration is still the one that must be picked, even though the arm
+    /// then declines it. Listing only the kinds this port resolves would make
+    /// the predicate silently mean "the declarations we can answer", which is a
+    /// different function.
+    ///
+    /// Four of upstream's arms are **not** listed, each because its test is
+    /// unported rather than because the kind is rare:
+    /// `KindImportClause` needs `Name() != nil`, `KindExportAssignment` needs
+    /// `ExpressionIsAlias`, and `KindVariableDeclaration`/`KindBindingElement`
+    /// and `KindBinaryExpression` are the JS `require`/`module.exports` forms
+    /// behind `IsVariableDeclarationInitializedToRequire` and
+    /// `GetAssignmentDeclarationKind`. Answering any of them by kind alone would
+    /// be a guess, and the consequence of leaving them out is a *miss* — the
+    /// walk finds no alias declaration and the symbol gaps — never a wrong
+    /// target.
+    fn declaration_of_alias_symbol(&self, symbol: SymbolId) -> Option<NodeId> {
+        self.binder.symbols().get(symbol).declarations.iter().rev().copied().find(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ImportEqualsDeclaration
+                    | SyntaxKind::NamespaceExportDeclaration
+                    | SyntaxKind::NamespaceImport
+                    | SyntaxKind::NamespaceExport
+                    | SyntaxKind::ImportSpecifier
+                    | SyntaxKind::ExportSpecifier
+            )
+        })
     }
 
     /// The symbol an **export specifier** names, for the half that resolves

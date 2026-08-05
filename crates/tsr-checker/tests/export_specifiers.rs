@@ -210,3 +210,36 @@ fn an_export_specifier_naming_an_alias_follows_the_chain() {
 fn an_export_specifier_naming_nothing_is_a_gap() {
     assert_eq!(type_of_export("export { nothingHere };", "nothingHere"), "error");
 }
+
+/// A **merged** symbol takes its alias target from the last alias-shaped
+/// declaration, not from `declarations[0]`.
+///
+/// `getDeclarationOfAliasSymbol` (`checker.go:16397`) is
+/// `core.FindLast(symbol.Declarations, ast.IsAliasSymbolDeclaration)`. Both
+/// halves matter here: `export interface I {}` beside `export { N as I }` binds
+/// **one** symbol carrying `INTERFACE | ALIAS` whose first declaration is the
+/// `InterfaceDeclaration` — a node with no alias target at all.
+///
+/// This is the shape `docs/architecture/checker-notes-arrays.md` named as the
+/// falsifier for the export-marker arm (*"merged declarations are where to
+/// look"*), and `examples/symbol_dispatch_split.rs`'s `UNCLASSIFIED KIND`
+/// control found exactly one line of it on the full corpus. One line is not why
+/// it is fixed; the fact that the predicted failure is the one that showed up
+/// is.
+///
+/// **Both fixtures are illegal TypeScript** — merging an alias with a local is
+/// a duplicate-identifier error — and that is not a defect in the test. The
+/// corpus is full of error cases, they carry `.types` baselines, and the
+/// checker still has to pick the right declaration in them. Neither fixture
+/// produces a parse diagnostic, which `type_of_export` asserts.
+///
+/// **Red under:** replacing `Checker::declaration_of_alias_symbol` with
+/// `declarations.first()`. Both assertions then read `error`. It reddens no
+/// other test in this file, because no other fixture here merges.
+#[test]
+fn a_merged_alias_uses_the_last_alias_shaped_declaration() {
+    let source = "export interface I { }\n\
+                  namespace N { export var v = 1; }\n\
+                  export { N as I };";
+    assert_eq!(type_of_export(source, "I"), "typeof N");
+}

@@ -10,31 +10,35 @@ number handed to this slice was off by two.
 
 ## 0. The findings, in the order they change a decision
 
+**Every number below is the full corpus unless it says otherwise.** The first
+draft of this page quoted the `conformance/` subset throughout; §8 lists what
+that got wrong and by how much, dated, because `docs/conventions.md` requires a
+corrected number to be visibly corrected rather than silently edited.
+
 1. **Row 9 is not a missing dispatch arm, and neither is row 10.** Both arms
    existed at the commit the board was measured on. `getTypeOfFuncClassEnumModule`
    landed in `198addb`/`df7b013`/`6b701cc` and `getTypeOfAlias` in `964ec88`, all
    ancestors of `33e3bd5`. The briefing's *"dispatch arm missing"* for row 9 and
    *"binder marker carries no value decl"* for row 10 are both wrong, and the
    cheapest possible check — reading the dispatch — says so.
-2. **Row 9 is a *propagation* row that the classifier calls TERMINAL, and the
-   mechanism is the exact trap `checker-notes-rank.md` §4 documents.** Measured
-   on the `conformance/` half of the corpus: **56.4% of it is a parameter
-   annotation that is itself a gap**, 17.6% is `async`/generator waiting on
-   `Promise`/`Generator`, 10.9% is a destructuring parameter, 9.9% is a return
-   expression that is itself a gap. Nothing in it is `symbols.rs` work, and
-   almost none of it is terminal.
-3. **Row 10 splits 23% same-file / 77% cross-file**, and the same-file half is
-   **86% one form**: `export { q }`, an export specifier with no module
-   specifier. That form was reachable all along — upstream's
-   `getTargetOfExportSpecifier` branches on the *export declaration's* module
-   specifier, not on the specifier — and it is what this slice built.
+2. **Row 9 is a *propagation* row that the classifier calls TERMINAL, and
+   `TERMINAL` is `cause()`'s default arm.** Measured over all 2,618 lines:
+   **45.8% is a parameter annotation that is itself a gap**, 17.2% a return
+   expression that is itself a gap, 16.4% `async`/generator waiting on
+   `Promise`/`Generator`, 11.8% a destructuring parameter. Nothing in it is
+   `symbols.rs` work, and almost none of it is terminal.
+3. **Row 10 splits 17.8% same-file / 82.2% cross-file.** `export { q }` is the
+   largest same-file form at **198 lines — 46.8% of the same-file half**, and it
+   is what this slice built. `import a = b.c` at 158 is the second, and nobody
+   has looked at it (`bd tsr-1jv`).
 4. **The existing instrument could not have produced either split, and the
    reason is structural**, not an oversight. §2 says why, and it was the first
    thing checked.
-5. One prediction, in §7, with what must not move and how it could be right for
-   the wrong reason.
-
----
+5. **The prediction MISSED**, and it decomposes: population right, rate wrong.
+   §7 scores it.
+6. **The split's row-10 total (2,430) does not reconcile with the board's
+   (2,535)** at an identical compiler and an identical corpus pin. §9 records
+   what has been excluded and the one run that localises it.
 
 ## 1. The dispatch, read before believing either row name
 
@@ -83,6 +87,17 @@ number in `rank_board` is right. The classifier answers "is there evidence of a
 dependency?" and the board reads it as "is the prerequisite met?", and for a
 function declaration those differ.
 
+The lead verified this in the code and found it is worse than a mislabelled row:
+`TERMINAL` is `cause()`'s **default arm**, so `cause()` is total and
+`CONTROL UNATTRIBUTED by the TERMINAL/PROPAGATED split = 0` can never read
+non-zero from that path — it has proved nothing on any run. Two rules now sit in
+`docs/conventions.md` (`014208c`): a control bucket only proves a partition if
+some input can reach it, and the semantically loaded label must not be the
+default arm. Also recorded there: **the mutation discipline cannot catch this.**
+Mutations were written for three of `cause()`'s four arms and each went red; a
+mutation to a *default* branch is invisible, because everything that stops
+matching the other arms still lands in it.
+
 ---
 
 ## 2. The cheap cut first: what the existing reason strings already carry
@@ -122,26 +137,54 @@ document was produced with `SYMBOL_SPLIT_CASES=conformance/`, which is **5,907 o
 the corpus's cases** — a subset, and labelled as one everywhere it is quoted. The
 full-corpus run is a lead task.
 
-### Controls
+### Controls, on the full corpus
 
-| control | reads | what a non-zero would mean |
+| control | reads | what a non-zero means |
 |---|---|---|
 | `row 9: NO SYMBOL` | 0 | the probe's symbol re-derivation has drifted from `gap_reason`'s declaration-name branch |
 | `row 10: NO SYMBOL` | 0 | as above |
-| `row 10: UNCLASSIFIED KIND` | 0 | an alias declaration kind the split does not name |
-| `row 9: UNEXPLAINED` | **11 of 1,852 (0.6%)** | lines no listed property describes — the honest residual |
+| `row 10: UNCLASSIFIED KIND` | **1** (`InterfaceDeclaration`) | an alias declaration kind the split does not name |
+| `row 9: UNEXPLAINED` | **38 of 2,618 (1.5%)** | lines no listed property describes |
 
-Two of these started non-zero and each found a real defect:
+Two read non-zero, so by this page's own rule **§3's sub-rows are lower bounds
+of unknown depth**, not shares of a partition. Both are now actionable rather
+than merely reported:
 
-- `UNCLASSIFIED KIND` read **19**, all `NamespaceExportDeclaration` —
-  `export as namespace N`, a UMD global alias that is neither half. It now has
-  its own bucket and is excluded from both.
-- The first draft read `declarations.first()` only and attributed **819 lines**
-  to *"an overload set"*. `getSignaturesOfSymbol` (`signatures.rs:142`) loops
-  **every** declaration, so one gapping overload gaps the symbol; the property
-  that actually held was a later signature's parameter annotation. Walking all
-  declarations moved those 819 lines from a label that named the arity to one
-  that names the cause.
+- **The one `InterfaceDeclaration` was a real defect and is fixed.**
+  `resolve_alias` read `declarations.first()` where
+  `getDeclarationOfAliasSymbol` (`checker.go:16397`) is
+  `core.FindLast(symbol.Declarations, ast.IsAliasSymbolDeclaration)`. For a
+  merged symbol — `export interface I {}` beside `export { N as I }`, one symbol
+  carrying `INTERFACE | ALIAS` — `declarations[0]` is the interface, a node with
+  no alias target, and the symbol answered `errorType` for a reason that had
+  nothing to do with aliases. **This is exactly the falsifier
+  `checker-notes-arrays.md` named for the export-marker arm**, so the control
+  found the predicted failure; one line is the *size*, not the reason to act.
+  `Checker::declaration_of_alias_symbol` and a test that is red under
+  `declarations.first()`.
+- **The 38 UNEXPLAINED row-9 lines are now dumped, not bounded.** The probe
+  prints each one with its case, file index, offset and subject text, plus a
+  banner saying the sub-rows are lower bounds. A control that reads non-zero has
+  to be explicable on the *next* run without building a second instrument; a
+  count alone is not.
+
+### A mechanism tested and eliminated: the probe does not perturb what it measures
+
+`function_properties` calls `check_expression` and `get_type_from_type_node`,
+and the first draft made those calls on the **same** `Checker` that `gap_reason`
+interrogates. Since `get_type_of_symbol` memoises and the resolution stack is
+order-sensitive, that could in principle have moved lines between rows — a
+candidate explanation for §9's 105-line disagreement.
+
+It was tested rather than argued. The classification now runs on a **second
+`Checker` over the same program**, and `SYMBOL_SPLIT_SHARE_CHECKER=1` restores
+the shared one. On the `conformance/` subset the two runs are **identical in
+every bucket**, so the perturbation is a measured no-op and §9's gap is not
+this.
+
+The separate checker stays anyway. "Measured no-op today" is not "no-op": the
+guarantee is cheap, and the knob is what makes the claim re-testable rather than
+a note saying it was checked once.
 
 ### Attributed and independent, side by side
 
@@ -153,42 +196,46 @@ contextual properties last.
 
 ---
 
-## 3. Row 9, measured (`conformance/` subset: 1,852 lines, 399 cases)
+## 3. Row 9, measured on the full corpus (2,618 lines, 769 cases)
 
 Concentration on the sub-population, re-run because the parent's shape is not the
-child's: **top-1 2.2%** (`conformance/asyncWithVarShadowing_es6`), **top-10
-13.0%**. Genuinely distributed, as the board said.
+child's: **top-1 1.5%** (`conformance/asyncWithVarShadowing_es6`), **top-10
+9.2%** — which is the board's own figure for the row, so the row and this
+sub-population have the same shape. Genuinely distributed.
+
+**These sub-rows are LOWER BOUNDS.** 38 lines (1.5%) are UNEXPLAINED, so each
+figure is what the probe can name and not what the property accounts for.
 
 | property | attributed | independent | share (attrib.) |
 |---|---:|---:|---:|
-| a parameter annotation that is itself a gap | **1,045** | 1,069 | **56.4%** |
-| a destructuring parameter | 202 | 205 | 10.9% |
-| a return expression that is itself a gap | 184 | 260 | 9.9% |
-| `async` — the return type is `Promise<T>`, a global | 182 | 182 | 9.8% |
-| a generator — the return type is `Generator<…>`, a global | 143 | 182 | 7.7% |
-| a type-parameter constraint or default that is itself a gap | 42 | 54 | 2.3% |
-| two or more distinct return types (needs subtype reduction) | 33 | 46 | 1.8% |
-| a type parameter carrying a modifier (`const`/`in`/`out`) | 8 | 8 | 0.4% |
-| an anonymous function (`export default`) | 1 | 1 | 0.1% |
-| expando properties (`f.a = 1`) | 1 | 1 | 0.1% |
-| **UNEXPLAINED** | 11 | — | 0.6% |
-| *CONTEXT: more than one declaration* | 0 | 819 | — |
-| *CONTEXT: no return expression anywhere* | 0 | 1,500 | — |
+| a parameter annotation that is itself a gap | **1,198** | 1,240 | **45.8%** |
+| a return expression that is itself a gap | 451 | 595 | 17.2% |
+| a destructuring parameter | 309 | 314 | 11.8% |
+| `async` — the return type is `Promise<T>`, a global | 269 | 269 | 10.3% |
+| a generator — the return type is `Generator<…>`, a global | 160 | 201 | 6.1% |
+| a type-parameter constraint or default that is itself a gap | 91 | 119 | 3.5% |
+| two or more distinct return types (needs subtype reduction) | 69 | 84 | 2.6% |
+| expando properties (`f.a = 1`) | 23 | 23 | 0.9% |
+| a type parameter carrying a modifier (`const`/`in`/`out`) | 9 | 9 | 0.3% |
+| an anonymous function (`export default`) | 1 | 1 | 0.0% |
+| **UNEXPLAINED** | 38 | — | 1.5% |
+| *CONTEXT: more than one declaration* | 0 | 824 | — |
+| *CONTEXT: no return expression anywhere* | 0 | 1,860 | — |
 
-**1,271 of 1,852 (68.6%) name a dependency that is itself a gap** — a parameter
-annotation, a constraint, or a return expression. Another 325 (17.6%) wait on a
-global that needs the lib and `bd tsr-9or.1`. That leaves 243 lines (13.1%) of
-genuinely local work, split across destructuring parameter names, subtype
-reduction and type-parameter modifiers — **and not one of them is in
-`symbols.rs`.** They are `signatures.rs` and `unions.rs`.
+**1,740 of 2,618 (66.5%) name a dependency that is itself a gap** — a parameter
+annotation, a constraint, or a return expression. Another 429 (16.4%) wait on a
+global that needs the lib and `bd tsr-9or.1`. That leaves 410 lines (15.7%) of
+genuinely local work, across destructuring parameter names, subtype reduction,
+expando members and type-parameter modifiers — **and not one of them is in
+`symbols.rs`.** They are `signatures.rs`, `unions.rs` and the expando gap
+`bd tsr-4sc.8` already owns.
 
 ### What this does to the board
 
 Row 9 is listed at 2,618 lines, cause **TERMINAL / kind 1**, on the strength of
-which the size is the worth. On the conformance subset the terminal fraction is
-at most 13.1%, and the module named beside it (`tsr-checker/src/symbols.rs`) owns
-none of it. **Do not rank row 9 at 2,618. Rank it, at this measurement, at
-roughly one-eighth of that, and against `signatures.rs`.**
+which the size is the worth. The terminal fraction is at most 15.7%, and the
+module named beside it (`tsr-checker/src/symbols.rs`) owns none of it. **Do not
+rank row 9 at 2,618. Rank it at roughly 410, and against `signatures.rs`.**
 
 The unit evidence behind each bucket, from a per-shape probe (no libs loaded, so
 lib-dependent shapes are marked):
@@ -226,34 +273,39 @@ asserted, because this slice did not verify them against the corpus.
 
 ---
 
-## 4. Row 10, measured, and the split the briefing asked for
+## 4. Row 10, measured on the full corpus, and the split the briefing asked for
 
-`conformance/` subset: **794 lines**.
+**2,430 lines** — see §9, which does not reconcile with the board's 2,535.
 
 | form | lines | reach |
 |---|---:|---|
-| `import { x } from "./m"` | 264 | cross-file |
-| **`export { q }`** | **154** | **same file** |
-| `import a = require("./m")` | 129 | cross-file |
-| `import * as ns from "./m"` | 89 | cross-file |
-| `export { q } from "./m"` | 61 | cross-file |
-| `import d from "./m"` | 47 | cross-file |
-| `export as namespace N` | 19 | neither |
-| `import a = b.c` | 18 | same file, deliberately gapped (prints the alias's own name) |
-| `import a = b` | 7 | same file, ported — these are targets that themselves gap |
-| `export * as ns from "./m"` | 6 | cross-file |
+| `import { x } from "./m"` | 890 | cross-file |
+| `import a = require("./m")` | 433 | cross-file |
+| `import * as ns from "./m"` | 259 | cross-file |
+| `import d from "./m"` | 232 | cross-file |
+| **`export { q }`** | **198** | **same file** |
+| **`import a = b.c`** | **158** | **same file**, deliberately gapped today |
+| `export { q } from "./m"` | 134 | cross-file |
+| `import a = b` | 67 | same file, ported — these are targets that themselves gap |
+| `export as namespace N` | 50 | neither half |
+| `export * as ns from "./m"` | 8 | cross-file |
+| `UNCLASSIFIED KIND: InterfaceDeclaration` | 1 | a merged symbol; fixed, see §2 |
 
-- **SAME FILE: 179 lines over 61 cases**, top-1 11.7%, top-10 62.0%.
-- **CROSS FILE: 596 lines over 292 cases**, top-1 3.4%, top-10 23.0%.
+- **SAME FILE: 423 lines over 193 cases**, top-1 6.6%
+  (`compiler/privacyLocalInternalReferenceImportWithExport`), top-10 34.8%.
+- **CROSS FILE: 1,956 lines over 875 cases**, top-1 4.3%, top-10 15.5%.
 
-**23.1% same-file, 76.9% cross-file**, and the same-file half is 86% one form.
-Concentration re-run on the sub-population, per the requirement: the same-file
-half is four times more concentrated than the row it came from (top-10 62.0%
-against the row's 16.5%) — the same relationship `checker-notes-rank.md` found
-between the 557-node row and its parent. It is still 61 cases and it is not one
-file, so it survives; but it is a *narrower* item than the parent's shape
-suggested, and anyone quoting the parent's top-10 for it would be quoting the
-wrong number.
+**17.8% same-file, 82.2% cross-file.** Concentration re-run on the
+sub-population, per the requirement: the same-file half is twice as concentrated
+as the row it came from (top-10 34.8% against the row's 16.5%) — the same
+relationship `checker-notes-rank.md` found between the 557-node row and its
+parent. At 193 cases it is not one file, so it survives; but it is a *narrower*
+item than the parent's shape suggested, and anyone quoting the parent's top-10
+for it is quoting the wrong number.
+
+**`export { q }` is 46.8% of the same-file half, not 86%** — see §8. It is still
+the largest same-file form, and `import a = b.c` at 158 is the second and is
+unexamined (`bd tsr-1jv`).
 
 The cross-file half is blocked exactly as `checker-notes-arrays.md` records:
 `Checker::new` takes `(binder, nodes, node_map)` and `BindResult` exposes no
@@ -375,94 +427,174 @@ The probe in §3 shows what that looks like — `function f(x: number[]) {}` ans
 
 ## 6. What this slice did **not** do, and why
 
-- **Row 9.** Nothing was built. 68.6% of it is propagation, 17.6% waits on lib
-  globals, and the remaining 13.1% is in `signatures.rs` and `unions.rs`, which
-  this slice does not own. Building anything in `symbols.rs` for it would have
+- **Row 9.** Nothing was built. 66.5% of it is propagation, 16.4% waits on lib
+  globals, and the remaining 15.7% is in `signatures.rs`, `unions.rs` and the
+  expando gap `bd tsr-4sc.8` already owns — none of it in this file. Building anything in `symbols.rs` for it would have
   converted zero lines — the `+=` outcome, avoided by the check that was skipped
   there.
 - **`export default q` / `export = q`.** `getTargetOfExportAssignment`
   (`checker.go:14976`) is a small function and the form is same-file. It
-  contributes **zero lines** to this row on the measured subset, because the
+  contributes **zero lines** to this row on the full corpus, because the
   baseline records the *expression* `q` (an expression position) rather than the
   `default` alias's declaration name. Left unbuilt on the measurement rather than
   on an argument.
-- **`import a = b.c`.** 18 lines, and it is a deliberate print-fidelity gap
-  already documented on `Checker::resolve_alias`: the qualified form prints the
-  alias's own name and this port has no symbol-accessibility machinery.
+- **`import a = b.c`.** **158 lines** — the second-largest same-file form, and
+  the first draft of this page dismissed it at the subset's 18. It is a
+  deliberate print-fidelity gap documented on `Checker::resolve_alias`: the
+  qualified form prints the *alias's own* name (`compiler/aliasBug.types`:
+  `>booz : typeof booz`) because upstream's node builder emits the shortest
+  accessible chain, and this port has no symbol-accessibility machinery, so it
+  would print `typeof baz`. **Nobody has checked how many of the 158 would in
+  fact print the alias's own name** — the rule is about chain length, and a
+  two-link `a.b` may not behave like the three-link `foo.bar.baz` the
+  documentation is built on. `bd tsr-1jv`.
 
 ---
 
-## 7. Prediction
+## 7. Prediction — SCORED, and it is a MISS that decomposes
 
-**Rows:** row 10's same-file half, and only the `export { q }` form of it.
-**Commit pair:** `c60b086^..c60b086` — verify with `git log --oneline c60b086^..c60b086`
-returning exactly one line.
-**Mechanism:** `resolve_alias` now dispatches `ExportSpecifier` to a local
-`resolveEntityName`, and `get_symbol_flags` follows the alias chain so the value
-test does not reject an alias target.
+Recorded before the measurement; scored by the lead in isolated detached
+worktrees with their own submodule checkouts, `c60b086^..c60b086` verified as one
+commit.
 
-**The measured population is 154 lines on the `conformance/` subset (5,907
-cases).** `checker-notes-arrays.md` scored a prediction whose range floor *was*
-the whole measured population and whose ceiling was twice it — "it had no room to
-be right". So the population and the rate are stated separately:
+```
+  c60b086^   291,799 / 478,954    2,128 / 9,538
+  c60b086    291,893 / 478,954    2,138 / 9,538
+  delta          +94 lines            +10 cases
+```
 
-- **Population:** the full-corpus `export { q }` count is unmeasured. The
-  conformance subset is roughly 60% of the corpus's cases, so a full-corpus
-  population of **200–300 lines** is the extrapolation, and it is an
-  extrapolation and not a measurement.
-- **Expected conversion rate: 55–75% of the population.** Not higher, because
-  three things inside the form do not convert: a type-only target (`export { I }`,
-  `export { T }`) which upstream prints as `any` and this port reports as a gap;
-  a target whose own `get_type_of_symbol` still gaps (the `import a = b` row's 7
-  lines are exactly that shape, already inside this row); and a target in an
-  enclosing scope `Binder::resolve_name` reaches differently from
-  `resolveEntityName`.
-- **Therefore: +110 to +225 lines, point estimate +165.**
+| leg | predicted | measured | verdict |
+|---|---|---|---|
+| lines | +110 to +225, point +165 | **+94** | **MISS**, 15% under the floor |
+| population (`export { q }`) | 200–300 | **198** | hit, 1% under the floor |
+| conversion rate | 55–75% | **94/198 = 47.5%** | **MISS**, 7.5 points under the floor |
 
-**What would make the rate low:** the type-only share. `exportsAndImports1`
-exports ten names of which three (`I`, `N`, `T`) are type-only — 30% in the one
-case that was read. If that ratio holds across the form, the rate lands at the
-bottom of the range; if that case is unusual in exporting so many interfaces, at
-the top. **This is the single number that decides the prediction, and it was not
-measured** — the probe buckets by alias form, not by target meaning. A run with a
-target-meaning bucket added would settle it, and that bucket costs one line.
+**The population model held and the rate model did not**, which is the whole
+reason `docs/architecture/checker-notes-arrays.md` requires the two to be stated
+separately. A single wrong number would have said only "wrong"; two legs say
+*which* model to repair. `bd tsr-5xi` — split row 10 by the target's *meaning* —
+is now pointed at a measured 47.5% instead of a guess, and it is the follow-up
+that would have prevented the miss.
 
-**What must NOT move:**
+**The named risk was the right one.** §7 of the first draft said: *"the type-only
+share is the single number that decides the prediction, and it was not
+measured"*, and 47.5% is what an unmeasured type-only share looks like when it
+runs against you. Naming the risk did not make the prediction right; it made the
+miss diagnosable in one step.
 
-- **The wrong-line count for these cases must not rise.** A local lookup that
-  finds a different symbol from `resolveEntityName` converts a gap into a
-  confident wrong answer, which is worse than the gap. If wrong lines rise while
-  gaps fall, the arm is wrong even if the net is positive.
-- **`export { q } from "./m"` must contribute zero.** The module-specifier guard
-  is what holds it, and one test is red without it.
-- **The `any`-credited count must not rise.** Nothing here answers `any`.
-- **Rows other than 10 must not move by more than noise.** `get_symbol_flags` is
-  reached only from `get_type_of_alias`, so `import a = b` targets that are
-  themselves aliases may convert a handful; anything larger means the change
-  reached further than its call graph says it should.
+### The number that is better than the one that was predicted
 
-**How it could be right for the wrong reason:** the point estimate could land
-inside the range because the type-only share and the population extrapolation
-err in opposite directions — a larger-than-extrapolated population with a
-worse-than-expected rate gives the same number. The cross-check that separates
-them is the probe's own `export { q }` bucket on the full corpus, run *before*
-and after: if the before-count is outside 200–300, the range was right for the
-wrong reason regardless of what the gradient did.
+**94 lines flipped 10 cases — 9.4 lines per case.** For comparison, the
+object-literal-member slice converted 6,605 lines and flipped 109 cases: **61
+lines per case**, which `docs/conventions.md` records as the signature of a
+broad, shallow fix. This is **6.5× more case-efficient** and is close to the best
+ratio measured in this project.
 
-**Scoreboard discipline:** this project is 4 hits, 8 misses, and every miss
-arrived with a mechanism story and no cross-check — 12 for 12. This prediction
-has a mechanism story. Discount it accordingly; the cross-check above is the only
-part of it worth trusting.
+That was not predicted and is not to this slice's credit as a forecast — it is
+recorded because `checker-notes-rank.md`'s two rankings disagree on purpose, and
+the case gate is the one nothing on the board was being ranked against. **A
+prediction that names only lines cannot be scored on cases**, and a slice whose
+best result is one it did not forecast should say so rather than claim it.
+
+### What must not have moved, checked
+
+- **`export { q } from "./m"` contributing zero** — held by the module-specifier
+  guard, and one test is red without it.
+- **The `any`-credited count** — nothing in this arm answers `any`.
+- **Wrong lines for these cases** — the +94/+10 has no wrong-line component
+  reported. If a later run shows wrong lines rising in the affected cases, the
+  local lookup is finding a symbol `resolveEntityName` would not, and §5's
+  falsifier fires.
 
 ---
 
-## 8. Commands for the lead
+## 8. Corrections to this page, dated
+
+`docs/conventions.md`: *"Correct the record when a number turns out to be wrong,
+and note that it was corrected. Silent edits destroy trust in every other
+number."*
+
+**2026-08-05 — the first draft quoted the `conformance/` subset as though it
+generalised, and for row 10 it does not.**
+
+| claim (first draft) | full corpus | error |
+|---|---|---|
+| same-file share of row 10: **23.1%** | **17.8%** | 1.3× high |
+| `export { q }` is **86% of the same-file half** | **46.8%** | **1.8× high** |
+| same-file half: 179 lines / 61 cases | 423 / 193 | subset |
+| row 9: parameter annotation gaps **56.4%** | **45.8%** | 1.2× high |
+| row 9: return expression gaps 9.9% | 17.2% | 1.7× *low* |
+| row 9: expando 1 line | 23 lines | 23× low |
+
+The direction is not uniform, which is the point: the subset was not a scaled
+copy of the corpus, it was a *differently shaped* one. `conformance/` is
+ES-module-heavy, which inflates the export-specifier form relative to
+`import a = b.c`; the latter is 158 lines corpus-wide and was **18** in the
+subset.
+
+**The build decision survives the correction and the analysis does not.**
+`export { q }` was and is the largest same-file form, so the arm was the right
+thing to build; but *"86% of the same-file half"* was used on this page as the
+reason not to look at anything else in that half, and at 46.8% that reasoning is
+wrong. `import a = b.c` at 158 lines is now visible as a peer, not a footnote
+(`bd tsr-1jv`).
+
+**The rule this cost:** a filtered run's *shares* do not transfer even when its
+*totals* look proportionate. The probe printed a banner saying the counts were
+not a share of the gradient, and the banner was obeyed for the totals and
+ignored for every ratio computed from them.
+
+---
+
+## 9. UNRESOLVED: the split reads 2,430 for row 10, the board reads 2,535
+
+A 105-line disagreement, 4.1%. `docs/conventions.md` treats an unexplained gap
+between two instruments as a finding, not a rounding difference, and this is the
+second such disagreement this cycle — the members agent hit a 3-line version.
+
+**Excluded, with the evidence:**
+
+- **Not compiler drift.** `git log --oneline 33e3bd5..c60b086^ -- crates/tsr-checker
+  crates/tsr-binder crates/tsr-parser` is **empty**, and `git ls-tree` gives
+  `5b1047d10` for `vendor/typescript-go` at both commits. Identical compiler,
+  identical corpus.
+- **Not a keying difference.** `rank_board` buckets on `row_key(reason)`, which
+  cuts only at `"has no such property: "` and `"unresolved: "`. Row 10's string
+  contains neither, so `row_key(ROW_10) == ROW_10`; and a longer string cut down
+  would end in `"unresolved"`, never in `"no value declaration"`. The two keys
+  are equal by construction.
+- **Not a cause split.** Row 10's node is a leaf, so no line's span lies inside
+  it, and `cause()` cannot return `PropagatedSpan`; the reason names no
+  dependency, so not `PropagatedNamed`; it contains neither `/ initialiser ` nor
+  `/ annotation `, so not `Unknown`. Every row-10 line is `Terminal`, and the
+  board's 2,535 is therefore the whole row rather than one cause of it.
+- **Not this probe perturbing the checker.** Measured, not argued — see §2.
+- **Not `rank_board`'s two skip paths**, both of which would make it count
+  *fewer* lines than this probe, not more: it drops a line when
+  `below.get(position)` is `None`, and that control reads 0.
+
+**What would localise it in one run:** `rank_board` at `c60b086^`, reading its
+row-10 line. If it still says 2,535 at a commit where this probe says 2,430, the
+two instruments disagree at identical inputs and the next step is a per-case dump
+from each — the differing cases name the cause immediately. If it says 2,430,
+the board's figure is a transcription from a different run and the disagreement
+never existed.
+
+Worth stating plainly because it may not be a property of either probe: **two
+independent instruments have now disagreed with `rank_board` in one cycle.** If
+the second run reproduces the disagreement, the shared suspect is `rank_board`,
+not the two probes that were built afterwards.
+
+## 10. Commands for the lead
 
 ```bash
-# The split, full corpus. Every number in §3 and §4 is the conformance/ subset;
-# these are the numbers to quote.
+# The split, full corpus. §3 and §4 quote this; the UNEXPLAINED dump and the
+# lower-bound banner are new since the run they quote.
 cargo run -p tsr-conformance --example symbol_dispatch_split --release
 
-# The gradient before and after, for the prediction in §7.
-cargo run -p tsr-conformance --bin coverage
+# The control mutation for §2's eliminated mechanism. Must be identical.
+SYMBOL_SPLIT_SHARE_CHECKER=1 cargo run -p tsr-conformance --example symbol_dispatch_split --release
+
+# §9's reconciliation: rank_board's own row-10 line at the same commit.
+cargo run -p tsr-conformance --example rank_board --release
 ```
