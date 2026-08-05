@@ -87,7 +87,36 @@
 //! because "it reads zero" is the evidence for that claim and asserting it is
 //! not; a non-zero reading would mean the reading of the producer is wrong.
 //!
-//! # The type-parameter arm reads zero, and that is NOT "no effect"
+//! # The blind spot, measured: 52 versus 9,735
+//!
+//! The section below was written when the only type-parameter arm asked what the
+//! *identifier on the line* resolves to. `Cause::AnswerIsTypeParameter` asks
+//! instead whether the *answer* is a type parameter in scope, and the difference
+//! between them is the size of the blind spot:
+//!
+//! ```text
+//! over all 261,042 aligned Identifier lines (at d27db6f):
+//!   ANSWER is a type parameter in scope        9,735   3.73%
+//!   name resolves to a type parameter             52   0.02%
+//! ```
+//!
+//! 187 times as many. So the members arm's real footprint is **9,735 identifier
+//! lines, of which 622 are wrong** — a 93.6% hit rate within its own population,
+//! and 2.90% of all wrong identifiers.
+//!
+//! **And most of those 622 are not this arm's fault.** 256 of them are exactly
+//! `{ours} | undefined`: the resolution is right and a *different* rule is
+//! missing on top — `strictNullChecks` defaults on, so an optional property or
+//! unmatched parameter is `T | undefined`. Corpus-wide that shape is 1,383 wrong
+//! lines, one rule rather than a population.
+//!
+//! **This generalises past this one change.** The walker emits a line for a
+//! *declaration*, so any slice whose effect lands on a declaration rather than on
+//! a reference is invisible to a name-side arm. Attribute by the answer, not by
+//! the name, whenever the change being measured alters what a declaration's type
+//! *is*.
+//!
+//! # The old arm reads zero, and that is NOT "no effect"
 //!
 //! The positive control says the arm fires 52 times over all 261,042 aligned
 //! identifier lines, so it works — but 52 is far too few for a change that made
@@ -150,7 +179,21 @@ const SAMPLES: usize = 8;
 /// One arm of the causal model. `ORDER` is the first-match-wins precedence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum Cause {
+    /// **Asks about the answer, not the name.** Our answer *is* the name of a
+    /// type parameter in scope at this node — so the line's type came through the
+    /// class/interface members arm in `resolve_name`, whatever the identifier on
+    /// the line happens to be.
+    ///
+    /// This is the arm that can see a change whose effect lands on a
+    /// *declaration* line rather than on a reference: `class C<T> { p: T }`
+    /// emits a line for `p`, not for `T`. [`Cause::TypeParameter`] below asks
+    /// what `p` resolves to (a `PROPERTY`) and therefore cannot see it at all.
+    AnswerIsTypeParameter,
     /// Resolves to a type parameter — the members arm in `resolve_name`.
+    ///
+    /// Kept beside [`Cause::AnswerIsTypeParameter`] rather than replaced,
+    /// because the two ask different questions and the difference between their
+    /// counts is the size of the blind spot.
     TypeParameter,
     /// Resolves to a function, class, enum or module symbol.
     FuncClassEnumModule,
@@ -163,12 +206,18 @@ enum Cause {
 }
 
 impl Cause {
-    const ORDER: [Cause; 4] =
-        [Cause::TypeParameter, Cause::FuncClassEnumModule, Cause::Union, Cause::LibDeclared];
+    const ORDER: [Cause; 5] = [
+        Cause::AnswerIsTypeParameter,
+        Cause::TypeParameter,
+        Cause::FuncClassEnumModule,
+        Cause::Union,
+        Cause::LibDeclared,
+    ];
 
     fn label(self) -> &'static str {
         match self {
-            Cause::TypeParameter => "type parameter (resolve_name members arm)",
+            Cause::AnswerIsTypeParameter => "ANSWER is a type parameter in scope",
+            Cause::TypeParameter => "name resolves to a type parameter",
             Cause::FuncClassEnumModule => "func/class/enum/module symbol",
             Cause::Union => "union on one side",
             Cause::LibDeclared => "name declared by a bundled lib",
@@ -217,6 +266,15 @@ struct Tally {
     /// `typeof C` where upstream says `C`. Counted separately because it is one
     /// defect rather than a population.
     typeof_of_want: usize,
+    /// Wrong lines where upstream's answer is exactly ours plus `| undefined`.
+    /// Under `strictNullChecks` — which defaults **on** — an optional property
+    /// or an unmatched parameter is `T | undefined`, and answering the bare `T`
+    /// is one missing rule rather than a wrong resolution.
+    missing_undefined: usize,
+    /// The same shape restricted to lines whose answer is a type parameter, so
+    /// that "my arm resolved it wrongly" can be told apart from "my arm resolved
+    /// it correctly and a different rule is missing on top".
+    missing_undefined_on_type_parameter: usize,
 }
 
 impl Tally {
@@ -245,6 +303,8 @@ impl Tally {
         self.control_unresolved += other.control_unresolved;
         self.control_total += other.control_total;
         self.typeof_of_want += other.typeof_of_want;
+        self.missing_undefined += other.missing_undefined;
+        self.missing_undefined_on_type_parameter += other.missing_undefined_on_type_parameter;
         for (bucket, examples) in other.samples {
             let slot = self.samples.entry(bucket).or_default();
             for example in examples {
@@ -284,6 +344,53 @@ fn symbol_of_identifier(
         .or_else(|| binder.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
 }
 
+/// Every type-parameter name in scope at `id`.
+///
+/// Walks outward exactly as `BindResult::resolve_name` does, reading the two
+/// tables it reads: a container's `locals`, and — for a class, class expression
+/// or interface — its symbol's `members`, which is where a class's or
+/// interface's type parameters are filed
+/// (`declareSymbolAndAddToSymbolTable` -> `declareClassMember`,
+/// `internal/binder/binder.go:429-441`).
+///
+/// **Names, not symbols, and that is a deliberate approximation.** The question
+/// this answers is "could our answer string have come from a type parameter",
+/// and the answer is rendered as a bare name. Two different `T`s in scope at
+/// different depths are indistinguishable here, which can only ever *over*-count
+/// — so treat this arm as an upper bound on the members arm's footprint.
+fn type_parameters_in_scope(
+    binder: &tsr_binder::BindResult<'_>,
+    nodes: &NodeTable,
+    id: NodeId,
+) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut current = Some(id);
+    while let Some(node) = current {
+        if let Some(locals) = binder.locals(node) {
+            for (name, symbol) in locals {
+                if binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
+                    names.insert((*name).to_string());
+                }
+            }
+        }
+        if matches!(
+            nodes.kind(node),
+            SyntaxKind::ClassDeclaration
+                | SyntaxKind::ClassExpression
+                | SyntaxKind::InterfaceDeclaration
+        ) && let Some(owner) = binder.symbol_of(node)
+        {
+            for (name, symbol) in &binder.symbols().get(owner).members {
+                if binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
+                    names.insert((*name).to_string());
+                }
+            }
+        }
+        current = nodes.parent(node);
+    }
+    names
+}
+
 /// Which arms of the model this wrong line matches. Possibly several.
 fn causes_of(
     binder: &tsr_binder::BindResult<'_>,
@@ -299,8 +406,18 @@ fn causes_of(
     let mut matched = Vec::new();
     let flags = symbol_of_identifier(binder, nodes, map, id)
         .map(|symbol| binder.symbols().get(symbol).flags);
+    // Computed lazily: the scope walk is per-line and most lines never need it.
+    let mut in_scope: Option<HashSet<String>> = None;
     for arm in arms {
         let hit = match arm {
+            Cause::AnswerIsTypeParameter => {
+                let names =
+                    in_scope.get_or_insert_with(|| type_parameters_in_scope(binder, nodes, id));
+                // Exact equality, not containment: a type parameter renders as
+                // its bare name, and `T` appearing inside `Array<T>` is a
+                // different (and unported) shape that this must not claim.
+                names.contains(got) || names.contains(want)
+            }
             Cause::TypeParameter => flags.is_some_and(|f| f.contains(SymbolFlags::TYPE_PARAMETER)),
             Cause::FuncClassEnumModule => flags.is_some_and(|f| {
                 f.intersects(
@@ -450,6 +567,14 @@ fn main() {
                     if got.type_string == format!("typeof {want_type}") {
                         tally.typeof_of_want += 1;
                     }
+                    if want_type == format!("{} | undefined", got.type_string) {
+                        tally.missing_undefined += 1;
+                        if type_parameters_in_scope(&bound, &file.nodes, ids[position])
+                            .contains(&got.type_string)
+                        {
+                            tally.missing_undefined_on_type_parameter += 1;
+                        }
+                    }
                     *tally
                         .pairs
                         .entry((want_type.to_string(), got.type_string.clone()))
@@ -596,6 +721,17 @@ fn report(total: &Tally, arms: &[Cause]) {
         "\n  of the wrong identifiers, `typeof {{upstream}}`  {:>7}  {:>6.2}%  <- one defect",
         total.typeof_of_want,
         pct(total.typeof_of_want, total.identifiers)
+    );
+
+    println!(
+        "  of the wrong identifiers, `{{ours}} | undefined`  {:>7}  {:>6.2}%  <- one rule",
+        total.missing_undefined,
+        pct(total.missing_undefined, total.identifiers)
+    );
+    println!(
+        "    of those, where ours is a type parameter    {:>7}  {:>6.2}% of that rule",
+        total.missing_undefined_on_type_parameter,
+        pct(total.missing_undefined_on_type_parameter, total.missing_undefined)
     );
 
     println!("\n--- POSITIVE CONTROL: the same arms over ALL aligned Identifier lines ---");
