@@ -138,6 +138,28 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `get_type_of_variable_or_parameter_or_property` reads it before doing
         // any work, so seeding it is what makes the symbol answer at all.
         //
+        // **A KNOWN DIVERGENCE LIVES ON THIS LINE.** Upstream seeds
+        // `undefinedWideningType`, not `undefinedType` — two types that PRINT
+        // ALIKE and widen differently, so `const x = undefined` is `undefined`
+        // and `let x = undefined` is `any` (`checker.go:955`). This port has
+        // exactly one `undefined` (`crate::intrinsics`) and no widening
+        // variant, so `let` answers `undefined` where upstream answers `any`.
+        //
+        // Accepted deliberately rather than hidden. Gap and wrong both score as
+        // not-right, so the 22 affected sites cost no gradient; what they cost
+        // is diagnostic separability on those 22, against ~1,675 lines the
+        // symbol makes right. The sites are enumerated in
+        // `docs/architecture/checker-notes-enums.md` so the follow-up can
+        // verify it fixed exactly those, and
+        // `tests/globals.rs::a_let_initialised_with_undefined_records_a_known_divergence`
+        // reddens the moment a widening intrinsic lands.
+        //
+        // **This is a missing intrinsic, not a merged identity.** The widening
+        // type does not exist here at all, which is visible to anyone who greps
+        // `intrinsics.rs` and finds one `undefined` where upstream has two —
+        // unlike `038def4`, where both identities existed and one was used for
+        // the other.
+        //
         // See `Binder::declare_synthesised_globals` for the other half.
         let mut symbol_types = FxHashMap::default();
         if let Some(undefined) = binder.undefined_symbol() {

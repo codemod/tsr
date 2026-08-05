@@ -400,3 +400,78 @@ not survive.
 
 Trust a number that arrives with a cross-check; discount one that arrives with a
 story. This section is the worked example, and the story was mine.
+
+## The `undefined` global, and the 22 sites its divergence touches
+
+`undefined` is the only global with no declaration anywhere — it is in no
+`lib.*.d.ts` — so merging the bundled libs, the mechanism that makes `Array` and
+`String` resolve, could never produce it. Every reference answered `errorType`:
+1,675 lines by the instrument's name tally, 1,738 by an independent count of
+`>undefined : undefined` in the baselines, agreeing within 4%.
+
+### The divergence, and why it was accepted
+
+Upstream's symbol carries `undefinedWideningType`, not `undefinedType`
+(`checker.go:955`). The two print alike and widen differently: `const x =
+undefined` is `undefined`, `let x = undefined` is `any`. This port has exactly
+one `undefined` intrinsic and no widening variant, so `let` answers `undefined`.
+
+**Gap and wrong both score as not-right**, so these sites cost no gradient and no
+cases — they answered `errorType` before. What they cost is diagnostic
+separability, on 22 sites, against ~1,675 lines made right.
+
+It is a **missing intrinsic, not a merged identity**, which is the distinction
+that made it acceptable where `038def4` was not: there both types existed and one
+was used for the other, undiscoverable from the code; here the second type does
+not exist, and anyone grepping `intrinsics.rs` finds one `undefined` where
+upstream has two.
+
+### The 19 files, so the follow-up can verify it fixed exactly these
+
+```text
+compiler/constructorWithIncompleteTypeAnnotation.ts
+compiler/controlFlowJavascript.ts
+compiler/controlFlowNoImplicitAny.ts
+compiler/implicitAnyWidenToAny.ts
+compiler/protoAsIndexInIndexExpression.ts
+compiler/typeCheckObjectCreationExpressionWithUndefinedCallResolutionData.ts
+compiler/widenedTypes1.ts
+conformance/expressions/unaryOperators/plusOperator/plusOperatorWithAnyOtherType.ts
+conformance/functions/functionImplementations.ts
+conformance/salsa/prototypePropertyAssignmentMergeAcrossFiles2.ts
+conformance/salsa/typeFromJSInitializer.ts
+conformance/statements/ifDoWhileStatements/ifDoWhileStatements.ts
+conformance/statements/throwStatements/throwStatements.ts
+conformance/statements/VariableStatements/everyTypeWithInitializer.ts
+conformance/types/any/assignAnyToEveryType.ts
+conformance/types/any/assignEveryTypeToAny.ts
+conformance/types/primitives/undefined/directReferenceToUndefined.ts
+conformance/types/typeRelationships/widenedTypes/initializersWidened.ts
+conformance/types/typeRelationships/widenedTypes/strictNullChecksNoWidening.ts
+```
+
+22 `let`/`var` sites across 19 files. Regenerate with:
+
+```sh
+grep -rlE '^\s*(let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*undefined\s*;' \
+  vendor/typescript-go/_submodules/TypeScript/tests/cases
+```
+
+Several of those names — `implicitAnyWidenToAny`, `initializersWidened`,
+`strictNullChecksNoWidening`, `widenedTypes1` — are widening tests specifically,
+which is a reassuring sign the enumeration found the right population rather than
+an arbitrary slice of it.
+
+### The bug the probe caught, which is worth more than the feature
+
+The first implementation seeded a type for whatever symbol occupied the
+`globals["undefined"]` slot. `merge_globals` puts a script's own top-level names
+there, so a file declaring `var undefined: string` had its **declared type
+clobbered** and answered `undefined` — a silent wrong answer in a case that
+previously worked, which is strictly worse than a gap.
+
+The binder now records *which* symbol it synthesised (`None` when the program
+declared its own), so the checker seeds only what it is entitled to. Found by a
+shadowing fixture, written only because the enum work established the habit of
+asking what the wrong implementation prints. No amount of staring at the
+1,738-line population would have surfaced it.
