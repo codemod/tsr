@@ -97,13 +97,27 @@ impl Checker<'_, '_> {
             // Zero: the callee is a class, an enum or a namespace — upstream
             // reports "this expression is not callable" and answers `errorType`.
             //
-            // Two or more: an overload set, which needs assignability. **That
-            // arm is unobservable today** and says so rather than being covered
-            // by a test that would not bite: an overload set has no printed type
-            // yet (`getTypeOfFuncClassEnumModuleWorker` gaps it), so the callee
-            // is already `errorType` and never reaches here. It is kept because
-            // it becomes the only thing between a call and a guess the moment
-            // overload sets print, which is the next item in this area.
+            // Two or more: an overload set, which needs assignability. **This
+            // arm is live, and it is the second-largest blocker on a call in
+            // the corpus** — 357 of the 1,496 declarations initialised by a
+            // call to a locally declared `function`, 24%, against 884 (59%)
+            // stopped one line up by the generic test in
+            // [`Checker::check_call_expression`]. (Counted from the corpus
+            // source carried in the `.types` baselines; declarations, not
+            // assertion lines.)
+            //
+            // It used to be unreachable, and this comment used to say so. What
+            // falsified that is `6b701cc`: until an overload set had a printed
+            // type, the callee was already `errorType` and never arrived here.
+            // Now it arrives, resolves to an anonymous type carrying its
+            // symbol, and stops on this arm. The old note's own closing
+            // sentence — "it becomes the only thing between a call and a guess
+            // the moment overload sets print" — is the present tense.
+            //
+            // Choosing among candidates is `resolveCall` (`checker.go:9563`),
+            // which picks by assignability; there is no relation here, so
+            // taking the first candidate would answer a plausible wrong type
+            // for every overloaded call in the corpus.
             _ => None,
         }
     }
