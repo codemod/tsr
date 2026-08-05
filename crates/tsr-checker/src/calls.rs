@@ -36,9 +36,11 @@
 //! because every diagnostic is `bd tsr-5e7.6` and arity checking without a full
 //! assignability relation would report on shapes it cannot judge. The **return
 //! type is unaffected** by this for a non-generic signature,
-//! which is why it is a sound reduction rather than a shortcut: a generic
-//! signature's return type *does* depend on the arguments, so a call to one is a
-//! gap.
+//! which is why it is a sound reduction rather than a shortcut. A generic
+//! signature's return type *does* depend on the arguments, and that is
+//! [`crate::inference`]'s question — it answers the shapes whose type arguments
+//! can be read straight off an argument position and `errorType` for the rest,
+//! which is still most of them (`docs/architecture/checker-notes-infer.md`).
 
 use tsr_ast::{CallExpression, Expression, TaggedTemplateExpression};
 
@@ -104,10 +106,11 @@ impl Checker<'_, '_> {
         // why this does not, and why the return type is the same either way.
         if !signature.type_parameters.is_empty() {
             // A generic signature's return type depends on the arguments, so it
-            // needs inference (`inferTypeArguments`, `checker.go:9310`). Answering
+            // needs inference (`inferTypeArguments`, `checker.go:9390`). Answering
             // the uninstantiated return type would print `T` where upstream prints
-            // what `T` was inferred as.
-            return error;
+            // what `T` was inferred as, so [`crate::inference`] answers the shapes
+            // it can read a candidate off directly and `errorType` for the rest.
+            return self.check_generic_call(&signature, node.arguments);
         }
         signature.r#type
     }

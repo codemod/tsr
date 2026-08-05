@@ -1,0 +1,412 @@
+//! Type argument inference for a call to a generic signature.
+//!
+//! Ported from `Checker.inferTypeArguments` (`checker.go:9390`) and the part of
+//! `Checker.getSignatureInstantiation` (`checker.go:19293`) a return type needs,
+//! reduced to the **one inference rule that needs no type relation**: a type
+//! parameter written bare as a parameter's type is whatever the argument at that
+//! position turned out to be.
+//!
+//! # Why this is a slice and not the algorithm
+//!
+//! Upstream's inference is `inferTypes` (`inference.go:53`) — a structural walk
+//! of source against target that accumulates candidates under a priority
+//! lattice, tracks contravariant positions separately, and resolves each type
+//! parameter through `getInferredType` (`inference.go:1406`) with fallbacks to
+//! the constraint and the default. Every part of that machinery exists to handle
+//! a type parameter that appears *somewhere inside* a parameter's type — `T[]`,
+//! `(x: T) => U`, `Partial<T>`, a mapped type — because then the candidate has
+//! to be dug out of the argument's type rather than read off it.
+//!
+//! Measured over the corpus source carried in the `.types` baselines
+//! (`vendor/typescript-go/testdata/baselines/reference/submodule`), of 1,145
+//! declarations initialised by a call to a locally declared generic function:
+//!
+//! | shape | count | share |
+//! |---|---|---|
+//! | no type parameter written bare in a parameter position | 605 | 53% |
+//! | every type parameter written bare in a parameter position | 370 | 32% |
+//! | explicit type arguments, `f<string>(x)` | 93 | 8% |
+//! | some, but not all, written bare | 77 | 7% |
+//!
+//! The 53% row is the cliff and it is not approached here. The bare-parameter
+//! row is the one where the candidate *is* the argument type, which is a lookup
+//! rather than an inference, and it is what this module does.
+//!
+//! # Nothing is widened, and that is not an omission
+//!
+//! `getCovariantInference` (`inference.go`) widens an inferred literal only when
+//! the type parameter "was fixed during inference or does not occur at top level
+//! in the return type". Both cases this module answers have the type parameter
+//! *as* the return type, so upstream does not widen either, and the oracle says
+//! so directly
+//! (`baselines/reference/submodule/conformance/callGenericFunctionWithZeroTypeArguments.types:10`):
+//!
+//! ```text
+//! var r = f(1);
+//! >r : number
+//! >f(1) : 1
+//! >f : <T>(x: T) => T
+//! ```
+//!
+//! The call is `1`; the `number` on `r` comes from the *declaration site*,
+//! where [`Checker::get_widened_literal_type`] already runs. A port that widened
+//! the candidate would print `number` on the call line and be wrong while
+//! looking right on the variable, which is exactly why that fixture is the test.
+//!
+//! The other half of the rule is visible in
+//! `conformance/genericCallWithConstraintsTypeArgumentInference2.types:17`,
+//! where `<T, U extends T>(t: T) => U` applied to `1` prints `number`: `T` does
+//! *not* occur at top level in the return type there, so upstream widens it,
+//! and `U` falls back to its constraint. That call has a type parameter with no
+//! bare parameter position and is a gap here — which is the reason this module
+//! does not have to know about widening at all.
+//!
+//! # What answers `errorType`
+//!
+//! Explicit type arguments (still gapped in [`crate::calls`]), a spread
+//! argument, a rest parameter, a return type that mentions a type parameter in
+//! any position other than *being* one, a type parameter with no bare parameter
+//! position, two bare positions disagreeing about the same type parameter, and
+//! an argument whose own type is a gap.
+
+use tsr_ast::{Expression, Node};
+
+use crate::{
+    checker::Checker,
+    signatures::Signature,
+    types::{TypeData, TypeId},
+};
+
+impl Checker<'_, '_> {
+    /// The type of a call whose resolved signature is generic.
+    ///
+    /// Ported from `Checker.inferTypeArguments` (`checker.go:9390`) followed by
+    /// `Checker.getSignatureInstantiation` (`checker.go:19293`), collapsed: the
+    /// signature is never instantiated as a whole, only its return type is
+    /// answered, because the return type is the only part of a call's signature
+    /// a `.types` baseline records for the call itself.
+    ///
+    /// Answers `errorType` for every shape the module docs list.
+    pub(crate) fn check_generic_call(
+        &mut self,
+        signature: &Signature,
+        arguments: &[Expression<'_>],
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        // Upstream checks every argument (`checkExpression` through
+        // `getEffectiveCallArguments`) whatever it then does with them, and the
+        // arguments are needed here anyway. A spread has no single position to
+        // land on, so it is a gap — but only after the arguments are checked,
+        // so the gap does not swallow their own lines.
+        let mut argument_types = Vec::with_capacity(arguments.len());
+        let mut spread = false;
+        for &argument in arguments {
+            if matches!(argument, Expression::SpreadElement(_)) {
+                spread = true;
+            }
+            argument_types.push(self.check_expression(argument));
+        }
+        if spread {
+            return error;
+        }
+
+        let returned = signature.r#type;
+        if returned == error {
+            return error;
+        }
+        let Some(parameters) = self.type_parameter_types(signature) else {
+            return error;
+        };
+        let names = signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+
+        // A return type that mentions no type parameter of this signature does
+        // not depend on inference at all: `f<T>(x: T): string` is `string`
+        // however `T` resolves. Upstream reaches the same answer the long way,
+        // by instantiating a type that the mapper leaves alone.
+        if !self.mentions_type_parameter(returned, &parameters, &names) {
+            return returned;
+        }
+
+        // The remaining answerable shape: the return type *is* one of the type
+        // parameters, so the answer is that parameter's single candidate.
+        if !parameters.contains(&returned) {
+            return error;
+        }
+        // A rest parameter makes position-to-argument mapping a tuple problem
+        // (`getSpreadArgumentType`, `checker.go`), so the whole signature is a
+        // gap rather than the rest position alone.
+        if signature.parameters.iter().any(|parameter| parameter.rest) {
+            return error;
+        }
+        let mut candidate = None;
+        for (index, parameter) in signature.parameters.iter().enumerate() {
+            if parameter.r#type != returned {
+                continue;
+            }
+            let Some(&inferred) = argument_types.get(index) else {
+                // The position was not supplied. Upstream would fall back to
+                // the constraint or the default; neither is ported.
+                return error;
+            };
+            match candidate {
+                // Two bare positions for one type parameter: upstream unions the
+                // candidates (`getCovariantInference`), which needs a union of
+                // types this port would have to build without knowing whether
+                // subtype reduction applies.
+                Some(previous) if previous != inferred => return error,
+                _ => candidate = Some(inferred),
+            }
+        }
+        match candidate {
+            Some(inferred) if inferred != error => inferred,
+            _ => error,
+        }
+    }
+
+    /// The [`TypeId`] of each of a signature's own type parameters, in order.
+    ///
+    /// Ported from `Checker.getTypeParametersForTypeAndSymbol` (`checker.go`)
+    /// for the function-like half: the declaration's `typeParameters` nodes,
+    /// each asked for the type its symbol declares. Going through the
+    /// **declaration** rather than matching [`crate::signatures::TypeParameter`]
+    /// by name is what makes the identity exact — two type parameters can print
+    /// `T` and be different types, and a nested generic makes that reachable.
+    ///
+    /// `None` when the declaration is not function-like or any type parameter
+    /// has no symbol, which keeps a partial map from producing a partial
+    /// substitution.
+    fn type_parameter_types(&mut self, signature: &Signature) -> Option<Vec<TypeId>> {
+        let declarations = match self.node_map.get(signature.declaration)? {
+            Node::FunctionDeclaration(node) => node.type_parameters,
+            Node::FunctionExpression(node) => node.type_parameters,
+            Node::ArrowFunction(node) => node.type_parameters,
+            Node::MethodDeclaration(node) => node.type_parameters,
+            Node::MethodSignatureDeclaration(node) => node.type_parameters,
+            Node::CallSignatureDeclaration(node) => node.type_parameters,
+            Node::ConstructSignatureDeclaration(node) => node.type_parameters,
+            Node::FunctionTypeNode(node) => node.type_parameters,
+            _ => return None,
+        };
+        let symbols = declarations
+            .iter()
+            .map(|declaration| declaration.node_id.and_then(|id| self.binder.symbol_of(id)))
+            .collect::<Option<Vec<_>>>()?;
+        Some(symbols.into_iter().map(|symbol| self.get_declared_type_of_symbol(symbol)).collect())
+    }
+
+    /// Whether a type mentions any of `parameters`, anywhere.
+    ///
+    /// Stands in for asking `couldContainTypeVariablesWorker` (`checker.go:22184`) of an
+    /// instantiated type, and is deliberately **over-eager**: it answers the
+    /// identity and the constituents of a union or an intersection
+    /// structurally, and then falls back to scanning the *printed* form for a
+    /// type parameter's name as a whole identifier.
+    ///
+    /// The scan exists because a type that merely *contains* a type parameter
+    /// carries no structural evidence of it here — `T[]`, `C<T>` and
+    /// `(x: T) => void` are all a [`TypeData::Named`] or
+    /// [`TypeData::Anonymous`] whose payload is a string. Without the scan, a
+    /// signature returning `T[]` would look parameter-free and be answered with
+    /// the uninstantiated `T[]`, which prints `T[]` where upstream prints
+    /// `number[]`. A false positive costs a gap; a false negative costs a wrong
+    /// answer, so the bias is chosen.
+    fn mentions_type_parameter(&self, id: TypeId, parameters: &[TypeId], names: &[&str]) -> bool {
+        if parameters.contains(&id) {
+            return true;
+        }
+        let ty = self.store.get(id);
+        let constituents: &[TypeId] = match &ty.data {
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types,
+            _ => &[],
+        };
+        if constituents.iter().any(|&t| self.mentions_type_parameter(t, parameters, names)) {
+            return true;
+        }
+        let text = crate::printing::type_to_string(ty);
+        names.iter().any(|name| mentions_identifier(&text, name))
+    }
+}
+
+/// Whether `text` contains `name` as a whole identifier.
+///
+/// A substring test would make `T` match `Test`; an identifier test is what
+/// makes the scan in [`Checker::mentions_type_parameter`] usable at all.
+fn mentions_identifier(text: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let is_part = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let bytes = text.as_bytes();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(name) {
+        let start = from + offset;
+        let end = start + name.len();
+        let before = text[..start].chars().next_back();
+        let after = text[end..].chars().next();
+        if !before.is_some_and(is_part) && !after.is_some_and(is_part) {
+            return true;
+        }
+        // Advance by one *character*, not one byte.
+        from = start + text[start..].chars().next().map_or(1, char::len_utf8);
+        if from >= bytes.len() {
+            break;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use tsr_ast::{Expression, Statement};
+    use tsr_core::Arena;
+
+    use super::mentions_identifier;
+    use crate::Checker;
+
+    /// Ask [`Checker::check_generic_call`] directly, with the signature of
+    /// `function` and the arguments of the call the last statement initialises.
+    ///
+    /// Deliberately **not** routed through `check_call_expression`: the call
+    /// site there is one line, and going round it keeps these tests measuring
+    /// inference rather than signature resolution.
+    fn generic_call(source: &str, function: &str) -> String {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "fixture must parse: {:?}",
+            parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+        );
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+
+        let declaration = parsed
+            .source_file
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                Statement::FunctionDeclaration(node)
+                    if node.name.is_some_and(|name| name.text == function) =>
+                {
+                    Some(*node)
+                }
+                _ => None,
+            })
+            .expect("the fixture must declare the function");
+        let symbol = bound
+            .symbol_of(declaration.node_id.expect("a registered node"))
+            .expect("the function must be bound");
+        let signatures = checker.get_signatures_of_symbol(symbol).expect("a signature");
+        let [signature] = signatures.as_slice() else {
+            panic!("the fixture must declare exactly one signature");
+        };
+        let signature = signature.clone();
+
+        let last = parsed.source_file.statements.len() - 1;
+        let Statement::VariableStatement(statement) = parsed.source_file.statements[last] else {
+            panic!("the last statement must be a variable statement");
+        };
+        let initialiser = statement
+            .declaration_list
+            .and_then(|list| list.declarations.first().copied())
+            .and_then(|declaration| declaration.initializer)
+            .expect("an initialiser");
+        let Expression::CallExpression(call) = initialiser else {
+            panic!("the initialiser must be a call");
+        };
+        let id = checker.check_generic_call(&signature, call.arguments);
+        checker.type_to_string(id)
+    }
+
+    #[test]
+    fn a_bare_type_parameter_is_the_argument_type_unwidened() {
+        // `>f(1) : 1`, from the baseline quoted in the module docs. Three wrong
+        // implementations are separated here: widening the candidate prints
+        // `number` — and would still look right on the *variable*, which is what
+        // makes this the load-bearing fixture; answering the uninstantiated
+        // return type prints `T`; answering `anyType` prints `any`.
+        assert_eq!(generic_call("function f<T>(x: T): T { return x; }\nconst a = f(1);", "f"), "1");
+        assert_eq!(
+            generic_call("function f<T>(x: T): T { return x; }\nconst a = f(\"s\");", "f"),
+            "\"s\""
+        );
+    }
+
+    #[test]
+    fn a_candidate_comes_from_the_parameters_own_position() {
+        // `<T, U>(a: T, b: U) => U` applied to `(1, "s")` is `"s"`. An
+        // implementation that collects candidates without tracking which
+        // parameter they belong to — first argument wins, or last — prints `1`.
+        assert_eq!(
+            generic_call(
+                "function pick<T, U>(a: T, b: U): U { return b; }\nconst a = pick(1, \"s\");",
+                "pick"
+            ),
+            "\"s\""
+        );
+        // The mirror, so that "always take the last argument" fails too.
+        assert_eq!(
+            generic_call(
+                "function pick<T, U>(a: T, b: U): T { return a; }\nconst a = pick(1, \"s\");",
+                "pick"
+            ),
+            "1"
+        );
+    }
+
+    #[test]
+    fn a_return_type_free_of_type_parameters_needs_no_inference() {
+        // `<T>(x: T) => string` is `string` however `T` resolves. An
+        // implementation that gaps every generic signature prints `error`; one
+        // that answers the candidate regardless of the return type prints `1`.
+        assert_eq!(
+            generic_call("function f<T>(x: T): string { return \"\"; }\nconst a = f(1);", "f"),
+            "string"
+        );
+    }
+
+    #[test]
+    fn two_candidates_for_one_type_parameter_are_a_gap() {
+        // `<T>(a: T, b: T) => T` applied to `(1, "s")` is `1 | "s"` upstream —
+        // `getCovariantInference` unions the candidates. This port has no
+        // subtype reduction to decide that union, so it gaps. The plausible
+        // wrong implementation is "first candidate wins", which prints `1`.
+        //
+        // A *semantic* gap, not an unported syntactic form: every part of the
+        // fixture is understood, which is what stops the test from quietly
+        // becoming a no-op if the forms in it get ported.
+        assert_eq!(
+            generic_call(
+                "function both<T>(a: T, b: T): T { return a; }\nconst a = both(1, \"s\");",
+                "both"
+            ),
+            "error"
+        );
+        // The agreeing case still answers, so the guard is not "two parameters
+        // are a gap".
+        assert_eq!(
+            generic_call(
+                "function both<T>(a: T, b: T): T { return a; }\nconst a = both(1, 1);",
+                "both"
+            ),
+            "1"
+        );
+    }
+
+    #[test]
+    fn an_identifier_scan_is_not_a_substring_scan() {
+        assert!(mentions_identifier("T", "T"));
+        assert!(mentions_identifier("T[]", "T"));
+        assert!(mentions_identifier("(x: T) => void", "T"));
+        assert!(mentions_identifier("C<T>", "T"));
+        // The cases a substring test would get wrong.
+        assert!(!mentions_identifier("Test", "T"));
+        assert!(!mentions_identifier("number[]", "T"));
+        assert!(!mentions_identifier("T2", "T"));
+        assert!(!mentions_identifier("_T", "T"));
+    }
+}

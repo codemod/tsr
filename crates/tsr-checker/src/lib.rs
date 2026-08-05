@@ -100,6 +100,7 @@ pub mod flow;
 pub mod function_types;
 pub mod index_signatures;
 pub mod indexed;
+pub mod inference;
 pub mod intersections;
 pub mod intrinsics;
 pub mod literals;

@@ -1362,10 +1362,20 @@ fn a_call_this_slice_cannot_resolve_is_a_gap_and_not_the_first_candidate() {
         ),
         "error"
     );
-    // A generic signature's return type depends on inference, so the
-    // uninstantiated `T` would be a wrong answer rather than a missing one.
+    // A generic signature's return type depends on inference — and for the
+    // shape where the type parameter is written *bare* as a parameter's type,
+    // the candidate is simply the argument at that position, which needs no
+    // type relation. `crate::inference` answers it, so this assertion changed
+    // from `error` to the answer for the same reason the zero-argument overload
+    // above did: it was pinning the absence of a mechanism, and the mechanism
+    // arrived (`docs/architecture/checker-notes-infer.md`).
+    assert_eq!(type_of_declaration("declare function g<T>(a: T): T;\nconst x = g(1);", "x"), "1");
+    // What is still a gap is a type parameter with no bare parameter position:
+    // digging `T` out of `T[]` is `inferTypes` (`inference.go:53`), which is not
+    // ported. Answering the argument regardless of position would print
+    // `number[]` here.
     assert_eq!(
-        type_of_declaration("declare function g<T>(a: T): T;\nconst x = g(1);", "x"),
+        type_of_declaration("declare function h<T>(a: T[]): T;\nconst x = h([1]);", "x"),
         "error"
     );
     // A class is not callable: upstream reports and answers `errorType`.
