@@ -815,92 +815,12 @@ impl<'a> Checker<'a, '_> {
     /// The guard is not decoration: `getExternalModuleMember` can hand this a
     /// symbol that is not a module, and upstream answers `nil` rather than
     /// searching a table that means something else.
-    pub(crate) fn get_export_of_module(&self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
+    fn get_export_of_module(&self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
         let entry = self.binder.symbols().get(symbol);
         if !entry.flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
         entry.exports.get(name).copied()
-    }
-
-    /// The **module symbol** a namespace-shaped alias names, for lookup only.
-    ///
-    /// Ported from `Checker.getTargetOfNamespaceImport` (`checker.go:14628`)
-    /// and from `getTargetOfImportEqualsDeclaration`'s external-module-reference
-    /// case (`checker.go:14439`). Its one caller is
-    /// [`Checker::module_member_type`], which reads a member off the answer and
-    /// never asks for its type — see there for why that ordering is the whole
-    /// point of this arm.
-    ///
-    /// # Why [`Checker::resolve_alias`] cannot be the route
-    ///
-    /// `resolve_alias` deliberately answers `None` for both of these forms,
-    /// because it feeds [`Checker::get_type_of_alias`] and a resolved answer
-    /// there would *print* the module symbol's name — the file path. That gap
-    /// is load-bearing and stays: this is a second, narrower entry point with a
-    /// different consumer, not a widening of that one.
-    ///
-    /// # `resolveESModuleSymbol` reduced to its fallthrough
-    ///
-    /// Upstream's namespace-import case runs `resolveESModuleSymbol`
-    /// (`checker.go:15568`), whose synthetic-default and
-    /// `cloneTypeAsModuleType` arms both require `getTypeWithSyntheticDefaultOnly`
-    /// or a `Node20`-range `moduleKind`. Neither is ported, and both are
-    /// unreachable behind the `export =` gate below: `IsNonLocalAlias` on the
-    /// resolved symbol can only fire when `export =` moved it. So for the shapes
-    /// this answers, `resolveESModuleSymbol` **is** `resolveExternalModuleSymbol`
-    /// (`checker.go:15556`), and the difference is a documented miss rather than
-    /// a divergence.
-    ///
-    /// # The `export =` gate
-    ///
-    /// A module writing `export = X` is `X` downstream, and its members are
-    /// `getTypeOfSymbol(X)`'s — machinery this port does not have. Answering the
-    /// module symbol anyway would read the wrong table. Measured at `d8452aa`:
-    /// 306 lines sit behind `export =` and this port answers `error` for the
-    /// alias symbol itself, so gapping them costs nothing that was available.
-    ///
-    /// **The gate is unobservable today and that is stated rather than
-    /// implied.** Dropping it reddens no test — I ran that mutation — because
-    /// TypeScript rejects *"An export assignment cannot be used in a module with
-    /// other exported elements"*, so a module carrying `export=` has nothing
-    /// else in its `exports` table and [`Checker::get_export_of_module`] misses
-    /// either way. It is kept for the same reason
-    /// [`Checker::get_property_of_anonymous_symbol`]'s flags gate is: the named
-    /// edit that makes it bite is an `export =` arm reading members off
-    /// `getTypeOfSymbol(X)`, at which point this stops being a filter and becomes
-    /// the dispatch between two arms.
-    pub(crate) fn module_symbol_of_namespace_alias(
-        &mut self,
-        symbol: SymbolId,
-    ) -> Option<SymbolId> {
-        let declaration = self.declaration_of_alias_symbol(symbol)?;
-        let module_specifier = match self.node_map.get(declaration)? {
-            // `getModuleSpecifierForImportOrExport` (`checker.go:15030`) for a
-            // `NamespaceImport`: the parent chain is
-            // `NamespaceImport -> ImportClause -> ImportDeclaration`, and the
-            // specifier is read from the declaration.
-            Node::NamespaceImport(_) => {
-                let clause = self.nodes.parent(declaration)?;
-                let import = self.nodes.parent(clause)?;
-                self.external_module_name(import)?
-            }
-            // `getExternalModuleRequireArgument` / the
-            // `KindExternalModuleReference` test at `checker.go:14441`. The
-            // `Identifier` and `QualifiedName` module references are *not* this
-            // form — they are `resolve_alias`'s local-entity case.
-            Node::ImportEqualsDeclaration(node) => {
-                let ModuleReference::ExternalModuleReference(reference) = node.module_reference?
-                else {
-                    return None;
-                };
-                reference.expression?.node_id()?
-            }
-            _ => return None,
-        };
-        let module_symbol = self.resolve_external_module_name(declaration, module_specifier)?;
-        (self.resolve_external_module_symbol(module_symbol) == module_symbol)
-            .then_some(module_symbol)
     }
 
     /// Ported from `Checker.resolveExternalModuleSymbol`
