@@ -218,3 +218,25 @@ detached worktree and build there.
 
 Both were found on the first use of the rule they refine, which is the argument
 for writing rules down while the incident is fresh rather than after.
+
+### A third seam: `git` resolves against the *inherited* working directory
+
+`git worktree add`, run from a shell whose cwd had been left inside
+`vendor/typescript-go` by an earlier command, created a worktree **in the
+vendored submodule** and reported `HEAD is now at 5b1047d10` — upstream's commit,
+not ours. It succeeded, printed a plausible line, and produced a real worktree of
+the wrong repository.
+
+**Use `git -C <repo>` or an absolute path for every git command in a repository
+with submodules.** Never a bare `git` on an inherited cwd.
+
+This is the same shape as the other two seams and as both instrumentation
+findings: **the failure produced a plausible result rather than an error.** A
+wrong-repo worktree is indistinguishable from a right one until you read the
+commit hash. Measuring in it would have failed loudly — there are no Rust crates
+there — but a command that merely *wrote* would not have.
+
+The general rule the three seams share: **be explicit about which object you are
+acting on, because the implicit one is plausible and wrong.** The commit rather
+than the tree; the workspace rather than the crate; the repository rather than
+whatever directory you were last in.
