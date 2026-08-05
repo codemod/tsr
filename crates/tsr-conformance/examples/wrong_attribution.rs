@@ -392,6 +392,14 @@ fn type_parameters_in_scope(
 }
 
 /// Which arms of the model this wrong line matches. Possibly several.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Every argument is one of the three things an attribution needs: the \
+              bound file (binder/nodes/map), the line (id/text/want/got), and the \
+              model (lib_names/arms). Bundling them into a struct would hide which \
+              of the three an arm actually reads, and that is the property a reader \
+              checks an arm against."
+)]
 fn causes_of(
     binder: &tsr_binder::BindResult<'_>,
     nodes: &NodeTable,
