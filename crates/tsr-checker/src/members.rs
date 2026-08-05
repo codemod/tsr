@@ -182,7 +182,7 @@ impl Checker<'_, '_> {
     /// case, and the one that finds a class or interface declaration in both. The
     /// consequence is that `class C extends someExpression` is a gap; the
     /// declaration form, which is what the corpus is mostly made of, is not.
-    fn base_symbols_of(&mut self, owner: SymbolId) -> Option<Vec<SymbolId>> {
+    pub(crate) fn base_symbols_of(&mut self, owner: SymbolId) -> Option<Vec<SymbolId>> {
         let declarations = self.binder.symbols().get(owner).declarations.clone();
         let mut bases = Vec::new();
         for declaration in declarations {

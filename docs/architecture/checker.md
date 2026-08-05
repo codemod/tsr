@@ -2435,8 +2435,80 @@ union key, so printing it whole would be a confident wrong answer; and if the
 printer and the lookup disagreed, a literal could print a signature that a
 subsequent `a[i]` then fails to find.
 
-Inherited index signatures and merging several applicable signatures over an
-intersection remain unported, as recorded in `index_signatures.rs`.
+Merging several applicable signatures over an intersection remains unported, as
+recorded in `index_signatures.rs`. Inherited index signatures landed next — see
+below.
+
+## Inherited index signatures, and a decoration caught by running the mutation
+
+Ported 2026-08-05, immediately after the above. `index_infos_of_symbol` did not
+follow base types, so `interface D extends B {}` found none of `B`'s index
+signatures. The walk `get_property_of_declared_symbol` already does for
+inherited *properties* was extended rather than duplicated;
+`base_symbols_of` became `pub(crate)`.
+
+### The rule is a shadow by key type, not a merge
+
+`resolveObjectTypeMembers` (`checker.go:19149`):
+
+```go
+indexInfos = core.Concatenate(indexInfos, core.Filter(inheritedIndexInfos,
+    func(info *IndexInfo) bool { return findIndexInfo(indexInfos, info.keyType) == nil }))
+```
+
+A derived `[k: string]: A` hides a base's `[k: string]: B` **outright** — the two
+are never combined — while a base's `[k: number]` survives beside it.
+
+### `None` is a gap; `Some(vec![])` is "none declared"
+
+`get_index_infos_of_type` returns `Option`. An unfollowable base (type
+arguments, a qualified name) or a cycle yields `None`, because a base we cannot
+follow may declare a signature and reporting "none" would turn a missing answer
+into a confident wrong one. The cycle guard is the **path**, as in
+`get_property_of_declared_symbol`, for the same reason: no `resolvedBaseTypes`
+memo exists to park a sentinel in.
+
+### This cannot desynchronise the printer from the lookup
+
+The obvious trap — the lookup finding an inherited signature the printer never
+rendered — **cannot arise**, and the reason is worth recording because it is not
+obvious. `render_object_type` is reached only from `get_type_from_type_literal`
+and `check_object_literal`; an interface prints by *name* and never renders its
+members, and a type literal has no heritage clause. No type that prints
+structurally can have an inherited index signature. **If a structural printer for
+interfaces is ever added, this paragraph is the one to re-read.**
+
+### The merge gap did not fall out for free, and the absence is stated
+
+Inheritance layers by key type and shadows on collision, so it can never hand
+`findApplicableIndexInfo` two signatures with the *same* key. The two applicable
+signatures that need merging come from one type declaring both `[k: string]` and
+`[k: number]`, which was reachable before this walk existed. Untouched, still
+gapped — recorded so the absence is not mistaken for an oversight.
+
+### Two decorations, both caught by running the mutation and not by reading it
+
+The rule in [conventions](../conventions.md#run-the-mutation-do-not-read-it)
+earned its place twice more here, on the author's own work:
+
+1. **The shadowing assertion was a decoration.** Dropping the shadow-by-key
+   filter left the `string`-key test **green**: two string signatures are
+   shadowed incidentally by push order, because `get_applicable_index_info`
+   takes the first `find` and own signatures are pushed before inherited ones.
+   Only the **`number`**-key case discriminates — there both duplicates reach
+   `applicable`, which gaps on two. The test now asserts the number case, and
+   the comment says why.
+2. **The gap-versus-empty assertion still is one, and is labelled rather than
+   counted.** Replacing the `?` on `base_symbols_of` with `unwrap_or_default()`
+   leaves it green, because the sole caller maps both `None` and `[]` to no
+   answer and both print `error`. The `Option` is justified by the reasoning
+   above, not by a test, and saying so is the point — it becomes a real check
+   the moment a caller acts on emptiness rather than absence.
+
+The cycle guard, by contrast, is genuinely covered: forcing it false overflows
+the stack and aborts with SIGABRT. A bite rather than a clean failure, and the
+only signal available, since there is no smaller observation than "the checker
+returns".
 
 ## The wrong-answer differential, and why its design is written down here
 

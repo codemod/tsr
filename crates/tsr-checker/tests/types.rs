@@ -1606,3 +1606,103 @@ fn a_named_lookup_that_misses_falls_back_to_an_index_signature() {
     assert_eq!(lookup("[k: number]: boolean", "\"0\""), "boolean");
     assert_eq!(lookup("[k: number]: boolean", "\"00\""), "error");
 }
+
+/// Inherited index signatures — the base-type loop in `resolveObjectTypeMembers`
+/// (`checker.go:19149`). Its rule is a **shadow by key type, not a merge**.
+#[test]
+fn an_index_signature_is_inherited_from_a_base_interface() {
+    let lookup = |bases: &str, derived: &str, key: &str| {
+        type_of_declaration(
+            &format!(
+                "{bases}\ninterface D extends B {{ {derived} }}\ndeclare const a: D;\nconst x = a[{key}];"
+            ),
+            "x",
+        )
+    };
+    // The whole point: `D` declares nothing and still answers through `B`.
+    assert_eq!(lookup("interface B { [k: string]: number; }", "", "\"anything\""), "number");
+    // Two levels, because a one-level walk passes the first case by accident.
+    assert_eq!(
+        lookup("interface A { [k: string]: number; }\ninterface B extends A {}", "", "\"a\""),
+        "number"
+    );
+    // A derived signature **shadows** the base's for the same key outright —
+    // upstream filters on `findIndexInfo(indexInfos, info.keyType) == nil`, so
+    // the two are never combined.
+    //
+    // The `number`-key case is the one that actually tests the filter, and it
+    // took running the mutation to find that out. Dropping the filter leaves
+    // the `string` case **green**: two string signatures are shadowed
+    // incidentally by push order, because `get_applicable_index_info` takes the
+    // first `find`, and own signatures are pushed before inherited ones. On the
+    // `number` path the duplicates both reach `applicable`, which gaps on two —
+    // so only this assertion can tell the filter from its absence.
+    assert_eq!(
+        lookup("interface B { [k: number]: number; }", "[k: number]: string;", "0"),
+        "string"
+    );
+    assert_eq!(
+        lookup("interface B { [k: string]: number; }", "[k: string]: string;", "\"a\""),
+        "string"
+    );
+    // ...while a base signature for a *different* key survives beside it, and
+    // the number signature still takes precedence on a numeric key.
+    assert_eq!(
+        lookup("interface B { [k: number]: boolean; }", "[k: string]: string;", "0"),
+        "boolean"
+    );
+    assert_eq!(
+        lookup("interface B { [k: number]: boolean; }", "[k: string]: string;", "\"a\""),
+        "string"
+    );
+    // An own *property* still beats an inherited index signature.
+    assert_eq!(lookup("interface B { [k: string]: number; }", "b: string;", "\"b\""), "string");
+}
+
+/// A cycle in the base graph terminates instead of recursing forever.
+///
+/// **This is the assertion that kills the mutation.** Forcing the `visiting`
+/// guard false does not turn this red — it overflows the stack and aborts the
+/// process with SIGABRT. That is a bite, not a clean failure, and it is the only
+/// signal available: there is no smaller observation than "the checker returns".
+#[test]
+fn a_cycle_in_the_base_graph_terminates() {
+    // Upstream reports `Type_0_recursively_references_itself_as_a_base_type` and
+    // carries on with empty bases; this port has no diagnostics
+    // (`bd tsr-5e7.6`), so a gap is the honest reduction.
+    assert_eq!(
+        type_of_declaration(
+            "interface A extends B { [k: string]: number; }\ninterface B extends A {}\n\
+             declare const a: A;\nconst x = a[\"k\"];",
+            "x"
+        ),
+        "error"
+    );
+}
+
+/// A base this port cannot follow does not answer through it.
+///
+/// **Labelled, not counted: this cannot currently distinguish the gap from an
+/// empty list.** `get_index_infos_of_type` returns `Option` so that "cannot
+/// know" and "none declared" are different values, and the reasoning for that is
+/// in `index_signatures.rs`. But replacing the `?` on `base_symbols_of` with
+/// `unwrap_or_default()` — collapsing the gap into "no index signatures" — leaves
+/// this test **green**, because the sole caller,
+/// `get_applicable_index_info`, maps both to `None` and both therefore print
+/// `error`. Verified by running that mutation, not by reading it.
+///
+/// So this pins the *answer* and not the distinction. It becomes a real check
+/// the moment any caller acts on emptiness rather than on absence, which is
+/// exactly when the distinction starts to matter.
+#[test]
+fn a_base_this_port_cannot_follow_does_not_answer_through_it() {
+    // A base with type arguments is `base_symbols_of`'s existing gap.
+    assert_eq!(
+        type_of_declaration(
+            "interface B<T> { [k: string]: T; }\ninterface D extends B<number> {}\n\
+             declare const a: D;\nconst x = a[\"k\"];",
+            "x"
+        ),
+        "error"
+    );
+}

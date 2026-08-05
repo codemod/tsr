@@ -32,8 +32,18 @@
 //!   and any other key is a gap rather than a guess.
 //! - **Merging several applicable signatures** into a synthetic `IndexInfo` over
 //!   the intersection of their value types (`findApplicableIndexInfo`'s
-//!   `default` arm). Two applicable signatures is a gap.
-//! - Index signatures on a **class**, on a mapped type, and inherited ones.
+//!   `default` arm). Two applicable signatures is a gap. **The base-type walk
+//!   did not make this fall out for free**, and it is worth saying why rather
+//!   than letting the absence pass: inheritance layers by *key type* and
+//!   shadows on collision (`checker.go:19149`), so it can never hand
+//!   `findApplicableIndexInfo` two signatures with the same key. The two
+//!   applicable signatures that need merging come from one type declaring both
+//!   `[k: string]` and `[k: number]`, which was already reachable before the
+//!   walk existed. Untouched, still gapped.
+//! - Index signatures on a **class** and on a mapped type.
+//!
+//! **Inherited** index signatures *are* ported — see
+//! [`Checker::index_infos_of_symbol`].
 
 use tsr_ast::{Node, TypeElement};
 use tsr_binder::SymbolId;
@@ -69,21 +79,74 @@ impl<'a> Checker<'a, '_> {
     /// [`TypeData::Named`]'s `members`, the same field property access reads, and
     /// for the same reason: it is the one table the binder already built. An
     /// intrinsic, a literal and an anonymous function type have none.
-    pub(crate) fn get_index_infos_of_type(&mut self, id: TypeId) -> Vec<IndexInfo> {
+    ///
+    /// **`None` is a gap, `Some(vec![])` is "none declared".** The two are not
+    /// the same claim: a type whose base this port cannot follow might have an
+    /// index signature we cannot see, and answering "no index signatures" for it
+    /// would turn a missing answer into a confident wrong one the moment a
+    /// caller acts on the emptiness. Today's only caller collapses both to no
+    /// answer, which is why the distinction has to be carried here rather than
+    /// discovered later.
+    pub(crate) fn get_index_infos_of_type(&mut self, id: TypeId) -> Option<Vec<IndexInfo>> {
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
-            return Vec::new();
+            return Some(Vec::new());
         };
-        self.index_infos_of_symbol(owner)
+        let mut visiting = Vec::new();
+        self.index_infos_of_symbol(owner, &mut visiting)
     }
 
-    /// The index signatures declared on a symbol's own declarations.
+    /// A symbol's own index signatures, then its base types', in that order.
     ///
-    /// Base types are **not** followed. Upstream's `resolveObjectTypeMembers`
-    /// layers a base's index signatures under the derived type's, so an
-    /// inherited one is a real answer this port misses — a gap, not a wrong
-    /// answer, and it belongs with whoever owns base-type walking in
-    /// `members.rs`.
-    fn index_infos_of_symbol(&mut self, owner: SymbolId) -> Vec<IndexInfo> {
+    /// Ported from the base-type loop in `resolveObjectTypeMembers`
+    /// (`checker.go:19149`), whose rule is a **shadow by key type**, not a
+    /// merge:
+    ///
+    /// ```go
+    /// indexInfos = core.Concatenate(indexInfos, core.Filter(inheritedIndexInfos,
+    ///     func(info *IndexInfo) bool { return findIndexInfo(indexInfos, info.keyType) == nil }))
+    /// ```
+    ///
+    /// So a derived `[k: string]: A` hides a base's `[k: string]: B` entirely —
+    /// the two are never combined — while a base's `[k: number]` survives beside
+    /// it. Same shape as `addInheritedMembers` for properties, and the same walk
+    /// [`Checker::get_property_of_declared_symbol`] already does.
+    ///
+    /// # The gaps, and why each is `None` rather than an empty list
+    ///
+    /// [`Checker::base_symbols_of`] answers `None` when it cannot follow a base
+    /// — a base with type arguments, a qualified name, an expression. That
+    /// propagates here for the reason it was written in `members.rs`: an
+    /// unfollowable base may declare an index signature, and reporting "none"
+    /// would let `a[i]` confidently answer nothing when the real answer exists.
+    ///
+    /// A **cycle** (`interface A extends B {}` with `interface B extends A {}`)
+    /// is likewise `None`. Upstream reports
+    /// `Type_0_recursively_references_itself_as_a_base_type` and carries on with
+    /// empty bases; this port has no diagnostics (`bd tsr-5e7.6`), so the honest
+    /// reduction is a gap. The guard is the **path**, exactly as in
+    /// `get_property_of_declared_symbol`, and for the same reason: there is no
+    /// `resolvedBaseTypes` memo here to park a sentinel in.
+    ///
+    /// # This cannot desynchronise the printer from the lookup
+    ///
+    /// The trap this walk looks like it should spring — the lookup finding an
+    /// inherited signature the printer never rendered — **cannot arise**, and
+    /// the reason is worth stating because it is not obvious. `render_object_type`
+    /// is reached only from [`Checker::get_type_from_type_literal`] and
+    /// `check_object_literal`. An interface prints by *name* and never renders
+    /// its members, and a type literal has no heritage clause, so no type that
+    /// prints structurally can have an inherited index signature at all. If a
+    /// structural printer for interfaces is ever added, this note is the one to
+    /// re-read.
+    fn index_infos_of_symbol(
+        &mut self,
+        owner: SymbolId,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<Vec<IndexInfo>> {
+        if visiting.contains(&owner) {
+            return None;
+        }
+        visiting.push(owner);
         let declarations = self.binder.symbols().get(owner).declarations.clone();
         let mut infos = Vec::new();
         for declaration in declarations {
@@ -98,7 +161,16 @@ impl<'a> Checker<'a, '_> {
                 infos.push(info);
             }
         }
-        infos
+        for base in self.base_symbols_of(owner)? {
+            for inherited in self.index_infos_of_symbol(base, visiting)? {
+                // `findIndexInfo(indexInfos, info.keyType) == nil` — an own
+                // signature for this key hides the base's outright.
+                if !infos.iter().any(|own| own.key == inherited.key) {
+                    infos.push(inherited);
+                }
+            }
+        }
+        Some(infos)
     }
 
     /// One `[k: K]: V` member, or `None` when either half is a gap.
@@ -178,7 +250,7 @@ impl<'a> Checker<'a, '_> {
         id: TypeId,
         key: TypeId,
     ) -> Option<IndexInfo> {
-        let infos = self.get_index_infos_of_type(id);
+        let infos = self.get_index_infos_of_type(id)?;
         let string_info = infos.iter().find(|info| info.key == self.intrinsics.string).copied();
         let applicable: Vec<IndexInfo> = infos
             .iter()
