@@ -622,3 +622,21 @@ and would have been quotable that way from the start.
 
 Verifying the pair is the *measurer's* job too — run `git log --oneline <range>`
 before spending a measurement on it, whoever proposed it.
+
+### For a dependency-gated form, probe past the blocker, not at it
+
+The right deliverable for a kind-2 item is a demonstration, not an estimate. But
+the obvious demonstration is too weak: **a probe can confirm a blocker is live
+without showing it is the only one.** Kind-2 forms are chains by definition, so
+removing the named blocker often just exposes the next, and the probe passes
+either way.
+
+Ask instead: **what does this form answer once the blocker is removed?** Mocked,
+hardcoded, however cheaply. If the answer is still wrong, the blocker was real
+and not sufficient — learned for the cost of the same probe.
+
+The accessor work is the worked example. The missing `getReturnTypeFromBody`
+seam was genuinely the blocker for case 4. Probing only that would still have
+missed that the *ordering* around it was load-bearing: case 4 must gap before
+the implicit-`any` arm, or every inferable accessor becomes a plausible wrong
+`any`. No probe of the blocker alone surfaces that.
