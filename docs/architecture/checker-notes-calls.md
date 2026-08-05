@@ -5,6 +5,15 @@ corpus population. Companion to
 [`checker-notes-counters.md`](checker-notes-counters.md), which measured the
 funnel one level up and left this bucket unsplit.
 
+> **The 12,015 in `bd tsr-efq`'s original text is superseded and must not be
+> re-derived from it.** The population is **10,265**, and the difference is not a
+> code change: the probe that produced 12,015 bypassed
+> `types_producer::assertions_for_case` and so ran without the bundled lib files
+> that the gradient is scored with. Every number on this page is a count of
+> **call-expression nodes**, never of assertion lines; the board has twice turned
+> a node count into a line count by omission, so the unit is restated on every
+> table here.
+
 ## The correction that came first, and it is the whole story
 
 `checker-notes-counters.md` reported **12,015 of 16,306** call expressions
@@ -179,6 +188,61 @@ because their callees now resolve through a lib. The falsifier is conditional on
 the change, and quoting it against a different change would have been the
 "a guard rail that cannot observe a change" error in reverse.
 
+## The typed-receiver row splits 1,985 / 557 / 20, and the actionable half is 557
+
+`property access: receiver is typed` was reported above as an **upper** bound on
+the actionable half, because it mixed our gaps with calls upstream rejects too —
+the same mixing the identifier side already separates. Running the same
+three-way split on it, with its own control bucket:
+
+```text
+    property access: receiver is typed              2562
+      of which: no such member                      1985   77.5%
+      of which: member types as error                557   21.7%
+      of which: member types as a non-object          20    0.8%
+UNCLASSIFIED (typed receiver)                          0
+```
+
+The control bucket is zero, so these three are a partition of 2,562.
+
+- **557 — the member exists and types as `error`.** `get_property_of_type` found
+  the symbol on the receiver's type and this port could not type it. These are
+  unambiguously *our* gap. **This is the actionable number, and it is 4.6× smaller
+  than the 2,562 it was extracted from.**
+- **20 — the member types as a real non-object type.** Upstream reports "not
+  callable" here as well. Not a gap, and crediting them would be false credit of
+  the kind `docs/adr/0038` refuses. Tiny, and worth having measured precisely
+  because "tiny" was not knowable in advance.
+- **1,985 — no such member.** This row is *still mixed*, and it is the largest
+  of the three. `get_property_of_type` (`members.rs:163`) answers only for
+  `TypeData::Named { members: Some(..) }` and `TypeData::Anonymous`; every other
+  receiver shape returns `None` before looking at the name. So this row contains
+  both genuine "property does not exist" — which upstream errors on too — and
+  every receiver whose type this port models without a member table, where
+  upstream *does* have the member. Splitting it needs a counter on the
+  **receiver's type shape**, not on the member, and that is one more bucket in
+  the same probe (`bd` filed).
+
+**So the actionable-inside-calls share of the 10,265 is 557 confirmed, plus an
+unmeasured share of 1,985.** It is not 2,562, and it was never 12,015.
+
+### On `bd tsr-qk9`, and why this is not it
+
+`tsr-qk9` is `signature_parts_of` having no arm for `CallSignatureDeclaration`
+or `ConstructSignatureDeclaration`, so `{ (): number }` and `{ new (): C }` gap.
+**It is a different defect from the 557**, and the briefing's guess that these
+are interface methods does not survive the code:
+`get_property_of_type` resolves members of a `Named` type, and an interface
+method's type comes from a `MethodSignatureDeclaration`, which
+`signature_parts_of` *does* handle. `tsr-qk9` would move members declared as
+bare call signatures, which is a narrower shape than "a method on an interface".
+
+The 557 are members that resolve and do not type, and this probe does not say
+*which* declaration kinds they are. Attributing them is the next counter, not an
+inference from this one — writing it down as `tsr-qk9` would be the "a row named
+after a declaration kind is usually not about that kind" error again, one
+paragraph after recording it.
+
 ## Concentration: the row is distributed, and it does not evaporate
 
 `docs/conventions.md` makes this the *first* command, because on an earlier row
@@ -216,6 +280,37 @@ is flipping cases rather than moving the gradient, this row is close to the wors
 available shape, and an item concentrated in few files with few other defects
 beats it.
 
+### The actionable sub-bucket has the opposite shape, and it is one command
+
+The 557 is a different row from its parent and the concentration check says so:
+
+```text
+concentration by case: 557 over 147 cases
+     54    9.7%  compiler/typedArrays
+     51    9.2%  compiler/promiseType
+     46    8.3%  compiler/promiseTypeStrictNull
+     35    6.3%  compiler/duplicateLocalVariable1
+     20    3.6%  conformance/parserindenter
+     16    2.9%  conformance/assertionTypePredicates1
+     16    2.9%  conformance/types.asyncGenerators.es2018.1
+top 10 hold 49.9%
+```
+
+**147 cases, top ten hold half.** The parent row was 2,113 cases with the top ten
+at a quarter; the actionable half inside it is *four times* more concentrated by
+that measure. This is the reverse verdict and it matters for ranking:
+
+- **For the gradient**, 557 nodes in 147 files is small and narrow — a worse
+  target than the distributed parent, and the parent is mostly not ours.
+- **For flipping cases**, 3.8 per affected case in 147 files is close to the best
+  shape on the board, the opposite of the parent's broad-and-shallow signature.
+
+The three largest are `typedArrays`, `promiseType` and `promiseTypeStrictNull` —
+151 of 557, 27%, in three baselines that are all about **lib-declared generic
+types**. That is a suggestive shape and it is *not* measured here: this run says
+which cases, not which declarations. Reading it as "the 557 are Promise members"
+would be exactly the inference this page keeps refusing.
+
 **What was not measured**, and it is the level-4 statistic proper: the
 distribution of *remaining* failures in the 2,113 affected cases. Knowing that
 these calls are 4.9-per-case says nothing about whether those cases are otherwise
@@ -243,10 +338,58 @@ alone is too weak — a kind-2 form is a chain, and removing the named blocker
 usually exposes the next.
 
 The one bucket where that demonstration is cheap is **property access with a
-typed receiver, 2,562**: the receiver already types, so the probe is "give the
-member an anonymous object type with a call signature and see whether the call
-line goes from `error` to a return type". If it does not, the call path was never
-the blocker for them either.
+typed receiver** — and the split above narrows it from 2,562 to the **557**
+whose member resolves and does not type. The receiver already types and the
+symbol is already found, so the probe is "give the member an anonymous object
+type with a call signature and see whether the call line goes from `error` to a
+return type". If it does not, the call path was never the blocker for them
+either, and that is worth learning for the same cost.
+
+## Is 90% on `checker_types` reachable? Not from this row, and probably not at all
+
+Asked as a lead question, answered from this page's numbers only.
+
+The cycle deltas are **+4.94, +3.36, +0.34**. The current number is 58.17%
+(`53588b1`). Reaching 90% needs **+31.8 points**, which at the last cycle's rate
+is 94 cycles and at the best of the three is 6.5 — and the trend across the three
+is decelerating by roughly an order of magnitude per cycle, not holding.
+
+The largest row on the board has now been measured as a partition, and what it
+contains is the argument against a large-row strategy:
+
+- **10,265** call expressions whose callee has no object type.
+- Of those, **557** are confirmed as this port's own gap in a place the call path
+  owns, plus an unmeasured share of 1,985.
+- **665 + 20 = 685 are not gaps at all** — upstream reports "not callable" too.
+- The two largest sub-rows, **3,477 and 2,315**, belong to whatever gaps the
+  receiver and to `get_type_of_symbol`, and are chains whose next link is
+  unmeasured.
+
+So the biggest single item anyone could name resolved into one confirmed
+workstream of 557 **nodes** — not lines — and a set of pointers to other
+people's rows. Every one of those pointers is kind 2: the prerequisite is unmet
+by construction, so each is a chain of unknown depth, and `docs/conventions.md`
+records that removing a named blocker in a kind-2 chain usually just exposes the
+next one.
+
+**My reading is that the remaining work is many small workstreams, not a few
+large ones, and that 90% is not a target anyone can plan against today.** The
+evidence is that the one row large enough to matter was ranked at 12,289 lines,
+survived one probe at 12,015 nodes, and has now been measured at 557 confirmed —
+a 22× reduction across two cycles of measurement with no code written. That is
+the third time on this page that a large row shrank on contact.
+
+**How I would know I am wrong.** If `bd tsr-s2k` finds that most of the 1,985
+"no such member" callees are receivers this port models without a member table,
+that is a *single* mechanism worth ~2,000 nodes and the large-row strategy comes
+back. That is one 25-second corpus pass, it is filed, and it is the measurement
+that would overturn this paragraph. I would rather it did.
+
+**What I am not claiming.** I have measured one row. The gradient has other rows
+this page never looked at, and a lead ranking the board should weight this as
+evidence about *the largest row*, not about the corpus. What generalises is the
+method, not the verdict: three cycles of ranking by reading produced 12,289,
+12,015 and 2,562, and each was corrected downward by one command.
 
 ## How to know this is wrong
 

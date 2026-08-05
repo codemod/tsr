@@ -190,6 +190,17 @@ pub mod counters {
         /// `a.b()` where `a` has a real type and the member lookup did not
         /// produce an object type.
         callee_property_receiver_typed = "    property access: receiver is typed",
+        /// **Subset of the row above.** `get_property_of_type` found no member
+        /// of that name on the receiver. Mixed: upstream reports "property does
+        /// not exist" for most of these, but an incomplete member lookup here
+        /// lands in the same row.
+        callee_member_absent = "      of which: no such member",
+        /// **Subset.** The member exists and types as `error` — this port found
+        /// the symbol and could not type it. The actionable half.
+        callee_member_type_error = "      of which: member types as error",
+        /// **Subset.** The member exists and types as a real non-object type.
+        /// Upstream reports "not callable" too, so this is **not a gap**.
+        callee_member_not_object = "      of which: member types as a non-object",
         /// `a[b]()`.
         callee_element_access = "    element access",
         /// Any other callee form: a call, a parenthesis, `this`, `new`, a
@@ -352,8 +363,25 @@ impl Checker<'_, '_> {
                     access.expression.map_or(error, |receiver| self.check_expression(receiver));
                 if receiver == error {
                     bump(&COUNTERS.callee_property_receiver_error);
+                    return;
+                }
+                bump(&COUNTERS.callee_property_receiver_typed);
+                // The same three-way split the identifier side already gets,
+                // and for the same reason: a member that types as a `number`
+                // is a call upstream rejects too, and crediting it would be
+                // false credit of the kind ADR-0038 refused.
+                let member = match access.name {
+                    Some(tsr_ast::MemberName::Identifier(name)) => {
+                        self.get_property_of_type(receiver, name.text)
+                    }
+                    _ => None,
+                };
+                if member.is_none() {
+                    bump(&COUNTERS.callee_member_absent);
+                } else if callee_type == error {
+                    bump(&COUNTERS.callee_member_type_error);
                 } else {
-                    bump(&COUNTERS.callee_property_receiver_typed);
+                    bump(&COUNTERS.callee_member_not_object);
                 }
             }
             Expression::ElementAccessExpression(_) => bump(&COUNTERS.callee_element_access),

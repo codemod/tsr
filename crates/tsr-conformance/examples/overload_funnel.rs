@@ -60,6 +60,16 @@ fn share(count: u64, total: u64) -> f64 {
     if total == 0 { 0.0 } else { 100.0 * (count as f64) / (total as f64) }
 }
 
+/// The row the concentration pass ranks cases by. `TSR_FUNNEL_CONCENTRATION`
+/// names it: `member-error` for the actionable typed-receiver sub-bucket,
+/// anything else for the whole `callee has no object type` row.
+fn concentrated(snapshot: &counters::Snapshot) -> u64 {
+    match std::env::var("TSR_FUNNEL_CONCENTRATION").as_deref() {
+        Ok("member-error") => snapshot.callee_member_type_error,
+        _ => snapshot.callee_not_anonymous,
+    }
+}
+
 fn signed(count: u64) -> i64 {
     i64::try_from(count).expect("a corpus-sized count fits in an i64")
 }
@@ -97,7 +107,7 @@ fn main() {
             // assertions are thrown away — the counters are the output — but
             // producing them is what drives the checker over every position
             // the gradient scores.
-            let before = counters::snapshot().callee_not_anonymous;
+            let before = concentrated(&counters::snapshot());
             let _ = types_producer::assertions_for_case(&parsed, &expected, false);
             // Valid **only** single-threaded: the counters are process-wide, so
             // a delta across a parallel region attributes other cases' calls to
@@ -105,7 +115,7 @@ fn main() {
             // thread, and the histogram pass — which needs no attribution —
             // runs with all of them.
             if concentrating {
-                let delta = counters::snapshot().callee_not_anonymous - before;
+                let delta = concentrated(&counters::snapshot()) - before;
                 if delta > 0 {
                     per_case
                         .lock()
@@ -125,7 +135,7 @@ fn main() {
         let mut cases = per_case.into_inner().expect("no panic held the lock");
         cases.sort_unstable_by_key(|(count, _)| std::cmp::Reverse(*count));
         let total: u64 = cases.iter().map(|(count, _)| count).sum();
-        println!("callee-has-no-object-type by case: {total} over {} cases", cases.len());
+        println!("concentration by case: {total} over {} cases", cases.len());
         for (count, name) in cases.iter().take(20) {
             let share = share(*count, total);
             println!("{count:>7}  {share:>5.1}%  {name}");
@@ -165,6 +175,18 @@ fn main() {
         "{:<48}{:>8}",
         "UNCLASSIFIED (callee has no object type)",
         signed(counters.callee_not_anonymous) - signed(classified)
+    );
+    // The three `of which` rows are a partition of `receiver is typed`, not
+    // siblings of it, so they get their own control bucket.
+    println!(
+        "{:<48}{:>8}",
+        "UNCLASSIFIED (typed receiver)",
+        signed(counters.callee_property_receiver_typed)
+            - signed(
+                counters.callee_member_absent
+                    + counters.callee_member_type_error
+                    + counters.callee_member_not_object
+            )
     );
     let selection = counters.generic_candidate
         + counters.this_or_rest_parameter
