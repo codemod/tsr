@@ -205,6 +205,31 @@ copying:
 So the sub-kind is real but rare here, and the suite's habit of writing down why
 a test moved is what makes it findable at all.
 
+### The argument that survives this session
+
+Every one of those examples **predates the write-up**. `relater.rs` deleted a
+characterisation test rather than inverting it, and named the mutation that
+reddens its replacement, before "delete rather than re-point" was a rule.
+`types.rs` removed an assertion rather than inverting it when inherited members
+landed. `members.rs::the_shapes_typeof_x_still_gaps` declined to assert a
+guaranteed `None` because it "would dress a guaranteed None up as coverage" —
+which is the discriminates-versus-exercises check, stated in a test body, by
+someone who had never read a word about it.
+
+That matters more than the taxonomy does. A principle formulated during one long
+session, by people who spent that session persuading each other, is exactly the
+kind of thing that feels true because it was recently argued rather than because
+it is right. The defence against that is not more argument — it is finding the
+principle already in the codebase, arrived at independently, by authors who could
+not have been influenced by the formulation. Three times, in three files, in work
+none of the formulators wrote.
+
+So the check is not this session's idea. It is a name for something the careful
+authors here were already doing, and the value of naming it is that it can now be
+applied deliberately and greppably rather than only by people who happen to have
+the instinct. **If a later reader finds this file unconvincing, the three
+examples above are the evidence to re-check — not the reasoning in it.**
+
 ## Predicting against a row you have already excluded part of
 
 The accessor prediction failed and the way it failed is worth more than the
