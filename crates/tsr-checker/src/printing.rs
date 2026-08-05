@@ -55,7 +55,15 @@ pub fn type_to_string(ty: &Type) -> String {
 /// corpus and deliberately stops short of the full table — a character outside it
 /// is emitted raw, which is visible as a baseline mismatch rather than as silent
 /// corruption. `bd tsr-4sc.1`.
-fn quote(value: &str) -> String {
+///
+/// `pub(crate)` so an object literal's non-identifier property name — `{ "a-b": 1 }`
+/// printing `{ "a-b": number; }` — quotes through *this* table rather than a second
+/// copy of it. That matters precisely **because** the table is incomplete: two
+/// copies would both have to be corrected when `bd tsr-4sc.1` lands, and nothing
+/// would fail if only one were. Same argument `render_object_type` records for
+/// keeping one object renderer — separate ones are how a port ends up printing
+/// `{ a: string }` in one position and `{ a: string; }` in another.
+pub(crate) fn quote(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
     for ch in value.chars() {
