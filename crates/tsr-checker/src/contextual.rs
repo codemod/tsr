@@ -2,9 +2,11 @@
 //! the function it belongs to is written where a function type is expected.
 //!
 //! Ported from `Checker.getContextuallyTypedParameterType` (`checker.go:29458`),
-//! reduced to its single largest corpus arm — a function expression or arrow
-//! passed as a **call argument**, whose parameters are typed from the
-//! corresponding parameter of the callee's signature.
+//! reduced to the two corpus arms that need no type inference: a function
+//! expression or arrow passed as a **call argument**, typed from the
+//! corresponding parameter of the callee's signature, and one that is the
+//! initialiser of a variable carrying a **type annotation**, typed from the
+//! annotation.
 //!
 //! ```text
 //! declare function each(callback: (item: string) => void): void;
@@ -62,7 +64,14 @@
 //! | not classified by the counter | 92 (10%) | — |
 //!
 //! The reachable bucket is itself spread over 206 files, largest 37 (6.7%). It
-//! is the arm this module ports, and the other two are gaps that stay gaps.
+//! is the first arm this module ports, and the generic and overloaded callees
+//! are gaps that stay gaps.
+//!
+//! The second arm — an arrow initialising an **annotated variable**,
+//! `const f: (x: T) => U = x => …` — is smaller but cheaper still: **75
+//! functions in 32 files**, largest 8 (10.7%), and it needs no call machinery at
+//! all, because `getContextualTypeForVariableLikeDeclaration`
+//! (`checker.go:29438`) returns the annotation's type directly.
 //!
 //! # A gap here is the implicit `any`, and that is not a violated rule
 //!
@@ -111,7 +120,8 @@ impl<'a> Checker<'a, '_> {
     /// The type an unannotated parameter takes from its context, if any.
     ///
     /// Ported from `Checker.getContextuallyTypedParameterType`
-    /// (`checker.go:29458`), argument-position arm only.
+    /// (`checker.go:29458`), for the two arms [`Checker::contextual_signature`]
+    /// supplies.
     ///
     /// `None` is upstream's nil: no contextual type is available, and the caller
     /// turns that into the implicit `any`. See the module documentation for why
@@ -124,8 +134,8 @@ impl<'a> Checker<'a, '_> {
     ///   signature (`checker.go:29463`). It is a separate mechanism — the
     ///   corpus's `contextuallyTypedIife` cases are 28 of the 925 — and folding
     ///   it in here would share none of the code below.
-    /// - **Every non-argument position**: a variable with a function-type
-    ///   annotation, an object-literal member, a `return`, a JSX attribute. Each
+    /// - **Every context beyond the two above**: an object-literal member, a
+    ///   `return`, a JSX attribute, a binary operand, an array element. Each
     ///   needs its own arm of `getContextualType` (`checker.go:29290`).
     /// - **A rest parameter or a `this` parameter** on the contextually typed
     ///   function, which shift what "the parameter at this index" means —
@@ -150,7 +160,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
 
-        let signature = self.contextual_signature_from_call(function)?;
+        let signature = self.contextual_signature(function)?;
         let contextual = signature.parameters.get(index)?;
         // A contextual parameter that is itself optional or rest carries a type
         // whose relationship to the position is not the plain one — upstream
@@ -184,18 +194,77 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// The signature `function` is contextually typed by, whichever context
+    /// supplies it.
+    ///
+    /// Ported from `Checker.getContextualSignature` (`checker.go:10264`), which
+    /// reaches every context through one `getContextualType` switch. The two arms
+    /// below are that switch, reduced to what is measured and reachable.
+    ///
+    /// Order is not significance, it is exclusivity: a function is either a call
+    /// argument or an initialiser, never both, so the `or_else` cannot mask one
+    /// arm with the other and the two could be swapped without changing an
+    /// answer.
+    ///
+    /// Upstream's union handling (`getContextualSignature`'s
+    /// `compareSignaturesIdentical` loop) is in neither arm: a union-typed
+    /// context answers `None`, because picking one member's signature is a guess
+    /// and building the combined one needs `createUnionSignature`.
+    fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
+        self.contextual_signature_from_call(function)
+            .or_else(|| self.contextual_signature_from_annotation(function))
+    }
+
+    /// The signature `function` is contextually typed by when it is the
+    /// initialiser of a declaration carrying a **type annotation**.
+    ///
+    /// ```text
+    /// const f: (item: string) => void = item => item;
+    /// ```
+    ///
+    /// Ported from `Checker.getContextualTypeForVariableLikeDeclaration`
+    /// (`checker.go:29438`), whose first three lines are the whole of this arm:
+    /// if the declaration has a type node, the contextual type *is* that type.
+    /// There is no inference to avoid and no call to resolve, which is what makes
+    /// this the cheapest arm in `getContextualType` and the reason it follows the
+    /// argument arm rather than waiting on signature links.
+    ///
+    /// Restricted to a `VariableDeclaration`. The other variable-like carriers of
+    /// an annotation — a `PropertyDeclaration`, a `PropertySignature`, a
+    /// parameter with a function-typed annotation and a function initialiser —
+    /// reach the same upstream function, but each is a separate corpus shape and
+    /// none is measured, so each is a gap rather than an untested generalisation.
+    ///
+    /// Measured: **75 contextually typed function expressions in 32 files** sit
+    /// under an annotated variable declaration, largest file 8 (10.7%) — an
+    /// eighth of the argument arm's 548, and worth the ~30 lines only because it
+    /// reuses [`Checker::single_call_signature`] wholesale.
+    fn contextual_signature_from_annotation(&mut self, function: NodeId) -> Option<Signature> {
+        let declaration = self.nodes.parent(function)?;
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        // No check that `function` is the *initialiser*. A `VariableDeclaration`
+        // has three children — name, type annotation, initialiser — and only the
+        // initialiser can be an arrow or a function expression, so the parent
+        // test above already establishes it. An earlier draft asserted it anyway;
+        // no mutation could make the assertion observable, including the one that
+        // looked most dangerous — typing the annotation's own parameter from the
+        // signature it belongs to — because such a parameter's parent is the
+        // `FunctionType` node and [`Checker::contextualisable_parameters`] turns
+        // it away one level up. Removed rather than kept as decoration, which is
+        // the call `crate::members` records making for the same reason.
+        let annotation = variable.r#type?;
+        let declared = self.get_type_from_type_node(annotation);
+        self.single_call_signature(declared)
+    }
+
     /// The signature `function` is contextually typed by, when it sits directly
     /// in the argument list of a call.
     ///
-    /// Ported from `Checker.getContextualSignature` (`checker.go:10264`) reached
-    /// through `getContextualTypeForArgumentAtIndex` (`checker.go:29772`),
-    /// collapsed to the one path that needs no argument checked — see the module
-    /// documentation on the recursion this avoids.
-    ///
-    /// Upstream's union handling (`getContextualSignature`'s
-    /// `compareSignaturesIdentical` loop) is not here: a union-typed parameter
-    /// answers `None`, because picking one member's signature is a guess and
-    /// building the union signature needs `createUnionSignature`.
+    /// Ported from `Checker.getContextualTypeForArgumentAtIndex`
+    /// (`checker.go:29772`), collapsed to the one path that needs no argument
+    /// checked — see the module documentation on the recursion this avoids.
     fn contextual_signature_from_call(&mut self, function: NodeId) -> Option<Signature> {
         let call = self.nodes.parent(function)?;
         let Some(Node::CallExpression(call)) = self.node_map.get(call) else {

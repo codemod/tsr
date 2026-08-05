@@ -121,3 +121,25 @@ fn a_member_of_a_contextually_typed_parameter_resolves_for_real() {
                   each(item => { const size = item.length; });";
     assert_eq!(type_of(source, "size"), "number");
 }
+
+/// The second arm: an annotated variable declaration, not a call.
+///
+/// No call machinery is involved at all — the contextual type *is* the
+/// annotation (`checker.go:29440`). The arrow is `item => item`, so `string` is
+/// reachable from nothing local to it.
+#[test]
+fn an_annotated_variable_types_its_initialiser_s_parameter() {
+    let source = "const f: (declared: string) => void = item => item;";
+    assert_eq!(type_of(source, "item"), "string");
+}
+
+/// A variable with no annotation supplies no contextual type.
+///
+/// `const h = item => item` is the probe `members.rs` records as producing
+/// `x.foo : any`; it stays the implicit `any`, because there is no annotation to
+/// read and inferring one is not this arm's job.
+#[test]
+fn an_unannotated_variable_supplies_no_contextual_type() {
+    let source = "const h = solo => solo;";
+    assert_eq!(type_of(source, "solo"), "any");
+}

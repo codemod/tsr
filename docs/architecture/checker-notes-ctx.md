@@ -117,10 +117,45 @@ actually bound by is the stronger one the `errorType` discipline is derived from
 -bit what it was before the module existed, so the only lines it can move are
 ones it types deliberately.
 
+## The second arm: an annotated variable
+
+`const f: (item: string) => void = item => item`. Ported from
+`getContextualTypeForVariableLikeDeclaration` (`checker.go:29438`), whose first
+three lines are the whole of it — if the declaration has a type node, the
+contextual type *is* that type. No call to resolve, no inference to avoid.
+
+Measured the same way: **75 contextually typed function expressions in 32 files**,
+largest file 8 (10.7%). An eighth of the argument arm's 548. It earns its ~30
+lines only because it reuses `single_call_signature` wholesale.
+
+Restricted to a `VariableDeclaration`. A `PropertyDeclaration`, a
+`PropertySignature`, and a parameter with a function-typed annotation and a
+function initialiser all reach the same upstream function, but each is a separate
+corpus shape and none is measured, so each is a gap rather than an untested
+generalisation.
+
+### A guard that was written, then deleted for being unfalsifiable
+
+The arm originally asserted that the function was the declaration's *initialiser*
+and not something else beneath it. The mutation written to prove that assertion
+load-bearing **did not go red**, and the reason is structural: a
+`VariableDeclaration` has three children — name, type annotation, initialiser —
+and only the initialiser can hold an arrow or function expression. The case that
+looked most dangerous, typing the annotation's own parameter from the signature it
+belongs to, is turned away one level up, because such a parameter's parent is the
+`FunctionType` node rather than a function expression.
+
+So the guard was removed and the reasoning put in its place, and the test written
+to defend it was deleted rather than left passing. `members.rs` records making the
+same call for the same reason. A guard no mutation can make observable is
+decoration, and decoration is worse than nothing because it reads as evidence.
+
 ## Consequences accepted
 
 - Generic and overloaded callees stay gaps, which means the array-method
   callbacks — the most *recognisable* shape in the corpus — do not move.
+- Contexts beyond the two arms — object-literal member, `return`, JSX attribute,
+  binary operand, array element — are gaps.
 - The IIFE arm (`(x => x)(1)`) is not ported. Upstream types it from the argument
   *expressions*, not from a signature (`checker.go:29463`); it shares no code
   with what is here. 28 of the 925 are IIFE cases.
