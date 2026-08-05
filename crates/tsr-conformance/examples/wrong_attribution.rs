@@ -287,6 +287,13 @@ struct Tally {
     /// read on its own. A bucket that is large because that *kind of case* is
     /// large is not evidence.
     wrong_by_strictness: HashMap<&'static str, usize>,
+    /// Lines where we answered `any` and upstream answered something else: the
+    /// 6,385-line population, bucketed by cause. Non-exclusive.
+    implicit_any: HashMap<&'static str, usize>,
+    /// How many such lines matched no cause at all — the control.
+    implicit_any_unattributed: usize,
+    /// The population being bucketed, as the denominator.
+    implicit_any_total: usize,
 }
 
 impl Tally {
@@ -323,6 +330,11 @@ impl Tally {
         for (k, v) in other.wrong_by_strictness {
             *self.wrong_by_strictness.entry(k).or_default() += v;
         }
+        for (k, v) in other.implicit_any {
+            *self.implicit_any.entry(k).or_default() += v;
+        }
+        self.implicit_any_unattributed += other.implicit_any_unattributed;
+        self.implicit_any_total += other.implicit_any_total;
         for (bucket, examples) in other.samples {
             let slot = self.samples.entry(bucket).or_default();
             for example in examples {
@@ -360,6 +372,107 @@ fn symbol_of_identifier(
     binder
         .resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE)
         .or_else(|| binder.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
+}
+
+/// Why a line we answered `any` should have been something else.
+///
+/// The 6,385-line `number/string -> any` population is the largest defect
+/// population in the corpus and **its cause is not established**. The obvious
+/// reading — the implicit any from a declaration with neither annotation nor
+/// initialiser — cannot be the whole story, because upstream returns the
+/// implicit any there too. So these are lines where upstream *infers* something
+/// and this port does not, and the candidates are very different sizes of work.
+///
+/// Non-exclusive and with a control, for the same reason the cause arms are:
+/// a classifier that sorts every line into one of six buckets produces a tidy
+/// table whether or not it is right.
+fn implicit_any_causes(
+    binder: &tsr_binder::BindResult<'_>,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    id: NodeId,
+) -> Vec<&'static str> {
+    let mut out = Vec::new();
+    let Some(symbol) = symbol_of_identifier(binder, nodes, map, id) else {
+        // Cannot be an inference failure: there is nothing to infer *from*.
+        // Almost certainly a lib global (`bd tsr-9or.1`).
+        out.push("the name resolves to no symbol");
+        return out;
+    };
+    let flags = binder.symbols().get(symbol).flags;
+    if flags.intersects(
+        SymbolFlags::FUNCTION | SymbolFlags::CLASS | SymbolFlags::ENUM | SymbolFlags::MODULE,
+    ) {
+        // Reported rather than deduplicated away: this population may overlap
+        // `getTypeOfFuncClassEnumModule`'s undiagnosed wrong lines entirely.
+        out.push("func/class/enum/module symbol (overlaps symbols' item)");
+    }
+    let Some(declaration) = binder.symbols().get(symbol).value_declaration else {
+        out.push("symbol has no value declaration");
+        return out;
+    };
+    let node = map.get(declaration);
+    let annotated = node.and_then(|n| n.type_id()).is_some();
+    let initialised = node.and_then(|n| n.initializer_id()).is_some();
+    match nodes.kind(declaration) {
+        SyntaxKind::Parameter if !annotated && !initialised => {
+            // The contextual-typing candidate: upstream types this from the
+            // signature the function is checked against.
+            out.push("parameter, no annotation and no initialiser");
+        }
+        SyntaxKind::Parameter if !annotated => {
+            out.push("parameter, inferred from its initialiser");
+        }
+        SyntaxKind::BindingElement => out.push("binding element (destructuring)"),
+        SyntaxKind::VariableDeclaration if !annotated && initialised => {
+            // We *have* an initialiser and still said `any`, so the initialiser
+            // expression is itself a gap. That is expression work, not inference.
+            out.push("variable, initialiser we cannot type");
+        }
+        SyntaxKind::VariableDeclaration if !annotated => {
+            // A `for (const x of xs)` variable has neither an annotation nor an
+            // initialiser and is **not** an implicit any: upstream types it from
+            // the iterable (`checkRightHandSideOfForOf`). Splitting it out
+            // matters because it is entirely different work from contextual
+            // typing, and the undivided bucket reads as "upstream would say
+            // `any` here too", which is what made it look impossible.
+            let grandparent = nodes
+                .parent(declaration)
+                .and_then(|list| nodes.parent(list))
+                .map(|stmt| nodes.kind(stmt));
+            match grandparent {
+                Some(SyntaxKind::ForOfStatement) => out.push("for-of variable (from the iterable)"),
+                Some(SyntaxKind::ForInStatement) => out.push("for-in variable (always string)"),
+                Some(SyntaxKind::CatchClause) => out.push("catch variable"),
+                _ => {
+                    // The decisive split. If this line is the declaration's own
+                    // *name*, upstream answers the implicit `any` too and the
+                    // line is genuinely puzzling. If it is a **reference**
+                    // elsewhere, upstream is answering the *narrowed* type —
+                    // `let x; x = 1; x` is `number` at the use site through
+                    // control-flow `any` evolution — and this is not an
+                    // inference gap at all but a narrowing one (`bd tsr-4sc.11`),
+                    // which is a different epic and blocked on flow analysis.
+                    let is_own_name = map.get(declaration).and_then(|d| d.name_id()) == Some(id);
+                    if is_own_name {
+                        out.push("variable's own name, no annotation or initialiser");
+                    } else {
+                        out.push("REFERENCE to an implicit-any variable (narrowing)");
+                    }
+                }
+            }
+        }
+        SyntaxKind::PropertyDeclaration | SyntaxKind::PropertySignature if !annotated => {
+            out.push("property, no annotation");
+        }
+        _ if annotated => {
+            // Annotated and still `any`: the annotation is a type node we do not
+            // understand. Different work again.
+            out.push("annotated, but the annotation is a gap");
+        }
+        _ => {}
+    }
+    out
 }
 
 /// How a case sets `strictNullChecks`, in upstream's resolution order.
@@ -612,6 +725,20 @@ fn main() {
                     if got.type_string == format!("typeof {want_type}") {
                         tally.typeof_of_want += 1;
                     }
+                    // The implicit-any population: we claimed `any`, upstream
+                    // claimed something else. `any -> any` cannot appear here
+                    // (it would have matched), so the test is one-sided.
+                    if got.type_string == "any" {
+                        tally.implicit_any_total += 1;
+                        let why =
+                            implicit_any_causes(&bound, &file.nodes, &file.node_map, ids[position]);
+                        if why.is_empty() {
+                            tally.implicit_any_unattributed += 1;
+                        }
+                        for cause in why {
+                            *tally.implicit_any.entry(cause).or_default() += 1;
+                        }
+                    }
                     let strictness = strictness_of(&parsed.options);
                     *tally.wrong_by_strictness.entry(strictness).or_default() += 1;
                     // The mirror of the target shape: we added `| undefined`
@@ -784,6 +911,25 @@ fn report(total: &Tally, arms: &[Cause]) {
         "    of those, where ours is a type parameter    {:>7}  {:>6.2}% of that rule",
         total.missing_undefined_on_type_parameter,
         pct(total.missing_undefined_on_type_parameter, total.missing_undefined)
+    );
+
+    println!("\n--- WE SAID `any`, UPSTREAM DID NOT: the largest defect population ---");
+    println!(
+        "  (non-exclusive: a line may match several. UNATTRIBUTED prints even at\n\
+        \x20  zero -- a six-bucket classifier produces a tidy table either way.)"
+    );
+    println!("  population                                  {:>9}", total.implicit_any_total);
+    let mut rows: Vec<_> =
+        total.implicit_any.iter().map(|(cause, count)| (*count, *cause)).collect();
+    rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (count, cause) in rows {
+        println!("  {cause:<48} {count:>8}  {:>6.2}%", pct(count, total.implicit_any_total));
+    }
+    println!(
+        "  {:<48} {:>8}  {:>6.2}%",
+        "UNATTRIBUTED (control)",
+        total.implicit_any_unattributed,
+        pct(total.implicit_any_unattributed, total.implicit_any_total)
     );
 
     println!("\n--- OVER-APPLICATION: ours has `| undefined`, upstream does not ---");
