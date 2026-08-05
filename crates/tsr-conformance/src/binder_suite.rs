@@ -469,7 +469,7 @@ fn anonymity_of(name: &str) -> Anonymity {
 /// rooted case directory (`/.src/node_modules/…`) is written relative in the
 /// baseline. Comparing the raw strings left 18 cases untested for no better
 /// reason than punctuation.
-fn same_unit(unit: &str, baseline: &str) -> bool {
+pub(crate) fn same_unit(unit: &str, baseline: &str) -> bool {
     fn normalise(path: &str) -> String {
         let slashes = path.replace('\\', "/");
         let trimmed = slashes.trim_start_matches("./").to_string();

@@ -170,6 +170,42 @@ pub fn assertions_for_file(
     out
 }
 
+/// The type a node has, as upstream's `GetTypeAtLocation` would answer it.
+///
+/// Two cases, which is all the checker can answer today:
+///
+/// - a **declaration name** takes the type of the symbol it declares, which is
+///   `getTypeOfSymbol`;
+/// - an **expression** takes `checkExpression`.
+///
+/// Anything else is `errorType`, which prints `any` — and that is a gap rather
+/// than an answer, exactly as it is inside the checker.
+pub fn type_at_location(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    binder: &tsr_binder::BindResult<'_>,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    id: NodeId,
+) -> String {
+    let error = checker.intrinsics().error;
+    let Some(node) = map.get(id) else { return checker.type_to_string(error) };
+
+    // A declaration name resolves through its parent's symbol.
+    if let Some(parent) = nodes.parent(id)
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+        && let Some(symbol) = binder.symbol_of(parent)
+    {
+        let id = checker.get_type_of_symbol(symbol);
+        return checker.type_to_string(id);
+    }
+
+    if let Ok(expression) = tsr_ast::Expression::try_from(node) {
+        let id = checker.check_expression(expression);
+        return checker.type_to_string(id);
+    }
+    checker.type_to_string(error)
+}
+
 /// How far our walker agrees with upstream's, **ignoring types entirely**.
 ///
 /// For each position, tests whether upstream's assertion line starts with

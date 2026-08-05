@@ -326,6 +326,7 @@ dependencies = [
  "rayon",
  "tsr-ast",
  "tsr-binder",
+ "tsr-checker",
  "tsr-compiler",
  "tsr-core",
  "tsr-declarations",

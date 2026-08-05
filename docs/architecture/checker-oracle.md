@@ -1,12 +1,30 @@
 # The checker's oracle (`checker_types`, `diagnostics`)
 
-**Status:** the instruments exist; the subject does not.
+**Status:** wired, and non-zero for the first time on 2026-08-05.
 
 ```
-checker_types    0/9538    0.00%   the type of every expression
-                 0/478954  0.00%   ...and the gradient underneath it
-diagnostics      80/5488   1.46%   every diagnostic, by code and position
+checker_types    278/9538      2.91%   the type of every expression
+                 gradient     22.39%   ...share of individual assertion lines
+diagnostics       80/5488      1.46%   every diagnostic, by code and position
 ```
+
+### The first non-zero number was mutation-tested before being believed
+
+This document has said since the suite was written that *"the first time this
+suite is non-zero, mutate it before believing it"*. Done, through the **whole**
+path — checker to renderer to judge — not just the judge:
+
+| mutation | cases | gradient |
+|---|---:|---:|
+| *(none)* | 278 (2.91%) | 22.39% |
+| every type rendered as `any` | 231 (2.42%) | 14.24% |
+| declaration names no longer typed | 67 (0.70%) | 16.50% |
+
+Both move both numbers, so the path is live and responds to checker correctness
+rather than to the harness. Worth noting that rendering *everything* as `any`
+still passes 231 cases: a great many corpus cases are error cases whose types
+genuinely are all `any`. That is not a flaw in the suite — it is why the case gate
+is the one that matters and why 2.91% is not 231/9538 of "working checker".
 
 The second `checker_types` row is the **per-assertion-line tally**
 ([ADR-0031](../adr/0031-a-gradient-beside-the-gate.md)): the 9,538 judged cases

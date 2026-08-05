@@ -1,14 +1,215 @@
 commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
-What a pass means: the type of every expression matches upstream's .types baseline, line for line — 0% until a checker exists (bd tsr-4sc); the denominator is what this measures today
-Passed         : 0/9538 (0.00%)
-Assertion lines: 0/478954 (0.00%)  — a gradient, not a pass rate
-Unsupported    : 9538
+What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
+Passed         : 278/9538 (2.91%)
+Assertion lines: 107238/478954 (22.39%)  — a gradient, not a pass rate
+Failed         : 9260
 Skipped        : 2906 (excluded from the denominator)
 
-  9538  producer not wired to the suite (bd tsr-4sc.3)
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
   135  skipped: the .types baseline has no assertions
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
+
+First 100 of 9260 failures:
+compiler/2dArrays
+  2dArrays.ts: >Cell : error — expected >Cell : Cell
+compiler/ArrowFunctionExpression1
+  ArrowFunctionExpression1.ts: >v : error — expected >v : (x: string) => void
+compiler/ClassDeclaration10
+  ClassDeclaration10.ts: >C : error — expected >C : C
+compiler/ClassDeclaration11
+  ClassDeclaration11.ts: >C : error — expected >C : C
+compiler/ClassDeclaration13
+  ClassDeclaration13.ts: >C : error — expected >C : C
+compiler/ClassDeclaration14
+  ClassDeclaration14.ts: >C : error — expected >C : C
+compiler/ClassDeclaration15
+  ClassDeclaration15.ts: >C : error — expected >C : C
+compiler/ClassDeclaration21
+  ClassDeclaration21.ts: >C : error — expected >C : C
+compiler/ClassDeclaration22
+  ClassDeclaration22.ts: >C : error — expected >C : C
+compiler/ClassDeclaration24
+  ClassDeclaration24.ts: >any : error — expected >any : any
+compiler/ClassDeclaration25
+  ClassDeclaration25.ts: >data : error — expected >data : () => T
+compiler/ClassDeclaration26
+  ClassDeclaration26.ts: 5 assertion(s), expected 6
+compiler/ClassDeclaration8
+  ClassDeclaration8.ts: >C : error — expected >C : C
+compiler/ClassDeclaration9
+  ClassDeclaration9.ts: >C : error — expected >C : C
+compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
+  ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts: >AtomicNumbers : error — expected >AtomicNumbers : AtomicNumbers
+compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration2
+  ClassDeclarationWithInvalidConstOnPropertyDeclaration2.ts: >C : error — expected >C : C
+compiler/DeclarationErrorsNoEmitOnError
+  DeclarationErrorsNoEmitOnError.ts: >T : error — expected >T : T
+compiler/ExportAssignment7
+  ExportAssignment7.ts: >C : error — expected >C : C
+compiler/ExportAssignment8
+  ExportAssignment8.ts: >B : error — expected >B : any
+compiler/FunctionDeclaration3
+  FunctionDeclaration3.ts: >foo : error — expected >foo : () => any
+compiler/FunctionDeclaration4
+  FunctionDeclaration4.ts: >foo : error — expected >foo : () => any
+compiler/FunctionDeclaration6
+  FunctionDeclaration6.ts: >foo : error — expected >foo : () => any
+compiler/FunctionDeclaration7
+  FunctionDeclaration7.ts: >M : error — expected >M : typeof M
+compiler/MemberAccessorDeclaration15
+  MemberAccessorDeclaration15.ts: >C : error — expected >C : C
+compiler/ParameterList4
+  ParameterList4.ts: >F : error — expected >F : (A: any) => void
+compiler/ParameterList5
+  ParameterList5.ts: >A : error — expected >A : () => (B: any) => C
+compiler/ParameterList6
+  ParameterList6.ts: >C : error — expected >C : C
+compiler/ParameterList7
+  ParameterList7.ts: >C1 : error — expected >C1 : C1
+compiler/ParameterList8
+  ParameterList8.ts: >C2 : error — expected >C2 : C2
+compiler/TransportStream
+  TransportStream.ts: >G : error — expected >G : any
+compiler/abstractClassInLocalScope
+  abstractClassInLocalScope.ts: >(() => {    abstract class A {}    class B extends A {}    new B();    return A;})() : error — expected >(() => {    abstract class A {}    class B extends A {}    new B();    return A;})() : typeof A
+compiler/abstractClassInLocalScopeIsAbstract
+  abstractClassInLocalScopeIsAbstract.ts: >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : error — expected >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : void
+compiler/abstractClassUnionInstantiation
+  abstractClassUnionInstantiation.ts: >ConcreteA : error — expected >ConcreteA : ConcreteA
+compiler/abstractIdentifierNameStrict
+  abstractIdentifierNameStrict.ts: >foo : error — expected >foo : () => void
+compiler/abstractInterfaceIdentifierName
+  abstractInterfaceIdentifierName.ts: >abstract : error — expected >abstract : () => void
+compiler/abstractPropertyInConstructor
+  abstractPropertyInConstructor.ts: >AbstractClass : error — expected >AbstractClass : AbstractClass
+compiler/acceptSymbolAsWeakType
+  acceptSymbolAsWeakType.ts: >Symbol('s') : error — expected >Symbol('s') : unique symbol
+compiler/acceptableAlias1
+  acceptableAlias1.ts: >M : error — expected >M : typeof M
+compiler/accessInstanceMemberFromStaticMethod01
+  accessInstanceMemberFromStaticMethod01.ts: >C : error — expected >C : C
+compiler/accessOverriddenBaseClassMember1
+  accessOverriddenBaseClassMember1.ts: >Point : error — expected >Point : Point
+compiler/accessStaticMemberFromInstanceMethod01
+  accessStaticMemberFromInstanceMethod01.ts: >C : error — expected >C : C
+compiler/accessorBodyInTypeContext
+  accessorBodyInTypeContext.ts: 12 assertion(s), expected 10
+compiler/accessorDeclarationEmitJs
+  /a.js: >t1 : error — expected >t1 : { p: string; readonly getter: string; }
+compiler/accessorDeclarationEmitVisibilityErrors
+  accessorDeclarationEmitVisibilityErrors.ts: >Q : error — expected >Q : Q
+compiler/accessorDeclarationOrder
+  accessorDeclarationOrder.ts: >C1 : error — expected >C1 : C1
+compiler/accessorInferredReturnTypeErrorInReturnStatement
+  accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : error — expected >basePrototype : { readonly primaryPath: any; }
+compiler/accessorsEmit
+  accessorsEmit.ts: >Result : error — expected >Result : Result
+compiler/accessors_spec_section-4.5_error-cases
+  accessors_spec_section-4.5_error-cases.ts: >LanguageSpec_section_4_5_error_cases : error — expected >LanguageSpec_section_4_5_error_cases : LanguageSpec_section_4_5_error_cases
+compiler/accessors_spec_section-4.5_inference
+  accessors_spec_section-4.5_inference.ts: >A : error — expected >A : A
+compiler/addMoreCallSignaturesToBaseSignature
+  addMoreCallSignaturesToBaseSignature.ts: >a : error — expected >a : Bar
+compiler/addMoreCallSignaturesToBaseSignature2
+  addMoreCallSignaturesToBaseSignature2.ts: >a : error — expected >a : Bar
+compiler/addMoreOverloadsToBaseSignature
+  addMoreOverloadsToBaseSignature.ts: >f : error — expected >f : () => string
+compiler/aliasAssignments
+  aliasAssignments_1.ts: >moduleA : error — expected >moduleA : typeof moduleA
+compiler/aliasBug
+  aliasBug.ts: >foo : error — expected >foo : typeof foo
+compiler/aliasDoesNotDuplicateSignatures
+  demo.d.ts: >demoNS : error — expected >demoNS : typeof demoNS
+compiler/aliasErrors
+  aliasErrors.ts: >foo : error — expected >foo : typeof foo
+compiler/aliasInaccessibleModule
+  aliasInaccessibleModule.ts: >M : error — expected >M : typeof M
+compiler/aliasInaccessibleModule2
+  aliasInaccessibleModule2.ts: >M : error — expected >M : typeof M
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
+  aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >ErrImpl : error — expected >ErrImpl : ErrImpl<E>
+compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
+  aliasInstantiationExpressionGenericIntersectionNoCrash2.ts: >Class : error — expected >Class : Class<T>
+compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
+  aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >ExtendedMapper : error — expected >ExtendedMapper : ExtendedMapper<HandledInputT, OutputT, ArgsT>
+compiler/aliasOnMergedModuleInterface
+  aliasOnMergedModuleInterface_1.ts: >foo : error — expected >foo : any
+compiler/aliasUsageInArray
+  aliasUsageInArray_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsageInFunctionExpression
+  aliasUsageInFunctionExpression_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsageInGenericFunction
+  aliasUsageInGenericFunction_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsageInIndexerOfClass
+  aliasUsageInIndexerOfClass_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsageInObjectLiteral
+  aliasUsageInObjectLiteral_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsageInOrExpression
+  aliasUsageInOrExpression_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsageInTypeArgumentOfExtendsClause
+  aliasUsageInTypeArgumentOfExtendsClause_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsageInVarAssignment
+  aliasUsageInVarAssignment_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+compiler/aliasUsedAsNameValue
+  aliasUsedAsNameValue_2.ts: >mod : error — expected >mod : typeof mod
+compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
+  aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts: >moduleA : error — expected >moduleA : any
+compiler/allowImportClausesToMergeWithTypes
+  b.ts: >zzz : error — expected >zzz : 123
+compiler/allowJsClassThisTypeCrash
+  app.js: >f : error — expected >f : () => void
+compiler/allowJsCrossMonorepoPackage
+  /packages/main/index.ts: >x : error — expected >x : "pkg"
+compiler/allowJscheckJsTypeParameterNoCrash
+  func.ts: >watch : error — expected >watch : Record<string, WatchHandler<any>>
+compiler/allowSyntheticDefaultImports1
+  a.ts: >Namespace : error — expected >Namespace : typeof Namespace
+compiler/allowSyntheticDefaultImports10
+  a.ts: >Foo : error — expected >Foo : typeof Foo
+compiler/allowSyntheticDefaultImports4
+  b.d.ts: >Foo : error — expected >Foo : Foo
+compiler/allowSyntheticDefaultImports9
+  b.d.ts: >foo : error — expected >foo : () => any
+compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
+  color.ts: >Color : error — expected >Color : Color
+compiler/alwaysStrict
+  alwaysStrict.ts: >f : error — expected >f : () => void
+compiler/alwaysStrictAlreadyUseStrict
+  alwaysStrictAlreadyUseStrict.ts: >f : error — expected >f : () => void
+compiler/alwaysStrictES6
+  alwaysStrictES6.ts: >f : error — expected >f : () => void
+compiler/alwaysStrictModule
+  alwaysStrictModule.ts: >M : error — expected >M : typeof M
+compiler/ambientClassDeclarationWithExtends
+  ambientClassDeclarationExtends_singleFile.ts: >A : error — expected >A : A
+compiler/ambientClassDeclaredBeforeBase
+  a.d.ts: >ns : error — expected >ns : typeof ns
+compiler/ambientClassMergesOverloadsWithInterface
+  ambientClassMergesOverloadsWithInterface.ts: >C : error — expected >C : C
+compiler/ambientClassOverloadForFunction
+  ambientClassOverloadForFunction.ts: >foo : error — expected >foo : foo
+compiler/ambientConstLiterals
+  ambientConstLiterals.ts: >f : error — expected >f : <T>(x: T) => T
+compiler/ambientEnum1
+  ambientEnum1.ts: >E1 : error — expected >E1 : E1
+compiler/ambientEnumElementInitializer1
+  ambientEnumElementInitializer1.ts: >E : error — expected >E : E
+compiler/ambientEnumElementInitializer2
+  ambientEnumElementInitializer2.ts: >E : error — expected >E : E
+compiler/ambientEnumElementInitializer3
+  ambientEnumElementInitializer3.ts: >E : error — expected >E : E
+compiler/ambientEnumElementInitializer4
+  ambientEnumElementInitializer4.ts: >E : error — expected >E : E
+compiler/ambientEnumElementInitializer5
+  ambientEnumElementInitializer5.ts: >E : error — expected >E : E
+compiler/ambientEnumElementInitializer6
+  ambientEnumElementInitializer6.ts: >M : error — expected >M : typeof M
+compiler/ambientExportDefaultErrors
+  foo.d.ts: >2 + 2 : error — expected >2 + 2 : number
+compiler/ambientExternalModuleInAnotherExternalModule
+  ambientExternalModuleInAnotherExternalModule.ts: >D : error — expected >D : D
+compiler/ambientExternalModuleReopen
+  ambientExternalModuleReopen.ts: >"fs" : error — expected >"fs" : typeof import("fs")
