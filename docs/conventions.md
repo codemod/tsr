@@ -766,3 +766,44 @@ distinguishes it:
 
 The statistic for level 4 is the distribution of *remaining* failures per
 affected case. It costs one extra bucket in a probe that is already being run.
+
+### A conservative `false` is safe for one kind of consumer and unsafe for the other
+
+`is_type_assignable_to` answers `false` for two distinct object types because
+structural comparison is *narrow*, not because they are unrelated. That was
+already documented as an incompleteness. What was not documented is that its
+**safety depends entirely on who is asking**:
+
+- A consumer that acts on `true` — "is this assignable, therefore allowed?" —
+  degrades gracefully. A false negative becomes a gap, which is honest.
+- A consumer that acts on `false` — "this candidate does not accept the
+  argument, therefore **try the next one**" — does not. A false negative
+  promotes the next candidate and yields a **confident wrong type**.
+
+Overload selection was the first consumer of the second kind in this checker,
+and nothing in the relater's own documentation could have warned it. The
+containment was to restrict selection to the domains
+`isSimpleTypeRelatedTo` decides on flags alone, and gap the whole call when
+anything falls outside.
+
+**Anything that ranks, filters, or selects is in the second category.**
+`getBestMatch`, discriminant narrowing on a union, `filterType`, and
+excess-property checking are all shaped this way and will each hit it when
+ported. Ask which kind of consumer you are writing before relying on a negative.
+
+### The anchors gate does not see your briefing
+
+`cargo run -p xtask -- anchors` validates anchors **in the source tree**. It
+cannot see a `checker.go:NNNN` pasted into an assignment, a `bd` note, or a
+message. Seven unverified upstream facts reached agents in one session through
+exactly that route — the gate exists and the briefing path routes around it.
+
+Checking costs less than pasting:
+
+```
+grep -n "^func (c \*Checker) resolveCall(" vendor/typescript-go/internal/checker/checker.go
+```
+
+One number in a brief this session was four cycles stale (`resolveCall` at
+`:9563`, actually `:8843` on the pinned commit) and had been copied forward from
+a note nobody re-checked.
