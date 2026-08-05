@@ -18,17 +18,23 @@
 //!
 //! # What it deliberately does not do
 //!
-//! - **It does not resolve modules.** The file list is given, not discovered.
-//!   Discovering it is [`loader`]'s job — a separate entry point with its own
-//!   oracle (146 `.trace.json` baselines) — and the two are not yet joined:
-//!   nothing today hands [`loader::LoadedFiles`] to [`Program`]. When something
-//!   does, `ProgramOptions::files` becomes "root files" rather than "all files".
 //! - **It does not read tsconfig.json.** Options arrive as a
 //!   [`CompilerOptions`], which is what upstream's `program.go` takes — it
 //!   imports `internal/core` and not `internal/tsoptions`.
 //! - **It does not merge globals.** Upstream does that in the *checker*
 //!   (`initializeTypeChecker` merges each script file's locals into `c.globals`),
-//!   and so should we, when there is one.
+//!   and so should we, when there is one. This is the reason a program that
+//!   holds `lib.es5.d.ts` still cannot answer `Array`: see
+//!   [ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md),
+//!   which says what is in the way and what would have to change.
+//!
+//! # Two ways in
+//!
+//! [`Program::new`] takes a file list. [`Program::from_root_files`] takes *root*
+//! files and a host, and runs [`loader::FileLoader`] to discover the rest —
+//! imports, `/// <reference />` directives, and the bundled `lib.*.d.ts`. The
+//! first is what the conformance corpus supplies today; the second is what `tsc`
+//! does.
 
 mod file;
 pub mod loader;
@@ -39,7 +45,7 @@ use tsr_core::CompilerOptions;
 use tsr_path::{Path, to_path};
 
 pub use file::ProgramFile;
-pub use loader::{FileLoader, LoadedFiles, RequestKind, ResolutionRequest};
+pub use loader::{FileLoader, LoadOptions, LoadedFiles, RequestKind, ResolutionRequest};
 
 /// How a program is constructed (`compiler.ProgramOptions`).
 #[derive(Debug, Clone)]
@@ -85,6 +91,12 @@ pub struct Program {
     /// Upstream keys `filesByPath` by `*ast.SourceFile`; an index is the same
     /// thing without a second borrow of the file.
     files_by_path: FxHashMap<Path, usize>,
+    /// How many leading entries of `files` are bundled lib files.
+    ///
+    /// Upstream keeps `libFiles` as a separate slice and concatenates it in
+    /// front (`filesparser.go:518`); the boundary is kept rather than the two
+    /// slices, because everything else about a lib file is ordinary.
+    lib_file_count: usize,
 }
 
 impl Program {
@@ -129,7 +141,45 @@ impl Program {
             files_by_path.entry(file.path().clone()).or_insert(index);
         }
 
-        Self { options: compiler_options, files: parsed, files_by_path }
+        Self { options: compiler_options, files: parsed, files_by_path, lib_file_count: 0 }
+    }
+
+    /// Discover the program's files from its roots, then parse and bind them.
+    ///
+    /// Upstream's `NewProgram`, which calls `processAllProgramFiles`
+    /// (`internal/compiler/program.go`) and takes the file list it returns.
+    /// [`Program::new`] is the other half of the same function — the one that is
+    /// handed a list — and the two meet here.
+    ///
+    /// The files come out of the loader **already parsed**: `parseTask.load`
+    /// parses each one to find its imports, so parsing again would be a second
+    /// pass over the same text. That is not a micro-optimisation once lib files
+    /// are in the picture — `lib.dom.d.ts` alone is 2.3 MB.
+    ///
+    /// Binding still happens here rather than in the loader, because upstream
+    /// keeps that split: `NewProgram` parses and `BindSourceFiles` binds later,
+    /// on demand.
+    #[must_use]
+    pub fn from_root_files(
+        host: &dyn tsr_module::types::ResolutionHost,
+        options: loader::LoadOptions,
+    ) -> Self {
+        let compiler_options = options.compiler_options.clone();
+        let loaded = loader::FileLoader::load(host, options);
+
+        let mut files_by_path = FxHashMap::default();
+        for (index, file) in loaded.files.iter().enumerate() {
+            files_by_path.entry(file.path().clone()).or_insert(index);
+        }
+
+        let mut program = Self {
+            options: compiler_options,
+            files: loaded.files,
+            files_by_path,
+            lib_file_count: loaded.lib_file_count,
+        };
+        program.bind_source_files();
+        program
     }
 
     /// Bind every file that is not bound (`Program.BindSourceFiles`).
@@ -148,9 +198,27 @@ impl Program {
     }
 
     /// Every file, in the order given (`Program.SourceFiles`).
+    ///
+    /// Lib files lead, when there are any. See [`Program::lib_files`].
     #[must_use]
     pub fn source_files(&self) -> &[ProgramFile] {
         &self.files
+    }
+
+    /// The bundled `lib.*.d.ts` this program loaded, in load order.
+    ///
+    /// Load order is not incidental: a global interface declared in several libs
+    /// merges in the order the files were added, so `lib.es5.d.ts`'s `Array`
+    /// comes before `lib.es2015.iterable.d.ts`'s additions to it.
+    #[must_use]
+    pub fn lib_files(&self) -> &[ProgramFile] {
+        &self.files[..self.lib_file_count]
+    }
+
+    /// Everything that is not a lib file, in the order the loader reached it.
+    #[must_use]
+    pub fn root_and_referenced_files(&self) -> &[ProgramFile] {
+        &self.files[self.lib_file_count..]
     }
 
     /// The file with this canonical path (`Program.GetSourceFileByPath`).
@@ -277,6 +345,124 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(program.compiler_options().emit_script_target(), tsr_core::ScriptTarget::ES2020);
+    }
+
+    // ---- A program discovered from its roots --------------------------------
+
+    struct TestHost {
+        fs: tsr_vfs::InMemoryFileSystem,
+    }
+
+    impl tsr_module::types::ResolutionHost for TestHost {
+        fn fs(&self) -> &dyn tsr_vfs::FileSystem {
+            &self.fs
+        }
+
+        fn current_directory(&self) -> &'static str {
+            "/"
+        }
+    }
+
+    fn host(files: &[(String, String)]) -> TestHost {
+        TestHost { fs: tsr_vfs::InMemoryFileSystem::new(files.iter().cloned(), [], true) }
+    }
+
+    /// The bundled lib directory, or `None` when the submodule is not checked
+    /// out. See docs/conventions.md — a submodule-dependent test skips.
+    fn bundled_lib(name: &str) -> Option<String> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)?
+            .join("vendor/typescript-go/internal/bundled/libs")
+            .join(name);
+        std::fs::read_to_string(path).ok()
+    }
+
+    #[test]
+    fn a_program_discovers_the_files_its_roots_reach() {
+        let files = [
+            ("/a.ts".to_string(), "import { b } from \"./b\";\nexport const a = b;\n".to_string()),
+            ("/b.ts".to_string(), "export const b = 1;\n".to_string()),
+        ];
+        let program = Program::from_root_files(
+            &host(&files),
+            LoadOptions { root_file_names: vec!["/a.ts".to_string()], ..Default::default() },
+        );
+        let mut names: Vec<&str> =
+            program.source_files().iter().map(ProgramFile::file_name).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["/a.ts", "/b.ts"], "`b.ts` was never named, only imported");
+        assert!(program.source_files().iter().all(ProgramFile::is_bound));
+    }
+
+    #[test]
+    fn the_real_lib_file_is_loaded_bound_and_declares_the_globals() {
+        // The end of the slice, asserted against the actual shipped file rather
+        // than a fixture that says `declare interface Array<T> {}` — a fixture
+        // would prove the loader can find a file it was told about and nothing
+        // more. `Array`, `Object` and `String` are the three names the corpus
+        // asks for most and all three are declared in `lib.es5.d.ts`.
+        let Some(text) = bundled_lib("lib.es5.d.ts") else {
+            return; // the submodule is not checked out
+        };
+        let files = [
+            ("/a.ts".to_string(), "const x = 1;\n".to_string()),
+            ("/libs/lib.es5.d.ts".to_string(), text),
+        ];
+        let program = Program::from_root_files(
+            &host(&files),
+            LoadOptions {
+                compiler_options: CompilerOptions {
+                    lib: vec!["es5".to_string()],
+                    ..Default::default()
+                },
+                root_file_names: vec!["/a.ts".to_string()],
+                default_library_path: "/libs".to_string(),
+            },
+        );
+
+        assert_eq!(program.lib_files().len(), 1);
+        assert_eq!(program.lib_files()[0].file_name(), "/libs/lib.es5.d.ts");
+        assert_eq!(program.source_files()[0].file_name(), "/libs/lib.es5.d.ts", "libs lead");
+        assert!(program.syntactic_diagnostics().is_empty(), "the shipped lib file must parse");
+
+        let declares = |name: &str| {
+            program.lib_files()[0].with_bound(|_, bound| {
+                bound.symbols().iter().any(|(_, symbol)| symbol.name == name)
+            })
+        };
+        assert!(declares("Array"), "the whole point of loading a lib file");
+        assert!(declares("Object"));
+        assert!(declares("String"));
+    }
+
+    #[test]
+    fn a_lib_files_symbols_are_still_the_lib_files_own() {
+        // The limit this slice stops at, asserted so it cannot be mistaken for a
+        // capability: the program holds the lib file's symbols, and a *different*
+        // file still cannot resolve a name into them. Nothing merges them into a
+        // global scope, and the identity problem in the way is
+        // docs/adr/0034-a-program-needs-one-identity-space.md.
+        let files = [
+            ("/a.ts".to_string(), "const x = 1;\n".to_string()),
+            ("/libs/lib.es5.d.ts".to_string(), "declare var globalThing: number;\n".to_string()),
+        ];
+        let program = Program::from_root_files(
+            &host(&files),
+            LoadOptions {
+                compiler_options: CompilerOptions {
+                    lib: vec!["es5".to_string()],
+                    ..Default::default()
+                },
+                root_file_names: vec!["/a.ts".to_string()],
+                default_library_path: "/libs".to_string(),
+            },
+        );
+        let a = program.source_file("/a.ts", "/").expect("the root file is in the program");
+        let resolved = a.with_bound(|source_file, bound| {
+            source_file.node_id.and_then(|id| bound.resolve(a.nodes(), id, "globalThing")).is_some()
+        });
+        assert!(!resolved, "cross-file name resolution does not exist yet — see ADR-0034");
     }
 
     #[test]

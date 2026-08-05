@@ -48,6 +48,7 @@ pub use generated::libs::{LIB_MAP, LIB_NAMES};
 
 pub mod declarations;
 pub mod file_names;
+pub mod libs;
 pub mod value;
 
 use tsr_core::{CompilerOptions, OrderedMap};

@@ -174,8 +174,11 @@ once the budget is spent). They travel together and so live in one `Depth`.
 Named here rather than discovered later; the rationale and falsifiers for each
 are in [ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md).
 
-- Lib files are not loaded (they resolve nothing) — except under
-  `libReplacement`, which does, and is not implemented (bd tsr-9or.5).
+- **Corrected 2026-08-05:** lib files *are* now loaded — the default for the
+  target, an explicit `--lib`, and `/// <reference lib="…" />`. They still
+  resolve nothing, so nothing in this document's oracle changes; which files are
+  selected and in what order is [program.md](program.md). The exception remains
+  `libReplacement`, which does resolve and is not implemented (bd tsr-9or.5).
 - Root file names arrive from the caller. Turning a `tsconfig.json` into that
   list is [`tsr-tsoptions`](tsconfig.md)'s job, as it is upstream's; the loader
   takes `ParsedCommandLine.FileNames` either way.
@@ -189,6 +192,29 @@ are in [ADR-0019](../adr/0019-the-loader-gate-discharges-the-mode-circularity.md
   a missing or unsupported-extension file, are dropped: each place upstream
   records one, this returns nothing. None is a resolution, so none is visible in
   the oracle.
+
+## Lib files, added 2026-08-05
+
+A lib task is a root task like any other, added after every root file and before
+the synthetic `types`/`@types` task — upstream's order (`fileloader.go:157`),
+and therefore the order the replay walk sees them.
+
+Three things about them are not like other tasks, and each is a place the header
+sequence could go wrong:
+
+1. **They resolve nothing.** The `--lib` value and the `<reference lib>` name are
+   table lookups, not module resolutions. No request, no trace.
+2. **Their `package.json` is never read** (`filesparser.go:103-108`), because
+   doing so would warm the resolver's package cache that later resolutions
+   observe. See [program.md](program.md).
+3. **They are sorted, and moved to the front of the file list.**
+   `fileLoader.sortLibs` (`fileloader.go:315`), then
+   `allFiles := append(libFiles, files...)` (`filesparser.go:518`). This is the
+   first time the loader's output order is not simply the replay order.
+
+The conformance `file_loader` suite runs with an empty `default_library_path`
+against an in-memory host holding only the case's own units, so the lib tasks
+find nothing and this suite measures exactly what it measured before.
 
 ## The gate
 

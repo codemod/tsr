@@ -43,12 +43,13 @@
 //! Each of these is a place the header sequence could be wrong, so each is named
 //! rather than left to be discovered:
 //!
-//! - **Lib files are not loaded.** A default-lib or `/// <reference lib="…" />`
-//!   task resolves nothing (`parseTask.load` gives lib files a fixed
-//!   `CommonJS` metadata precisely to avoid a `package.json` lookup), so it
-//!   contributes no trace. The exception is `libReplacement`, which resolves
-//!   `@typescript/lib-*` through the module resolver and *does* trace; that
-//!   needs the bundled lib files on the host and is not done (bd tsr-9or.5).
+//! - **Lib files resolve nothing.** A default-lib or `/// <reference lib="…" />`
+//!   task is now loaded (see [`FileLoader::add_lib_file_tasks`]), but it
+//!   contributes no trace: `parseTask.load` gives a lib file a fixed `CommonJS`
+//!   metadata precisely to avoid the `package.json` lookup, and that skip is
+//!   reproduced here. The exception is `libReplacement`, which resolves
+//!   `@typescript/lib-*` through the module resolver and *does* trace; that is
+//!   still not done (bd tsr-9or.5).
 //! - **`importHelpers` does not synthesise a `tslib` import.** No `.trace.json`
 //!   baseline contains one — checked, `Resolving module 'tslib'` appears zero
 //!   times across all 146 — so implementing it would be untested code.
@@ -109,12 +110,61 @@ pub struct ResolutionRequest {
     pub mode: ResolutionMode,
 }
 
+/// What a load is asked for.
+///
+/// A struct rather than three positional arguments because
+/// `default_library_path` is the third thing that is neither an option nor a
+/// root file, and because upstream keeps it somewhere this port cannot: it is
+/// `CompilerHost.DefaultLibraryPath()` (`internal/compiler/host.go:16`), a
+/// method on the *compiler* host, which is a different interface from the
+/// *resolution* host [`FileLoader`] already takes. Adding it to
+/// [`tsr_module::types::ResolutionHost`] would merge two identities upstream
+/// keeps apart, and introducing a `CompilerHost: ResolutionHost` supertrait
+/// would need trait upcasting to reach the resolver — stable since Rust 1.86,
+/// and this workspace pins `rust-version = "1.85"`. So the path travels beside
+/// the host instead. If the MSRV moves, the supertrait is the better shape.
+#[derive(Debug, Clone, Default)]
+pub struct LoadOptions {
+    /// The options every file is loaded under.
+    pub compiler_options: CompilerOptions,
+    /// The files the walk starts from (`ParsedCommandLine.FileNames`).
+    pub root_file_names: Vec<String>,
+    /// The directory holding the bundled `lib.*.d.ts`
+    /// (`CompilerHost.DefaultLibraryPath`).
+    ///
+    /// Empty means "there is none": lib tasks are still created, and simply find
+    /// no file. That is deliberately not the same as `noLib`, which creates no
+    /// task at all — a host with no libs and a program that asked for none are
+    /// different situations and only one of them is a missing-file diagnostic
+    /// upstream.
+    pub default_library_path: String,
+}
+
 /// Everything one load produced (`compiler.processedFiles`, reduced to what
 /// exists).
 #[derive(Debug, Default)]
 pub struct LoadedFiles {
-    /// Every file the walk reached, in the order the walk reached it.
+    /// Every file the walk reached, **lib files first**.
+    ///
+    /// Upstream's `allFiles := append(libFiles, files...)`
+    /// (`filesparser.go:518`), with `libFiles` sorted by
+    /// `getDefaultLibFilePriority` first. Everything after the libs is in the
+    /// order the replay walk reached it.
     pub file_names: Vec<String>,
+    /// How many of the leading entries of [`LoadedFiles::file_names`] are lib
+    /// files. The boundary upstream keeps as two separate slices.
+    pub lib_file_count: usize,
+    /// The parsed files, positionally matching [`LoadedFiles::file_names`].
+    ///
+    /// The loader parses every file it reaches anyway (`parseTask.load` sets
+    /// `t.file`), so handing them out costs nothing and is what stops a
+    /// [`crate::Program`] built from a load re-reading and re-parsing 3.9 MB of
+    /// lib files.
+    ///
+    /// A file the host could not read appears in neither this nor
+    /// [`LoadedFiles::file_names`]: it is upstream's `missingFiles`, which is a
+    /// diagnostic rather than a member of the program.
+    pub files: Vec<ProgramFile>,
     /// Every resolution requested, in replay order.
     pub requests: Vec<ResolutionRequest>,
     /// Every trace line the resolver produced, in replay order.
@@ -151,11 +201,23 @@ struct ParseTask {
     path: Path,
     /// Whether this is the synthetic task that resolves `types`/`@types`.
     is_for_automatic_type_directive: bool,
+    /// The bundled lib file this task loads, if it loads one
+    /// (`parseTask.libFile`).
+    ///
+    /// Its *base name*, not its path: it is what
+    /// `tsoptions::libs::lib_option_index` sorts on, and upstream recovers the
+    /// same string from the path by stripping the default library directory
+    /// (`fileloader.go:326`). Keeping it is the same information without the
+    /// prefix arithmetic.
+    lib_file: Option<&'static str>,
     depth: Depth,
     /// Whether [`FileLoader::load_task`] ran for this task. A task for a path
     /// some earlier task already claimed stays unloaded and is skipped by the
     /// replay walk, along with its subtree.
     loaded: bool,
+    /// The parsed file (`parseTask.file`). `None` when the host could not read
+    /// it, which is upstream's `missingFiles`.
+    file: Option<ProgramFile>,
     sub_tasks: Vec<usize>,
     metadata: SourceFileMetaData,
     type_resolutions_trace: Vec<Trace>,
@@ -170,8 +232,10 @@ impl ParseTask {
             file_name,
             path,
             is_for_automatic_type_directive: false,
+            lib_file: None,
             depth: Depth::default(),
             loaded: false,
+            file: None,
             sub_tasks: Vec::new(),
             metadata: SourceFileMetaData::default(),
             type_resolutions_trace: Vec::new(),
@@ -201,6 +265,9 @@ pub struct FileLoader<'host> {
     supported_extensions: &'static [&'static [&'static str]],
     supported_extensions_with_json: &'static [&'static [&'static str]],
     max_node_module_js_depth: i32,
+    /// Where the bundled `lib.*.d.ts` live, normalised and absolute
+    /// (`fileLoader.defaultLibraryPath`).
+    default_library_path: String,
 }
 
 impl<'host> FileLoader<'host> {
@@ -210,11 +277,9 @@ impl<'host> FileLoader<'host> {
     /// come from `ParsedCommandLine.FileNames`, and turning a `tsconfig.json`
     /// into that list is `tsr-tsoptions`' job (bd tsr-9or slice 3).
     #[must_use]
-    pub fn load(
-        host: &'host dyn ResolutionHost,
-        options: CompilerOptions,
-        root_file_names: &[String],
-    ) -> LoadedFiles {
+    pub fn load(host: &'host dyn ResolutionHost, load_options: LoadOptions) -> LoadedFiles {
+        let LoadOptions { compiler_options: options, root_file_names, default_library_path } =
+            load_options;
         // From `tsr-tsoptions`, as upstream's `fileloader.go` takes them from
         // `internal/tsoptions`: the same two lists decide which files a wildcard
         // `include` expands to and which extensions a reference may name.
@@ -227,6 +292,12 @@ impl<'host> FileLoader<'host> {
             host,
             max_node_module_js_depth: options.max_node_module_js_depth.unwrap_or(0),
             options,
+            // As upstream normalises it once on construction (`fileloader.go:136`),
+            // so every `pathForLibFile` is a plain join.
+            default_library_path: get_normalized_absolute_path(
+                &default_library_path,
+                host.current_directory(),
+            ),
             tasks: Vec::new(),
             root_tasks: Vec::new(),
             claimed: FxHashMap::default(),
@@ -234,12 +305,15 @@ impl<'host> FileLoader<'host> {
             supported_extensions_with_json,
         };
 
-        for root in root_file_names {
+        for root in &root_file_names {
             loader.add_root_file_task(root);
         }
-        // Lib files would be added here (`compilerOptions.Lib`, or the default
-        // for the target). They resolve nothing; see the module docs.
+        // `fileloader.go:157`. Both this and the automatic type directives are
+        // guarded on there being root files at all: a program with no roots gets
+        // no libs, which is why an empty `files`/`include` is an empty program
+        // rather than a program of nothing but `lib.d.ts`.
         if !root_file_names.is_empty() {
+            loader.add_lib_file_tasks();
             loader.add_automatic_type_directive_task();
         }
 
@@ -247,7 +321,12 @@ impl<'host> FileLoader<'host> {
         for root in roots {
             loader.process_task(root, 0);
         }
-        loader.collect_files()
+        let (mut result, order) = loader.collect_files();
+        result.files = order
+            .into_iter()
+            .map(|index| loader.tasks[index].file.take().expect("only read files are collected"))
+            .collect();
+        result
     }
 
     // ---- Root tasks --------------------------------------------------------
@@ -263,6 +342,29 @@ impl<'host> FileLoader<'host> {
         let resolved =
             self.source_file_from_reference(&absolute, &current_directory).unwrap_or(absolute);
         self.push_root(resolved);
+    }
+
+    /// The default libs, or the ones `--lib` named (`fileloader.go:157-171`).
+    ///
+    /// Added **after** every root file and **before** the automatic type
+    /// directive task, which is upstream's order and therefore the order they
+    /// appear in the replay walk. It does not decide the order they appear in
+    /// the program: [`FileLoader::collect_files`] sorts the libs afterwards, as
+    /// `sortLibs` does.
+    fn add_lib_file_tasks(&mut self) {
+        for name in tsr_tsoptions::libs::lib_file_names(&self.options) {
+            let index = self.push_root(self.path_for_lib_file(name));
+            self.tasks[index].lib_file = Some(name);
+        }
+    }
+
+    /// Where a bundled lib file lives (`fileLoader.pathForLibFile`).
+    ///
+    /// The `libReplacement` half — resolving `@typescript/lib-dom` through the
+    /// module resolver, which *does* trace — is not ported (bd tsr-9or.5). It is
+    /// off by default and no `.trace.json` baseline exercises it.
+    fn path_for_lib_file(&self, name: &str) -> String {
+        combine_paths(&self.default_library_path, &[name])
     }
 
     /// `fileLoader.addAutomaticTypeDirectiveTasks`.
@@ -352,7 +454,20 @@ impl<'host> FileLoader<'host> {
             }
         }
 
-        self.tasks[index].metadata = self.load_source_file_meta_data(&file_name);
+        // A lib file's format is fixed rather than looked up. Upstream's reason
+        // is watcher noise — "we can safely skip looking up their package.json
+        // to avoid adding spurious lookups" — and the consequence here is
+        // sharper: `load_source_file_meta_data` warms the resolver's
+        // `package.json` cache, which later resolutions observe, so doing it for
+        // a lib file would change the trace of a program that has one.
+        self.tasks[index].metadata = if self.tasks[index].lib_file.is_some() {
+            SourceFileMetaData {
+                package_json_type: String::new(),
+                implied_node_format: ResolutionMode::CommonJS,
+            }
+        } else {
+            self.load_source_file_meta_data(&file_name)
+        };
 
         let Some(text) = self.host.fs().read_file(&file_name) else { return };
         let file = ProgramFile::parse(self.tasks[index].path.clone(), file_name.clone(), text);
@@ -372,9 +487,30 @@ impl<'host> FileLoader<'host> {
             self.resolve_type_reference_directives(index, &file);
         }
 
-        // `/// <reference lib="…" />` would be handled here. See the module docs.
+        // `/// <reference lib="…" />` (`filesparser.go:133-155`). Between the
+        // path/type references above and the imports below, which is upstream's
+        // position and so the order these subtasks are walked in.
+        //
+        // It resolves nothing — the name is a table lookup, not a module
+        // resolution — so it adds no request and no trace. A name the table does
+        // not know is a diagnostic upstream and is dropped here, as every other
+        // loader diagnostic is.
+        if !self.options.no_lib.is_true() {
+            let libs = file.file_references().lib_reference_directives.clone();
+            for lib in &libs {
+                if let Some(name) = tsr_tsoptions::libs::get_lib_file_name(&lib.file_name) {
+                    let path = self.path_for_lib_file(name);
+                    let sub = self.add_sub_task(
+                        index,
+                        &ResolvedRef { file_name: path, depth: Depth::default() },
+                    );
+                    self.tasks[sub].lib_file = Some(name);
+                }
+            }
+        }
 
         self.resolve_imports_and_module_augmentations(index, &file);
+        self.tasks[index].file = Some(file);
     }
 
     /// `parseTask.loadAutomaticTypeDirectives` +
@@ -653,10 +789,11 @@ impl<'host> FileLoader<'host> {
             .any(|group| file_extension_is_one_of(canonical_file_name, group))
     }
 
-    fn add_sub_task(&mut self, parent: usize, reference: &ResolvedRef) {
+    fn add_sub_task(&mut self, parent: usize, reference: &ResolvedRef) -> usize {
         let index = self.new_task(normalize_path(&reference.file_name));
         self.tasks[index].depth = reference.depth;
         self.tasks[parent].sub_tasks.push(index);
+        index
     }
 
     // ---- Module format -----------------------------------------------------
@@ -852,16 +989,63 @@ impl<'host> FileLoader<'host> {
     /// path once, and within a file the *type* resolutions before the module
     /// resolutions — because that is the order `collectFiles` writes them to the
     /// host, and therefore the order the baselines are in.
-    fn collect_files(&self) -> LoadedFiles {
+    /// The replay walk, and the file list it produces.
+    ///
+    /// Returns the task index behind each entry of
+    /// [`LoadedFiles::file_names`], so the caller can move each task's parsed
+    /// file out in the same order. Two values rather than one because the walk
+    /// takes `&self` — the recursion visits a task's subtasks while borrowing
+    /// it — and moving a `ProgramFile` out needs `&mut`.
+    fn collect_files(&self) -> (LoadedFiles, Vec<usize>) {
         let mut result = LoadedFiles::default();
         let mut seen: FxHashSet<Path> = FxHashSet::default();
+        // Upstream collects lib files into their own slice and concatenates
+        // afterwards (`filesparser.go:486`, `:518`). Same here, because the two
+        // are interleaved in the walk and only the libs are sorted.
+        let mut libs: Vec<usize> = Vec::new();
+        let mut rest: Vec<usize> = Vec::new();
         for root in &self.root_tasks {
-            self.collect_task(*root, &mut seen, &mut result);
+            self.collect_task(*root, &mut seen, &mut result, &mut libs, &mut rest);
         }
-        result
+
+        // `fileLoader.sortLibs` / `getDefaultLibFilePriority` (`fileloader.go:315`).
+        // A stable sort, as `slices.SortFunc` is not — but upstream's comparator
+        // is over a total order that only ties for two files of equal priority,
+        // and equal priority means the same file, which the walk claims once. So
+        // the tie never arises and stability is free insurance rather than a
+        // divergence.
+        libs.sort_by_key(|index| self.lib_file_priority(*index));
+
+        result.lib_file_count = libs.len();
+        let order: Vec<usize> = libs.into_iter().chain(rest).collect();
+        result.file_names = order.iter().map(|i| self.tasks[*i].file_name.clone()).collect();
+        (result, order)
     }
 
-    fn collect_task(&self, index: usize, seen: &mut FxHashSet<Path>, result: &mut LoadedFiles) {
+    /// Where a lib file sorts (`fileLoader.getDefaultLibFilePriority`).
+    ///
+    /// Upstream recovers the lib's name from its path and looks it up in
+    /// `tsoptions.Libs`; the base name is recorded on the task here instead, so
+    /// this is the lookup without the string surgery. `lib.d.ts` and
+    /// `lib.es6.d.ts` sort first (priority 0); a name in the table sorts at its
+    /// index plus one; anything else sorts last.
+    fn lib_file_priority(&self, index: usize) -> usize {
+        let Some(name) = self.tasks[index].lib_file else { return usize::MAX };
+        if name == "lib.d.ts" || name == "lib.es6.d.ts" {
+            return 0;
+        }
+        tsr_tsoptions::libs::lib_option_index(name)
+            .map_or(tsr_tsoptions::LIB_MAP.len() + 2, |index| index + 1)
+    }
+
+    fn collect_task(
+        &self,
+        index: usize,
+        seen: &mut FxHashSet<Path>,
+        result: &mut LoadedFiles,
+        libs: &mut Vec<usize>,
+        rest: &mut Vec<usize>,
+    ) {
         let task = &self.tasks[index];
         if !task.loaded || !seen.insert(task.path.clone()) {
             return;
@@ -872,11 +1056,17 @@ impl<'host> FileLoader<'host> {
         result.traces.extend(task.resolutions_trace.iter().cloned());
 
         for sub_task in &task.sub_tasks {
-            self.collect_task(*sub_task, seen, result);
+            self.collect_task(*sub_task, seen, result, libs, rest);
         }
 
-        if !task.is_for_automatic_type_directive {
-            result.file_names.push(task.file_name.clone());
+        // A task whose file could not be read is upstream's `missingFiles`
+        // (`filesparser.go:483`) — a diagnostic, and *not* a member of the
+        // program. Before lib files this distinction was invisible, because
+        // every path the walk reached had come from a file-system probe that
+        // had already found it; a lib file is the first task built from a name
+        // rather than from a probe, so it is the first that can be absent.
+        if !task.is_for_automatic_type_directive && task.file.is_some() {
+            if task.lib_file.is_some() { libs } else { rest }.push(index);
         }
     }
 }
@@ -950,6 +1140,15 @@ mod tests {
     }
 
     fn load(files: &[(&str, &str)], roots: &[&str], options: CompilerOptions) -> LoadedFiles {
+        load_from(files, roots, options, "/libs")
+    }
+
+    fn load_from(
+        files: &[(&str, &str)],
+        roots: &[&str],
+        options: CompilerOptions,
+        default_library_path: &str,
+    ) -> LoadedFiles {
         let host = TestHost {
             fs: InMemoryFileSystem::new(
                 files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
@@ -957,8 +1156,22 @@ mod tests {
                 true,
             ),
         };
-        let roots: Vec<String> = roots.iter().map(|r| (*r).to_string()).collect();
-        FileLoader::load(&host, options, &roots)
+        FileLoader::load(
+            &host,
+            LoadOptions {
+                compiler_options: options,
+                root_file_names: roots.iter().map(|r| (*r).to_string()).collect(),
+                default_library_path: default_library_path.to_string(),
+            },
+        )
+    }
+
+    /// The base names of the lib files a load produced, in program order.
+    fn libs(loaded: &LoadedFiles) -> Vec<&str> {
+        loaded.file_names[..loaded.lib_file_count]
+            .iter()
+            .map(|name| name.rsplit('/').next().expect("a name has at least one segment"))
+            .collect()
     }
 
     fn traced() -> CompilerOptions {
@@ -1127,5 +1340,204 @@ mod tests {
     fn a_root_file_without_an_extension_is_resolved_against_the_first_extension_group() {
         let loaded = load(&[("/a.ts", "export {};\n")], &["/a"], traced());
         assert_eq!(loaded.file_names, ["/a.ts"]);
+    }
+
+    // ---- Lib files ---------------------------------------------------------
+
+    /// A file system with a lib directory holding every name asked for.
+    fn with_libs<'a>(
+        files: &[(&'a str, &'a str)],
+        lib_names: &[&str],
+    ) -> Vec<(String, &'a str, String)> {
+        let mut all: Vec<(String, &str, String)> =
+            files.iter().map(|(n, t)| ((*n).to_string(), *t, (*t).to_string())).collect();
+        for name in lib_names {
+            all.push((format!("/libs/{name}"), "", "declare const marker: number;\n".to_string()));
+        }
+        all
+    }
+
+    fn load_with_libs(
+        files: &[(&str, &str)],
+        lib_names: &[&str],
+        roots: &[&str],
+        options: CompilerOptions,
+    ) -> LoadedFiles {
+        let all = with_libs(files, lib_names);
+        let borrowed: Vec<(&str, &str)> =
+            all.iter().map(|(name, _, text)| (name.as_str(), text.as_str())).collect();
+        load_from(&borrowed, roots, options, "/libs")
+    }
+
+    #[test]
+    fn the_default_lib_is_loaded_and_comes_first() {
+        // The whole point of the slice: without this the program is the case's
+        // own files and nothing else, so `Array` has no declaration anywhere.
+        let loaded = load_with_libs(
+            &[("/a.ts", "const x = 1;\n")],
+            &["lib.d.ts"],
+            &["/a.ts"],
+            CompilerOptions::default(),
+        );
+        assert_eq!(loaded.file_names, ["/libs/lib.d.ts", "/a.ts"]);
+        assert_eq!(loaded.lib_file_count, 1);
+        assert_eq!(loaded.files.len(), 2, "the loader hands out what it parsed");
+    }
+
+    #[test]
+    fn the_target_chooses_the_default_lib() {
+        let loaded = load_with_libs(
+            &[("/a.ts", "const x = 1;\n")],
+            &["lib.es2020.full.d.ts"],
+            &["/a.ts"],
+            CompilerOptions { target: tsr_core::ScriptTarget::ES2020, ..Default::default() },
+        );
+        assert_eq!(libs(&loaded), ["lib.es2020.full.d.ts"]);
+    }
+
+    #[test]
+    fn no_lib_loads_none_and_an_absent_lib_directory_is_not_the_same_thing() {
+        let none = load_with_libs(
+            &[("/a.ts", "const x = 1;\n")],
+            &["lib.d.ts"],
+            &["/a.ts"],
+            CompilerOptions { no_lib: Tristate::True, ..Default::default() },
+        );
+        assert_eq!(none.file_names, ["/a.ts"]);
+        assert_eq!(none.lib_file_count, 0);
+
+        // A host with no lib directory produces the same *file list* by a
+        // different route — the task exists and finds nothing. The distinction
+        // is upstream's missing-file diagnostic, which this port does not have,
+        // so it is asserted where it is visible: `noLib` never creates the task,
+        // so it never probes for the file.
+        let missing = load(&[("/a.ts", "const x = 1;\n")], &["/a.ts"], CompilerOptions::default());
+        assert_eq!(missing.file_names, ["/a.ts"]);
+        assert_eq!(missing.lib_file_count, 0);
+    }
+
+    #[test]
+    fn a_program_with_no_root_files_gets_no_libs() {
+        // Upstream guards the whole lib block on `len(rootFiles) > 0`. Without
+        // it, an empty `include` would compile a program consisting of nothing
+        // but `lib.d.ts`.
+        let loaded = load_with_libs(
+            &[("/a.ts", "const x = 1;\n")],
+            &["lib.d.ts"],
+            &[],
+            CompilerOptions::default(),
+        );
+        assert!(loaded.file_names.is_empty());
+    }
+
+    #[test]
+    fn an_explicit_lib_list_is_sorted_by_load_order_and_not_by_the_order_given() {
+        // `sortLibs`. `es2015.symbol` sits after `dom` in upstream's `Libs`, so
+        // asking for them the other way round must still load `dom` first —
+        // load order decides which declaration of a merged global wins, and a
+        // list that merely echoed the command line would silently reverse it.
+        let loaded = load_with_libs(
+            &[("/a.ts", "const x = 1;\n")],
+            &["lib.es2015.symbol.d.ts", "lib.dom.d.ts", "lib.es5.d.ts"],
+            &["/a.ts"],
+            CompilerOptions {
+                lib: vec!["es2015.symbol".into(), "dom".into(), "es5".into()],
+                ..Default::default()
+            },
+        );
+        assert_eq!(libs(&loaded), ["lib.es5.d.ts", "lib.dom.d.ts", "lib.es2015.symbol.d.ts"]);
+    }
+
+    #[test]
+    fn the_unnumbered_lib_sorts_ahead_of_every_numbered_one() {
+        // `getDefaultLibFilePriority` gives `lib.d.ts` and `lib.es6.d.ts`
+        // priority 0, ahead of `es5` at index 0 + 1. They are not in `Libs` at
+        // all, so a lookup without the special case would sort them *last*.
+        let loaded = load_with_libs(
+            &[("/a.ts", "/// <reference lib=\"es5\" />\nconst x = 1;\n")],
+            &["lib.d.ts", "lib.es5.d.ts"],
+            &["/a.ts"],
+            CompilerOptions::default(),
+        );
+        assert_eq!(libs(&loaded), ["lib.d.ts", "lib.es5.d.ts"]);
+    }
+
+    #[test]
+    fn a_reference_lib_directive_adds_a_lib_file_and_resolves_nothing() {
+        let loaded = load_with_libs(
+            &[("/a.ts", "/// <reference lib=\"es2015.symbol\" />\nconst x = 1;\n")],
+            &["lib.d.ts", "lib.es2015.symbol.d.ts"],
+            &["/a.ts"],
+            traced(),
+        );
+        assert_eq!(libs(&loaded), ["lib.d.ts", "lib.es2015.symbol.d.ts"]);
+        // It is a table lookup, not a module resolution: no request, no trace.
+        assert!(names(&loaded).is_empty());
+        assert!(loaded.traces.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_reference_lib_adds_nothing() {
+        // Upstream reports `processingDiagnosticKindUnknownReference`. This port
+        // has no loader diagnostics, so the file is simply absent — never
+        // substituted with a default, which would be a plausible answer to a
+        // question upstream answers with an error.
+        //
+        // The program asks for `es5` explicitly and the host *also* ships
+        // `lib.d.ts`, so a fallback to the default would be visible. Written
+        // against the default lib instead, this test could not see one: the
+        // fallback would name a file the program already had.
+        let loaded = load_with_libs(
+            &[("/a.ts", "/// <reference lib=\"nonsense\" />\nconst x = 1;\n")],
+            &["lib.d.ts", "lib.es5.d.ts"],
+            &["/a.ts"],
+            CompilerOptions { lib: vec!["es5".into()], ..Default::default() },
+        );
+        assert_eq!(libs(&loaded), ["lib.es5.d.ts"]);
+    }
+
+    #[test]
+    fn no_lib_also_silences_a_reference_lib_directive() {
+        let loaded = load_with_libs(
+            &[("/a.ts", "/// <reference lib=\"es5\" />\nconst x = 1;\n")],
+            &["lib.es5.d.ts"],
+            &["/a.ts"],
+            CompilerOptions { no_lib: Tristate::True, ..Default::default() },
+        );
+        assert_eq!(loaded.lib_file_count, 0);
+    }
+
+    #[test]
+    fn a_lib_files_format_is_fixed_and_its_package_json_is_never_read() {
+        // The skip upstream takes for watcher noise and this port must take for
+        // correctness: `load_source_file_meta_data` warms the resolver's
+        // `package.json` cache, which later resolutions observe.
+        //
+        // Made observable by giving the lib directory a `"type": "module"`
+        // package and the lib file an import. Under `node16` a `.d.ts` in a
+        // module package is ESM, so the import would resolve in `ESNext` mode;
+        // the fixed `CommonJS` metadata is what keeps it CommonJS.
+        let options = CompilerOptions {
+            trace_resolution: Tristate::True,
+            module_resolution: ModuleResolutionKind::Node16,
+            ..CompilerOptions::default()
+        };
+        let loaded = load_from(
+            &[
+                ("/a.ts", "const x = 1;\n"),
+                ("/libs/lib.d.ts", "import \"./dep.js\";\n"),
+                ("/libs/dep.d.ts", "export {};\n"),
+                ("/libs/package.json", "{ \"type\": \"module\" }"),
+            ],
+            &["/a.ts"],
+            options,
+            "/libs",
+        );
+        let modes: Vec<ResolutionMode> = loaded.requests.iter().map(|r| r.mode).collect();
+        assert_eq!(
+            modes,
+            [ResolutionMode::CommonJS],
+            "a lib file resolves as CommonJS however its package.json reads"
+        );
     }
 }

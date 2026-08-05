@@ -78,18 +78,31 @@ impl Suite for FileLoaderRequests {
             Setup::Skip(reason) => return Outcome::Skipped { reason },
         };
         // `libReplacement` resolves `@typescript/lib-*` for every lib file the
-        // target implies, which needs the bundled `lib.*.d.ts` on the host. The
-        // loader does not load lib files at all (bd tsr-9or.5).
+        // target implies — the one lib task that *does* trace. The loader now
+        // loads lib files, but `pathForLibFile` takes only the plain path
+        // (bd tsr-9or.5), so the resolutions this case expects are absent.
         if prepared.options.lib_replacement.is_true() {
             return Outcome::Skipped {
-                reason: "libReplacement resolves the bundled lib files, which the loader does not \
-                         load (bd tsr-9or.5)"
+                reason: "libReplacement resolves the bundled lib files through the module \
+                         resolver, which the loader does not do (bd tsr-9or.5)"
                     .to_string(),
             };
         }
 
-        let loaded =
-            FileLoader::load(&prepared.host, prepared.options.clone(), &prepared.root_file_names);
+        // No `default_library_path`: the corpus host is an in-memory file system
+        // holding the case's own units, and the bundled `lib.*.d.ts` are not on
+        // it. The lib tasks are still created and simply find nothing, which is
+        // what keeps this suite measuring resolution rather than lib loading —
+        // a lib file resolves nothing, so a program that has one and a program
+        // that does not produce the same trace.
+        let loaded = FileLoader::load(
+            &prepared.host,
+            tsr_compiler::LoadOptions {
+                compiler_options: prepared.options.clone(),
+                root_file_names: prepared.root_file_names.clone(),
+                default_library_path: String::new(),
+            },
+        );
         let produced = sanitize(
             &loaded.traces,
             &prepared.current_directory,
