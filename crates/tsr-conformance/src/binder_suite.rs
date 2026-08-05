@@ -469,7 +469,12 @@ fn anonymity_of(name: &str) -> Anonymity {
 /// rooted case directory (`/.src/node_modules/…`) is written relative in the
 /// baseline. Comparing the raw strings left 18 cases untested for no better
 /// reason than punctuation.
-pub(crate) fn same_unit(unit: &str, baseline: &str) -> bool {
+/// `pub` rather than `pub(crate)` so that probes under `examples/` pair units
+/// against baseline sections with **this** function rather than a hand-rolled
+/// string compare. The 18 cases above are the argument: a probe that mis-pairs
+/// units silently attributes lines to the wrong file, which is the same class of
+/// drift `types_producer::gap_reason` is kept in step to avoid.
+pub fn same_unit(unit: &str, baseline: &str) -> bool {
     fn normalise(path: &str) -> String {
         let slashes = path.replace('\\', "/");
         let trimmed = slashes.trim_start_matches("./").to_string();
