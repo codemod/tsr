@@ -16,9 +16,10 @@ Movement, all of it 2026-08-05, and all of it in the order the histogram ranked:
 | binary operators (`bd tsr-4sc.13`) | 313 | 28.72% |
 | named types (`bd tsr-4sc.7`) | 554 | 33.57% |
 | anonymous object types | 571 | 34.06% |
-| generic references | **587** | **34.92%** |
+| generic references | 587 | 34.92% |
+| members, property access and `this` | **596** | **36.17%** |
 
-Two ranked items, +12.53 gradient points and +309 cases. That is the evidence
+Three ranked items, +13.78 gradient points and +318 cases. That is the evidence
 that the ranking is any good, and it is why the next item should be re-derived
 from the histogram rather than from this list.
 

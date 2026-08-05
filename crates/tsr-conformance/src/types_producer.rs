@@ -219,6 +219,24 @@ pub fn type_at_location(
         return checker.type_to_string(declared);
     }
 
+    // `IsRightSideOfPropertyAccess` (`ast/utilities.go:3604`). The `b` of `a.b`
+    // is typed as the *property*, which upstream reaches by having
+    // `checkPropertyAccessExpression` record the resolved symbol on the name
+    // node; here the access is checked and its answer used, which is the same
+    // answer by a shorter route.
+    //
+    // Until this existed the name fell through to the identifier path and was
+    // resolved as a **free name in the enclosing scope** — `bd tsr-tl8`, and the
+    // one place this port could answer wrongly where a gap belonged.
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(parent) == SyntaxKind::PropertyAccessExpression
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+        && let Some(Node::PropertyAccessExpression(access)) = map.get(parent)
+    {
+        let id = checker.check_property_access_expression(access);
+        return checker.type_to_string(id);
+    }
+
     // A declaration name resolves through its parent's symbol.
     if let Some(parent) = nodes.parent(id)
         && map.get(parent).and_then(|p| p.name_id()) == Some(id)
@@ -305,6 +323,34 @@ pub fn assertions_for_case(
         ours.push(rendered);
     }
     ours
+}
+
+/// Why a property access answered `errorType`: the receiver, or the property.
+///
+/// The distinction decides what to build next and nothing else can supply it —
+/// "23,376 lines on a `PropertyAccessExpression`" is one number for two entirely
+/// different pieces of work.
+fn access_reason(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    access: &tsr_ast::PropertyAccessExpression<'_>,
+    nodes: &NodeTable,
+) -> String {
+    let error = checker.intrinsics().error;
+    let Some(receiver) = access.expression else { return "no receiver".to_string() };
+    let receiver_type = checker.check_expression(receiver);
+    if receiver_type == error {
+        let kind = receiver
+            .node_id()
+            .map_or_else(|| "?".to_string(), |id| format!("{:?}", nodes.kind(id)));
+        return format!("the receiver is a gap: {kind}");
+    }
+    let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+        return "the name is not an identifier".to_string();
+    };
+    if checker.get_property_of_type(receiver_type, name.text).is_some() {
+        return "the property has no type".to_string();
+    }
+    format!("the receiver has no such property: {}", checker.type_to_string(receiver_type))
 }
 
 /// Why a *type node* could not be resolved, one level finer than its kind.
@@ -426,6 +472,18 @@ pub fn gap_reason(
         return format!("type declaration name, nothing declared: {flags:?}");
     }
 
+    // The `b` of `a.b` is typed as the access itself, so it is explained as one.
+    // Keeping this in step with [`type_at_location`] is not optional: an earlier
+    // version of this function reported 22,768 lines under a cause it had
+    // invented by not following the code it explains.
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(parent) == SyntaxKind::PropertyAccessExpression
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+        && let Some(Node::PropertyAccessExpression(access)) = map.get(parent)
+    {
+        return format!("member name, {}", access_reason(checker, access, nodes));
+    }
+
     // Mirrors [`type_at_location`] exactly, **including its fall-through**: the
     // declaration-name branch applies only when the parent actually bound a
     // symbol, and otherwise the node is tried as an expression. An earlier draft
@@ -443,11 +501,9 @@ pub fn gap_reason(
 
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
         if let tsr_ast::Expression::Identifier(identifier) = expression {
-            // A member name — the `b` of `a.b` — reaches here too, because its
-            // parent binds no symbol and nothing else claims it. It is called out
-            // rather than counted as an ordinary reference, because resolving it
-            // as a free name is not merely a gap: a local called `b` in scope
-            // would give it that local's type. `bd tsr-tl8`.
+            // A member name no longer reaches here — it is typed as its property
+            // access above (`bd tsr-tl8`) — but the label is kept for the other
+            // name-shaped positions that still do, such as a JSX namespaced name.
             let member = nodes
                 .parent(id)
                 .filter(|&parent| map.get(parent).and_then(|p| p.name_id()) == Some(id))
@@ -473,6 +529,9 @@ pub fn gap_reason(
                 .and_then(|token| token.node_id)
                 .map_or_else(|| "?".to_string(), |token| format!("{:?}", nodes.kind(token)));
             return format!("expression answered error: BinaryExpression {operator}");
+        }
+        if let tsr_ast::Expression::PropertyAccessExpression(access) = expression {
+            return format!("property access, {}", access_reason(checker, access, nodes));
         }
         return format!("expression answered error: {:?}", nodes.kind(id));
     }

@@ -817,3 +817,127 @@ fn the_same_instantiation_written_twice_is_one_type() {
     assert_eq!(x, y, "`C<number>` twice is one type");
     assert_ne!(x, z, "`C<number>` and `C<string>` are not");
 }
+
+/// Members and property access (`bd tsr-4sc.7` fourth slice, `bd tsr-tl8`).
+#[test]
+fn a_property_access_has_the_type_of_the_property() {
+    assert_eq!(
+        type_of_declaration("interface I { a: string }\ndeclare const i: I;\nconst x = i.a;", "x"),
+        "string"
+    );
+    assert_eq!(
+        type_of_declaration("declare const o: { a: number };\nconst x = o.a;", "x"),
+        "number"
+    );
+    // Through two accesses, so the receiver of the second is itself computed.
+    assert_eq!(
+        type_of_declaration(
+            "interface Inner { b: string }\ninterface Outer { a: Inner }\n\
+             declare const o: Outer;\nconst x = o.a.b;",
+            "x"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_declaration("class C { a: number; }\ndeclare const c: C;\nconst x = c.a;", "x"),
+        "number"
+    );
+}
+
+#[test]
+fn a_property_that_is_not_there_is_a_gap_and_not_a_free_name() {
+    // The `bd tsr-tl8` hazard, as a test: a local called `a` in scope must not
+    // become the type of `o.a`. This is the one shape where this port could
+    // answer *wrongly* where a gap belongs.
+    assert_eq!(
+        type_of_declaration(
+            "declare const a: string;\ndeclare const o: { b: number };\nconst x = o.a;",
+            "x"
+        ),
+        "error"
+    );
+    // A receiver this port cannot type takes the access with it.
+    assert_eq!(type_of_declaration("const x = unknownThing.a;", "x"), "error");
+    // A primitive receiver needs the apparent type from lib.d.ts (bd tsr-9or.1).
+    assert_eq!(type_of_declaration(r#"const x = "abc".length;"#, "x"), "error");
+    // Inherited members are not in the derived symbol's table.
+    assert_eq!(
+        type_of_declaration(
+            "class B { a: number; }\nclass C extends B {}\n\
+                             declare const c: C;\nconst x = c.a;",
+            "x"
+        ),
+        "error"
+    );
+    // An instantiated generic would find its target's *uninstantiated* members,
+    // which would answer `T` where upstream answers `number`.
+    assert_eq!(
+        type_of_declaration(
+            "class C<T> { a: T; }\ndeclare const c: C<number>;\nconst x = c.a;",
+            "x"
+        ),
+        "error"
+    );
+}
+
+/// The type of a declaration named `name`, wherever it is declared.
+///
+/// `type_of_declaration` looks only at the file's own locals, and `this` is only
+/// interesting inside a class body — so these fixtures declare their `x` in a
+/// method.
+fn type_of_nested_declaration(source: &str, name: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for index in 0..parsed.nodes.len() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = tsr_ast::NodeId::new(index as u32);
+        if let Some(symbol) = bound.lookup_local(id, name) {
+            let ty = checker.get_type_of_symbol(symbol);
+            return checker.type_to_string(ty);
+        }
+    }
+    panic!("`{name}` is declared nowhere");
+}
+
+#[test]
+fn this_inside_a_class_is_the_class_this_type() {
+    // Printed `this`, not `C` — upstream models it as a type parameter
+    // constrained to the class, and the corpus records `>this : this`.
+    assert_eq!(
+        type_of_nested_declaration("class C { a: number; m() { const x = this; return x; } }", "x"),
+        "this"
+    );
+    // Its members are the class's, which is what makes `this.a` work.
+    assert_eq!(
+        type_of_nested_declaration(
+            "class C { a: number; m() { const x = this.a; return x; } }",
+            "x"
+        ),
+        "number"
+    );
+    // An arrow function is transparent to `this`; a plain function is not, and
+    // what `this` becomes there is upstream's signature machinery.
+    assert_eq!(
+        type_of_nested_declaration(
+            "class C { a: number; m() { const f = () => { const x = this.a; return x; }; } }",
+            "x"
+        ),
+        "number"
+    );
+    assert_eq!(
+        type_of_nested_declaration(
+            "class C { a: number; m() { function f() { const x = this; return x; } } }",
+            "x"
+        ),
+        "error"
+    );
+    // Outside any class there is no container this port can answer for.
+    assert_eq!(type_of_nested_declaration("const x = this;", "x"), "error");
+}

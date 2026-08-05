@@ -334,7 +334,11 @@ fn report(total: &Tally) {
     for ((_, reason), count) in &total.gap_reasons {
         // Categories, in the order they are tested. Each names the *work* that
         // would close it, which the raw table below cannot do on its own.
-        let category = if reason.contains("annotation") {
+        let category = if reason.contains("the receiver is a gap") {
+            "a property access whose receiver we cannot type"
+        } else if reason.starts_with("property access") || reason.starts_with("member name,") {
+            "a property access whose property we cannot find or type"
+        } else if reason.contains("annotation") {
             "a type node we cannot resolve (getTypeFromTypeNode / declared types)"
         } else if reason.contains("initialiser") {
             "an initialiser expression we do not compute"

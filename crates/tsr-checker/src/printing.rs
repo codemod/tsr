@@ -22,12 +22,13 @@ pub fn type_to_string(ty: &Type) -> String {
     match &ty.data {
         TypeData::Intrinsic { name } => (*name).to_string(),
         TypeData::StringLiteral(value) => quote(value),
-        TypeData::NumberLiteral(text) => text.clone(),
         TypeData::BigIntLiteral(text) => format!("{text}n"),
         TypeData::BooleanLiteral(value) => value.to_string(),
-        // The name was computed when the type was created; see `TypeData::Named`
-        // for why that is a renderer divergence rather than a data-model one.
-        TypeData::Named(name) => name.clone(),
+        // A number prints its normalised text, and a named type prints the form
+        // computed when it was created — see `TypeData::Named` for why that is a
+        // renderer divergence rather than a data-model one. Same body, two
+        // unrelated reasons.
+        TypeData::NumberLiteral(text) | TypeData::Named { text, .. } => text.clone(),
     }
 }
 

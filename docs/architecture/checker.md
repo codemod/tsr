@@ -446,7 +446,8 @@ could not resolve.
 | *(before)* | 313 | 28.72% |
 | `getDeclaredTypeOfSymbol` + type references | 554 | 33.57% |
 | anonymous object types | 571 | 34.06% |
-| generic references | **587** | **34.92%** |
+| generic references | 587 | 34.92% |
+| members, property access and `this` | **596** | **36.17%** |
 
 The named-reference answer bucket went from **0.74% to 34.80%** right, and 241
 whole cases landed on the first slice — the largest case movement so far.
@@ -523,6 +524,65 @@ the ranking was built on, arriving from the other direction: a bucket names the
 answer's shape and not the feature that computes it. `{ a: string; }` on an
 annotation and `{ a: string; }` inferred from `{ a: "x" }` are one bucket and two
 features.
+
+### Members, property access, and `this`
+
+Ranked first by the re-ranking above, and the first item whose *measured* result
+disagreed with its estimate. 571 → 596 cases, 34.06% → 36.17%.
+
+Object types now carry the symbol whose members table the binder already built,
+so `getPropertyOfType` is a lookup in it; `checkPropertyAccessExpression` is the
+receiver's type, that lookup, and `getTypeOfSymbol` on what it finds. `this`
+inside a class is the class's **`this` type** — printed `this`, not `C`, which
+is what the corpus records — carrying the class's members, so `this.x` resolves.
+Arrow functions are transparent to `this` and plain functions are not.
+
+**`bd tsr-tl8` is closed by this.** The `b` of `a.b` is now typed as the access,
+the way upstream reaches it by recording the resolved symbol on the name node.
+The lines where a member name was resolved as a *free name in the enclosing
+scope* — the one place this port could answer wrongly where a gap belonged —
+went from **21,939 to 74**.
+
+#### The estimate was 23,732 lines and the result was a quarter of that
+
+Property access was the largest single stop in the corpus and porting it moved
+the gradient about a point. The histogram says why, and the answer is worth more
+than the slice:
+
+```text
+36,678  13.00%  a property access whose receiver we cannot type
+ 8,608   3.05%  a property access whose property we cannot find or type
+```
+
+Of the receivers: 14,803 are identifiers whose symbol has no type, 1,953 are
+themselves property accesses, 471 are calls. When the receiver *can* be typed the
+lookup succeeds — only 886 lines are "no such property" on a receiver we typed,
+and 298 on a `this`. **The property lookup was never the blocker; the receiver
+was.** That number could not have been taken before this landed, because until a
+property access could succeed there was nothing to attribute its failure to.
+
+What it points at is item 2 of the ranking, unchanged and now underlined:
+`getTypeOfSymbol` for function, class and module symbols (`bd tsr-4sc.8`) is what
+gives those 14,803 identifiers a type. Inherited members are the other half —
+a base class's properties are not in the derived symbol's table, so
+`class C extends B {}` finds nothing of `B`'s.
+
+#### Two limits recorded rather than tested
+
+An instantiated `C<number>` carries **no** members, because they would be `C`'s
+uninstantiated ones and `c.a` would read `T` where upstream reads `number`. That
+is blunter than upstream and it costs answers: a member whose type never mentions
+a type parameter is the same before and after instantiation, and upstream answers
+it. The correct rule is `couldContainTypeVariables`, which arrives with real
+instantiation. There is deliberately **no test pinning the current answer** — it
+is the worse of the two, a test would cement it, and the obvious test cannot
+distinguish them anyway while `bd tsr-y4u.21` keeps a class's type parameters out
+of every scope.
+
+An early draft guarded against an `errorType` receiver before looking a property
+up. No mutation could make that guard observable — `errorType` is an intrinsic and
+never carries a members table, so the lookup misses anyway — so it was removed
+rather than kept as decoration.
 
 ### A generic reference carries its arguments, and substitutes nothing
 

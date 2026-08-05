@@ -11,6 +11,8 @@
 
 use rustc_hash::FxHashMap;
 
+use tsr_binder::SymbolId;
+
 use crate::flags::TypeFlags;
 
 /// A type, as a handle into [`TypeStore`].
@@ -69,7 +71,18 @@ pub enum TypeData {
     /// declarations in different scopes stay distinct types even though they
     /// print alike. It stops being adequate when a name has to be qualified or
     /// shadowed, which is where upstream's node builder earns its complexity.
-    Named(String),
+    Named {
+        /// The printed form, computed once at creation.
+        text: String,
+        /// The symbol whose `members` table this type's properties live in, for
+        /// the types that have one: a class, an interface, a type literal.
+        ///
+        /// `None` where a lookup would be **wrong rather than empty** — an
+        /// instantiated `C<number>` would find `C`'s uninstantiated members and
+        /// answer `T` for `x` where upstream answers `number`, because nothing
+        /// substitutes yet. A gap is the honest answer there.
+        members: Option<SymbolId>,
+    },
 }
 
 /// One type.
@@ -158,8 +171,13 @@ impl TypeStore {
     /// reason intrinsics are not: identity is one type per *symbol*, and two
     /// same-named declarations in different scopes are different types that
     /// print alike. Interning by content would merge them.
-    pub fn new_named(&mut self, flags: TypeFlags, name: String) -> TypeId {
-        self.push(Type { flags, data: TypeData::Named(name), fresh: false })
+    pub fn new_named(
+        &mut self,
+        flags: TypeFlags,
+        name: String,
+        members: Option<SymbolId>,
+    ) -> TypeId {
+        self.push(Type { flags, data: TypeData::Named { text: name, members }, fresh: false })
     }
 
     /// Create or reuse a literal type.

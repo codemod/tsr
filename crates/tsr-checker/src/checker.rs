@@ -60,6 +60,10 @@ pub struct Checker<'a, 'n> {
     /// `C<number>` written twice must be one type, or the first relation check
     /// written will compare two handles that should have been equal.
     instantiations: FxHashMap<(SymbolId, Vec<TypeId>), TypeId>,
+    /// A class symbol to its `this` type, upstream's `d.thisType`
+    /// (`checker.go:17334`). One per class, so `this` has a stable identity
+    /// inside one.
+    this_types: FxHashMap<SymbolId, TypeId>,
     /// `symbol -> the type it *declares*`, upstream's
     /// `declaredTypeLinks[symbol].declaredType`.
     ///
@@ -93,6 +97,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             regular_types: FxHashMap::default(),
             symbol_types: FxHashMap::default(),
             declared_types: FxHashMap::default(),
+            this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             resolutions: Resolutions::new(),
         }
@@ -170,6 +175,9 @@ impl<'a, 'n> Checker<'a, 'n> {
                 true,
             ),
             Expression::KeywordExpression(node) => match node.kind {
+                SyntaxKind::ThisKeyword => {
+                    node.node_id.map_or(self.intrinsics.error, |id| self.check_this_expression(id))
+                }
                 SyntaxKind::TrueKeyword => self.intrinsics.true_type,
                 SyntaxKind::FalseKeyword => self.intrinsics.false_type,
                 SyntaxKind::NullKeyword => self.intrinsics.null,
@@ -198,8 +206,113 @@ impl<'a, 'n> Checker<'a, 'n> {
                 node.expression.map_or(self.intrinsics.error, |inner| self.check_expression(inner))
             }
             Expression::BinaryExpression(node) => self.check_binary_expression(node),
+            Expression::PropertyAccessExpression(node) => {
+                self.check_property_access_expression(node)
+            }
             _ => self.intrinsics.error,
         }
+    }
+
+    /// Ported from `Checker.checkThisExpression` (`checker.go:12077`), reduced to
+    /// the class case.
+    ///
+    /// **`this` inside a class is the class's `this` *type*, printed `this`** —
+    /// not the class type printed `C`. Upstream models it as a type parameter
+    /// whose constraint is the class (`checker.go:17334`), and the corpus records
+    /// it that way: `>this : this`. Its members are the class's, which is what
+    /// makes `this.x` work.
+    ///
+    /// Arrow functions are transparent to `this` and a plain `function` is not,
+    /// which is the only part of upstream's container walk that changes an
+    /// answer here. Every other container — a plain function, a module, the top
+    /// level — is a gap: upstream answers `anyType` there through a signature's
+    /// `this` parameter or a contextual type, and neither exists yet, so
+    /// answering `any` would be a claim rather than a computation.
+    fn check_this_expression(&mut self, node: NodeId) -> TypeId {
+        let mut current = self.nodes.parent(node);
+        while let Some(id) = current {
+            match self.nodes.kind(id) {
+                // An arrow function is transparent — it keeps the enclosing
+                // `this` — which is the same as walking past any other node, so
+                // it needs no arm of its own. It is named here because that
+                // transparency is a rule and not an omission.
+                //
+                // Opaque: a plain function rebinds `this`, and what to is
+                // upstream's signature machinery (`bd tsr-4sc.8`).
+                SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => {
+                    return self.intrinsics.error;
+                }
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
+                    let Some(symbol) = self.binder.symbol_of(id) else {
+                        return self.intrinsics.error;
+                    };
+                    if let Some(&cached) = self.this_types.get(&symbol) {
+                        return cached;
+                    }
+                    let this_type = self.store.new_named(
+                        TypeFlags::TYPE_PARAMETER,
+                        "this".to_string(),
+                        Some(symbol),
+                    );
+                    self.this_types.insert(symbol, this_type);
+                    return this_type;
+                }
+                _ => {}
+            }
+            current = self.nodes.parent(id);
+        }
+        self.intrinsics.error
+    }
+
+    /// Ported from `Checker.checkPropertyAccessExpression` into
+    /// `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11244`,
+    /// `:11258`), reduced to the lookup.
+    ///
+    /// Upstream takes the receiver's **apparent** type first, which is what makes
+    /// `"a".length` work: a primitive's apparent type is its wrapper interface
+    /// from `lib.d.ts`. There are no lib files (`bd tsr-9or.1`), so a primitive
+    /// receiver has no members here and answers `errorType` — a gap the histogram
+    /// attributes to lib rather than to this function.
+    ///
+    /// Not ported: optional chains, private identifiers, `super`, index
+    /// signatures, and **inherited members** — a base class's properties are not
+    /// in the derived symbol's table, so `class C extends B {}` finds nothing of
+    /// `B`'s. All answer `errorType`.
+    pub fn check_property_access_expression(
+        &mut self,
+        node: &tsr_ast::PropertyAccessExpression<'_>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
+            (node.expression, node.name)
+        else {
+            return error;
+        };
+        let receiver_type = self.check_expression(receiver);
+        // No explicit test for an `errorType` receiver: it is an intrinsic and
+        // never carries a members table, so the lookup below misses and answers
+        // `errorType` anyway. An earlier draft guarded it and no mutation could
+        // make the guard observable, so it was removed rather than kept as
+        // decoration.
+        match self.get_property_of_type(receiver_type, name.text) {
+            Some(property) => self.get_type_of_symbol(property),
+            None => error,
+        }
+    }
+
+    /// Ported from `Checker.getPropertyOfType` (`checker.go`), reduced to a
+    /// members-table lookup.
+    ///
+    /// Upstream resolves the type's structure first — base types, index
+    /// signatures, mapped and intersection members. This asks the one table the
+    /// binder already built, which is why inherited and index-signature
+    /// properties are misses rather than answers.
+    #[must_use]
+    pub fn get_property_of_type(&mut self, id: TypeId, name: &str) -> Option<SymbolId> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return None;
+        };
+        self.binder.symbols().get(owner).members.get(name).copied()
     }
 
     /// Ported from `Checker.checkBinaryExpression` / `checkBinaryLikeExpression`
@@ -735,7 +848,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             printed.push_str("; ");
         }
         let printed = if printed.is_empty() { "{}".to_string() } else { format!("{{ {printed}}}") };
-        self.store.new_named(TypeFlags::OBJECT, printed)
+        // The binder gives a type literal its own anonymous `__type` symbol,
+        // whose members table is where a property access on this type looks.
+        let members = node.node_id.and_then(|id| self.binder.symbol_of(id));
+        self.store.new_named(TypeFlags::OBJECT, printed, members)
     }
 
     /// A reference to a generic type: `C<number>`, `Tree<T>`.
@@ -805,7 +921,20 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `Alias<number>` is string- or number-like would be worse than claiming
         // it is an object: `object` is the one answer those arms treat as
         // neither.
-        let id = self.store.new_named(TypeFlags::OBJECT, format!("{name}<{printed}>"));
+        // No members: see `TypeData::Named`. `C<number>`'s properties would be
+        // `C`'s uninstantiated ones, so `c.a` would answer `T` where upstream
+        // answers `number`.
+        //
+        // **This is blunter than upstream and it costs answers.** A member whose
+        // type does not mention a type parameter — `class C<T> { a: string }` —
+        // is the same before and after instantiation, and upstream answers it;
+        // this gaps it. The correct rule is `couldContainTypeVariables`, which
+        // arrives with real instantiation. There is deliberately **no test
+        // pinning the current answer**, because the current answer is the worse
+        // of the two and a test would cement it — and the obvious test cannot
+        // tell the two apart anyway while `bd tsr-y4u.21` keeps a class's type
+        // parameters out of every scope.
+        let id = self.store.new_named(TypeFlags::OBJECT, format!("{name}<{printed}>"), None);
         self.instantiations.insert((symbol, arguments), id);
         id
     }
@@ -883,9 +1012,11 @@ impl<'a, 'n> Checker<'a, 'n> {
         let parameters = self.local_type_parameter_names_of(symbol);
         if !parameters.is_empty() {
             let name = self.binder.symbols().get(symbol).name.to_string();
-            return self
-                .store
-                .new_named(TypeFlags::OBJECT, format!("{name}<{}>", parameters.join(", ")));
+            return self.store.new_named(
+                TypeFlags::OBJECT,
+                format!("{name}<{}>", parameters.join(", ")),
+                None,
+            );
         }
         let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
         else {
@@ -932,7 +1063,11 @@ impl<'a, 'n> Checker<'a, 'n> {
         } else {
             name
         };
-        self.store.new_named(flags, printed)
+        // A class or interface owns its members; a type parameter and an enum do
+        // not, and pointing them at a members table they do not have would be a
+        // lookup that silently succeeds against the wrong symbol.
+        let members = with_type_parameters.then_some(symbol);
+        self.store.new_named(flags, printed, members)
     }
 
     /// The type parameters declared *on* a symbol\'s own declaration.
