@@ -1338,20 +1338,26 @@ fn a_call_through_a_variable_resolves_because_the_type_carries_its_symbol() {
 
 #[test]
 fn a_call_this_slice_cannot_resolve_is_a_gap_and_not_the_first_candidate() {
-    // Overload resolution needs assignability. Taking the first candidate would
-    // answer `number` here and be wrong for every call that picks a later one.
-    //
-    // **This line is currently enforced one level earlier than it reads.** An
-    // overload set has no printed type yet, so the callee is already `errorType`
-    // before the call is resolved, and mutating the single-candidate test in
-    // `calls.rs` turns nothing red. That guard is kept rather than deleted
-    // because it becomes the only thing standing between a call and a guess the
-    // moment an overload set prints as `{ (): void; (x: string): void; }` — a
-    // named future change, which is the same standard the `this`-parameter
-    // exclusion is held to.
+    // Overload resolution needs assignability, and `choose_overload` in
+    // `calls.rs` now has it over the primitive domains — so the zero-argument
+    // call below **resolves**, by arity, to the zero-parameter candidate. This
+    // assertion used to demand `error`; it was pinning the absence of a
+    // mechanism rather than an answer, and the mechanism arrived. See
+    // `docs/architecture/checker-notes-resolve.md`.
     assert_eq!(
         type_of_declaration(
             "declare function g(): number;\ndeclare function g(a: string): string;\nconst x = g();",
+            "x"
+        ),
+        "number"
+    );
+    // What is still a gap is a candidate set this port cannot judge a
+    // *non-match* against: object parameter types, where the relater's `false`
+    // is a limitation rather than a fact. Taking the first candidate would
+    // answer `number` here.
+    assert_eq!(
+        type_of_declaration(
+            "declare function q(a: { u: number }): number;\ndeclare function q(a: { v: number }): string;\nconst r = { v: 1 };\nconst x = q(r);",
             "x"
         ),
         "error"
