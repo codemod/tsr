@@ -731,9 +731,15 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     // which taught `get_type_from_type_literal` to render signature members.
     // They are kept here rather than deleted because this test's subject is the
     // *rule*, not the list: a member the port cannot render still takes the
-    // whole literal with it, and the two below are what still cannot be
-    // rendered — a bare call signature still gaps, only the method form renders.
-    // Deleting them would leave the rule pinned by a shrinking set.
+    // whole literal with it. Deleting them would leave the rule pinned by a
+    // shrinking set.
+    //
+    // **The bare call signature moved too**, on the slice that gave
+    // `signature_parts_of` its `CallSignatureDeclaration` and
+    // `ConstructSignatureDeclaration` arms — `tests/signature_members_of_a_literal.rs`.
+    // `{ (): void; }` is recorded 22 times in the baselines. What pins the rule
+    // now is the symbol-keyed index signature and the tuple member below,
+    // neither of which this port can render.
     //
     // **The index-signature case moved too**, on the slice that taught the same
     // function to render `[k: string]: T` members — `tests/index_signature_members.rs`.
@@ -741,7 +747,7 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     // nor the `number` intrinsic, which is the same gap the `a[i]` lookup side
     // takes, so the two cannot disagree.
     assert_eq!(type_of_declaration("declare const x: { m(): void };", "x"), "{ m(): void; }");
-    assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "error");
+    assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "{ (): void; }");
     assert_eq!(
         type_of_declaration("declare const x: { [k: string]: string };", "x"),
         "{ [k: string]: string; }"

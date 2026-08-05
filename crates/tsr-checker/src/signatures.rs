@@ -885,6 +885,58 @@ impl<'a> Checker<'a, '_> {
                 body: None,
                 may_return_never: false,
             }),
+            // A call or construct signature **member** of a type literal or
+            // interface. Both reach `getSignatureFromDeclaration` upstream by
+            // the same route every other function-like kind does.
+            //
+            // # Why this is not the `ConstructorTypeNode` refusal above
+            //
+            // That refusal is real and stands: a *type node* `new () => T` has
+            // to print its own `new `, and [`Signature`] carries no construct
+            // flag to print it from. **The member form does not have that
+            // problem**, because the `new ` is supplied by the caller —
+            // `get_type_from_type_literal` (`crate::declared`) already writes
+            //
+            // ```text
+            // TypeElement::ConstructSignatureDeclaration(construct) => {
+            //     Some((construct.node_id, None, "new ", false))
+            // }
+            // ```
+            //
+            // and has done since it was written. The prefix was correct and
+            // unreachable: without these two arms `signature_parts_of` answered
+            // `None`, `get_signature_from_declaration` answered `None`, and
+            // that function's all-or-nothing rule gapped the **whole** literal.
+            //
+            // That one omission was measured at ~3,500 corpus lines: ~1,200 on
+            // a literal containing a construct signature, ~305 on one
+            // containing a call signature, and 2,003 more reached indirectly —
+            // `p: X[]` where `type X = { … }` is a non-generic alias whose body
+            // is such a literal, which is 98.5% of every `Alias[]` annotation
+            // in the corpus.
+            //
+            // `r#type` and not `full_signature`: both fields exist on these
+            // nodes, and `r#type` is the return annotation every other arm here
+            // reads. The two are easy to confuse — this was checked against
+            // `MethodSignatureDeclaration` rather than assumed.
+            Node::CallSignatureDeclaration(node) => Some(SignatureParts {
+                modifiers: &[],
+                asterisk: false,
+                type_parameters: node.type_parameters,
+                parameters: node.parameters,
+                return_annotation: node.r#type,
+                body: None,
+                may_return_never: false,
+            }),
+            Node::ConstructSignatureDeclaration(node) => Some(SignatureParts {
+                modifiers: &[],
+                asterisk: false,
+                type_parameters: node.type_parameters,
+                parameters: node.parameters,
+                return_annotation: node.r#type,
+                body: None,
+                may_return_never: false,
+            }),
             Node::MethodSignatureDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: false,

@@ -3448,3 +3448,78 @@ as a rule: **a fixture standing in for "this port cannot type X" must be a
 failure — an unresolvable annotation — never a form.** A form gets ported, and
 when it does the test either fails loudly (lucky) or silently starts asserting
 something else (not).
+
+## Call and construct signature members of a type literal (2026-08-05)
+
+`{ (): string }` and `{ new (): C }` gapped the **whole** literal, and the cause
+was two missing arms in `signature_parts_of`: it matched six function-like kinds
+and answered `None` for `CallSignatureDeclaration` and
+`ConstructSignatureDeclaration`. `get_signature_from_declaration` propagated the
+`None`, and `get_type_from_type_literal`'s all-or-nothing rule turned it into a
+gap for everything around it.
+
+Measured exposure at the cycle-8 histogram: ~1,200 lines on a literal containing
+a construct signature, ~305 on one containing a call signature, and 2,003 more
+reached indirectly — `p: X[]` where `type X = { … }` is a non-generic alias whose
+body is such a literal. That indirect chain is **98.5% of every `Alias[]`
+annotation in the corpus** (2,020 of 2,050, against 14 union-bodied and 4
+generic-reference-bodied aliases), which is the measurement that located the arms
+in the first place: the row looked like an array problem and was a signature-member
+problem two hops away.
+
+### The refusal this is *not*, which is the whole subtlety
+
+`signature_parts_of` already carries a deliberate refusal of `ConstructorTypeNode`,
+and it is correct: a construct **type node** (`type F = new () => T`) has to print
+its own `new `, and [`Signature`] carries no construct flag to print it from, so
+adding the arm alone would emit `() => T` for all 523 of the corpus's
+constructor-type lines — wrong answers where gaps had been.
+
+That argument does not reach the **member** form, and the difference is one hop
+away in a different file. `get_type_from_type_literal` supplies the prefix at the
+call site:
+
+```rust
+TypeElement::ConstructSignatureDeclaration(construct) => {
+    Some((construct.node_id, None, "new ", false))
+}
+```
+
+The `"new "` was already written, already correct, and unreachable. So the member
+form needs no construct flag on `Signature`, and the type node still does. The two
+sit one word apart in the source, which is why
+`the_construct_type_node_is_still_a_gap_and_that_is_the_distinction` asserts the
+pair together: a later "unification" of the two arms fails that test rather than
+silently emitting 523 wrong lines.
+
+The recorded refusal did its job here in the way the project keeps such notes for
+— it was specific enough about *why* that its limits were visible. Contrast the
+four stale comments corrected in this same cycle, each of which described a
+limitation without naming what owned it.
+
+### What this does not fix, stated because the number would otherwise mislead
+
+The 2,003-line alias chain **does not pay from these arms alone.** With them the
+literal resolves, so the alias resolves, so the array resolves — and the result
+prints `{ new (): c1; }[]` where upstream prints `X[]`, because a non-generic type
+alias over a type *literal* does not take the alias's name here.
+
+That defect is pre-existing and independent: `type X = { p: string }; var x: X[]`
+already printed `{ p: string; }[]` with no signature member anywhere in it. What
+these arms do is widen its reach, moving those lines from *gap* to *wrong answer* —
+gradient-neutral and discipline-negative, and worth stating plainly rather than
+booking the 2,003 as won.
+
+The missing piece is not new machinery. `get_type_from_union_type_node` and its
+intersection twin already implement exactly the rule, via
+`alias_symbol_for_type_node`: when the enclosing host is a **non-generic** type
+alias, the result is named after it, and a generic one is a gap rather than a name
+with its arguments dropped. Extending that to `get_type_from_type_literal` is what
+makes the chain pay, and it is a separate item in `declared.rs`.
+
+**How we would know this was wrong:** a baseline line where this port prints a
+type literal containing `new ` and upstream prints the same members *without* it,
+or the reverse — either would mean the prefix has been attached at the wrong
+level. The narrowest probe is a literal holding a call and a construct signature
+together, since one takes the prefix and the other must not; that pair is
+asserted in `a_call_signature_member_prints_without_one`.
