@@ -453,7 +453,7 @@ pub fn assertions_for_case(
         // A unit the loader did not put in the program — an unsupported
         // extension, or a name it could not read — renders empty, exactly as a
         // unit with no expected section does. Absent rather than wrong.
-        let Some(file) = program.source_file(&unit.name, CURRENT_DIRECTORY) else {
+        let Some(file) = program.source_file(&unit.name) else {
             ours.push(Vec::new());
             continue;
         };
@@ -1119,8 +1119,8 @@ mod tests {
         let arena = tsr_core::Arena::new();
         let program = program_for_case(&arena, &case);
 
-        assert!(program.source_file("a.ts", CURRENT_DIRECTORY).is_some());
-        assert!(program.source_file("b.ts", CURRENT_DIRECTORY).is_some());
+        assert!(program.source_file("a.ts").is_some());
+        assert!(program.source_file("b.ts").is_some());
         if bundled_libs().is_empty() {
             return; // the submodule is not checked out; see docs/conventions.md
         }
@@ -1131,10 +1131,7 @@ mod tests {
         // Not merely present: bound into the same store, which is what per-file
         // identity could not do. `Array` is declared in `lib.es5.d.ts` and is
         // the name the corpus asks for most.
-        let root = program
-            .source_file("b.ts", CURRENT_DIRECTORY)
-            .expect("b.ts is in the program")
-            .source_file();
+        let root = program.source_file("b.ts").expect("b.ts is in the program").source_file();
         let resolved = root.node_id.and_then(|id| {
             program.binder().resolve_name(
                 program.nodes(),

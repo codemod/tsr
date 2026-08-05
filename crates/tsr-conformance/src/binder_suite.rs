@@ -155,7 +155,7 @@ impl Suite for BinderSymbols {
             if !crate::scanner_suite::is_typescript_unit(&unit.name) {
                 continue;
             }
-            let Some(file) = program.source_file(&unit.name, "/") else { continue };
+            let Some(file) = program.source_file(&unit.name) else { continue };
             // A file we cannot parse tells us nothing about the binder.
             if !file.diagnostics().is_empty() {
                 unparsable += 1;

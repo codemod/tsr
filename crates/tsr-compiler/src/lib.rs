@@ -99,6 +99,16 @@ pub struct Program<'a> {
     /// Upstream keys `filesByPath` by `*ast.SourceFile`; an index is the same
     /// thing without a second borrow of the file.
     files_by_path: FxHashMap<Path, usize>,
+    /// The directory a relative file name is resolved against, and whether the
+    /// host distinguishes `A.ts` from `a.ts`.
+    ///
+    /// Both are what `Program.toPath` reads
+    /// (`internal/compiler/program.go:1830`), and they are stored for the same
+    /// reason upstream stores them: canonicalising a name is a property of the
+    /// *program*, not of the caller doing the asking. See
+    /// [`Program::source_file`].
+    current_directory: String,
+    use_case_sensitive_file_names: bool,
     /// How many leading entries of `files` are bundled lib files.
     ///
     /// Upstream keeps `libFiles` as a separate slice and concatenates it in
@@ -193,6 +203,8 @@ impl<'a> Program<'a> {
             options: compiler_options,
             files: parsed,
             files_by_path,
+            current_directory,
+            use_case_sensitive_file_names,
             lib_file_count: 0,
             nodes,
             node_map,
@@ -234,6 +246,11 @@ impl<'a> Program<'a> {
             options: compiler_options,
             files: loaded.files,
             files_by_path,
+            // From the host, which is where the loader took them from too — so
+            // a name looked up afterwards canonicalises exactly as the path it
+            // is being compared against did.
+            current_directory: host.current_directory().to_string(),
+            use_case_sensitive_file_names: host.fs().use_case_sensitive_file_names(),
             lib_file_count: loaded.lib_file_count,
             nodes: loaded.nodes,
             node_map: loaded.node_map,
@@ -345,22 +362,36 @@ impl<'a> Program<'a> {
     /// The file this *file name* denotes (`Program.GetSourceFile`).
     ///
     /// Canonicalises the name first, so `./a.ts` and `/a.ts` find the same file.
+    /// One line, as upstream's is: `p.toPath(filename)` then
+    /// `GetSourceFileByPath` (`internal/compiler/program.go:1834`).
+    ///
+    /// # It used to guess, and the guess was wrong
+    ///
+    /// This took a `current_directory` argument and stored neither it nor the
+    /// case sensitivity, recovering the latter by trying the case-sensitive
+    /// conversion and then the case-insensitive one — on the reasoning that a
+    /// path which round-trips unchanged was built that way. Probed rather than
+    /// argued (`bd tsr-q89`): a case-**sensitive** program holding `a.ts`,
+    /// asked for `A.ts`, missed on `/A.ts` and then *hit* on the fallback's
+    /// `/a.ts`. It answered a name it should not have, for every file whose
+    /// name is already lowercase — which is most of them.
+    ///
+    /// Pre-existing, and made worse by the identity widening rather than caused
+    /// by it: one `NodeTable` now spans the program and a `Span` is an offset
+    /// into one file's text ([ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)),
+    /// so a caller that looked a unit up by name and then read spans against a
+    /// *different* unit's text got plausible positions from the wrong file
+    /// rather than anything that failed.
     #[must_use]
-    pub fn source_file(
-        &self,
-        file_name: &str,
-        current_directory: &str,
-    ) -> Option<&ProgramFile<'a>> {
-        // The case sensitivity a program was built with is not stored, because
-        // it is recoverable: a path that round-trips through the case-sensitive
-        // conversion unchanged was built that way.
-        for case_sensitive in [true, false] {
-            let path = to_path(file_name, current_directory, case_sensitive);
-            if let Some(file) = self.source_file_by_path(&path) {
-                return Some(file);
-            }
-        }
-        None
+    pub fn source_file(&self, file_name: &str) -> Option<&ProgramFile<'a>> {
+        self.source_file_by_path(&self.to_path(file_name))
+    }
+
+    /// A file name canonicalised the way this program canonicalises
+    /// (`Program.toPath`, `internal/compiler/program.go:1830`).
+    #[must_use]
+    pub fn to_path(&self, file_name: &str) -> Path {
+        to_path(file_name, &self.current_directory, self.use_case_sensitive_file_names)
     }
 
     /// Every parse diagnostic in the program, file by file.
@@ -429,10 +460,51 @@ mod tests {
     fn a_file_is_reachable_by_either_spelling_of_its_path() {
         let arena = Arena::new();
         let program = program(&arena, &[("a.ts", "const x = 1;")]);
-        assert!(program.source_file("a.ts", "/").is_some());
-        assert!(program.source_file("./a.ts", "/").is_some());
-        assert!(program.source_file("/a.ts", "").is_some());
-        assert!(program.source_file("b.ts", "/").is_none());
+        assert!(program.source_file("a.ts").is_some());
+        assert!(program.source_file("./a.ts").is_some());
+        assert!(program.source_file("/a.ts").is_some());
+        assert!(program.source_file("b.ts").is_none());
+    }
+
+    #[test]
+    fn a_name_is_canonicalised_the_way_the_program_was_built_and_not_both_ways() {
+        // `bd tsr-q89`. The lookup used to try the case-sensitive conversion and
+        // then the case-insensitive one, which made a case-**sensitive** program
+        // answer a name whose casing it does not hold — the fallback lowercases
+        // `A.ts` to `/a.ts` and hits.
+        //
+        // Both directions on one program each, because a fix that simply dropped
+        // the fallback would pass the first assertion and break the second: a
+        // case-insensitive program genuinely must match `A.ts` to `a.ts`.
+        let arena = Arena::new();
+        let sensitive = Program::in_arena(
+            &arena,
+            ProgramOptions {
+                files: vec![("a.ts".to_string(), "const x = 1;".to_string())],
+                use_case_sensitive_file_names: true,
+                ..Default::default()
+            },
+        );
+        assert!(sensitive.source_file("a.ts").is_some(), "its own spelling");
+        assert!(
+            sensitive.source_file("A.ts").is_none(),
+            "a case-sensitive program holds `a.ts` and `A.ts` is a different file"
+        );
+
+        let arena = Arena::new();
+        let insensitive = Program::in_arena(
+            &arena,
+            ProgramOptions {
+                files: vec![("a.ts".to_string(), "const x = 1;".to_string())],
+                use_case_sensitive_file_names: false,
+                ..Default::default()
+            },
+        );
+        assert!(insensitive.source_file("a.ts").is_some());
+        assert!(
+            insensitive.source_file("A.ts").is_some(),
+            "a case-insensitive program must still match the other casing"
+        );
     }
 
     #[test]
@@ -620,7 +692,7 @@ mod tests {
                 default_library_path: "/libs".to_string(),
             },
         );
-        let a = program.source_file("/a.ts", "/").expect("the root file is in the program");
+        let a = program.source_file("/a.ts").expect("the root file is in the program");
         let lib = &program.lib_files()[0];
         let resolve = |name: &str| {
             a.source_file().node_id.and_then(|id| {

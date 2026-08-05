@@ -55,6 +55,31 @@ file. Upstream's `file.IsBound()` guard survives as "bind only past the
 prefix"; binding twice adds nothing, which is asserted on the flow-node count,
 because re-binding a file leaves the *symbol* count alone.
 
+### A name is canonicalised by the program, not by the caller
+
+`Program::source_file(name)` is `p.toPath(filename)` then `GetSourceFileByPath`
+(`internal/compiler/program.go:1834`), and the program stores the two things
+`toPath` needs — the current directory and the host's case sensitivity
+(`:1830`).
+
+It did not. Until 2026-08-05 it took the current directory as an argument,
+stored neither, and recovered the case sensitivity by trying the case-sensitive
+conversion and then the case-insensitive one, reasoning that a path which
+round-trips unchanged was built that way. **Probed rather than argued
+(`bd tsr-q89`):** a case-*sensitive* program holding `a.ts`, asked for `A.ts`,
+misses on `/A.ts` and then hits on the fallback's `/a.ts`. It answered a name it
+did not hold, for every file already spelled in lower case.
+
+The bug predates the widening and the widening is what made it dangerous. With
+one node table spanning the program, a caller that resolves a unit by name and
+then reads spans against a *different* unit's text gets plausible positions from
+the wrong file rather than anything that fails — see the `Span` section above.
+Both conformance suites do exactly that lookup, once per baseline section.
+
+The test holds **both** directions on two programs, because a fix that merely
+deleted the fallback would pass the first and break the second: a
+case-insensitive program genuinely must match `A.ts` to `a.ts`.
+
 ### A file owns nothing, and a `Span` needs a file
 
 `ProgramFile` used to own an arena, a `NodeTable`, its text and its
