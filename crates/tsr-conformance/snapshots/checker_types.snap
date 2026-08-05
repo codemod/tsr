@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 1789/9538 (18.76%)
-Assertion lines: 272527/478954 (56.90%)  — a gradient, not a pass rate
-Failed         : 7749
+Passed         : 1832/9538 (19.21%)
+Assertion lines: 273502/478954 (57.10%)  — a gradient, not a pass rate
+Failed         : 7706
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 7749 failures:
+First 100 of 7706 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -23,8 +23,6 @@ compiler/ExportAssignment7
   ExportAssignment7.ts: >B : error — expected >B : any
 compiler/ExportAssignment8
   ExportAssignment8.ts: >B : error — expected >B : any
-compiler/MemberAccessorDeclaration15
-  MemberAccessorDeclaration15.ts: >Foo : error — expected >Foo : number
 compiler/ParameterList5
   ParameterList5.ts: >A : error — expected >A : () => (B: any) => C
 compiler/TransportStream
@@ -52,15 +50,15 @@ compiler/accessorDeclarationEmitJs
 compiler/accessorDeclarationEmitVisibilityErrors
   accessorDeclarationEmitVisibilityErrors.ts: >bet : error — expected >bet : DoesNotExist
 compiler/accessorDeclarationOrder
-  accessorDeclarationOrder.ts: >name : error — expected >name : string
+  accessorDeclarationOrder.ts: >this.#name : error — expected >this.#name : string
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : error — expected >basePrototype : { readonly primaryPath: any; }
 compiler/accessorsEmit
-  accessorsEmit.ts: >Property : error — expected >Property : Result
+  accessorsEmit.ts: >Property : error — expected >Property : any
 compiler/accessors_spec_section-4.5_error-cases
-  accessors_spec_section-4.5_error-cases.ts: >AnnotatedSetter_SetterFirst : error — expected >AnnotatedSetter_SetterFirst : number
+  accessors_spec_section-4.5_error-cases.ts: >aStr : any — expected >aStr : string
 compiler/accessors_spec_section-4.5_inference
-  accessors_spec_section-4.5_inference.ts: >InferredGetterFromSetterAnnotation : error — expected >InferredGetterFromSetterAnnotation : A
+  accessors_spec_section-4.5_inference.ts: >InferredFromGetter : error — expected >InferredFromGetter : B
 compiler/addMoreCallSignaturesToBaseSignature
   addMoreCallSignaturesToBaseSignature.ts: >kitty : error — expected >kitty : string
 compiler/addMoreCallSignaturesToBaseSignature2
@@ -191,8 +189,6 @@ compiler/anyAsReturnTypeForNewOnCall
   anyAsReturnTypeForNewOnCall.ts: >this.x : error — expected >this.x : any
 compiler/anyDeclare
   anyDeclare.ts: >myFn : error — expected >myFn : any
-compiler/anyIdenticalToItself
-  anyIdenticalToItself.ts: >X : error — expected >X : any
 compiler/anyIndexedAccessArrayNoException
   anyIndexedAccessArrayNoException.ts: >x : error — expected >x : any
 compiler/anyInferenceAnonymousFunctions
@@ -213,3 +209,7 @@ compiler/argumentsObjectCreatesRestForJs
   main.js: >arguments : error — expected >arguments : IArguments
 compiler/argumentsObjectIterator01_ES6
   argumentsObjectIterator01_ES6.ts: >doubleAndReturnAsArray : error — expected >doubleAndReturnAsArray : (x: number, y: number, z: number) => [number, number, number]
+compiler/argumentsObjectIterator02_ES6
+  argumentsObjectIterator02_ES6.ts: >doubleAndReturnAsArray : error — expected >doubleAndReturnAsArray : (x: number, y: number, z: number) => [number, number, number]
+compiler/argumentsObjectIterator03_ES6
+  argumentsObjectIterator03_ES6.ts: >asReversedTuple : error — expected >asReversedTuple : (a: number, b: string, c: boolean) => [boolean, string, number]
