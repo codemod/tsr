@@ -59,6 +59,18 @@ impl<'a> Checker<'a, '_> {
             TypeNode::TypeLiteralNode(node) => self.get_type_from_type_literal(node),
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
+            TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
+            // `getTypeFromTypeOperatorNode` (`checker.go:22960`). Only the
+            // `readonly` arm: it is transparent — the readonly-ness is carried by
+            // the *target* the array node picks, not by a wrapper type — and it
+            // is what lets `readonly T[]` reach the array arm at all. `keyof` and
+            // `unique symbol` are unported and fall through to `errorType`.
+            TypeNode::TypeOperatorNode(node)
+                if node.operator.kind == SyntaxKind::ReadonlyKeyword =>
+            {
+                node.r#type
+                    .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner))
+            }
             _ => self.intrinsics.error,
         }
     }
@@ -228,6 +240,75 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// Ported from `Checker.getTypeFromArrayOrTupleTypeNode` (`checker.go:24115`),
+    /// **array half only**.
+    ///
+    /// # An array type *is* a reference to the global `Array`
+    ///
+    /// Not a type that prints `T[]`. `getArrayOrTupleTargetType`
+    /// (`checker.go:24148`) picks `globalArrayType` and `createTypeReference`
+    /// instantiates it, so `string[]` and `Array<string>` are **the same type**,
+    /// interned on the same `(symbol, arguments)` key this port already uses for
+    /// generic references. `checker.md` warned in as many words against answering
+    /// arrays "with another type that merely prints alike"; reusing the reference
+    /// machinery is what makes that warning satisfied rather than merely noted.
+    ///
+    /// The `T[]` spelling is a **printing** rule keyed on the target symbol, so
+    /// `Array<Base>` prints `Base[]` too — upstream records exactly that
+    /// (`generatedContextualTyping`).
+    ///
+    /// # `readonly T[]` is a different global, not a modifier
+    ///
+    /// `getArrayOrTupleTargetType` asks whether the *parent* is a `readonly`
+    /// type operator and picks `globalReadonlyArrayType` if so. The two are
+    /// distinct types that happen to share an element, and the operator node
+    /// itself is transparent.
+    ///
+    /// # Tuples are a gap, deliberately
+    ///
+    /// Upstream reaches them through this same function, with `globalTupleType`
+    /// and a per-element flags model (`optional`, `rest`, `variadic`) that has no
+    /// counterpart here. `bd tsr-p3o`. The array half is where the 11,784 lines
+    /// are; a half-ported tuple would answer plausible wrong lines for the rest.
+    fn get_type_from_array_type_node(&mut self, node: &tsr_ast::ArrayTypeNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(element_node) = node.element_type else { return error };
+        let element = self.get_type_from_type_node(element_node);
+        // A gap in the element is a gap in the array: `Unported[]` is not
+        // `any[]`, the same call made for union constituents and type arguments.
+        if element == error {
+            return error;
+        }
+        let readonly = node
+            .node_id
+            .and_then(|id| self.nodes.parent(id))
+            .is_some_and(|parent| self.is_readonly_type_operator(parent));
+        let target = if readonly { "ReadonlyArray" } else { "Array" };
+        let Some(target) = self.global_type_symbol(target) else { return error };
+        self.create_type_reference(target, vec![element])
+    }
+
+    /// `isReadonlyTypeOperator` (`checker.go:24160`).
+    fn is_readonly_type_operator(&self, node: tsr_ast::NodeId) -> bool {
+        matches!(
+            self.node_map.get(node),
+            Some(Node::TypeOperatorNode(operator))
+                if operator.operator.kind == SyntaxKind::ReadonlyKeyword
+        )
+    }
+
+    /// The global type `name`, if the program has one of arity 1.
+    ///
+    /// Ported from `Checker.getGlobalType` (`checker.go`), reduced to the arity
+    /// this slice needs. Upstream reports when the global is missing or has the
+    /// wrong arity; without diagnostics the answer is a gap — which is also what
+    /// happens when a file is checked with no lib files, as every unit test here
+    /// is.
+    fn global_type_symbol(&self, name: &str) -> Option<SymbolId> {
+        let symbol = *self.binder.globals().get(name)?;
+        (self.local_type_parameters_of(symbol).len() == 1).then_some(symbol)
+    }
+
     /// Ported from `Checker.getAliasSymbolForTypeNode` (`checker.go:23719`).
     ///
     /// The host is the nearest ancestor that is not a parenthesised type or a
@@ -308,15 +389,18 @@ impl<'a> Checker<'a, '_> {
             }
             arguments.push(resolved);
         }
+        self.create_type_reference(symbol, arguments)
+    }
+
+    /// `createTypeReference(target, typeArguments)` (`checker.go`).
+    ///
+    /// Interned on the `(target, arguments)` pair, which is what makes
+    /// `string[]` and `Array<string>` one type rather than two that print alike.
+    fn create_type_reference(&mut self, symbol: SymbolId, arguments: Vec<TypeId>) -> TypeId {
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
-        let name = self.binder.symbols().get(symbol).name.to_string();
-        let printed = arguments
-            .iter()
-            .map(|&argument| self.type_to_string(argument))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let printed = self.type_reference_text(symbol, &arguments);
         // `OBJECT` even when the target is a type alias, where upstream\'s
         // instantiated type carries the flags of the alias\'s *body*. The flags
         // are consulted by the arithmetic and `+` arms, and claiming
@@ -336,9 +420,59 @@ impl<'a> Checker<'a, '_> {
         // of the two and a test would cement it — and the obvious test cannot
         // tell the two apart anyway while `bd tsr-y4u.21` keeps a class's type
         // parameters out of every scope.
-        let id = self.store.new_named(TypeFlags::OBJECT, format!("{name}<{printed}>"), None);
+        let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
         self.instantiations.insert((symbol, arguments), id);
         id
+    }
+
+    /// How an instantiated reference prints: `C<number>`, or `T[]` when the
+    /// target is the global `Array`.
+    ///
+    /// `typeReferenceToTypeNode` (`nodebuilderimpl.go:2977`) special-cases
+    /// `globalArrayType` and `globalReadonlyArrayType` before anything else, so
+    /// the shorthand is a property of the **target**, not of how the type was
+    /// written. `Array<Base>` prints `Base[]`.
+    fn type_reference_text(&mut self, symbol: SymbolId, arguments: &[TypeId]) -> String {
+        if let [element] = arguments {
+            let element = self.array_element_text(*element);
+            if self.global_type_symbol("Array") == Some(symbol) {
+                return format!("{element}[]");
+            }
+            if self.global_type_symbol("ReadonlyArray") == Some(symbol) {
+                return format!("readonly {element}[]");
+            }
+        }
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        let printed = arguments
+            .iter()
+            .map(|&argument| self.type_to_string(argument))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{name}<{printed}>")
+    }
+
+    /// An array's element, parenthesised where the postfix `[]` would otherwise
+    /// bind wrongly.
+    ///
+    /// Taken from the baselines rather than from a precedence table, because
+    /// only some of the plausible cases are actually parenthesised:
+    ///
+    /// ```text
+    /// (string | number)[]        (typeof Alpha)[]        (() => string)[]
+    /// { (x: number): number; }[]        string[][]        string[]
+    /// ```
+    ///
+    /// So a union, a `typeof`, and a signature are wrapped; an object type and a
+    /// nested array are not. Intersections are wrapped on the same precedence
+    /// grounds and **no baseline exercises one**, which is stated rather than
+    /// presented as verified.
+    fn array_element_text(&self, element: TypeId) -> String {
+        let ty = self.store.get(element);
+        let text = crate::printing::type_to_string(ty);
+        let wrap = ty.flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            || text.starts_with("typeof ")
+            || has_top_level_arrow(&text);
+        if wrap { format!("({text})") } else { text }
     }
 
     /// The type a *type* symbol declares.
@@ -558,4 +692,29 @@ impl<'a> Checker<'a, '_> {
             })
             .collect()
     }
+}
+
+/// Whether a printed type has a `=>` outside any brackets.
+///
+/// A function type is parenthesised as an array element; an object type with a
+/// call signature — `{ (x: number): number; }` — is not, and has no top-level
+/// `=>` either, so one test separates them.
+fn has_top_level_arrow(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut depth = 0i32;
+    for (index, byte) in bytes.iter().enumerate() {
+        match byte {
+            b'(' | b'[' | b'{' | b'<' => depth += 1,
+            b')' | b']' | b'}' | b'>'
+                if !(*byte == b'>' && index > 0 && bytes[index - 1] == b'=') =>
+            {
+                depth -= 1;
+            }
+            _ => {}
+        }
+        if depth == 0 && bytes[index..].starts_with(b"=>") {
+            return true;
+        }
+    }
+    false
 }

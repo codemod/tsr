@@ -2124,3 +2124,71 @@ sorted versus source order — and merging them behind a flag would put that
 distinction one indirection away from the code that has to respect it. Interning
 shares the one table, safely, for the reason already recorded for unions: the
 `TypeData` discriminant is part of the derived `Hash` and `PartialEq`.
+
+## Array types are a reference to the global `Array`
+
+Ported 2026-08-05, cycle 7. The array bucket was **12,491 lines at 0.00% right
+through eight slices** — the largest bucket that had never scored — and it was
+blocked on the global `Array` not existing. It exists as of `fa16ae4`, and the
+only thing left was that `getTypeFromTypeNode` had no `ArrayType` arm.
+
+### Not a type that prints `T[]`
+
+This is the whole point, and `checker.md` had already warned against the
+alternative: this port should not answer arrays "with another type that merely
+prints alike". `getArrayOrTupleTargetType` (`checker.go:24148`) picks
+`globalArrayType` and `createTypeReference` instantiates it, so an array type
+**is** a generic reference — interned on the same `(target, arguments)` key the
+generic-reference machinery already used.
+
+The consequence is testable and is tested: **`string[]` and `Array<string>` are
+one type**, not two that print alike. A lookalike implementation passes every
+printing test and fails that one.
+
+### The shorthand belongs to the target, not to the syntax
+
+`typeReferenceToTypeNode` (`nodebuilderimpl.go:2977`) special-cases
+`globalArrayType` before anything else, so **`Array<Base>` prints `Base[]`** —
+upstream records exactly that (`generatedContextualTyping`). Putting the
+shorthand in the array *node* would have printed `Array<Base>` for the long
+spelling and passed every fixture written with `[]`.
+
+`readonly T[]` is a **different global** (`globalReadonlyArrayType`), not a
+modifier: two distinct types that share an element. The `readonly` type operator
+node is itself transparent (`checker.go:22973`), which is what lets the array
+node see it as a parent and pick the other target.
+
+### Parenthesisation came from baselines, not from a precedence table
+
+Only some of the plausible cases are wrapped, and guessing would have been wrong
+in both directions:
+
+```text
+(string | number)[]     (typeof Alpha)[]      (() => string)[]
+{ (x: number): number; }[]      string[][]    string[]
+```
+
+A union, a `typeof` and a signature are wrapped; an **object type and a nested
+array are not**. Intersections are wrapped on the same precedence grounds and
+**no baseline exercises one** — stated rather than presented as verified.
+
+### Tuples are a gap, deliberately
+
+Upstream reaches them through the same function, with `globalTupleType` and a
+per-element flags model (`optional`, `rest`, `variadic`). Answering `string[]`
+for `[string, number]` would be a wrong line dressed as a right one, and the
+11,784 lines are in the array half. `bd tsr-cqi`.
+
+### An unobservable guard, made observable instead of documented
+
+The arity check in `global_type_symbol` — upstream's `getGlobalType("Array", 1)`
+— turned **no test red** under mutation, because every fixture supplied an
+`Array` of the right arity. Rather than record it as unobservable, which is what
+this document has done four times, the fixture that reaches it was written: a
+program declaring `interface Array {}` must **not** have its zero-arity `Array`
+used as the array target.
+
+That is the better resolution wherever it is available. The `#[ignore]`d test
+with a named unblocking event is for guards that genuinely cannot be reached
+yet; a guard that can be reached by a fixture nobody had written is not one of
+them.
