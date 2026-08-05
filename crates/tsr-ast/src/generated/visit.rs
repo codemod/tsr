@@ -993,8 +993,14 @@ pub trait Visit<'a>: Sized {
 }
 
 /// Dispatch to the visit method matching `node`'s variant.
+///
+/// Wrapped in [`tsr_core::stack::ensure_sufficient`]: this is the generic
+/// tree walk, it recurses once per level, and the corpus contains a
+/// 4,958-deep expression chain that overflows an 8 MiB stack without it.
+/// A depth limit was rejected here because `Visit` is a public trait with
+/// user-written impls and no place to keep a counter; see ADR-0030.
 pub fn walk_node<'a, V: Visit<'a>>(visitor: &mut V, node: Node<'a>) {
-    match node {
+    tsr_core::stack::ensure_sufficient(|| match node {
         Node::ArrayLiteralExpression(n) => visitor.visit_array_literal_expression(n),
         Node::ArrayTypeNode(n) => visitor.visit_array_type_node(n),
         Node::ArrowFunction(n) => visitor.visit_arrow_function(n),
@@ -1187,7 +1193,7 @@ pub fn walk_node<'a, V: Visit<'a>>(visitor: &mut V, node: Node<'a>) {
         Node::WhileStatement(n) => visitor.visit_while_statement(n),
         Node::WithStatement(n) => visitor.visit_with_statement(n),
         Node::YieldExpression(n) => visitor.visit_yield_expression(n),
-    }
+    });
 }
 
 impl<'a> From<&'a ArrayLiteralExpression<'a>> for Node<'a> {

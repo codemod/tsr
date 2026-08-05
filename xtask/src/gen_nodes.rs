@@ -726,14 +726,20 @@ pub fn generate_visit(ast: &AstDefinition, nullability: &GoNullability) -> Resul
     // ---- dispatch -------------------------------------------------------
     out.push_str(
         "/// Dispatch to the visit method matching `node`'s variant.\n\
+         ///\n\
+         /// Wrapped in [`tsr_core::stack::ensure_sufficient`]: this is the generic\n\
+         /// tree walk, it recurses once per level, and the corpus contains a\n\
+         /// 4,958-deep expression chain that overflows an 8 MiB stack without it.\n\
+         /// A depth limit was rejected here because `Visit` is a public trait with\n\
+         /// user-written impls and no place to keep a counter; see ADR-0030.\n\
          pub fn walk_node<'a, V: Visit<'a>>(visitor: &mut V, node: Node<'a>) {\n    \
-         match node {\n",
+         tsr_core::stack::ensure_sufficient(|| match node {\n",
     );
     for name in ast.nodes.definitions.keys() {
         let snake = name.to_case(Case::Snake);
         writeln!(out, "        Node::{name}(n) => visitor.visit_{snake}(n),")?;
     }
-    out.push_str("    }\n}\n\n");
+    out.push_str("    });\n}\n\n");
 
     // Widening a concrete node reference into the union. `Node`'s variants hold
     // `&'a T`, so `Node::from(&foo)` needs one impl per node type — without them

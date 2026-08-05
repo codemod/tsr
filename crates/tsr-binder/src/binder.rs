@@ -107,11 +107,41 @@ struct ActiveLabel<'a> {
     referenced: bool,
 }
 
+/// How often `bind()` checks for remaining stack.
+///
+/// Every 32nd level, not every level. `bind()` is the binder's hottest path and
+/// checking on each one measured about 2% on parse+bind over `checker.ts`; at this
+/// interval the same benchmark is back inside run-to-run noise. The safety
+/// condition is that 32 levels of frames fit inside the red zone
+/// [`tsr_core::stack::ensure_sufficient`] keeps in reserve: the binder's frames are
+/// roughly 800 bytes in debug, so 32 of them is about 26 KiB against 100 KiB.
+const STACK_CHECK_INTERVAL: u32 = 32;
+
+// `bind()` recursion depth is measured but no longer bounded. The walk recurses
+// once per tree level and the corpus contains a 4,958-deep left-leaning chain
+// (`compiler/binderBinaryExpressionStress`), which overflowed a fixed stack. It is
+// now wrapped in `tsr_core::stack::ensure_sufficient`, growing the stack on demand
+// as rustc does — matching upstream, whose `internal/binder/binder.go:2212`
+// recurses plainly because Go grows goroutine stacks itself.
+//
+// A depth *limit* was implemented first and abandoned: it required every recursive
+// walk to opt in, and `tsr_ast::visit::walk_node` — a public visitor with
+// user-written impls — has no natural place to keep the counter. See
+// `docs/adr/0030-grow-the-stack-natively-wasm-traps.md`.
+//
+// The measurement is kept because it still sizes *wasm's* link-time stack, which
+// cannot grow (`bd tsr-el3.3`). Over 16,207 corpus files: p50 7, p99.9 25, deepest
+// non-chain file 285, deepest overall 4,958.
+
 // Nine independent cursors is what the algorithm is; collapsing them into a
 // state machine would hide the save-and-restore structure that makes it
 // checkable against upstream line by line.
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Binder<'a, 'n> {
+    /// Current and peak `bind()` recursion depth. Measured, not bounded; see the
+    /// note above this struct and `bd tsr-el3.3`.
+    depth: u32,
+    max_depth: u32,
     nodes: &'n NodeTable,
     symbols: SymbolStore<'a>,
     /// `node -> the symbol it declares`. Dense, because node ids are dense.
@@ -270,6 +300,8 @@ impl<'a, 'n> Binder<'a, 'n> {
         let flow = FlowStore::with_capacity(nodes.len() / 5 + 16);
         let unreachable = flow.unreachable();
         Self {
+            depth: 0,
+            max_depth: 0,
             nodes,
             symbols: SymbolStore::new(),
             node_symbols: vec![None; nodes.len()],
@@ -364,6 +396,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         BindResult {
+            max_depth: self.max_depth,
             computed_names: self.computed_names,
             global_exports: self.global_exports,
             symbols: self.symbols,
@@ -380,7 +413,26 @@ impl<'a, 'n> Binder<'a, 'n> {
     }
 
     /// Bind `node` and everything under it.
+    ///
+    /// Guarded: see [`MAX_DEPTH`]. The parser caps its *own* recursion but builds
+    /// deeper trees than that iteratively, so this walk cannot assume its input
+    /// is shallow just because the parser survived it.
     fn bind(&mut self, node: Node<'a>) {
+        self.depth += 1;
+        self.max_depth = self.max_depth.max(self.depth);
+        // Check every 32nd level rather than every level. `bind()` is the hottest
+        // path in the binder — checking on all of them measured ~2% on parse+bind
+        // over `checker.ts` — and 32 levels is at most ~26 KiB of frames in debug,
+        // comfortably inside `ensure_sufficient`'s 100 KiB red zone.
+        if self.depth.is_multiple_of(STACK_CHECK_INTERVAL) {
+            tsr_core::stack::ensure_sufficient(|| self.bind_inner(node));
+        } else {
+            self.bind_inner(node);
+        }
+        self.depth -= 1;
+    }
+
+    fn bind_inner(&mut self, node: Node<'a>) {
         let Some(id) = node.node_id() else {
             // Unregistered: descend without treating it as a declaration.
             self.bind_each_child(node);

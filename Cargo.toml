@@ -37,6 +37,11 @@ rayon = "1.12"                   # Data parallelism across files
 rustc-hash = "2"                 # Fast non-cryptographic hashing
 self_cell = "1.2"                # Self-referential arena + AST storage
 smallvec = { version = "1.15", features = ["union"] }
+# Grows the stack on demand, as rustc's `ensure_sufficient_stack` does. A
+# deliberate addition to oxc's bill of materials rather than a copy of it; see
+# ADR-0030 for why the alternative (depth guards on every recursive walk) was
+# tried first and abandoned.
+stacker = "0.1.25"
 
 # Codegen (xtask only).
 anyhow = "1"

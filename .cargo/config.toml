@@ -1,0 +1,34 @@
+# wasm32 gets an 8 MiB stack at link time.
+#
+# Every other target grows its stack on demand via `tsr_core::stack::ensure_sufficient`
+# (see docs/adr/0030-grow-the-stack-natively-wasm-traps.md). wasm32 cannot: it has
+# one linear stack, fixed when the module is linked, and overflow is a trap that
+# kills the instance rather than something catchable. So on wasm this number *is*
+# the nesting ceiling.
+#
+# Why 8 MiB rather than wasm-ld's 1 MiB default: measured, not picked round.
+# `crates/tsr-conformance/examples/stack_depth.rs` bisects the smallest stack each
+# stage survives on. At nesting depth 5,000 in a debug build, parse+bind needs
+# 1 MiB per shape after the fixes in ADR-0030, and the parser alone needs 4 MiB for
+# nested conditional types. `compiler/binderBinaryExpressionStress` — a real corpus
+# case, 4,958 operands in one chain — exceeds the 1 MiB default outright, so the
+# default already fails on the corpus we have, before any checker exists.
+#
+# The cost is real and unlike native. A native thread stack is virtual and
+# committed lazily, so the harness's 8 MiB per worker costs nothing until touched;
+# every RSS reading taken on 2026-08-05 (14.8–15.1 MiB) was under a 32 MiB × N pool
+# and unpaid. On wasm the stack lives *in linear memory* and is paid from
+# instantiation: 8 MiB is 8 MiB. That asymmetry is why this is 8 and not 64.
+#
+# WHAT IS AND IS NOT VERIFIED, as of 2026-08-05. Verified: tsr-core, tsr-ast,
+# tsr-binder and tsr-printer compile for wasm32-unknown-unknown, which is what
+# confirms the `cfg(not(target_arch = "wasm32"))` gate on the `stacker` dependency
+# is correct. NOT verified: that this flag takes effect, because nothing here
+# links a wasm artefact — a library build never invokes wasm-ld, so the value is
+# unexercised and will regress silently. `bd tsr-el3.3` tracks adding a wasm CI
+# target, which is the only thing that would make this number trustworthy.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=8388608"]
+
+[target.wasm32-wasip1]
+rustflags = ["-C", "link-arg=-zstack-size=8388608"]

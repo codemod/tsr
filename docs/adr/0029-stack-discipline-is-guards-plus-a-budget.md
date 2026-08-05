@@ -1,6 +1,11 @@
 # ADR-0029: Stack discipline is guards plus a budget, not a growable stack
 
-- **Status:** accepted
+- **Status:** superseded by [ADR-0030](0030-grow-the-stack-natively-wasm-traps.md)
+  on 2026-08-05. Its central claim — that depth guards could do the bounding —
+  was falsified by implementing it: with guards in both the binder and the printer
+  and the budget at 8 MiB, the conformance run still overflowed, in a *third*
+  recursive walk (`tsr_ast::visit::walk_node`) that a guard fits badly. Left
+  unedited below; the wrong turns are the useful part of the archive.
 - **Date:** 2026-08-05
 - **Supersedes:** [ADR-0028](0028-a-stack-policy-before-the-checker.md) entirely —
   same problem, opposite conclusion, and two of its premises were wrong.

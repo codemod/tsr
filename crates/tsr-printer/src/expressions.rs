@@ -15,7 +15,65 @@ use tsr_ast::Expression;
 use crate::{ListFormat, Printer, big_int_text, escape_template, quote_string};
 
 impl Printer<'_> {
+    /// `a + b + c …`, walking the left spine iteratively.
+    ///
+    /// Ported from `Printer.emitBinaryExpression` (`internal/printer/printer.go`),
+    /// which recurses. It can: Go grows a goroutine's stack on demand. Here the
+    /// stack is fixed, and `a + a + a …` is **left-leaning and unbounded** —
+    /// `parser.rs` climbs precedence in a loop, so its own `descend()` guard never
+    /// fires and the tree is as deep as the chain. The corpus contains a
+    /// 4,958-operand chain (`compiler/binderBinaryExpressionStress`), and
+    /// recursing once per operand is what overflowed CI's debug run.
+    ///
+    /// strada solves this the same way and names it in that test's header comment
+    /// ("we have to skip the trampoline"). ADR-0029 rejects an explicit work stack
+    /// as a *policy* while retaining it for exactly this: one known-pathological
+    /// path, where the transformation is a pure reassociation of the emit order
+    /// and the output is byte-identical.
+    ///
+    /// Only the left spine is flattened. `a = b = c` is right-leaning and recurses
+    /// through `right`, which the depth guard covers instead; no corpus file gets
+    /// near it.
+    fn emit_binary_expression<'e>(&mut self, node: &'e tsr_ast::BinaryExpression<'e>) {
+        // Collect the spine, shallowest first.
+        let mut spine = vec![node];
+        while let Some(Expression::BinaryExpression(left)) =
+            spine.last().expect("spine is never empty").left
+        {
+            spine.push(left);
+        }
+
+        // The deepest node's left is not itself a binary expression, or it would
+        // be on the spine. Everything below it is ordinary depth.
+        if let Some(left) = &spine.last().expect("spine is never empty").left {
+            self.emit_expression(left);
+        }
+
+        // Then each operator and right operand, innermost outwards — the order a
+        // recursive emit would have produced on the way back up.
+        for binary in spine.iter().rev() {
+            self.write(" ");
+            if let Some(token) = binary.operator_token {
+                self.emit_token_node(token);
+            }
+            self.write(" ");
+            if let Some(right) = &binary.right {
+                self.emit_expression(right);
+            }
+        }
+    }
+
+    /// Emit an expression, growing the stack if the tree is deeply nested.
+    ///
+    /// The parser caps its own recursion but legitimately produces trees deeper
+    /// than that cap, so this walk cannot assume a shallow input. See
+    /// [`tsr_core::stack::ensure_sufficient`] and ADR-0030 — on wasm32 this is a
+    /// plain call and deep input traps.
     pub(crate) fn emit_expression(&mut self, expression: &Expression<'_>) {
+        tsr_core::stack::ensure_sufficient(|| self.emit_expression_inner(expression));
+    }
+
+    fn emit_expression_inner(&mut self, expression: &Expression<'_>) {
         match expression {
             // Ported from `Printer.emitIdentifierReference` (`internal/printer/printer.go`).
             Expression::Identifier(node) => self.write(node.text),
@@ -143,19 +201,7 @@ impl Printer<'_> {
                 self.arguments(node.arguments);
             }
             // Ported from `Printer.emitBinaryExpression` (`internal/printer/printer.go`).
-            Expression::BinaryExpression(node) => {
-                if let Some(left) = &node.left {
-                    self.emit_expression(left);
-                }
-                self.write(" ");
-                if let Some(token) = node.operator_token {
-                    self.emit_token_node(token);
-                }
-                self.write(" ");
-                if let Some(right) = &node.right {
-                    self.emit_expression(right);
-                }
-            }
+            Expression::BinaryExpression(node) => self.emit_binary_expression(node),
             // Ported from `Printer.emitPrefixUnaryExpression` (`internal/printer/printer.go`).
             Expression::PrefixUnaryExpression(node) => {
                 self.emit_token_node(node.operator);

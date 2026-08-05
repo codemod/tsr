@@ -40,14 +40,21 @@ lowered when the expression parser grew and a 2,000-paren input overflowed in de
 anyway. For scale, the corpus's deepest *real* nesting is 69.
 
 Upstream has no such guard — Go grows a goroutine's stack on demand — so this is a
-deliberate divergence, and it is one half of the policy in
-[ADR-0029](../adr/0029-stack-discipline-is-guards-plus-a-budget.md). The other half is
-the gap it does *not* cover: `a + a + a …` is parsed **iteratively** by precedence
-climbing, so `descend()` never fires, yet the tree is as deep as the chain is long and
-consumers walk it recursively. Parsing
+deliberate divergence, and it is now the *only* depth limit in the codebase.
+
+It does not cover the gap that matters most: `a + a + a …` is parsed **iteratively**
+by precedence climbing, so `descend()` never fires, yet the tree is as deep as the
+chain is long and consumers walk it recursively. Parsing
 `compiler/binderBinaryExpressionStress` costs 256 KiB of stack; parsing *and binding*
-it costs 4 MiB. The guard protects the parser from its own recursion and leaves the
-binder, printer and checker exposed to the trees it legitimately produces.
+it once cost 4 MiB. So the parser protects itself and leaves the binder, printer and
+checker exposed to the trees it legitimately produces.
+
+That exposure is closed elsewhere, and **not** by more depth guards: consumers wrap
+their recursive walks in `tsr_core::stack::ensure_sufficient`, which grows the stack
+on demand on native targets. Guards were tried first and abandoned — see
+[ADR-0030](../adr/0030-grow-the-stack-natively-wasm-traps.md), which supersedes
+ADR-0029. `MAX_DEPTH` here survives that reversal only because the parser already had
+it and it is pinned by a test; a parser rewrite would not add it today.
 
 ## Backtracking, and the trap in it
 

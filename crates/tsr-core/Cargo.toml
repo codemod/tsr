@@ -13,5 +13,10 @@ nonmax = { workspace = true }
 rustc-hash = { workspace = true }
 tsr-path = { workspace = true }
 
+# Native only: wasm32 has one linear stack fixed at link time and cannot grow it,
+# so there is nothing for `stacker` to do there. See `stack::ensure_sufficient`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+stacker = { workspace = true }
+
 [lints]
 workspace = true

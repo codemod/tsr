@@ -124,3 +124,29 @@ fn a_dot_after_a_number_keeps_its_separator() {
     // The idiomatic spelling must survive untouched too.
     assert!(round_trips("const c = 1..toString();"));
 }
+
+// ---- deep nesting (bd tsr-el3.1, ADR-0030) -------------------------------
+
+#[test]
+fn a_binary_chain_far_deeper_than_the_stack_prints_exactly() {
+    // The shape that overflowed CI's debug run:
+    // `compiler/binderBinaryExpressionStress` is 4,958 operands of it. Two things
+    // keep this working — the left spine is walked iteratively, and every other
+    // expression path grows the stack — and the output must be byte-identical.
+    let source = format!("const x = {};", "a + ".repeat(10_000) + "a");
+    let parsed = ParsedFile::parse(source.clone());
+    assert!(parsed.diagnostics().is_empty(), "the fixture must parse");
+    let printed = parsed.with_ast(|file| tsr_printer::print(file, parsed.nodes()));
+    assert!(printed.is_complete(), "unsupported: {:?}", printed.unsupported);
+    assert_eq!(printed.text.trim_end(), source);
+}
+
+#[test]
+fn a_deeply_nested_expression_prints_without_overflowing() {
+    // Right-leaning nesting is not flattened; stack growth is what covers it.
+    // Aborts the process if `ensure_sufficient` is removed.
+    let source = format!("const x = {}a{};", "(".repeat(5_000), ")".repeat(5_000));
+    let parsed = ParsedFile::parse(source);
+    let printed = parsed.with_ast(|file| tsr_printer::print(file, parsed.nodes()));
+    assert!(!printed.text.is_empty());
+}

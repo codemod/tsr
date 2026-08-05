@@ -291,14 +291,24 @@ comments are common in real source and absent from hand-written tests, which is
 the whole argument for the corpus gate. There are now five trivia regression tests
 covering it (`crates/tsr-scanner/tests/scan.rs`).
 
-## Stack, and why it is a budget rather than a mechanism
+## Stack, and why it is grown rather than bounded
 
 Peak RSS above is heap. Stack is a separate resource with a separate failure mode: it
 is fixed at thread spawn, cannot grow at all on wasm, and overflowing it aborts the
 process rather than producing a diagnostic. Upstream has nothing to port here — Go's
 runtime grows a goroutine's stack to 1 GiB transparently — so the policy is decided
 from first principles in
-[ADR-0029](../adr/0029-stack-discipline-is-guards-plus-a-budget.md).
+[ADR-0030](../adr/0030-grow-the-stack-natively-wasm-traps.md), which supersedes
+ADR-0029's depth-guard policy after implementing it showed a third unguarded walk.
+
+Native targets grow the stack on demand via `tsr_core::stack::ensure_sufficient`;
+wasm32 cannot, so it links with a fixed 8 MiB stack and deep input traps there. The
+binder checks every 32nd level rather than every level, which is worth ~2% on
+parse+bind over `checker.ts`; ADR-0030 has the readings.
+
+The table below is the *pre-fix* measurement, kept because it is what motivated the
+change. After it, parse+bind sits at 1 MiB for every shape except nested conditional
+types, which is dominated by parsing rather than binding.
 
 Measured with `examples/stack_depth.rs`, smallest surviving power-of-two stack at
 nesting depth 5,000 (so each cell is within 2×):

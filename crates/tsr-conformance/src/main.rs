@@ -63,14 +63,24 @@ use tsr_conformance::{
 /// A Rust thread's stack is fixed at spawn, and wasm cannot grow one at all. That is
 /// a difference between the languages rather than between the two implementations.
 ///
-/// **32 MiB is oversized under the policy now adopted**
-/// ([ADR-0029](../../../docs/adr/0029-stack-discipline-is-guards-plus-a-budget.md)):
-/// depth guards on recursive tree walks do the bounding, and the stack budget is
-/// headroom behind them at 8 MiB. This constant should come down to that once the
-/// binder and printer guards land, so the suites exercise the guards rather than
-/// hiding behind a stack no consumer has. Reducing it before then would re-break the
-/// debug run. `bd tsr-el3`.
-const WORKER_STACK: usize = 32 * 1024 * 1024;
+/// **Now 8 MiB, the budget
+/// [ADR-0029](../../../docs/adr/0029-stack-discipline-is-guards-plus-a-budget.md)
+/// adopts** (`bd tsr-el3.1`, 2026-08-05). It was 32 MiB while the walks were
+/// unguarded; that number is what let the suites pass over trees no library
+/// consumer could have walked, which is the failure this whole issue exists to
+/// surface.
+///
+/// What made the reduction safe is that the bounding moved into the walks
+/// themselves: `tsr-binder`'s `MAX_DEPTH` and `tsr-printer`'s
+/// `MAX_EXPRESSION_DEPTH`, both 1,000, plus an iterative left-spine emit for the
+/// one shape that genuinely goes deeper. Measured over 16,207 corpus files by
+/// `examples/bind_depth.rs`, peak bind depth is 7 at p50, 25 at p99.9, and 285 for
+/// the deepest file that is not a left-leaning binary chain.
+///
+/// Keep this at the budget. Raising it to make a suite pass would restore exactly
+/// the blind spot described above: a green run proving only that *this harness* has
+/// a stack no one else does.
+const WORKER_STACK: usize = 8 * 1024 * 1024;
 
 fn main() -> Result<()> {
     // Before any suite runs: `build_global` may only be called once, and rayon

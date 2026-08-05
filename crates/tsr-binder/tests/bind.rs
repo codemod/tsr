@@ -881,3 +881,62 @@ fn a_late_bound_object_literal_member_is_parented_to_the_literal() {
         .expect("the member");
     assert_eq!(computed.1.parent, Some(literal));
 }
+
+// ---- deep nesting (bd tsr-el3.1, ADR-0030) -------------------------------
+//
+// The parser caps its own recursion at 192 but builds deeper trees than that
+// iteratively — `a + a + a …` is precedence-climbed, so `descend()` never fires
+// and the tree is as deep as the chain. The binder walks that tree recursively,
+// which overflowed a fixed stack until `bind()` was wrapped in
+// `tsr_core::stack::ensure_sufficient`. These pin that it no longer does.
+//
+// Each of these aborts the *process* with "has overflowed its stack" if the
+// growth is removed — they are not assertions that merely go red.
+
+fn bind_source<'a>(arena: &'a Arena, source: &'a str) -> BindResult<'a> {
+    let parsed = tsr_parser::parse(arena, source);
+    tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    )
+}
+
+#[test]
+fn a_binary_chain_far_deeper_than_the_stack_binds_without_overflowing() {
+    // `compiler/binderBinaryExpressionStress` is 4,958 operands of exactly this
+    // shape, so this is a real corpus case rather than a hypothetical. 10,000 is
+    // deliberately past it: upstream has no ceiling and neither should this.
+    let arena = Arena::new();
+    let source = arena.alloc_str(&format!("const x = {};\n", "a + ".repeat(10_000) + "a"));
+    let result = bind_source(&arena, source);
+    assert!(result.max_depth() > 10_000, "the walk really did recurse that deep");
+    assert!(result.diagnostics().is_empty(), "deep nesting is not an error natively");
+}
+
+#[test]
+fn deeply_nested_parentheses_bind_without_overflowing() {
+    // A different shape reaching the same walk, so the fix is not accidentally
+    // specific to binary expressions. The parser truncates past its own
+    // MAX_DEPTH of 192, so the tree here is shallower than the input — the point
+    // is that nothing aborts.
+    let arena = Arena::new();
+    let source =
+        arena.alloc_str(&format!("const x = {}a{};\n", "(".repeat(5_000), ")".repeat(5_000)));
+    let result = bind_source(&arena, source);
+    assert!(result.max_depth() > 0);
+}
+
+#[test]
+fn declarations_around_a_deep_expression_still_bind() {
+    // Growing the stack must not disturb the walk itself.
+    let arena = Arena::new();
+    let source = arena.alloc_str(&format!(
+        "const before = 1;\nconst deep = {};\nconst after = 2;\n",
+        "a + ".repeat(10_000) + "a"
+    ));
+    let bound = bind(&arena, source);
+    for name in ["before", "deep", "after"] {
+        assert!(bound.top_level_symbol(name).is_some(), "`{name}` should be declared");
+    }
+}

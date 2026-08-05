@@ -111,6 +111,8 @@ bitflags::bitflags! {
 /// checker needs, and the reason nothing here hangs off the AST.
 #[derive(Debug)]
 pub struct BindResult<'a> {
+    /// TEMPORARY instrumentation for `bd tsr-el3.1`.
+    max_depth: u32,
     symbols: SymbolStore<'a>,
     node_symbols: Vec<Option<SymbolId>>,
     locals: FxHashMap<NodeId, SymbolTable<'a>>,
@@ -126,6 +128,12 @@ pub struct BindResult<'a> {
 }
 
 impl<'a> BindResult<'a> {
+    /// TEMPORARY instrumentation for `bd tsr-el3.1`: peak `bind()` recursion depth.
+    #[must_use]
+    pub fn max_depth(&self) -> u32 {
+        self.max_depth
+    }
+
     /// Every symbol created.
     #[must_use]
     pub fn symbols(&self) -> &SymbolStore<'a> {
