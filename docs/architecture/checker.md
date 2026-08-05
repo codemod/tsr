@@ -3060,3 +3060,126 @@ The lesson is that a fixture standing in for "unported" must use something that
 stays unported. Both now use a variable whose annotation names an unresolvable
 type, which is a gap that no amount of expression-grammar porting will close. A
 gap test whose fixture is a *form* rather than a *failure* has a shelf life.
+
+## Inferring a return type from a body (2026-08-05)
+
+Until this slice, *every* function body containing a `return` gapped its whole
+signature: `return_type_of` answered `None` the moment `body_has_return_statement`
+was true, `get_signatures_of_symbol` propagated it, and `getTypeOfSymbol` turned
+that into `errorType`. It was the largest single cause of gaps in the checker —
+the histogram at `e24b7ca` put **4,898 lines** on `SymbolFlags(FUNCTION) /
+FunctionDeclaration / neither` alone, plus 1,607 on references to the same
+symbols, 1,873 on `METHOD / MethodDeclaration / neither`, and most of 1,828 on
+`VariableDeclaration / initialiser CallExpression`, which reaches the same code
+one hop out through `resolve_call_signature`. Roughly 10,200 lines behind one
+`return None`.
+
+### The forcing constraint was recorded, and it had expired
+
+The comment on `get_signature_from_declaration` said the aggregate is
+`checkAndAggregateReturnExpressionTypes` (`checker.go:20259`) — "a union of the
+return expressions, subtype-reduced. Unions are `bd tsr-4sc.9`." That was true
+when written and had stopped being true: `get_union_type` landed in
+`crate::unions`. Subtype reduction did *not* land, so the recorded blocker was
+half-right, and the half that expired was hiding the largest item on the board.
+This is the second stale doc comment this cycle to cost real work (the first was
+`indexed.rs`'s gap list, corrected in `4058fb1`), and it is the argument for
+citing a `bd` issue in such a comment rather than a bare feature name: an issue
+can be closed, a sentence cannot.
+
+### The slice is "one distinct type", not "one `return` statement"
+
+The obvious reduction is "answer bodies with exactly one `return`". Upstream is
+more generous for free, and the difference is not a nicety — it is most of the
+corpus. `checkAndAggregateReturnExpressionTypes` appends with
+`core.AppendIfUnique` (`checker.go:20295`), and `getUnionTypeEx` of a one-element
+list is that element. So
+
+```ts
+function f(s: string, c: boolean) {
+    if (c) { return s; }
+    return s;
+}
+```
+
+aggregates to a *single* type and reaches no union at all. Restricting to one
+`return` would gap it for a reason upstream does not recognise. Identity is
+`TypeId` equality, which is exact rather than approximate because this port
+interns types (`identical_literals_are_one_interned_type`).
+
+The aggregate is taken on the **unwidened** types, matching `AppendIfUnique`'s
+position in upstream's pipeline — widening happens once, afterwards, on the
+aggregate. That is why `return 1` beside `return 2` is two distinct types and
+gaps here, although upstream reduces and widens them to `number`. Aggregating
+widened types instead would answer that case, and would be a different function
+from upstream's: it would also collapse `return 1` beside `return "a"` if either
+widened to a shared type, which is exactly the reasoning-by-analogy this port
+exists to avoid.
+
+**The rejected alternative was to call `get_union_type` without subtype
+reduction** and book the difference as a known divergence. It fails on the case
+that matters most: an unreduced union prints constituents upstream collapses, so
+a two-object-type return prints `{ a: string; } | { a: string; b: number; }`
+where upstream prints one of them. That is a wrong answer wearing the shape of a
+result, and it would be counted as a *win* by the case-rate instrument while
+being worse than the gap it replaced. It becomes the right call the moment
+`is_subtype_reduction_free` — already written for conditional expressions, in
+this same document — is generalised; a two-type aggregate over primitives is
+reduction-free by exactly that fence, and that is the natural next slice.
+
+### A function declaration is never contextually typed, and that is load-bearing
+
+`getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded` (`:20221`) widens a
+unit result unless a contextual signature supplied one — `function f() { return 1; }`
+is `() => number`, `const f: () => 1 = () => 1` is `() => 1`. This port already
+had `has_no_contextual_type`, a conservative test asking "is this the initialiser
+of an un-annotated `const`", written when the only caller was the concise arrow
+body arm.
+
+Reusing it alone for block bodies would have gapped **every**
+`function f() { return 1; }` in the corpus — the bulk of what this slice exists
+to answer — because a function declaration's parent is a source file, not a
+variable declaration. The fix is not a looser approximation but upstream's own
+guard, whose entire body is a kind test:
+
+```go
+// getContextualSignatureForFunctionLikeDeclaration, checker.go:29711
+// Only function expressions, arrow functions, and object literal methods are contextually typed.
+if ast.IsFunctionExpressionOrArrowFunction(node) || ast.IsObjectLiteralMethod(node) {
+```
+
+So for a function declaration, a class method and an interface method there is
+*nothing to check*: no contextual signature can exist, and the unit result widens
+unconditionally. `has_no_contextual_return_type` is that certainty first and the
+old approximation only for the kinds that survive it. A method is contextually
+typed only as an **object literal's** member, which is why the test asks the
+parent rather than the kind alone.
+
+### What is gapped, and the one that is a judgment call
+
+Two or more distinct types, async and generator bodies (their `Promise<T>` /
+`Generator<…>` wrappers are globals this port cannot resolve — see ADR-0034), and
+a return expression whose own type is a gap all answer `errorType` by
+propagation. One more is deliberate:
+
+A bare `return;` **beside** a valued `return` is gapped. It is the single
+configuration where `strictNullChecks` changes the answer — `checker.go:20301`
+appends `undefinedType` to the aggregate under it and not otherwise, so
+`function f(c: boolean) { if (c) return 1; return; }` is `number | undefined`
+strict and `number` non-strict. This port has no compiler options and is
+uniformly non-strict, but the corpus *does* set `@strict: true` on cases, so
+either spelling is a confident wrong answer on a large fraction of them. The
+alternative — answer non-strict and accept the loss — would win the non-strict
+cases and lose the strict ones silently, with no way to tell the two apart in the
+histogram. It becomes correct as soon as the checker reads compiler options
+(`bd tsr-y5a`).
+
+**How we would know this is wrong:** a baseline line where this port prints a
+return type and upstream prints a different one — most likely `() => "a"` against
+upstream's `() => string`, which would mean the contextual test is inverted for
+some kind, or a widened primitive where upstream kept a literal, which would mean
+it is inverted the other way. A gap where upstream answers is the expected and
+acceptable failure; a printed line that differs is not. The narrowest probe is a
+class method against an object-literal method with the same body, since those two
+sit on opposite sides of `is_contextually_typed_function` and nothing else
+distinguishes them.

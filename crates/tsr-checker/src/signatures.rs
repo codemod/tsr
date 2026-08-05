@@ -211,9 +211,12 @@ impl<'a> Checker<'a, '_> {
     /// - **A type parameter carrying a modifier** (`const`, `in`, `out`):
     ///   `getTypeParameterModifiers` reads them off *every* declaration of the
     ///   parameter's symbol, which is a merge this port does not do.
-    /// - **An inferred return type from a body containing a `return`.** That is
-    ///   `checkAndAggregateReturnExpressionTypes` (`checker.go:20259`) — a union
-    ///   of the return expressions, subtype-reduced. Unions are `bd tsr-4sc.9`.
+    /// - **An inferred return type whose returns yield more than one distinct
+    ///   type.** That is `getUnionTypeEx(types, UnionReductionSubtype)`
+    ///   (`checker.go:20191`), and subtype reduction is not ported
+    ///   (`crate::unions`, "Subtype reduction"). A body whose returns yield
+    ///   *one* distinct type needs no union and is answered — see
+    ///   [`Checker::inferred_return_type`].
     /// - **An inferred return type of an `async` or generator function**, which
     ///   is `Promise<T>` or `Generator<...>` — a reference to a global that does
     ///   not exist here (`bd tsr-9or.1`).
@@ -328,8 +331,51 @@ impl<'a> Checker<'a, '_> {
             }
             Body::Block(block) => block,
         };
-        if self.body_has_return_statement(block, declaration) {
-            return None;
+        let returns = self.return_expressions_of(block, declaration);
+        // `checkAndAggregateReturnExpressionTypes` (`checker.go:20259`), reduced
+        // to the aggregate that needs no union. Upstream appends with
+        // `core.AppendIfUnique` (`:20295`), so *n* returns of the same type
+        // aggregate to one — see [`Checker::inferred_return_type`] for why that
+        // makes this a test of distinct types rather than of return statements.
+        let mut types: Vec<TypeId> = Vec::new();
+        let mut has_bare_return = false;
+        for expression in returns {
+            let Some(expression) = expression else {
+                // `if expr == nil { hasReturnWithNoExpression = true }` (`:20266`).
+                has_bare_return = true;
+                continue;
+            };
+            let id = self.check_expression(expression);
+            if id == self.intrinsics.error {
+                return None;
+            }
+            if !types.contains(&id) {
+                types.push(id);
+            }
+        }
+        match types.as_slice() {
+            [] if has_bare_return => {
+                // Every return is bare. `hasReturnWithNoExpression` is then true,
+                // which fails `:20298`'s never-returning guard whatever
+                // `mayReturnNever` says, and `:20175`'s empty-aggregate arm
+                // answers `voidType`. A bare `return;` is itself the proof that
+                // the body's end is reachable, so this does not consult
+                // [`Checker::block_completes_normally`].
+                return Some(self.intrinsics.void);
+            }
+            [] => {}
+            // A bare `return;` *beside* a valued one is the one configuration
+            // where `strictNullChecks` changes the answer: `:20301` appends
+            // `undefinedType` to the aggregate under it and not otherwise, so
+            // `function f() { if (c) return 1; return; }` is `number | undefined`
+            // strict and `number` non-strict. This port has no compiler options
+            // and is uniformly non-strict (`crate::symbols`), and the corpus does
+            // set `@strict: true` on cases, so answering either spelling here
+            // would be a confident wrong answer on half of them. Gapped.
+            [_] if has_bare_return => return None,
+            [single] => return self.inferred_return_type(declaration, *single),
+            // Two or more distinct types. `bd tsr-4sc.9`.
+            _ => return None,
         }
         if !may_return_never {
             // Zero return statements and `mayReturnNever` false, so upstream's
@@ -368,24 +414,110 @@ impl<'a> Checker<'a, '_> {
         expression: tsr_ast::Expression<'a>,
     ) -> Option<TypeId> {
         let id = self.check_expression(expression);
+        self.inferred_return_type(declaration, id)
+    }
+
+    /// `getReturnTypeFromBody`'s tail (`checker.go:20193`–`:20232`) applied to an
+    /// inferred return type, shared by the concise-body arm and the single-type
+    /// block arm.
+    ///
+    /// Sharing it is the point rather than a tidiness: upstream runs *one* tail
+    /// over whichever of the two produced the type (`:20140` and `:20191` both
+    /// fall into it), so a block body and a concise body must widen alike. Two
+    /// copies would drift, and the drift would be invisible — both spellings
+    /// print a type either way.
+    ///
+    /// # Why the aggregate is a test of *distinct types*, not of return count
+    ///
+    /// `checkAndAggregateReturnExpressionTypes` appends with `core.AppendIfUnique`
+    /// (`checker.go:20295`), and `getUnionTypeEx` of a one-element list is that
+    /// element (`crate::unions`). So a body with three `return "a"` statements
+    /// aggregates to a single type and reaches no union at all — it is answerable
+    /// here exactly as a one-return body is, and restricting this to a literal
+    /// single `return` would gap it for no reason upstream recognises. Identity
+    /// is `TypeId` equality, which is exact because this port interns types.
+    ///
+    /// # What the contextual test has to know that the arrow case did not
+    ///
+    /// `getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded` (`:20221`)
+    /// widens a unit type **unless** a contextual signature supplied one, so
+    /// `function f() { return 1; }` is `() => number` and
+    /// `const f: () => 1 = () => 1` is `() => 1`. The contextual signature comes
+    /// from `getContextualSignatureForFunctionLikeDeclaration` (`:29711`), whose
+    /// whole body is a guard:
+    ///
+    /// ```go
+    /// // Only function expressions, arrow functions, and object literal methods are contextually typed.
+    /// if ast.IsFunctionExpressionOrArrowFunction(node) || ast.IsObjectLiteralMethod(node) {
+    /// ```
+    ///
+    /// A **function declaration, a class method and an interface method are
+    /// therefore never contextually typed**, so their unit results widen
+    /// unconditionally. That distinction did not exist while this tail served
+    /// only concise arrow bodies — every caller was contextually typeable, so
+    /// [`Checker::has_no_contextual_type`]'s conservative "is this the
+    /// initialiser of an un-annotated `const`" was the whole question. Reusing it
+    /// alone for a block body would gap every `function f() { return 1; }` in the
+    /// corpus, which is the bulk of what this arm exists to answer.
+    fn inferred_return_type(&mut self, declaration: NodeId, id: TypeId) -> Option<TypeId> {
         if id == self.intrinsics.error {
             return None;
         }
         let widened = self.get_widened_literal_type(id);
-        if widened != id && !self.has_no_contextual_type(declaration) {
+        if widened != id && !self.has_no_contextual_return_type(declaration) {
             return None;
         }
         Some(widened)
     }
 
-    /// Whether `body` contains a `return` statement belonging to `owner`.
+    /// Whether no contextual signature can supply this declaration's return type.
+    ///
+    /// `getContextualSignatureForFunctionLikeDeclaration` (`checker.go:29711`)
+    /// answers `nil` outright for anything that is not a function expression, an
+    /// arrow or an object-literal method — for those there is *nothing to check*,
+    /// which is a certainty rather than the conservative approximation
+    /// [`Checker::has_no_contextual_type`] makes for the ones that remain.
+    fn has_no_contextual_return_type(&self, declaration: NodeId) -> bool {
+        !self.is_contextually_typed_function(declaration)
+            || self.has_no_contextual_type(declaration)
+    }
+
+    /// `ast.IsFunctionExpressionOrArrowFunction(node) || ast.IsObjectLiteralMethod(node)`
+    /// (`checker.go:29713`).
+    ///
+    /// A method is contextually typed only as an **object literal**'s member; a
+    /// class or interface method is not, which is why this asks the parent rather
+    /// than the kind alone.
+    fn is_contextually_typed_function(&self, declaration: NodeId) -> bool {
+        match self.nodes.kind(declaration) {
+            SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction => true,
+            SyntaxKind::MethodDeclaration => self.nodes.parent(declaration).is_some_and(|parent| {
+                self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+            }),
+            _ => false,
+        }
+    }
+
+    /// The expression of every `return` statement belonging to `owner`, with
+    /// `None` for a bare `return;`.
     ///
     /// Ported from `ast.ForEachReturnStatement`, whose contract is that it does
     /// **not** descend into a nested function-like node — a `return` inside an
     /// inner arrow belongs to the arrow. Iterative rather than recursive, for the
     /// reason `push_children` states: tree depth is a function of the source.
-    fn body_has_return_statement(&self, body: NodeId, owner: NodeId) -> bool {
-        let Some(root) = self.node_map.get(body) else { return false };
+    ///
+    /// **Order is not upstream's**, and nothing may come to depend on that: the
+    /// stack yields siblings back to front. The one caller aggregates into a set
+    /// and answers only when the set holds a single type, so order cannot reach
+    /// the result. A caller that built a union would have to sort this first,
+    /// because upstream's union constituents keep insertion order.
+    fn return_expressions_of(
+        &self,
+        body: NodeId,
+        owner: NodeId,
+    ) -> Vec<Option<tsr_ast::Expression<'a>>> {
+        let Some(root) = self.node_map.get(body) else { return Vec::new() };
+        let mut found = Vec::new();
         let mut stack = vec![root];
         let mut children = Vec::new();
         while let Some(node) = stack.pop() {
@@ -393,14 +525,19 @@ impl<'a> Checker<'a, '_> {
             if id.is_some_and(|id| id != owner && self.signature_parts_of(id).is_some()) {
                 continue;
             }
-            if id.is_some_and(|id| self.nodes.kind(id) == SyntaxKind::ReturnStatement) {
-                return true;
+            if let Node::ReturnStatement(statement) = node {
+                found.push(statement.expression);
+                // A `return` has no statements under it, but it does have an
+                // expression, and descending would find a `return` inside a
+                // function *expression* there. `signature_parts_of` above already
+                // stops that; not descending at all is simply cheaper.
+                continue;
             }
             children.clear();
             tsr_ast::push_children(node, &mut children);
             stack.extend(children.iter().copied());
         }
-        false
+        found
     }
 
     /// Whether the end of a block is reachable — `Some(true)` yes, `Some(false)`
