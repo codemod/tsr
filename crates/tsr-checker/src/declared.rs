@@ -58,6 +58,7 @@ impl<'a> Checker<'a, '_> {
             TypeNode::TypeReferenceNode(node) => self.get_type_from_type_reference(node),
             TypeNode::TypeLiteralNode(node) => self.get_type_from_type_literal(node),
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
+            TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
             _ => self.intrinsics.error,
         }
     }
@@ -195,6 +196,33 @@ impl<'a> Checker<'a, '_> {
             None => self.get_union_type(&types),
             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
                 self.get_named_union_type(&types, TypeFlags::empty(), alias)
+            }
+            Some(_) => error,
+        }
+    }
+
+    /// Ported from `Checker.getTypeFromIntersectionTypeNode` (`checker.go:24218`).
+    ///
+    /// The constituents in **source order**, which unlike a union's is the order
+    /// they are printed in — see [`crate::intersections`]. Everything else
+    /// mirrors the union node: a gap in a constituent is a gap in the whole
+    /// (`errorType` carries `ANY`, so upstream's own reduction answers
+    /// `errorType` at `checker.go:26092`), and an enclosing non-generic type
+    /// alias names the result.
+    fn get_type_from_intersection_type_node(
+        &mut self,
+        node: &tsr_ast::IntersectionTypeNode<'a>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let types = node
+            .types
+            .iter()
+            .map(|constituent| self.get_type_from_type_node(*constituent))
+            .collect::<Vec<_>>();
+        match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+            None => self.get_intersection_type(&types, None),
+            Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
+                self.get_intersection_type(&types, Some(alias))
             }
             Some(_) => error,
         }

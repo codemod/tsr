@@ -43,6 +43,7 @@ pub fn type_to_string(ty: &Type) -> String {
         //   signature needs the parameter and return *types*, and this function
         //   has only a `Type`.
         | TypeData::Union { text, .. }
+        | TypeData::Intersection { text, .. }
         | TypeData::Anonymous { text, .. } => text.clone(),
     }
 }

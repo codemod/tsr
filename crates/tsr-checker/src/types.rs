@@ -111,6 +111,25 @@ pub enum TypeData {
         /// The symbol whose declarations carry this type's call signatures.
         symbol: SymbolId,
     },
+    /// An intersection type: `A & B`.
+    ///
+    /// Upstream's `IntersectionType` (`types.go`). Deliberately a **separate
+    /// variant** from [`TypeData::Union`] despite the identical shape, because
+    /// the two differ in the one respect that is printed: a union's constituents
+    /// are sorted by `CompareTypes`, an intersection's are kept in **source
+    /// order** (`orderedSet`, `checker.go:26057`). Merging them behind a flag
+    /// would put that distinction one indirection away from the code that has to
+    /// respect it.
+    Intersection {
+        /// The printed form, computed once at creation — see
+        /// [`TypeData::Union::text`] for why the form is computed rather than
+        /// rendered on demand.
+        text: String,
+        /// The constituents, flattened and deduplicated, in source order.
+        types: Vec<TypeId>,
+        /// The symbol this intersection prints as, when a type alias names it.
+        symbol: Option<SymbolId>,
+    },
     /// A union type: `A | B`.
     ///
     /// Upstream's `UnionType` (`types.go`), carrying the constituent list. The
@@ -297,6 +316,16 @@ impl TypeStore {
     /// component is always `false` for a union — freshness is a property of
     /// literal types (`TypeFlagsFreshable`), and a union is not one.
     pub fn intern_union(&mut self, flags: TypeFlags, data: TypeData) -> TypeId {
+        self.intern_literal(flags, data, false)
+    }
+
+    /// Create or reuse an intersection type.
+    ///
+    /// Ported from `getIntersectionTypeEx`'s cache keyed by `getIntersectionKey`
+    /// (`checker.go:17532`). The same table and the same argument as
+    /// [`TypeStore::intern_union`]: `TypeData` is an enum, so an `Intersection`
+    /// payload cannot compare equal to a `Union` one however alike they look.
+    pub fn intern_intersection(&mut self, flags: TypeFlags, data: TypeData) -> TypeId {
         self.intern_literal(flags, data, false)
     }
 

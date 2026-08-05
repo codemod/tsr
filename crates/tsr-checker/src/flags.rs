@@ -107,6 +107,23 @@ impl TypeFlags {
     pub const BIG_INT_LIKE: Self = Self::BIG_INT.union(Self::BIG_INT_LITERAL);
     /// `TypeFlagsBooleanLike`.
     pub const BOOLEAN_LIKE: Self = Self::BOOLEAN.union(Self::BOOLEAN_LITERAL);
+    /// `TypeFlagsEnumLike` — `types.go:475`.
+    pub const ENUM_LIKE: Self = Self::ENUM.union(Self::ENUM_LITERAL);
+    /// `TypeFlagsESSymbolLike` — `types.go:476`.
+    pub const ES_SYMBOL_LIKE: Self = Self::ES_SYMBOL.union(Self::UNIQUE_ES_SYMBOL);
+    /// `TypeFlagsPrimitive` — `types.go:478`.
+    ///
+    /// Every domain a value can inhabit without being an object. Used by the
+    /// intersection reductions, where a primitive beside a type from another
+    /// domain is the empty set.
+    pub const PRIMITIVE: Self = Self::STRING_LIKE
+        .union(Self::NUMBER_LIKE)
+        .union(Self::BIG_INT_LIKE)
+        .union(Self::BOOLEAN_LIKE)
+        .union(Self::ENUM_LIKE)
+        .union(Self::ES_SYMBOL_LIKE)
+        .union(Self::VOID_LIKE)
+        .union(Self::NULL);
     /// `TypeFlagsVoidLike`.
     pub const VOID_LIKE: Self = Self::VOID.union(Self::UNDEFINED);
 }

@@ -1999,3 +1999,73 @@ produces a type not expressible as a subset of the declared constituents — an
 intersection from a `this`-based guard, or `NonNullable<T>` on a type parameter —
 is invisible to this filter. If someone finds that population is large, re-run
 with a looser filter and a manual audit of the residue.
+
+## Intersections: source order, and the reduction that needs no assignability
+
+Ported 2026-08-05, cycle 5, on the strength of the narrowing measurement above:
+1,082 gap lines against narrowing's 3,656 upper-bound, but entirely inside
+`declared.rs` and reusing what unions already built.
+
+### The rule that is *not* symmetric with unions
+
+A union's constituents are sorted by `CompareTypes`. An intersection's are held
+in an `orderedSet` (`checker.go:26057`) and **kept in the order they were
+written**. `var x: M1 & C1` prints `M1 & C1`; `var x: C1 & M1` prints `C1 & M1`.
+Both spellings appear in the baselines, which is exactly what a sort would make
+impossible — and taking it by symmetry from the union work is the mistake this
+slice was most likely to make.
+
+A **union constituent is parenthesised**: `T & ({} | null)`. Nothing else in the
+corpus needs parentheses inside an intersection — not one baseline line has a
+function type as an intersection constituent — so only that case is ported. A
+general precedence table would be a guess everywhere it was not exercised.
+
+The two orders coexist in one printed type, and one test pins that:
+`A & (number | string)` prints `A & (string | number)` — source order outside,
+sorted order inside.
+
+### Most of the emptiness rules need no assignability at all
+
+This was the surprise, and it is why the item was cheap. Upstream's intersection
+reductions are largely **pure flag arithmetic** over `TypeFlagsDisjointDomains`
+(`types.go:480`): a type from one domain beside a type from any other is the
+empty set. `string & number` is `never`, and the baselines record exactly that
+(`switchCaseWithIntersectionType`). Two distinct *unit* types reduce the same
+way, via upstream's own trick of setting `NON_PRIMITIVE` in `includes` so the
+disjoint test fires (`checker.go:26283`) — so `"a" & "b"` is `never` while
+`"a" & "a"` is `"a"`.
+
+`removeRedundantSupertypes` is the mirror of the union rule and equally free:
+a union drops the *literal* beside its primitive (`string | "a"` is `string`),
+an intersection drops the *primitive* beside its literal (`string & "a"` is
+`"a"`).
+
+Note that `OBJECT` is **not** one of the disjoint domains, which is why
+`A & string` survives where `object & string` does not.
+
+### Two gaps, both because the alternative is right only sometimes
+
+- **A two-constituent intersection of a type variable and a primitive**
+  (`T & string`). Upstream asks `getBaseConstraintOfType` and
+  `isTypeStrictSubtypeOf` (`checker.go:26128`) and may answer `T`, `never`, or
+  the intersection itself depending on `T`'s constraint. There is no way to pick
+  without assignability, and the plain intersection would be right *sometimes* —
+  which is worse than a gap, because it cannot be found again.
+- **An empty object constituent** (`A & {}`). Upstream tracks
+  `IncludesEmptyObject` and gives it rules of its own: `X & {}` deliberately
+  skips supertype reduction, and `{}` is removed beside a definitely-non-nullable
+  type. Neither is ported. It is recognised here by its *printed form* rather
+  than by an object flag, since this port has no `ObjectFlags` — a shortcut that
+  is only safe because the answer is a gap either way.
+
+`silentNeverType` is upstream's other answer where `never` is returned; this port
+does not create one, and that is the usual "distinct types that print the same
+string" note rather than a new divergence.
+
+### `TypeData::Intersection` is a separate variant from `TypeData::Union`
+
+Despite the identical shape. They differ in the one respect that is printed —
+sorted versus source order — and merging them behind a flag would put that
+distinction one indirection away from the code that has to respect it. Interning
+shares the one table, safely, for the reason already recorded for unions: the
+`TypeData` discriminant is part of the derived `Hash` and `PartialEq`.

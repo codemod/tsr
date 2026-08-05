@@ -86,6 +86,7 @@ pub mod declared;
 pub mod expressions;
 pub mod flags;
 pub mod indexed;
+pub mod intersections;
 pub mod intrinsics;
 pub mod literals;
 pub mod members;
