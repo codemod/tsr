@@ -826,3 +826,55 @@ carried one `pub mod` and left the neighbour's line untouched in the tree.
 
 The rule is not "always use pathspec". It is: **on a shared manifest, commit the
 index you constructed, not the working tree you happen to be standing in.**
+
+### A probe that re-implements the harness is measuring a different compiler
+
+This has now happened three times, which makes it a rule rather than an
+incident.
+
+`crates/tsr-conformance/src/types_producer.rs` exposes `assertions_for_case`
+(`:642`), which builds **one program per case** with every
+`vendor/typescript-go/internal/bundled/libs/lib.*.d.ts` in it (`bundled_libs()`
+at `:49`, loaded by `program_for_case` at `:725`). That is the entry point
+`types_suite.rs:211` scores the gradient through. A probe that instead calls
+`tsr_parser::parse_with_options` → `tsr_binder::bind` → `tsr_checker::Checker::new`
+per **file** gets no libs and no program, and therefore measures a checker that
+cannot resolve `Math.trunc`, `Object.assign`, any `Promise` member, or any array
+method.
+
+The three instances, and what each cost:
+
+| probe | status | cost |
+|---|---|---|
+| `examples/overload_funnel.rs` | fixed in `731b1ee` | 12,015 callees → **10,265**; a "this harness loads no lib files" caveat, carried forward through three documents and one `bd` issue, turned out to be **false** and aimed at the wrong file |
+| `examples/writer_guards.rs` | found 2026-08-05, `bd tsr-qj4` | ADR-0039's resolved ceiling of 40,759 lines, the 39,412-line `hadErrorBaseline` arm, and the 392-of-5,603 control rate that is the whole basis for refusing to port it |
+| `examples/wrong_attribution.rs`, `qualified_name_left.rs`, `types_walker.rs` | found 2026-08-05, `bd tsr-qj4` | unquantified; `wrong_attribution` is the instrument that would settle `checker-notes-ctx.md`'s open falsifier |
+
+**The tell is arithmetic on the denominators, and it is cheap.** At `0e8e902`
+the gradient is 291,349/478,954 = 60.83%; `writer_guards` reported
+272,181/468,921 = 58.04%. The 10,033-line gap in the *denominators* is
+legitimate — that probe scores only lines whose subject text aligns, and the
+walker agrees with upstream on 97.85% of assertion text, which lands almost
+exactly on 468,921. The ~18,600-line gap in the **numerators** is not explained
+by that, and it is the whole finding. Before trusting any probe's number,
+reconcile its denominator against the gradient's and account for the difference;
+an unexplained numerator gap means the two are not measuring the same compiler.
+
+So: **a probe's denominator must be the gradient's by construction, not by
+resemblance.** Route through `assertions_for_case`. If a probe genuinely needs a
+different population, it must say so in its module doc and print both counts, so
+that nobody quotes its rate as the metric.
+
+#### And the same defect at one remove: quoting a probe's rate as the gradient
+
+`bd tsr-4sc` and ADR-0039's resolution both quote **58.17%** as the
+`checker_types` gradient. It is `writer_guards`'s rate over `writer_guards`'s
+population. The real figure at the same tip is **60.83%**, and every target
+quoted against 58.17% is quoted against a number that is 2.7 points low and
+measured without a standard library.
+
+This is *"a number can be true and answer a different question"* arriving a
+fourth time, and the fourth time is worth a stronger rule than the first three
+produced: **when you quote a rate, name the instrument that produced it in the
+same sentence.** "58.17%" is unfalsifiable; "58.17% on `writer_guards`'s aligned
+population" invites exactly the check that found this.
