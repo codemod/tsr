@@ -468,6 +468,71 @@ pub fn type_at_location(
         }
     }
 
+    // **The property name of a binding element prints `any`** — the `a` of
+    // `const { a: b } = x`. This is a *strict subset* of the second guard at
+    // `type_symbol_baseline.go:380`, `!ast.IsBindingElement(node.Parent)`, and
+    // the subsetting is the whole decision.
+    //
+    // Upstream's guard covers **every** child of a binding element: the bound
+    // name `b`, the property name `a`, the initialiser, the dots. Measured, the
+    // arm's positions do not behave alike at all — `examples/writer_guards.rs`,
+    // `WRITER_GUARDS_FLATTEN=1`, corpus at `0e8e902`:
+    //
+    // ```text
+    // position                              claims   -> any  -> error  -> other
+    // binding element: the bound name         2640      663        0      1977
+    // binding element: the property name       428      428        0         0
+    // binding element: elsewhere                76       16        0        60
+    // ```
+    //
+    // The bound name is 25% conversion with a 1,977-line residue: upstream holds
+    // a *real* type there most of the time and our `error` is our own gap, so
+    // converting it would print `any` where upstream printed `string` — the false
+    // credit ADR-0038 and ADR-0039 both refuse. The property name is 428 of 428
+    // with an **empty** residue, the same signature the label arm had.
+    //
+    // And here the signature is not merely statistical. Trace `getTypeOfNode`
+    // (`checker.go:31927`) for the `a` of `const { a: b } = x`:
+    //
+    // - `IsPartOfTypeNode` — no.
+    // - `IsExpressionNode` — the `KindIdentifier` arm falls through to
+    //   `IsInExpressionContext` (`ast/utilities.go:1983`), whose `KindBindingElement`
+    //   case is `parent.Initializer() == node`. The property name is not the
+    //   initialiser, so **false**.
+    // - `IsTypeDeclaration` / `IsTypeDeclarationName` / `IsBindingElement(node)` —
+    //   no; the node is the identifier, not the element.
+    // - `IsDeclaration` — an identifier is not one.
+    // - `IsDeclarationNameOrImportPropertyName` (`ast/utilities.go:1311`) — the
+    //   `ImportSpecifier`/`ExportSpecifier` special case does not apply, so this
+    //   is `IsDeclarationName`, which is `parent.Name() == node`. A binding
+    //   element's `Name()` is the **bound** name `b`, not `a`. **False.**
+    // - `IsBindingPattern`, the import/export assignment branch, `IsMetaProperty`,
+    //   `IsImportAttributes` — no.
+    //
+    // It falls off the end: `return c.errorType`. Upstream holds `errorType` at
+    // this position **by construction**, for every program, and the guard is what
+    // renders it `any`. That is what makes converting it a port of upstream's
+    // writer rather than a string match on a path that differs.
+    //
+    // Distributed rather than concentrated: 428 lines over 92 cases, top ten
+    // 40.9%, the largest single case 29 lines.
+    //
+    // The `IsTypeAny` precondition is carried across for the same port-specific
+    // reason as the label arm below: given `const a = 1; const { a: b } = x;`,
+    // *this* producer reaches the expression fall-through and answers `1`, which
+    // upstream never does. Those lines were not in the 428 and converting them
+    // would ship an unmeasured change under a measured one.
+    if let Some(parent) = nodes.parent(id)
+        && let Some(Node::BindingElement(element)) = map.get(parent)
+        && element.property_name.and_then(|name| name.node_id()) == Some(id)
+    {
+        let name = tsr_ast::Expression::try_from(node)
+            .map_or(error, |expression| checker.check_expression(expression));
+        if name == error {
+            return checker.type_to_string(checker.intrinsics().any);
+        }
+    }
+
     // **A label name prints `any`, and the writer is what decides it** — the
     // third of the eight guards at `type_symbol_baseline.go:380`, and the second
     // ported after `isIntrinsicJsxTag`.
@@ -1261,6 +1326,53 @@ mod tests {
         let labels: Vec<_> =
             out.iter().filter(|(text, _)| text == "outer").map(|(_, ty)| ty.as_str()).collect();
         assert_eq!(labels, ["1", "1", "1"], "in {out:?}");
+    }
+
+    #[test]
+    fn a_binding_element_property_name_prints_any() {
+        // The population the rule is for, and the discrimination that matters:
+        // the *property* name converts and the *bound* name must not. Upstream's
+        // guard covers both, and porting it whole is what the measurement says
+        // not to do — the bound-name position converts 663 of 2,640 with a
+        // 1,977-line residue, so `any` there would overwrite lines where
+        // upstream printed a real type.
+        //
+        // `x` has no declared type here, so our checker gaps on `b` and prints
+        // `error` for it. That is the honest answer and it stays.
+        let out = typed("declare const x: any;\nconst { a: b } = x;");
+        let a = out.iter().find(|(text, _)| text == "a").map(|(_, ty)| ty.as_str());
+        assert_eq!(a, Some("any"), "in {out:?}");
+
+        // A nested pattern: the property name of an inner binding element is the
+        // same position and must convert too. A rule keyed on the outer
+        // declaration would fix half the corpus population — the
+        // `sourceMapValidationDestructuring*NestedObjectBindingPattern` cases are
+        // 9 lines each and are exactly this shape.
+        let out = typed("declare const x: any;\nconst { a: { c: d } } = x;");
+        let names: Vec<_> = out
+            .iter()
+            .filter(|(text, _)| text == "a" || text == "c")
+            .map(|(_, ty)| ty.as_str())
+            .collect();
+        assert_eq!(names, ["any", "any"], "in {out:?}");
+    }
+
+    #[test]
+    fn a_binding_element_property_name_shadowing_a_value_keeps_the_type_we_computed() {
+        // Upstream's `IsTypeAny` precondition, and the case that separates a port
+        // of the sub-position from "a binding element's property name prints
+        // `any`". Upstream's `getTypeOfNode` falls through to `errorType` for `a`
+        // whatever else `a` means in the file; *this* producer reaches the
+        // expression fall-through and resolves the identifier to the outer
+        // `const a`, answering `1`.
+        //
+        // The plausible wrong implementation — convert the position
+        // unconditionally — prints `any` on the second `a` below. Those lines
+        // were never in the 428 the measurement claimed.
+        let out = typed("const a = 1;\ndeclare const x: any;\nconst { a: b } = x;");
+        let names: Vec<_> =
+            out.iter().filter(|(text, _)| text == "a").map(|(_, ty)| ty.as_str()).collect();
+        assert_eq!(names, ["1", "1"], "in {out:?}");
     }
 
     /// Assertion texts for a source, with types stubbed out.

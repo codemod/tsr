@@ -112,7 +112,7 @@ points. Honest deliverable ~1,500.**
 rather than a size one — which is what this ADR got wrong by treating the eight
 guards as one item:
 
-- It is `len(result.Diagnostics) > 0` (`testrunner/compiler_runner.go:501`),
+- It is `len(result.Diagnostics) > 0` (`testrunner/compiler_runner.go:502` (corrected 2026-08-06)),
   **case-scoped**, true for 56.3% of cases, firing at every node regardless of
   position. This ADR justified relocating the work into the producer on the
   ground that *"a per-node guard credits only the positions upstream credits"*.
@@ -132,14 +132,28 @@ So 0038's decision survives in the place that matters. What 0039 correctly
 relocated was the *positional* guards; the case-scoped one was never a rendering
 rule for a position.
 
-Ported: the label-name arm (`53588b1`), 209 claims, 0 residue. Global scope
-augmentation and meta property are **empty, not small** — nothing to port.
+Ported: the label-name arm (`53588b1`), 209 claims, 0 residue, and the
+binding-element **property name** sub-position, 428 claims, 0 residue. Global
+scope augmentation and meta property are **empty, not small** — nothing to port.
+
+> **Closed, 2026-08-06.** Both ported arms are now measured with libs from a
+> worktree pinned at `0e8e902`: label **+594** (the lib-less `+597` was right to
+> within 3 lines), property name **+428**, with `wrong` unmoved at 37,515 for the
+> latter. The 13 remaining positional sub-positions total **8,215 lines (+1.75
+> points)** and *none* carries the empty-`-> other` signature — every one runs
+> 9–35% conversion over a residue two to three times its size, which is the mixed
+> shape this ADR refuses. The writer-guard item is closed as a source of gradient
+> at 1,022 measured lines. See `docs/architecture/checker-notes-guard.md`.
 
 ### The per-guard numbers are floors, not values
 
-The label arm predicted 209 and converted **597** (that pair is itself lib-less
-and unverified; see the note). Attribution follows upstream's
+The label arm predicted 209 and converted **594** (re-measured with libs on
+2026-08-06; the lib-less claim of 597 was right to within 3 lines). Attribution follows upstream's
 conjunction order, so the dominant arm was claiming lines a subordinate arm would
 convert — 391 of the 600 sat in errors-baseline cases. **Every positional figure
-in that table is an under-estimate for the same reason.** The `hadErrorBaseline`
+in that table is an under-estimate for the same reason.** The repair, tested
+twice and exact both times (2026-08-06): size a positional arm from the
+`WRITER_GUARDS_FLATTEN=1` run, never from the attributed one — predicted 594 /
+measured 594 for the label arm, predicted 428 / measured 428 for the
+binding-element property name. The `hadErrorBaseline`
 verdict is unaffected: it is the arm that absorbs, not one absorbed.

@@ -135,7 +135,7 @@ ADR-0039 relocated the fix into the producer on a specific ground:
 
 `hadErrorBaseline` does not satisfy that. It is **case-scoped**: one boolean,
 `len(result.Diagnostics) > 0` at
-`internal/testrunner/compiler_runner.go:501`, true for **56.3% of cases (5,371 of
+`internal/testrunner/compiler_runner.go:502` (was cited as `:501`; corrected 2026-08-06, grep-verified), true for **56.3% of cases (5,371 of
 9,538)**, and it fires at every node in those cases irrespective of position. It
 is threaded through `newTypeWriterWalker` (`type_symbol_baseline.go:270`) and read
 once at `:380`.
@@ -320,9 +320,10 @@ second entry with it. Its own conversion is inside the 62.1393%; this run cannot
 re-derive the +597 because the lines it converted no longer print `error`. **That
 figure is the one number here still carrying the lib-less defect** — it was
 measured on the same broken probe, and re-deriving it would need the guard
-reverted and another corpus run. Treat +597 as unverified; the arm's *shape*
-(209 claims, 0 residue) is what justified porting it, and that is confirmed by
-the corrected run for the arm's sibling below.
+reverted and another corpus run. > **Closed, 2026-08-06.** The guard was reverted in a pinned worktree and the
+> run done: the label arm is worth **+594** with libs, against the +597 claimed
+> lib-less. The number was right to within 3 lines; only the denominator it was
+> quoted against was wrong. See the last section.
 
 ### `binding element: the property name` — 192 lines, 0 residue
 
@@ -344,8 +345,10 @@ the parent kind the guard names — the `conventions.md` rule "a row named after
 position is usually not about that position", arriving one level deeper than the
 guard table could reach.
 
-**Not built.** It is measured and recommended, not ported; no commit implements
-it.
+> **Built, 2026-08-06.** And it converted **428**, not 192 — the 192 is the
+> attributed figure and the FLATTEN figure is the one that answers "what is this
+> worth to port". See "Ported: `binding element: the property name`, and the +597
+> closed" at the end of this note.
 
 ### What the correction cost, and what it did not
 
@@ -361,3 +364,246 @@ that re-implements the harness measures a different compiler.** I modelled the n
 probe on `examples/qualified_name_left.rs`, which has the same per-unit shape, so
 copying a working example propagated the defect. Following a local precedent is
 not a substitute for checking which entry point the gradient itself comes from.
+
+## Ported: `binding element: the property name`, and the +597 closed
+
+Two things were left open by the correction above: the recommended sub-position
+was measured but not built, and the label arm's `+597` was flagged as the one
+number still carrying the lib-less defect. Both are closed here, from **one
+pinned binary per comparison**, built in an isolated worktree detached at
+`0e8e902` so the three agents editing `crates/tsr-checker` in the shared tree
+could not move the checker between arms.
+
+### The +597 is verified. It is +594.
+
+Re-deriving it needed the guard reverted and another corpus run, which is what
+the correction said. That run is now done: `if false && is_label_name(…)` in
+`type_at_location`, everything else identical, same binary shape, same pinned
+checker.
+
+| | right | gap | wrong |
+|---|---|---|---|
+| label arm live | 291,777 | 139,608 | 37,515 |
+| label arm disabled | 291,183 | 140,205 | 37,512 |
+| delta | **+594** | −597 | +3 |
+
+And with the arm disabled the probe re-attributes it, under `WRITER_GUARDS_FLATTEN=1`:
+
+```text
+label name                                      597       594         0         3
+```
+
+597 claims, 594 converting, 3 upstream answers with a real type. **The lib-less
+`+597` was right to within 3 lines**, so the arm's magnitude was never the thing
+the defect damaged — only the denominator it was quoted against. Corrected value:
+**+594**, and the "600 lines left the `error` population, 597 convert" accounting
+earlier in this note reads **597 / 594** with libs.
+
+### The sub-position, built: 428 lines, predicted 428, converted 428
+
+| | right | gap | wrong |
+|---|---|---|---|
+| before | 291,349 (62.1346%) | 140,036 | 37,515 |
+| after | 291,777 (62.2258%) | 139,608 | 37,515 |
+| delta | **+428** | −428 | **0** |
+
+`wrong` did not move by one line. That is the check that matters, and it is the
+empty `-> other` column paying out: every converted line came out of the gap
+column and none landed in the wrong column. Had the position been mixed — the
+shape the enclosing arm has — the `-> other` lines would have converted to a
+confident `any` over a type upstream computed, and `wrong` would have risen.
+
+The arm-level accounting closes exactly:
+
+| | before | after | delta |
+|---|---|---|---|
+| `binding element` arm claims | 1,105 | 913 | −192 |
+| `binding element` arm `-> any` | 309 | 117 | −192 |
+| `hadErrorBaseline` arm claims | 94,797 | 94,561 | −236 |
+| `hadErrorBaseline` arm `-> any` | 28,846 | 28,610 | −236 |
+| `binding element: the property name` role | 192 / 192 / 0 / 0 | absent | −192 |
+| `aligned` | 468,900 | 468,900 | 0 |
+| `CONTRADICTIONS` | 0 | 0 | 0 |
+
+192 + 236 = 428.
+
+> The `before` column here reads 291,349 / 94,797 / 28,846 where the correction
+> block above reads 291,371 / 94,801 / 28,850 — a 22-line difference on the
+> gradient and 4 on the arm. Both runs are correct and they are not the same run:
+> that one was taken in the shared tree with three agents' uncommitted checker
+> edits in it, this one in a worktree pinned at `0e8e902`. The deltas are
+> attributable; the absolute levels are not comparable across the two.
+
+### Why 428 and not the 192 the table recommended
+
+The recommendation said 192. The port converted 428, and **428 was predictable
+before building it** — it is the number the `WRITER_GUARDS_FLATTEN=1` run
+reports for that position:
+
+```text
+position                                          claims   -> any  -> error  -> other
+binding element: the property name (control)         192      192        0         0
+binding element: the property name (FLATTEN)         428      428        0         0
+```
+
+This is the label arm's 209-against-597 miss, arriving a second time and
+**predicted right this time**. The mechanism was already written down at the end
+of the label section: attribution runs in upstream's conjunction order, so
+`hadErrorBaseline` claims every line in the 56.3% of cases carrying an errors
+baseline, including the ones a subordinate arm would convert. The control column
+answers *"which guard does upstream use here"*. The FLATTEN column answers
+*"what is this arm worth to port"*, because either guard alone sends the line to
+the node builder.
+
+So the operational rule, now tested rather than asserted:
+
+> **Size a positional arm from the `WRITER_GUARDS_FLATTEN=1` run, never from the
+> attributed one.** The attributed figure is a floor and has been low by 2.9×
+> and by 2.2× on the only two arms measured both ways.
+
+Both predictions made this way landed **exactly**: 594 predicted / 594 measured
+for the label arm, 428 predicted / 428 measured for the property name. Two exact
+hits on a board where `docs/conventions.md` records five misses out of six, and
+the reason is the one that section names — the number was cross-checked against
+the instrument that scores it before being quoted, and the instrument's
+denominator is the gradient's by construction.
+
+### The rule ports a strict *subset* of upstream's guard, deliberately
+
+Upstream's second guard is `!ast.IsBindingElement(node.Parent)` — every child of
+a binding element. The positions do not behave alike (`WRITER_GUARDS_FLATTEN=1`,
+pinned at `0e8e902`):
+
+```text
+position                                          claims   -> any  -> error  -> other
+binding element: the bound name                     2640      663        0      1977
+binding element: the property name                   428      428        0         0
+binding element: elsewhere (initialiser, dotdotdot)   76       16        0        60
+```
+
+The bound name is 25% conversion over a 1,977-line residue: upstream holds a
+*real* type there most of the time, so `any` would overwrite lines where upstream
+printed `string`. That is the false credit ADR-0038 refused and ADR-0039
+preserved, and it is why only the property name is ported.
+
+The property name's clean signature is not merely statistical. Trace
+`getTypeOfNode` (`internal/checker/checker.go:31927`) for the `a` of
+`const { a: b } = x` at the pinned `5b1047d10`:
+
+- `IsPartOfTypeNode` — no.
+- `IsExpressionNode` (`internal/ast/utilities.go:1948`) — the `KindIdentifier`
+  arm falls through to `IsInExpressionContext` (`:1983`), whose
+  `KindBindingElement` case is `parent.Initializer() == node`. A property name is
+  not the initialiser. **False.**
+- `IsTypeDeclaration`, `IsTypeDeclarationName`, `IsBindingElement(node)`,
+  `IsDeclaration` — all no; the node is the identifier, not the element.
+- `IsDeclarationNameOrImportPropertyName` (`internal/ast/utilities.go:1311`) —
+  the `ImportSpecifier`/`ExportSpecifier` special case does not apply, so it is
+  `IsDeclarationName` (`:1306`), which is `parent.Name() == name`. A binding
+  element's `Name()` is the **bound** name `b`, not `a`. **False.**
+- `IsBindingPattern`, the import/export-assignment branch, `IsMetaProperty`,
+  `IsImportAttributes` — no.
+
+It falls off the end to `return c.errorType`. **Upstream holds `errorType` at
+this position by construction, for every program**, and the guard is what renders
+it `any`. That is what makes the conversion a port of upstream's writer rather
+than a string match on a path that differs — the distinction ADR-0038 exists for.
+
+Concentration, checked before acting: **428 lines over 92 cases, top ten 40.9%,
+largest single case 29 lines** (`renamingDestructuredPropertyInFunctionType`).
+Distributed, not one file wearing a rule's name.
+
+### The two tests, and the mutation that reddens each
+
+| test | mutation | result |
+|---|---|---|
+| `a_binding_element_property_name_prints_any` | point the arm at `element.name` instead of `element.property_name` | `a` prints `error` — the arm goes dead, because the bound name is already answered by the declaration-name branch above it |
+| `a_binding_element_property_name_shadowing_a_value_keeps_the_type_we_computed` | drop the `IsTypeAny` precondition (`if name == error` → `if true`) | `["1", "any"]` — converts a property name our checker resolved to an outer value |
+
+Each mutation was confirmed to apply with `grep -c` returning exactly 1 before
+the test was run, and neither reddens the other test. The second is not
+hypothetical: given `const a = 1; const { a: b } = x;`, this producer reaches the
+expression fall-through and answers `1` for the property name, because unlike
+upstream it has no rule stopping the identifier from resolving. Upstream never
+faces that, which is why the precondition is carried across rather than reasoned
+away — the same reason the label arm carries it.
+
+The first test's mutation also records something worth keeping: the enclosing
+guard's *bound-name* half is unreachable from here anyway, since the
+declaration-name branch earlier in `type_at_location` answers it through the
+binding element's symbol. Porting the full guard would mean moving it above that
+branch, which is a larger and worse-evidenced change than this one.
+
+## What is left, sized correctly
+
+The remaining positional arms, from the same `WRITER_GUARDS_FLATTEN=1` run —
+i.e. what porting each is *worth*, not what the attribution credits it:
+
+| position | claims | `-> any` | `-> other` | rate |
+|---|---|---|---|---|
+| property access: the name `b` of `a.b` | 15,457 | 4,480 | 10,977 | 29% |
+| property access: the receiver `a` of `a.b` | 9,620 | 2,092 | 7,528 | 22% |
+| binding element: the bound name | 2,640 | 663 | 1,977 | 25% |
+| import: the local name of `{a}` / `{a as b}` | 898 | 318 | 580 | 35% |
+| import: the name of `import x = …` | 662 | 179 | 483 | 27% |
+| qualified name: the right `B` of `A.B` | 463 | 157 | 306 | 34% |
+| export: the exported name of `{a}` / `{a as b}` | 448 | 128 | 320 | 29% |
+| import: the default clause name | 235 | 58 | 177 | 25% |
+| export: the expression of `export = x` | 142 | 36 | 106 | 25% |
+| qualified name: the left `A` of `A.B` | 141 | 12 | 129 | 9% |
+| import: the property name of `{a as b}` | 123 | 37 | 86 | 30% |
+| export: the property name of `{a as b}` | 114 | 39 | 75 | 34% |
+| binding element: elsewhere | 76 | 16 | 60 | 21% |
+
+**8,215 lines, +1.75 gradient points, and not one of them has the clean
+signature.** Every remaining position sits between 9% and 35% conversion with a
+residue two to three times its conversion, which is the shape that says *upstream
+usually has a real type here and our `error` is our own gap*. Converting them
+credits us for a type we did not compute, at the control bucket's measured rate
+of 93% false. That is the `hadErrorBaseline` argument at one-tenth the size, and
+it reaches the same verdict.
+
+Two entries deserve a specific note because their names mislead:
+
+- **`qualified name: the left A of A.B` reads 141, not thousands**, because that
+  position is *already* answered — `type_at_location` prints `any` for it, added
+  along a different route. The 141 are its two documented exemptions (`typeof
+  M.C` and `import x = M.a`). `docs/architecture/checker-notes-jsx.md` says the
+  property-access/qualified-name guard "is already covered in the same function";
+  that is true of **one of its four sub-positions**, holding 141 of the arm's
+  25,681 claims. The claim was right and much narrower than it sounds.
+- **`import: the property name of {a as b}` is *not* the clean shape** even
+  though its binding-element analogue is. Upstream's
+  `IsDeclarationNameOrImportPropertyName` has an explicit `KindImportSpecifier` /
+  `KindExportSpecifier` case that returns true for exactly that node, so
+  `getTypeOfNode` reaches `getTypeOfSymbol` and upstream *does* have a type
+  there. The measurement agrees: 37 of 123, with an 86-line residue. **The two
+  positions look identical in the syntax and are opposite in upstream's
+  dispatch** — which is the whole reason the structural trace is done before the
+  port and not after.
+
+So the writer-guard item is now finished as a source of gradient: `d6dc9a7`
+(JSX, never measured this way — it predates the probe), `53588b1` (label, +594)
+and this commit (binding-element property name, +428). **1,022 measured lines,
++0.22 points.** Everything remaining is either empty (global scope
+augmentation, meta property), already covered (qualified-name left), or mixed and
+refused for the reason ADR-0039 gives.
+
+### How we would know this is wrong
+
+- **If a mixed position turns out to be clean at a finer split.** `role_of` cuts
+  one level below the guard; nothing says one is enough. The property-access name
+  `b`, at 15,457 claims, is the one worth cutting again — by whether the receiver
+  typed or gapped, which `checker-notes-calls.md` already counts separately. If a
+  sub-slice of it shows an empty `-> other`, this section's "nothing left"
+  is wrong by however large that slice is.
+- **If the 7.06% control rate is not transferable to a guarded position.** It is
+  measured where no guard fires, and by construction no baseline can show
+  upstream's `errorType` at a position where a guard fires. Every false-credit
+  discount in this note rests on transferring it. The structural trace is what
+  replaces it for the two positions that were ported, and that is why they were
+  the ones ported.
+- **If the pinned-worktree levels drift from the shared tree's.** They already
+  differ by 22 lines on the gradient at the same commit, because of uncommitted
+  checker edits. Only the deltas in this section are claims; the absolute levels
+  are the arithmetic that produced them.
