@@ -137,6 +137,52 @@ Two consequences worth stating so they are not mistaken for capabilities:
   three minutes on a corpus run, and the `Sync` problem does not arise because
   nothing needs to be shared.
 
+## The global scope, and the merge that is not ported
+
+Added 2026-08-05 with the identity widening
+([ADR-0034](../adr/0034-a-program-needs-one-identity-space.md)).
+`tsr_binder::bind_into` binds every file of a program into one `SymbolStore`,
+and `merge_globals` ports the first loop of `initializeChecker`
+(`internal/checker/checker.go:1296`): a non-module file's top-level names become
+globals, and a UMD module's `export as namespace` names merge first-in-wins.
+`BindResult::resolve_name` consults that table after the lexical walk runs off
+the top of the file, which is where upstream's `resolveNameHelper` ends.
+
+That is how `Array` resolves at all. Measured against the real shipped
+`lib.es5.d.ts`: `Array`, `Object`, `String`, `Number`, `Boolean` and `Function`
+resolve in type position and `parseInt`, `NaN`, `Infinity`, `JSON` and `Math` in
+value position, each to a declaration inside the lib file's own node range.
+
+**Declaration merging is not ported, and this is the sentence that matters:**
+upstream's `mergeGlobalSymbol` unions two declarations of a name into one
+symbol; this keeps the first and drops the second. `lib.es5.d.ts` and
+`lib.es2015.iterable.d.ts` both declare `interface Array`, so `Array` resolves
+to the ES5 one and the ES2015 members are simply absent.
+
+**It turns "does not resolve" into "resolves, member missing".** That is
+progress on the ranked measurement and it is *not* the same as being finished.
+It is safe in the one way that decides whether a shortcut is acceptable here: an
+unmerged member is **absent rather than wrong**, so a lookup for it still
+answers `errorType` and a gap stays distinguishable from an answer. That is the
+`errorType`-never-`anyType` discipline
+([conventions](../conventions.md)) holding at a new layer — and it is exactly
+the property that would be lost by the tempting shortcut of merging symbol
+*tables* by name, which would produce one symbol whose members came from two
+declarations that upstream might not have merged at all.
+
+### `Promise` is declared in `lib.es5.d.ts`
+
+Recorded because it changes the order in which the lib work pays. `lib.es5.d.ts`
+declares `interface Promise<T>`; it is `PromiseConstructor` and
+`declare var Promise` that live in `lib.es2015.promise.d.ts`. So the 640
+`Promise` lines in the type-position bucket — the largest single name in it —
+are reachable from ES5 alone, with no ES2015 lib loaded. It does not change the
+18,387 total, only when the total arrives.
+
+Found because a negative control asserted the opposite and the implementation
+was right. The control now names `Map`, `Set`, `WeakMap` and `Iterable`,
+verified against the shipped files rather than assumed.
+
 ## What a program of libs costs, and why that decides an ordering
 
 Added 2026-08-05, measured by
