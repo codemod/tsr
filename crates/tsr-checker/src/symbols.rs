@@ -795,6 +795,17 @@ impl<'a> Checker<'a, '_> {
             // See `crate::optionality`.
             return Some(self.add_optionality_for_declaration(declared, declaration));
         }
+        // "Use contextual parameter type if one is available" (`checker.go:16735`),
+        // which upstream places inside the `isParameter` block **before** the
+        // initialiser path below — a contextually typed parameter takes its type
+        // from the context even when it has a default. See [`crate::contextual`]
+        // for which contexts this port can answer; `None` from it leaves the
+        // behaviour exactly as it was, ending in the implicit `any`.
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter
+            && let Some(contextual) = self.get_contextually_typed_parameter_type(declaration)
+        {
+            return Some(self.add_optionality_for_declaration(contextual, declaration));
+        }
         let initializer = self.initializer_of(declaration)?;
         let initializer_type = self.check_expression(initializer);
         Some(self.get_widened_literal_type_for_initializer(declaration, initializer_type))

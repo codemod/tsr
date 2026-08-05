@@ -92,6 +92,7 @@ pub mod assertions;
 pub mod binary;
 pub mod calls;
 pub mod checker;
+pub mod contextual;
 pub mod declared;
 pub mod expressions;
 pub mod flags;
