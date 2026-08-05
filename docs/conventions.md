@@ -1116,3 +1116,31 @@ for three of the four arms and each went red; **a mutation to a default branch i
 invisible, because everything that stops matching it still lands there.** The
 tell is not a failing test, it is reading the classifier and asking which arm
 would notice being wrong.
+
+#### And the direction of that defect: it launders wrong answers into gaps
+
+The rule above says a probe that re-implements the harness measures a different
+compiler. Fixing the last two such probes measured *which way* the error runs,
+and it is the unflattering direction:
+
+| | lib-less | corrected |
+|---|---:|---:|
+| gap (we answered `error`) | 173,537 (37.01%) | **139,612 (29.77%)** |
+| wrong (ported, defective) | 22,067 (4.71%) | **37,489 (8.00%)** |
+
+**33,925 lines moved out of `gap` and into `wrong`.** Without a standard library
+this port answers `error` for a great many nodes where, with the libs loaded, it
+answers something *confidently incorrect*. So every lib-less probe made this port
+look **more honest than it is** — it converted confident wrong answers into
+honest-looking "don't know"s, in exactly the column this project uses to decide
+that a row is safe to leave alone.
+
+That is worse than a wrong magnitude, because the gap/wrong split is not a
+statistic here — it is the thing that separates *"we have not built this yet"*
+from *"we built it and it is broken"*, and every ranking leans on it.
+
+The corrected figure, **37,489 wrong**, is now produced by two independent
+instruments — `rank_board.rs` and the repaired `wrong_attribution.rs` — written
+by different authors along different code paths. **That agreement is the
+evidence**, and it is the strongest form available here: not a control bucket
+reading zero, but two things that could disagree and do not.
