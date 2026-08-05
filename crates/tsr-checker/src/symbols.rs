@@ -149,6 +149,18 @@ impl<'a> Checker<'a, '_> {
         // different rendering; the first signature dressed up as the whole would
         // be a wrong answer where a gap belongs.
         let [signature] = signatures.as_slice() else { return self.intrinsics.error };
+        // `createTypeNodeFromObjectType` emits a bare `FunctionTypeNode` only
+        // when the resolved type has **no properties and no index signatures**
+        // (`nodebuilderimpl.go:2698`). A function with expando properties —
+        // `function f() {} f.a = "s";` — has them, and upstream prints
+        // `{ (): void; a: string; }`. Printing the bare signature there is a
+        // *wrong* answer rather than a partial one, which is worse: it looks
+        // like a result. Rendering the type literal needs member ordering this
+        // port does not have, so it is a gap, and `bd tsr-4sc.8` owns it.
+        let symbol_data = self.binder.symbols().get(symbol);
+        if !symbol_data.exports.is_empty() || !symbol_data.members.is_empty() {
+            return self.intrinsics.error;
+        }
         let printed = self.signature_to_string(signature);
         self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol)
     }

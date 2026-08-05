@@ -1458,3 +1458,31 @@ fn a_signature_prints_a_parameters_annotation_as_written_not_the_symbols_type() 
         "(x?: string, y?: number) => void"
     );
 }
+
+#[test]
+fn a_function_carrying_expando_properties_is_a_gap_not_its_bare_signature() {
+    // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2698`) emits a bare
+    // `FunctionTypeNode` only when the resolved type has no properties and no
+    // index signatures. `function f() {} f.a = "s";` has one, and upstream
+    // prints `{ (): void; a: string; }`.
+    //
+    // Printing `() => void` there is a *wrong* answer, not a partial one — it
+    // looks like a result. Found by a bounded differential over 302 corpus
+    // baselines: it was the largest identified pattern left inside
+    // `getTypeOfFuncClassEnumModule`, and gapping it took that sample's wrong
+    // lines from 281 to 253.
+    assert_eq!(type_of_declaration("function f(): void {}\nf.a = \"s\";", "f"), "error");
+
+    // **The other direction, or the guard would swallow every function.** A
+    // plain function has no such properties and still prints its signature.
+    assert_eq!(type_of_declaration("function f(): void {}", "f"), "() => void");
+
+    // And a function merged with a namespace is unaffected, because the type
+    // *query* arm answers first: `shouldEmitTypeOfSymbol` returns true for a
+    // value module before the function case is reached, so the exports that
+    // would gap a signature are exactly what `typeof f` is meant to carry.
+    assert_eq!(
+        type_of_declaration("function f(): void {}\nnamespace f { export const a = 1; }", "f"),
+        "typeof f"
+    );
+}
