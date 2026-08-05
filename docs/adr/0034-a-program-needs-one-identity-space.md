@@ -238,6 +238,32 @@ a question upstream does not ask. Spans, file names, diagnostics, module-vs-
 script classification, and `.types` baseline sections are all per file, and every
 one of them is observable in an oracle.
 
+### Every cost of this decision was one level below the argument
+
+Added 2026-08-05, after the third one. This ADR argued at the level of
+**identifiers**: `SymbolId` and `NodeId` are indices, indices are only meaningful
+beside their table, so widen the table. That argument is correct and it predicted
+none of what the decision actually cost:
+
+| cost | level it lives at |
+|---|---|
+| one arena implies the file **texts** too, because `Symbol.name` borrows source | ownership and lifetimes |
+| sharing a bound lib prefix gets **harder**, not easier — it cannot be extended without copying | allocation |
+| binding **serialises**, because one `SymbolStore` cannot be filled from several threads | concurrency |
+
+All three were invisible from the id-level argument and all three were visible on
+first contact with the code. Two of them reversed a plan that had been reasoned
+about carefully at the wrong altitude: `bd tsr-6av` was filed as a precondition
+for this work and is an optimisation, and its stated obstacle (`ProgramFile` not
+being `Sync`) never applied at all.
+
+The transferable instruction is **check one level down from wherever you are
+arguing**. It is the same failure this project has now recorded three times in
+different clothes: a histogram that ranked gaps while the defects producing them
+went unranked; a bucket named for the answer rather than for the feature; and an
+argument about identity that missed ownership, allocation and concurrency. In
+each case the reasoning at its own level was sound.
+
 ## Consequences accepted
 
 - **The lib files are loaded and inert.** A program built with
