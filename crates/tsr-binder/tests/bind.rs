@@ -5,7 +5,7 @@
 //! block resolves to the `let`, not the outer `var`" does not.
 
 use tsr_ast::{Node, NodeTable};
-use tsr_binder::{BindResult, SymbolFlags};
+use tsr_binder::{BindResult, SymbolFlags, SymbolId};
 use tsr_core::Arena;
 use tsr_parser::ParsedSourceFile;
 
@@ -1056,4 +1056,187 @@ fn an_id_from_beyond_the_tree_yields_none_rather_than_panicking() {
     let bound = bind(&arena, "const a = 1;");
     let past_the_end = tsr_ast::NodeId::new(u32::try_from(bound.nodes().len()).expect("fits") + 5);
     assert!(bound.parsed.node_map.get(past_the_end).is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Type parameters of a class or an interface.
+//
+// `bd tsr-y4u.21` reported these as "bound nowhere", on the strength of a
+// `lookup_local` sweep. They are bound — in the **members** table of the class or
+// interface symbol, which is where upstream puts them
+// (`declareSymbolAndAddToSymbolTable` → `declareClassMember`,
+// `internal/binder/binder.go:429-441`, and see the comment quoted in
+// `BindResult::resolve_name`). What was missing is the *resolver* arm that reads
+// that table, so every one of these asserts through `resolve_name`.
+//
+// Each test contrasts `resolve_name` against `resolve`, the meaning-less
+// locals-only walk, so that it is visible which table produced the answer.
+// ---------------------------------------------------------------------------
+
+/// The `NodeId` of the identifier starting at byte `offset`.
+///
+/// Resolution starts at a *reference*, so the tests need one; a symbol's
+/// declaration would not exercise the walk.
+fn identifier_at(bound: &Bound<'_>, offset: usize) -> tsr_ast::NodeId {
+    let root = Node::SourceFile(bound.parsed.source_file);
+    let offset = u32::try_from(offset).expect("fixture fits in u32");
+    every_node(root)
+        .into_iter()
+        .filter_map(|node| node.node_id())
+        .find(|&id| {
+            bound.nodes().kind(id) == tsr_ast::SyntaxKind::Identifier
+                && bound.nodes().span(id).start == offset
+        })
+        .unwrap_or_else(|| panic!("no identifier starts at {offset}"))
+}
+
+/// `resolve_name` with the meaning upstream passes for a type reference.
+fn resolve_type(bound: &Bound<'_>, from: tsr_ast::NodeId, name: &str) -> Option<SymbolId> {
+    bound.result.resolve_name(bound.nodes(), &bound.parsed.node_map, from, name, SymbolFlags::TYPE)
+}
+
+/// Whether `symbol` is a type parameter declared directly by `container`.
+fn is_type_parameter_of(bound: &Bound<'_>, symbol: SymbolId, container: tsr_ast::NodeId) -> bool {
+    let symbol = bound.result.symbols().get(symbol);
+    symbol.flags.contains(SymbolFlags::TYPE_PARAMETER)
+        && symbol
+            .declarations
+            .iter()
+            .any(|&declaration| bound.nodes().parent(declaration) == Some(container))
+}
+
+#[test]
+fn a_class_type_parameter_resolves_from_a_member_annotation() {
+    let arena = Arena::new();
+    let source = "class C<T> { p: T; }";
+    let bound = bind(&arena, source);
+    let class = Node::from(bound.parsed.source_file.statements[0]).node_id().expect("registered");
+    let reference = identifier_at(&bound, source.rfind('T').expect("the annotation"));
+
+    let found = resolve_type(&bound, reference, "T").expect("`T` is in scope inside its class");
+    assert!(
+        is_type_parameter_of(&bound, found, class),
+        "the answer must be the class's own type parameter, not something of the same name"
+    );
+    // The locals-only walk finds nothing, which is the whole reason the members
+    // arm exists — and why `bd tsr-y4u.21` read this as "bound nowhere".
+    assert!(bound.result.resolve(bound.nodes(), reference, "T").is_none());
+}
+
+#[test]
+fn an_interface_type_parameter_resolves_from_a_member_annotation() {
+    let arena = Arena::new();
+    let source = "interface I<T> { p: T }";
+    let bound = bind(&arena, source);
+    let interface =
+        Node::from(bound.parsed.source_file.statements[0]).node_id().expect("registered");
+    let reference = identifier_at(&bound, source.rfind('T').expect("the annotation"));
+
+    let found = resolve_type(&bound, reference, "T").expect("`T` is in scope inside its interface");
+    assert!(is_type_parameter_of(&bound, found, interface));
+    assert!(bound.result.resolve(bound.nodes(), reference, "T").is_none());
+}
+
+#[test]
+fn a_class_expression_type_parameter_resolves_too() {
+    // A class expression is `bindAnonymousDeclaration`'d — in no symbol table at
+    // all (ADR-0026) — so its members table is reachable only through the node's
+    // own symbol. Upstream lists `KindClassExpression` in the same arm.
+    let arena = Arena::new();
+    let source = "const E = class<T> { p: T; };";
+    let bound = bind(&arena, source);
+    let reference = identifier_at(&bound, source.rfind('T').expect("the annotation"));
+
+    assert!(resolve_type(&bound, reference, "T").is_some());
+}
+
+#[test]
+fn a_value_reference_does_not_find_a_type_parameter() {
+    // The members table of a class holds its properties and methods as well, so
+    // the lookup is filtered to `meaning & SymbolFlagsType` (`nameresolver.go:174`
+    // with the default `lookup`, `:418`). Without the filter a value reference
+    // would resolve to a type parameter — an answer upstream never gives.
+    let arena = Arena::new();
+    let source = "class C<T> { m() { return T; } }";
+    let bound = bind(&arena, source);
+    let reference = identifier_at(&bound, source.rfind('T').expect("the `return T`"));
+
+    assert!(
+        bound
+            .result
+            .resolve_name(bound.nodes(), &bound.parsed.node_map, reference, "T", SymbolFlags::VALUE)
+            .is_none(),
+        "`T` is a type, and this is a value position"
+    );
+    // The same reference in type meaning does resolve, so the test is about the
+    // meaning and not about the reference being unreachable.
+    assert!(resolve_type(&bound, reference, "T").is_some());
+}
+
+#[test]
+fn a_static_member_cannot_reference_the_class_type_parameter() {
+    // TypeScript 1.0 spec (April 2014) §3.4.1: the scope of a type parameter is
+    // the whole declaration **except** static members. Upstream reports
+    // `Static_members_cannot_reference_class_type_parameters` and returns nil.
+    let arena = Arena::new();
+    let source = "class C<T> { static s: T; i: T; }";
+    let bound = bind(&arena, source);
+    let statik = identifier_at(&bound, source.find("T;").expect("the static annotation"));
+    let instance = identifier_at(&bound, source.rfind('T').expect("the instance annotation"));
+
+    assert!(resolve_type(&bound, statik, "T").is_none(), "a static member is outside the scope");
+    assert!(resolve_type(&bound, instance, "T").is_some(), "an instance member is inside it");
+}
+
+#[test]
+fn a_merged_interfaces_type_parameter_is_not_visible_in_the_class() {
+    // `class C` and `interface C` merge into one symbol and therefore share one
+    // members table, so the interface's `T` is reachable from the class's node.
+    // `isTypeParameterSymbolDeclaredInContainer` (`nameresolver.go:477`) is what
+    // stops it being answered there.
+    let arena = Arena::new();
+    let source = "class C { q: T; }\ninterface C<T> { p: T }";
+    let bound = bind(&arena, source);
+    let in_class = identifier_at(&bound, source.find("T;").expect("the class annotation"));
+    let in_interface = identifier_at(&bound, source.rfind('T').expect("the interface annotation"));
+
+    assert!(
+        resolve_type(&bound, in_class, "T").is_none(),
+        "the class declares no type parameter, and the merged table is not its own"
+    );
+    assert!(
+        resolve_type(&bound, in_interface, "T").is_some(),
+        "the interface that declared it can still see it"
+    );
+}
+
+#[test]
+fn a_methods_own_type_parameter_shadows_the_classs() {
+    // The nearest declaring container wins: the walk reaches the method — whose
+    // `locals` hold its own `T` — before it reaches the class. Both symbols are
+    // named `T` and only the declaration's parent tells them apart, which is why
+    // this asserts through the parent and not through the name.
+    //
+    // Note what this does *not* test. Upstream reads `location.Locals()` before
+    // the class arm within one location, and so does `resolve_inner`, but that
+    // ordering is unobservable here: a class is `IsContainer` without
+    // `HasLocals` (`container.rs:53`), so no node ever has both tables. Swapping
+    // the two turns nothing red. It is kept in upstream's order because it is
+    // upstream's order and it starts to matter if a class ever gains locals.
+    let arena = Arena::new();
+    let source = "class C<T> { m<T>(p: T): void {} }";
+    let bound = bind(&arena, source);
+    let class = Node::from(bound.parsed.source_file.statements[0]).node_id().expect("registered");
+    let reference = identifier_at(&bound, source.rfind('T').expect("the parameter annotation"));
+
+    let found = resolve_type(&bound, reference, "T").expect("`T` resolves");
+    assert!(
+        !is_type_parameter_of(&bound, found, class),
+        "the method's own type parameter must win over the class's"
+    );
+    let method = bound
+        .nodes()
+        .parent(bound.result.symbols().get(found).declarations[0])
+        .expect("the type parameter has a parent");
+    assert_eq!(bound.nodes().kind(method), tsr_ast::SyntaxKind::MethodDeclaration);
 }

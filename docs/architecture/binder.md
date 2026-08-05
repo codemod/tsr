@@ -773,3 +773,150 @@ byte.
 **The binder's RSS has no typescript-go number beside it.** `benches/go/rss_test.go`
 covers parsing only, so the figures above are absolute rather than comparative.
 Filed as `tsr-y4u.9`.
+
+---
+
+## Name resolution: `resolve`, and why it needs a meaning
+
+`BindResult::resolve` walks a node's ancestors consulting each one's `locals`.
+That is the lexical half of upstream's `(*NameResolver).Resolve`
+(`internal/binder/nameresolver.go`), and for a long time it was enough, because
+every construct the checker had reached files its declarations in a `locals`
+table.
+
+Type parameters are the exception, and it is not a small one.
+
+### The forcing constraint
+
+`crates/tsr-conformance/examples/types_shapes.rs` measured 8,229 gap lines from names
+in *type* position that do not resolve. The four commonest are `T` (1,841),
+`U` (233), `V` (161) and `K` (95) — 2,330 lines between them, and the real cost is
+larger, because every member type that mentions `T` is a gap until `T` resolves.
+
+`bd tsr-y4u.21` diagnosed this as a **binder** defect: a class's or interface's
+type parameters were said to be in no scope at all. That diagnosis came from a
+`lookup_local` sweep, and `lookup_local` reads only `locals`. Probing `members`
+too (`crates/tsr-binder/examples/type_parameter_scope.rs`) says the opposite:
+
+```text
+declare function f<T>(p: T): void;   T in the function's locals
+type A<T> = { p: T };                T in the alias's locals
+declare const g: <T>(p: T) => void;  T in the signature's locals
+interface I<T> { p: T }              members[T] of `I`,       T.parent = I
+class C<T> { p: T; }                 members[T] of `C`,       T.parent = C
+declare class D<T> { m(p: T) }       members[T] of `D`,       T.parent = D
+const E = class<T> { p: T; };        members[T] of `__class`
+```
+
+**The binder was already right, and matches upstream exactly.**
+`declareSymbolAndAddToSymbolTable` switches on the *container's* kind and sends a
+declaration inside a class or class expression to `declareClassMember` →
+`GetMembers(container.Symbol())`, and one inside an interface to
+`GetMembers(container.Symbol())` (`internal/binder/binder.go:429`–`441`). A type
+parameter is a declaration like any other. ADR-0023 landed this. Upstream even
+comments on how odd it is, at `internal/checker/symbolaccessibility.go:766`:
+*"Type parameters are bound into `members` lists so they can merge across
+declarations. This is troublesome, since in all other respects, they behave like
+locals :cries:"*.
+
+That is the ninth time in this project that an expectation and the implementation
+disagreed and the implementation was right. The probe cost twenty minutes; the
+fix it would have prompted would have broken a table that was correct.
+
+### What was actually missing
+
+Upstream's loop has an arm this port did not have:
+
+```go
+case ast.KindClassDeclaration, ast.KindClassExpression, ast.KindInterfaceDeclaration:
+    result = r.lookup(r.getSymbolOfDeclaration(location).Members, name, meaning&ast.SymbolFlagsType)
+```
+
+with two rules attached to it. `BindResult::resolve_name` is that arm, plus both
+rules:
+
+- **`isTypeParameterSymbolDeclaredInContainer`** (`nameresolver.go:477`). A class
+  and an interface of the same name merge into one symbol and share one members
+  table, so the `T` of `interface C<T>` is reachable from `class C`'s node.
+  Upstream ignores a type parameter whose declaration is parented elsewhere and
+  keeps walking outward. Without it, `class C { q: T } interface C<T> { p: T }`
+  resolves `T` inside the class.
+- **The static-member exception**, TypeScript 1.0 spec (April 2014) §3.4.1: a type
+  parameter's scope is the whole declaration *except* static members. Upstream
+  reports `Static_members_cannot_reference_class_type_parameters` and returns
+  **nil**, not the symbol. The checker has no diagnostics yet (`bd tsr-5e7.6`), so
+  only the `nil` is ported — answering the type parameter would be answering a
+  question upstream refuses to answer.
+
+### The alternative that was rejected: no meaning parameter
+
+A class's `members` table holds its properties and methods as well as its type
+parameters. Consulting it without a meaning would resolve `T` in
+`class C<T> { m() { return T } }` — a *value* position — to the type parameter,
+which upstream never does.
+
+The tempting argument for skipping the filter is that it is currently invisible:
+`get_type_of_symbol` of a type parameter is `errorType`, which prints `any`, and
+so does an unresolved name. It was rejected because the two are different claims
+and the difference surfaces the moment `getTypeOfFuncClassEnumModule` or a
+diagnostic exists. `meaning` is therefore a parameter, exactly as upstream's is.
+
+**What that cost:** a signature change on a function two checker modules call.
+`resolve` is kept, delegating with an empty meaning — which is upstream's
+`meaning == 0` and disables every meaning-gated arm, so its behaviour is
+unchanged bit for bit — and is to be deleted once
+`tsr-checker/src/declared.rs` and `tsr-checker/src/expressions.rs` pass
+`SymbolFlags::TYPE` and `SymbolFlags::VALUE` respectively. Until they do, the
+2,330 lines above do not move: the resolver can answer, and nothing asks it.
+
+### What is deliberately still missing
+
+`resolve_name` has two arms. Upstream's loop has a dozen: module and namespace
+exports, enum members, `arguments`, a function expression's own name, `infer T`,
+decorator relocation, computed property names, `ExpressionWithTypeArguments` in a
+heritage clause, and a globals lookup at the end. Each is a **miss** here rather
+than a wrong answer, because this change only ever adds a table to consult.
+
+Two further limits, stated rather than left to be found:
+
+- **The `locals` lookup is not meaning-filtered**, where upstream's is. That is
+  the pre-existing behaviour and changing it is a separate question with its own
+  regression surface — filtering would, among other things, stop an
+  `import X = Y` alias resolving for a value reference, since `SymbolFlags::ALIAS`
+  is not in `SymbolFlags::VALUE` and nothing here follows aliases yet
+  (`bd tsr-y4u.12`).
+- **A source file's `locals` are still consulted.** Upstream skips them
+  (`!ast.IsGlobalSourceFile(location)`) because a script's top-level declarations
+  are merged into the global table and found there instead. There is no global
+  table here, so skipping them would resolve nothing at all. Unchanged, and it
+  goes away with `bd tsr-9or.1`.
+
+### How the ordering within one location is *not* tested
+
+Upstream reads `location.Locals()` before the class arm, and so does
+`resolve_inner`. That ordering is **unobservable here**: a class is
+`IsContainer` without `HasLocals` (`GetContainerFlags`, mirrored in
+`container.rs`), so no node ever owns both tables, and swapping the two turns no
+test red. It is written in upstream's order because that is upstream's order, and
+it is recorded here rather than pinned by a test that could not bite.
+
+Shadowing — `class C<T> { m<T>(p: T) {} }` resolving to the *method's* `T` — is a
+property of the outward walk stopping at the first hit, not of the intra-location
+order, and *that* is tested: making a `locals` hit not win outright turns it red,
+along with `lexical_resolution_walks_outward_and_stops_at_the_nearest_binding`.
+
+### Tests, and the mutation each one answers
+
+Seven tests in `tests/bind.rs`, each verified red under a specific mutation.
+`binder_symbols` is not evidence for any of them — nothing about *binding*
+changed here.
+
+| test | mutation that turns it red |
+|---|---|
+| `a_class_type_parameter_resolves_from_a_member_annotation` | remove the class arm; remove the meaning filter (the contrast against `resolve` goes) |
+| `an_interface_type_parameter_resolves_from_a_member_annotation` | the same two |
+| `a_class_expression_type_parameter_resolves_too` | remove the class arm |
+| `a_value_reference_does_not_find_a_type_parameter` | remove the meaning filter |
+| `a_static_member_cannot_reference_the_class_type_parameter` | remove the §3.4.1 rule |
+| `a_merged_interfaces_type_parameter_is_not_visible_in_the_class` | remove `isTypeParameterSymbolDeclaredInContainer` |
+| `a_methods_own_type_parameter_shadows_the_classs` | make a `locals` hit not win outright |

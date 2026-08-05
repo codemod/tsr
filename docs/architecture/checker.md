@@ -852,3 +852,105 @@ creating a new type. It was replaced with a computation counter, and *that*
 version fails when the memo is removed. Every test in
 `crates/tsr-checker/tests/types.rs` has been verified to fail against a
 corresponding mutation.
+
+## Inherited members, 2026-08-05
+
+`class C extends B {}` now finds `B`'s properties. What landed, and the two
+places where it deliberately answers nothing.
+
+### Base types are walked, not flattened
+
+Upstream does **not** put a base class's properties in the derived symbol's
+members table. `resolveDeclaredMembers` (`checker.go:19612`) takes exactly
+`getMembersOfSymbol(t.symbol)` — the declared members and nothing else — and
+`resolveObjectTypeMembers` layers the base types' properties *underneath* them.
+Two consequences follow, and both are the reason the obvious shortcut was
+rejected:
+
+- a derived declaration **shadows** the base's rather than merging with it, so
+  `class B { p: number } class C extends B { p: string }` has two symbols;
+- the answer for an *inherited* name is **the base's symbol**, not a copy on the
+  derived class.
+
+Flattening the two tables in the binder would have been a few lines and would
+have got both wrong — a merge upstream keeps apart, and the wrong symbol identity
+for every overridden member. `crates/tsr-checker/tests/members.rs` asserts
+through the *declaring line* of the symbol that comes back, precisely because
+both shapes print the same type.
+
+### The walk is over symbols, and that is the part to revisit first
+
+Upstream reaches a base through `resolvedBaseTypes`, which are `*Type`s. Here
+`TypeData::Named` carries the owning `SymbolId`, and
+`getDeclaredTypeOfClassOrInterface` is `new_named_type(symbol, …)` — one type per
+symbol with no members of its own. Going type → symbol → base symbol → back is
+the same graph with one indirection removed, and it avoids creating a type per
+base merely to read its symbol out again.
+
+**How we would know this was wrong:** the moment
+`getDeclaredTypeOfClassOrInterface` grows real member resolution — the
+*instantiated* members of `class C extends B<number>` — this must move to the
+type level, because a symbol has nowhere to hold an instantiated table. That is
+the falsifier, and it is `bd tsr-4sc.7`'s remaining work.
+
+### The circularity guard is the path, not a memo
+
+`class A extends B {}` with `class B extends A {}` is a real cycle in the base
+graph and the corpus contains such cases deliberately. Upstream guards it in
+`resolveBaseTypesOfClass` by parking a `resolvingEmptyArray` sentinel in
+`resolvedBaseTypes` and reporting
+`Type_0_recursively_references_itself_as_a_base_type` on re-entry. There is no
+`resolvedBaseTypes` memo here to park a sentinel in, so the guard is the set of
+symbols already on the walk — the same question asked with the state that
+exists. It is **not** `Resolutions`: that stack is keyed on
+`(symbol, PropertyName)` and is about *type* resolution, and giving base-type
+walking a `PropertyName` of its own would change a module this work did not own.
+A cycle answers a miss rather than a diagnostic, because the checker has none
+(`bd tsr-5e7.6`).
+
+Removing the guard does not fail a test politely: it overflows the stack and
+aborts the whole test binary. That is the mutation that pins it.
+
+### A base this port cannot follow makes the whole lookup a miss
+
+Three shapes are gaps: a base with **type arguments** (`extends B<number>` —
+nothing instantiates, so `B`'s own `p` would answer `T` where upstream answers
+`number`), a base that is **not a plain identifier** (`extends M.B`,
+`extends mixin()`), and a name that resolves to something with no members.
+
+The consequential choice is what to do with the *other* bases when one of them is
+a gap. Skipping it and answering from the next would be worse than answering
+nothing: for `interface I extends A, B<number>` where both declare `p`, upstream
+takes `B`'s and we would hand back `A`'s — a wrong symbol, not a missing one. So
+one unfollowable base makes the whole lookup a miss. The type's *own* members are
+answered before any base is consulted, so this never costs a declared member.
+
+### The meaning passed to base resolution is narrower than upstream's
+
+A class's `extends` names an **expression**, which upstream resolves in value
+meaning and reduces through `getBaseConstructorTypeOfClass`; that needs `typeof C`
+and construct signatures. This resolves the name in `SymbolFlags::TYPE` meaning
+instead — upstream's meaning for the *interface* case, and the one that finds a
+class or interface declaration in both. `class C extends someExpression` is
+therefore a gap; the declaration form, which is most of the corpus, is not.
+
+### `symbolIsValue` was missing, and it matters more here than upstream
+
+`getPropertyOfObjectType` gates its answer on `symbolIsValue`
+(`checker.go:21407`). That gate was not ported, and it is not cosmetic: a class's
+or interface's members table also holds its **type parameters**
+(`internal/binder/binder.go:429`–`441`), so without it `new C().T` answers with
+the type parameter `T`. It is ported here in its value half only; the alias half
+needs something that follows aliases (`bd tsr-y4u.12`), so an alias member is a
+miss rather than a wrong answer.
+
+This is the one place in this change where a test could not go through a printed
+line: `get_type_of_symbol` of a type parameter is `errorType`, which prints `any`
+— exactly what a miss prints. The assertion is on the symbol.
+
+### `implements` contributes nothing
+
+Upstream reads only the `extends` clause for base types
+(`getEffectiveBaseTypeNode`). An `implements` clause is checked for conformance
+and inherits no members. The clause token is the only thing that distinguishes
+the two, and dropping that test turns a test red.

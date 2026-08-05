@@ -68,7 +68,7 @@ mod narrowing;
 mod symbol;
 
 use rustc_hash::FxHashMap;
-use tsr_ast::{NodeId, NodeTable, SourceFile};
+use tsr_ast::{NodeId, NodeMap, NodeTable, SourceFile, SyntaxKind};
 use tsr_core::Idx as _;
 use tsr_diagnostics::Diagnostic;
 
@@ -235,22 +235,199 @@ impl<'a> BindResult<'a> {
 
     /// Resolve `name` from `start`, walking outward through enclosing scopes.
     ///
-    /// The lexical half of name resolution. It does not consult members, exports,
-    /// or globals, and it does not implement the checker's meaning-based filtering
-    /// (a type reference must not resolve to a value), so it is a foundation
-    /// rather than the finished article — see `nameresolver.go` upstream.
+    /// The lexical half of name resolution, with **no meaning** — which is
+    /// upstream's `meaning == 0`, and therefore skips every arm of
+    /// `(*NameResolver).Resolve` that is gated on one, including the class and
+    /// interface arm [`BindResult::resolve_name`] exists for. It consults
+    /// `locals` and nothing else.
+    ///
+    /// **Superseded.** The two checker call sites
+    /// (`tsr-checker/src/declared.rs`, `tsr-checker/src/expressions.rs`) should
+    /// move to [`BindResult::resolve_name`] with the meaning upstream passes —
+    /// `SymbolFlags::TYPE` for a type reference, `SymbolFlags::VALUE` for an
+    /// identifier expression — at which point this goes away. Until they do, a
+    /// type parameter of a class or interface is unreachable from the checker;
+    /// see `bd tsr-y4u.21`.
     #[must_use]
     pub fn resolve(&self, nodes: &NodeTable, start: NodeId, name: &str) -> Option<SymbolId> {
+        self.resolve_inner(nodes, None, start, name, SymbolFlags::empty())
+    }
+
+    /// Resolve `name` from `start` for a particular *meaning*.
+    ///
+    /// Ported from `(*NameResolver).Resolve` (`internal/binder/nameresolver.go`),
+    /// restricted to the two arms this port has the tables for: a location's
+    /// `locals`, and the **members** of an enclosing class, class expression, or
+    /// interface.
+    ///
+    /// # Why the second arm is not an optimisation
+    ///
+    /// A class's or an interface's type parameters are not in any `locals` table
+    /// — here or upstream. `declareSymbolAndAddToSymbolTable` switches on the
+    /// *container's* kind and sends a declaration inside a class or an interface
+    /// to `GetMembers(container.Symbol())` (`internal/binder/binder.go:429-441`),
+    /// and a type parameter is a declaration like any other. Upstream says why in
+    /// as many words at `internal/checker/symbolaccessibility.go:766`: *"Type
+    /// parameters are bound into `members` lists so they can merge across
+    /// declarations. This is troublesome, since in all other respects, they
+    /// behave like locals."* So `T` in `class C<T> { p: T }` is reachable only
+    /// through `C`'s members table, and a resolver that reads `locals` alone
+    /// finds nothing.
+    ///
+    /// `meaning` is what keeps that table from leaking: it holds the class's
+    /// properties and methods too, and the lookup is filtered to
+    /// `meaning & SymbolFlags::TYPE`, exactly as upstream's is. A value reference
+    /// therefore does not find a type parameter, and a type reference does not
+    /// find a method.
+    ///
+    /// # What is not ported, and is therefore not answered
+    ///
+    /// Every other arm of upstream's loop: module and namespace exports, enum
+    /// members, `arguments`, a function expression's own name, `infer T`,
+    /// decorator relocation, computed property names, and the globals lookup at
+    /// the end. Each is a miss here rather than a wrong answer, because this only
+    /// ever *adds* a table to consult.
+    ///
+    /// The `locals` lookup is **not** meaning-filtered, which upstream's is. That
+    /// is the pre-existing behaviour of [`BindResult::resolve`] and changing it is
+    /// a separate question with its own regression surface — filtering would, for
+    /// one, stop an `import X = Y` alias resolving for a value reference, since
+    /// `SymbolFlags::ALIAS` is not in `SymbolFlags::VALUE` and nothing here
+    /// follows aliases yet. Left as it was, deliberately; `bd tsr-y4u.12` owns
+    /// the alias half.
+    #[must_use]
+    pub fn resolve_name(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        self.resolve_inner(nodes, Some(node_map), start, name, meaning)
+    }
+
+    /// The body of both resolvers.
+    ///
+    /// `node_map` is optional because [`BindResult::resolve`] passes an empty
+    /// meaning and so can never reach the arm that reads modifiers. When it is
+    /// `None` the static-member rule below cannot be evaluated, and the arm is
+    /// unreachable for exactly that reason rather than by luck.
+    fn resolve_inner(
+        &self,
+        nodes: &NodeTable,
+        node_map: Option<&NodeMap<'a>>,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        // Upstream's `lastLocation`: the node the walk came *from*. The static
+        // rule below is a question about it, not about the class.
+        let mut last: Option<NodeId> = None;
         let mut current = Some(start);
         while let Some(node) = current {
+            // Locals first, as upstream does. **Unobservable today**: a class is
+            // `IsContainer` without `HasLocals` (`container.rs:53`, matching
+            // `GetContainerFlags`), so no node ever owns both tables and swapping
+            // these two turns no test red. Stated rather than pinned by a test
+            // that could not bite.
             if let Some(found) = self.lookup_local(node, name) {
                 return Some(found);
             }
+            if matches!(
+                nodes.kind(node),
+                SyntaxKind::ClassDeclaration
+                    | SyntaxKind::ClassExpression
+                    | SyntaxKind::InterfaceDeclaration
+            ) && let Some(found) = self.lookup_type_member(node, name, meaning)
+            {
+                // `isTypeParameterSymbolDeclaredInContainer`
+                // (`nameresolver.go:477`). A class and an interface of the same
+                // name merge into one symbol and share one members table, so the
+                // `T` of `interface C<T>` is visible in the table reached from
+                // `class C`'s node. Upstream ignores a type parameter whose
+                // declaration is parented elsewhere; without this,
+                // `class C {} interface C<T> {}` would resolve `T` inside the
+                // class body.
+                if !self.is_type_parameter_declared_in(found, node, nodes) {
+                    // Upstream clears `result` and falls out of the switch, so
+                    // the walk continues outward rather than stopping here.
+                    last = Some(node);
+                    current = nodes.parent(node);
+                    continue;
+                }
+                // TypeScript 1.0 spec (April 2014) §3.4.1: a type parameter's
+                // scope covers the whole declaration **except static members**.
+                // Upstream reports `Static_members_cannot_reference_class_type_parameters`
+                // and returns nil — not the symbol. There are no checker
+                // diagnostics yet (`bd tsr-5e7.6`), so only the `nil` is ported;
+                // answering the type parameter here would be answering a question
+                // upstream refuses.
+                if last.is_some_and(|l| is_static_member(node_map, l)) {
+                    return None;
+                }
+                return Some(found);
+            }
+            last = Some(node);
             current = nodes.parent(node);
         }
         None
     }
 
+    /// `r.lookup(getSymbolOfDeclaration(location).Members, name, meaning & Type)`
+    /// (`nameresolver.go:174`), with upstream's default `lookup`
+    /// (`nameresolver.go:418`): a hit only when the symbol's flags intersect the
+    /// meaning, and never when the meaning is empty.
+    fn lookup_type_member(
+        &self,
+        container: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        let owner = self.symbol_of(container)?;
+        let &found = self.symbols.get(owner).members.get(name)?;
+        (self.symbols.get(found).flags.intersects(meaning & SymbolFlags::TYPE)).then_some(found)
+    }
+
+    /// Ported from `isTypeParameterSymbolDeclaredInContainer`
+    /// (`nameresolver.go:477`).
+    fn is_type_parameter_declared_in(
+        &self,
+        symbol: SymbolId,
+        container: NodeId,
+        nodes: &NodeTable,
+    ) -> bool {
+        self.symbols.get(symbol).declarations.iter().any(|&declaration| {
+            nodes.kind(declaration) == SyntaxKind::TypeParameter
+                && nodes.parent(declaration) == Some(container)
+        })
+    }
+}
+
+/// Ported from `ast.IsStatic` (`internal/ast/utilities.go`), for the one caller
+/// above.
+///
+/// `false` when there is no [`NodeMap`] to read the modifiers from, which is only
+/// the meaning-less [`BindResult::resolve`] path — where the caller cannot reach
+/// this at all.
+fn is_static_member(node_map: Option<&NodeMap<'_>>, node: NodeId) -> bool {
+    let Some(node) = node_map.and_then(|map| map.get(node)) else { return false };
+    let modifiers = match node {
+        tsr_ast::Node::ClassStaticBlockDeclaration(_) => return true,
+        tsr_ast::Node::PropertyDeclaration(n) => n.modifiers,
+        tsr_ast::Node::MethodDeclaration(n) => n.modifiers,
+        tsr_ast::Node::GetAccessorDeclaration(n) => n.modifiers,
+        tsr_ast::Node::SetAccessorDeclaration(n) => n.modifiers,
+        tsr_ast::Node::IndexSignatureDeclaration(n) => n.modifiers,
+        _ => return false,
+    };
+    modifiers.iter().any(|modifier| {
+        matches!(modifier, tsr_ast::ModifierLike::Token(token)
+            if token.kind == SyntaxKind::StaticKeyword)
+    })
+}
+
+impl<'a> BindResult<'a> {
     /// Bytes of heap the result holds, for the memory reporting in
     /// `docs/architecture/performance.md`.
     ///
