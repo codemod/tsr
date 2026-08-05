@@ -1221,3 +1221,73 @@ All three have the same corrective, which is why it is worth stating once rather
 than three times: **the number comes from `grep -n` on the declaration you mean,
 every time, including when you are correcting someone else's.** A window, a
 memory, or a neighbouring line is not a source.
+
+### Before "how many lines does this block", ask "can this port *spell* the answer?"
+
+Resolution and rendering are separate capabilities, and a form can be **fully
+resolvable and still unprintable**. A slice that resolves a name this port cannot
+name converts a gap into a *wrong* line, which is the one outcome worse than
+leaving it alone.
+
+The worked example reversed a build order. Cross-file aliases looked as though
+the cheapest first arm was `import * as ns from "./m"` (259 lines) and
+`import a = require("./m")` (433), because both reach a module symbol **directly**
+with no member lookup. But the baselines say:
+
+```
+conformance/exportAsNamespace4(module=commonjs).types
+  import * as ns from './0';
+  >ns : typeof ns
+```
+
+and corpus-wide, the assertion after such a line is `typeof cjs` 236, `typeof type`
+184, `typeof cjsi` 172, `typeof mjs` 156 — **always the local alias, never the
+module**. That is upstream's node builder emitting the shortest accessible chain
+to the symbol. A module symbol's name in this port is the file path with the
+extension stripped, so we would print `typeof /0` where upstream prints
+`typeof ns`. **Those 692 lines are not available work**; building them would have
+manufactured 692 confident wrong answers.
+
+The forms that *were* right — `import { x } from` (890) and `export { q } from`
+(134) — target ordinary export symbols carrying their own names, and their
+baseline answers are `number`, `0`, `typeof A`, `typeof Observable`: spellable.
+
+**The check is one `grep` at the baseline's right-hand side**, and it is the
+reason this is a rule rather than an aspiration. It also generalises past
+aliases: the same question would have flagged `import a = foo.bar.baz`, which
+`Checker::resolve_alias` already gaps deliberately for exactly this reason
+(`compiler/aliasBug.types`, `>booz : typeof booz`) — one mechanism, found twice,
+years apart.
+
+So the ranking questions are three, in order:
+
+1. **Can we spell the answer?** If not, the row is not work, whatever its size.
+2. **Is the prerequisite met for most of the population?** (kind 1 vs kind 2)
+3. **How many lines does the failure block?** (never how many lines the form appears on)
+
+### Faithfulness to upstream is not evidence that a guard is load-bearing *here*
+
+The same slice ported upstream's alias-cycle guard — `resolveAlias` pushes
+`TypeSystemPropertyNameAliasTarget` (`checker.go:16272`) — added the matching
+frame, and then **measured it**: all twelve tests stayed green with it removed,
+and so they did with a second frame removed. The only mutation that makes a
+two-file re-export cycle actually **hang** is deleting `|| seen.contains(&target)`
+from `get_symbol_flags`, which is upstream's own `seenSymbols`
+(`checker.go:16368`) and predates the whole slice.
+
+It is unreachable **structurally, not incidentally**: `resolve_alias` is not
+self-recursive in this port, because upstream's recursion goes through
+`resolveIndirectionAlias` (`checker.go:16293`), which this port does not have.
+
+So the guard was deleted rather than kept as insurance — and the deciding detail
+is that it carried a doc comment calling itself *"the variant that makes
+cross-file aliases terminate"*, which was **false**. A guard no mutation can make
+observable is decoration; decoration that *claims* to be a safety property is
+worse than none, because the next reader budgets for a protection that is not
+there. `contextual.rs` deleted a guard and the test written to defend it for the
+same reason.
+
+**What recurses upstream may not recurse in a port that left a function out.**
+Reading picked the wrong mechanism twice here; one mutation found it. Port the
+guard, then try to make it fire — and if it cannot fire, delete it and write down
+why, rather than keeping a comment that lies.
