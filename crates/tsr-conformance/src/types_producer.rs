@@ -417,9 +417,41 @@ pub fn type_at_location(
             }
             outermost = above;
         }
-        let in_type_query =
-            nodes.parent(outermost).is_some_and(|above| nodes.kind(above) == SyntaxKind::TypeQuery);
-        if !in_type_query {
+        let enclosing = nodes.parent(outermost).map(|above| nodes.kind(above));
+
+        // **A third exemption: the entity name of an `import x = M.a`.**
+        //
+        // Upstream does *not* reach this through `IsExpressionNode` — that
+        // function's `KindQualifiedName` arm walks to the outermost qualified
+        // name and asks `IsTypeQueryNode || IsJSDocLinkLike ||
+        // IsJSDocNameReference || IsJsxTagName`, all false for an import-equals.
+        // It falls through `getTypeOfNode` past the type-node, expression,
+        // class, type-declaration, binding and declaration branches to
+        // `isInRightSideOfImportOrExportAssignment`, which takes
+        // `getDeclaredTypeOfSymbol` and **falls back to `getTypeOfSymbol` when
+        // that is the error type**. For a namespace the declared type *is* the
+        // error type, so the answer is the value type: `typeof a`.
+        //
+        // The fallback order is the whole rule and must not be collapsed to
+        // "answer the value type". Measured at `f99072c` by
+        // `examples/qualified_name_left.rs`, this enclosing kind carries 133
+        // wrong lines *and 34 right ones* — the 34 being where upstream also
+        // says `any`. A blanket value-type rule would fix 133 and break 34, a
+        // net of +99 presented as +133.
+        if enclosing == Some(SyntaxKind::ImportEqualsDeclaration)
+            && let Some(Node::Identifier(name)) = map.get(id)
+            && let Some(symbol) =
+                binder.resolve_name(nodes, map, id, name.text, SymbolFlags::NAMESPACE)
+        {
+            let declared = checker.get_declared_type_of_symbol(symbol);
+            if declared != checker.intrinsics().error {
+                return checker.type_to_string(declared);
+            }
+            let value = checker.get_type_of_symbol(symbol);
+            return checker.type_to_string(value);
+        }
+
+        if enclosing != Some(SyntaxKind::TypeQuery) {
             return checker.type_to_string(checker.intrinsics().any);
         }
     }
@@ -1011,6 +1043,66 @@ mod tests {
         assert!(
             in_query.contains(&("M".to_string(), "typeof M".to_string())),
             "inside a type query the left keeps its value type: {in_query:?}"
+        );
+    }
+
+    #[test]
+    fn the_entity_name_of_an_import_equals_keeps_its_value_type() {
+        // Both directions in one test, because a single-direction test here
+        // passes by breaking the other side: the corpus carries 133 lines that
+        // want the value type and **34 that want `any`**, under the same
+        // enclosing kind.
+        //
+        // Upstream reaches this through `isInRightSideOfImportOrExportAssignment`
+        // — `getDeclaredTypeOfSymbol`, falling back to `getTypeOfSymbol` only
+        // when that is the error type. For a namespace the declared type is the
+        // error type, so the answer is the value type.
+        // **Whole-vector equality, not `contains`.** The first version of this
+        // test used `contains(&("M", "typeof M"))` and stayed green under a
+        // mutation that disabled the rule entirely — because `namespace M`
+        // emits its *own* line `("M", "typeof M")` at index 0, and the entity
+        // name at index 4 is a different line with the same pair. A `contains`
+        // over a bag of pairs cannot tell one occurrence from another, so it
+        // asked a vacuously true question.
+        assert_eq!(
+            typed("namespace M { export const a = 1; }\nimport x = M.a;"),
+            vec![
+                ("M".to_string(), "typeof M".to_string()), // the declaration
+                ("a".to_string(), "1".to_string()),
+                ("1".to_string(), "1".to_string()),
+                ("x".to_string(), "error".to_string()),
+                ("M".to_string(), "typeof M".to_string()), // the entity name
+                ("a".to_string(), "error".to_string()),
+            ],
+        );
+
+        // **The declared-then-value ORDER, pinned.** A namespace cannot pin it:
+        // its declared type *is* the error type, so both orders give the same
+        // answer, and dropping the declared half left the two assertions above
+        // green. An enum can — `getDeclaredTypeOfSymbol` returns the enum type,
+        // which is not the error type, so upstream answers `E` and never reaches
+        // `getTypeOfSymbol`. Without the declared half this reads `typeof E`.
+        assert_eq!(
+            typed("enum E { A }\nimport q = E.A;"),
+            vec![
+                ("E".to_string(), "E".to_string()), // the declaration
+                ("A".to_string(), "error".to_string()),
+                ("q".to_string(), "error".to_string()),
+                ("E".to_string(), "E".to_string()), // the entity name: DECLARED
+                ("A".to_string(), "error".to_string()),
+            ],
+        );
+
+        // The other direction: a left that resolves to no namespace keeps the
+        // `any` the general qualified-name rule gives it. This is the guard that
+        // stops the rule turning 34 right answers into wrong ones.
+        assert_eq!(
+            typed("import y = Missing.thing;"),
+            vec![
+                ("y".to_string(), "error".to_string()),
+                ("Missing".to_string(), "any".to_string()),
+                ("thing".to_string(), "error".to_string()),
+            ],
         );
     }
 

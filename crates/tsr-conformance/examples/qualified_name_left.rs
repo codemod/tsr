@@ -140,6 +140,12 @@ fn arm_of(nodes: &NodeTable, map: &NodeMap, id: NodeId) -> Option<Arm> {
 struct Tally {
     cases: usize,
     aligned: usize,
+    /// The gradient itself, over **every** aligned line of any kind — the only
+    /// number that can say whether a rule is a net gain. An arm's own right/wrong
+    /// split cannot: this rule moves lines out of `wrong` into `gap` as well as
+    /// into `right`, and perturbs unrelated lines through the checker's caches.
+    aligned_right: usize,
+    aligned_gap: usize,
     /// Positive control: every aligned line in the arm, right or wrong.
     control: HashMap<Arm, usize>,
     right: HashMap<Arm, usize>,
@@ -162,6 +168,8 @@ impl Tally {
     fn merge(&mut self, other: Tally) {
         self.cases += other.cases;
         self.aligned += other.aligned;
+        self.aligned_right += other.aligned_right;
+        self.aligned_gap += other.aligned_gap;
         self.unattributed += other.unattributed;
         self.wrong_identifiers_elsewhere += other.wrong_identifiers_elsewhere;
         for (key, value) in other.control {
@@ -255,6 +263,11 @@ fn main() {
                         continue;
                     };
                     tally.aligned += 1;
+                    if want_type == got.type_string {
+                        tally.aligned_right += 1;
+                    } else if got.type_string == "error" {
+                        tally.aligned_gap += 1;
+                    }
                     if got.kind != SyntaxKind::Identifier {
                         continue;
                     }
@@ -335,6 +348,16 @@ fn pct(n: usize, d: usize) -> f64 {
 fn report(total: &Tally) {
     println!("cases judged          {:>9}", total.cases);
     println!("aligned lines         {:>9}", total.aligned);
+    println!(
+        "  of which RIGHT      {:>9}   {:.4}%  <- the gradient; the only net number",
+        total.aligned_right,
+        pct(total.aligned_right, total.aligned)
+    );
+    println!(
+        "  of which gap        {:>9}   wrong {}",
+        total.aligned_gap,
+        total.aligned - total.aligned_right - total.aligned_gap
+    );
     println!();
     println!(
         "{:<52} {:>8} {:>8} {:>8} {:>8}",
