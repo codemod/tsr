@@ -268,3 +268,51 @@ cannot be seen in the result, and a correct prediction and a badly wrong one loo
 identical. Measuring at the commit pair's parent fixes attribution across
 commits; it does not fix this, because this is one commit predicting against one
 row.
+
+## Size a slice from the baselines, not from the source
+
+Both accessor predictions were high by about 2.5x — ~871 against 231, and ~716
+against 386 — and they were wrong the *same* way, because they were built the
+same way: by grepping the corpus **source** for `get x()` / `set x(v)`
+occurrences and treating each as an assertion line. It is the wrong unit. The
+board counts assertion lines produced by the instrument; source occurrences are a
+different quantity, and the two diverged by the same factor twice.
+
+The fix is not a conversion constant. It is to **count the thing the instrument
+counts**, which is directly available: a `.types` baseline records an accessor
+declaration as the declaration line followed by its `>name : T` assertion, so the
+lines can be counted where they actually live.
+
+```python
+# accessor assertion lines, straight out of the baselines
+acc = re.compile(r'^\s*(?:(?:public|private|protected|static|abstract|readonly'
+                 r'|declare|export)\s+)*(get|set)\s+[A-Za-z_$][\w$]*\s*\(')
+# ... for each *.types file, count a match whose NEXT line starts with '>'
+```
+
+Measured over
+`vendor/typescript-go/testdata/baselines/reference/submodule/**/*.types`:
+
+| population | getter lines | setter lines | total |
+|---|---|---|---|
+| all baselines | 997 | 711 | 1,708 |
+| **excluding configuration-varied** | **413** | **331** | **744** |
+| observed in the accessor rows at `2c107a3` | — | — | **673** |
+
+**744 predicted against 673 observed — within 11%**, where the source-text count
+was out by 150%. Configuration-varied baselines (a parenthesised suffix in the
+filename) must be excluded because the harness skips 1,397 of them; the residual
+~10% is the other skip categories — 924 cases with no `.types` baseline, 450
+known divergences, 135 with no assertions.
+
+**The rule:** *if a prediction is about assertion lines, count assertion lines.*
+Grepping source is fine for deciding whether a form is worth looking at; it is
+not a prediction until it has been converted, and the cheapest conversion is to
+skip the source entirely and count in the baselines.
+
+**How you would know this is wrong:** apply it to a slice whose measured result
+is already known and check it lands inside ~15%. It has been checked once, on
+accessors, against a number produced after the method was invented — so it is one
+confirmation, not a validated technique. `arrays`' ~10,000-line pair and
+`indexsig`'s ~1,500-line pair are the next two chances to falsify it, and both
+are being measured anyway.
