@@ -730,7 +730,15 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     // Not a partial object: printing the members that *are* understood would be
     // a wrong answer dressed as a right one, and it would fail the line either
     // way.
-    assert_eq!(type_of_declaration("declare const x: { m(): void };", "x"), "error");
+    //
+    // **The method and call-signature cases moved on 2026-08-05** (`4bf4b8c`),
+    // which taught `get_type_from_type_literal` to render signature members.
+    // They are kept here rather than deleted because this test's subject is the
+    // *rule*, not the list: a member the port cannot render still takes the
+    // whole literal with it, and the two below are what still cannot be
+    // rendered — a bare call signature still gaps, only the method form renders.
+    // Deleting them would leave the rule pinned by a shrinking set.
+    assert_eq!(type_of_declaration("declare const x: { m(): void };", "x"), "{ m(): void; }");
     assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "error");
     assert_eq!(type_of_declaration("declare const x: { [k: string]: string };", "x"), "error");
     // A member whose own type is a gap takes the whole literal with it.
