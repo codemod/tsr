@@ -807,3 +807,22 @@ grep -n "^func (c \*Checker) resolveCall(" vendor/typescript-go/internal/checker
 One number in a brief this session was four cycles stale (`resolveCall` at
 `:9563`, actually `:8843` on the pinned commit) and had been copied forward from
 a note nobody re-checked.
+
+#### And one file where `git commit -- <path>` is the *unsafe* option
+
+`git commit -- <paths>` takes the **working-tree** state of those paths. That is
+usually what you want. It is exactly wrong when the path is a shared *manifest*
+whose entries depend on files that are not yet tracked.
+
+`crates/tsr-checker/src/lib.rs` is the case. Two agents each needed one `pub mod`
+line in it. Committing it by pathspec would have swept the neighbour's
+`pub mod inference;` into the commit **while `inference.rs` was still
+untracked** — a commit that does not build, from an operation that looks
+careful.
+
+The agent that hit it built the blob by hand instead — HEAD's `lib.rs` plus its
+own line, via `git hash-object -w` and `update-index --cacheinfo` — so its commit
+carried one `pub mod` and left the neighbour's line untouched in the tree.
+
+The rule is not "always use pathspec". It is: **on a shared manifest, commit the
+index you constructed, not the working tree you happen to be standing in.**
