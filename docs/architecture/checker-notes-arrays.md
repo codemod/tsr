@@ -304,3 +304,84 @@ rule is worth the cost:
 
 Identical code, identical intent, opposite testability — decided by what happens
 to sit above it. Reading either function would not reveal which was which.
+
+## What the `any`-receiver measurement actually said (2026-08-05)
+
+Predicted 6,000–15,000 lines, most likely ~10,000. **Delivered 950** — right at
+the pre-registered "under ~1,000" falsifier boundary. Both halves, measured as
+single-commit pairs (`4fdcba5..4f060b9` and `eecb7aa..9700087`):
+
+| row | gap | wrong |
+|---|---|---|
+| ElementAccessExpression | 12,372 → 12,316 (**−56**) | 67 → 81 (+14) |
+| PropertyAccessExpression | 8,143 → 7,249 (**−894**) | 1,040 → 1,595 (+555) |
+
+The row diagnosed at **88% `any`** moved 56 lines; the row at **23% `any`** moved
+894. The inversion is the finding.
+
+### 88% of the element-access row is one file, and it is a flow item
+
+`compiler/largeControlFlowGraph.types` holds **9,999 of the 11,363**
+`any`-answering element-access lines. It opens:
+
+```text
+// The control flow graph for the following statement block is 10000 nodes deep.
+const data = [];
+```
+
+followed by ~10,000 repetitions of `>data[0] : any` with `>data : any` at each
+access site. `const data = []` is an **evolving array**: upstream's
+`autoArrayType`, `addEvolvingArrayElementType` and `finalizeEvolvingArrayType`
+make the flow type `any` at each site, and `crate::flow` documents that machinery
+as unported (flow.rs:293–297).
+
+So the receiver is `any` upstream and is *not* `any` here, and the access
+correctly propagates our gap. The arm was never going to reach it. **The
+element-access row is a flow item, not an access item** — and it is unreachable
+for the case metric too, since that file cannot pass without evolving arrays.
+
+### The diagnosis was wrong at a level below the one it corrected
+
+The first attempt bucketed by index *syntax* (79% numeric) and pointed at array
+receivers — a real blocker, `bd tsr-el3.2`, and the wrong one. Bucketing by
+upstream's *answer* (88% `any`) corrected that and pointed here. Both were
+measuring the wrong population.
+
+**Three levels, and they are not interchangeable:**
+
+1. the syntax of the question — what the expression looks like;
+2. what **upstream** answers — the baseline's type column;
+3. what **our port** fails on — the join of our gap set against (2).
+
+Level 2 beats level 1 and is still not level 3. "88% of element-access lines
+answer `any`" is true and says nothing about whether our port can reach those
+receivers. Only level 3 predicts movement, and computing it needs the conformance
+instrument rather than a grep over baselines.
+
+### The +555 wrong lines: cause, owner, and the cost accepted
+
+Not a leak through the identity guard — the guard held. The arm is faithful
+given its input; the *input* is wrong.
+
+This port has no contextual typing, so an unannotated parameter is the implicit
+`any` here where upstream infers a real type —
+`getContextuallyTypedParameterType` (`checker.go:29458`) via
+`assignContextualParameterTypes` (`checker.go:10349`). Probe:
+
+```text
+const y = x => x.foo;      // this port: x.foo : any
+arr.map(x => x.foo)        // upstream:  x typed from context, x.foo is real
+```
+
+Before the arm these were gaps; now they are claims. **Kept deliberately**, on
+three grounds: the arm matches upstream given an `any` receiver; the lines cost
+no gradient and no cases, because the receiver's own line was already wrong so
+every affected case was already failing; and reverting would surrender 894 real
+lines to avoid 555 that cost nothing measurable.
+
+**The cost that is real is diagnostic separability.** A gap is an honest "don't
+know" the instrument can bucket by cause; a wrong answer is a claim that looks
+like a result. Someone reading a property-access histogram will see 555 wrong
+lines with no way to learn from the instrument that they belong to contextual
+typing. That is why the owner is named at the arm in `members.rs` and here:
+closing contextual typing is what removes them.

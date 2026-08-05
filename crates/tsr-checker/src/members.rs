@@ -71,6 +71,31 @@ impl Checker<'_, '_> {
         // `any` for every gap in the corpus. That is the single most dangerous
         // edit that could be made to this function, and it would look like a
         // large win in the measurement.
+        // # This arm produces wrong lines, and they are not its fault
+        //
+        // **Measured: +555 wrong property-access lines when this landed**, against
+        // 894 gaps closed. They are all one shape, and the owner is elsewhere.
+        //
+        // This port has **no contextual typing**, so an unannotated parameter is
+        // the implicit `any` here where upstream infers a real type from the
+        // contextual signature — `getContextuallyTypedParameterType`
+        // (`checker.go:29458`), reached through `assignContextualParameterTypes`
+        // (`checker.go:10349`). Probe: `const y = x => x.foo;` answers
+        // `x.foo : any` here, while upstream in `arr.map(x => x.foo)` types `x`
+        // from context and answers a real member type.
+        //
+        // So the receiver is wrong before this arm sees it, and the arm then
+        // converts what used to be an honest gap into a confident claim. Those
+        // lines cost no gradient and no cases — the receiver's own line was
+        // already wrong, so every case containing one was already failing — but
+        // they do cost **diagnostic separability**, which is the thing this
+        // project's method rests on. Someone reading a property-access histogram
+        // will see 555 wrong lines and cannot tell from the instrument that they
+        // are contextual-typing lines rather than a defect here.
+        //
+        // **Closing contextual typing is what removes them.** That is recorded
+        // here rather than left to be rediscovered, because a limitation naming
+        // no owner is how four stale comments outlived their truth this session.
         if receiver_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
