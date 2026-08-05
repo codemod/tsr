@@ -578,3 +578,30 @@ The agent who proposed the blind test also framed the two forms and nominated
 which one should land tightly. It nominated wrong — the form it called the clean
 case missed by 3.6×. Choosing your own best case is the last piece of freedom a
 self-test leaves you; hand it to someone else.
+
+### A guard rail that cannot observe a change reports "safe" either way
+
+`binder_symbols` was used as the standing revert condition for two binder
+changes in one cycle — "if the rail moves down, the change comes out". It could
+only have caught one of them.
+
+The suite skips every symbol whose declarations span more than one file
+(`crates/tsr-conformance/src/binder_suite.rs:242`), and deliberately so: it
+loads no lib files, so requiring cross-file declarations would score the absence
+of a standard library as a binder failure. `grep -c bundled_libs
+crates/tsr-conformance/src/binder_suite.rs` returns 0.
+
+Global declaration merging is *by definition* about symbols whose declarations
+span files. The rail filters out exactly the population the change acts on. Flat
+was the only possible outcome — for a correct merge and for one that destroyed
+every symbol table alike.
+
+That rail was valid for the enum remap in the same cycle, because an enum member
+and its enum are in one file. **Before quoting a rail as the safety condition,
+read what it measures and confirm the change is inside it.** Otherwise "the rail
+held" is not evidence, and the more confident it sounds the worse it is.
+
+The same applies to predictions: an agent predicted movement on this rail and
+could have known it was blind by reading eight lines of the suite first. Getting
+the right answer — flat — from a model that was wrong about *why* is the failure
+this document keeps describing, and it survives being written down.
