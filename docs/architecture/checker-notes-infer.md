@@ -5,15 +5,55 @@ Notes on `crates/tsr-checker/src/inference.rs`. Upstream is
 and `Checker.inferTypes` (`internal/checker/inference.go:53`), at the pinned
 commit `5b1047d10`.
 
+## Written type arguments, and a correction to this document
+
+`f<string>(x)` is now answered. It needs no inference — `checkTypeArguments`
+(`checker.go:9269`) validates what the caller wrote and
+`getSignatureInstantiation` (`checker.go:19293`) substitutes — so it shares this
+module's *second* half and is bounded by exactly the same limit. Of the 40
+explicit-type-argument calls in the corpus whose callee carries a written return
+annotation: 14 return a bare type parameter and are answered, 5 mention no type
+parameter and are free, **21 return a type that merely contains one** and are
+gaps. (The other ~53 of the 93 have an inferred return type, which is a
+different machine.) So this slice pays about 19 declarations, not 93 — small,
+and worth saying plainly.
+
+**Correction.** An earlier version of this document said substitution into
+`T[]` and `C<T>` needs a change to the type representation, on the grounds that
+those are a `TypeData::Named` whose text is baked at creation. **That is wrong,
+and it makes the next slice much cheaper than recorded here.** The
+`(target symbol, type arguments)` pair *does* exist — `create_type_reference`
+(`crates/tsr-checker/src/declared.rs:485`) interns on exactly that key in
+`Checker::instantiations`. It is simply not reachable from a `TypeId`, because
+the pair is the map's key rather than the type's payload. A **reverse index**,
+`TypeId -> (SymbolId, Vec<TypeId>)`, populated in the same function, makes it
+reachable — which is the ordinary ADR-0003 side-table move, not a model change.
+
+With that index, `instantiate_type(id, map)` is short: identity if the map has
+it; a rebuilt reference via `create_type_reference` if the reverse index has it,
+recursing on the arguments; a rebuilt union or intersection via
+`get_union_type` (`unions.rs:288`); otherwise unchanged. That closes `T[]` and
+`C<T>` for **both** the written-type-argument path and the inference path at
+once, which is the shared dependency that makes it the right next item.
+
+What it does *not* close: tuples and function types, which have no equivalent
+key to reverse, and which upstream builds through `instantiateType`'s object-type
+arm. Those need the structural rebuild the earlier version of this document
+described, and for them that description was right.
+
+The edit is in two files this module does not own — a field on `Checker`
+(`checker.rs`) and three lines in `create_type_reference` (`declared.rs`) — which
+is why it was not taken in the same commit as the slice above.
+
 ## Status: built but not yet reached
 
-The module exists, is tested, and answers. **Nothing calls it yet.**
-`Checker::check_call_expression` (`crates/tsr-checker/src/calls.rs:64`) still
-returns `errorType` for every generic signature; wiring it is a two-line edit to
-a file another agent held during this session, and until that edit lands this
-module moves no conformance number. The unit tests in `inference.rs` call
-`check_generic_call` directly for exactly that reason — they measure inference,
-not the call site that does not exist.
+**Superseded.** This section recorded that the module was built but unwired.
+It was wired in the same commit that first landed it: `check_call_expression`
+routes to `check_generic_call`, and `crates/tsr-checker/tests/generic_calls.rs`
+proves the routing end-to-end — reverting the call site makes its positive
+assertion fail while its gap assertion still passes, which is why both are
+there. The unit tests inside `inference.rs` still call `check_generic_call`
+directly, and still prove inference rather than wiring.
 
 ## The forcing constraint
 

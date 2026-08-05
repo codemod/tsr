@@ -94,7 +94,7 @@ impl Checker<'_, '_> {
     /// what [`Checker::choose_overload`] can decide.
     pub fn check_call_expression(&mut self, node: &CallExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
-        if node.question_dot_token.is_some() || !node.type_arguments.is_empty() {
+        if node.question_dot_token.is_some() {
             return error;
         }
         let Some(callee) = node.expression else { return error };
@@ -110,7 +110,13 @@ impl Checker<'_, '_> {
             // the uninstantiated return type would print `T` where upstream prints
             // what `T` was inferred as, so [`crate::inference`] answers the shapes
             // it can read a candidate off directly and `errorType` for the rest.
-            return self.check_generic_call(&signature, node.arguments);
+            return self.check_generic_call(&signature, node.node_id, node.arguments);
+        }
+        // `checkNoTypeArguments` (`checker.go:23157`): type arguments on a
+        // signature that takes none is an error, and answering the return type
+        // would quietly drop them.
+        if !node.type_arguments.is_empty() {
+            return error;
         }
         signature.r#type
     }

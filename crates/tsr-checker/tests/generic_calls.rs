@@ -81,3 +81,41 @@ fn a_generic_call_this_slice_cannot_answer_is_still_a_gap_at_the_call_site() {
         "error"
     );
 }
+
+#[test]
+fn a_written_type_argument_is_used_instead_of_inference() {
+    // `f<string>("s")` is `string`, NOT `"s"`. This is the fixture that
+    // separates the two paths: inference from the argument would answer the
+    // literal `"s"`, which is what the same call without type arguments gives
+    // one line down. An implementation that ignores the written arguments and
+    // infers anyway passes every other test in this file.
+    assert_eq!(
+        type_of_last("function f<T>(x: T): T { return x; }\nconst a = f<string>(\"s\");"),
+        "string"
+    );
+    assert_eq!(type_of_last("function f<T>(x: T): T { return x; }\nconst a = f(\"s\");"), "\"s\"");
+}
+
+#[test]
+fn type_arguments_that_do_not_check_are_a_gap() {
+    // Wrong arity: `checkTypeArguments` (`checker.go:9269`) fails the call, so
+    // answering the one written argument would be a wrong answer.
+    assert_eq!(
+        type_of_last("function f<T>(x: T): T { return x; }\nconst a = f<string, number>(\"s\");"),
+        "error"
+    );
+    // Type arguments on a signature that takes none — `checkNoTypeArguments`.
+    // Answering `number` here would quietly drop what the caller wrote.
+    assert_eq!(
+        type_of_last("function g(x: number): number { return x; }\nconst a = g<string>(1);"),
+        "error"
+    );
+    // A written argument this port cannot resolve is a gap, not `any`: the
+    // whole point of `f<Unported>()` not being `f<any>()`.
+    assert_eq!(
+        type_of_last(
+            "function f<T>(x: T): T { return x; }\nconst a = f<typeof missing>(1 as any);"
+        ),
+        "error"
+    );
+}

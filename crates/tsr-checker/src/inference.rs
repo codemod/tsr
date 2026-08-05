@@ -63,13 +63,36 @@
 //!
 //! # What answers `errorType`
 //!
-//! Explicit type arguments (still gapped in [`crate::calls`]), a spread
-//! argument, a rest parameter, a return type that mentions a type parameter in
-//! any position other than *being* one, a type parameter with no bare parameter
-//! position, two bare positions disagreeing about the same type parameter, and
-//! an argument whose own type is a gap.
+//! A spread argument, a rest parameter, a return type that mentions a type
+//! parameter in any position other than *being* one, a type parameter with no
+//! bare parameter position, two bare positions disagreeing about the same type
+//! parameter, an argument whose own type is a gap, and — for a call with
+//! written type arguments — the wrong count of them, a defaulted type
+//! parameter, or an argument that does not resolve.
+//!
+//! # Written type arguments need substitution, not inference, and that is why
+//! they are here
+//!
+//! `f<string>(x)` skips inference entirely: `checkTypeArguments`
+//! (`checker.go:9269`) validates what the caller wrote and
+//! `getSignatureInstantiation` (`checker.go:19293`) substitutes it. So the two
+//! paths share their *second* half — the substitution — which is why they share
+//! a module, and why the same limit binds both. Of the 40 explicit-type-argument
+//! calls in the corpus whose callee has a written return annotation, 14 return a
+//! bare type parameter and are answered, 5 mention no type parameter and are
+//! free, and **21 return a type that merely contains one** — `T[]`, `[T, U]`,
+//! `C<T>` — which needs a structural rebuild that does not exist.
+//!
+//! **The constraint check is not ported.** `f<string>(x)` where `T extends
+//! number` is an error upstream and answers `string` here. That is the one
+//! wrong answer in this module rather than a gap, and it is accepted because
+//! gapping every constrained type parameter would gap the correct calls too,
+//! and `is_type_assignable_to` cannot judge a constraint outside the primitive
+//! domains anyway (`crate::calls::SELECTABLE` records the same limit). Every
+//! such call is already a diagnostic upstream, so the line is not one a correct
+//! program contains.
 
-use tsr_ast::{Expression, Node};
+use tsr_ast::{Expression, Node, NodeId};
 
 use crate::{
     checker::Checker,
@@ -90,6 +113,7 @@ impl Checker<'_, '_> {
     pub(crate) fn check_generic_call(
         &mut self,
         signature: &Signature,
+        call: Option<NodeId>,
         arguments: &[Expression<'_>],
     ) -> TypeId {
         let error = self.intrinsics.error;
@@ -118,6 +142,33 @@ impl Checker<'_, '_> {
             return error;
         };
         let names = signature.type_parameters.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+        // `f<string>(x)`: the caller wrote the type arguments, so there is
+        // nothing to infer and substitution is all that is left.
+        //
+        // `checkTypeArguments` (`checker.go:9269`) fails the whole call when the
+        // count is wrong and upstream resolves to the error signature, so the
+        // arity guard sits *above* the return-type shortcut below: a call with
+        // the wrong arity is an error even when its return type mentions no type
+        // parameter. Defaults would make some shorter lists legal
+        // (`fillMissingTypeArguments`); none is ported, so a signature with a
+        // defaulted type parameter is a gap rather than a guess.
+        if let Some(written) = self.written_type_arguments(call) {
+            if written.len() != parameters.len() || written.contains(&error) {
+                return error;
+            }
+            if !self.mentions_type_parameter(returned, &parameters, &names) {
+                return returned;
+            }
+            // The identity case, which is the whole of the substitution this
+            // port can perform: the return type *is* a type parameter, so it
+            // becomes the type argument written in that position. `T[]`, `C<T>`
+            // and `[T, U]` need a structural rebuild that does not exist yet —
+            // see the module docs for why that is separate work.
+            return parameters
+                .iter()
+                .position(|parameter| *parameter == returned)
+                .map_or(error, |index| written[index]);
+        }
 
         // A return type that mentions no type parameter of this signature does
         // not depend on inference at all: `f<T>(x: T): string` is `string`
@@ -255,6 +306,32 @@ fn mentions_identifier(text: &str, name: &str) -> bool {
     false
 }
 
+/// Resolving the **written** type arguments of a call needs the node at the
+/// checker's own lifetime, which a `CallExpression<'_>` handed down from
+/// [`Checker::check_expression`] does not have. The way across is the one
+/// [`Checker::check_assertion`] uses: carry the [`NodeId`] and re-fetch the
+/// typed node from `node_map`, which yields it at `'a`.
+impl Checker<'_, '_> {
+    /// The types the caller wrote in `f<string>(x)`, or `None` when none were
+    /// written and the call needs inference instead.
+    ///
+    /// Ported from `Checker.checkTypeArguments` (`checker.go:9269`), minus the
+    /// constraint check — see [`Checker::check_generic_call`] for what that
+    /// costs. An argument that does not resolve is kept as `errorType` rather
+    /// than collapsing the list, so the caller can tell "no type arguments"
+    /// from "type arguments this port cannot read".
+    fn written_type_arguments(&mut self, call: Option<NodeId>) -> Option<Vec<TypeId>> {
+        let nodes = match call.and_then(|id| self.node_map.get(id)) {
+            Some(Node::CallExpression(node)) => node.type_arguments,
+            _ => return None,
+        };
+        if nodes.is_empty() {
+            return None;
+        }
+        Some(nodes.iter().map(|argument| self.get_type_from_type_node(*argument)).collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tsr_ast::{Expression, Statement};
@@ -318,7 +395,7 @@ mod tests {
         let Expression::CallExpression(call) = initialiser else {
             panic!("the initialiser must be a call");
         };
-        let id = checker.check_generic_call(&signature, call.arguments);
+        let id = checker.check_generic_call(&signature, call.node_id, call.arguments);
         checker.type_to_string(id)
     }
 
