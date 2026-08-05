@@ -12,6 +12,21 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// Which symbol table a property lookup should read, decided by the type's
+/// shape before any `&mut self` call borrows the store back.
+///
+/// The two arms are upstream's two branches of `resolveAnonymousTypeMembers` /
+/// `resolveDeclaredMembers`, not a convenience: they read *different tables* of
+/// the same symbol, and conflating them is the wrong-answer case
+/// `crate::symbols` documents.
+#[derive(Clone, Copy)]
+enum Owner {
+    /// The instance side: read `members`, then walk base types.
+    Declared(SymbolId),
+    /// The `typeof X` side: read `exports`.
+    Anonymous(SymbolId),
+}
+
 impl Checker<'_, '_> {
     /// Ported from `Checker.checkPropertyAccessExpression` into
     /// `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11244`,
@@ -88,13 +103,111 @@ impl Checker<'_, '_> {
     /// `new C().T` would answer with the type parameter `T`. The alias half of
     /// upstream's test is not ported — nothing follows aliases yet
     /// (`bd tsr-y4u.12`) — so an alias member is a miss rather than a wrong answer.
+    ///
+    /// # Two tables, chosen by what the type *is*
+    ///
+    /// A `TypeData::Named` is the instance side and looks in `members`; a
+    /// `TypeData::Anonymous` is `typeof X` and looks in `exports`. See
+    /// [`Checker::get_property_of_anonymous_symbol`] for why that is not the same
+    /// table with a different name.
     #[must_use]
     pub fn get_property_of_type(&mut self, id: TypeId, name: &str) -> Option<SymbolId> {
-        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
-            return None;
+        // The borrow of `self.store` has to end before the recursion below, which
+        // takes `&mut self`. Both bindings are `Copy`, so this statement copies
+        // out what it needs and releases the type. ADR-0013's read-drop-recurse.
+        let owner = match &self.store.get(id).data {
+            TypeData::Named { members: Some(owner), .. } => Owner::Declared(*owner),
+            TypeData::Anonymous { symbol, .. } => Owner::Anonymous(*symbol),
+            _ => return None,
         };
-        let mut visiting = Vec::new();
-        self.get_property_of_declared_symbol(owner, name, &mut visiting)
+        match owner {
+            Owner::Declared(owner) => {
+                let mut visiting = Vec::new();
+                self.get_property_of_declared_symbol(owner, name, &mut visiting)
+            }
+            Owner::Anonymous(symbol) => self.get_property_of_anonymous_symbol(symbol, name),
+        }
+    }
+
+    /// A property of `typeof X` — the static side of a class, the exports of a
+    /// namespace, the members of an enum.
+    ///
+    /// Ported from the tail of `Checker.resolveAnonymousTypeMembers`
+    /// (`checker.go:20650`), whose third and last branch is introduced by the
+    /// comment *"Combinations of function, class, enum and module"*
+    /// (`checker.go:20671`) and reads
+    /// `members := c.getExportsOfSymbol(symbol)` (`checker.go:20672`).
+    ///
+    /// # `exports`, not `members`, and the distinction is the whole point
+    ///
+    /// `crate::symbols` records why `TypeData::Anonymous` deliberately carried no
+    /// members table until now: a class's statics and a namespace's exports live
+    /// in the symbol's `exports`, and pointing this lookup at `members` would
+    /// resolve `C.x` against the **instance** members — answering the wrong
+    /// symbol rather than none. That constraint is why the fix is a second table
+    /// consulted for a second type shape, and not a repointing of the existing
+    /// walk. `Named` still reads `members`; nothing about the instance side moves.
+    ///
+    /// # The flags gate is upstream's branch, not a filter
+    ///
+    /// `resolveAnonymousTypeMembers` reaches the exports line only after two
+    /// earlier returns: an instantiated type (`checker.go:20652`) and a
+    /// **type-literal** symbol (`checker.go:20662`), which takes `getMembersOfSymbol`
+    /// instead. The second one is live here: `crate::function_types` builds an
+    /// anonymous type over `bindFunctionOrConstructorType`'s `__type` symbol.
+    ///
+    /// **This gate is unobservable today, and that is stated rather than
+    /// implied.** Deleting it reddens no test in the workspace — I ran that
+    /// mutation — because the only symbol it excludes is `__type`, whose
+    /// `exports` table is empty, so gated and ungated both miss. It is kept
+    /// rather than removed because the two are equal only by accident: the
+    /// moment a `__type` or object-literal symbol carries an export, the ungated
+    /// form answers from a table upstream never reads, and that is a wrong answer
+    /// rather than a gap. The named edit that makes it bite is
+    /// `crate::function_types` gaining the `__call`/`__new` member lookup, or
+    /// `crate::objects` building `TypeData::Anonymous` for an object literal.
+    /// Contrast [`Checker::check_property_access_expression`]'s removed
+    /// `errorType` guard, which was dropped because its fallthrough was
+    /// *provably* identical, not merely identical for now.
+    ///
+    /// # What is a miss here, and why a miss is safe
+    ///
+    /// Unlike [`Checker::base_symbols_of`], an unfollowable case here costs
+    /// nothing but a gap: a miss returns `None`, which
+    /// [`Checker::check_property_access_expression`] turns into `errorType`. There
+    /// is no ordering hazard, because upstream layers inherited statics
+    /// *underneath* own ones (`addInheritedMembers`, `checker.go:20690` — it adds
+    /// only names not already present), so a name found in the symbol's own
+    /// `exports` is always the symbol upstream would have answered with.
+    ///
+    /// Three things are therefore gaps rather than wrong answers:
+    ///
+    /// - **Statics inherited from a base class.** `class B { static x = 1 }` with
+    ///   `class C extends B {}` gives `C.x` upstream through
+    ///   `getBaseConstructorTypeOfClass` (`checker.go:20687`), which needs
+    ///   construct signatures (`bd tsr-4sc.8`). `C`'s own statics are unaffected.
+    /// - **`globalThis`** (`checker.go:20674`), which has no symbol here.
+    /// - **An enum's numeric index signature** (`checker.go:20703`), so `E[0]`
+    ///   stays a gap; index signatures are `bd tsr-4sc.8`'s.
+    ///
+    /// The `symbolIsValue` gate is upstream's own
+    /// (`getPropertyOfTypeEx`, `checker.go:18916`) and matters more here than on
+    /// the instance side: a namespace's `exports` holds its exported *types* too,
+    /// so without it `namespace M { export interface I {} }` would answer `M.I`
+    /// with an interface symbol in a value position.
+    fn get_property_of_anonymous_symbol(&self, symbol: SymbolId, name: &str) -> Option<SymbolId> {
+        let data = self.binder.symbols().get(symbol);
+        if !data.flags.intersects(
+            SymbolFlags::FUNCTION
+                | SymbolFlags::METHOD
+                | SymbolFlags::CLASS
+                | SymbolFlags::ENUM
+                | SymbolFlags::VALUE_MODULE,
+        ) {
+            return None;
+        }
+        let found = *data.exports.get(name)?;
+        self.symbol_is_value(found).then_some(found)
     }
 
     /// One step of the walk: `owner`'s own members, then its base types'.

@@ -2936,11 +2936,23 @@ covers only the class/static split. So the member lands in `members`, and this
 lookup — correctly reading `exports` — misses it.
 
 Reading `members` for an enum symbol would have made the lookup succeed, and was
-rejected: it papers a binder divergence over inside the checker, and it buys
-nothing today, because `getTypeOfSymbol` has no `SymbolFlags::ENUM_MEMBER` arm
-either — the member's type would still be `errorType`. Both halves are owned
-elsewhere. The current answer is pinned as a gap so that fixing the binder turns
-the test red rather than silently changing behaviour.
+rejected: it papers a binder divergence over inside the checker, and the checker
+is not where it is wrong.
+
+**Correction, same cycle.** This section first said the workaround would buy
+nothing anyway, because `getTypeOfSymbol` had no `SymbolFlags::ENUM_MEMBER` arm
+and the member's type would still be `errorType`. That was true when written and
+was **false within the hour**: `crate::symbols` gained `get_type_of_enum_member`
+in the same cycle. Probed directly, for `enum E { A }`: the enum symbol's
+`exports` is empty, its `members` holds `A`, and `get_type_of_symbol` on that
+member symbol already answers `E.A` — the right line. The one-line binder change
+is therefore the *only* thing between this gap and a correct answer for the whole
+bucket, not one of two blockers. The original claim is left visible above rather
+than edited away, because a number that was quietly corrected is a number nobody
+can trust afterwards.
+
+The current answer is pinned as a gap in `tests/members.rs` so that fixing the
+binder turns that test red rather than silently changing behaviour.
 
 ### One guard that is unobservable, said plainly
 

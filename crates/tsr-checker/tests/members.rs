@@ -270,3 +270,136 @@ fn a_type_parameter_shadowed_by_an_outer_declaration_still_wins() {
     // gap, which is the failure mode worth a test of its own.
     assert_eq!(type_of_property("type T = string;\nclass C<T> { p: T; }", "C", "p"), "T");
 }
+
+// ---------------------------------------------------------------------------
+// `typeof X` exposes the symbol's `exports`: statics, namespace exports, enum
+// members. Ported from the tail of `resolveAnonymousTypeMembers`
+// (`checker.go:20650`), whose last branch is `getExportsOfSymbol`
+// (`checker.go:20672`).
+// ---------------------------------------------------------------------------
+
+fn value_property(source: &str, owner: &str, property: &str) -> Option<(String, SymbolFlags)> {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::HasNodeId::node_id(parsed.source_file).expect("registered");
+    let owner = bound.lookup_local(root, owner).expect("the owner is declared at the top level");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let value = checker.get_type_of_symbol(owner);
+    let found = checker.get_property_of_type(value, property)?;
+    let symbol = bound.symbols().get(found);
+    Some((symbol.name.to_string(), symbol.flags))
+}
+
+#[test]
+fn a_static_is_a_property_of_typeof_c() {
+    // `submodule/conformance/staticMemberInitialization.types` records, for
+    // `class C { static x = 1; }`:
+    //
+    // ```text
+    // var r = C.x;
+    // >r : number       (:18)
+    // >C.x : number     (:19)
+    // >C : typeof C     (:20)
+    // ```
+    //
+    // `static x = 1` widens to `number` because a property declaration is not
+    // `const`-declared, which is the existing initialiser path; what is new is
+    // that the lookup reaches it at all.
+    assert_eq!(type_of("class C { static x = 1; }\nvar r = C.x;", "r"), "number");
+    // Through the symbol as well as the printed line, because the two questions
+    // differ: this is the *static* `x`, from the class's `exports`.
+    assert_eq!(
+        value_property("class C { static x = 1; }", "C", "x"),
+        Some(("x".to_string(), SymbolFlags::PROPERTY))
+    );
+    // A namespace export reaches the same arm — upstream's branch is one line
+    // for "combinations of function, class, enum and module"
+    // (`checker.go:20671`). `submodule/compiler/constDeclarations-access4.types`
+    // records, for `declare namespace M { const x: number; }`:
+    //
+    // ```text
+    // var a = M.x + 1;
+    // >a : number       (:137)
+    // >M.x : number     (:139)
+    // >M : typeof M     (:140)
+    // ```
+    assert_eq!(
+        type_of("declare namespace M { const x: number; }\nvar a = M.x + 1;", "a"),
+        "number"
+    );
+}
+
+#[test]
+fn an_instance_member_does_not_leak_through_typeof_c() {
+    // **The reason this arm reads `exports` and not `members`.** `crate::symbols`
+    // recorded the hazard when it made `typeof C` carry no members table at all:
+    // pointing the lookup at `members` resolves `C.x` against the *instance*
+    // side, which answers a symbol upstream would never have given — a wrong
+    // answer, not a missing one, and it prints as a plausible type.
+    //
+    // `y` is an instance property, so `typeof C` has no `y`.
+    assert_eq!(value_property("class C { y = 1; }", "C", "y"), None);
+    // And the converse, or the assertion above would hold for a lookup that had
+    // simply stopped working: the static side of the *same* class is found.
+    assert_eq!(
+        value_property("class C { y = 1; static z = 1; }", "C", "z"),
+        Some(("z".to_string(), SymbolFlags::PROPERTY))
+    );
+}
+
+#[test]
+fn the_shapes_typeof_x_still_gaps() {
+    // **A static inherited from a base class.** Upstream reaches it through
+    // `getBaseConstructorTypeOfClass` (`checker.go:20687`), which needs construct
+    // signatures (`bd tsr-4sc.8`). A miss is safe here in a way it is not for
+    // `base_symbols_of`: upstream layers inherited statics *underneath* own ones
+    // (`addInheritedMembers`, `checker.go:20690`, adds only absent names), so a
+    // name found in the symbol's own `exports` is always upstream's symbol, and
+    // a name not found is a gap rather than the wrong one.
+    assert_eq!(
+        type_of("class B { static x = 1; }\nclass C extends B {}\nvar r = C.x;", "r"),
+        "error"
+    );
+
+    // **An exported type in a value position.** A namespace's `exports` holds its
+    // exported types too, so `symbolIsValue` (`checker.go:18916`) is what keeps
+    // `M.I` from answering with an interface symbol.
+    assert_eq!(value_property("namespace M { export interface I {} }", "M", "I"), None);
+
+    // **A type-literal symbol.** `resolveAnonymousTypeMembers` returns at
+    // `checker.go:20662` for one, before the exports line; `crate::function_types`
+    // builds an anonymous type over `bindFunctionOrConstructorType`'s `__type`
+    // symbol, whose table holds `__call` rather than properties.
+    assert_eq!(value_property("let f: (x: number) => string;", "f", "foo"), None);
+
+    // **An enum member**, and the cause is *not* in this file. Upstream's binder
+    // files an enum member in the enum symbol's `exports`
+    // (`internal/binder/binder.go:436-437`: the `KindEnumDeclaration` case calls
+    // `declareSymbol(ast.GetExports(...))`). This port's binder classifies
+    // `Node::EnumMember` as `Destination::Members`
+    // (`crates/tsr-binder/src/binder.rs:3700`) and its container-based remap
+    // (`:2172`) covers only the class/static split, so the member lands in
+    // `members` and this lookup — correctly reading `exports` — misses it.
+    //
+    // Deliberately *not* worked around by reading `members` for an enum symbol:
+    // that would paper a binder divergence over inside the checker, and the
+    // checker is not where it is wrong.
+    //
+    // **This is now the only thing blocking the bucket.** An earlier draft of
+    // this comment said the workaround would buy nothing because
+    // `getTypeOfSymbol` had no `SymbolFlags::ENUM_MEMBER` arm. That was true when
+    // written and is **false now** — `crate::symbols` grew
+    // `get_type_of_enum_member` in the same cycle. Probed directly: for
+    // `enum E { A }` the enum symbol's `exports` is empty, its `members` holds
+    // `A`, and `get_type_of_symbol` on that member symbol already answers `E.A`.
+    // So the one-line binder change is all that stands between this gap and a
+    // correct answer, and this test is what will go red when it lands.
+    assert_eq!(value_property("enum E { A }", "E", "A"), None);
+    assert_eq!(type_of("enum E { A }\nvar r = E.A;", "r"), "error");
+}

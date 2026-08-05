@@ -1032,9 +1032,11 @@ fn a_void_return_is_inferred_only_where_no_return_statement_exists() {
     // answers `void` — and it does so even for a body that only throws, because
     // `mayReturnNever` is false for this kind.
     assert_eq!(type_of_declaration("function f() { throw 1; }", "f"), "() => void");
-    // A `return` with an expression needs a union of the return types, which is
-    // `bd tsr-4sc.9`. It must read as a gap, not as `void`.
-    assert_eq!(type_of_declaration("function f() { return 1; }", "f"), "error");
+    // A `return` with an expression is inferred when the body's returns yield a
+    // single distinct type — `tests/return_inference.rs`. What must not happen
+    // either way is `void`: this test exists to pin that the `void` arm is
+    // reached only by a body with no valued `return` at all.
+    assert_eq!(type_of_declaration("function f() { return 1; }", "f"), "() => number");
     // Async and generator return types are `Promise<T>` and `Generator<...>`,
     // references to globals that do not exist here (`bd tsr-9or.1`).
     assert_eq!(type_of_declaration("async function f() {}", "f"), "error");
@@ -1231,17 +1233,30 @@ fn a_shorthand_ambient_module_is_any_and_not_a_gap() {
 }
 
 #[test]
-fn a_type_query_carries_no_members_so_a_static_access_is_a_gap() {
+fn a_type_query_answers_from_exports_and_never_from_members() {
     // `typeof C`'s properties are the class's *statics*, which live in the
-    // symbol's `exports` table; `TypeData::Named` points `getPropertyOfType` at
-    // `members`. Pointing it there would answer `C.x` with the *instance* `x` —
-    // a wrong answer where a gap belongs, which is the one failure the
-    // `errorType`-not-`anyType` rule exists to prevent.
+    // symbol's `exports` table, while `TypeData::Named` points
+    // `getPropertyOfType` at `members`. This test was written when neither
+    // resolved, to pin that the lookup must never be *repointed* at `members`:
+    // that would answer `C.x` with the **instance** `x` — a wrong answer where a
+    // gap belongs.
+    //
+    // The gap half is now closed by a second arm reading `exports`
+    // (`crate::members::get_property_of_anonymous_symbol`,
+    // `checker.go:20672`), so the two assertions have come apart, which is
+    // exactly what the original comment predicted should happen.
+
+    // Still `error`, and this is now the *load-bearing* half: `x` is an instance
+    // member, so `typeof C` has no `x`. `tests/members.rs` reddens this by
+    // swapping `exports` for `members` in that arm.
     assert_eq!(
         type_of_declaration("class C { static s: string; x: number; }\nconst v = C.x;", "v"),
         "error"
     );
-    assert_eq!(type_of_declaration("class C { static s: string; }\nconst v = C.s;", "v"), "error");
+    // No longer `error`. `submodule/conformance/
+    // protectedStaticClassPropertyAccessibleWithinSubclass.types:14` records
+    // `>Base.x : string` for a `static x: string` read through the class name.
+    assert_eq!(type_of_declaration("class C { static s: string; }\nconst v = C.s;", "v"), "string");
 }
 
 #[test]
