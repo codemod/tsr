@@ -171,6 +171,8 @@ impl Checker<'_, '_> {
             Expression::ConditionalExpression(node) => self.check_conditional_expression(node),
             // `resolveNewExpression` (`checker.go:8575`).
             Expression::NewExpression(node) => self.check_new_expression(node),
+            // `checkYieldExpression` (`checker.go:10952`).
+            Expression::YieldExpression(node) => self.check_yield_expression(node),
             _ => self.intrinsics.error,
         }
     }
@@ -620,6 +622,110 @@ impl Checker<'_, '_> {
             return error;
         }
         self.get_declared_type_of_symbol(symbol)
+    }
+
+    /// The type of a `yield` expression.
+    ///
+    /// Ported from `Checker.checkYieldExpression` (`checker.go:10952`), reduced
+    /// to the paths that reach `anyType` **before** any machinery this port
+    /// lacks.
+    ///
+    /// # `any` here is a computed answer, not a gap wearing `any`
+    ///
+    /// This is the one place in this module that returns `anyType`, and it needs
+    /// justifying against the `errorType`-not-`anyType` rule. The rule forbids
+    /// answering `any` for a form we could not compute. It does not forbid
+    /// answering `any` where **upstream's own computation returns `anyType`** —
+    /// `signatures.rs` already does this for a declaration with no body. 430 of
+    /// roughly 540 `>yield` baseline lines are `any`, and the two paths below
+    /// return it unconditionally:
+    ///
+    /// - **No containing function** (`checker.go:10963`). `fn == nil` returns
+    ///   `anyType` outright.
+    /// - **A containing function that is not a generator**
+    ///   (`checker.go:10967`). This return happens *before* the function reads
+    ///   any return annotation or contextual type, so it cannot be perturbed by
+    ///   the contextual typing this port does not have. That ordering is what
+    ///   makes the answer safe rather than merely common.
+    ///
+    /// # Inside a real generator, only the uncontextualisable case answers
+    ///
+    /// For a generator with no return annotation, upstream ends at
+    /// `getContextualIterationType(IterationTypeKindNext, fn)` falling back to
+    /// `anyType` (`checker.go:11005`). This port has no contextual typing, so it
+    /// would always take the fallback — right whenever the function has no
+    /// contextual type, wrong when it has one.
+    ///
+    /// The fence is therefore on the **container's kind**, not on the yield: a
+    /// function *declaration* and a class *method* cannot be contextually typed,
+    /// while a function expression, an arrow and an object-literal method can.
+    /// So the first two answer `any` and the rest gap.
+    ///
+    /// Gapped: `yield*` (needs `getIterationTypeOfIterable`), a generator with a
+    /// return type annotation (needs
+    /// `getIterationTypesOfGeneratorFunctionReturnType` — note this is *not*
+    /// `any`, since `Generator<number>`'s next type is `unknown`), and any
+    /// contextualisable container.
+    fn check_yield_expression(&mut self, node: &tsr_ast::YieldExpression<'_>) -> TypeId {
+        let error = self.intrinsics.error;
+        let any = self.intrinsics.any;
+        // Upstream checks the operand even when the yield is outside a
+        // generator, "so its identifiers are resolved ... keeping diagnostics
+        // stable regardless of traversal order". The operand's type does not
+        // reach the answer on any path this port takes.
+        if let Some(operand) = node.expression {
+            self.check_expression(operand);
+        }
+        let Some(id) = node.node_id else { return error };
+        let Some(container) = self.containing_function(id) else {
+            // `fn == nil` — a `yield` at the top level.
+            return any;
+        };
+        let (asterisk, annotation, contextualisable) = match self.node_map.get(container) {
+            Some(Node::FunctionDeclaration(f)) => (f.asterisk_token, f.r#type, false),
+            Some(Node::MethodDeclaration(f)) => (f.asterisk_token, f.r#type, false),
+            Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.r#type, true),
+            // An arrow cannot be a generator at all, so it always takes the
+            // not-a-generator arm below.
+            Some(Node::ArrowFunction(f)) => (None, f.r#type, true),
+            _ => return error,
+        };
+        if asterisk.is_none() {
+            // Not a generator. Upstream returns `anyType` here before reading
+            // anything else, so the container's contextual type is irrelevant.
+            return any;
+        }
+        if node.asterisk_token.is_some() || annotation.is_some() || contextualisable {
+            return error;
+        }
+        any
+    }
+
+    /// `ast.GetContainingFunction` (`utilities.go`).
+    ///
+    /// The nearest function-like ancestor. Shares its walk shape with
+    /// [`Self::check_this_expression`] but not its rules: `this` treats an arrow
+    /// as transparent, and this does not — an arrow is a function for the
+    /// purpose of "which function contains this node", which is exactly why a
+    /// `yield` inside an arrow inside a generator is not the generator's yield.
+    fn containing_function(&self, node: NodeId) -> Option<NodeId> {
+        let mut current = self.nodes.parent(node);
+        while let Some(id) = current {
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::Constructor
+            ) {
+                return Some(id);
+            }
+            current = self.nodes.parent(id);
+        }
+        None
     }
 }
 

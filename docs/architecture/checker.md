@@ -3392,3 +3392,53 @@ arrow and answers `any`. This is the second time in this slice that a mutation
 that failed to redden exposed a test asserting less than it claimed — the first
 was the `typeof` constituent order. Both were found only because every test was
 mutation-checked, and neither would have been found by reading the test.
+
+### `yield` answers `any`, and why that is not a rule violation (2026-08-05)
+
+`check_yield_expression` is the only place in `expressions.rs` that returns
+`anyType`, so it needs justifying against the `errorType`-not-`anyType` rule.
+
+The rule forbids answering `any` for a form we could not compute. It does not
+forbid answering `any` where **upstream's own computation returns `anyType`** —
+`signatures.rs` already does exactly this for a declaration with no body. 430 of
+roughly 540 `>yield` baseline lines are `any`, and two paths in
+`checkYieldExpression` return it unconditionally: no containing function
+(`checker.go:10963`), and a containing function that is not a generator
+(`checker.go:10967`).
+
+The second is the load-bearing one, and the reason is **ordering**: that return
+happens before the function reads the return annotation or any contextual type.
+So it cannot be perturbed by the contextual typing this port does not have. A
+path that merely *usually* answers `any` would not qualify; this one always does.
+
+Inside a real generator with no return annotation, upstream ends at
+`getContextualIterationType(IterationTypeKindNext, fn)` falling back to `anyType`
+(`checker.go:11005`). Without contextual typing this port would always take the
+fallback — right when the function has no contextual type, wrong when it has one.
+The fence is therefore on the **container's kind** rather than on the yield: a
+function declaration and a class method cannot be contextually typed; a function
+expression, an arrow and an object-literal method can. The first two answer, the
+rest gap.
+
+A generator *with* a return annotation gaps, and this is the case that shows the
+`any` above is a decision rather than a blanket: upstream computes the next type
+of the annotation, and `Generator<number>`'s next type is `unknown`, not `any`.
+Answering `any` there would be a wrong line, not a conservative one.
+
+**How we would know this is wrong:** a `>yield` baseline line inside a plain
+generator function declaration that prints anything but `any`.
+
+#### A second test that pinned nothing until a mutation proved it
+
+The test for "an arrow is not transparent in `GetContainingFunction`" originally
+used `function* g() { var h = () => { yield 1; }; }`. Removing `ArrowFunction`
+from the containing-function walk left it **green**: with the arrow transparent
+the walk reaches `g`, which is a generator with no annotation, which also answers
+`any`. The two readings were indistinguishable on that fixture.
+
+The fixture now gives the enclosing generator a return annotation, so the
+transparent reading reaches `g` and gaps while the correct reading stops at the
+arrow and answers `any`. This is the second time in this slice that a mutation
+that failed to redden exposed a test asserting less than it claimed — the first
+was the `typeof` constituent order. Both were found only because every test was
+mutation-checked, and neither would have been found by reading the test.
