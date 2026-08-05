@@ -765,7 +765,20 @@ fn render_case(
     // One checker for the whole program, not one per unit — which is upstream's
     // shape (`Program` has one `Checker`) and also means a lib type resolved for
     // the first unit is memoised for the rest.
-    let mut checker = tsr_checker::Checker::new(bound, nodes, node_map);
+    //
+    // **With the program as its module host**, which is the line that makes the
+    // cross-file seam visible to the gradient at all
+    // ([ADR-0041](../../../docs/adr/0041-the-checker-asks-its-program-for-a-module.md)).
+    // Everything else in that workstream — the loader's resolution cache, the
+    // `ModuleHost` impl, the `Checker` field — is dead until a call site
+    // supplies a host, and this is the only call site the `checker_types`
+    // gradient runs through.
+    //
+    // The two other `Checker::new` sites in this file (the unit-level probes
+    // further down) are deliberately left host-less: they parse one file and
+    // have no program, and they are the control that a call site without a host
+    // is unchanged.
+    let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, node_map, Some(program));
 
     let mut ours = Vec::new();
     for expected_file in expected {
