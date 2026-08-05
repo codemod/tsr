@@ -272,3 +272,36 @@ Two rules, and the second is the cheap structural one:
 Both breakages were found by a *measurement attempt failing to build* rather than
 by a gate — the same property as every other finding today: **the failure
 announced itself as an impossible result, not as a wrong one.**
+
+## Make the failure impossible, not merely detectable
+
+Six findings on 2026-08-05 divide cleanly, and the division predicts what each
+one cost.
+
+**Five announced themselves as *impossible* results** — a mutation moving lines
+into a bucket first-match-wins cannot reach; a conformance run failing to build
+instead of returning a number, twice; a `git worktree` reporting the vendored
+submodule's commit hash; an attribution arm firing 52 times where 9,735 was the
+truth. Each cost minutes. **Impossibility is self-announcing**: you cannot look
+at a worktree at upstream's hash and rationalise it.
+
+**One announced itself as a *plausible* result** and cost four cycles: the parser
+produced a `TypeReferenceNode` with `type_name: None` and **no diagnostic**,
+silently gapping 257 `as const` assertions and every type reference with a
+keyword segment (`bd tsr-0ao`). A plausible result recruits you into explaining
+it.
+
+So the design rule is not "detect the failure" but **make it impossible to
+produce silently**:
+
+- A required field that can be absent without complaint is a defect, whatever
+  the absence later causes.
+- An attribution arm that can read zero without complaint is the same defect at
+  a different scale — which is why every arm needs a **positive control** as well
+  as a control bucket.
+- A control bucket that must be reported means a model cannot silently absorb
+  what it does not explain.
+
+The two instrument guards in
+[checker-oracle.md](architecture/checker-oracle.md) are this rule applied twice,
+and the parser defect is what it looks like when nobody applied it.
