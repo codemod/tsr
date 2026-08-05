@@ -2371,3 +2371,64 @@ workstream's, so this is `bd tsr-qk9` with an `#[ignore]`d test naming it —
 resolution #3 of the three-way preference order recorded above, used here
 because the first two are unavailable: no fixture reaches the arm, and the
 "named future edit" is in a file this workstream must not touch.
+
+## The wrong-answer differential, and why its design is written down here
+
+Built 2026-08-05 as a standalone crate **outside** the workspace, because
+`tsr-checker` cannot depend on `tsr-conformance` (cycle) and the question needed
+the real producer rather than a replica. It found three defects in
+`getTypeOfFuncClassEnumModule` — the expando-property answer, the missing
+accessor dispatch arm, and the `this`-in-a-JS-constructor population — and its
+parent-kind column, folded into the attribution probe, cracked two more.
+
+**The crate itself was ephemeral and is gone.** It lived in a session scratchpad
+and nobody had the budget to merge it properly. That is the reason this section
+exists: the code was disposable, the design is not, and re-deriving it cost more
+than writing it down. Four points, which are the specification for rebuilding it:
+
+1. **Reconstruct each source from the baseline's own interleaved lines** — drop
+   the `//// [...]` header, the `=== file ===` marker, and every `>` line; skip
+   any baseline with more than one `=== ` marker. No test-case path resolution
+   and no `@filename` splitting. Extra blank lines are harmless because the
+   comparison is positional, not by line number.
+2. **Align with the prefix test.** Upstream's line starts with `{our text} : `
+   and the remainder is upstream's type — the same trick `types_shapes` uses, and
+   the reason neither side has to split a line that may contain `" : "`.
+3. **Isolate *wrong* answers only** — ours ≠ upstream **and** ours ≠ `error`. No
+   other instrument separates that population, and it is the one where a defect
+   is indistinguishable from a result.
+4. **Bucket by more than one fact.** The closure `assertions_for_file` takes
+   receives the `NodeId`, so a parallel vector gives `ids[i]` for
+   `assertions[i]` and therefore the node kind, the parent kind, and the
+   symbol's flags.
+
+### Two columns are worth more than twice one column
+
+Point 4 is the one that earned its place, and by an argument neither column could
+make alone. Bucketing by **parent kind** put 4,577 lines under `QualifiedName`,
+97.3% of them with a `TypeReference` grandparent. Bucketing by **symbol flags**
+put 4,460 under `VALUE_MODULE`. Same population, reached from two different
+facts — and agreement between bucketings built on *different* evidence is much
+stronger than a large count in either.
+
+The accessor defect is the converse case: **invisible by parent kind** — its
+parents were ordinary `GetAccessor` nodes, indistinguishable from the cases that
+gap correctly — and obvious by flags, where `METHOD | GET_ACCESSOR | SET_ACCESSOR`
+has no business reaching a signature printer. Parent kind names the *construct*;
+flags name the *dispatch*. That defect was a dispatch bug, and no amount of
+looking at constructs would have found it.
+
+### Two rules for reading any instrument, learned the hard way here
+
+- **A bucket you cannot reproduce is not a false positive.** The accessor bucket
+  survived three hand-built fixtures that all came back clean, because all three
+  were the wrong shape: a lone accessor already gaps, and only a *merge* reaches
+  the arm. It was recorded as "unreproduced" rather than dismissed, which is the
+  only reason it was picked up again and fixed. The same shape appeared
+  independently in the attribution probe the same day, where an arm reading zero
+  was reading zero because it asked the wrong question. **A null from an
+  instrument is a fact about the instrument until shown otherwise.**
+- **Aggregates rank; per-file dumps diagnose.** Every defect here was identified
+  by narrowing to a *single* baseline and printing our assertions beside
+  upstream's with node kinds attached. The bucket says where to look; it never
+  says what is wrong.
