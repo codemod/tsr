@@ -36,7 +36,14 @@
 //! - **No intersection, conditional or indexed-access types.** Unions exist
 //!   ([`unions`]), and with them `boolean` is what upstream makes it — the union
 //!   `false | true` — rather than an intrinsic.
-//! - **No assignability, inference, or overload resolution.**
+//! - **Assignability over primitives, literals, unions and intersections**
+//!   ([`relater`]), and nothing else in the relation family. Object types relate
+//!   only to themselves — structural comparison is not ported — so a `false`
+//!   from [`is_type_assignable_to`](Checker::is_type_assignable_to) between two
+//!   object types is a gap, not an answer. **Nothing calls it yet**: the
+//!   assignment reduction in [`flow`] and overload resolution in [`calls`] are
+//!   the two callers it was built for and both are still unported.
+//! - **No inference, and no overload resolution.**
 //! - **Control-flow narrowing, but only the truthiness guards.** [`flow`]
 //!   walks the binder's flow graph, so `if (x)` drops the falsy constituents of
 //!   a union. `typeof`, equality, discriminant, `instanceof` and `in` guards are
@@ -99,6 +106,7 @@ pub mod members;
 pub mod objects;
 pub mod optionality;
 pub mod printing;
+pub mod relater;
 pub mod resolution;
 pub mod signatures;
 pub mod symbols;
