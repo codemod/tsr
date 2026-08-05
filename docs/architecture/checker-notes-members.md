@@ -14,6 +14,7 @@ second.
 ## 0. Status
 
 **This page is a pre-registration and an instrument, not yet a measurement.**
+The open issue is `bd tsr-gzx`.
 `crates/tsr-conformance/examples/member_shapes.rs` exists, its classifier is
 mutation-checked, and it has been exercised on capped subsets. The corpus run is
 the lead's, serialised, in an isolated worktree. **Every number below that is
