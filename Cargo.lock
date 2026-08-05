@@ -307,6 +307,7 @@ dependencies = [
  "rustc-hash",
  "tsr-ast",
  "tsr-binder",
+ "tsr-checker",
  "tsr-core",
  "tsr-diagnostics",
  "tsr-module",
