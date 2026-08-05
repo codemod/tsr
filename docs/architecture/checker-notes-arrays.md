@@ -181,3 +181,74 @@ silent no-ops that would otherwise have been reported as passing verification.
 The general rule: design the fixture to *discriminate*, then prove it does by
 breaking the code. A fixture that merely exercises the path is a decoration with
 a test's name on it.
+
+## The element-access row was an `any` receiver all along (2026-08-05)
+
+The largest single row on the board — 12,376 gap lines, 17.3% of everything this
+port answers `error` on where upstream answers an intrinsic. It had been assigned
+once before on the belief that index signatures were unported. They are not, and
+the row is not downstream of them.
+
+### The measurement, before the work
+
+Element-access lines in the `.types` baselines, by index shape:
+
+| index | lines | answer `any` |
+|---|---|---|
+| `a[0]` numeric | 11,278 | 10,737 (95%) |
+| `a[k]` identifier | 1,120 | 574 (51%) |
+| `a["k"]` string | 507 | 52 (10%) |
+| **total** | **12,905** | **11,363 (88%)** |
+
+88% of the row answers `any`, because **the receiver is `any`** and this port
+answered `error`. The canonical baseline is `conformance/anyPropertyAccess.types`.
+
+### The numeric skew nearly produced a confident wrong answer
+
+Read as an index-shape histogram, "79% numeric" says *arrays and tuples*, which
+points at instantiated generic members — a real blocker (`bd tsr-el3.2`, the same
+one that leaves `C<number>` memberless) that would have made this row a
+workstream and closed it for the cycle. But of those 11,278 numeric lines, 10,737
+answer `any`, so they are `any` receivers, not arrays. Array receivers are a real
+residue, not the row.
+
+The lesson is that a histogram over *syntax* suggested one cause and a histogram
+over *answers* revealed another. Counting the answer column is what separated
+them, and it cost one extra command.
+
+`indexed.rs` itself was already complete: object lookup, string index signatures
+and numeric index signatures all verified by probe before any code was written.
+
+### Everything else in the row, ranked
+
+- **Array and tuple receivers carry no members.** `a[0]`, `a.length` and
+  `a["length"]` all gap because `create_type_reference` (`declared.rs:489`)
+  builds the type with `symbol: None`. Blocked on instantiated generic members,
+  `bd tsr-el3.2`. A workstream, and not in these files.
+- **Numeric property names in *type* position.** `var o: { 0: string }` gaps as
+  an annotation, so `o[0]` never gets a chance. This is the same gap closed on
+  the object-literal *expression* side in `724da91`; the type-literal side is in
+  `declared.rs`.
+- **Unannotated variables never reach the arm**, and the cause is flow, not
+  indexing: `declare let a` narrows to `undefined` at a use before assignment,
+  and `var a` needs `autoType` and the evolving-array machinery that
+  `crate::flow` does not port. Implicit-any *parameters* do reach it, which is
+  the shape that matters — most corpus receivers are `any` that way.
+
+### The guard that cannot be tested, and why it stays
+
+The arm tests `object_type == self.intrinsics.any` by **identity**, not by
+`TypeFlags::ANY`, because `errorType` also carries `ANY` in this port and a flag
+test would turn every gap into a confident `any` — the most dangerous way this
+row could produce a large number.
+
+That identity test is **unobservable today**: the `error` guard at the top of
+`check_element_access_expression` already returned, so swapping identity for a
+flag test leaves every test green. Verified by mutation rather than assumed. It
+stays as defence in depth against a future edit reordering that guard, and it is
+documented instead of tested — the same rule as the `{ a = 1 }` guard.
+
+This is the sixth instance of the exercises-versus-discriminates problem in this
+workstream, and the first where the overclaiming comment was one I had written
+myself: the test said it pinned the identity-versus-flag distinction, and it
+never could. The comment now says what the test actually establishes.

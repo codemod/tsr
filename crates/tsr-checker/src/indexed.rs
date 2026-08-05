@@ -82,6 +82,31 @@ impl Checker<'_, '_> {
             return error;
         }
         let index_type = self.check_expression(index);
+        // An `any` receiver makes the access `any`, whatever the index.
+        //
+        // This is the largest single cause in the element-access row: of 12,905
+        // element-access lines in the baselines, 11,363 (88%) answer `any`, and
+        // `conformance/anyPropertyAccess.types` is the canonical case. Upstream
+        // reaches it because `getPropertyOfType` finds nothing on `any` and no
+        // index info applies, and the property-access path states the same rule
+        // outright (`isAnyLike`, `checker.go:11266`).
+        //
+        // **This is a computed answer, not a gap wearing `any`.** The rule that
+        // forbids `anyType` is about forms this port could not compute; here
+        // upstream's own answer is `any`, the same footing as `yield`. The
+        // The identity test against `intrinsics.any` rather than a
+        // `TypeFlags::ANY` test matters because `errorType` also carries `ANY`
+        // here, and a flag test would turn every gap into a confident answer.
+        //
+        // **It is defence in depth and unobservable today**: the `error` guard
+        // at the top of this function already returned, so swapping this for a
+        // flag test leaves the tests green — confirmed by mutation, not assumed.
+        // It stays because it is the only thing standing between a reordering of
+        // that guard and a silent flood of wrong `any` answers, which is the
+        // most dangerous way this row could produce a large number.
+        if object_type == self.intrinsics.any {
+            return self.intrinsics.any;
+        }
         let Some(name) = self.property_name_from_index(index_type) else {
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).
