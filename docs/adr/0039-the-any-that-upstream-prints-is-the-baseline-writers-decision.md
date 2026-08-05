@@ -94,3 +94,45 @@ caches on the opening element, not the tag name, and never feeds that path.
   foo`. If our implementation prints `any` for those, it is reaching `errorType`
   by falling off a dispatch rather than by upstream's resolution miss, and the
   string matches while the path differs.
+
+## Resolved, 2026-08-05: the ceiling is 40,759 and the deliverable is ~1,500
+
+This ADR left the ceiling unknown and asked for a per-guard measurement before
+scoping. That measurement exists (`crates/tsr-conformance/examples/writer_guards.rs`,
+commit `fba67d2`). **Ceiling 40,759 lines / +8.69 points. Honest deliverable
+~1,500.**
+
+**`hadErrorBaseline` must not be ported**, and the reason is a *kind* difference
+rather than a size one — which is what this ADR got wrong by treating the eight
+guards as one item:
+
+- It is `len(result.Diagnostics) > 0` (`testrunner/compiler_runner.go:501`),
+  **case-scoped**, true for 56.3% of cases, firing at every node regardless of
+  position. This ADR justified relocating the work into the producer on the
+  ground that *"a per-node guard credits only the positions upstream credits"*.
+  `hadErrorBaseline` does not qualify. Porting it is precisely the blanket
+  substitution [0038](0038-errortype-prints-error-and-the-corpus-has-a-ceiling.md)
+  refused, wearing the clothes of a positional guard.
+- The control bucket proves it empirically. Where the fast path is live and no
+  guard fires, on lines we print `error`, upstream's type is an any-flagged
+  intrinsic 5,603 times and is `errorType` on **392** — 7.0%. The other 93% are
+  a genuine `anyType` upstream computed and we did not.
+- 49.1% of the 40,759 is **one case**, `largeControlFlowGraph`, which
+  `conventions.md` already records as upstream computing `any` through
+  `autoArrayType` machinery this port lacks. Provably false credit, from
+  evidence already in the repository.
+
+So 0038's decision survives in the place that matters. What 0039 correctly
+relocated was the *positional* guards; the case-scoped one was never a rendering
+rule for a position.
+
+Ported: the label-name arm (`53588b1`), 209 claims, 0 residue. Global scope
+augmentation and meta property are **empty, not small** — nothing to port.
+
+### The per-guard numbers are floors, not values
+
+The label arm predicted 209 and converted **597**. Attribution follows upstream's
+conjunction order, so the dominant arm was claiming lines a subordinate arm would
+convert — 391 of the 600 sat in errors-baseline cases. **Every positional figure
+in that table is an under-estimate for the same reason.** The `hadErrorBaseline`
+verdict is unaffected: it is the arm that absorbs, not one absorbed.
