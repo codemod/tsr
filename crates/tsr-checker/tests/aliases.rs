@@ -61,10 +61,25 @@ fn an_alias_to_a_same_file_namespace_has_the_targets_type_and_not_its_own_name()
 
 #[test]
 fn an_alias_to_a_non_value_or_an_unresolvable_target_is_error_not_any() {
-    // `getTypeOfAlias` (`checker.go:18612`) answers the target's type only when
-    // the target is a *value*. Upstream's own comment says this is what stops
-    // `getTypeOfSymbol` recursing back into `getTypeOfAlias` and overflowing the
-    // stack, so it is load-bearing rather than a tidiness check.
+    // An interface target answers `error` — but **not** for the reason it is
+    // tempting to write here. `SymbolFlags::INTERFACE` is not in
+    // `SymbolFlags::NAMESPACE`, so this fails at the meaning filter in
+    // `resolve_alias` and never reaches the `VALUE` test in `get_type_of_alias`.
+    //
+    // The distinction is not pedantry: the `VALUE` test (`checker.go:18612`) is
+    // currently **unreachable** in this port. `NAMESPACE` is
+    // `VALUE_MODULE | NAMESPACE_MODULE | ENUM`; the binder never assigns
+    // `NAMESPACE_MODULE` at all, and `VALUE_MODULE` and `ENUM` are both inside
+    // `SymbolFlags::VALUE` — so everything that survives the meaning filter is a
+    // value by construction. The guard is upstream's line, kept because it is
+    // upstream's and because it stops a stack overflow there, and no fixture
+    // here exercises it.
+    //
+    // How you would know this changed: when the binder starts distinguishing a
+    // type-only namespace as `NAMESPACE_MODULE`, `import q = N` for
+    // `namespace N { export interface I {} }` becomes the fixture that reaches
+    // the guard, and it needs its own test at that point. Today that source
+    // binds `N` as `VALUE_MODULE`, which was checked rather than assumed.
     assert_eq!(type_of_declaration("interface I {}\nimport q = I;", "q"), "error");
 
     // A bare identifier resolves in NAMESPACE meaning only

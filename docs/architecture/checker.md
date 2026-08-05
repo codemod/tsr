@@ -3335,13 +3335,32 @@ class `C` answers `errorType`, because `SymbolFlags::NAMESPACE` covers modules
 and enums but not classes. That is upstream's meaning at `checker.go:14486`, so
 the arm is right and the line is a genuine gap.
 
-### The `VALUE` test is a stack-overflow guard
+### The `VALUE` test is a stack-overflow guard, and it is unreachable here
 
 `getTypeOfAlias` answers the target's type only if the target is a value
 (`checker.go:18612`). Upstream's comment explains that this is not tidiness:
 without it, `getTypeOfSymbol` on a type-only target recurses straight back into
-`getTypeOfAlias`. `import q = I` for an interface answers `errorType`, and the
-way to a type symbol's type is `getDeclaredTypeOfSymbol`.
+`getTypeOfAlias`.
+
+**In this port the guard cannot currently fire, and the first version of the test
+claimed otherwise.** `import q = I` for an interface does answer `errorType`, but
+at the *meaning filter*, not at the `VALUE` test: `SymbolFlags::INTERFACE` is not
+in `SymbolFlags::NAMESPACE`, so resolution fails one step earlier. And nothing
+else can reach the guard either — `NAMESPACE` is
+`VALUE_MODULE | NAMESPACE_MODULE | ENUM`, the binder never assigns
+`NAMESPACE_MODULE`, and `VALUE_MODULE` and `ENUM` both sit inside `VALUE`. So
+everything surviving the meaning filter is a value by construction.
+
+The line stays because it is upstream's and because deleting a guard on the
+grounds that today's binder cannot trip it is how the overflow comes back. What
+is corrected is the *claim*: no fixture exercises it, and the test now says so
+instead of implying coverage it does not have.
+
+**How you would know this changed:** when the binder distinguishes a type-only
+namespace as `NAMESPACE_MODULE`, `import q = N` for
+`namespace N { export interface I {} }` becomes the fixture that reaches the
+guard and needs its own test. Today that source binds `N` as `VALUE_MODULE`,
+which was checked with a throwaway probe rather than assumed.
 
 ### `yield` answers `any`, and why that is not a rule violation (2026-08-05)
 
