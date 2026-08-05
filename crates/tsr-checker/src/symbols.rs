@@ -283,7 +283,11 @@ impl<'a> Checker<'a, '_> {
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
         // An annotation wins over an initialiser, always.
         if let Some(annotation) = self.type_annotation_of(declaration) {
-            return Some(self.get_type_from_type_node(annotation));
+            let declared = self.get_type_from_type_node(annotation);
+            // `addOptionalityEx(declaredType, isProperty, isOptional)`
+            // (`checker.go:16695`): `p?: string` declares `string | undefined`.
+            // See `crate::optionality`.
+            return Some(self.add_optionality_for_declaration(declared, declaration));
         }
         let initializer = self.initializer_of(declaration)?;
         let initializer_type = self.check_expression(initializer);
