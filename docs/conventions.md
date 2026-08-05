@@ -989,3 +989,46 @@ answers directly — and then it should be labelled a proxy, so the next reader
 knows the rule is one inference away from the evidence.
 
 The agent that wrote the rule found and recorded this against itself.
+
+### A count over baseline *files* is not a count over judged *cases*
+
+The corpus on disk and the population a suite scores are different sets, and the
+gap is large enough to invert a decision.
+
+Sizing the TS2322 diagnostics item, I counted `.errors.txt` files under
+`vendor/typescript-go/testdata/baselines/reference/submodule` and reported the
+item as **+536 cases**. **1,180 of those files are configuration variants the
+`diagnostics` suite excludes by construction** (`crates/tsr-conformance/src/corpus.rs:163`).
+Over the suite's own 5,488 judged cases the same measurement is:
+
+| | quoted | actual (judged) |
+|---|---:|---:|
+| reachable today | 1,063 | **765** |
+| + TS2322 | 1,599 | **1,254** (gain **+489**, not +536) |
+| cases whose only code is TS2322 | 516 | **478** |
+
+The **shares** survived almost exactly — 22.76% against 22.85%. The **counts**
+did not. A rate computed over the corpus can be quoted; an absolute count cannot,
+until it is reconciled against the suite's own denominator.
+
+This is the third time configuration-varied baselines have distorted a count
+here. `bd tsr-bb4.1` tracks them, and the stored `bd` memory about the 793
+config-varied baselines and the 617 cases with no output of any kind records the
+same family: **the corpus directory is not the population, and file presence is
+not evidence of judgement.**
+
+#### The part worth internalising is not the arithmetic
+
+The `bd` issue that carried the wrong number **also carried the caveat that would
+have caught it**, written by the same author in the same sitting:
+
+> *applying a rate measured over 7,025 baseline cases to the 5,488 judged assumes
+> the skips are neutral on code mix. Unverified; that is the first thing to check
+> before quoting ~750 as a target.*
+
+The caveat was written, and then the absolute number was quoted anyway — in an
+ADR and to the user. **Flagging a risk and then propagating the number is worse
+than not flagging it**, because the caveat reads as diligence and licenses the
+very number it warns about. A caveat is only doing work if something downstream
+is *blocked* on it. If you write one and then quote past it, delete the number,
+not the caveat.
