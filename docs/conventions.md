@@ -359,3 +359,63 @@ untracked module is invisible in their diff.
 A worktree is the mechanism: verify there, keep the shared tree clean of your
 pending edit, and touch the contended file only when you are ready to commit it
 in the same act.
+
+### Predict which histogram row you move, and by how much, before measuring
+
+A slice that lands green, passes its own tests, and moves **nothing** is the
+worst outcome available in this project, because every gate reports success and
+the miss is invisible until someone re-measures — by which time the cycle is
+spent and the item looks finished.
+
+It nearly happened on 2026-08-05. Return-type inference was built to close a
+4,898-line row. It reused `has_no_contextual_type`, a conservative helper
+written when its only caller was the concise-arrow-body arm, which answers
+*false* for a plain `function f() { return 1; }` because that function's parent
+is a source file. Every such function would have gapped. The slice would have
+compiled, passed its own new tests, satisfied all four gates, and moved zero of
+the 4,898 lines. It was caught by the author, not by any gate — no gate in this
+repository can see it.
+
+**So state the prediction up front: which row, and roughly how many lines.**
+Then a zero-mover shows up as a failed prediction rather than as a success. This
+is cheap — the row is already named in the assignment — and it is the only
+instrument that catches this failure mode.
+
+It generalises past the one bug. In the same cycle, four items were assigned
+from a board that had gone stale, and all four were already closed. A stated
+prediction would have been contradicted by the very next measurement instead of
+by four wasted agent-runs.
+
+Attribute **by row, not by total**. A cycle's delta covers every commit in it,
+and several commits usually touch the same rows; quoting a cycle number as one
+slice's number is the same error as quoting a roll-up as a sum. The instrument
+buckets by cause, so the movement in a specific row is attributable to the
+commit that addressed that cause, from a single corpus run.
+
+### `cargo fmt --all` rewrites other agents' uncommitted files
+
+The mandatory gate list says `cargo fmt --all`. In a shared checkout that
+formats **every** agent's in-flight work, not just yours. It cannot corrupt
+anything — formatting is semantics-preserving and their diffs survive — but it
+manufactures exactly the condition the staging rules exist to prevent: a working
+tree full of files you did not author but did modify, one bare `git commit` away
+from sweeping them.
+
+Use `cargo fmt -p <your crate>`, and make the gate `cargo fmt --all -- --check`.
+
+### A gate result describes the tree you ran it on, not the commit you push
+
+`a1ca5b8` claimed "it compiles and clippy is clean". That was true of the tree it
+was run against and false of what landed, because another agent's staged file
+entered the same commit after the gate ran. The tip was left red, which blocks
+every other agent's pre-commit check — the real cost, and worse than the lint.
+
+The same shape appears twice more in that day's record: an agent reported `main`
+red when it had actually measured a neighbour's mid-edit state, and a `cargo
+clean` was needed because a stale binary in the shared `target/` had baked in a
+`CARGO_MANIFEST_DIR` from a different checkout and was failing a test that
+passed under `cargo test -p`.
+
+**Verify against a commit, not against the working tree**: `git worktree add
+--detach <dir> <sha>` and run the gates there. That is how the red commit above
+was identified, and it is the only check that answers "is *this commit* green".
