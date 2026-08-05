@@ -1138,9 +1138,14 @@ mod tests {
             typed("enum E { A }\nimport q = E.A;"),
             vec![
                 ("E".to_string(), "E".to_string()), // the declaration
-                ("A".to_string(), "error".to_string()),
+                // The member's *declaration name*, which `enumAssignmentCompat5.types`
+                // records as `>A : E.A`. This read `error` until `getTypeOfSymbol`
+                // grew its `ENUM_MEMBER` arm; the pin was the gap, not the answer.
+                ("A".to_string(), "E.A".to_string()),
                 ("q".to_string(), "error".to_string()),
                 ("E".to_string(), "E".to_string()), // the entity name: DECLARED
+                // Still a gap, and a different question: `E.A` on the right of a
+                // qualified name, which no arm answers.
                 ("A".to_string(), "error".to_string()),
             ],
         );
