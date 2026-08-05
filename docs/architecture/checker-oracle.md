@@ -3,16 +3,23 @@
 **Status:** wired, and non-zero for the first time on 2026-08-05.
 
 ```
-checker_types    313/9538      3.28%   the type of every expression
-                 gradient     28.72%   ...share of individual assertion lines
+checker_types    571/9538      5.99%   the type of every expression
+                 gradient     34.06%   ...share of individual assertion lines
 diagnostics       80/5488      1.46%   every diagnostic, by code and position
 ```
 
-Movement, all of it 2026-08-05: `278 / 22.39%` on the day the producer was wired,
-then `313 / 28.72%` when the binary operators landed (`bd tsr-4sc.13`). The
-gradient moved 6.33 points on one `checkExpression` arm, which is what the
-ranking in [checker.md](checker.md) predicted from the histogram and is the first
-evidence that the ranking is any good.
+Movement, all of it 2026-08-05, and all of it in the order the histogram ranked:
+
+| | cases | gradient |
+|---|---:|---:|
+| the producer is wired | 278 | 22.39% |
+| binary operators (`bd tsr-4sc.13`) | 313 | 28.72% |
+| named types (`bd tsr-4sc.7`) | 554 | 33.57% |
+| anonymous object types | **571** | **34.06%** |
+
+Two ranked items, +11.67 gradient points and +293 cases. That is the evidence
+that the ranking is any good, and it is why the next item should be re-derived
+from the histogram rather than from this list.
 
 ### The first non-zero number was mutation-tested before being believed
 

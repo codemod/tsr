@@ -57,6 +57,19 @@ pub enum TypeData {
     BigIntLiteral(String),
     /// `true` or `false`.
     BooleanLiteral(bool),
+    /// A type that prints as a **name**: a class or interface instance type, a
+    /// type parameter, or an enum.
+    ///
+    /// Upstream carries a `symbol` on the type and the node builder renders the
+    /// name from it, applying scoping rules this port has no equivalent of. Here
+    /// the printed form is computed once, at creation, from the declaration —
+    /// `C`, or `C<T, U>` for a generic one. That is a **divergence in the
+    /// renderer, not in the data model**: identity is still one type per symbol,
+    /// which is what the memo in the checker provides, so two same-named
+    /// declarations in different scopes stay distinct types even though they
+    /// print alike. It stops being adequate when a name has to be qualified or
+    /// shadowed, which is where upstream's node builder earns its complexity.
+    Named(String),
 }
 
 /// One type.
@@ -136,6 +149,17 @@ impl TypeStore {
     /// Ported from `Checker.newIntrinsicType` (`checker.go:25017`).
     pub fn new_intrinsic(&mut self, flags: TypeFlags, name: &'static str) -> TypeId {
         self.push(Type { flags, data: TypeData::Intrinsic { name }, fresh: false })
+    }
+
+    /// Create a type that prints as a name, without interning.
+    ///
+    /// Ported from `Checker.newObjectType` / `newTypeParameter` (`checker.go`),
+    /// reduced to what the printed form needs. **Never interned**, for the same
+    /// reason intrinsics are not: identity is one type per *symbol*, and two
+    /// same-named declarations in different scopes are different types that
+    /// print alike. Interning by content would merge them.
+    pub fn new_named(&mut self, flags: TypeFlags, name: String) -> TypeId {
+        self.push(Type { flags, data: TypeData::Named(name), fresh: false })
     }
 
     /// Create or reuse a literal type.

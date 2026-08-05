@@ -25,6 +25,9 @@ pub fn type_to_string(ty: &Type) -> String {
         TypeData::NumberLiteral(text) => text.clone(),
         TypeData::BigIntLiteral(text) => format!("{text}n"),
         TypeData::BooleanLiteral(value) => value.to_string(),
+        // The name was computed when the type was created; see `TypeData::Named`
+        // for why that is a renderer divergence rather than a data-model one.
+        TypeData::Named(name) => name.clone(),
     }
 }
 

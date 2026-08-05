@@ -181,14 +181,21 @@ pub fn assertions_for_file(
 
 /// The type a node has, as upstream's `GetTypeAtLocation` would answer it.
 ///
-/// Two cases, which is all the checker can answer today:
+/// Three cases of `getTypeOfNode` (`checker.go:31927`), in upstream's order,
+/// which is load-bearing:
 ///
-/// - a **declaration name** takes the type of the symbol it declares, which is
-///   `getTypeOfSymbol`;
+/// - a **type declaration's own name** takes `getDeclaredTypeOfSymbol`, so
+///   `class A {}` records `>A : A` — the *instance* type, not `typeof A`;
+/// - any other **declaration name** takes `getTypeOfSymbol`;
 /// - an **expression** takes `checkExpression`.
 ///
-/// Anything else is `errorType`, which prints `any` — and that is a gap rather
-/// than an answer, exactly as it is inside the checker.
+/// The first two are the pair that is easy to collapse and must not be: a class
+/// symbol declares `A` and has `typeof A`, and testing the general
+/// declaration-name branch first would answer every class name with the wrong
+/// one of them.
+///
+/// Anything else is `errorType` — a gap rather than an answer, exactly as it is
+/// inside the checker.
 pub fn type_at_location(
     checker: &mut tsr_checker::Checker<'_, '_>,
     binder: &tsr_binder::BindResult<'_>,
@@ -198,6 +205,19 @@ pub fn type_at_location(
 ) -> String {
     let error = checker.intrinsics().error;
     let Some(node) = map.get(id) else { return checker.type_to_string(error) };
+
+    // `IsTypeDeclarationName` (`ast/utilities.go:3598`): an identifier naming a
+    // class, interface, type alias, enum or type parameter. Upstream tests this
+    // *before* the general declaration-name branch below.
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(id) == SyntaxKind::Identifier
+        && is_type_declaration(nodes.kind(parent))
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+        && let Some(symbol) = binder.symbol_of(parent)
+    {
+        let declared = checker.get_declared_type_of_symbol(symbol);
+        return checker.type_to_string(declared);
+    }
 
     // A declaration name resolves through its parent's symbol.
     if let Some(parent) = nodes.parent(id)
@@ -287,6 +307,21 @@ pub fn assertions_for_case(
     ours
 }
 
+/// `ast.IsTypeDeclaration` (`ast/utilities.go:3585`), for the kinds a `.types`
+/// baseline can reach. The import forms are omitted deliberately: they depend on
+/// `IsTypeOnly` and on the import machinery, and answering them by kind alone
+/// would be a guess.
+fn is_type_declaration(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::TypeParameter
+            | SyntaxKind::ClassDeclaration
+            | SyntaxKind::InterfaceDeclaration
+            | SyntaxKind::TypeAliasDeclaration
+            | SyntaxKind::EnumDeclaration
+    )
+}
+
 /// Why [`type_at_location`] answered `error`, for a line that it did.
 ///
 /// The gap total alone does not rank work — it says the checker is unfinished,
@@ -340,6 +375,16 @@ pub fn gap_reason(
             "symbol has a type (the line differs for another reason)".to_string()
         }
     };
+
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(id) == SyntaxKind::Identifier
+        && is_type_declaration(nodes.kind(parent))
+        && let Some(symbol) = binder.symbol_of(parent)
+        && map.get(parent).and_then(|p| p.name_id()) == Some(id)
+    {
+        let flags = binder.symbols().get(symbol).flags;
+        return format!("type declaration name, nothing declared: {flags:?}");
+    }
 
     // Mirrors [`type_at_location`] exactly, **including its fall-through**: the
     // declaration-name branch applies only when the parent actually bound a

@@ -257,7 +257,9 @@ ModuleDeclaration, no type at all                             5,569
    access (23,732 lines), call (15,867) and element access (13,549) remain, and
    all three now wait on 2.
 2. **`bd tsr-4sc.7` — `getTypeFromTypeNode` and `getDeclaredTypeOfSymbol`.** 21%
-   of gaps sit on an annotation, and it gates 3, 5 and 7.
+   of gaps sat on an annotation. **First slices done** — named types and
+   anonymous object types, 28.72% → 34.06%; see below. Members, heritage and
+   instantiation remain, and they are what still gates 3, 5 and 7.
 3. **`bd tsr-4sc.8` — `getTypeOfFuncClassEnumModule`.** 12.5% of gaps are a
    symbol whose kind has no type at all: 7,485 function declarations, 7,227
    classes, 5,569 modules.
@@ -353,6 +355,110 @@ paths reach `errorType` anyway) and the order of `+`'s numeric and string tests
 (with only primitive types, nothing is assignable to both kinds). Each becomes
 load-bearing with a named future change, which is why they are kept — the same
 reasoning as the symbol-flags test in `getTypeOfSymbol`.
+
+## Named types: what a type reference resolves to
+
+Ported 2026-08-05 (`bd tsr-4sc.7`, first two slices), on the histogram's second
+ranked item — 73,687 gap lines whose declaration carried an annotation this port
+could not resolve.
+
+| slice | `checker_types` | gradient |
+|---|---|---|
+| *(before)* | 313 | 28.72% |
+| `getDeclaredTypeOfSymbol` + type references | 554 | 33.57% |
+| anonymous object types | **571** | **34.06%** |
+
+The named-reference answer bucket went from **0.74% to 34.80%** right, and 241
+whole cases landed on the first slice — the largest case movement so far.
+
+### What each kind of symbol declares
+
+`getDeclaredTypeOfSymbol` (`checker.go:23670`) in upstream's dispatch order:
+class and interface, type parameter, type alias, enum. Enum members and
+`import X = ...` aliases remain gaps.
+
+The one that is *not* obvious, and was taken from the baselines rather than
+guessed: **a type alias is transparent.** `conformance/typeAliases.types` records
+
+```text
+type T1 = number;
+>T1 : number
+var x1: T1;
+>x1 : number
+```
+
+so the alias name does not survive into the printed type. Printing `T1` would
+look more informative and be wrong. The exception is a *generic* alias —
+`type Tree<T> = ...` records `>Tree : Tree<T>` — which needs upstream's
+alias-symbol machinery and is a gap.
+
+Two further forms come from the corpus rather than from reasoning: a class
+declaration name records its **instance** type (`class A {}` → `>A : A`, not
+`typeof A`), and a generic one records its own parameters (`>C : C<T>`).
+
+### `getTypeOfNode` asks three questions, in an order that matters
+
+The producer's `type_at_location` now follows `checker.go:31927`: a **type
+declaration's own name** takes `getDeclaredTypeOfSymbol`, any other declaration
+name takes `getTypeOfSymbol`, and an expression takes `checkExpression`. Testing
+the general declaration-name branch first would answer every class name with
+`typeof A` — a plausible line, and wrong in every one of the 7,227 class
+declarations in the corpus.
+
+### Three divergences, all of them visible here rather than in the code
+
+1. **An enum's declared type is a named type, not a union.** Upstream builds the
+   union of its members' literal types (`checker.go:23874`), which happens to
+   print as the enum's name. Without unions (`bd tsr-4sc.9`) this port creates a
+   type that prints the same string and has none of the behaviour. The printed
+   line is right; nothing else about it is. It must be **replaced** when unions
+   land, not extended.
+2. **The printed name is computed once, at creation.** Upstream's node builder
+   renders a name from the type's symbol under scoping rules this port has no
+   equivalent of. Identity is unaffected — one type per symbol, via the
+   `declared_types` memo — so two same-named declarations in different scopes
+   are still different types that happen to print alike. It stops being adequate
+   as soon as a name needs qualifying or shadowing.
+3. **A class or interface type has no members.** Upstream's
+   `getDeclaredTypeOfClassOrInterface` builds members, base types and a `this`
+   type; this builds identity and the printed form. Nothing depends on the
+   members yet because no relation is computed, so a type this port cannot look
+   inside is still the right answer to *"what type is this"* — and that stops
+   being true the moment property access lands.
+
+### An anonymous object type prints its members, or it is a gap
+
+`{ a: string }` has no symbol to be named by, so it prints structurally —
+`{ a: string; }`, with the spaces and the trailing semicolon upstream's printer
+emits, and `{}` when empty. Any member this port cannot render — a method, a
+call or index signature, an accessor, a computed name, or a property whose own
+type is a gap — makes the **whole type** a gap. A partial object type is a wrong
+answer dressed as a right one, and it fails the line either way.
+
+**This slice paid less than its bucket, and the reason is worth recording.**
+Object-literal answers are 5.69% of assertion lines, and porting the *type* node
+moved that bucket only to 7.79% — because most of those lines are produced by
+object literal **expressions**, which are still unported. It is the same lesson
+the ranking was built on, arriving from the other direction: a bucket names the
+answer's shape and not the feature that computes it. `{ a: string; }` on an
+annotation and `{ a: string; }` inferred from `{ a: "x" }` are one bucket and two
+features.
+
+### What is left under `bd tsr-4sc.7`
+
+From the histogram, after this work:
+
+```text
+13,710  generic references — instantiation, with upstream's depth 100 and
+        count 5,000,000 guards ported alongside it (bd tsr-el3.2)
+12,065  array types — upstream models `T[]` as a reference to the global
+        `Array` interface, so this one genuinely does want lib files
+        (bd tsr-9or.1) rather than another type that prints alike
+24,383  object-literal answers still missing, nearly all from expressions
+        rather than annotations
+         qualified names (`M.I`), which need resolveEntityName through
+        module exports
+```
 
 ## Two decisions that shape the rest
 

@@ -41,6 +41,14 @@
 pub enum PropertyName {
     /// `TypeSystemPropertyNameType` — the type of a symbol.
     Type,
+    /// `TypeSystemPropertyNameDeclaredType` — the type a *type* symbol declares.
+    ///
+    /// A separate property from [`PropertyName::Type`] because upstream keys the
+    /// stack on the pair: a class symbol has both a declared type (its instance
+    /// type) and a type (`typeof C`), and one may legitimately be computed while
+    /// the other is in progress. Sharing one key would report a cycle that is
+    /// not there.
+    DeclaredType,
 }
 
 /// One frame of the resolution stack.

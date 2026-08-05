@@ -308,11 +308,15 @@ fn a_declaration_with_neither_annotation_nor_initialiser_is_the_implicit_any() {
 
 #[test]
 fn an_unported_type_node_is_an_error_type_not_an_any() {
-    // A type reference has no implementation yet. It must yield `errorType`, so
-    // that `checker_types` sees a gap rather than a confident `any`. Both print
-    // `any`, which is exactly why this is asserted on identity, not on text.
+    // A tuple type has no implementation. It must yield `errorType`, so that
+    // `checker_types` sees a gap rather than a confident `any` — asserted on
+    // identity, since `errorType` and `anyType` are different types.
+    //
+    // The fixture has been changed twice as the thing it named became ported —
+    // first `interface I {}`, then `{ a: string }`. The *assertion* has never
+    // changed, because what it tests is the discipline and not the form.
     let arena = Arena::new();
-    let source = "interface I {}\ndeclare const x: I;";
+    let source = "declare const x: [string, number];";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
         parsed.source_file,
@@ -566,4 +570,168 @@ fn a_destructuring_assignment_is_a_gap_and_not_its_right_hand_side() {
     // upstream leaves the function before checking either operand.
     assert_eq!(type_of_initialiser("const x = ([a] = [1]);"), "error");
     assert_eq!(type_of_initialiser("const x = ({ a } = { a: 1 });"), "error");
+}
+
+/// Named types (`bd tsr-4sc.7`, first slice): `getDeclaredTypeOfSymbol` and the
+/// type references that reach it.
+#[test]
+fn a_type_reference_to_an_interface_or_class_is_that_named_type() {
+    assert_eq!(type_of_declaration("interface I {}\ndeclare const x: I;", "x"), "I");
+    assert_eq!(type_of_declaration("class C {}\ndeclare const x: C;", "x"), "C");
+}
+
+#[test]
+fn a_type_alias_is_transparent() {
+    // `conformance/typeAliases.types` records `type T1 = number; var x1: T1` as
+    // `>x1 : number`. The alias name does not survive — printing `T1` here would
+    // look more informative and be wrong.
+    assert_eq!(type_of_declaration("type T = number;\ndeclare const x: T;", "x"), "number");
+    assert_eq!(
+        type_of_declaration(
+            r#"type T = "a";
+declare const x: T;"#,
+            "x"
+        ),
+        r#""a""#
+    );
+    // Through two aliases, which is what makes this a recursion rather than a
+    // lookup.
+    assert_eq!(
+        type_of_declaration("type A = string;\ntype B = A;\ndeclare const x: B;", "x"),
+        "string"
+    );
+}
+
+#[test]
+fn a_circular_type_alias_answers_rather_than_hanging() {
+    // `type T = T` resolves through `getDeclaredTypeOfTypeAlias` forever without
+    // the resolution stack. Upstream reports "Type alias 0 circularly references
+    // itself" and answers `errorType`.
+    assert_eq!(type_of_declaration("type T = T;\ndeclare const x: T;", "x"), "error");
+    assert_eq!(type_of_declaration("type A = B;\ntype B = A;\ndeclare const x: A;", "x"), "error");
+}
+
+#[test]
+fn a_generic_type_is_printed_with_its_type_parameters_and_a_reference_to_one_is_a_gap() {
+    // The declared type of `class C<T>` prints `C<T>` — upstream's baselines
+    // record `class A { }` as `>A : A` and `class C<T> {}` as `>C : C<T>`.
+    assert_eq!(declared_type_of("class C<T> {}", "C"), "C<T>");
+    assert_eq!(declared_type_of("interface I<T, U> {}", "I"), "I<T, U>");
+    assert_eq!(declared_type_of("class C {}", "C"), "C");
+    // A *reference* carrying type arguments needs instantiation, which is not
+    // ported: it must be a gap and not the uninstantiated `C<T>`, which would be
+    // a wrong answer that looks right in a printed line.
+    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C<number>;", "x"), "error");
+    // And a generic type referenced with *no* arguments is an error upstream,
+    // which answers `errorType` too.
+    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C;", "x"), "error");
+    // Type arguments on a *non*-generic type are `checkNoTypeArguments`, and
+    // they must not be ignored: without this line the arguments could be
+    // dropped silently and every assertion above would still pass.
+    assert_eq!(type_of_declaration("interface I {}\ndeclare const x: I<number>;", "x"), "error");
+}
+
+#[test]
+fn an_enum_declares_a_type_that_prints_its_name() {
+    // Upstream's declared type of an enum is the union of its members' literal
+    // types, which prints as the enum's name; this port has no unions and builds
+    // a named type that prints the same string. A divergence in behaviour that
+    // is invisible in a printed line — see `getDeclaredTypeOfSymbol`.
+    assert_eq!(declared_type_of("enum E { A }", "E"), "E");
+    assert_eq!(type_of_declaration("enum E { A }\ndeclare const x: E;", "x"), "E");
+}
+
+#[test]
+fn a_type_parameter_is_its_own_named_type() {
+    // Looked up inside the function\'s own scope, because that is the only place
+    // a type parameter is in scope — which is also why it cannot go through
+    // `type_of_declaration`.
+    let arena = Arena::new();
+    let source = "declare function f<T>(p: T): void;";
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let Statement::FunctionDeclaration(function) = parsed.source_file.statements[0] else {
+        panic!("the fixture is a function declaration");
+    };
+    let scope = function.node_id.expect("registered");
+    let symbol = bound.lookup_local(scope, "T").expect("the type parameter is in the function");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let id = checker.get_declared_type_of_symbol(symbol);
+    assert_eq!(checker.type_to_string(id), "T");
+}
+
+#[test]
+fn a_qualified_name_is_still_a_gap() {
+    // `M.I` needs `resolveEntityName` through module exports. Resolving only the
+    // left-hand identifier would answer the module's type for the member, which
+    // is the plausible wrong thing.
+    // The left-hand name is given a declared type of its own here — `M` is an
+    // interface as well as a namespace — so a version that resolved `M.I` by its
+    // left identifier would answer `M` rather than failing. Without that
+    // merge the test passes whether or not qualified names are handled, which is
+    // the kind of test this project has shipped before.
+    assert_eq!(
+        type_of_declaration(
+            "interface M {}\nnamespace M { export interface I {} }\ndeclare const x: M.I;",
+            "x"
+        ),
+        "error"
+    );
+}
+
+/// The type a *type declaration* declares, by the declaration's name.
+fn declared_type_of(source: &str, name: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let symbol = bound.lookup_local(root, name).expect("the declaration is in scope");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let id = checker.get_declared_type_of_symbol(symbol);
+    checker.type_to_string(id)
+}
+
+#[test]
+fn an_anonymous_object_type_prints_its_members() {
+    // Compared character for character against 26,686 corpus lines, so the
+    // spaces and the trailing semicolon are part of the answer.
+    assert_eq!(type_of_declaration("declare const x: {};", "x"), "{}");
+    assert_eq!(type_of_declaration("declare const x: { a: string };", "x"), "{ a: string; }");
+    assert_eq!(
+        type_of_declaration("declare const x: { a: string, b: number };", "x"),
+        "{ a: string; b: number; }"
+    );
+    assert_eq!(type_of_declaration("declare const x: { a?: string };", "x"), "{ a?: string; }");
+    assert_eq!(
+        type_of_declaration("declare const x: { readonly a: string };", "x"),
+        "{ readonly a: string; }"
+    );
+    // Nested, which is where a member type has to go back through
+    // `getTypeFromTypeNode` rather than being printed from the node.
+    assert_eq!(
+        type_of_declaration("interface I {}\ndeclare const x: { a: { b: I } };", "x"),
+        "{ a: { b: I; }; }"
+    );
+}
+
+#[test]
+fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
+    // Not a partial object: printing the members that *are* understood would be
+    // a wrong answer dressed as a right one, and it would fail the line either
+    // way.
+    assert_eq!(type_of_declaration("declare const x: { m(): void };", "x"), "error");
+    assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "error");
+    assert_eq!(type_of_declaration("declare const x: { [k: string]: string };", "x"), "error");
+    // A member whose own type is a gap takes the whole literal with it.
+    assert_eq!(type_of_declaration("declare const x: { a: [string] };", "x"), "error");
 }
