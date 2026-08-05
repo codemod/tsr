@@ -1033,9 +1033,14 @@ fn a_void_return_is_inferred_only_where_no_return_statement_exists() {
     // `mayReturnNever` is false for this kind.
     assert_eq!(type_of_declaration("function f() { throw 1; }", "f"), "() => void");
     // A `return` with an expression is inferred when the body's returns yield a
-    // single distinct type — `tests/return_inference.rs`. What must not happen
-    // either way is `void`: this test exists to pin that the `void` arm is
-    // reached only by a body with no valued `return` at all.
+    // single distinct type — `tests/return_inference.rs`. This assertion pinned
+    // `error` until that landed; the pin was the *gap*, not the answer.
+    // `submodule/conformance/logicalAssignment10(target=es2021).types:13`
+    // records `>incr : () => number` for this shape — a block-bodied function
+    // declaration with one `return` of a numeric expression.
+    //
+    // What must not happen either way is `void`: this test exists to pin that
+    // the `void` arm is reached only by a body with no valued `return` at all.
     assert_eq!(type_of_declaration("function f() { return 1; }", "f"), "() => number");
     // Async and generator return types are `Promise<T>` and `Generator<...>`,
     // references to globals that do not exist here (`bd tsr-9or.1`).
