@@ -996,3 +996,55 @@ the wrong meaning at the call site. The third is the one worth keeping if only
 one could be: without the arm the walk sails past the class and reaches the file's
 `type T = string`, so the answer is not a gap but a **wrong type that looks
 right** — the failure mode the `errorType` discipline exists to prevent.
+
+## A function type node gets one symbol where upstream gives it two
+
+`bindFunctionOrConstructorType` (`binder.go:985`) binds **two** symbols to a
+single `FunctionTypeNode` or `ConstructorTypeNode`:
+
+1. a `SymbolFlagsSignature` symbol named `__call`, then
+2. a `SymbolFlagsTypeLiteral` symbol named `__type`, whose `Members` table holds
+   the first.
+
+`addDeclarationToSymbol` runs second, so `node.Symbol` — what
+`getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` reads — is the `__type`
+one. Upstream's own comment says the point is to make `(x) => T`
+indistinguishable from `{ (x): T }`: after binding, both are a type literal whose
+members contain a call signature.
+
+**This port creates only the `__type` symbol**, because `node_symbols` is one
+symbol per node ([ADR-0003](../adr/0003-tree-plus-side-tables.md)) and cannot
+hold both. `__type` is the one chosen for two reasons, and the choice is not
+arbitrary:
+
+- it is the one upstream leaves on the node, so `symbol_of(id)` answers what
+  `node.Symbol` answers;
+- its `declarations` is the type node itself, which is what
+  `getSignaturesOfSymbol` (`checker.go:19806`) reads — so the checker's
+  function-type arm can reach the signature through
+  `get_signature_from_declaration` without the members table existing at all.
+
+### What the missing `__call` costs, precisely
+
+The `__type` symbol's `members` table is **empty**, so nothing can find the call
+signature *through the type*. `getPropertyOfType` on a function type finds
+nothing, and `resolveAnonymousTypeMembers` — which upstream builds from exactly
+that `__call` member — has no input. Concretely: `getSignaturesOfType` cannot be
+implemented from the members table for these nodes, and today's
+`resolve_call_signature` reaches signatures through the symbol's *declarations*
+instead.
+
+That is a real divergence and not a shortcut, and it is written here rather than
+discovered later because it is invisible from the checker: the arm looks correct
+and simply measures a smaller population.
+
+**The change that must replace it** is a members table that can hold a signature
+symbol — either a second symbol id per node, or a `__call` symbol created and
+inserted into `__type`'s members without being recorded in `node_symbols`. The
+second is closer to upstream and does not touch ADR-0003, and is what should be
+done when property lookup or `resolveAnonymousTypeMembers` needs it.
+
+**How you would know this is wrong:** if a corpus measurement shows function
+types failing property or call-signature lookups *through the type* rather than
+through a declaration, this reduction is the cause. Element access and property
+access on a function type are the shapes to watch.

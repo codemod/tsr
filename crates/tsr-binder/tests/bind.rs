@@ -1248,3 +1248,46 @@ fn a_methods_own_type_parameter_shadows_the_classs() {
         .expect("the type parameter has a parent");
     assert_eq!(bound.nodes().kind(method), tsr_ast::SyntaxKind::MethodDeclaration);
 }
+
+/// The symbol a signature-bearing type node gets, and what it can answer.
+///
+/// Ported from `bindFunctionOrConstructorType` (`binder.go:985`), reduced — see
+/// `docs/architecture/binder.md`. Without this the checker's function-type arm
+/// answers `errorType` for every one of the corpus's 9,676 function-type lines:
+/// a dispatch that looks correct and measures zero.
+#[test]
+fn a_function_or_constructor_type_node_gets_an_anonymous_type_symbol() {
+    let arena = Arena::new();
+    for (source, kind) in [
+        ("declare const f: (x: number) => void;", tsr_ast::SyntaxKind::FunctionType),
+        ("declare const c: new (x: number) => void;", tsr_ast::SyntaxKind::ConstructorType),
+    ] {
+        let source = arena.alloc_str(source);
+        let parsed = tsr_parser::parse(&arena, source);
+        let result = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut found = None;
+        for index in 0..parsed.nodes.len() {
+            #[allow(clippy::cast_possible_truncation)]
+            let id = tsr_ast::NodeId::new(index as u32);
+            if parsed.nodes.kind(id) == kind {
+                found = result.symbol_of(id);
+                break;
+            }
+        }
+        let symbol = found.unwrap_or_else(|| panic!("{source} binds no symbol for its type node"));
+        let data = result.symbols().get(symbol);
+        // `__type`, not `__call`: upstream binds both to this node and
+        // `addDeclarationToSymbol` runs second, so `node.Symbol` is this one.
+        assert_eq!(data.name, "__type", "{source}");
+        assert!(data.flags.contains(SymbolFlags::TYPE_LITERAL), "{source}");
+        // The property the checker actually needs: `getSignaturesOfSymbol` reads
+        // `declarations`, so the signature is reachable even though `members` is
+        // empty for want of the `__call` symbol.
+        assert_eq!(data.declarations.len(), 1, "{source}");
+        assert!(data.members.is_empty(), "the `__call` member is the documented gap: {source}");
+    }
+}

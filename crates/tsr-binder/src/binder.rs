@@ -3253,9 +3253,29 @@ fn has_async_modifier(node: Node<'_>) -> bool {
 fn anonymous_declaration(node: Node<'_>) -> Option<(&str, SymbolFlags)> {
     Some(match node {
         Node::ObjectLiteralExpression(_) => (INTERNAL_OBJECT, SymbolFlags::OBJECT_LITERAL),
-        Node::TypeLiteralNode(_) | Node::MappedTypeNode(_) => {
-            (INTERNAL_TYPE, SymbolFlags::TYPE_LITERAL)
-        }
+        // One arm because `match_same_arms` is a workspace gate, and two
+        // unrelated reasons for the same body:
+        //
+        // - a **type literal** or **mapped type** is upstream's
+        //   `bindAnonymousDeclaration` with `InternalSymbolNameType`;
+        // - a **function or constructor type node** is
+        //   `bindFunctionOrConstructorType` (`binder.go:985`), and **a
+        //   deliberate reduction of it** — see `docs/architecture/binder.md`.
+        //   Upstream binds *two* symbols to that one node: a `Signature` symbol
+        //   named `__call`, then a `TypeLiteral` symbol named `__type` whose
+        //   members hold the first. `addDeclarationToSymbol` runs second, so
+        //   `node.Symbol` — what
+        //   `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` reads — is
+        //   the `__type` one, which is what this creates. Upstream's comment
+        //   says the point is to make `(x) => T` indistinguishable from
+        //   `{ (x): T }`, and the missing `__call` is exactly what that costs:
+        //   the members table is empty, so nothing finds the call signature
+        //   *through the type*. What does find it is `getSignaturesOfSymbol`,
+        //   because this symbol's `declarations` is the type node itself.
+        Node::TypeLiteralNode(_)
+        | Node::MappedTypeNode(_)
+        | Node::FunctionTypeNode(_)
+        | Node::ConstructorTypeNode(_) => (INTERNAL_TYPE, SymbolFlags::TYPE_LITERAL),
         Node::JsxAttributes(_) => (INTERNAL_JSX_ATTRIBUTES, SymbolFlags::OBJECT_LITERAL),
         // A class expression is anonymous whether or not it has a name.
         // `bindClassLikeDeclaration` splits on the *kind*, not on the name
