@@ -240,3 +240,35 @@ The general rule the three seams share: **be explicit about which object you are
 acting on, because the implicit one is plausible and wrong.** The commit rather
 than the tree; the workspace rather than the crate; the repository rather than
 whatever directory you were last in.
+
+### The sweep hazard has three forms, and only the third is preventable by the sweeper alone
+
+`origin/main` was left not building **twice** on 2026-08-05, both times by a
+commit that swept part of another agent's in-progress change out of the shared
+working tree. The three forms, in increasing subtlety:
+
+1. **Whole files swept in.** A concurrent `git add` puts another agent's files
+   into your commit. Visible in the commit's file list. Fixed by
+   `git commit -- <paths>`.
+2. **One shared file's two halves split.** `TypeData::Anonymous` was committed
+   into `types.rs` without the matching arm in `printing.rs`. The file list looks
+   *correct*, because the file genuinely belongs in the commit.
+3. **A shared file declaring an absent module.** `pub mod optionality;` reached
+   `main` in a commit whose author had never seen `optionality.rs` — `lib.rs` was
+   modified in the shared tree and legitimately belonged in their commit, while
+   the module file was untracked and did not. `E0583: file not found for module`.
+
+**`git commit -- <paths>` does not help with (2) or (3)**, because the shared file
+is genuinely yours to commit. Only building the commit does.
+
+Two rules, and the second is the cheap structural one:
+
+- **Build the commit, not the tree** — the sweeper's obligation, not just the
+  author's. Check the commit out in a detached worktree and build there.
+- **Add `pub mod foo;` to `lib.rs` in the same act as committing `foo.rs`**, never
+  earlier. A `lib.rs` left modified in the shared tree while its module is
+  untracked is a trap armed for whoever commits next, and they cannot see it.
+
+Both breakages were found by a *measurement attempt failing to build* rather than
+by a gate — the same property as every other finding today: **the failure
+announced itself as an impossible result, not as a wrong one.**
