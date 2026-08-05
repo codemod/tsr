@@ -466,6 +466,70 @@ are 87.22% right and 721 of their misses are wrong answers rather than gaps),
 and `bd tsr-bb4.1` (per-configuration runs, still worth doing only when the rate
 makes the denominator matter).
 
+## The re-ranking, cycle 3 (2026-08-05)
+
+| | cases | gradient |
+|---|---:|---:|
+| cycle 2 close | 1,076 | 41.27% |
+| **cycle 3 close** | **1,163** | **43.40%** |
+
+Landed: calls, function expressions and arrows (`bd tsr-4sc.8`); object literal
+expressions (`bd tsr-4sc.9`); the `strictNullChecks` correction; the identity
+widening's first two steps (`bd tsr-0e9`); and the wrong-answer attribution
+probe. Every guard rail flat to the case.
+
+```text
+function/signature   16.48% -> 22.72%
+object literal        8.41% -> 24.23%
+union                18.90% -> 26.14%
+```
+
+### The lib and identity work landed and moved nothing, and that is structural
+
+Stated plainly because it will otherwise be read as a null result. The `.types`
+producer gives **each unit its own arena, binds it alone and gives it its own
+`Checker`** (`types_producer.rs:273`–`299`). So no lib work and no identity work
+can move `checker_types` by a single line until the producer is rewired — that is
+a property of the measurement path, not of anyone's commit. The first number any
+of it can move is the producer rewire, which is the last step of `bd tsr-0e9`.
+
+This also corrected a ranking claim made here: `bd tsr-6av` (share a bound lib
+program across the corpus run) was called a *hard precondition* for `bd tsr-0e9`
+paying anything. **It is not** — measured at 15–17 ms per case for the ES5
+default set, about three minutes over 12,444 cases and parallelisable
+(`crates/tsr-compiler/examples/lib_program_cost.rs`). The reasoning behind the
+claim was true at its first two steps — the producer cannot build a program, so
+lib work cannot move the number — and its third step converted a fact about
+*structure* into a claim about *cost* without measuring the cost. Same shape as
+the 10,535 figure two sections below: a true fact extended one inference further
+than it licenses, in a direction nobody had reason to question.
+
+### What the histogram now says
+
+Over the 237,199 lines still answered `errorType`:
+
+```text
+14,420  CallExpression            — remaining: overload sets and generic callees
+13,549  ElementAccessExpression   — nothing ported at all
+10,807  a variable initialised by an array literal   (behind bd tsr-0e9)
+10,535  a free name that does not resolve, value position
+10,404  a property access whose receiver is an identifier we cannot type
+ 6,978  AsExpression
+```
+
+And the **defect** ranking, which no bucket in the shape table can produce and
+which only exists because of the attribution probe
+([checker-oracle.md](checker-oracle.md)):
+
+```text
+6,385  number/string -> any   the implicit any, upstream infers    UNOWNED
+1,383  {ours} | undefined     strictNullChecks optionality
+1,086  X -> typeof X          getTypeOfNode branch collapse
+```
+
+The array bucket is **still 0.00%** at 12,050 gaps, untouched by seven slices,
+and entirely behind `bd tsr-0e9`.
+
 ## The re-ranking, cycle 2 (2026-08-05, four slices in parallel)
 
 Four items landed together — `getTypeOfFuncClassEnumModule` (`bd tsr-4sc.8`),
