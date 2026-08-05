@@ -3523,3 +3523,70 @@ or the reverse — either would mean the prefix has been attached at the wrong
 level. The narrowest probe is a literal holding a call and a construct signature
 together, since one takes the prefix and the other must not; that pair is
 asserted in `a_call_signature_member_prints_without_one`.
+
+## A type literal under an alias prints the alias's name (2026-08-05)
+
+`type Obj = { code: string }` used as `const arr: Obj[]` records `>arr : Obj[]`
+(`conformance/literalTypeWidening.types:427`). This port printed
+`{ code: string; }[]` — a **wrong answer, not a gap**, and one that had been
+invisible because the literal itself gapped for other reasons until `18fec4f`
+gave `signature_parts_of` its call and construct signature arms.
+
+The rule is not new. `getAliasForTypeNode` (`checker.go:23711`) attaches the
+enclosing alias to whatever the node produced, and
+`get_type_from_union_type_node` and its intersection twin already implemented it.
+This extends the same three arms to the type-literal spelling:
+
+- no enclosing alias — render structurally. `>alpha : { a: string; }` is a real
+  baseline line, so this half must survive; over-applying the rule would invent a
+  name where none exists;
+- a **non-generic** enclosing alias — print its name;
+- a **generic** one — gap, rather than print a bare `A` with its arguments
+  dropped.
+
+The third arm is unreachable today, and is written anyway.
+`get_declared_type_of_type_alias` short-circuits a generic alias before its body
+is resolved, so no generic host reaches here. It is not defensive padding: if
+that short-circuit is ever replaced by real instantiation, this arm is what stops
+`type A<T> = { x: T }` printing a lie, and the union arm it mirrors would
+otherwise be the only guard. Keeping the three spellings identical is worth more
+than deleting one dead branch — two spellings of one rule that disagreed would be
+harder to find than either alone.
+
+### The population is 6,077 lines; the payoff is not
+
+Counted from the corpus source carried in the `.types` baselines: 749
+literal-bodied non-generic aliases across 370 files, mentioned on **6,077
+assertion lines** — 1,735 where the printed type is exactly the alias name, 2,031
+where it is exactly `X[]`, 2,311 embedded (`X | undefined`, `(x: X) => void`,
+`Promise<X>`). The `X[]` figure was cross-checked against the instrument's
+independently derived 2,003 for that row: 1.4% apart.
+
+**That is the population, not the payoff, and the distinction is the point of
+this section.** Alias naming only pays for an alias whose body the port can
+already compute — a gapped body has nothing to name. So the reachable subset is
+gated on member-type coverage, the same frontier recorded above for the
+`FunctionDeclaration` residual.
+
+A syntactic classifier said ~96% of those bodies render. **It was wrong and the
+instrument falsified it**: all 2,003 of the `X[]` lines sit in a "symbol has no
+type" row, so they gap. The classifier read member *syntax* and could not see
+that a member's *type* gaps — `Readonly<Partial<State2>>` and `Extract<…>` take
+the whole literal under the all-or-nothing rule. It was not refined further,
+because refining it means reimplementing `get_type_from_type_node` against a
+syntactic approximation of the corpus and being wrong in a way that cannot be
+detected from inside the approximation.
+
+What *is* established, by direct probe rather than by classification, is the
+mechanism's reach: a body of plain properties, nested literals, index or method
+signatures, optional and readonly members, unions, arrays, **and generic
+references** all name correctly; a body with a tuple member, a mapped member, or
+an unresolved member type still gaps. The generic-reference case matters most —
+it is why the reachable set is larger than the count of currently-gapping bodies
+suggests.
+
+**How we would know this was wrong:** a baseline line where this port prints an
+alias name and upstream prints the expanded members. The narrowest probe is a
+literal with no enclosing alias, since that is the arm that must *not* name —
+asserted in `an_unaliased_literal_still_renders_structurally`, against the real
+`>alpha : { a: string; }`.

@@ -227,9 +227,34 @@ impl<'a> Checker<'a, '_> {
         signatures.append(&mut indexes);
         signatures.append(&mut properties);
         let members = signatures;
-        // Shared with `checkObjectLiteral`, so the two structural renderers
-        // cannot drift apart — see `crate::objects::render_object_type`.
-        let printed = crate::objects::render_object_type(&members);
+        // `getAliasForTypeNode` (`checker.go:23711`) again, and the arms are
+        // deliberately the *same three* [`Checker::get_type_from_union_type_node`]
+        // takes — a literal under a non-generic alias prints the alias's name, a
+        // generic one gaps rather than dropping its arguments, and an unaliased
+        // literal renders structurally.
+        //
+        // Sharing the shape is the point. `type T8 = string | boolean` records
+        // `>T8 : T8` while `var x8: string | boolean` records the constituents,
+        // and a type *literal* body behaves identically — `type Obj = { … }`
+        // used as `p: Obj[]` records `>arr : Obj[]`, never the expanded members.
+        // Two spellings of one rule that disagreed would be worse than either.
+        //
+        // **The generic arm is unreachable today and is written anyway.**
+        // [`Checker::get_declared_type_of_type_alias`] short-circuits a generic
+        // alias before its body is resolved, so no generic host reaches here.
+        // It is not defensive padding: if that short-circuit is ever replaced by
+        // real instantiation, this arm is what stops `type A<T> = { x: T }` from
+        // printing a bare `A` with its arguments silently dropped, and the union
+        // arm it mirrors would otherwise be the only one guarding that.
+        let printed = match node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
+            // Shared with `checkObjectLiteral`, so the two structural renderers
+            // cannot drift apart — see `crate::objects::render_object_type`.
+            None => crate::objects::render_object_type(&members),
+            Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
+                self.binder.symbols().get(alias).name.to_string()
+            }
+            Some(_) => return error,
+        };
         // The binder gives a type literal its own anonymous `__type` symbol,
         // whose members table is where a property access on this type looks.
         let members = node.node_id.and_then(|id| self.binder.symbol_of(id));
