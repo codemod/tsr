@@ -49,12 +49,17 @@
 //! this, not to read the two rows as independent causes.
 
 use rayon::prelude::*;
-use tsr_ast::Node;
 use tsr_checker::calls::counters;
 use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
 
 /// A count as a signed number, so a broken partition prints as negative
 /// rather than as an enormous positive.
+/// A share of a total, as a percentage.
+#[allow(clippy::cast_precision_loss)]
+fn share(count: u64, total: u64) -> f64 {
+    if total == 0 { 0.0 } else { 100.0 * (count as f64) / (total as f64) }
+}
+
 fn signed(count: u64) -> i64 {
     i64::try_from(count).expect("a corpus-sized count fits in an i64")
 }
@@ -62,6 +67,10 @@ fn signed(count: u64) -> i64 {
 fn main() {
     // Before anything is checked: the switch is read once and latched.
     counters::enable();
+
+    // One rayon thread makes the per-case deltas below meaningful; see there.
+    let concentrating = std::env::var_os("TSR_FUNNEL_CONCENTRATION").is_some();
+    let per_case: std::sync::Mutex<Vec<(u64, String)>> = std::sync::Mutex::new(Vec::new());
 
     let root = repo_root();
     let corpus = Corpus::from_repo_root(&root);
@@ -80,54 +89,50 @@ fn main() {
                 return 0;
             }
             let Ok(parsed) = case.load() else { return 0 };
-
-            for expected_file in &expected {
-                let Some(unit) = parsed.files.iter().find(|u| {
-                    tsr_conformance::binder_suite::same_unit(&u.name, &expected_file.file)
-                }) else {
-                    continue;
-                };
-                if tsr_parser::ScriptKind::from_file_name(&unit.name)
-                    == tsr_parser::ScriptKind::Json
-                {
-                    continue;
+            // The **same entry point the types suite scores**, which is the
+            // whole point of this shape. Until 2026-08-05 this example bound
+            // each unit alone with no program, so it ran with no lib files
+            // while the gradient ran with them; the first funnel's 12,015
+            // unresolved callees were measured under that mismatch. The
+            // assertions are thrown away — the counters are the output — but
+            // producing them is what drives the checker over every position
+            // the gradient scores.
+            let before = counters::snapshot().callee_not_anonymous;
+            let _ = types_producer::assertions_for_case(&parsed, &expected, false);
+            // Valid **only** single-threaded: the counters are process-wide, so
+            // a delta across a parallel region attributes other cases' calls to
+            // this one. Hence the concentration pass runs with one rayon
+            // thread, and the histogram pass — which needs no attribution —
+            // runs with all of them.
+            if concentrating {
+                let delta = counters::snapshot().callee_not_anonymous - before;
+                if delta > 0 {
+                    per_case
+                        .lock()
+                        .expect("no panic held the lock")
+                        .push((delta, case.name.clone()));
                 }
-                let arena = tsr_core::Arena::new();
-                let options = tsr_parser::ParseOptions {
-                    jsdoc: false,
-                    ..tsr_parser::ParseOptions::for_file(&unit.name)
-                };
-                let file = tsr_parser::parse_with_options(&arena, &unit.content, options);
-                let bound = tsr_binder::bind(
-                    file.source_file,
-                    &file.nodes,
-                    tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
-                );
-                let mut checker = tsr_checker::Checker::new(&bound, &file.nodes, &file.node_map);
-                // The assertions are thrown away — this probe reads the
-                // counters, not the lines. Producing them is what drives the
-                // checker over every position the gradient scores, which is the
-                // only way the funnel's denominator matches the corpus the
-                // types suite reports on.
-                types_producer::assertions_for_file(
-                    &Node::SourceFile(file.source_file),
-                    &unit.content,
-                    &file.nodes,
-                    &file.node_map,
-                    |id| {
-                        types_producer::type_at_location(
-                            &mut checker,
-                            &bound,
-                            &file.nodes,
-                            &file.node_map,
-                            id,
-                        )
-                    },
-                );
             }
             1
         })
         .sum();
+
+    if concentrating {
+        // Rank the **files** holding the population, not the rows. On one
+        // earlier row 9,999 of 11,363 lines sat in a single baseline and the
+        // whole workstream evaporated; `docs/conventions.md` makes this the
+        // first command, not the last.
+        let mut cases = per_case.into_inner().expect("no panic held the lock");
+        cases.sort_unstable_by_key(|(count, _)| std::cmp::Reverse(*count));
+        let total: u64 = cases.iter().map(|(count, _)| count).sum();
+        println!("callee-has-no-object-type by case: {total} over {} cases", cases.len());
+        for (count, name) in cases.iter().take(20) {
+            let share = share(*count, total);
+            println!("{count:>7}  {share:>5.1}%  {name}");
+        }
+        let top_ten: u64 = cases.iter().take(10).map(|(count, _)| count).sum();
+        println!("top 10 hold {:.1}%\n", share(top_ten, total));
+    }
 
     let counters = counters::snapshot();
     println!("cases: {counted_cases}\n");
@@ -148,6 +153,18 @@ fn main() {
         "{:<48}{:>8}",
         "UNATTRIBUTED (before selection)",
         signed(counters.call_expressions) - signed(pre_selection)
+    );
+    let classified = counters.callee_name_unresolved
+        + counters.callee_name_type_error
+        + counters.callee_name_not_object
+        + counters.callee_property_receiver_error
+        + counters.callee_property_receiver_typed
+        + counters.callee_element_access
+        + counters.callee_other_form;
+    println!(
+        "{:<48}{:>8}",
+        "UNCLASSIFIED (callee has no object type)",
+        signed(counters.callee_not_anonymous) - signed(classified)
     );
     let selection = counters.generic_candidate
         + counters.this_or_rest_parameter

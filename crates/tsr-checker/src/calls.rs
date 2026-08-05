@@ -44,6 +44,8 @@
 
 use tsr_ast::{CallExpression, Expression, TaggedTemplateExpression};
 
+use tsr_binder::SymbolFlags;
+
 use crate::calls::counters::{COUNTERS, bump};
 use crate::{
     checker::Checker,
@@ -172,6 +174,27 @@ pub mod counters {
         /// function *type node* in annotation position, an unresolved import,
         /// or a gap that already answered `error`.
         callee_not_anonymous = "  callee type is not an object type",
+        /// A bare identifier callee that `resolve_name` does not find at all.
+        /// With the bundled libs in the program this is a genuinely undeclared
+        /// name; without them it is mostly `parseInt`/`Math`-shaped globals.
+        callee_name_unresolved = "    identifier: no symbol",
+        /// A bare identifier callee whose symbol resolves and whose type is
+        /// `error` — the symbol exists and this port cannot type it.
+        callee_name_type_error = "    identifier: symbol types as error",
+        /// A bare identifier callee whose symbol resolves to a real, non-object
+        /// type. Upstream would report "not callable"; so would we.
+        callee_name_not_object = "    identifier: symbol types as a non-object",
+        /// `a.b()` where `a`'s own type is already `error` — the receiver is the
+        /// gap and the call is downstream of it.
+        callee_property_receiver_error = "    property access: receiver is error",
+        /// `a.b()` where `a` has a real type and the member lookup did not
+        /// produce an object type.
+        callee_property_receiver_typed = "    property access: receiver is typed",
+        /// `a[b]()`.
+        callee_element_access = "    element access",
+        /// Any other callee form: a call, a parenthesis, `this`, `new`, a
+        /// non-null assertion.
+        callee_other_form = "    another expression form",
         /// `get_signatures_of_symbol` answered `None` — the symbol's
         /// declarations are a shape it does not build signatures for.
         callee_no_signatures = "  callee symbol has no signature list",
@@ -215,6 +238,14 @@ pub mod counters {
         let _ = ENABLED.set(true);
     }
 
+    /// Whether counting is on. Public so a classifier that costs more than one
+    /// increment — [`crate::Checker::classify_unresolved_callee`] resolves a
+    /// name — can be skipped entirely when it is off.
+    #[must_use]
+    pub fn counting() -> bool {
+        enabled()
+    }
+
     /// Whether to count. Off by default so the checker's hot path is
     /// unchanged for every consumer that is not this probe.
     fn enabled() -> bool {
@@ -248,6 +279,15 @@ impl Checker<'_, '_> {
         }
         let Some(callee) = node.expression else { return error };
         let callee_type = self.check_expression(callee);
+        // Split the largest bucket in the funnel by *why* the callee has no
+        // object type. Done here rather than in `resolve_call_signature`
+        // because only this path has the callee **node**, and the question is
+        // about the expression that produced the type, not the type.
+        if counters::counting()
+            && !matches!(self.store.get(callee_type).data, TypeData::Anonymous { .. })
+        {
+            self.classify_unresolved_callee(callee, callee_type);
+        }
         let Some(signature) = self.resolve_call_signature(callee_type, Some(node.arguments)) else {
             return error;
         };
@@ -268,6 +308,57 @@ impl Checker<'_, '_> {
             return error;
         }
         signature.r#type
+    }
+
+    /// Attribute one `callee type is not an object type` to the shape of the
+    /// callee expression. Counting only; no answer depends on it.
+    ///
+    /// The buckets are a partition of the callee's *syntactic* shape crossed
+    /// with what this port produced for it, which is level 3 of
+    /// `docs/conventions.md`'s bucketing rule — our failure, not the syntax of
+    /// the question and not upstream's answer. The example that prints them
+    /// derives the unclassified remainder by subtraction; it is zero by
+    /// construction, and non-zero only if a callee form stopped matching here.
+    ///
+    /// Re-resolving the identifier is a second `resolve_name` for the same
+    /// node, which is why the whole call is behind [`counters::counting`]. It
+    /// answers the same thing `check_expression` already answered — the point
+    /// is that `check_expression` throws away *which* of "no symbol" and
+    /// "symbol with no type" produced its `error`, and that distinction is the
+    /// whole question.
+    fn classify_unresolved_callee(&mut self, callee: Expression<'_>, callee_type: TypeId) {
+        let error = self.intrinsics.error;
+        match callee {
+            Expression::Identifier(identifier) => {
+                let symbol = identifier.node_id.and_then(|id| {
+                    self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        id,
+                        identifier.text,
+                        SymbolFlags::VALUE,
+                    )
+                });
+                if symbol.is_none() {
+                    bump(&COUNTERS.callee_name_unresolved);
+                } else if callee_type == error {
+                    bump(&COUNTERS.callee_name_type_error);
+                } else {
+                    bump(&COUNTERS.callee_name_not_object);
+                }
+            }
+            Expression::PropertyAccessExpression(access) => {
+                let receiver =
+                    access.expression.map_or(error, |receiver| self.check_expression(receiver));
+                if receiver == error {
+                    bump(&COUNTERS.callee_property_receiver_error);
+                } else {
+                    bump(&COUNTERS.callee_property_receiver_typed);
+                }
+            }
+            Expression::ElementAccessExpression(_) => bump(&COUNTERS.callee_element_access),
+            _ => bump(&COUNTERS.callee_other_form),
+        }
     }
 
     /// The type of a tagged template: ``tag`a${b}c` ``.
@@ -337,8 +428,8 @@ impl Checker<'_, '_> {
     /// The single call signature of a type, or `None`.
     ///
     /// Ported from `getSignaturesOfType(t, SignatureKindCall)`
-    /// (`checker.go:21470`) followed by the part of `resolveCall`
-    /// (`checker.go:9563`) that is decidable without assignability: when there is
+    /// (`checker.go:18959`) followed by the part of `resolveCall`
+    /// (`checker.go:8843`) that is decidable without assignability: when there is
     /// exactly one candidate, resolution has nothing to choose and the answer is
     /// that candidate.
     ///
