@@ -315,6 +315,20 @@ struct Tally {
     /// is a question about where the lines actually are, not about which arm is
     /// most interesting.
     contextual_parameter_context: HashMap<String, usize>,
+    /// **Gap** lines owned by `FunctionTypeNode`, directly or transitively.
+    ///
+    /// `get_type_from_type_node` handles keyword, literal, parenthesised, type
+    /// reference, type literal and union nodes; a `FunctionTypeNode` falls to
+    /// `errorType`. That blocks contextual typing outright, and it also gaps
+    /// every annotation that *is* a function type, and every type literal that
+    /// contains a method or call signature -- `get_type_from_type_literal`
+    /// rejects the whole literal rather than printing members it does understand.
+    ///
+    /// Two questions, kept apart because they are different sizes of unblocking:
+    /// what the node owns **directly**, and what is behind it **transitively**.
+    function_type_gaps: HashMap<&'static str, usize>,
+    /// Every gap line, as the denominator.
+    gap_lines: usize,
     /// Wrong lines whose parent is a `QualifiedName`, by **grandparent** kind.
     ///
     /// 4,577 lines, the second-largest parent bucket and in no ranking. Two
@@ -380,6 +394,10 @@ impl Tally {
         for (k, v) in other.wrong_by_parent {
             *self.wrong_by_parent.entry(k).or_default() += v;
         }
+        for (k, v) in other.function_type_gaps {
+            *self.function_type_gaps.entry(k).or_default() += v;
+        }
+        self.gap_lines += other.gap_lines;
         for (k, v) in other.qualified_name_grandparent {
             *self.qualified_name_grandparent.entry(k).or_default() += v;
         }
@@ -426,6 +444,61 @@ fn symbol_of_identifier(
     binder
         .resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE)
         .or_else(|| binder.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
+}
+
+/// Whether this gap line is owned by `FunctionTypeNode`, and how.
+///
+/// Walks the *annotation* of the declaration behind the line. Direct means the
+/// annotation is a function or constructor type; transitive means the gap is a
+/// type literal carrying a signature member, or a function type nested inside
+/// the annotation. `None` means the gap is something else entirely, which is
+/// most of them and is why the denominator is printed beside the buckets.
+fn function_type_gap(
+    binder: &tsr_binder::BindResult<'_>,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    id: NodeId,
+) -> Option<&'static str> {
+    let symbol = symbol_of_identifier(binder, nodes, map, id)?;
+    let declaration = binder.symbols().get(symbol).value_declaration?;
+    let annotation = map.get(declaration)?.type_id()?;
+    let node = map.get(annotation)?;
+    if matches!(node, Node::FunctionTypeNode(_) | Node::ConstructorTypeNode(_)) {
+        return Some("DIRECT: the annotation is a function type");
+    }
+    // A type literal is rejected whole if any member is one this port cannot
+    // render, and a method or call signature is the commonest such member.
+    if let Node::TypeLiteralNode(literal) = node
+        && literal.members.iter().any(|m| {
+            matches!(
+                m,
+                tsr_ast::TypeElement::MethodSignatureDeclaration(_)
+                    | tsr_ast::TypeElement::CallSignatureDeclaration(_)
+                    | tsr_ast::TypeElement::ConstructSignatureDeclaration(_)
+            )
+        })
+    {
+        return Some("TRANSITIVE: type literal with a signature member");
+    }
+    // Anywhere deeper: `Array<(x: number) => void>`, `A | ((n: number) => void)`.
+    let mut stack = vec![node];
+    let mut children = Vec::new();
+    let mut depth = 0usize;
+    while let Some(current) = stack.pop() {
+        depth += 1;
+        // A cheap bound rather than a correctness guard: an annotation is not
+        // deep, and an unbounded walk over a hostile one is not worth the risk.
+        if depth > 512 {
+            break;
+        }
+        if matches!(current, Node::FunctionTypeNode(_) | Node::ConstructorTypeNode(_)) {
+            return Some("TRANSITIVE: a function type nested in the annotation");
+        }
+        children.clear();
+        tsr_ast::push_children(current, &mut children);
+        stack.extend(children.iter().copied());
+    }
+    None
 }
 
 /// Why a line we answered `any` should have been something else.
@@ -780,6 +853,12 @@ fn main() {
                     }
                     if got.type_string == "error" {
                         tally.gaps += 1;
+                        tally.gap_lines += 1;
+                        if let Some(bucket) =
+                            function_type_gap(&bound, &file.nodes, &file.node_map, ids[position])
+                        {
+                            *tally.function_type_gaps.entry(bucket).or_default() += 1;
+                        }
                         continue;
                     }
                     tally.wrong += 1;
@@ -1068,6 +1147,20 @@ fn report(total: &Tally, arms: &[Cause]) {
     for (count, kind) in rows.iter().take(12) {
         println!("  {kind:<42} {count:>8}  {:>6.2}%", pct(*count, ctx_total));
     }
+
+    println!("\n--- GAP LINES OWNED BY `FunctionTypeNode` ---");
+    println!("  all gap lines                               {:>9}", total.gap_lines);
+    let ft_total: usize = total.function_type_gaps.values().sum();
+    let mut rows: Vec<_> = total.function_type_gaps.iter().map(|(k, v)| (*v, *k)).collect();
+    rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (count, bucket) in &rows {
+        println!("  {bucket:<46} {count:>8}  {:>6.2}% of gaps", pct(*count, total.gap_lines));
+    }
+    println!(
+        "  {:<46} {ft_total:>8}  {:>6.2}% of gaps",
+        "TOTAL owned by FunctionTypeNode",
+        pct(ft_total, total.gap_lines)
+    );
 
     println!("\n--- THE QualifiedName POPULATION, BY GRANDPARENT ---");
     println!(
