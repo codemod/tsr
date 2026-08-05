@@ -323,12 +323,15 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.error;
         }
         let target = self.resolve_alias(symbol);
+        // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
+        // stack-overflow guard, not a nicety. It is taken over
+        // [`Checker::get_symbol_flags`] rather than over the raw flags because
+        // upstream's is: `c.getSymbolFlags(targetSymbol)&SymbolFlagsValue`, and
+        // an alias's own flags carry no `VALUE` bit, so `export { a }` naming
+        // `import a = N` would fail a raw test on a symbol that plainly has a
+        // type.
         let computed = match target {
-            // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
-            // stack-overflow guard, not a nicety.
-            Some(target)
-                if self.binder.symbols().get(target).flags.intersects(SymbolFlags::VALUE) =>
-            {
+            Some(target) if self.get_symbol_flags(target).intersects(SymbolFlags::VALUE) => {
                 self.get_type_of_symbol(target)
             }
             _ => self.intrinsics.error,
@@ -336,6 +339,63 @@ impl<'a> Checker<'a, '_> {
         let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
         self.symbol_types.insert(symbol, computed);
         computed
+    }
+
+    /// A symbol's flags, **following the alias chain**.
+    ///
+    /// Ported from `Checker.getSymbolFlagsEx` (`checker.go:16367`) with both of
+    /// its exclusion flags left `false`, which is what `getSymbolFlags`
+    /// (`checker.go:16363`) passes and the only form this port reaches.
+    ///
+    /// # Why a symbol's own flags are not the answer
+    ///
+    /// `SymbolFlags::ALIAS` is disjoint from `SymbolFlags::VALUE`, so a raw
+    /// flags test on an alias target says "no value" for `export { a }` naming
+    /// `import a = N` — a namespace that plainly has the type `typeof N`.
+    /// Upstream's `getTypeOfAlias` (`checker.go:18612`) takes its `Value` test
+    /// over *this* function precisely so that a chain of aliases contributes the
+    /// meaning of whatever it ends at.
+    ///
+    /// # The visited set is upstream's, not a local invention
+    ///
+    /// `seenSymbols` (`checker.go:16368`) is what stops `import a = b; export {
+    /// a }` style chains from looping, and it is needed here for the same reason
+    /// and not as a defensive cap: this port's `resolutions` stack keys on
+    /// `PropertyName`, which has no `AliasTarget` variant
+    /// (`crate::resolution::PropertyName`) and adding one would be a change to a
+    /// file this slice does not own. Upstream's own guard is therefore the one
+    /// ported, which is the better outcome anyway.
+    ///
+    /// # One divergence, and it is in the safe direction
+    ///
+    /// When `resolveAlias` yields `unknownSymbol`, upstream returns
+    /// `SymbolFlagsAll` — every meaning, so the caller proceeds. There is no
+    /// `unknownSymbol` here and [`Checker::resolve_alias`] answers `None`
+    /// instead, which stops the walk and leaves the flags at what was
+    /// accumulated. `getTypeOfAlias`'s `Value` test then fails and the answer is
+    /// `errorType`: a gap rather than a claim. Returning "all meanings" for a
+    /// target we could not find would send `get_type_of_symbol` a symbol that
+    /// does not exist.
+    fn get_symbol_flags(&mut self, symbol: SymbolId) -> SymbolFlags {
+        let mut seen: Vec<SymbolId> = Vec::new();
+        let mut current = symbol;
+        let mut flags = self.binder.symbols().get(current).flags;
+        while self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
+            let Some(target) = self.resolve_alias(current) else { break };
+            let target_flags = self.binder.symbols().get(target).flags;
+            if target_flags.intersects(SymbolFlags::ALIAS) {
+                if target == current || seen.contains(&target) {
+                    break;
+                }
+                if seen.is_empty() {
+                    seen.push(current);
+                }
+                seen.push(target);
+            }
+            flags |= target_flags;
+            current = target;
+        }
+        flags
     }
 
     /// The symbol an alias names, for the forms that resolve inside one file.
@@ -381,11 +441,29 @@ impl<'a> Checker<'a, '_> {
     /// **`ExternalModuleReference` answers `None` deliberately** — see
     /// [`Checker::get_type_of_alias`] for why that is `bd tsr-9or.1` and not
     /// this module's to close.
+    ///
+    /// # `export { q }` is the other form that resolves in one file
+    ///
+    /// `getTargetOfAliasDeclaration` (`checker.go:15736`) dispatches on the
+    /// alias declaration's kind, and its `KindExportSpecifier` case reaches
+    /// `getTargetOfExportSpecifier` (`checker.go:14951`). That function branches
+    /// on **the export declaration's module specifier**, not on the specifier
+    /// itself: with one, it is `getExternalModuleMember`; without one, it is a
+    /// plain `resolveEntityName` in the ordinary scope. `export { q }` is
+    /// therefore a *local* lookup, and the only thing that made it look like
+    /// module work was sharing a node kind with `export { q } from "./m"`.
+    ///
+    /// See [`Checker::export_specifier_target`] for the measurement and for the
+    /// two forms that stay gapped.
     fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+        if self.nodes.kind(declaration) == SyntaxKind::ExportSpecifier {
+            return self.export_specifier_target(declaration);
+        }
         let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
-            // Every other alias form — ES import clauses, export specifiers,
-            // `export =` — reaches its target through module resolution.
+            // Every other alias form — ES import clauses, `export =`, and an
+            // export specifier that names a module — reaches its target through
+            // module resolution.
             return None;
         };
         match node.module_reference? {
@@ -426,6 +504,77 @@ impl<'a> Checker<'a, '_> {
             // Closing one does nothing for the other.
             ModuleReference::QualifiedName(_) | ModuleReference::ExternalModuleReference(_) => None,
         }
+    }
+
+    /// The symbol an **export specifier** names, for the half that resolves
+    /// inside one file.
+    ///
+    /// Ported from `Checker.getTargetOfExportSpecifier` (`checker.go:14951`),
+    /// reached from `getTargetOfAliasDeclaration`'s `KindExportSpecifier` case
+    /// (`checker.go:15751`), which is also where the meaning comes from:
+    /// `SymbolFlagsValue | SymbolFlagsType | SymbolFlagsNamespace`.
+    ///
+    /// # The branch is on the *export declaration*, not on the specifier
+    ///
+    /// Upstream's three cases are, in order: a module specifier on the
+    /// grandparent `ExportDeclaration` (`getExternalModuleMember` — module
+    /// resolution, which this port does not have); a string-literal name
+    /// (`resolved = nil`); otherwise `resolveEntityName` in the ordinary scope.
+    ///
+    /// So `export { q }` and `export { q } from "./m"` share a node kind and
+    /// nothing else, and only the second needs a module graph. That is the
+    /// entire finding behind this arm: a row named `SymbolFlags(ALIAS) / no
+    /// value declaration` reads as module work, and **19.4% of it was a local
+    /// name lookup** (`docs/architecture/checker-notes-symbols.md`).
+    ///
+    /// # What it deliberately does not do
+    ///
+    /// - **`ModuleExportName::StringLiteral`** — `export { "a-b" as c }` —
+    ///   answers `None`, which is upstream's `resolved = nil` and not a gap.
+    /// - **`resolveIndirectionAlias`.** Upstream passes `dontRecursivelyResolve
+    ///   = true` here and then takes a second step in `resolveAlias`
+    ///   (`checker.go:16280`) when the target is itself a pure alias. This
+    ///   returns the symbol it found, and the chain is followed one level up
+    ///   instead: [`Checker::get_symbol_flags`] walks it for the `VALUE` test
+    ///   and [`Checker::get_type_of_symbol`] re-enters
+    ///   [`Checker::get_type_of_alias`] for the type. Both ends of that were
+    ///   needed — a raw flags test rejects an alias target before the type is
+    ///   ever asked for, which is what made `export { a }` naming
+    ///   `import a = N` answer `errorType` in the first draft of this arm.
+    /// - **No meaning filter after the lookup.** The `import a = b` arm above
+    ///   needs one because it resolves in `NAMESPACE` alone while
+    ///   `Binder::resolve_name`'s `locals` lookup is not meaning-filtered. Here
+    ///   upstream's meaning is `Value | Type | Namespace`, which every symbol a
+    ///   local lookup can return already satisfies, so a filter would be
+    ///   decoration. `get_type_of_alias`'s own `SymbolFlags::VALUE` test
+    ///   (`checker.go:18612`) is what makes `export { I }` for an interface
+    ///   answer `errorType` — and that is the *right* answer to compute, even
+    ///   though upstream prints `errorType` as `any` and this port reports it as
+    ///   a gap.
+    fn export_specifier_target(&mut self, declaration: NodeId) -> Option<SymbolId> {
+        let Node::ExportSpecifier(specifier) = self.node_map.get(declaration)? else {
+            return None;
+        };
+        // The grandparent is the `ExportDeclaration`: specifier -> NamedExports
+        // -> ExportDeclaration. Its module specifier is the whole test.
+        let clause = self.nodes.parent(declaration)?;
+        let export = self.node_map.get(self.nodes.parent(clause)?)?;
+        let Node::ExportDeclaration(export) = export else { return None };
+        if export.module_specifier.is_some() {
+            return None;
+        }
+        // `node.PropertyNameOrName()`: `export { q as r }` looks up `q`.
+        let name = match specifier.property_name.or(specifier.name)? {
+            tsr_ast::ModuleExportName::Identifier(name) => name,
+            tsr_ast::ModuleExportName::StringLiteral(_) => return None,
+        };
+        self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            name.node_id?,
+            name.text,
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+        )
     }
 
     /// The type of an enum member symbol.
