@@ -27,11 +27,17 @@
 > two items are genuinely related — `tsr-4qx` step 3 pulls in `tsr-el3.2`'s
 > `instantiationDepth` guard — which is exactly why the confusion survived.
 
-Status: designed 2026-08-05, **no production code changed**. Written for the
-item `bd tsr-4qx` names and that
+Status: living, 2026-08-05. **Steps 1 and 2 are built** and change no answer;
+**steps 3 and 4 are not built** and `bd tsr-4qx` is parked on a measurement —
+level 4 says closing all 929 nodes finishes zero cases at today's tip. The
+original status line read *"designed, no production code changed"*, which was
+true when this page was written and is kept here as the record of that.
+
+Written for the item `bd tsr-4qx` names and that
 [`checker-notes-recv.md`](checker-notes-recv.md) demonstrated is the blocker for
-the 557 typed-receiver calls. The finding below is why this agent did not build
-it, stated so the next one starts from the seam rather than from the symptom.
+the typed-receiver calls — **not** for the 557, as the first correction above
+records. The finding below is why the first agent did not build it, stated so the
+next one starts from the seam rather than from the symptom.
 
 ## The one-line finding
 
@@ -426,10 +432,11 @@ lines**, scored by `types_suite::compare` — the same function the gate uses, s
 the denominator is the gradient's by construction. The instrument is described in
 [the level-4 section](#level-4-the-instrument-and-what-each-outcome-means).
 
-**Until it runs, `bd tsr-4qx` is parked with the measurement attached.** Not
-rejected — parked, which is a different claim and the honest one: the mechanism
-is confirmed, the ranking is against it for the current goal, and the one number
-that could rank it *for the other* goal has not been taken.
+**`bd tsr-4qx` is parked with the measurement attached.** Not rejected — parked,
+which is a different claim and the honest one: the mechanism is confirmed, the
+ranking is against it for the current goal, and — since level 4 ran — the case
+goal is measured against it too. **It ran; see
+[Level 4 ran, and the answer is zero](#level-4-ran-and-the-answer-is-zero).**
 
 ### Level 4: the instrument, and what each outcome means
 
@@ -486,6 +493,91 @@ population**, so their four rows in the "ten largest" table are worth more than
 the aggregate. If `promiseType` shows 122 nodes against several hundred remaining
 failures, half this item finishes nothing whatever the histogram says, and that
 single line should override the percentage above.
+
+#### Level 4 ran, and the answer is zero
+
+Measured at `0cd9e22` with the patch applied, single-threaded, isolated
+worktree, one pinned binary. `UNBUCKETED` reads **0**, and the six buckets sum
+to 225 exactly.
+
+```text
+remaining failing assertion lines per affected case:
+      0    0.0%  0 (nothing else fails)
+     24   10.7%  1-5
+     43   19.1%  6-10
+     68   30.2%  11-25
+     62   27.6%  26-100
+     28   12.4%  more than 100
+median remaining 18, mean 78.8
+
+the ten largest, and what else is broken in them:
+    122 nodes   787 of 1217 lines still fail (35.3% right)  compiler/promiseType
+    122 nodes   734 of 1187 lines still fail (38.2% right)  compiler/promiseTypeStrictNull
+     65 nodes   460 of  970 lines still fail (52.6% right)  compiler/promisePermutations
+     65 nodes   448 of  949 lines still fail (52.8% right)  compiler/promisePermutations2
+     65 nodes   447 of  949 lines still fail (52.9% right)  compiler/promisePermutations3
+     36 nodes   235 of  363 lines still fail (35.3% right)  compiler/controlFlowArrays
+     20 nodes    69 of  130 lines still fail (46.9% right)  compiler/mapUpsert
+     17 nodes   204 of  493 lines still fail (58.6% right)  compiler/staticAnonymousTypeNotReferencingTypeParameter
+     12 nodes   210 of  361 lines still fail (41.8% right)  compiler/inferFromGenericFunctionReturnTypes2
+     11 nodes    69 of  116 lines still fail (40.5% right)  compiler/controlFlowArrayErrors
+```
+
+**The number that settles it is the first row, and neither threshold below
+names it: `0 cases, 0.0%, nothing else fails`.** Not "few" — zero. Closing all
+929 nodes at today's tip finishes **no case whatsoever**, and the median
+affected case carries 18 other failing lines. That is the case question
+answered as flatly as it can be, and it does not depend on where anyone drew a
+line, which is what makes it worth more than either clause of the rule.
+
+So **`bd tsr-4qx` stays parked, and the grounds have changed.** It is no longer
+"the wrong shape for the current goal" — a ranking claim, contingent on the goal
+— but **"it finishes zero cases at today's tip"**, which is a measurement. The
+second is a stronger and narrower statement and it is the one that should be
+quoted.
+
+#### The rule fired both ways, and that is the part worth keeping
+
+Applied as written, without adjustment:
+
+| clause | measured | verdict |
+|---|---|---|
+| **primary**: ≥25% of the 225 at ≤10 remaining → build | 24 + 43 = **67 of 225 = 29.8%** | **met** |
+| **override**: `promiseType` at "several hundred" remaining → half the item finishes nothing whatever the histogram says | **787**, and 734 / 460 / 448 / 447 for the other four | **fired** |
+
+**The override wins, and the primary threshold was met and overridden.** That is
+recorded deliberately: a rule that can only ever fire one way is not a rule, it
+is a conclusion with a threshold drawn around it. The primary clause on its own
+would have licensed a build that finishes nothing, and the only thing standing
+between this page and that outcome is a sentence written before the number
+existed. Every one of the `Promise` five is "several hundred", the smallest by a
+factor of four.
+
+#### Two caveats, one load-bearing and one untested
+
+- **`remaining` over-estimates**, as this page said before the run: `compare` is
+  positional, so one early gap costs every line after it, and the true reading is
+  somewhat kinder than 0.0%. **It cannot be kind enough to matter.**
+  `promiseType` needs 787 lines and holds 122 nodes; 122 nodes cannot be most of
+  787 however the positional bias falls. A caveat that would change the sign is
+  worth chasing; one that cannot is worth stating and setting down.
+- **"Few remaining failures is necessary, not sufficient" was never tested**,
+  because the necessary condition failed first. It is kept rather than dropped —
+  the next item that *passes* the histogram will need it, and a caveat retired
+  because it went unused is a caveat that has to be rediscovered.
+
+#### What this page got wrong about its own instrument
+
+The bucket that answered the question — `0 (nothing else fails)` — was in the
+histogram this page specified, and the decision rule this page pre-registered
+**did not look at it**. The rule reasoned from "≤10 remaining is roughly what
+4.13 nodes could finish" and set a percentage threshold, when the direct
+question "how many of these cases would this fix *complete*" had a bucket of its
+own sitting one row above. Building the right instrument and then reading the
+wrong row off it is a distinct failure from building the wrong instrument, and it
+is only visible because the override happened to catch the same thing by a
+different route. **Pre-register on the most direct bucket the instrument
+produces, not on a proxy derived from it.**
 
 #### The smoke run, and why its numbers are not the answer
 
