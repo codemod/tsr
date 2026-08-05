@@ -710,3 +710,27 @@ earlier gates it.
 This is the same family as the three-level bucketing rule: a count over the
 syntax, a count over upstream's answers, and a count over *our* failure are all
 true, and only the last predicts movement.
+
+### A row named after a symbol flag is usually not about that flag
+
+Three separate histogram rows this cycle turned out to live in the same place —
+`get_type_of_symbol`'s dispatch — and each was a **missing `match` arm rather
+than missing machinery**:
+
+| row | what it looked like | what it was |
+|---|---|---|
+| `SymbolFlags(EXPORT_VALUE) / no value declaration` | exports need module plumbing | the binder's local marker carries no value flag, so no arm matches |
+| `SymbolFlags(PROPERTY) / PropertyAssignment / initialiser …` | object literals are unported | the literal's type is already right; the *member symbol* has no arm |
+| `SymbolFlags(ALIAS) / no value declaration` | aliases need module resolution | true cross-file, false for the same-file half |
+
+**Each time the row's name pointed at the wrong step, because the lookup already
+worked.** `get_property_of_type` found the member; the literal printed
+correctly; the symbol resolved. What failed was the step after, and the row name
+named the step before it.
+
+So: **before believing a row named after a symbol flag or a declaration kind is
+about what it says, read that dispatch.** Three diagnoses this cycle would have
+been shorter, and one wrong recommendation avoided entirely.
+
+The general form is the three-level rule again — the row name describes the
+*question*, and only reading the code says which step answers it.
