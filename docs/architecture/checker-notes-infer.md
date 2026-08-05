@@ -192,3 +192,18 @@ which is already interned per symbol, so the comparison is `TypeId` equality.
   place in this module that can produce a wrong answer rather than a gap; the
   identity and position logic can only fail closed.
 - If a line prints `number` where the baseline says `1`, widening crept in.
+
+## Superseded: substitution did not need a type-representation change
+
+This file previously stated that substituting into `T[]` and `C<T>` requires
+changing the type representation. **That is wrong**, and the correction is in
+`checker-notes-subst.md`.
+
+`create_type_reference` already interns on `(symbol, arguments)` — the pair
+exists as the intern map's *key*, so it was merely unreachable from a `TypeId`.
+A reverse index makes it reachable, which is the ordinary ADR-0003 side-table
+move rather than a model change. Shipped in `c0dc2fc`, closing `T[]` and `C<T>`
+for both the written and inferred paths through one substitution.
+
+Recorded here because a superseded claim left standing is how a limitation
+outlives its own fix — the failure this session catalogued four times.
