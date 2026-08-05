@@ -291,6 +291,43 @@ comments are common in real source and absent from hand-written tests, which is
 the whole argument for the corpus gate. There are now five trivia regression tests
 covering it (`crates/tsr-scanner/tests/scan.rs`).
 
+## Stack, and why it is a budget rather than a mechanism
+
+Peak RSS above is heap. Stack is a separate resource with a separate failure mode: it
+is fixed at thread spawn, cannot grow at all on wasm, and overflowing it aborts the
+process rather than producing a diagnostic. Upstream has nothing to port here — Go's
+runtime grows a goroutine's stack to 1 GiB transparently — so the policy is decided
+from first principles in
+[ADR-0029](../adr/0029-stack-discipline-is-guards-plus-a-budget.md).
+
+Measured with `examples/stack_depth.rs`, smallest surviving power-of-two stack at
+nesting depth 5,000 (so each cell is within 2×):
+
+| shape | parse (debug / release) | parse+bind (debug / release) |
+|---|---|---|
+| `a + a + a …` | 256 KiB / 256 KiB | **4 MiB / 4 MiB** |
+| `((((…))))` | 1 MiB / 256 KiB | **8 MiB / 4 MiB** |
+| `Array<Array<…>>` | 1 MiB / 256 KiB | 4 MiB / 4 MiB |
+| nested conditional types | 4 MiB / 1 MiB | 4 MiB / 2 MiB |
+
+Three things to read out of this:
+
+- **The binder is the consumer, not the parser.** `a + a + a …` is parsed
+  iteratively by precedence climbing, so the parser's `MAX_DEPTH` guard never fires —
+  but the tree is 5,000 deep and the binder walks it recursively with no guard. 256 KiB
+  to parse, 4 MiB to parse and bind.
+- **wasm's 1 MiB default already fails on a real corpus case.** That shape is
+  `compiler/binderBinaryExpressionStress`, ~4,971 operands.
+- **Native stack costs nothing measurable.** A thread stack is virtual, committed
+  lazily per page; every RSS figure in this document was taken under the harness's
+  32 MiB × N-worker pool. On wasm the stack lives *in linear memory* and is paid from
+  instantiation, which is the asymmetry that decided the policy.
+
+**Stack does not scale with codebase size.** It scales with nesting inside a single
+file — the corpus's deepest *real* nesting is 69 (`parser.rs:199`). A larger project
+means more files, hence more heap and more parallelism, not more stack. The
+pathological inputs are single-file artefacts.
+
 ## Is the comparison fair? — audited both directions
 
 typescript-go's `BenchmarkParse` calls `parser.ParseSourceFile` and nothing else:

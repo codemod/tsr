@@ -1,8 +1,27 @@
 # ADR-0028 — A stack policy is needed before the checker, and the choice is open
 
-Status: **proposed** — the options are measured, the decision is not made
-Date: 2026-08-05
-Upstream pinned at `5b1047d10`.
+- **Status:** **superseded** by [ADR-0029](0029-stack-discipline-is-guards-plus-a-budget.md)
+- **Date:** 2026-08-05
+- Upstream pinned at `5b1047d10`.
+
+> **This ADR recommended the wrong option, on a false premise, and is kept for
+> that reason.** It recommended growing the stack on demand (`stacker`) and called
+> it "the faithful option". Two things were wrong:
+>
+> 1. **It read as though upstream did something like this. Upstream does nothing.**
+>    `stacker` is a Rust crate; typescript-go has no stack-management dependency in
+>    `go.mod` and no explicit stack sizing anywhere. Go's runtime grows a goroutine's
+>    stack transparently, so upstream never had to decide. "Faithful" here meant
+>    faithful to Go's *runtime*, not to upstream's *code* — a distinction this ADR
+>    blurred while proposing a new dependency.
+> 2. **Its measurements do not isolate what it claims.** The `parse` column reports
+>    what an input of a given nesting *costs*, not what recursion of that depth
+>    costs, because `parser.rs` already caps recursion at `MAX_DEPTH = 192`. That
+>    guard existed before this ADR was written and it went unmentioned.
+>
+> [ADR-0029](0029-stack-discipline-is-guards-plus-a-budget.md) has the corrected
+> analysis and the decision taken. The measured table below is still valid as
+> "what these inputs cost" and is reused there.
 
 ## Context
 

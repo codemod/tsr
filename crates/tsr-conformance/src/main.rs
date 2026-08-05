@@ -58,12 +58,18 @@ use tsr_conformance::{
 /// four shapes, in release as well as debug.** The original measurement tested one
 /// corpus case, whose shape happens to be the one the parser loops over.
 ///
-/// Upstream does not need any of this. Go grows a goroutine's stack on demand up to
-/// 1 GiB, so recursing 5,000 deep costs it nothing; a Rust thread's stack is fixed
-/// at spawn. That is a difference between the languages rather than between the two
-/// implementations, and it is why a port has to size this explicitly — and why the
-/// checker, which recurses deeper than anything measured here, needs a policy before
-/// it is written rather than after. `bd tsr-el3`.
+/// Upstream does not need any of this, and has nothing to port: Go's runtime grows a
+/// goroutine's stack on demand to 1 GiB, so recursing 5,000 deep costs it nothing.
+/// A Rust thread's stack is fixed at spawn, and wasm cannot grow one at all. That is
+/// a difference between the languages rather than between the two implementations.
+///
+/// **32 MiB is oversized under the policy now adopted**
+/// ([ADR-0029](../../../docs/adr/0029-stack-discipline-is-guards-plus-a-budget.md)):
+/// depth guards on recursive tree walks do the bounding, and the stack budget is
+/// headroom behind them at 8 MiB. This constant should come down to that once the
+/// binder and printer guards land, so the suites exercise the guards rather than
+/// hiding behind a stack no consumer has. Reducing it before then would re-break the
+/// debug run. `bd tsr-el3`.
 const WORKER_STACK: usize = 32 * 1024 * 1024;
 
 fn main() -> Result<()> {

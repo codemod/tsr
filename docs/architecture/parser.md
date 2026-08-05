@@ -2,7 +2,7 @@
 
 **Crate:** `tsr-parser`
 **Ported from:** `vendor/typescript-go/internal/parser/parser.go`
-**Conformance:** `parser_typescript` 4,999/5,031 (99.36%)
+**Conformance:** `parser_typescript` 5,000/5,031 (99.38%)
 
 ## Shape
 
@@ -33,8 +33,21 @@ synthesised from a token it could not use — and keeping it would add a zero-wi
 statement *and* spin the loop forever. A `debug_assert` caught exactly that on
 input `@@@`.
 
-A depth guard (`MAX_DEPTH`, 512) turns pathological nesting into a diagnostic
-rather than a stack overflow, which a language service cannot recover from.
+A depth guard turns pathological nesting into a diagnostic rather than a stack
+overflow, which a language service cannot recover from. **`MAX_DEPTH` is 192**, not
+the 512 this document claimed until 2026-08-05: 512 was the original value and was
+lowered when the expression parser grew and a 2,000-paren input overflowed in debug
+anyway. For scale, the corpus's deepest *real* nesting is 69.
+
+Upstream has no such guard — Go grows a goroutine's stack on demand — so this is a
+deliberate divergence, and it is one half of the policy in
+[ADR-0029](../adr/0029-stack-discipline-is-guards-plus-a-budget.md). The other half is
+the gap it does *not* cover: `a + a + a …` is parsed **iteratively** by precedence
+climbing, so `descend()` never fires, yet the tree is as deep as the chain is long and
+consumers walk it recursively. Parsing
+`compiler/binderBinaryExpressionStress` costs 256 KiB of stack; parsing *and binding*
+it costs 4 MiB. The guard protects the parser from its own recursion and leaves the
+binder, printer and checker exposed to the trees it legitimately produces.
 
 ## Backtracking, and the trap in it
 

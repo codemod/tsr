@@ -52,7 +52,7 @@ because they consult original positions; and no precedence table, because
 ## The gate, and why it needs no baselines
 
 ```
-printer_round_trip   11,670/11,726   99.52%
+printer_round_trip   11,679/11,735   99.52%
 ```
 
 Parse → print → reparse → compare trees. The printer is correct when the *tree*

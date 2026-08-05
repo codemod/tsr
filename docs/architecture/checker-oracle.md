@@ -16,7 +16,7 @@ sessions by PLAN.md's estimate. Starting that without a gate means months of wor
 before the first honest number.
 
 Nothing in this repository currently measures a type. `binder_symbols` reads
-97.98% and that is *symbol tables* — name resolution, declaration merging, scope
+98.03% and that is *symbol tables* — name resolution, declaration merging, scope
 walking. A checker can be arbitrarily wrong while every symbol resolves.
 
 This repository keeps relearning that the instrument comes first:
@@ -97,6 +97,8 @@ was never checking for varied `.symbols` at all.
 **Its pass rate was not affected**, and that was checked rather than assumed: no
 case in the corpus has both a plain and a varied baseline, so no case was ever
 judged against an arbitrary configuration. 8,278/8,449 before the fix and after.
+(The denominator has since moved to 8,457 as previously unparseable units entered the
+suite; see ADR-0026 and ADR-0027.)
 What was wrong was the breakdown — 2,321 cases reported as "upstream recorded no
 baseline" when 1,397 of them were varied, which overstates how much of the corpus
 upstream never ran.
@@ -135,16 +137,47 @@ Those are unblocked by the checker and ours to fix today.
 Both were invisible to the suites that ostensibly cover those components, and for
 structural reasons rather than by oversight:
 
-- `binder_symbols` (97.98%) compares symbol **resolution** against `.symbols`. A
+- `binder_symbols` (98.03%) compares symbol **resolution** against `.symbols`. A
   binder can resolve every name correctly and still invent 395 duplicate-identifier
   errors, because it never raises them into that comparison.
-- `parser_typescript` (99.36%) judges whether a file parses **cleanly** and skips
+- `parser_typescript` (99.38%) judges whether a file parses **cleanly** and skips
   the 7,413 cases that legitimately contain parse errors — so *which* errors we
   report in exactly the cases designed to produce errors was never compared.
 
 That is the argument for this suite in one paragraph: a component-shaped gate
 measures the component's model, and only an output-shaped gate measures what
 ships.
+
+## Three things to know before trusting either number
+
+Learned 2026-08-05, while using both suites to fix five binder defects. All three
+are properties of the instruments, not of the compiler.
+
+**1. `checker_types`'s judging path has never executed.** All 9,538 cases are
+classified `Unsupported`, so the comparison code has run zero times. The `.types`
+baseline *parser* has four unit tests; the suite that consumes it has none. A suite
+that has only ever reported 0% is as unproven as one that reads 100% on its first run
+— the failure this project already hit with `file_loader`, which read 76/76 until four
+deliberate mutations were applied to the code under test. **The first time this suite
+is non-zero, mutate it before believing it:** feed deliberately wrong types and confirm
+it goes red.
+
+**2. `diagnostics` is capped at 90.9%, permanently, until the parser is fixed.** 500
+of its 5,488 judged cases carry a diagnostic *we* emit and upstream does not — 2,675
+parser/scanner over-reports and 126 binder ones, measured by
+`examples/over_reports.rs`. The checker cannot remove those: a false positive from an
+earlier stage sits underneath the checker's output. So a rising number will look
+better than it is, and ~9 points of it are unreachable. `bd tsr-pum.11`.
+
+**3. `binder_symbols` is a weak instrument for symbol-table defects.** It sat at
+8,278 through three separate defects that merged unrelated declarations into a single
+symbol — a class's type parameters, static versus instance members, and block-scoped
+declarations. Its `.symbols` baselines do not distinguish those. **A flat
+`binder_symbols` is not evidence that a symbol-table change is safe.** What caught all
+three was a diagnostic they happened to produce, bucketed by declaring construct
+(`examples/ts2300_constructs.rs`); what pins them now is unit tests in
+`crates/tsr-binder/tests/bind.rs`, each verified to fail with its fix reverted. See
+[binder.md](binder.md).
 
 ## What is still missing for Phase 4
 
