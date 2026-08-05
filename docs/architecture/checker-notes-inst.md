@@ -361,6 +361,142 @@ the honest scope statement differs between "a 929-node gradient item" and "five
 `Promise` baselines and a long tail", and the second is a workstream rather than
 a slice.
 
+### The concentration ran, the branch fired, and the verdict is case-gate
+
+Measured at `d59bee2` plus the `concentrated()` arm at `9e34f3c`, single-threaded
+in an isolated worktree:
+
+```text
+concentration by case: 929 over 225 cases
+    122   13.1%  compiler/promiseType
+    122   13.1%  compiler/promiseTypeStrictNull
+     65    7.0%  compiler/promisePermutations
+     65    7.0%  compiler/promisePermutations2
+     65    7.0%  compiler/promisePermutations3
+     36    3.9%  compiler/controlFlowArrays
+     20    2.2%  compiler/mapUpsert
+     17    1.8%  compiler/staticAnonymousTypeNotReferencingTypeParameter
+     12    1.3%  compiler/inferFromGenericFunctionReturnTypes2
+     11    1.2%  compiler/controlFlowArrayErrors
+top ten hold 57.6%
+```
+
+Against the parent 1,011: **225 cases against 253, top ten 57.6% against 53.0%,
+4.13 nodes per affected case against 4.0.** The `Promise` five hold 439 of 929 —
+**47.3%**, up from 43.4% in the parent. The 929 does not merely inherit the
+parent's shape, it is *marginally more concentrated* than it.
+
+The pre-registered branch was: *"if the 929 lands at roughly 250 cases and
+top-ten ~53%, it is the parent's shape and I will call it a case-gate item and
+say so plainly, gradient goal or not."* It landed there and closer than the
+threshold required, so:
+
+> **`bd tsr-4qx` is a case-gate item, not a gradient item — and the stated goal
+> is a gradient.** 4.13 nodes per affected case across 225 files is the
+> narrow-and-deep signature `docs/conventions.md` says to rank *for cases* and
+> *against* the gradient. It is the same verdict `checker-notes-calls.md` reached
+> for the parent 1,011, reached independently one level down, and it does not
+> change because the number underneath it is large.
+
+Recording it that way is the point. A 929-node row with a zero control and a
+sufficiency demonstration behind it is the most persuasive-sounding thing on this
+board, and the concentration is the only instrument that says persuasive is not
+the same as well-aimed. This is the second time this cycle a large-sounding row
+has been refused on this page; the first was the 557 itself.
+
+**What this does not say.** It is a statement about *ranking*, not about
+correctness. The mechanism is real, the control bucket is zero, and
+`checker-notes-recv.md` demonstrated sufficiency on the shape. Nothing here
+argues step 4 is wrong — only that "929 nodes" is not a reason to build it this
+cycle when the goal is the gradient.
+
+### And the concentration still does not settle it, because it is level 3
+
+The three levels the concentration speaks to predict **lines**. Level 4 predicts
+**cases**, and it is the level that actually ranks a case-gate item:
+929 nodes in 225 files is a good case-gate target *only if those files are
+otherwise nearly clean*. If `promiseType` carries four hundred other failing
+assertion lines, flipping its 122 nodes finishes nothing, and a case-gate item
+that flips no cases is worth less than the gradient item it was refused in favour
+of.
+
+That is `bd tsr-g27`, filed and never run, and it is one extra bucket in the
+probe already built: for each affected case, the **remaining failing assertion
+lines**, scored by `types_suite::compare` — the same function the gate uses, so
+the denominator is the gradient's by construction. The instrument is described in
+[the level-4 section](#level-4-the-instrument-and-what-each-outcome-means).
+
+**Until it runs, `bd tsr-4qx` is parked with the measurement attached.** Not
+rejected — parked, which is a different claim and the honest one: the mechanism
+is confirmed, the ranking is against it for the current goal, and the one number
+that could rank it *for the other* goal has not been taken.
+
+### Level 4: the instrument, and what each outcome means
+
+Built as a patch to `crates/tsr-conformance/examples/overload_funnel.rs` — a file
+this workstream does not own, so it is handed over rather than committed here.
+It was written, formatted, `clippy -D warnings`-clean and **smoke-run** in an
+isolated worktree with its own target dir before being handed over, because a
+patch that has only been read is a patch that has not been checked.
+
+The example already produced the assertions and threw them away. It now keeps
+them and scores each affected case through **`types_suite::compare`** — the same
+function the gate uses, so the denominator is the gradient's *by construction*
+rather than by agreement. Re-implementing the comparison in the probe is the
+exact defect `checker-notes-guard.md` records this example already having had
+once, when it measured a lib-less corpus against a gradient that had every lib.
+
+It prints, for the affected cases only: a histogram of **remaining failing
+assertion lines** (0 / 1–5 / 6–10 / 11–25 / 26–100 / >100) with an
+`UNBUCKETED` control that must read zero, the median and mean, and — the most
+informative rows in the output — the ten largest cases with `N nodes, R of T
+lines still fail`.
+
+#### Two properties of the number, stated before it exists
+
+- **`remaining` is an over-estimate of the damage, and deliberately so.**
+  `compare` is positional, so one missing assertion in the middle of a file costs
+  every line after it. A case with a single early gap reads as far dirtier than
+  it is. That biases the statistic *against* the case gate, which is the
+  direction to be wrong in: it can under-sell this item, never over-sell it.
+- **"Few remaining failures" is necessary, not sufficient.** The instrument
+  counts *how many* lines still fail, not *which*. A case with eight remaining
+  failures might have all eight blocked by something instantiation does not
+  touch. So a favourable reading licenses "worth building for cases", not "will
+  flip these cases".
+
+#### The decision rule, pre-registered
+
+A node blocks at least one assertion line and usually two — the callee and the
+call — so a case at the mean 4.13 nodes needs roughly ten or fewer remaining
+failures for this fix to plausibly be its *last* defect. The bucket that decides
+it is therefore **≤10 remaining**:
+
+- **≥25% of the 225 cases at ≤10 remaining** → step 4 is a strong case item,
+  build it next cycle framed as a case-gate item, and say in the same breath that
+  it is not a gradient item.
+- **<10%** → park `bd tsr-4qx` with the measurement attached. Steps 1–2 stand on
+  their own as the safe refactor they are, and the 929 becomes a documented
+  blocker rather than a queued build.
+- **Between 10% and 25%** → under-determined, and it gets reported as
+  under-determined rather than rounded, exactly as the 929 was.
+
+Separately and regardless: **the five `Promise` baselines are 47.3% of the
+population**, so their four rows in the "ten largest" table are worth more than
+the aggregate. If `promiseType` shows 122 nodes against several hundred remaining
+failures, half this item finishes nothing whatever the histogram says, and that
+single line should override the percentage above.
+
+#### The smoke run, and why its numbers are not the answer
+
+Run over the first 600 discovered cases to prove the instrument, not the
+population: 53 nodes over 25 cases, control `UNBUCKETED` at 0, median remaining
+11, no case at 0 remaining. **Those numbers say nothing about the 225** — it is
+an alphabetical prefix, it contains none of the `Promise` five, and 25 cases is
+not a sample of anything. It is recorded only because "the instrument ran and its
+control read zero" is a different claim from "the instrument compiles", and this
+page has been burnt once already by a two-hop reading nobody executed.
+
 ## Steps 1 and 2, built: the seam and the routing
 
 **Built, and it changes no answer.** `Checker::get_type_of_property_of_type`
