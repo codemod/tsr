@@ -246,6 +246,18 @@ impl TypeStore {
     /// **Interning a union is not an optimisation.** `A | B` written twice must
     /// be one type, or the first relation check written compares two handles
     /// that should have been equal.
+    ///
+    /// # Why it shares the literal table deliberately
+    ///
+    /// Upstream keeps `unionTypes` and `stringLiteralTypes` in separate maps
+    /// because its keys are hand-built strings and a shared space really could
+    /// collide. Here the key is `(TypeFlags, TypeData, bool)` and [`TypeData`]
+    /// is an enum, so a `Union` payload can never compare equal to a literal
+    /// one whatever their contents: the discriminant is part of the derived
+    /// `PartialEq` and `Hash`. One table is therefore safe, and the reason is
+    /// recorded rather than left as a coincidence to be re-derived. The `fresh`
+    /// component is always `false` for a union — freshness is a property of
+    /// literal types (`TypeFlagsFreshable`), and a union is not one.
     pub fn intern_union(&mut self, flags: TypeFlags, data: TypeData) -> TypeId {
         self.intern_literal(flags, data, false)
     }
