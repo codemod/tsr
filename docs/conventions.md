@@ -605,3 +605,20 @@ The same applies to predictions: an agent predicted movement on this rail and
 could have known it was blind by reading eight lines of the suite first. Getting
 the right answer — flat — from a model that was wrong about *why* is the failure
 this document keeps describing, and it survives being written down.
+
+### Name a commit pair as `X^..X`, never as "my last commit to this one"
+
+An agent quoted a pair as `<its previous commit>..<its new commit>` and the
+range held eleven commits, because teammates had landed in between. It cost a
+full corpus measurement. The agent corrected the instance, then made the *same*
+error on its next pair — because the correction had fixed the instance and not
+the method.
+
+`X^..X` is mechanically correct whatever anyone else landed. The other form
+depends on remembering the state of a shared branch, which in a four-agent
+checkout is precisely the thing you cannot know. Checked afterwards, every one
+of that agent's commits resolved to exactly one commit under the parent form,
+and would have been quotable that way from the start.
+
+Verifying the pair is the *measurer's* job too — run `git log --oneline <range>`
+before spending a measurement on it, whoever proposed it.
