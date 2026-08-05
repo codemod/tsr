@@ -120,3 +120,64 @@ overloaded tags, neither of which this closes. Attribute to the commit pair
 If the measured movement is far above ~110, something is answering that should
 be gapping — most likely a generic tag slipping through — and the fence needs
 checking rather than celebrating.
+
+## Quoted property names, and why the escape table is shared (2026-08-05)
+
+`{ "a-b": 1 }` is `{ "a-b": number; }`. Now unblocked — `printing::quote` was
+made `pub(crate)`, so there is one escape table rather than two.
+
+The rule is upstream's: a string-named property prints **unquoted when the name
+is identifier text and re-quoted otherwise**, and the *source spelling is
+discarded either way*. So `{ "a": 1 }` loses its quotes and `{ "a-b": 1 }` keeps
+them. Echoing the source spelling passes the first case in most fixtures and is
+wrong in both directions, which is why the test asserts the pair rather than
+either alone.
+
+### Why duplicating `quote` would have been worse than it looks
+
+The argument inverts the obvious one. `printing::quote`'s escape table is
+**deliberately incomplete** (`bd tsr-4sc.1`): it handles the common escapes and
+the C0 controls and emits anything else raw, so a miss surfaces as a baseline
+mismatch rather than as silent corruption. That incompleteness is exactly what
+makes a *single* copy safe — and exactly what would make a divergence between
+*two* copies invisible, since both would have to be corrected together when
+tsr-4sc.1 lands and nothing would fail if only one were.
+
+The parser unescapes and `quote` re-escapes, which is the same round trip
+`tests/types.rs` already pins for a string literal *type*. Sharing the function
+is what stops a name and a literal escaping differently in the same baseline.
+
+## Fixtures that exercise without discriminating
+
+The recurring failure of this workstream, now at five instances. A test can run
+the right code and still not distinguish the right implementation from a wrong
+one. Reading the test never reveals this; only mutating the code does.
+
+1. **`typeof` constituent order.** Scrambling the source list stayed green — the
+   order is guaranteed by `unions.rs`'s `compare_types` sort, not by this code.
+   Rewritten to pin the *set*.
+2. **Arrow transparency in `GetContainingFunction`.** Removing `ArrowFunction`
+   from the walk stayed green, because with the arrow transparent the walk
+   reached a generator that *also* answers `any`. Fixed by annotating the
+   enclosing generator so the two readings diverge.
+3. **The `{ a = 1 }` guard.** Unobservable: `check_binary_expression` gaps the
+   whole assignment first. Proved by a positive probe — making the arm answer
+   `never` and watching the result stay `error` — then documented, not tested.
+4. **Numeric name normalisation.** Swapping `normalise_number` for the raw source
+   text reddened only *one* of two tests, because `{ 0: 1 }` has no spelling to
+   normalise. A single obvious fixture would have looked verified.
+5. **The quoting mutations themselves.** Both first attempts *failed to apply* —
+   `cargo fmt` had reformatted the arm onto one line, so the anchor no longer
+   matched. The tests then "passed", which would have been recorded as verified
+   had `grep -c` not reported `0`.
+
+The fifth is the one to internalise: **a mutation that does not apply is
+indistinguishable from a mutation that does not matter**, and both look like a
+green test run. Confirming the edit landed is not bureaucracy, it is the only
+thing separating those two cases. Every mutation in this workstream is
+`grep -c`-confirmed before the test is run, and that check has now caught two
+silent no-ops that would otherwise have been reported as passing verification.
+
+The general rule: design the fixture to *discriminate*, then prove it does by
+breaking the code. A fixture that merely exercises the path is a decoration with
+a test's name on it.

@@ -80,9 +80,11 @@ fn a_nested_object_literal_is_typed_by_the_same_rule() {
 #[test]
 fn a_string_named_property_prints_unquoted_only_when_it_is_an_identifier() {
     assert_eq!(type_of_initialiser(r#"const o = { "a": 1 };"#), "{ a: number; }");
-    // A name that is not an identifier would have to be re-quoted the way
-    // upstream's printer does; unported, so a gap rather than `{ a-b: number; }`.
-    assert_eq!(type_of_initialiser(r#"const o = { "a-b": 1 };"#), "error");
+    // A name that is not an identifier is re-quoted the way upstream's printer
+    // does. This asserted `error` until quoting landed; the fixture was found by
+    // grepping the suite for stand-ins BEFORE the work rather than after, which
+    // is the gap-fixture rule applied in the direction that actually helps.
+    assert_eq!(type_of_initialiser(r#"const o = { "a-b": 1 };"#), r#"{ "a-b": number; }"#);
 }
 
 #[test]

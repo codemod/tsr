@@ -302,15 +302,26 @@ impl Checker<'_, '_> {
             };
             let name = match name_node {
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
-                // A string-named property prints its name *unquoted* when it is
-                // a valid identifier and quoted otherwise; only the first is
-                // ported, because the second needs upstream's `isIdentifierText`
-                // over the full Unicode identifier tables.
+                // A string-named property prints its name **unquoted** when it
+                // is a valid identifier and **re-quoted** otherwise, which is
+                // upstream's `symbolToString` behaviour: the source spelling is
+                // discarded either way, so `{ "a": 1 }` is `{ a: number; }` and
+                // `{ "a-b": 1 }` is `{ "a-b": number; }`.
                 tsr_ast::PropertyName::StringLiteral(literal)
                     if is_identifier_text(literal.text) =>
                 {
                     literal.text.to_string()
                 }
+                // Re-quoted through `printing::quote`, the **same** function a
+                // string literal *type* prints through, rather than a second
+                // escape table here. That table is deliberately incomplete
+                // (`bd tsr-4sc.1`): it emits an unhandled character raw so a
+                // miss shows up as a baseline mismatch rather than as silent
+                // corruption. A duplicate would have to be corrected in lockstep
+                // when that lands, and nothing would fail if only one were — the
+                // incompleteness that makes one copy safe is exactly what would
+                // make a divergence between two copies invisible.
+                tsr_ast::PropertyName::StringLiteral(literal) => printing::quote(literal.text),
                 // A **numeric** name prints as its normalised value with no
                 // quotes: `{ 0: number; }`, and `{ 1.0: x }` prints `1`. The
                 // corpus is thick with these — 63 lines of `{ 0: number; }`

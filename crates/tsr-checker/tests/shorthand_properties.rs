@@ -117,12 +117,29 @@ fn a_numeric_name_prints_its_value_not_its_spelling() {
 }
 
 #[test]
-fn a_non_identifier_string_name_is_still_a_gap() {
-    // `{ "a-b": string; }` is 6 baseline lines and `{ "resolution-mode": string; }`
-    // is 24, so this is worth having — but printing it needs `printing::quote`,
-    // which is private to that module and carries a deliberately incomplete
-    // escape table (`bd tsr-4sc.1`). Duplicating the table here would create two
-    // that must be corrected together, which is exactly the drift
-    // `render_object_type` exists to prevent. Reported to the lead instead.
-    assert_eq!(type_of_last("const o = { \"a-b\": 1 };"), "error");
+fn a_non_identifier_string_name_is_re_quoted() {
+    // `{ "a-b": string; }` is 6 baseline lines, `{ "resolution-mode": string; }`
+    // 24, `{ "a b": number; }` 8, `{ "@ns/dep": string; }` 10.
+    assert_eq!(type_of_last(r#"const o = { "a-b": 1 };"#), r#"{ "a-b": number; }"#);
+    assert_eq!(type_of_last(r#"const o = { "a b": 1 };"#), r#"{ "a b": number; }"#);
+    assert_eq!(type_of_last(r#"const o = { "@ns/dep": "x" };"#), r#"{ "@ns/dep": string; }"#);
+}
+
+#[test]
+fn the_source_spelling_is_discarded_in_both_directions() {
+    // The pair that makes the rule visible: upstream decides quoting from
+    // whether the NAME IS IDENTIFIER TEXT, not from how it was written. A
+    // quoted-but-valid identifier loses its quotes; an invalid one gains them.
+    // Echoing the source spelling passes the first case and is wrong on both.
+    assert_eq!(type_of_last(r#"const o = { "a": 1 };"#), "{ a: number; }");
+    assert_eq!(type_of_last(r#"const o = { "a-b": 1 };"#), r#"{ "a-b": number; }"#);
+}
+
+#[test]
+fn a_quoted_name_is_escaped_by_the_same_function_a_string_literal_type_uses() {
+    // The parser unescapes and `printing::quote` re-escapes, which is the same
+    // round trip `types.rs` pins for a string literal TYPE. Sharing the one
+    // function is what keeps a name and a literal from escaping differently.
+    assert_eq!(type_of_last(r#"const o = { "a\"b": 1 };"#), r#"{ "a\"b": number; }"#);
+    assert_eq!(type_of_last(r#"const o = { "a\\b": 1 };"#), r#"{ "a\\b": number; }"#);
 }
