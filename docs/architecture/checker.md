@@ -2889,3 +2889,114 @@ mutation that scrambled the source list did **not** redden the test, which is ho
 we learned the ordering guarantee lives in `unions.rs` rather than here. The test
 pins the printed string and the *set* of eight names, which is what this code
 actually decides.
+
+## `typeof X` exposes `exports`, and why that is a second table rather than a repointing
+
+`getPropertyOfType` answered `None` for every `typeof X` receiver, because
+`TypeData::Anonymous` carried no members table at all. That was deliberate, and
+the reason is recorded above under the function/class/enum/module worker: a
+class's statics and a namespace's exports live in the symbol's **`exports`**,
+while `TypeData::Named` points the lookup at **`members`**, so pointing the
+existing walk at `members` would have resolved `C.x` against the *instance*
+side — the wrong symbol, not a missing one.
+
+The fix is therefore a second arm reading a second table, not a repointing.
+`Named` still reads `members` and still walks base types; `Anonymous` reads
+`exports` and does not walk. Upstream's shape is the same:
+`resolveAnonymousTypeMembers` (`checker.go:20650`) ends, after returning early
+for instantiated and type-literal symbols, at the branch commented *"Combinations
+of function, class, enum and module"* whose body is
+`members := c.getExportsOfSymbol(symbol)` (`checker.go:20672`).
+
+### A miss is safe here, unlike in the base-type walk
+
+`base_symbols_of` must fail the *whole* lookup when it cannot follow a base,
+because answering from a later base would give a symbol upstream would have taken
+from the earlier one. This arm has no such hazard: upstream layers inherited
+statics *underneath* own ones (`addInheritedMembers`, `checker.go:20690`, which
+adds only names not already present), so a name found in the symbol's own
+`exports` is always upstream's answer, and a name not found is a gap. That is why
+inherited statics can be left unported without contaminating anything: `class C
+extends B {}` gives `C.x` upstream through `getBaseConstructorTypeOfClass`
+(`checker.go:20687`), which needs construct signatures, and here it simply misses.
+
+### The enum half is a binder divergence, and it is not fixed here
+
+The bucket that prompted this work was *"property access, the receiver has no
+such property: `typeof E`"*. Statics and namespace exports now resolve; **enum
+members still do not**, and the cause is upstream of the checker.
+
+Upstream's binder files an enum member in the enum symbol's `exports`:
+`declareSymbolAndAddToSymbolTable`'s `KindEnumDeclaration` case is
+`declareSymbol(ast.GetExports(b.container.Symbol()), …)`
+(`internal/binder/binder.go:436-437`). This port classifies `Node::EnumMember` as
+`Destination::Members` (`crates/tsr-binder/src/binder.rs:3700`), and the
+container-based remap that would move it (`crates/tsr-binder/src/binder.rs:2172`)
+covers only the class/static split. So the member lands in `members`, and this
+lookup — correctly reading `exports` — misses it.
+
+Reading `members` for an enum symbol would have made the lookup succeed, and was
+rejected: it papers a binder divergence over inside the checker, and it buys
+nothing today, because `getTypeOfSymbol` has no `SymbolFlags::ENUM_MEMBER` arm
+either — the member's type would still be `errorType`. Both halves are owned
+elsewhere. The current answer is pinned as a gap so that fixing the binder turns
+the test red rather than silently changing behaviour.
+
+### One guard that is unobservable, said plainly
+
+The flags gate restricting this arm to function/class/enum/module symbols is
+upstream's branch structure (`checker.go:20662` returns earlier for a
+type-literal symbol). **Deleting it reddens no test in the workspace** — that
+mutation was run, not assumed. The only symbol it currently excludes is
+`bindFunctionOrConstructorType`'s `__type`, whose `exports` table is empty, so
+gated and ungated both miss.
+
+It is kept anyway, because the two agree only by accident: the moment a `__type`
+or object-literal symbol carries an export, the ungated form answers from a table
+upstream never reads. The named edits that make it bite are `crate::function_types`
+gaining the `__call`/`__new` lookup, or `crate::objects` building a
+`TypeData::Anonymous` for an object literal. This is the opposite call from the
+`errorType`-receiver guard removed from `check_property_access_expression`, and
+the distinction is the reason: that fallthrough was *provably* identical, this one
+is identical only for now.
+
+### How you would know this is wrong
+
+A baseline line where `C.x` prints a type but upstream prints the instance
+member's, or vice versa, means the two tables have been crossed. A `typeof M`
+receiver answering an exported *interface* in a value position means the
+`symbolIsValue` gate (`checker.go:18916`) has been dropped — a namespace's
+`exports` holds its exported types too, which is the case that gate exists for
+here and not on the instance side.
+
+### `c ? a : b` is fenced by a reduction this port does not have (2026-08-05)
+
+The forcing constraint is one line in `checkConditionalExpression`
+(`checker.go:10940`): the branch union is built at **`UnionReductionSubtype`**,
+and `get_union_type` only implements `UnionReductionLiteral`, because subtype
+reduction needs assignability.
+
+The two reductions agree more often than that difference suggests, which is what
+makes a partial port worth having. `bob ? 1 : 2` is `1 | 2` under both.
+`c ? 1 : n` with `n: number` is `number` under both, because literal reduction
+already removes a literal whose base primitive is present. They part company on
+object types, where subtype reduction drops a constituent assignable to another —
+`>true ? a : b : { Foo?: Base; }` is a single object type upstream, against the
+two-member union this port would build.
+
+So the port answers the union when both branches are primitives or unit types and
+gaps otherwise, fenced by `is_subtype_reduction_free`. The rejected alternative
+was to emit the union unconditionally and book the object case as a known
+divergence; that trades a missing line for a wrong one on every conditional over
+objects, which is the trade this checker consistently refuses.
+
+The fence is deliberately a *whitelist* rather than a blacklist of object flags.
+A blacklist is wrong the first time a new type kind is added — the new kind would
+silently be treated as reduction-free — whereas a whitelist gaps it until someone
+has thought about it. Enum types are excluded explicitly even though they carry
+literal flags, because their reduction is `unions.rs`'s question.
+
+**How we would know this is wrong:** a baseline `>c ? a : b` line over two
+primitives that this port gaps, or one where it prints a union and upstream
+prints a single type. The second would mean the fence is too loose, which is the
+more dangerous direction and the reason the whitelist is narrow.

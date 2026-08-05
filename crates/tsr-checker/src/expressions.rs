@@ -167,6 +167,8 @@ impl Checker<'_, '_> {
             Expression::PrefixUnaryExpression(node) => self.check_prefix_unary_expression(node),
             // `checkPostfixUnaryExpression` (`checker.go:10909`).
             Expression::PostfixUnaryExpression(node) => self.check_postfix_unary_expression(node),
+            // `checkConditionalExpression` (`checker.go:10934`).
+            Expression::ConditionalExpression(node) => self.check_conditional_expression(node),
             _ => self.intrinsics.error,
         }
     }
@@ -444,6 +446,94 @@ impl Checker<'_, '_> {
             current = self.nodes.parent(id);
         }
         self.intrinsics.error
+    }
+
+    /// Ported from `Checker.checkConditionalExpression` (`checker.go:10934`).
+    ///
+    /// # The union is built at the wrong reduction, so the safe cases are fenced
+    ///
+    /// Upstream builds the branch union at **`UnionReductionSubtype`**
+    /// (`checker.go:10940`), and this port only has `UnionReductionLiteral`
+    /// ([`Checker::get_union_type`]) because subtype reduction needs an
+    /// assignability question that does not exist here. The two reductions agree
+    /// on primitives and unit types — `bob ? 1 : 2` is `1 | 2` under both, and
+    /// `x ? 1 : n` is `number` under both, because literal reduction already
+    /// removes a literal whose base primitive is present.
+    ///
+    /// They part company on object types, where subtype reduction collapses a
+    /// constituent into a supertype it is assignable to. The baselines record
+    /// exactly that: `>true ? a : b : { Foo?: Base; }` is one object type, not the
+    /// two-member union this port would build. So an object-typed branch is a
+    /// **gap**, fenced by [`Self::is_subtype_reduction_free`], rather than a
+    /// plausible `A | B` that is wrong on every such line.
+    ///
+    /// The rejected alternative was to emit the union everywhere and accept the
+    /// object case as a known divergence. It wins the moment `relater.rs` can
+    /// answer assignability for object types, at which point the fence comes out
+    /// and real subtype reduction goes in — not before, because a union that
+    /// should have collapsed is a wrong line rather than a missing one.
+    ///
+    /// **How we would know this is wrong:** a baseline `>c ? a : b` line whose
+    /// printed type is a union of two primitives that this port gaps, or a
+    /// non-union answer where it prints a union.
+    fn check_conditional_expression(
+        &mut self,
+        node: &tsr_ast::ConditionalExpression<'_>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        // Checked for its own line and its narrowing effects; the condition's
+        // type does not reach the answer.
+        if let Some(condition) = node.condition {
+            self.check_expression(condition);
+        }
+        let (Some(when_true), Some(when_false)) = (node.when_true, node.when_false) else {
+            return error;
+        };
+        let branches = [self.check_expression(when_true), self.check_expression(when_false)];
+        // A gap in a branch is a gap in the conditional: `c ? 1 : unported` is
+        // not `1`, and printing the known branch alone would be a wrong line.
+        if branches.iter().any(|&branch| branch == error || !self.is_subtype_reduction_free(branch))
+        {
+            return error;
+        }
+        self.get_union_type(&branches)
+    }
+
+    /// Whether `UnionReductionLiteral` and `UnionReductionSubtype` must agree for
+    /// this type as a union constituent.
+    ///
+    /// True for the primitives and the unit types: subtype relationships among
+    /// them are exactly the literal-to-base-primitive ones that literal reduction
+    /// already handles. False for everything else — objects, type parameters,
+    /// intersections, and the enum types, whose reduction is [`crate::unions`]'s
+    /// question rather than this one's.
+    ///
+    /// A union is transparent: it is reduction-free when all of its constituents
+    /// are, because `addTypesToUnion` flattens it before either reduction runs.
+    fn is_subtype_reduction_free(&self, id: TypeId) -> bool {
+        const SAFE: TypeFlags = TypeFlags::STRING
+            .union(TypeFlags::NUMBER)
+            .union(TypeFlags::BIG_INT)
+            .union(TypeFlags::BOOLEAN)
+            .union(TypeFlags::STRING_LITERAL)
+            .union(TypeFlags::NUMBER_LITERAL)
+            .union(TypeFlags::BIG_INT_LITERAL)
+            .union(TypeFlags::BOOLEAN_LITERAL)
+            .union(TypeFlags::NULL)
+            .union(TypeFlags::UNDEFINED)
+            .union(TypeFlags::VOID)
+            .union(TypeFlags::NEVER);
+        let t = self.store.get(id);
+        if let TypeData::Union { types, symbol, .. } = &t.data {
+            // A *named* union prints as its symbol, and `union_type_worker`
+            // already refuses to nest one; keeping it out here makes the reason
+            // local rather than relying on that.
+            return symbol.is_none()
+                && types.iter().all(|&constituent| self.is_subtype_reduction_free(constituent));
+        }
+        // An enum literal carries STRING_LITERAL or NUMBER_LITERAL as well, so
+        // the flag test alone would let it through.
+        !t.flags.intersects(TypeFlags::ENUM_LIKE) && SAFE.contains(t.flags)
     }
 }
 
