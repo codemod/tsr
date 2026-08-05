@@ -315,6 +315,20 @@ struct Tally {
     /// is a question about where the lines actually are, not about which arm is
     /// most interesting.
     contextual_parameter_context: HashMap<String, usize>,
+    /// Wrong lines whose parent is a `QualifiedName`, by **grandparent** kind.
+    ///
+    /// 4,577 lines, the second-largest parent bucket and in no ranking. Two
+    /// competing readings, which the grandparent separates because the parent is
+    /// `QualifiedName` for both:
+    ///
+    /// - the left-hand `M` of a type reference `M.I` being resolved as a value
+    ///   where upstream resolves the whole entity name;
+    /// - `import X = M.I`, where upstream answers `>M : typeof M` -- a
+    ///   `QualifiedName` is type-position-only syntax, so identifiers inside one
+    ///   should be dropped by `IsPartOfTypeNode` and emit no line at all. That
+    ///   these are *aligned* means upstream emitted them too, which points at the
+    ///   qualified names that are **not** inside a type node.
+    qualified_name_grandparent: HashMap<String, usize>,
     /// Over-application restricted to cases where `strictNullChecks` is
     /// *genuinely on*, by parent kind.
     ///
@@ -365,6 +379,9 @@ impl Tally {
         self.implicit_any_total += other.implicit_any_total;
         for (k, v) in other.wrong_by_parent {
             *self.wrong_by_parent.entry(k).or_default() += v;
+        }
+        for (k, v) in other.qualified_name_grandparent {
+            *self.qualified_name_grandparent.entry(k).or_default() += v;
         }
         for (k, v) in other.contextual_parameter_context {
             *self.contextual_parameter_context.entry(k).or_default() += v;
@@ -816,6 +833,17 @@ fn main() {
                         |p| format!("{:?}", file.nodes.kind(p)),
                     );
                     *tally.wrong_by_parent.entry(parent.clone()).or_default() += 1;
+                    if parent == "QualifiedName" {
+                        let grandparent = file
+                            .nodes
+                            .parent(ids[position])
+                            .and_then(|p| file.nodes.parent(p))
+                            .map_or_else(
+                                || "<root>".to_string(),
+                                |g| format!("{:?}", file.nodes.kind(g)),
+                            );
+                        *tally.qualified_name_grandparent.entry(grandparent).or_default() += 1;
+                    }
                     if got.type_string == format!("{want_type} | undefined") {
                         *tally.over_application.entry(strictness).or_default() += 1;
                         // The 125 the option cannot explain.
@@ -1039,6 +1067,22 @@ fn report(total: &Tally, arms: &[Cause]) {
     rows.sort_unstable_by(|a, b| b.cmp(a));
     for (count, kind) in rows.iter().take(12) {
         println!("  {kind:<42} {count:>8}  {:>6.2}%", pct(*count, ctx_total));
+    }
+
+    println!("\n--- THE QualifiedName POPULATION, BY GRANDPARENT ---");
+    println!(
+        "  (parent is QualifiedName for every reading; the grandparent is what\n\
+        \x20  separates `import X = M.I` from the left of a type reference `M.I`.)"
+    );
+    let qn_total: usize = total.qualified_name_grandparent.values().sum();
+    let mut rows: Vec<_> = total
+        .qualified_name_grandparent
+        .iter()
+        .map(|(kind, count)| (*count, kind.as_str()))
+        .collect();
+    rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (count, kind) in rows.iter().take(10) {
+        println!("  {kind:<42} {count:>8}  {:>6.2}%", pct(*count, qn_total));
     }
 
     println!("\n--- WRONG LINES BY PARENT KIND ---");
