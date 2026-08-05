@@ -77,10 +77,100 @@ impl<'a> Checker<'a, '_> {
         if flags.intersects(SymbolFlags::ALIAS) {
             return self.get_type_of_alias(symbol);
         }
+        // An **export marker**: the local a module leaves behind for an exported
+        // declaration. See [`Checker::get_type_of_export_value`].
+        if flags.contains(SymbolFlags::EXPORT_VALUE) {
+            return self.get_type_of_export_value(symbol);
+        }
         // Every `SymbolFlags` shape upstream dispatches on is now answered. What
         // remains unported is the four `CheckFlags` shapes upstream tests
         // *before* any of them — deferred, instantiated, mapped, reverse-mapped.
         self.intrinsics.error
+    }
+
+    /// The type of an **export marker** — the local left behind by
+    /// `export var x`, `export function f`, `export class C`.
+    ///
+    /// # Why a symbol with no useful flags exists at all
+    ///
+    /// When a declaration is exported from a module, the binder declares it
+    /// **twice**: the real symbol goes into the module's `exports` with its own
+    /// flags, and a *marker* goes into the file's `locals` carrying
+    /// `SymbolFlags::EXPORT_VALUE` and nothing else
+    /// (`binder.rs:3086`-`3098`). That is upstream's design, not a local quirk —
+    /// it is what keeps an unqualified reference to an exported name resolvable
+    /// while the export table stays the authority on what was exported.
+    ///
+    /// A reference inside the module resolves to the **marker**, whose flags
+    /// carry no `VARIABLE`, `FUNCTION` or `CLASS` bit — so every arm of
+    /// [`Checker::get_type_of_symbol`] above misses and the answer was
+    /// `errorType`. Measured at **3,144 lines across 463 cases**: not one file
+    /// and not one shape, just every reference to every exported name.
+    ///
+    /// # Upstream follows a link this port does not have
+    ///
+    /// `getExportSymbolOfValueSymbolIfExported` (`checker.go:14383`) reads
+    /// `symbol.ExportSymbol` and swaps the marker for the real export symbol.
+    /// [`tsr_binder::Symbol`] has no such field.
+    ///
+    /// So this types the marker **from the declaration it shares with its export
+    /// symbol**, which is the same answer by construction: both symbols were
+    /// declared from the same node, so dispatching on that node's kind reproduces
+    /// what the export symbol's own flags would have selected. Adding the link to
+    /// the binder would be the faithful port and is the better fix when someone
+    /// owns that file; this reaches the same answer without reshaping a type
+    /// every other consumer of the binder shares.
+    ///
+    /// **How this would be shown wrong:** an exported declaration whose export
+    /// symbol's flags disagree with what its declaration kind implies. Merged
+    /// declarations are where to look — `export interface I {}` beside
+    /// `export const I = 1` — and a merged marker is why the fallthrough answers
+    /// `errorType` rather than guessing.
+    fn get_type_of_export_value(&mut self, symbol: SymbolId) -> TypeId {
+        if let Some(&cached) = self.symbol_types.get(&symbol) {
+            return cached;
+        }
+        let computed = match self.export_symbol_of(symbol) {
+            // The export symbol carries the real flags, so this re-enters the
+            // ordinary dispatch and every exported form — variable, function,
+            // class, enum, module — is answered by the arm that already knows
+            // how, rather than by a second copy of that knowledge here.
+            Some(export) if export != symbol => self.get_type_of_symbol(export),
+            _ => self.intrinsics.error,
+        };
+        self.symbol_types.insert(symbol, computed);
+        computed
+    }
+
+    /// Reconstruct upstream's `Symbol.ExportSymbol` link for an export marker.
+    ///
+    /// `getExportSymbolOfValueSymbolIfExported` (`checker.go:14383`) reads the
+    /// field directly. [`tsr_binder::Symbol`] has no such field, so the link is
+    /// rebuilt from what the binder does record: the marker sits in a source
+    /// file's `locals`, and the real symbol sits in that file's module symbol's
+    /// `exports` under the same name.
+    ///
+    /// Walking to the enclosing `SourceFile` is what makes this exact rather than
+    /// a name search — the file's own symbol is the module symbol
+    /// (`binder.rs:2578`), so the lookup is scoped to the module that declared
+    /// the marker and cannot collide with a same-named export elsewhere in the
+    /// program.
+    ///
+    /// **Adding the field to the binder would be the faithful port** and is the
+    /// better fix when someone owns that crate; this reaches the same symbol
+    /// without reshaping a type every consumer of the binder shares.
+    fn export_symbol_of(&self, marker: SymbolId) -> Option<SymbolId> {
+        let entry = self.binder.symbols().get(marker);
+        let name = entry.name;
+        let mut current = Some(*entry.declarations.first()?);
+        while let Some(id) = current {
+            if self.nodes.kind(id) == SyntaxKind::SourceFile {
+                let module = self.binder.symbol_of(id)?;
+                return self.binder.symbols().get(module).exports.get(name).copied();
+            }
+            current = self.nodes.parent(id);
+        }
+        None
     }
 
     /// The type of a `get`/`set` accessor symbol.

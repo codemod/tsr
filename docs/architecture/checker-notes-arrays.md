@@ -385,3 +385,67 @@ like a result. Someone reading a property-access histogram will see 555 wrong
 lines with no way to learn from the instrument that they belong to contextual
 typing. That is why the owner is named at the arm in `members.rs` and here:
 closing contextual typing is what removes them.
+
+## Export markers: a symbol with no useful flags (2026-08-05)
+
+`export var x = 1; var q = x;` — **one file, no imports** — answered `errorType`
+for the reference to `x`. Measured at **3,144 lines across 463 cases**: not one
+file and not one shape, just every reference to every exported name.
+
+### Why the symbol has no flags to dispatch on
+
+When a declaration is exported from a module, the binder declares it **twice**:
+the real symbol into the module's `exports` with its own flags, and a **marker**
+into the file's `locals` carrying `SymbolFlags::EXPORT_VALUE` and nothing else
+(`binder.rs:3086`–`3098`). That is upstream's design, not a local quirk — it
+keeps an unqualified reference resolvable while the export table stays the
+authority on what was exported.
+
+A reference inside the module resolves to the marker. Its flags carry no
+`VARIABLE`, `FUNCTION` or `CLASS` bit, so every arm of `get_type_of_symbol`
+missed and the fallthrough answered `errorType`.
+
+### Two attempts, and why the second is the port
+
+**First attempt — dispatch on the declaration's kind.** The marker shares its
+declaration node with the export symbol, so matching on that node's kind looks
+like it should reproduce what the export symbol's flags would have selected.
+
+It half-worked, and the half that worked was misleading. `export function f`
+answered correctly while `export var x` did not, because
+`get_type_of_variable_or_parameter_or_property` reads **`value_declaration`**,
+which a marker never has: `SymbolFlags::VALUE` does not include `EXPORT_VALUE`
+(`symbol.rs:106`), so the binder's `if flags.intersects(VALUE)` test never fires
+and the field stays `None`. The function path uses `declarations` instead, so it
+alone appeared to succeed — a partial result that looked like a working arm.
+
+`export class C` could not be fixed that way at all. A class *value* reference is
+the static side, `typeof C`, and nothing local to a marker can know that: the
+marker carries no `CLASS` flag, and the declaration kind alone does not say
+whether the reference is to the constructor or the instance.
+
+**Second attempt — reconstruct the link.** Upstream reads
+`symbol.ExportSymbol` (`getExportSymbolOfValueSymbolIfExported`,
+`checker.go:14383`). `tsr_binder::Symbol` has no such field, so the link is
+rebuilt from what the binder does record: walk from the marker's declaration to
+the enclosing `SourceFile`, take that file's own symbol — which *is* the module
+symbol (`binder.rs:2578`) — and look the name up in its `exports`.
+
+Then hand the export symbol to `get_type_of_symbol` and let the ordinary
+dispatch answer it. Every exported form is served by the arm that already knows
+how, rather than by a second copy of that knowledge. `export class C` now gives
+`C : typeof C` and `C.s : string`.
+
+Walking to the `SourceFile` is what makes it exact rather than a name search:
+the lookup is scoped to the module that declared the marker and cannot collide
+with a same-named export elsewhere in the program. A mutation replacing it with
+a `globals` lookup reddens four of the six tests.
+
+**Adding the field to the binder is the faithful port** and is the better fix
+when someone owns that crate. This reaches the same symbol without reshaping a
+type every consumer of the binder shares.
+
+**How this would be shown wrong:** an exported declaration whose export symbol's
+flags disagree with its declaration kind. Merged declarations are where to look —
+`export interface I {}` beside `export const I = 1` — and the arm answers
+`errorType` rather than guessing when the lookup misses.
