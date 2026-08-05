@@ -475,3 +475,57 @@ declared its own), so the checker seeds only what it is entitled to. Found by a
 shadowing fixture, written only because the enum work established the habit of
 asking what the wrong implementation prints. No amount of staring at the
 1,738-line population would have surfaced it.
+
+## The kind-1/kind-2 criterion was also falsified — 2026-08-05
+
+The sizing method above is not the only construct from this cycle that died. The
+repaired triage criterion — *is the prerequisite met for most of the
+population?* — was killed by its own registered falsifier, and this section
+exists because a file that records one failure and not the other reads as a
+track record.
+
+The criterion classified two rows as kind 1 on measured operand distributions:
+`a += b` (LHS number 73%) and `...x` (spread types dominated by primitives).
+Both were predicted to convert most of their row when an arm was added. Another
+agent ran the test rather than its author, and:
+
+**`+=` already had an arm**, at `crates/tsr-checker/src/binary.rs:100`, and it
+already worked — six probes correct, including `number += number`, `string +=
+string`, and a property target. **Building it would have converted zero lines.**
+
+**96% of the row was one file** — 488 of 507 gaps in
+`binaryArithmeticControlFlowGraphNotTooLarge`, an MD5 implementation whose
+failing expressions are `a += ((b & c) | (~b & d)) + blocks[0]`. The blocker is
+`blocks[0]`: **element access, on the right-hand operand.**
+
+Three defects, and they compound rather than overlap:
+
+1. **It never checked whether the feature was absent.** The prerequisite
+   question presumes the arm is missing. Nobody grepped `binary.rs` — not its
+   author, and not the lead who wrote the assignment.
+2. **The distribution was measured on the wrong operand.** LHS types were
+   sampled; the blocker is on the RHS. No amount of sampling harder would have
+   found it.
+3. **It was measured from upstream's answers, not from our ability.** "LHS is
+   number in 73%" is a fact about the baselines. Whether *we* can compute that
+   operand is the only question that predicts conversion.
+
+A stricter threshold on the same measurement would have failed the same way, so
+the criterion is retired rather than tuned.
+
+What replaced it is cheaper and has held every time since: **check concentration
+first.** A row size is a sum, and a sum says nothing about whether it is 500
+cases or one. That check has now changed the answer three times and confirmed it
+twice.
+
+### Two corrections to the credit in this file
+
+- The errorType-rendering ceiling was found because the lead split the
+  7,291-line row and handed it over already located, pointing at the
+  instrument's own name list. The greps here confirmed it; the item existed
+  because someone else located it.
+- The distinction between the `038def4` shape and a missing intrinsic was the
+  lead's, not this file's. This file called the `undefined` widening gap "the
+  038def4 shape" and was wrong: there, both types existed and one stood in for
+  the other; here the second does not exist at all. A correct change was nearly
+  refused on a wrong analogy.
