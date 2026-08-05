@@ -537,7 +537,21 @@ edits are inside any measurement.
 Raw figures, assertion lines out of 478,954: 273,367 → 273,502; 278,387 →
 279,521; 282,021 → 288,626.
 
-**The scoreboard for this project's predictions is now 2 hits, 7 misses.**
+**The scoreboard for this project's predictions is now 4 hits, 7 misses**, after
+two further exact hits landed later the same day in `f40cb78` — the label arm
+re-derived with libs at **594 predicted / 594 measured**, and the binding-element
+property name at **428 predicted / 428 measured**.
+
+Those two matter out of proportion to their size, because they are the first
+predictions here made from a *repaired method* rather than from a fresh count.
+The label arm's earlier 209→597 miss diagnosed its own cause — an attribution
+order that hides subordinate arms under the dominant one — and left the
+multiplier unknown; sizing from the flattened run instead answers it directly.
+Predicted twice, exact twice. See `docs/conventions.md`, "Size a positional arm
+from the flattened run, never from the attributed one".
+
+The correlation below therefore still holds at 11 for 11: every hit was
+cross-checked against the instrument before it was quoted.
 
 #### Tagged templates: the pre-registered falsifier is mildly triggered
 
