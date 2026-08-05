@@ -1313,3 +1313,134 @@ fn an_unannotated_parameter_is_any_only_where_no_contextual_type_can_supply_one(
     assert_eq!(type_of_initialiser("const f = () => 1;"), "() => number");
     assert_eq!(type_of_initialiser("const f: () => 1 = () => 1;"), "error");
 }
+
+// ---------------------------------------------------------------------------
+// Element access (`bd tsr-4sc.8`, third slice).
+//
+// 13,549 gap lines, the largest single unported form left once calls landed.
+// It is not a second kind of lookup: upstream derives a property *name* from the
+// index's **type** (`getPropertyNameFromIndex`, `checker.go:21786`) and then
+// calls the same `getPropertyOfType` property access calls.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_literal_index_is_a_property_lookup_by_name() {
+    assert_eq!(
+        type_of_declaration("declare const a: { b: number };\nconst x = a[\"b\"];", "x"),
+        "number"
+    );
+    // Nesting, and a method reached through an index then called — the three
+    // slices of this issue meeting.
+    assert_eq!(
+        type_of_declaration(
+            "declare const a: { b: { c: string } };\nconst x = a[\"b\"][\"c\"];",
+            "x"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_declaration(
+            "class C { m(): number { return 1; } }\ndeclare const c: C;\nconst x = c[\"m\"]();",
+            "x"
+        ),
+        "number"
+    );
+}
+
+#[test]
+fn the_index_name_comes_from_the_types_of_the_index_not_its_syntax() {
+    // Upstream's choice, and it is worth more than it looks: `k` is an
+    // *identifier*, so a syntactic reading would gap here. Its type is the
+    // literal `"b"` — because a `const` keeps its literal type — so the
+    // type-directed reading resolves it. This is the assertion that distinguishes
+    // the two implementations.
+    assert_eq!(
+        type_of_declaration(
+            "declare const a: { b: number };\nconst k = \"b\";\nconst x = a[k];",
+            "x"
+        ),
+        "number"
+    );
+    // Parentheses do not change a type, so they do not change an index either.
+    assert_eq!(
+        type_of_declaration("declare const a: { b: number };\nconst x = a[(\"b\")];", "x"),
+        "number"
+    );
+    // A **numeric** literal index names a property by its normalised text, which
+    // is the same string `Number::toString` gives upstream — so `c[1]` and
+    // `c[1.0]` name the same property `1`. (Reached through a class, because a
+    // *type literal* with a numeric member name is still a gap on the
+    // annotation side.)
+    assert_eq!(
+        type_of_declaration("class C { 1: boolean; }\ndeclare const c: C;\nconst x = c[1];", "x"),
+        "boolean"
+    );
+    assert_eq!(
+        type_of_declaration("class C { 1: boolean; }\ndeclare const c: C;\nconst x = c[1.0];", "x"),
+        "boolean"
+    );
+    // A `let` widens to `string`, which names no property — the same rule read
+    // from the other side, and a gap rather than a guess.
+    assert_eq!(
+        type_of_declaration(
+            "declare const a: { b: number };\nlet k = \"b\";\nconst x = a[k];",
+            "x"
+        ),
+        "error"
+    );
+}
+
+#[test]
+fn an_element_access_this_slice_cannot_resolve_is_a_gap() {
+    // A non-literal index needs index signatures, which no type here has.
+    assert_eq!(
+        type_of_declaration(
+            "declare const a: { b: number };\ndeclare const i: string;\nconst x = a[i];",
+            "x"
+        ),
+        "error"
+    );
+    // No such property: upstream reports and answers `errorType`.
+    assert_eq!(
+        type_of_declaration("declare const a: { b: number };\nconst x = a[\"c\"];", "x"),
+        "error"
+    );
+    // An optional chain is unported.
+    assert_eq!(
+        type_of_declaration("declare const a: { b: number };\nconst x = a?.[\"b\"];", "x"),
+        "error"
+    );
+    // A receiver we cannot type takes the access with it.
+    assert_eq!(type_of_declaration("const x = unknownThing[\"b\"];", "x"), "error");
+}
+
+#[test]
+fn a_signature_prints_a_parameters_annotation_as_written_not_the_symbols_type() {
+    // The two differ for an optional parameter, and upstream records both
+    // spellings of the same one (`compiler/assertionWithNoArgument.types`, a
+    // `@strict: true` case):
+    //
+    // ```text
+    // export function assertWeird(value?: string): asserts value {
+    // >assertWeird : (value?: string) => asserts value
+    // >value : string | undefined
+    // ```
+    //
+    // The declaration line prints the symbol's type, which carries the
+    // `| undefined` a `?` adds; the signature reuses the annotation node.
+    // `serializeTypeForDeclaration` (`nodebuilderimpl.go:2216`) is where upstream
+    // makes that swap, and `(value?: string | undefined)` appears nowhere in the
+    // corpus.
+    //
+    // Only the signature side is asserted here. The declaration side belongs to
+    // `crate::optionality` and depends on a `strictNullChecks` assumption that is
+    // not this test's to pin.
+    assert_eq!(
+        type_of_declaration("declare function f(x?: number): void;", "f"),
+        "(x?: number) => void"
+    );
+    assert_eq!(
+        type_of_declaration("declare function f(x?: string, y?: number): void;", "f"),
+        "(x?: string, y?: number) => void"
+    );
+}

@@ -552,7 +552,27 @@ impl<'a> Checker<'a, '_> {
         };
         let id = node.node_id?;
         let symbol = self.binder.symbol_of(id)?;
-        let r#type = self.get_type_of_symbol(symbol);
+        // `symbolToParameterDeclaration` (`nodebuilderimpl.go:1654`) takes
+        // `getTypeOfSymbol` and hands it to `serializeTypeForDeclaration`
+        // (`:2216`), which **reuses the written annotation node** rather than
+        // re-printing the computed type. The two differ for an optional
+        // parameter, and the corpus records both spellings for the same one:
+        //
+        // ```text
+        // export function assertWeird(value?: string): asserts value {
+        // >assertWeird : (value?: string) => asserts value
+        // >value : string | undefined
+        // ```
+        //
+        // (`compiler/assertionWithNoArgument.types`, a `@strict: true` case.)
+        // The declaration line prints the symbol's type, which carries the
+        // `| undefined` a `?` adds (see [`crate::optionality`]); the signature
+        // prints the annotation as written. Taking the symbol's type here would
+        // print `(value?: string | undefined)`, which appears nowhere.
+        let r#type = match node.r#type {
+            Some(annotation) => self.get_type_from_type_node(annotation),
+            None => self.get_type_of_symbol(symbol),
+        };
         if r#type == self.intrinsics.error {
             return None;
         }

@@ -114,6 +114,7 @@ impl Checker<'_, '_> {
                 self.check_property_access_expression(node)
             }
             Expression::CallExpression(node) => self.check_call_expression(node),
+            Expression::ElementAccessExpression(node) => self.check_element_access_expression(node),
             // `checkObjectLiteral` (`checker.go:13144`). Distinct from the
             // `{ a: string }` *type* node in `crate::declared`, which prints
             // identically and is computed by unrelated code — see
