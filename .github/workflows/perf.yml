@@ -33,7 +33,7 @@ concurrency:
 jobs:
   compare:
     name: vs typescript-go
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
         with:
