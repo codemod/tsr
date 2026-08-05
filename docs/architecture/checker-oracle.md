@@ -295,6 +295,41 @@ high **before comparing a single type**. If it reads high the denominator is
 trustworthy; if it reads low the gradient is meaningless no matter how good the
 checker gets.
 
+### First measurement of the walker
+
+Built 2026-08-05 (`crates/tsr-conformance/src/types_producer.rs`), measured by
+`cargo run -p tsr-conformance --example types_walker --release` over the same
+9,538 cases the suite judges:
+
+```
+assertion lines upstream: 478,954
+assertion lines we emit:  499,816
+text agreement:           311,705/478,954  (65.08%)
+cases with the right count: 5,602/9,538    (58.73%)
+cases matching every line:  5,376/9,538    (56.36%)
+```
+
+**No type is involved in any of those numbers.** They are the prefix test
+described above, so they measure node selection and text extraction alone.
+
+Two causes account for most of the gap, both visible in the sampled first
+divergences and both known rather than mysterious:
+
+- **`GetMeaningFromDeclaration` is not ported**, so identifiers naming a type —
+  `interface IList`, `type T`, an import alias — still get a line where upstream
+  drops them. This is why we emit **4.4% more lines than upstream**, and the
+  samples show it directly (`ours: IList`, `ours: I`, `ours: N`).
+- **Some keyword tokens reach the output** (`ours: const`, `ours: return`),
+  which the selection predicates should have rejected. That is either a
+  predicate defect or an error-recovery tree that differs from upstream's, and it
+  has not yet been separated — the sampled cases are all ones where the source is
+  invalid TypeScript.
+
+Read 65.08% as *the walker is roughly two-thirds right and its errors are
+concentrated in two identified places*, not as a pass rate. It has to go
+substantially higher before the `checker_types` line gradient says anything about
+the checker rather than about the walker.
+
 ### What blocks it
 
 All four selection predicates ask "is this node its parent's `name` / `expression`

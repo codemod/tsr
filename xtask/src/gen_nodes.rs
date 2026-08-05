@@ -750,8 +750,12 @@ fn generate_is_declaration(ast: &AstDefinition) -> Result<String> {
 /// names. Getting this wrong emits an accessor with zero match arms that compiles
 /// cleanly and always returns `None` — which is why the generated arm counts are
 /// asserted in `crates/tsr-ast/tests/`.
-const NAMED_CHILD_ACCESSORS: &[(&str, &str)] =
-    &[("name", "name_id"), ("Expression", "expression_id"), ("Initializer", "initializer_id")];
+const NAMED_CHILD_ACCESSORS: &[(&str, &str)] = &[
+    ("name", "name_id"),
+    ("Expression", "expression_id"),
+    ("Initializer", "initializer_id"),
+    ("Type", "type_id"),
+];
 
 /// Emit `Node::name_id`, `Node::expression_id` and `Node::initializer_id`.
 ///

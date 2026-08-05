@@ -730,6 +730,56 @@ impl Node<'_> {
             _ => None,
         }
     }
+    /// The id of this node's `Type` child, if it has one.
+    ///
+    /// `None` when the node kind has no such field, when the field is
+    /// absent, or when it is a list — there is no single id to return.
+    #[must_use]
+    pub fn type_id(&self) -> Option<crate::NodeId> {
+        match self {
+            Node::ArrowFunction(n) => n.r#type?.node_id(),
+            Node::AsExpression(n) => n.r#type?.node_id(),
+            Node::BinaryExpression(n) => n.r#type?.node_id(),
+            Node::CallSignatureDeclaration(n) => n.r#type?.node_id(),
+            Node::ConstructSignatureDeclaration(n) => n.r#type?.node_id(),
+            Node::ConstructorDeclaration(n) => n.r#type?.node_id(),
+            Node::ConstructorTypeNode(n) => n.r#type?.node_id(),
+            Node::ExportAssignment(n) => n.r#type?.node_id(),
+            Node::FunctionDeclaration(n) => n.r#type?.node_id(),
+            Node::FunctionExpression(n) => n.r#type?.node_id(),
+            Node::FunctionTypeNode(n) => n.r#type?.node_id(),
+            Node::GetAccessorDeclaration(n) => n.r#type?.node_id(),
+            Node::IndexSignatureDeclaration(n) => n.r#type?.node_id(),
+            Node::JSDocNonNullableType(n) => n.r#type?.node_id(),
+            Node::JSDocNullableType(n) => n.r#type?.node_id(),
+            Node::JSDocOptionalType(n) => n.r#type?.node_id(),
+            Node::JSDocSignature(n) => n.r#type?.node_id(),
+            Node::JSDocTypeExpression(n) => n.r#type?.node_id(),
+            Node::JSDocVariadicType(n) => n.r#type?.node_id(),
+            Node::MappedTypeNode(n) => n.r#type?.node_id(),
+            Node::MethodDeclaration(n) => n.r#type?.node_id(),
+            Node::MethodSignatureDeclaration(n) => n.r#type?.node_id(),
+            Node::NamedTupleMember(n) => n.r#type?.node_id(),
+            Node::OptionalTypeNode(n) => n.r#type?.node_id(),
+            Node::ParameterDeclaration(n) => n.r#type?.node_id(),
+            Node::ParenthesizedTypeNode(n) => n.r#type?.node_id(),
+            Node::PropertyAssignment(n) => n.r#type?.node_id(),
+            Node::PropertyDeclaration(n) => n.r#type?.node_id(),
+            Node::PropertySignatureDeclaration(n) => n.r#type?.node_id(),
+            Node::RestTypeNode(n) => n.r#type?.node_id(),
+            Node::SatisfiesExpression(n) => n.r#type?.node_id(),
+            Node::SetAccessorDeclaration(n) => n.r#type?.node_id(),
+            Node::ShorthandPropertyAssignment(n) => n.r#type?.node_id(),
+            Node::SyntheticExpression(n) => n.r#type.node_id(),
+            Node::TemplateLiteralTypeSpan(n) => n.r#type?.node_id(),
+            Node::TypeAliasDeclaration(n) => n.r#type?.node_id(),
+            Node::TypeAssertion(n) => n.r#type?.node_id(),
+            Node::TypeOperatorNode(n) => n.r#type?.node_id(),
+            Node::TypePredicateNode(n) => n.r#type?.node_id(),
+            Node::VariableDeclaration(n) => n.r#type?.node_id(),
+            _ => None,
+        }
+    }
 }
 
 impl Node<'_> {

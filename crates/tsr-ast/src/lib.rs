@@ -21,9 +21,11 @@ mod flags;
 mod generated;
 mod node_map;
 pub mod parent;
+pub mod predicates;
 pub use generated::visit::{for_each_child_id, push_children};
 pub use node_map::NodeMap;
 pub use parent::assign_parents;
+pub use predicates::Tree;
 
 pub use flags::{ModifierFlags, NodeFlags, TokenFlags};
 pub use generated::visit::Visit;

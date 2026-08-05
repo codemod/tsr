@@ -29,6 +29,7 @@ pub mod suites;
 pub mod symbols_baseline;
 pub mod trace_case;
 pub mod types_baseline;
+pub mod types_producer;
 pub mod types_suite;
 
 use std::path::{Path, PathBuf};
