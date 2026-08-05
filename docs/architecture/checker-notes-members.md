@@ -13,21 +13,26 @@ second.
 
 ## 0. Status
 
-**Measured** over the 9,538-case `.types` population at `b484ea9`, in an
-isolated worktree: §5 is the result and §3's prediction is scored in §5.1. One
-question is **open** and blocks quoting the shares — the three-line disagreement
-with `rank_board` in §5.2 — and one follow-on measurement is pre-registered in
-§5.5. The open issue is `bd tsr-gzx`.
-`crates/tsr-conformance/examples/member_shapes.rs` exists, its classifier is
-mutation-checked, and it has been exercised on capped subsets. The corpus run is
-the lead's, serialised, in an isolated worktree. **Every number below that is
-labelled *subset* is from a capped run and is not the answer** — the caps are
-alphabetical prefixes of the corpus, which is the worst possible sampling for a
-corpus whose case names cluster by feature.
+**Measured and closed.** Two corpus runs over the 9,538-case `.types`
+population, in isolated worktrees: run 1 at `b484ea9` (§5) and run 2 at
+`897cc45` (§6). Both pre-registered gates fired **negative**, so **nothing was
+built**: `crates/tsr-checker/src/members.rs` and `indexed.rs` are untouched by
+this workstream. The three-line disagreement with `rank_board` is **resolved and
+was never a disagreement** (§6.1). Issue `bd tsr-gzx`.
 
-Nothing in `crates/tsr-checker/src/members.rs` or `indexed.rs` has changed. No
-behaviour change has been made, so there is nothing here to falsify by mutation
-except the instrument, which is mutation-checked in §2.
+The instrument is `crates/tsr-conformance/examples/member_shapes.rs`, six
+control buckets and six named mutations (§2). **No behaviour change was made**,
+so there is nothing here to falsify by mutation except the instrument itself.
+Any number labelled *subset* comes from a capped smoke run and is not an answer:
+the caps are alphabetical prefixes, the worst possible sample of a corpus whose
+case names cluster by feature.
+
+**The one-line verdict, since it is the thing most likely to be misquoted:** the
+two rows are one work item worth **8,024 lines**, of which 19.7% is upstream's
+own error and 37.2% is parked, and **both gates over what remains fired
+negative** — 774 against a 1,000 bar, and 1,122 against a 1,200 bar with
+narrowing over its ceiling. 8,024 is a **ceiling on a population, never a
+conversion**.
 
 ---
 
@@ -377,7 +382,10 @@ the call-path measurement, where composites were 8.5% and unremarkable.
 different arithmetic: **19.7% is a genuine missing property** against 10.9%
 there.
 
-### 5.2 OPEN: three lines that `rank_board` and this probe disagree on
+### 5.2 Three lines that `rank_board` and this probe appeared to disagree on
+
+**Resolved in §6.1 — the hypothesis below was confirmed to the line. Kept as
+written, before the answer was known.**
 
 The board reads 4,016 and **4,005**; this probe reads 4,016 and **4,008** at a
 commit with no checker change in between (the gradient is 291,799 at both). Row
@@ -428,7 +436,10 @@ CONTROL row 5 (a LEAF) counted as propagated/span    = 0
 ```
 
 Under the inverted polarity, applied deliberately as mutation **MU4**, it reads
-**65** on a 400-case subset instead of 0. This is the general lesson restated:
+**65** on a 400-case subset instead of 0. This is a *structure-pinned* control
+rather than an arithmetic one, and §6.4 works out why that distinction is a
+class — it is the repair for `docs/conventions.md`'s
+*"A control bucket over a classifier whose last arm is a default cannot fire"*. This is the general lesson restated:
 copying an expression is not copying its meaning, and the cheapest guard against
 that is a bucket whose value is fixed by the *structure* of what is measured
 rather than by the measurement.
@@ -520,7 +531,144 @@ it.
 
 ---
 
-## 6. How you would know this page is wrong
+## 6. Run 2, and the verdict
+
+Full corpus at `897cc45`, isolated worktree. **All six control buckets read
+zero**, including the new structure-pinned one.
+
+### 6.1 The reconciliation: pre-registered as 4,005 + 3, measured 4,005 + 3
+
+```
+  4016  row 5 (member name)      TERMINAL
+     0  row 5 (member name)      propagated/span
+     3  row 6 (property access)  TERMINAL
+  4005  row 6 (property access)  propagated/span
+```
+
+**There was never a disagreement.** `rank_board` prints one ranking section per
+cause — `rank_board.rs:547` filters `Cause::Terminal`, `:559` filters
+`PropagatedSpan | PropagatedNamed` — so its 4,005 is row 6's *propagated* count
+and the three TERMINAL lines sat below Ranking A's truncation. The two
+instruments agreed completely and always had.
+
+The three lines are named rather than counted, which is the part that turns an
+explanation into a check:
+
+```
+compiler/parse1:                      bar.
+conformance/classAbstractCrashedOnce: this.
+conformance/parser509667:             this.
+```
+
+All three are **`a.` with no name at all** — property accesses in files whose
+names say they are parser error-recovery cases. The access node exists, its name
+child does not, so nothing gapped strictly inside the span and the line is
+TERMINAL. That is a satisfying end: the residual is a parse artefact, not a
+checker behaviour, and it could not have been guessed from the counts.
+
+**Holding this open was worth more than the three lines.** Three lines in eight
+thousand is 0.07% and is exactly the size of thing that gets waved through as
+noise. What came back instead was a *mechanism* that predicted the split before
+it was seen and now documents, for the next reader of the board, that its rows
+are **per cause** — so a row's headline is not its total.
+
+### 6.2 Both legs of the union gate fail
+
+§5.5 registered: build only if `WOULD find` ≥ 1,200 **and**
+`upstream NARROWER` ≤ 33%.
+
+```
+  1122   50.2%  a distribution arm WOULD find it (ours, members.rs)   <- 1,122 < 1,200  FAIL
+   512   22.9%  some constituents have it (upstream errors too)
+   601   26.9%  NO constituent has it (the union is not the blocker)
+
+   908   40.6%  upstream's receiver type is ours, exactly
+    34    1.5%  same constituents, different print order (ours)
+   784   35.1%  upstream is NARROWER (narrowing — flow.rs, not ours)  <- 35.1% > 33%   FAIL
+   507   22.7%  differs another way (alias printing, or a real difference)
+```
+
+**Both legs, not marginally one.** Under the bar on the count *and* over it on
+the narrowing share.
+
+**And none of the three branches I registered describes the outcome.** I named a
+build case, a fail case, and a "`NO constituent` dominates, so it is not ours"
+case. What happened is a fourth: **the largest single outcome is ours — 1,122
+lines a distribution arm would find today — and it is still under the bar.**
+Writing that plainly rather than rounding it to the nearest registered branch is
+the point of registering them; a pre-registration that gets reinterpreted to fit
+is not one.
+
+The lead's narrowing challenge lands at **35.1%** and that is worth stating
+precisely rather than as a win for either side: it was enough to fail the gate
+and it is **not a majority**. About a third of the composite bucket is
+`flow.rs`, and the rest splits three further ways, including **34 lines of our
+own union sort order** and 507 of alias printing or a real difference. The raw
+`DIFFERS` column conflated all of that under one label, and only the second cut
+showed it — by cutting, not by arguing.
+
+Two numbers nobody asked for and both are diagnostic: **324** of the composite
+lines are an optional chain `a?.b`, and **676** had `undefined` or `null` in the
+union. Upstream removes the nullish constituents in `checkNonNullExpression`
+*before* the lookup, so a meaningful slice of this bucket is a non-null step
+rather than a distribution step, and the two are different work.
+
+### 6.3 The verdict: nothing to build, by rules written before the numbers
+
+| item | gate, registered before the number existed | measured | outcome |
+|---|---|---:|---|
+| `getApparentType` | ≥ 1,000 lines and top-1 ≤ 25% | **774** | **declined** |
+| union distribution arm | ≥ 1,200 lines and narrowing ≤ 33% | **1,122** / **35.1%** | **declined** |
+
+So the largest apparently-distributed item on the gradient board — 8,024 lines,
+1,060 cases, top-1 4.7% — yields **no `members.rs` item above the bar**, and
+this workstream ends with its own files untouched.
+
+**A rule that only ever licenses is not a rule.** That was written in §5.6 about
+`getApparentType` and it now applies twice over, the second time at the cost of
+the workstream that wrote it. Both numbers were close enough to their bars —
+774 against 1,000, 1,122 against 1,200 — that a sentence of reinterpretation
+would have carried either one over, and the only thing preventing that is that
+the bars existed before the numbers did. Neither was tuned afterwards.
+
+What survives is not nothing:
+
+- **rows 5 and 6 are one work item**, measured node by node (99.8%, zero gapped
+  for a different reason), so the board can stop listing them as two candidates;
+- **the board's rows are per cause**, so a row's headline is not its total;
+- **19.7% of the row is not our defect at all**, and 37.2% is parked;
+- and the composite bucket, which nobody had reasoned about, is now measured
+  three ways instead of being available for a future estimate to guess at.
+
+### 6.4 The control that caught the polarity bug, and why it is a class
+
+`docs/conventions.md`, *"A control bucket over a classifier whose last arm is a
+default cannot fire"*, records the complementary defect found this cycle:
+`rank_board`'s `UNATTRIBUTED` control is structurally incapable of reading
+anything but zero, because its classifier is total — it read zero on every run
+and proved nothing on any of them.
+
+The control added in §5.3 is the repair for that failure mode and it is worth
+naming as a class. **A control pinned by arithmetic** — "these buckets must sum
+to that total" — can only catch a bookkeeping slip, and cannot fire at all if
+the classifier is total. **A control pinned by construction** — row 5 is a
+*leaf*, so nothing can be nested strictly inside its span, so `propagated/span`
+is impossible for it whatever the corpus contains — is fixed by the structure of
+the thing being measured rather than by the measurement, and it fires on a
+*semantic* inversion that leaves every sum intact.
+
+That is exactly what happened: the inverted polarity produced a table where
+every total still reconciled and every arithmetic control still read zero. Only
+the structure-pinned bucket moved, from 0 to 65.
+
+So, as a rule to carry: **for each control, ask what input would make it
+non-zero, and prefer the one whose answer is fixed by a property of the subject
+rather than by the classifier.** A leaf has nothing inside it; that is true
+before any code runs.
+
+---
+
+## 7. How you would know this page is wrong
 
 - **A control bucket reads non-zero.** Then the buckets are a list of true facts
   rather than a partition, and §3's rule has nothing to stand on.
@@ -541,10 +689,19 @@ it.
   prints per cause and its 4,005 is a cause bucket. If run 2 reads any other
   number, that explanation is wrong, and the two instruments disagree about
   something not yet identified — in which case §5.1's shares are the thing to
-  stop quoting first.
+  stop quoting first. *Measured: exactly 3, and the three lines are `a.` with no
+  name child, in parser error-recovery cases. §6.1.*
 - **The composite bucket's `NO constituent has it` outcome dominates.** Then the
   2,235 lines are not a union-lookup item, the largest actionable bucket on this
   page dissolves into `bd tsr-4qx` and the apparent type, and the honest
   statement is that rows 5/6 contain **no `members.rs` item above the bar at
   all**. That is a real possible outcome of run 2 and it is written here before
-  it is known.
+  it is known. *Measured: it did not dominate — `WOULD find` did, at 50.2% — and
+  the conclusion is the same anyway because 1,122 is under the 1,200 bar. The
+  outcome arrived by a route none of the three registered branches named, which
+  is recorded in §6.2 rather than rounded to the nearest one.*
+- **Someone quotes 8,024 as a `members.rs` opportunity.** It is the size of the
+  two rows and it is not the size of any item: 19.7% is upstream's own error,
+  37.2% is parked on `bd tsr-4qx`, and both gates over the remainder fired
+  negative. The number is a **ceiling on a population**, never a conversion —
+  the trap `docs/conventions.md` records two agents falling into in one session.
