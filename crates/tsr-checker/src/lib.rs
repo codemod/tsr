@@ -78,6 +78,7 @@
 //! evidence until something deliberately wrong has been pushed through the whole
 //! path and seen to go red.
 
+pub mod array_literals;
 pub mod assertions;
 pub mod binary;
 pub mod calls;

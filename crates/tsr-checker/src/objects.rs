@@ -172,7 +172,7 @@ impl Checker<'_, '_> {
     ///
     /// **This is the property boundary freshness stops at.** `const n = 1` is
     /// `1`, and `const o = { a: 1 }` is `{ a: number; }`.
-    fn check_expression_for_mutable_location(
+    pub(crate) fn check_expression_for_mutable_location(
         &mut self,
         expression: tsr_ast::Expression<'_>,
     ) -> TypeId {

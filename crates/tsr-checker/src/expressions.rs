@@ -120,6 +120,10 @@ impl Checker<'_, '_> {
             // identically and is computed by unrelated code — see
             // [`crate::objects`].
             Expression::ObjectLiteralExpression(node) => self.check_object_literal(node),
+            // `checkArrayLiteral` (`checker.go:8021`). The element union meets
+            // the array type, both of which already existed — see
+            // [`crate::array_literals`].
+            Expression::ArrayLiteralExpression(node) => self.check_array_literal(node),
             // `checkAssertion` (`checker.go:12287`). Both spellings of the same
             // construct, and `const` is recognised before the type node is
             // resolved — see [`crate::assertions`].

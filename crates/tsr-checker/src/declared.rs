@@ -304,7 +304,7 @@ impl<'a> Checker<'a, '_> {
     /// wrong arity; without diagnostics the answer is a gap — which is also what
     /// happens when a file is checked with no lib files, as every unit test here
     /// is.
-    fn global_type_symbol(&self, name: &str) -> Option<SymbolId> {
+    pub(crate) fn global_type_symbol(&self, name: &str) -> Option<SymbolId> {
         let symbol = *self.binder.globals().get(name)?;
         (self.local_type_parameters_of(symbol).len() == 1).then_some(symbol)
     }
@@ -396,7 +396,11 @@ impl<'a> Checker<'a, '_> {
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes
     /// `string[]` and `Array<string>` one type rather than two that print alike.
-    fn create_type_reference(&mut self, symbol: SymbolId, arguments: Vec<TypeId>) -> TypeId {
+    pub(crate) fn create_type_reference(
+        &mut self,
+        symbol: SymbolId,
+        arguments: Vec<TypeId>,
+    ) -> TypeId {
         if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
             return cached;
         }
