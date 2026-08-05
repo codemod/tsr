@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 1832/9538 (19.21%)
-Assertion lines: 273502/478954 (57.10%)  — a gradient, not a pass rate
-Failed         : 7706
+Passed         : 2041/9538 (21.40%)
+Assertion lines: 288626/478954 (60.26%)  — a gradient, not a pass rate
+Failed         : 7497
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,13 +12,11 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 7706 failures:
+First 100 of 7497 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
-compiler/DeclarationErrorsNoEmitOnError
-  DeclarationErrorsNoEmitOnError.ts: >T : { x: number; } — expected >T : T
 compiler/ExportAssignment7
   ExportAssignment7.ts: >B : error — expected >B : any
 compiler/ExportAssignment8
@@ -54,11 +52,11 @@ compiler/accessorDeclarationOrder
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : error — expected >basePrototype : { readonly primaryPath: any; }
 compiler/accessorsEmit
-  accessorsEmit.ts: >Property : error — expected >Property : any
+  accessorsEmit.ts: >Property : null — expected >Property : any
 compiler/accessors_spec_section-4.5_error-cases
   accessors_spec_section-4.5_error-cases.ts: >aStr : any — expected >aStr : string
 compiler/accessors_spec_section-4.5_inference
-  accessors_spec_section-4.5_inference.ts: >InferredFromGetter : error — expected >InferredFromGetter : B
+  accessors_spec_section-4.5_inference.ts: >a : any — expected >a : B
 compiler/addMoreCallSignaturesToBaseSignature
   addMoreCallSignaturesToBaseSignature.ts: >kitty : error — expected >kitty : string
 compiler/addMoreCallSignaturesToBaseSignature2
@@ -104,7 +102,7 @@ compiler/aliasUsedAsNameValue
 compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
   aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts: >moduleA : error — expected >moduleA : any
 compiler/allowImportClausesToMergeWithTypes
-  b.ts: >zzz : error — expected >zzz : 123
+  a.ts: >zzz : error — expected >zzz : 123
 compiler/allowJsClassThisTypeCrash
   app.js: >g.prototype.m : error — expected >g.prototype.m : any
 compiler/allowJsCrossMonorepoPackage
@@ -174,7 +172,7 @@ compiler/amdLikeInputDeclarationEmit
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >wrapClass : error — expected >wrapClass : (param: any) => typeof Wrapped
 compiler/anonterface
-  anonterface.ts: >m : error — expected >m : (fn: { (n: number): string; }, n2: number) => string
+  anonterface.ts: >fn : { (n: number): string; } — expected >fn : (n: number) => string
 compiler/anonymousClassDeclarationDoesntPrintWithReadonly
   anonymousClassDeclarationDoesntPrintWithReadonly.ts: >y : error — expected >y : () => typeof (Anonymous class)
 compiler/anonymousClassExpression1
@@ -195,14 +193,12 @@ compiler/anyInferenceAnonymousFunctions
   anyInferenceAnonymousFunctions.ts: >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : error — expected >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : any
 compiler/anyMappedTypesError
   anyMappedTypesError.ts: >Foo : error — expected >Foo : Foo
-compiler/anyPlusAny1
-  anyPlusAny1.ts: >x.name : error — expected >x.name : any
 compiler/argsInScope
   argsInScope.ts: >arguments.length : error — expected >arguments.length : number
 compiler/arguments
   arguments.ts: >x : error — expected >x : any
 compiler/argumentsAsPropertyName
-  argumentsAsPropertyName.ts: >MyType : { arguments: string[]; } — expected >MyType : MyType
+  argumentsAsPropertyName.ts: >myType.arguments[i] : error — expected >myType.arguments[i] : string
 compiler/argumentsAsPropertyName2
   argumentsAsPropertyName2.ts: >[].forEach(function () { i }) : error — expected >[].forEach(function () { i }) : void
 compiler/argumentsObjectCreatesRestForJs
@@ -213,3 +209,7 @@ compiler/argumentsObjectIterator02_ES6
   argumentsObjectIterator02_ES6.ts: >doubleAndReturnAsArray : error — expected >doubleAndReturnAsArray : (x: number, y: number, z: number) => [number, number, number]
 compiler/argumentsObjectIterator03_ES6
   argumentsObjectIterator03_ES6.ts: >asReversedTuple : error — expected >asReversedTuple : (a: number, b: string, c: boolean) => [boolean, string, number]
+compiler/argumentsPropertyNameInJsMode1
+  a.js: >foo : error — expected >foo : { f1: (params: any) => void; }
+compiler/argumentsPropertyNameInJsMode2
+  a.js: >arguments : error — expected >arguments : IArguments
