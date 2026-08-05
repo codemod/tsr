@@ -635,9 +635,13 @@ fn a_generic_type_is_printed_with_its_type_parameters() {
 #[test]
 fn an_enum_declares_a_type_that_prints_its_name() {
     // Upstream's declared type of an enum is the union of its members' literal
-    // types, which prints as the enum's name; this port has no unions and builds
-    // a named type that prints the same string. A divergence in behaviour that
-    // is invisible in a printed line — see `getDeclaredTypeOfSymbol`.
+    // types, which prints as the enum's name. This comment used to record that
+    // the port built a *named* type printing the same string instead — a
+    // divergence invisible in a printed line. That was true when the test was
+    // written and stopped being true at `038def4`, which replaced the named type
+    // with the union; the behavioural assertion now lives in
+    // `an_enum_declares_a_real_union_that_prints_as_the_enum_name`
+    // (`tests/unions.rs`), because printing alone cannot tell the two apart.
     assert_eq!(declared_type_of("enum E { A }", "E"), "E");
     assert_eq!(type_of_declaration("enum E { A }\ndeclare const x: E;", "x"), "E");
 }
@@ -1783,4 +1787,85 @@ fn a_base_this_port_cannot_follow_does_not_answer_through_it() {
         ),
         "error"
     );
+}
+
+/// Type an enum member, by the enum's name and the member's.
+///
+/// An enum member is not a file-scope local, so [`type_of_declaration`]'s
+/// `lookup_local` cannot reach it — the member symbol lives in the enum
+/// symbol's own member table, and the route to it is the declaration node.
+fn type_of_enum_member(source: &str, enum_name: &str, member_name: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "fixture must parse: {:?}",
+        parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+    );
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let declaration = parsed
+        .source_file
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            Statement::EnumDeclaration(node)
+                if node.name.is_some_and(|name| name.text == enum_name) =>
+            {
+                Some(*node)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("`{enum_name}` is declared"));
+    let symbol = declaration
+        .members
+        .iter()
+        .filter_map(|member| member.node_id.and_then(|id| bound.symbol_of(id)))
+        .find(|&symbol| bound.symbols().get(symbol).name == member_name)
+        .unwrap_or_else(|| panic!("`{enum_name}.{member_name}` is declared"));
+
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let id = checker.get_type_of_symbol(symbol);
+    checker.type_to_string(id)
+}
+
+#[test]
+fn an_enum_member_has_the_member_type_the_enum_union_built() {
+    // `>A : E.A` and `>B : E.B`, from `enumAssignmentCompat5.types`. The member
+    // type is *not* built here: `getTypeOfEnumMember` forces the parent enum's
+    // declared type and reads back the identity that building the union
+    // assigned. Asking the enum symbol itself in the same breath is what makes
+    // that visible — `E` is `typeof E` and `E` declares `E`, and neither is
+    // `E.A`. Three questions, three answers, one set of member identities.
+    assert_eq!(type_of_enum_member("enum E { A, B }", "E", "A"), "E.A");
+    assert_eq!(type_of_enum_member("enum E { A, B }", "E", "B"), "E.B");
+    assert_eq!(type_of_declaration("enum E { A, B }", "E"), "typeof E");
+    assert_eq!(declared_type_of("enum E { A, B }", "E"), "E");
+
+    // `>A : E.A` from `computedEnumTypeWidening.types`, whose members are all
+    // `computed(0)` calls. The printed form of a member never depends on its
+    // *value*, which is why this port prints every member correctly while having
+    // no constant evaluator at all (`bd tsr-8pz`).
+    assert_eq!(
+        type_of_enum_member(
+            "declare function c(x: number): number;\nenum E { A = c(0) }",
+            "E",
+            "A"
+        ),
+        "E.A"
+    );
+}
+
+#[test]
+fn an_enum_member_whose_name_is_not_identifier_text_is_a_gap() {
+    // `enumWithQuotedElementName2.types` prints `>"fo'o" : (typeof E)["fo'o"]`,
+    // not `E."fo'o"` and certainly not `E.fo'o`. The member type's printed form
+    // is fixed when the union is built, so this port cannot pick between the two
+    // spellings at print time; emitting the dotted one would be a wrong line
+    // where a missing one belongs.
+    assert_eq!(type_of_enum_member(r#"enum E { "fo'o" }"#, "E", "fo'o"), "error");
+    assert_eq!(type_of_enum_member(r#"enum E { "a-b" }"#, "E", "a-b"), "error");
 }

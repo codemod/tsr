@@ -64,10 +64,72 @@ impl<'a> Checker<'a, '_> {
         ) {
             return self.get_type_of_func_class_enum_module(symbol);
         }
-        // Unported: accessors, enum members, aliases, and the four `CheckFlags`
-        // shapes upstream tests first (deferred, instantiated, mapped,
-        // reverse-mapped).
+        // `checker.go:16515`, and it must sit *after* the arm above: an enum's
+        // own symbol carries `ENUM`, its members carry `ENUM_MEMBER`, and the
+        // two are different questions — `E` has `typeof E`, `E.A` has `E.A`.
+        if flags.intersects(SymbolFlags::ENUM_MEMBER) {
+            return self.get_type_of_enum_member(symbol);
+        }
+        // Unported: accessors, aliases, and the four `CheckFlags` shapes
+        // upstream tests first (deferred, instantiated, mapped, reverse-mapped).
         self.intrinsics.error
+    }
+
+    /// The type of an enum member symbol.
+    ///
+    /// Ported from `Checker.getTypeOfEnumMember` (`checker.go:18503`) — a memo
+    /// over `getDeclaredTypeOfEnumMember` (`checker.go:23927`), which is itself
+    /// almost entirely a *side effect*: it forces the parent enum's declared
+    /// type, and building that union is what assigns each member symbol its own
+    /// declared type ([`Checker::get_declared_type_of_symbol`], via
+    /// `getDeclaredTypeOfEnum` at `checker.go:23874`). The member types are not
+    /// built here and must not be, or an enum would have two sets of member
+    /// identities — the union's and this one's.
+    ///
+    /// # The name guard, and why it is not upstream's
+    ///
+    /// Upstream's node builder prints a member as `E.A` only when the member
+    /// name is identifier text, and as `(typeof E)["fo'o"]` otherwise —
+    /// `enumWithQuotedElementName2.types` records exactly that line. The member
+    /// type's printed form is fixed when the union is built, so this port cannot
+    /// choose between the two forms at print time (see
+    /// [`crate::printing::type_to_string`]) and would emit `E.fo'o`, which is a
+    /// wrong line where a gap belongs. A non-identifier member name therefore
+    /// answers `errorType` here.
+    fn get_type_of_enum_member(&mut self, symbol: SymbolId) -> TypeId {
+        if let Some(&cached) = self.symbol_types.get(&symbol) {
+            return cached;
+        }
+        let computed = self.get_declared_type_of_enum_member(symbol);
+        self.symbol_types.insert(symbol, computed);
+        computed
+    }
+
+    /// Ported from `Checker.getDeclaredTypeOfEnumMember` (`checker.go:23927`).
+    ///
+    /// Upstream reads `links.declaredType` again *after* forcing the parent,
+    /// because forcing it is what fills the link in; the second read is not
+    /// redundant and the `unwrap_or` below is upstream's fallback for a member
+    /// the enum did not claim, not a guess.
+    ///
+    /// **A hazard this port has and upstream does not.**
+    /// [`Checker::get_declared_type_of_symbol`] has no `ENUM_MEMBER` arm, so
+    /// asking it about a member symbol *first* would cache `errorType` against
+    /// that member and this function would then return it. Nothing reaches that
+    /// today — `E.A` in type position is a qualified name and unported — but the
+    /// order is load-bearing rather than incidental.
+    fn get_declared_type_of_enum_member(&mut self, symbol: SymbolId) -> TypeId {
+        if let Some(&cached) = self.declared_types.get(&symbol) {
+            return cached;
+        }
+        if !is_identifier_text(self.binder.symbols().get(symbol).name) {
+            return self.intrinsics.error;
+        }
+        let Some(parent) = self.binder.symbols().get(symbol).parent else {
+            return self.intrinsics.error;
+        };
+        let enum_type = self.get_declared_type_of_symbol(parent);
+        self.declared_types.get(&symbol).copied().unwrap_or(enum_type)
     }
 
     /// The type of a function, method, class, enum or value-module symbol.
@@ -384,4 +446,21 @@ impl<'a> Checker<'a, '_> {
             _ => None,
         }
     }
+}
+
+/// Whether a name can be printed after a dot.
+///
+/// Upstream asks `scanner.IsIdentifierText(name, LanguageVariantStandard)`
+/// before emitting `E.A` rather than `(typeof E)["A"]`
+/// (`nodebuilderimpl.go:3269`). This covers the ASCII identifier subset only, so
+/// a name outside it is a gap rather than a guess. Deliberately a second copy of
+/// the same predicate in [`crate::objects`]: sharing it means widening one
+/// module's private helper into the crate surface for six lines, and the two
+/// have different reasons to change — that one guards a property name in an
+/// object literal, this one an enum member name.
+fn is_identifier_text(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else { return false };
+    (first.is_ascii_alphabetic() || first == '_' || first == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }

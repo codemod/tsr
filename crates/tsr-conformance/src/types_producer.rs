@@ -629,6 +629,41 @@ fn type_node_reason(
     id: NodeId,
 ) -> String {
     let kind = nodes.kind(id);
+    // Two composite kinds recurse into what they are made of, because the bare
+    // kind name cannot be ranked. `annotation ArrayType` was 2,020 lines that
+    // could have been either "the global `Array` did not resolve" or "the
+    // element type gapped" — two different pieces of work, one label. It turned
+    // out to be the former (the globals are never merged across files;
+    // `crates/tsr-compiler/src/lib.rs:24`), but the instrument could not say so
+    // and a teammate had to read the checker to find out.
+    //
+    // A type literal recurses to its *first gapping member* for a sharper
+    // reason: `get_type_from_type_literal` (`declared.rs:154`) returns `error`
+    // for the whole literal if any one member gaps, so the interesting fact is
+    // which member, not that it was a literal.
+    if kind == SyntaxKind::ArrayType {
+        if let Some(Node::ArrayTypeNode(array)) = map.get(id)
+            && let Some(element) = array.element_type
+            && let Some(element_id) = element.node_id()
+        {
+            return format!("ArrayType of {}", type_node_reason(binder, nodes, map, element_id));
+        }
+        return format!("{kind:?}");
+    }
+    if kind == SyntaxKind::TypeLiteral {
+        if let Some(Node::TypeLiteralNode(literal)) = map.get(id) {
+            let member = literal
+                .members
+                .iter()
+                .filter_map(|member| member.node_id())
+                .map(|member| type_node_reason(binder, nodes, map, member))
+                .next();
+            if let Some(member) = member {
+                return format!("TypeLiteral of {member}");
+            }
+        }
+        return format!("{kind:?}");
+    }
     if kind != SyntaxKind::TypeReference {
         return format!("{kind:?}");
     }
@@ -740,7 +775,24 @@ pub fn gap_reason(
         && map.get(parent).and_then(|p| p.name_id()) == Some(id)
     {
         let flags = binder.symbols().get(symbol).flags;
-        return format!("type declaration name, nothing declared: {flags:?}");
+        // The flags alone were actively misleading for a type alias: the label
+        // read "nothing declared", but the arm *does* exist
+        // (`get_declared_type_of_type_alias`, `declared.rs:562`) and something
+        // *is* declared — what gapped is the alias's right-hand side. 1,134
+        // lines sat unrankable under a label that pointed at the wrong half of
+        // the declaration. Report the RHS instead, when there is one.
+        let alias = map
+            .get(parent)
+            .and_then(|node| match node {
+                Node::TypeAliasDeclaration(alias) => alias.r#type,
+                _ => None,
+            })
+            .and_then(|rhs| rhs.node_id())
+            .map(|rhs| type_node_reason(binder, nodes, map, rhs));
+        return match alias {
+            Some(alias) => format!("type declaration name, the alias RHS gaps: {alias}"),
+            None => format!("type declaration name, nothing declared: {flags:?}"),
+        };
     }
 
     // The `b` of `a.b` is typed as the access itself, so it is explained as one.
