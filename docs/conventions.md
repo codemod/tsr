@@ -524,3 +524,57 @@ have been required.
 
 So the rule is not "probe first". It is **probe to find which of several
 candidate blockers is the live one, once reading has narrowed it to a few.**
+
+### Three levels of bucketing, and the one that matters
+
+An earlier version of this section said "bucket by the shape of the answer, not
+the shape of the question". That is right and still insufficient. There are
+three levels, and they diverge:
+
+1. **The syntax of the question** — "79% of these accesses have a numeric
+   index", which reads as *arrays and tuples*.
+2. **Upstream's answer** — "88% of these lines answer `any`", which reads as
+   *the receivers are `any`*.
+3. **Our failure** — the join of *our* gap set against upstream's answers.
+
+Level 2 beats level 1: the syntax histogram pointed at instantiated generic
+members, a real blocker and the wrong one. But level 2 is not level 3, and on
+that same row they diverged maximally. Of the 11,363 lines answering `any`,
+**9,999 were in a single file** — `largeControlFlowGraph.types`, ten thousand
+accesses hanging off one `const data = []` evolving array. Upstream computes
+`any` there through `autoArrayType` machinery this port does not have, so the
+receiver is `any` upstream and is *not* `any` here. A fix aimed at level 2 could
+not touch them.
+
+**A baseline records what upstream computes. It never records what this port can
+compute for a dependency.** That is the ceiling on what any baseline-derived
+estimate can know.
+
+### Two kinds of estimate, and you cannot tell them apart in advance
+
+The blind test that falsified the counting method above found *two* failure
+modes, which is why its errors ran in opposite directions:
+
+- **Kind 1 — correctable.** The count was of sites where the construct appears
+  rather than lines its failure blocks. Correcting for that recovered the answer
+  to within 17%, from an original error of 260%. The multiplier is real and
+  measurable after the fact.
+- **Kind 2 — not correctable.** The quantity depends on whether *our port* can
+  produce the precondition, which no baseline records. Two defensible proxies
+  bracketed the true answer by **31×** — 7,068 against 225, measured 950.
+
+**Nothing in the baselines distinguishes a kind-1 form from a kind-2 form before
+you measure.** A method that cannot tell you which case you are in is not usable
+even on the cases where it would have worked.
+
+This also demotes the method's one apparent success. A 744-against-673 agreement
+on a different form now reads as luck rather than validation: that form happened
+to be kind 1 with a multiplier near 1. It would have gone on being cited as
+evidence if the blind test had not been run.
+
+### If you self-test a method, let someone else pick the best case
+
+The agent who proposed the blind test also framed the two forms and nominated
+which one should land tightly. It nominated wrong — the form it called the clean
+case missed by 3.6×. Choosing your own best case is the last piece of freedom a
+self-test leaves you; hand it to someone else.
