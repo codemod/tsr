@@ -123,6 +123,27 @@ kernel's high-water mark rather than whatever is resident at the moment of askin
 | AST cost (peak − baseline) | 37.8 MB | 25.0 MB | 26.8 MB | **1.51× lower** |
 | Bytes of RSS per source byte | 7.12 | 4.72 | 5.05 | 1.51× lower |
 
+**Superseded for the AST rows as of 2026-08-05, and the advantage narrows.** The
+figures above predate `NodeMap`, the `NodeId → Node` table the checker needs
+([ADR-0033](../adr/0033-the-parser-fills-the-node-map.md)). It is filled by the
+parser, so it is part of the AST's cost from now on: 16 bytes per node, +6.4 MB
+on these fixtures. Re-measured the same way, `-jsdoc`:
+
+| | tsgo | tsr, with `NodeMap` | ratio |
+|---|---:|---:|---:|
+| **Peak RSS, trees held** | **57.0 MB** | **38.8 MB** | **1.47× lower** (was 1.77×) |
+| AST cost (peak − baseline) | 37.8 MB | 31.5 MB | **1.20× lower** (was 1.51×) |
+| Bytes of RSS per source byte | 7.12 | 5.94 | 1.20× lower |
+
+The original rows are kept rather than overwritten because they are still the
+right comparison for the *tree itself*, which is what the paragraphs below
+analyse. But **1.20× is the number to quote for a working compiler**, because a
+compiler that cannot reach a node from its id cannot type anything. Upstream pays
+this cost too and does not show up as a line item: a Go `*ast.Symbol` holds a real
+`*ast.Node`, so the pointer is in the node graph tsgo's 37.8 MB already counts.
+The comparison is therefore fairer at 1.20× than it was at 1.51×, not merely
+worse.
+
 Two distinct effects, worth separating because they generalise differently:
 
 - **Fixed overhead is 2.66× lower** (7.3 MB versus 19.3 MB). That is the Go

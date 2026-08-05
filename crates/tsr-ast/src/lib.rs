@@ -19,8 +19,10 @@
 
 mod flags;
 mod generated;
+mod node_map;
 pub mod parent;
 pub use generated::visit::{for_each_child_id, push_children};
+pub use node_map::NodeMap;
 pub use parent::assign_parents;
 
 pub use flags::{ModifierFlags, NodeFlags, TokenFlags};

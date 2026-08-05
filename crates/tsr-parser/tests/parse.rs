@@ -1013,3 +1013,86 @@ fn a_decorator_may_follow_export() {
     let arena = Arena::new();
     statements(&arena, "@dec export @dec class C {}");
 }
+
+// ---------------------------------------------------------------------------
+// `NodeMap` — the way back from an id to the typed node (ADR-0033).
+//
+// The map is a `Vec` pushed in id order rather than an indexed store, which is
+// what makes it nearly free. That is only sound while entry `n` really is the
+// node whose id is `n`, so the invariant is tested directly rather than assumed.
+// ---------------------------------------------------------------------------
+
+/// Every id in the table resolves to the node that carries that id.
+fn assert_map_is_aligned(source: &str) {
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert_eq!(
+        parsed.node_map.len(),
+        parsed.nodes.len(),
+        "the map and the node table must stay the same length: {source:?}"
+    );
+    for index in 0..parsed.nodes.len() {
+        let id = tsr_ast::NodeId::new(u32::try_from(index).expect("fits"));
+        let node = parsed.node_map.get(id).expect("every registered id has a node");
+        assert_eq!(
+            node.node_id(),
+            Some(id),
+            "map entry {index} holds a node whose id is {:?}, in {source:?}",
+            node.node_id()
+        );
+        assert_eq!(
+            parsed.nodes.kind(id),
+            parsed.nodes.kind(node.node_id().expect("id")),
+            "kind disagrees at {index} in {source:?}"
+        );
+    }
+}
+
+#[test]
+fn the_node_map_is_aligned_with_the_node_table() {
+    assert_map_is_aligned("const a: string = 'x';");
+    assert_map_is_aligned("class C { m(p: number): void {} }");
+    assert_map_is_aligned("switch (1) { case 2: break; default: break; }");
+    assert_map_is_aligned("for (const q of [1, 2]) { q; }");
+}
+
+#[test]
+fn the_node_map_survives_speculative_backtracking() {
+    // The case the lockstep `truncate` exists for. Each of these makes the
+    // parser commit to a guess and then abandon it, registering nodes that never
+    // enter the tree; if only `NodeTable` rolled back, every id after the
+    // abandoned attempt would name a different node in each table.
+    //
+    // `(a)` starts as a possible arrow-function parameter list and turns out to
+    // be a parenthesised expression; `<T>` in a `.ts` file is a type assertion
+    // until proven a generic call; and the `<` chains force repeated lookahead.
+    assert_map_is_aligned("const f = (a) => a;");
+    assert_map_is_aligned("const g = (a);");
+    assert_map_is_aligned("const h = <T,>(x: T) => x;");
+    assert_map_is_aligned("const i = a < b > c;");
+    assert_map_is_aligned("const j = f<number>(1);");
+    assert_map_is_aligned("type K = A extends B ? C : D;");
+}
+
+#[test]
+fn a_declarations_annotation_is_reachable_through_the_map() {
+    // The query the checker actually makes, from an id rather than from a
+    // reference held across the tree.
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, "const a: string = 'x';");
+    let statement = parsed.source_file.statements[0];
+    let tsr_ast::Statement::VariableStatement(statement) = statement else {
+        panic!("expected a variable statement");
+    };
+    let declaration = statement
+        .declaration_list
+        .and_then(|list| list.declarations.first().copied())
+        .expect("one declaration");
+    let id = declaration.node_id.expect("registered");
+
+    let Some(tsr_ast::Node::VariableDeclaration(found)) = parsed.node_map.get(id) else {
+        panic!("expected a VariableDeclaration from the map");
+    };
+    assert!(found.r#type.is_some(), "the annotation must be reachable");
+    assert!(found.initializer.is_some(), "the initialiser must be reachable");
+}

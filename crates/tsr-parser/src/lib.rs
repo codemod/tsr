@@ -104,13 +104,20 @@ pub fn parse_with_options<'a>(
     } else {
         parser.parse_source_file()
     };
-    let (diagnostics, node_table, jsdoc) = parser.finish();
+    let (diagnostics, node_table, jsdoc, node_map) = parser.finish();
     // A second, tiny pass over the leading trivia. Upstream folds it into the
     // parser's own trivia handling, but the preamble is bounded by the first
     // real token, so scanning it separately is a few hundred bytes of work on a
     // file of any size — and it keeps `pragma` independently testable.
     let file_references = pragma::parse_file_references(source);
-    ParsedSourceFile { source_file, diagnostics, nodes: node_table, jsdoc, file_references }
+    ParsedSourceFile {
+        source_file,
+        diagnostics,
+        nodes: node_table,
+        node_map,
+        jsdoc,
+        file_references,
+    }
 }
 
 /// The result of parsing one file.
@@ -121,6 +128,11 @@ pub struct ParsedSourceFile<'a> {
     pub diagnostics: Vec<Diagnostic>,
     /// Kind, span, and parent for every node the parser registered.
     pub nodes: tsr_ast::NodeTable,
+    /// The typed node behind each id — the way back into the tree.
+    ///
+    /// See [`tsr_ast::NodeMap`] and
+    /// [ADR-0033](../../../docs/adr/0033-the-parser-fills-the-node-map.md).
+    pub node_map: tsr_ast::NodeMap<'a>,
     /// JSDoc comments, keyed by the node they document.
     pub jsdoc: JSDocTable<'a>,
     /// What the file's `///`-directive preamble declared.

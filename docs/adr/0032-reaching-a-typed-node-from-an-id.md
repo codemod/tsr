@@ -1,6 +1,14 @@
 # ADR-0032: Reaching a typed node from an id — a dense table, built by the binder
 
-**Status:** accepted, 2026-08-05
+**Status:** **superseded by [ADR-0033](0033-the-parser-fills-the-node-map.md)**,
+2026-08-05 — same day, by its own falsifier. What survives is the *shape* (a
+dense `NodeId → Node` map) and the argument for it (capability: the checker holds
+ids and needs fields, and `NodeTable::parent` is otherwise unusable). What was
+wrong is *who fills it*: this record chose the binder believing the fill was free
+there, and it is neither free nor complete. Read this one for why the map exists
+and why the cheaper shapes lose; read ADR-0033 for where it is built.
+
+**Status when accepted:** accepted, 2026-08-05
 **Context:** `bd tsr-4sc.4`, blocking `bd tsr-4sc.2` (`getTypeOfSymbol`)
 **Related:** [ADR-0003](0003-tree-plus-side-tables.md) (tree plus side tables),
 [ADR-0013](0013-checker-memoisation.md) (types are handles),

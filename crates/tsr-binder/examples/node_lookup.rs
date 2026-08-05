@@ -252,14 +252,14 @@ fn main() {
                     walk(root_node, |node| {
                         if let Some(id) = node.node_id() {
                             walk_reached += 1;
-                            match result.node(id) {
+                            match file.node_map.get(id) {
                                 Some(_) => reached += 1,
                                 None => disagree.push(id),
                             }
                         }
                     });
                     println!(
-                        "  walk reached {walk_reached}, binder table has {reached}, missing {}",
+                        "  walk reached {walk_reached}, parser map has {reached}, missing {}",
                         disagree.len()
                     );
                     for &id in disagree.iter().take(8) {

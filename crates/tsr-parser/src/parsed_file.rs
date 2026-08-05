@@ -46,6 +46,10 @@ struct Ast<'a> {
     /// nodes from the arena — unlike the diagnostics and node table, which are
     /// owned data and can be lifted out.
     jsdoc: crate::JSDocTable<'a>,
+    /// Inside the cell for the same reason as `jsdoc`: it holds `Node<'a>`
+    /// values borrowed from the arena, so it cannot be lifted out beside the
+    /// node table. See [`tsr_ast::NodeMap`].
+    node_map: tsr_ast::NodeMap<'a>,
 }
 
 /// A parsed file: source, arena, tree, and diagnostics as one owned value.
@@ -110,10 +114,10 @@ impl ParsedFile {
             } else {
                 parser.parse_source_file()
             };
-            let (parsed_diagnostics, parsed_nodes, jsdoc) = parser.finish();
+            let (parsed_diagnostics, parsed_nodes, jsdoc, node_map) = parser.finish();
             diagnostics = parsed_diagnostics;
             nodes = parsed_nodes;
-            Ast { source_file, jsdoc }
+            Ast { source_file, jsdoc, node_map }
         });
 
         Self { cell, diagnostics: diagnostics.into(), nodes: Arc::new(nodes) }
@@ -144,6 +148,17 @@ impl ParsedFile {
     /// which is the thing `self_cell` exists to prevent.
     pub fn with_ast<R>(&self, f: impl for<'a> FnOnce(&'a SourceFile<'a>) -> R) -> R {
         self.cell.with_dependent(|_owner, ast| f(ast.source_file))
+    }
+
+    /// Run `f` over the tree and its node map together.
+    ///
+    /// The map is how a consumer holding only a [`NodeId`](tsr_ast::NodeId) —
+    /// a symbol's declaration, or a node's parent — reads the node's fields.
+    pub fn with_ast_and_nodes<R>(
+        &self,
+        f: impl for<'a> FnOnce(&'a SourceFile<'a>, &'a tsr_ast::NodeMap<'a>) -> R,
+    ) -> R {
+        self.cell.with_dependent(|_owner, ast| f(ast.source_file, &ast.node_map))
     }
 
     /// Run `f` over the tree and its JSDoc together.

@@ -944,8 +944,10 @@ fn declarations_around_a_deep_expression_still_bind() {
 // ---------------------------------------------------------------------------
 // `BindResult::node` — the way back from an id to the typed node.
 //
-// ADR-0032. The checker cannot compute a declaration's type without this: a
-// symbol holds a `NodeId`, and the annotation and initialiser live in the node.
+// ADR-0033 (superseding ADR-0032). The checker cannot compute a declaration's
+// type without this: a symbol holds a `NodeId`, and the annotation and
+// initialiser live in the node. The map is filled by the parser, so these are
+// binder tests only in that they start from a symbol.
 // ---------------------------------------------------------------------------
 
 /// Every node reachable from the root, by a `push_children` walk.
@@ -976,7 +978,7 @@ fn every_node_in_the_tree_can_be_reached_from_its_id() {
     let mut kinds = std::collections::HashSet::new();
     for node in every_node(root) {
         let Some(id) = node.node_id() else { continue };
-        let found = bound.result.node(id).unwrap_or_else(|| {
+        let found = bound.parsed.node_map.get(id).unwrap_or_else(|| {
             panic!("no node for {:?} at {:?}", bound.nodes().kind(id), bound.nodes().span(id))
         });
         // The right node, not merely *a* node: the same id comes back out.
@@ -1008,21 +1010,23 @@ fn a_declarations_annotation_and_initialiser_are_reachable_from_its_symbol() {
     let symbol = bound.result.symbols().get(symbol_id);
     let declaration = symbol.value_declaration.expect("a `const` has a value declaration");
 
-    let Some(Node::VariableDeclaration(node)) = bound.result.node(declaration) else {
-        panic!("expected a VariableDeclaration, got {:?}", bound.result.node(declaration));
+    let Some(Node::VariableDeclaration(node)) = bound.parsed.node_map.get(declaration) else {
+        panic!("expected a VariableDeclaration, got {:?}", bound.parsed.node_map.get(declaration));
     };
     assert!(node.r#type.is_some(), "the annotation must be reachable");
     assert!(node.initializer.is_some(), "the initialiser must be reachable");
 }
 
 #[test]
-fn a_case_keyword_is_in_the_table_even_though_the_bind_walk_never_visits_it() {
-    // The 0.41% that made this a separate pass rather than a line in
-    // `bind_inner`. `push_children` is generated from `ast.json` and includes
-    // token-valued fields; `bind_children` ports upstream's `bindChildren`,
-    // whose `ForEachChild` does not visit them. Recording during the bind walk
-    // left 1,728 of 419,565 nodes unreachable across the benchmark fixtures,
-    // `case` and `default` keywords among them.
+fn a_case_keyword_is_in_the_map_even_though_the_bind_walk_never_visits_it() {
+    // Recording during the *bind* walk left 1,728 of 419,565 nodes unreachable
+    // across the benchmark fixtures — `case` and `default` keywords among them —
+    // because `push_children` is generated from `ast.json` and includes
+    // token-valued fields while `bind_children` ports upstream's `bindChildren`,
+    // whose `ForEachChild` does not visit them. Filling the map in the parser
+    // makes the question moot: every node is recorded where it is created, so
+    // no walk's idea of "every node" has to be trusted. This test is kept
+    // because it is the one that caught the hole.
     let arena = Arena::new();
     let bound = bind(&arena, "switch (1) { case 2: break; default: break; }");
     let root = Node::SourceFile(bound.parsed.source_file);
@@ -1034,7 +1038,7 @@ fn a_case_keyword_is_in_the_table_even_though_the_bind_walk_never_visits_it() {
         if matches!(kind, tsr_ast::SyntaxKind::CaseKeyword | tsr_ast::SyntaxKind::DefaultKeyword) {
             keywords += 1;
             assert!(
-                bound.result.node(id).is_some(),
+                bound.parsed.node_map.get(id).is_some(),
                 "{kind:?} at {:?} is in the tree but not in the table",
                 bound.nodes().span(id)
             );
@@ -1044,12 +1048,12 @@ fn a_case_keyword_is_in_the_table_even_though_the_bind_walk_never_visits_it() {
 }
 
 #[test]
-fn an_id_the_binder_never_saw_yields_none_rather_than_panicking() {
+fn an_id_from_beyond_the_tree_yields_none_rather_than_panicking() {
     // A row registered by an abandoned speculative parse is not in the tree
     // (`bd tsr-pum.12`). The checker must see `None` and fall back to an error
     // type, not crash — and an out-of-range id must not panic either.
     let arena = Arena::new();
     let bound = bind(&arena, "const a = 1;");
     let past_the_end = tsr_ast::NodeId::new(u32::try_from(bound.nodes().len()).expect("fits") + 5);
-    assert!(bound.result.node(past_the_end).is_none());
+    assert!(bound.parsed.node_map.get(past_the_end).is_none());
 }

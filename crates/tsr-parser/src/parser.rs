@@ -162,6 +162,9 @@ pub struct Parser<'a> {
     token_value: Option<String>,
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) nodes: NodeTable,
+    /// Every node, by id — see [`tsr_ast::NodeMap`]. Filled here because the
+    /// parser is the only stage where it costs a `push` rather than a walk.
+    pub(crate) node_map: tsr_ast::NodeMap<'a>,
     /// Non-zero while `in` must not be treated as a binary operator.
     ///
     /// `for (a in b)` would otherwise consume `a in b` as a comparison and leave
@@ -232,6 +235,7 @@ impl<'a> Parser<'a> {
             // Estimating low would reintroduce the growth this avoids, so this
             // takes the denser of the two.
             nodes: NodeTable::with_capacity(source.len() / 10),
+            node_map: tsr_ast::NodeMap::with_capacity(source.len() / 10),
             no_in: 0,
             jsdoc: Vec::new(),
             parse_jsdoc: options.jsdoc,
@@ -242,13 +246,13 @@ impl<'a> Parser<'a> {
 
     /// Consume the parser, returning its diagnostics and node table.
     #[must_use]
-    pub fn finish(mut self) -> (Vec<Diagnostic>, NodeTable, JSDocTable<'a>) {
+    pub fn finish(mut self) -> (Vec<Diagnostic>, NodeTable, JSDocTable<'a>, tsr_ast::NodeMap<'a>) {
         // Scanner diagnostics are interleaved by position so a caller sees one
         // ordered list rather than two.
         let mut diagnostics = self.diagnostics;
         diagnostics.extend(self.scanner.take_diagnostics());
         diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
-        (diagnostics, self.nodes, JSDocTable { entries: self.jsdoc })
+        (diagnostics, self.nodes, JSDocTable { entries: self.jsdoc }, self.node_map)
     }
 
     // ---- token cursor ---------------------------------------------------
@@ -401,6 +405,9 @@ impl<'a> Parser<'a> {
         // are unreachable from the tree. Truncating is safe only because ids are
         // handed out sequentially and nothing else holds one yet.
         self.nodes.truncate(saved.nodes);
+        // In lockstep, or every id after the abandoned attempt names a different
+        // node in each table.
+        self.node_map.truncate(saved.nodes);
     }
 
     /// Enter a nested construct, refusing past [`MAX_DEPTH`].
@@ -516,8 +523,13 @@ impl<'a> Parser<'a> {
         let allocated: &'a mut T = self.arena.alloc(node);
         allocated.set_node_id(id);
         let allocated: &'a T = allocated;
+        let node: tsr_ast::Node<'a> = allocated.into();
+        // Immediately after `NodeTable::push`, so the map's entry `n` is the node
+        // whose id is `n`. That ordering is the whole reason this is a `push`
+        // rather than an indexed store into a zeroed vector.
+        self.node_map.push(node);
         if self.assign_parents {
-            self.record_parent_of_children(allocated.into(), id);
+            self.record_parent_of_children(node, id);
         }
         allocated
     }
@@ -538,6 +550,8 @@ impl<'a> Parser<'a> {
             self.nodes.push(SyntaxKind::Identifier, Span::at(start), tsr_ast::NodeFlags::empty());
         let allocated = self.arena.alloc(node);
         allocated.node_id = Some(id);
+        let allocated: &'a Identifier<'a> = allocated;
+        self.node_map.push(allocated.into());
         allocated
     }
 
@@ -546,6 +560,8 @@ impl<'a> Parser<'a> {
         let id = self.nodes.push(kind, span, tsr_ast::NodeFlags::empty());
         let allocated = self.arena.alloc(AstToken::new(kind));
         allocated.node_id = Some(id);
+        let allocated: &'a AstToken<'a> = allocated;
+        self.node_map.push(allocated.into());
         allocated
     }
 

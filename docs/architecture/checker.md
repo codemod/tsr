@@ -24,26 +24,28 @@ table. `checker_types` reads **0/9,538** and that is correct, not a bug.
 **What does not exist:** declaration types (`getTypeOfSymbol`), type nodes,
 object/union/intersection/generic/conditional/indexed-access types,
 assignability, inference, overload resolution, control-flow narrowing, and every
-one of the checker's diagnostics. `bd tsr-4sc.2` is the next slice, and it is
-blocked — see below.
+one of the checker's diagnostics. `bd tsr-4sc.2` is the next slice; the
+structural blocker under it is now cleared — see below.
 
-## What blocks declaration types
+## Reaching a declaration from a symbol — the blocker, now cleared
 
-Found 2026-08-05 on starting `bd tsr-4sc.2`, and it is structural rather than a
-matter of writing more code. **Nothing maps a `NodeId` back to a typed node.**
+Found 2026-08-05 on starting `bd tsr-4sc.2`, and structural rather than a matter
+of writing more code: **nothing mapped a `NodeId` back to a typed node.**
 
 A binder `Symbol` holds `value_declaration: Option<NodeId>`. Computing its type
 means reading that declaration's annotation and initialiser, which live in the
 typed node — `VariableDeclaration<'a>` — while `NodeTable` stores only kind,
 span, flags and parent (`crates/tsr-ast/src/lib.rs:159`–`186`). So the checker
-can reach a declaration's *position* and not its *contents*. Upstream never meets
-this: a Go `*ast.Symbol` holds a real `*ast.Node`, and the question does not
+could reach a declaration's *position* and not its *contents*. Upstream never
+meets this: a Go `*ast.Symbol` holds a real `*ast.Node`, and the question does not
 arise. Here it is [ADR-0003](../adr/0003-tree-plus-side-tables.md) meeting
 upstream's design.
 
+`ParsedSourceFile::node_map` now answers it — `NodeMap::get(id) -> Option<Node>`.
+
 Three candidate structures were measured over the four benchmark fixtures
 (`crates/tsr-binder/examples/node_lookup.rs`, each option in its own process;
-419,572 nodes, 41,831 symbols, binder at 15,052 KiB):
+419,572 nodes, 41,831 symbols):
 
 | option | entries | exact KiB | RSS Δ KiB | populate | answers `parent(id)`? |
 |---|---:|---:|---:|---:|:--:|
@@ -51,31 +53,34 @@ Three candidate structures were measured over the four benchmark fixtures
 | per-symbol, one `Node` per symbol | 36,590 | 653 | 1,488 | 5.55 ms | no |
 | sparse `FxHashMap` of declarations | 43,297 | 1,432 | 3,156 | 9.05 ms | no |
 
-Medians of three readings, taken at a load average of 1.89.
+**Resolved by [ADR-0032](../adr/0032-reaching-a-typed-node-from-an-id.md), then
+superseded the same day by
+[ADR-0033](../adr/0033-the-parser-fills-the-node-map.md).** The dense shape won
+on capability — the other two answer only "the declaration node of this symbol",
+while `nodes.parent(id)` returns an id that 1,134 sites in upstream's checker
+need resolved to a node. What changed is *who fills it*.
 
-**Resolved by [ADR-0032](../adr/0032-reaching-a-typed-node-from-an-id.md): the
-dense table, built by the binder.** The decision is capability, not cost — the
-other two answer only "the declaration node of this symbol", and
-`nodes.parent(id)` returns a `NodeId` that 1,134 sites in upstream's checker need
-resolved to a typed node.
+ADR-0032 put the fill in the binder, believing it free there. Two measurements
+said otherwise: the bind walk reaches only 417,837 of 419,565 nodes (0.41% short
+— `case`/`default` keywords and some zero-width `ForOfStatement`s, because
+`push_children` includes token-valued fields and `bindChildren` does not), so it
+needed a separate pre-pass; and that pre-pass cost **+16.1%** on `checker.ts`
+parse+bind, mostly zeroing a 4.8 MB vector on every bind.
 
-Three results were not what the issue predicted, and are worth carrying forward:
-the dense table is the **fastest** to populate despite being ten times the size
-(it stores by index; the others probe a hash map per node); and the cheap
-options' resident cost is 2.2–2.3× their byte counts, because both need a
-transient set during the walk, so the real spread is 4.5× rather than 10×.
+The parser fills it instead (`tsr_ast::NodeMap`, `bd tsr-4sc.5`). `NodeTable`
+hands out ids sequentially and the parser allocates the typed node immediately
+after, so recording is a `Vec::push` — no zeroed allocation, no second walk, and
+coverage complete by construction rather than by argument. Measured against the
+binder version: parse+bind **−17.0%** on `checker.ts`, binder memory back to
+14,848 KiB, total bytes-per-source-byte 8.73 → 8.68. The cost lands on parse-only
+consumers instead: **+7.4%** parse time and +6,400 KiB of AST, worth **+0.9%** on
+a whole-corpus conformance run.
 
-**A third prediction was wrong and was corrected on implementation.** The ADR
-expected the table to ride free on the binder's existing walk. It cannot: the
-bind walk reaches 417,837 of 419,565 nodes — 1,728 short, 0.41% — because
-`push_children` is generated from `ast.json` and includes token-valued fields
-while `bind_children` ports upstream's `bindChildren`, which does not visit them.
-So the table is filled by a dedicated pre-pass, `Binder::record_nodes`, and the
-extra walk is a real cost rather than the free rider the ADR assumed. The 0.41%
-was `case`/`default` keywords and some zero-width `ForOfStatement` nodes.
-
-The accepted price is **+6,656 KiB, +44% on binder memory**, bytes-per-source-byte
-7.54 → 8.75.
+Two predictions this repository got wrong along the way, both corrected in the
+records rather than quietly: the dense table is the *fastest* to populate despite
+being ten times the size (it stores by index; the others probe a hash map per
+node), and the cheap options' resident cost is 2.2–2.3× their byte counts because
+both need a transient set during the walk — so the real spread is 4.5×, not 10×.
 
 ## Two things upstream does that the issue text got wrong
 
