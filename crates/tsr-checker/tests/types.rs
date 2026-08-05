@@ -74,8 +74,9 @@ fn parentheses_do_not_change_a_type() {
 
 #[test]
 fn an_unported_expression_form_is_error_not_any() {
-    // `errorType` and `anyType` both print `any`, and conflating them is how a
-    // gap becomes an assertion. Everything unported must land on `error`.
+    // `errorType` and `anyType` are distinguished by identity, not by printing,
+    // and conflating them is how a gap becomes an assertion. Everything unported
+    // must land on `error`.
     let arena = Arena::new();
     let source = "const x = f();";
     let parsed = tsr_parser::parse(&arena, source);
@@ -465,4 +466,104 @@ fn a_declaration_kind_this_slice_does_not_port_is_an_error_type() {
     let id = checker.get_type_of_symbol(symbol);
     assert_eq!(id, checker.intrinsics().error, "an unported declaration kind must be errorType");
     assert_ne!(id, checker.intrinsics().any);
+}
+
+/// The binary operators (`bd tsr-4sc.13`).
+///
+/// Ranked into this order by `examples/types_shapes.rs`: of the 39,035 corpus
+/// assertion lines lost on a `BinaryExpression`, assignment is 18,743, `+` is
+/// 3,537, the comparisons together are 6,336 and the arithmetic and bitwise
+/// family 6,886. The logical operators — 1,860 lines — need unions and are
+/// deliberately still `errorType`.
+#[test]
+fn an_assignment_has_the_type_of_its_right_hand_side_including_its_freshness() {
+    // The commonest binary line in the corpus by a factor of five. `x = "a"` is
+    // `"a"` and not `string`: assignment returns the right operand's type
+    // *unchanged*, so the fresh literal survives. Widening here would be
+    // invisible in a test that only asked for `string`.
+    assert_eq!(type_of_initialiser(r#"const x = (y = "a");"#), r#""a""#);
+    assert_eq!(type_of_initialiser("const x = (y = 1);"), "1");
+}
+
+#[test]
+fn a_comma_expression_has_the_type_of_its_right_hand_side() {
+    assert_eq!(type_of_initialiser(r#"const x = (1, "a");"#), r#""a""#);
+}
+
+#[test]
+fn arithmetic_bitwise_and_shift_are_number() {
+    // One arm covers twenty-one operators upstream, which is why the test names
+    // one from each family rather than all of them.
+    assert_eq!(type_of_initialiser("const x = 1 * 2;"), "number");
+    assert_eq!(type_of_initialiser("const x = 1 - 2;"), "number");
+    assert_eq!(type_of_initialiser("const x = 1 / 2;"), "number");
+    assert_eq!(type_of_initialiser("const x = 1 << 2;"), "number");
+    assert_eq!(type_of_initialiser("const x = 1 | 2;"), "number");
+    assert_eq!(type_of_initialiser("const x = 1 ** 2;"), "number");
+    // Not `1`: the operands are literal types and the result is the primitive.
+    assert_ne!(type_of_initialiser("const x = 1 * 1;"), "1");
+}
+
+#[test]
+fn bigint_arithmetic_is_bigint_and_mixing_it_is_not_a_guess() {
+    assert_eq!(type_of_initialiser("const x = 1n * 2n;"), "bigint");
+    // Upstream reports on a mixed operation and answers `errorType`. Answering
+    // `number` would be the plausible wrong thing.
+    assert_eq!(type_of_initialiser("const x = 1n * 2;"), "error");
+}
+
+#[test]
+fn addition_is_numeric_before_it_is_textual() {
+    // Upstream's order is load-bearing: both number-like first, then both
+    // bigint-like, then *either* string-like. A test that only checked
+    // `"a" + "b"` would pass with the arms in any order.
+    assert_eq!(type_of_initialiser("const x = 1 + 2;"), "number");
+    assert_eq!(type_of_initialiser("const x = 1n + 2n;"), "bigint");
+    assert_eq!(type_of_initialiser(r#"const x = "a" + "b";"#), "string");
+    assert_eq!(type_of_initialiser(r#"const x = 1 + "b";"#), "string");
+    assert_eq!(type_of_initialiser(r#"const x = "a" + 1;"#), "string");
+}
+
+#[test]
+fn every_comparison_is_boolean_even_when_an_operand_is_a_gap() {
+    // These are the arms that answer *without* their operands: upstream returns
+    // `booleanType` whatever they are, computing them only to report on them. So
+    // an unported operand does not stop the answer, and that is a computed
+    // result rather than a guess.
+    assert_eq!(type_of_initialiser("const x = 1 < 2;"), "boolean");
+    assert_eq!(type_of_initialiser("const x = 1 >= 2;"), "boolean");
+    assert_eq!(type_of_initialiser("const x = 1 === 2;"), "boolean");
+    assert_eq!(type_of_initialiser("const x = 1 != 2;"), "boolean");
+    assert_eq!(type_of_initialiser(r#"const x = "a" in b;"#), "boolean");
+    assert_eq!(type_of_initialiser("const x = a instanceof B;"), "boolean");
+    assert_eq!(type_of_initialiser("const x = f() === g();"), "boolean");
+}
+
+#[test]
+fn an_unported_operand_propagates_rather_than_becoming_number() {
+    // The deliberate deviation, stated as a test. `errorType` carries
+    // `TypeFlagsAny`, so upstream's rule would answer `number` here — sound for
+    // upstream, where `errorType` means an error was reported, and a claim in
+    // this port, where it also means an unported form.
+    assert_eq!(type_of_initialiser("const x = f() * 2;"), "error");
+    assert_eq!(type_of_initialiser("const x = f() + 2;"), "error");
+}
+
+#[test]
+fn the_logical_operators_are_still_a_gap() {
+    // `a && b` is a union of the operands, and unions do not exist (bd
+    // tsr-4sc.9). The tempting wrong answer is the *left* type, which is right
+    // only when the left operand can never be falsy.
+    assert_eq!(type_of_initialiser("const x = 1 && 2;"), "error");
+    assert_eq!(type_of_initialiser("const x = 1 || 2;"), "error");
+    assert_eq!(type_of_initialiser("const x = 1 ?? 2;"), "error");
+}
+
+#[test]
+fn a_destructuring_assignment_is_a_gap_and_not_its_right_hand_side() {
+    // `[a] = [1]` binds a *pattern*; taking the right-hand type would be nearly
+    // right for the expression and wrong for everything inside the pattern, so
+    // upstream leaves the function before checking either operand.
+    assert_eq!(type_of_initialiser("const x = ([a] = [1]);"), "error");
+    assert_eq!(type_of_initialiser("const x = ({ a } = { a: 1 });"), "error");
 }

@@ -377,6 +377,18 @@ pub fn gap_reason(
         // "answered error", not "form not ported": a ported form propagates its
         // operand's `error` — a parenthesised expression is the visible case —
         // so this names the node that produced the gap and not its cause.
+        //
+        // A binary expression names its operator too. `checkBinaryExpression` is
+        // a dozen unrelated rules behind one node kind — `+` is not `===` is not
+        // `&&` — so "39,035 BinaryExpression lines" cannot be ported in an order
+        // without this.
+        if let tsr_ast::Expression::BinaryExpression(binary) = expression {
+            let operator = binary
+                .operator_token
+                .and_then(|token| token.node_id)
+                .map_or_else(|| "?".to_string(), |token| format!("{:?}", nodes.kind(token)));
+            return format!("expression answered error: BinaryExpression {operator}");
+        }
         return format!("expression answered error: {:?}", nodes.kind(id));
     }
     format!("neither a declaration name nor an expression: {:?}", nodes.kind(id))

@@ -252,7 +252,10 @@ ModuleDeclaration, no type at all                             5,569
 1. **`bd tsr-4sc.13` — the remaining expression forms**, in measured order:
    binary, property access, call, element access. 40% of gaps and the largest
    single item in the corpus. Property access and call need 2 for anything but
-   the simplest receivers, so the honest first slice is the binary operators.
+   the simplest receivers, so the honest first slice is the binary operators —
+   **done, and it moved the gradient 22.39% → 28.72%**; see below. Property
+   access (23,732 lines), call (15,867) and element access (13,549) remain, and
+   all three now wait on 2.
 2. **`bd tsr-4sc.7` — `getTypeFromTypeNode` and `getDeclaredTypeOfSymbol`.** 21%
    of gaps sit on an annotation, and it gates 3, 5 and 7.
 3. **`bd tsr-4sc.8` — `getTypeOfFuncClassEnumModule`.** 12.5% of gaps are a
@@ -284,6 +287,72 @@ recursion limits) is a standing constraint rather than a task — port each limi
 over-reports) is 9 points of the `diagnostics` ceiling but ~300 separate
 investigations with no dominant cause, which scores poorly until the checker
 emits diagnostics at all.
+
+## The binary operators, and one deliberate deviation
+
+Ported 2026-08-05 (`bd tsr-4sc.13`, first slice). `checkBinaryLikeExpression`
+(`checker.go:12336`) is a dozen unrelated rules behind one node kind, and they
+do not become available at the same time, so the port is by arm and the order
+came from the histogram rather than from upstream's source order:
+
+| operator | corpus lines lost | now |
+|---|---:|---|
+| `=` | 18,743 | the right-hand type, freshness intact |
+| `+`, `+=` | 3,537 | number / bigint / string, in upstream's order |
+| `===` `==` `!==` `!=` `<` `>` `<=` `>=` `in` `instanceof` | 6,336 | `boolean` |
+| `* ** / % -` `<< >> >>>` `\| ^ &` and their `=` forms | 6,886 | number, or bigint |
+| `,` | 490 | the right-hand type |
+| `&&` `\|\|` `??` | 1,860 | **still a gap** — a union of the operands (`bd tsr-4sc.9`) |
+
+Measured after: `checker_types` 278 → **313** cases, gradient 22.39% →
+**28.72%**. The intrinsic bucket went 23.54% → 34.82% right and the literal
+bucket 74.24% → **87.13%**, the latter almost entirely from `=` and `,`
+returning the right-hand type *unchanged* — a fresh literal survives an
+assignment, so `x = "a"` is `"a"` and not `string`.
+
+Two arms are worth stating because they look like shortcuts and are not. **Every
+comparison is `boolean` whatever its operands are**: upstream computes the
+operand types only to report on them and returns `booleanType` unconditionally,
+so these answer even where an operand is a gap, and `f() === g() : boolean` is a
+computed result rather than a guess. And **assignment returns the right-hand
+type**, not the declared type of the left — the rest of upstream's arm is
+`checkAssignmentOperator`, which reports and does not compute.
+
+### An `errorType` operand propagates, where upstream would answer `number`
+
+Upstream's arithmetic arm begins *"if both are any or unknown, assume the
+operation resolves to `number`"*, and `errorType` carries `TypeFlagsAny`, so
+`unknownThing * 2` is `number` upstream. That is sound **there**, where
+`errorType` means an error was already reported and the operand really could be
+anything.
+
+In this port `errorType` also means *an unported form*, and the same rule would
+convert a gap into a claim: `f() * 2` would read `number` whether or not `f`
+returns a `bigint`, and — worse — `examples/types_shapes.rs` could no longer tell
+the two apart, which is the instrument the whole ranking above is built on. So an
+`errorType` operand propagates. Upstream does exactly this in its `+` arm
+(`checker.go:12452`), which is the precedent for the shape of the deviation if
+not for its scope.
+
+**The cost was measured rather than asserted.** Following upstream instead —
+error operand in, `number` out — reads `313 / 29.87%` against this port's
+`313 / 28.72%`. So the deviation costs **1.15 gradient points, about 5,400
+lines, and no cases at all**. That is the price of the gap/wrong split being
+trustworthy, and it is a price that shrinks on its own: every expression form
+ported removes operands from the population it applies to.
+
+**How this would be shown wrong.** When property access, call and element access
+land, the operands mostly stop being `errorType`. If a large population still
+reaches the arithmetic arm with an `errorType` operand then, the gap is not the
+operand's form but something else, and this should go back to upstream's rule.
+
+Two guards in the ported code are **currently unobservable**, and both say so in
+place rather than being covered by a test that would not bite: the
+destructuring-assignment check (an array or object literal is unported, so both
+paths reach `errorType` anyway) and the order of `+`'s numeric and string tests
+(with only primitive types, nothing is assignable to both kinds). Each becomes
+load-bearing with a named future change, which is why they are kept — the same
+reasoning as the symbol-flags test in `getTypeOfSymbol`.
 
 ## Two decisions that shape the rest
 

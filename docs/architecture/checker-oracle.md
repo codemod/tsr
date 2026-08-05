@@ -3,10 +3,16 @@
 **Status:** wired, and non-zero for the first time on 2026-08-05.
 
 ```
-checker_types    278/9538      2.91%   the type of every expression
-                 gradient     22.39%   ...share of individual assertion lines
+checker_types    313/9538      3.28%   the type of every expression
+                 gradient     28.72%   ...share of individual assertion lines
 diagnostics       80/5488      1.46%   every diagnostic, by code and position
 ```
+
+Movement, all of it 2026-08-05: `278 / 22.39%` on the day the producer was wired,
+then `313 / 28.72%` when the binary operators landed (`bd tsr-4sc.13`). The
+gradient moved 6.33 points on one `checkExpression` arm, which is what the
+ranking in [checker.md](checker.md) predicted from the histogram and is the first
+evidence that the ranking is any good.
 
 ### The first non-zero number was mutation-tested before being believed
 

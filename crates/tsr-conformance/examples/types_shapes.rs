@@ -325,7 +325,7 @@ fn report(total: &Tally) {
     }
 
     println!("\nwhere the checker stopped, on every `error` line:");
-    print_kinds(&total.gap_reasons, None, 20);
+    print_kinds(&total.gap_reasons, None, 400);
     println!("\nwhere it stopped, where upstream answered intrinsic:");
     print_kinds(&total.gap_reasons, Some(Shape::Intrinsic), 12);
 
