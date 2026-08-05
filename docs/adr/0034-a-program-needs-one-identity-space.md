@@ -400,3 +400,50 @@ each case the reasoning at its own level was sound.
   failure. The array bucket does not make up the difference, because array
   lines are gap lines and not name lines. Whenever these numbers are quoted,
   quote the denominator with them.
+
+## Outcome, measured 2026-08-05 at `dddf425`
+
+The widening landed in `454478a` (invisible, every suite flat) and the producer
+rewire in `fa16ae4`, exactly as the ordering intended.
+
+```
+checker_types   1,163 → 1,336 cases     gradient 43.40% → 47.16%   (+3.76)
+```
+
+Every guard rail flat to the case: `binder_symbols` 8,292/8,459,
+`printer_round_trip` 11,681/11,737, `parser_typescript` 5,000/5,031,
+`file_loader` 96/96.
+
+**The falsifier fired, and what it found is that this ADR's 18,387 was right in
+total and wrong in composition.** Against the two-tier reading — a shortfall of
+a few thousand falsifies the *bound*, a shortfall approaching the 12,051-line
+array bucket falsifies the *decision*:
+
+| | before | after |
+|---|---:|---:|
+| lib names unresolved, **type** position | 3,209 | **3** |
+| lib names unresolved, **value** position | 3,126 | **397** |
+| the array bucket | 12,051 | **11,784** |
+
+**The lib-name half is 94% eliminated — 6,335 lines to 400 — and those lines
+*were* blocked on identity exactly as claimed.** The array bucket did not move,
+and the shortfall is therefore almost exactly the array bucket, which by the
+letter of the falsifier condemns the decision.
+
+It should not, and the reason is a mis-attribution rather than a wrong decision.
+**The array bucket was never blocked on identity.** `T[]` is a reference to the
+global `Array`, and reaching it needs *two* things: the global to exist, and the
+`ArrayType` **type node** to be ported. This ADR counted the first and silently
+assumed the second. The global now exists; the type node is still unported, so
+the bucket sits at 0.00% and will until `getTypeFromTypeNode` grows an array arm.
+
+So the honest reading is: **12,184 lines of the 18,387 were correctly
+attributed, and 11,784 of those still require a separate, named piece of work
+that this ADR did not name.** The falsifier was well constructed — it caught a
+real defect in the reasoning — and the defect was in the ADR's arithmetic rather
+than in its decision. Corrected here rather than quietly restated.
+
+The whole-corpus effect is larger than the lib lines alone, because a program
+also resolves *across a case's own units*: the literal bucket went 87.27% →
+93.87%, named references 40.15% → 46.80%, and generic references 38.18% →
+48.82%, none of which is lib.

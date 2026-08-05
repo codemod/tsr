@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 1163/9538 (12.19%)
-Assertion lines: 207860/478954 (43.40%)  — a gradient, not a pass rate
-Failed         : 8375
+Passed         : 1336/9538 (14.01%)
+Assertion lines: 225860/478954 (47.16%)  — a gradient, not a pass rate
+Failed         : 8202
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 8375 failures:
+First 100 of 8202 failures:
 compiler/2dArrays
   2dArrays.ts: >ships : error — expected >ships : Ship[]
 compiler/ClassDeclaration26
@@ -38,7 +38,7 @@ compiler/abstractClassInLocalScopeIsAbstract
 compiler/abstractClassUnionInstantiation
   abstractClassUnionInstantiation.ts: >Abstracts : error — expected >Abstracts : Abstracts
 compiler/abstractPropertyInConstructor
-  abstractPropertyInConstructor.ts: >parseInt(str) : error — expected >parseInt(str) : number
+  abstractPropertyInConstructor.ts: >val : error — expected >val : string
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >Symbol('s') : error — expected >Symbol('s') : unique symbol
 compiler/acceptableAlias1
@@ -64,7 +64,7 @@ compiler/accessorsEmit
 compiler/accessors_spec_section-4.5_error-cases
   accessors_spec_section-4.5_error-cases.ts: >AnnotatedSetter_SetterFirst : error — expected >AnnotatedSetter_SetterFirst : number
 compiler/accessors_spec_section-4.5_inference
-  accessors_spec_section-4.5_inference.ts: >A : typeof A — expected >A : A
+  accessors_spec_section-4.5_inference.ts: >InferredGetterFromSetterAnnotation : error — expected >InferredGetterFromSetterAnnotation : A
 compiler/addMoreCallSignaturesToBaseSignature
   addMoreCallSignaturesToBaseSignature.ts: >kitty : error — expected >kitty : string
 compiler/addMoreCallSignaturesToBaseSignature2
@@ -116,7 +116,7 @@ compiler/allowJsClassThisTypeCrash
 compiler/allowJsCrossMonorepoPackage
   /packages/main/index.ts: >x : error — expected >x : "pkg"
 compiler/allowJscheckJsTypeParameterNoCrash
-  func.ts: >watch : error — expected >watch : Record<string, WatchHandler<any>>
+  app.js: >vextend : error — expected >vextend : (options: ComponentOptions<{}>) => void
 compiler/allowSyntheticDefaultImports1
   a.ts: >Namespace : error — expected >Namespace : typeof Namespace
 compiler/allowSyntheticDefaultImports10
@@ -136,7 +136,7 @@ compiler/alwaysStrictES6
 compiler/alwaysStrictModule
   alwaysStrictModule.ts: >arguments : error — expected >arguments : any[]
 compiler/ambientClassDeclarationWithExtends
-  ambientClassDeclarationExtends_singleFile.ts: >A : typeof A — expected >A : A
+  ambientClassDeclarationExtends_singleFile.ts: >new D() : error — expected >new D() : D
 compiler/ambientClassDeclaredBeforeBase
   a.d.ts: >FirstNS : error — expected >FirstNS : FirstNS
 compiler/ambientClassMergesOverloadsWithInterface
@@ -184,7 +184,7 @@ compiler/ambiguousGenericAssertion1
 compiler/ambiguousOverload
   ambiguousOverload.ts: >foof : error — expected >foof : { (bar: string, y: any): number; (bar: string, x: any): string; }
 compiler/ambiguousOverloadResolution
-  ambiguousOverloadResolution.ts: >A : typeof A — expected >A : A
+  ambiguousOverloadResolution.ts: >f : error — expected >f : { (p: A, q: B): number; (p: B, q: A): string; }
 compiler/amdDependencyComment1
   amdDependencyComment1.ts: >m1 : error — expected >m1 : any
 compiler/amdDependencyCommentName1
