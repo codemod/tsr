@@ -305,3 +305,37 @@ produce silently**:
 The two instrument guards in
 [checker-oracle.md](architecture/checker-oracle.md) are this rule applied twice,
 and the parser defect is what it looks like when nobody applied it.
+
+### Run the mutation. Do not read it.
+
+On 2026-08-05 two people shipped a decoration test within an hour of each other,
+independently, and both caught it only by *running* the mutation rather than
+reasoning about it:
+
+- a constructor-type test whose helper searched for `FunctionType` only, so on a
+  constructor fixture it asked a vacuously false question — the fold-in mutation
+  left it green;
+- a type-query guard whose assertion could not distinguish the fix from its
+  absence through the helper it used, so forcing the guard false left it green.
+
+Both tests looked obviously correct. **The mutation step is not optional even
+then** — especially then, because a test that looks obviously correct is the one
+nobody re-reads.
+
+And the mutation itself needs verifying: two attempts that day silently failed to
+apply because the anchor did not match, and would have been recorded as
+"verified" had the substitution not been counted with `grep -c` afterwards.
+**Confirm the mutation applied before believing it did not bite.**
+
+### Two more rules for reading an instrument
+
+Both learned twice the same afternoon, by different people, from opposite sides:
+
+- **A bucket you cannot reproduce is not a false positive.** Three hand-built
+  fixtures all came back clean for one defect because all three were the wrong
+  shape — a lone accessor already gaps, and only a *merge* reached the arm. From
+  the other direction, a probe arm read zero because it asked about the name when
+  the change altered the answer. **A null from an instrument is a fact about the
+  instrument until shown otherwise.**
+- **Aggregates rank; per-file dumps diagnose.** The histogram says what to work
+  on. It never says why a line is wrong, and no amount of re-aggregating it will.
