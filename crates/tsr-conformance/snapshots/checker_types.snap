@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 1336/9538 (14.01%)
-Assertion lines: 225860/478954 (47.16%)  — a gradient, not a pass rate
-Failed         : 8202
+Passed         : 1501/9538 (15.74%)
+Assertion lines: 246231/478954 (51.41%)  — a gradient, not a pass rate
+Failed         : 8037
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,9 +12,9 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 8202 failures:
+First 100 of 8037 failures:
 compiler/2dArrays
-  2dArrays.ts: >ships : error — expected >ships : Ship[]
+  2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/DeclarationErrorsNoEmitOnError
@@ -27,8 +27,6 @@ compiler/MemberAccessorDeclaration15
   MemberAccessorDeclaration15.ts: >Foo : error — expected >Foo : number
 compiler/ParameterList5
   ParameterList5.ts: >A : error — expected >A : () => (B: any) => C
-compiler/ParameterList6
-  ParameterList6.ts: >C : error — expected >C : (A: any) => any
 compiler/TransportStream
   TransportStream.ts: >G : error — expected >G : any
 compiler/abstractClassInLocalScope
@@ -128,13 +126,13 @@ compiler/allowSyntheticDefaultImports9
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   color.ts: >Color : error — expected >Color : Color
 compiler/alwaysStrict
-  alwaysStrict.ts: >arguments : error — expected >arguments : any[]
+  alwaysStrict.ts: >arguments : never[] — expected >arguments : any[]
 compiler/alwaysStrictAlreadyUseStrict
-  alwaysStrictAlreadyUseStrict.ts: >a : error — expected >a : any[]
+  alwaysStrictAlreadyUseStrict.ts: >a : never[] — expected >a : any[]
 compiler/alwaysStrictES6
-  alwaysStrictES6.ts: >arguments : error — expected >arguments : any[]
+  alwaysStrictES6.ts: >arguments : never[] — expected >arguments : any[]
 compiler/alwaysStrictModule
-  alwaysStrictModule.ts: >arguments : error — expected >arguments : any[]
+  alwaysStrictModule.ts: >arguments : never[] — expected >arguments : any[]
 compiler/ambientClassDeclarationWithExtends
   ambientClassDeclarationExtends_singleFile.ts: >new D() : error — expected >new D() : D
 compiler/ambientClassDeclaredBeforeBase
@@ -180,7 +178,7 @@ compiler/ambientPropertyDeclarationInJs
 compiler/ambiguousCallsWhereReturnTypesAgree
   ambiguousCallsWhereReturnTypesAgree.ts: >bar : error — expected >bar : { (x: string): void; (x: string[]): void; }
 compiler/ambiguousGenericAssertion1
-  ambiguousGenericAssertion1.ts: >r2 : error — expected >r2 : <T>(x: T) => T
+  ambiguousGenericAssertion1.ts: ><<T : error — expected ><<T : number
 compiler/ambiguousOverload
   ambiguousOverload.ts: >foof : error — expected >foof : { (bar: string, y: any): number; (bar: string, x: any): string; }
 compiler/ambiguousOverloadResolution
@@ -190,7 +188,7 @@ compiler/amdDependencyComment1
 compiler/amdDependencyCommentName1
   amdDependencyCommentName1.ts: >m1 : error — expected >m1 : any
 compiler/amdLikeInputDeclarationEmit
-  typing.d.ts: >define : error — expected >define : <T = unknown>(name: string, modules: string[], ready: (...modules: unknown[]) => T) => any
+  deps/BaseClass.d.ts: >"deps/BaseClass" : error — expected >"deps/BaseClass" : typeof import("deps/BaseClass")
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >wrapClass : error — expected >wrapClass : (param: any) => typeof Wrapped
 compiler/anonterface
@@ -213,3 +211,5 @@ compiler/anyIdenticalToItself
   anyIdenticalToItself.ts: >foo : error — expected >foo : { (x: any): any; (x: any): any; }
 compiler/anyIndexedAccessArrayNoException
   anyIndexedAccessArrayNoException.ts: >x : error — expected >x : any
+compiler/anyInferenceAnonymousFunctions
+  anyInferenceAnonymousFunctions.ts: >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : error — expected >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : any
