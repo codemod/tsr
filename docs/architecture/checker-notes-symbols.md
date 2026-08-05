@@ -1273,6 +1273,9 @@ So, stated as a question to ask before sizing:
 > and for anything a *reference* can point at — a symbol, a module, a callee —
 > that downstream set is larger than the row.
 
+**Now canonical in `docs/conventions.md` (`431a5ac`)**, with both refinements
+below; this section is the measurement behind it, not the rule.
+
 This is the mirror image of a rule already recorded. `docs/conventions.md` warns
 that summing rows which share a downstream function **over**-counts, because
 83% were turned back earlier. This is the same edge walked the other way, and it
@@ -1329,27 +1332,81 @@ dependencies live.** The alias chain is exactly the mechanism that carries a
 dependency somewhere the classifier cannot see it — which is the same reason
 `rank_board` calls this whole family `TERMINAL` by default (§1).
 
-## 21. The zero-control could not be run, so failure mode (b) is untested
+## 21. The zero-control was run, and it reads exactly zero
 
-§16's failure mode (b) — *"the gain comes from something else the host
-unblocked"* — was to be settled by `1e4bddb^..1e4bddb`, a seam wired with no
-cross-file arm behind it, which must read exactly zero.
+**CORRECTED 2026-08-06.** The first version of this section, written the day
+before, was titled *"The zero-control could not be run, so failure mode (b) is
+untested"* and concluded that the attribution of +711 to this arm was *"an
+argument rather than a measurement"*. **That is no longer true.** The recipe it
+gave was run and the section is rewritten rather than annotated, because the
+status it described — not the numbers — is what changed. What it got right is
+kept below.
 
-**`ce83aed` and `1e4bddb` do not compile** (`bd tsr-6yg`): `checker.rs` imports
+### The result
+
+Worktree at `fa29e66`, `git checkout fa29e66^ -- crates/tsr-checker/src/symbols.rs`
+with the trait retained so the tree builds, `grep -c resolved_module
+crates/tsr-checker/src/symbols.rs` returning **0**, full corpus:
+
+```
+  control (seam present, arm reverted)   291,895 / 478,954   2,138 cases   60.94%
+  baseline                               291,895 / 478,954   2,138 cases   60.94%
+                                              0 lines            0 cases
+  module_resolution 95/95    file_loader 96/96
+```
+
+**Exactly zero, to the line and to the case.** So §16's registered failure mode
+(b) — *"the gain comes from something else the host unblocked"* — is
+**excluded by measurement**, the seam is provably inert without the arm, and
+**the whole +711 is attributable to `fa29e66`.**
+
+### Why it was worth running when the argument was already strong
+
+The argument was: nothing else in the tree calls `resolved_module`, and one
+`grep` confirms the only callers are `Checker::resolve_external_module_name` and
+the trait impl, so the host is inert without the arm. **That argument was
+correct** — the control agreed with it exactly.
+
+Which is the case where a measurement teaches least, and it still had to be run.
+`docs/conventions.md` records four separate occasions where a correct-sounding
+mechanism story accompanied a wrong number, and the standing rule is *trust a
+number that arrives with a cross-check; discount one that arrives with a
+mechanism story.* An argument that turns out right does not retroactively become
+evidence; it was a guess that won. **The only way to know which kind you had is
+to run it**, and the cost here was one corpus pass against an attribution the
+whole prediction rests on.
+
+The narrower form, worth keeping because it is checkable: **a `grep` shows what
+calls a function, not what a run does.** Inertness is a claim about execution.
+
+### What the original section got right, kept
+
+`ce83aed` and `1e4bddb` do not compile (`bd tsr-6yg`): `checker.rs` imports
 `ModuleHost` at `ce83aed`, and `trait ModuleHost` first appears in `fa29e66`.
-The runs failed and left the committed snapshots in place, which read exactly
-the baseline — so the control very nearly reported "exactly zero" while having
-measured nothing at all.
+The runs against them failed and **left the committed snapshots in place, which
+read exactly the baseline** — so the control very nearly reported "exactly zero"
+while having measured nothing at all. The zero above is a real zero; that one
+would have been a zero produced by not running.
 
-So **+711 is the seam and this arm together, and the attribution to this arm is
-an argument rather than a measurement.** The argument: nothing else in the tree
-calls `resolved_module` — one `grep` confirms the only callers are
-`Checker::resolve_external_module_name` and the trait impl — so the host is
-inert without this arm. That is strong and it is not the control.
+**A failed run that leaves a stale snapshot is a control that reports success by
+failing to execute** — the same family as a control bucket that cannot read
+non-zero, and now in `docs/conventions.md` as its own entry. The two zeroes are
+indistinguishable in the output and are distinguished only by reading the run's
+own stdout, which is what caught it.
 
-**The control is still available and costs one commit**: revert `symbols.rs` to
-`fa29e66^` on top of `fa29e66`, keeping the trait so the tree builds, and run
-it. Anyone doubting the attribution should do that rather than re-argue it.
-`bd tsr-6yg` carries the ordering rule that would have prevented it — **the
-first commit must be the one that builds alone, which is the declaration, not
-the consumer** — and "blocking is not the same as first" is the compressed form.
+The ordering rule that would have prevented the whole thing, `bd tsr-6yg`:
+**the first commit must be the one that builds alone, which is the declaration,
+not the consumer.** Compressed: *blocking is not the same as first.*
+
+### The state of §16's registered conditions, all now resolved
+
+| condition | verdict |
+|---|---|
+| the 924-line zero (`import * as ns`, `import a = require`, `import d from`) | **held exactly**, not one line |
+| form split 87 / 13 | **held**, measured 86.2 / 13.8 |
+| same-file `export { q }` unchanged | **VIOLATED**, 198 → 165; §20 explains it with two tests |
+| wrong lines must not rise in affected cases | no wrong-line component reported |
+| the `any`-credited count must not move | unchanged |
+| (b) the gain comes from something else | **excluded by measurement**, this section |
+| (a) the total lands but the split is not 87/13 | excluded, the split is scored |
+| (c) legs 1 and 2 cancel | superseded — §18 shows the miss is the cascade factor, not either leg |
