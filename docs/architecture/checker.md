@@ -41,24 +41,34 @@ this: a Go `*ast.Symbol` holds a real `*ast.Node`, and the question does not
 arise. Here it is [ADR-0003](../adr/0003-tree-plus-side-tables.md) meeting
 upstream's design.
 
-The obvious fix — a `Vec<Node<'a>>` indexed by `NodeId`, filled by the binder,
-which already walks every node with the typed node in hand — was measured before
-being assumed cheap:
+Three candidate structures were measured over the four benchmark fixtures
+(`crates/tsr-binder/examples/node_lookup.rs`, each option in its own process;
+419,572 nodes, 41,831 symbols, binder at 15,052 KiB):
 
-| | |
-|---|---|
-| `size_of::<Node>()` | 16 bytes (`Option<Node>` is also 16, niche-optimised) |
-| nodes across the four benchmark fixtures | 419,572 |
-| cost of the table | **+6,556 KiB** |
-| the binder today | 15,052 KiB |
-| | **+43.6%** on binder memory; total bytes-per-source-byte 7.54 → 8.72 |
+| option | entries | exact KiB | RSS Δ KiB | populate | answers `parent(id)`? |
+|---|---:|---:|---:|---:|:--:|
+| dense `Vec<Option<Node>>` by `NodeId` | 419,565 | 6,555 | 6,656 | 4.02 ms | yes |
+| per-symbol, one `Node` per symbol | 36,590 | 653 | 1,488 | 5.55 ms | no |
+| sparse `FxHashMap` of declarations | 43,297 | 1,432 | 3,156 | 9.05 ms | no |
 
-That is too large to add without a decision, particularly against a component
-with a standing rss gate. The alternatives — storing just the annotation and
-initialiser ids on the symbol (41,831 symbols, not 419,572 nodes), or building
-the map lazily for only the symbols actually queried — differ by an order of
-magnitude and have not been measured. `bd tsr-4sc.4`, which now blocks
-`bd tsr-4sc.2`.
+Medians of three readings, taken at a load average of 1.89.
+
+**Resolved by [ADR-0032](../adr/0032-reaching-a-typed-node-from-an-id.md): the
+dense table, built by the binder.** The decision is capability, not cost — the
+other two answer only "the declaration node of this symbol", and
+`nodes.parent(id)` returns a `NodeId` that 1,134 sites in upstream's checker need
+resolved to a typed node.
+
+Three results were not what the issue predicted, and are worth carrying forward:
+the dense table is the **fastest** to populate despite being ten times the size
+(it stores by index; the others probe a hash map per node); the cheap options'
+resident cost is 2.2–2.3× their byte counts because both need a transient set
+during the walk, so the real spread is 4.5× rather than 10×; and 4.02 ms is an
+upper bound, being a *separate* walk — in the binder it is one store per node on
+a traversal that already happens.
+
+The accepted price is **+6,656 KiB, +44% on binder memory**, bytes-per-source-byte
+7.54 → 8.75.
 
 ## Two things upstream does that the issue text got wrong
 
