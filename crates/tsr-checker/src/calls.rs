@@ -44,6 +44,7 @@
 
 use tsr_ast::{CallExpression, Expression, TaggedTemplateExpression};
 
+use crate::calls::counters::{COUNTERS, bump};
 use crate::{
     checker::Checker,
     flags::TypeFlags,
@@ -82,6 +83,152 @@ const SELECTABLE: TypeFlags = TypeFlags::STRING
     .union(TypeFlags::NULL)
     .union(TypeFlags::NEVER);
 
+/// Where a call stops, counted rather than reasoned about.
+///
+/// # Why this exists
+///
+/// Overload selection was predicted to move "low hundreds" of assertion lines
+/// and moved 48, across 8 cases. A source-side classification of the 779
+/// overloaded call sites said [`SELECTABLE`] admits ~198 of them on the
+/// **parameter** side, so at least three quarters of the attenuation was
+/// happening at a step nobody could name. Widening `SELECTABLE` (`bd tsr-6v7`)
+/// is only worth doing if the parameter gate is what actually binds, and no
+/// count of the *source* can answer that: the guard also runs over the
+/// **argument** types, the winning candidate's return type may be unported, and
+/// a callee that never resolves never reaches selection at all. Those three are
+/// invisible to a regex over signatures and visible to a counter.
+///
+/// # Reading the funnel
+///
+/// The counters partition, in the order the code tests them: every
+/// [`Checker::check_call_expression`] entry lands in exactly one of the
+/// pre-selection buckets, and every [`Checker::choose_overload`] entry lands in
+/// exactly one of the selection buckets. `selected_return_error` is the one
+/// exception — a **subset** of `selected`, not a sibling — because a call whose
+/// selection succeeded and whose return annotation is unported still prints
+/// `error`, which is indistinguishable in the gradient from a selection that
+/// failed. The example that prints the histogram derives the unattributed
+/// remainder by subtraction; it is zero by construction, and a non-zero reading
+/// means these buckets no longer partition the code.
+///
+/// # No behaviour change, and one consequence of that
+///
+/// Counting is off unless `TSR_OVERLOAD_COUNTERS` is set, and even when on it
+/// only adds relaxed atomic increments — no call classifies differently. That
+/// discipline costs one thing worth stating: arguments are checked *after* the
+/// parameter gate, so `argument_not_selectable` counts only among sites that
+/// already passed it. Checking arguments earlier to attribute both would run
+/// `check_expression` on expressions the checker does not otherwise visit,
+/// which perturbs its caches and the assertion lines they feed. The parameter
+/// gate therefore **shadows** the argument gate, and the histogram reads as a
+/// funnel rather than as independent causes.
+pub mod counters {
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    macro_rules! define_counters {
+        ($($(#[$meta:meta])* $field:ident = $label:literal,)*) => {
+            /// The counters themselves. Read through [`snapshot`].
+            pub struct Counters {
+                $($(#[$meta])* pub $field: AtomicU64,)*
+            }
+
+            /// A read of [`COUNTERS`] at one instant.
+            #[derive(Debug, Default, Clone, Copy)]
+            pub struct Snapshot {
+                $($(#[$meta])* pub $field: u64,)*
+            }
+
+            impl Snapshot {
+                /// Every counter as `(label, value)`, in declaration order —
+                /// which is the order the code tests them, so a reader can
+                /// follow the funnel down the printed rows.
+                pub fn rows(&self) -> Vec<(&'static str, u64)> {
+                    vec![$(($label, self.$field),)*]
+                }
+            }
+
+            /// Process-wide, because the corpus runner checks files in
+            /// parallel and a per-`Checker` field would have to be threaded
+            /// out through every suite.
+            pub static COUNTERS: Counters = Counters {
+                $($field: AtomicU64::new(0),)*
+            };
+
+            /// The counters as they stand now.
+            pub fn snapshot() -> Snapshot {
+                Snapshot { $($field: COUNTERS.$field.load(Ordering::Relaxed),)* }
+            }
+        };
+    }
+
+    define_counters! {
+        /// Every `check_call_expression` entry — the denominator.
+        call_expressions = "call expressions checked",
+        /// `f?.()`, unported.
+        optional_chain = "  optional chain (unported)",
+        /// The callee's type is not an anonymous object type, so it carries no
+        /// signatures here: an interface with a call signature member, a
+        /// function *type node* in annotation position, an unresolved import,
+        /// or a gap that already answered `error`.
+        callee_not_anonymous = "  callee type is not an object type",
+        /// `get_signatures_of_symbol` answered `None` — the symbol's
+        /// declarations are a shape it does not build signatures for.
+        callee_no_signatures = "  callee symbol has no signature list",
+        /// A class, enum or namespace: an object type with an empty list.
+        callee_zero_signatures = "  callee has zero call signatures",
+        /// Exactly one candidate, so there was nothing to select.
+        single_candidate = "  single candidate (no selection needed)",
+        /// Entries to `choose_overload` — the denominator for the rows below.
+        overload_sets = "overload sets reaching choose_overload",
+        /// A generic candidate anywhere in the set. `bd tsr-4sc.8`.
+        generic_candidate = "  a generic candidate in the set",
+        /// A `this` or rest parameter on any candidate.
+        this_or_rest_parameter = "  a this or rest parameter",
+        /// The gate `bd tsr-6v7` proposes widening.
+        parameter_not_selectable = "  a parameter type outside SELECTABLE",
+        /// `f(...xs)`.
+        spread_argument = "  a spread argument",
+        /// The same gate on the argument side, shadowed by the parameter one.
+        argument_not_selectable = "  an argument type outside SELECTABLE",
+        /// No candidate accepts this many arguments.
+        arity_no_match = "  no candidate with matching arity",
+        /// Arity matched somewhere and no candidate's parameters accepted the
+        /// arguments. Inside `SELECTABLE` this is a real negative from the
+        /// relater, so it is the row that would *not* move on a widening.
+        no_assignable_candidate = "  arity matched, nothing assignable",
+        /// Several matches with different return types; upstream's subtype
+        /// pass would decide, and this port will not guess.
+        ambiguous_return = "  ambiguous: matches with different returns",
+        /// A candidate was chosen.
+        selected = "  SELECTED",
+        /// **Subset of `selected`.** The winner's return type is `error`, so
+        /// the call still prints a gap: selection worked and bought nothing.
+        selected_return_error = "    of which the return type is error",
+    }
+
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+
+    /// Turn counting on for the rest of the process. Idempotent, and a no-op
+    /// once anything has read the switch — call it before checking anything.
+    pub fn enable() {
+        let _ = ENABLED.set(true);
+    }
+
+    /// Whether to count. Off by default so the checker's hot path is
+    /// unchanged for every consumer that is not this probe.
+    fn enabled() -> bool {
+        *ENABLED.get_or_init(|| std::env::var_os("TSR_OVERLOAD_COUNTERS").is_some())
+    }
+
+    /// Add one, if counting is on.
+    pub fn bump(counter: &AtomicU64) {
+        if enabled() {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 impl Checker<'_, '_> {
     /// The type of a call expression.
     ///
@@ -94,7 +241,9 @@ impl Checker<'_, '_> {
     /// what [`Checker::choose_overload`] can decide.
     pub fn check_call_expression(&mut self, node: &CallExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
+        bump(&COUNTERS.call_expressions);
         if node.question_dot_token.is_some() {
+            bump(&COUNTERS.optional_chain);
             return error;
         }
         let Some(callee) = node.expression else { return error };
@@ -206,12 +355,29 @@ impl Checker<'_, '_> {
         callee: TypeId,
         arguments: Option<&[Expression<'_>]>,
     ) -> Option<Signature> {
+        // Counting is restricted to the call-expression path: a tagged template
+        // passes no argument list, and folding its callees into the same buckets
+        // would leave the funnel's denominator counting two different questions.
+        let counted = arguments.is_some();
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee).data else {
+            if counted {
+                bump(&COUNTERS.callee_not_anonymous);
+            }
             return None;
         };
-        let signatures = self.get_signatures_of_symbol(symbol)?;
+        let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
+            if counted {
+                bump(&COUNTERS.callee_no_signatures);
+            }
+            return None;
+        };
         match signatures.as_slice() {
-            [signature] => Some(signature.clone()),
+            [signature] => {
+                if counted {
+                    bump(&COUNTERS.single_candidate);
+                }
+                Some(signature.clone())
+            }
             // Zero: the callee is a class, an enum or a namespace — upstream
             // reports "this expression is not callable" and answers `errorType`.
             //
@@ -228,7 +394,19 @@ impl Checker<'_, '_> {
             // which picks by assignability. That is what
             // [`Checker::choose_overload`] does, over the argument domains
             // where a *negative* assignability answer can be trusted.
-            candidates => self.choose_overload(candidates, arguments?),
+            [] => {
+                if counted {
+                    bump(&COUNTERS.callee_zero_signatures);
+                }
+                None
+            }
+            candidates => {
+                let arguments = arguments?;
+                if counted {
+                    bump(&COUNTERS.overload_sets);
+                }
+                self.choose_overload(candidates, arguments)
+            }
         }
     }
 
@@ -267,30 +445,53 @@ impl Checker<'_, '_> {
         candidates: &[Signature],
         arguments: &[Expression<'_>],
     ) -> Option<Signature> {
+        // The three rejections below were one short-circuiting `any` over the
+        // candidates. They are separated so each can be counted, and tested in
+        // the order the doc comment lists them — first match wins, which is why
+        // a set that is both generic and object-typed reads as generic. The
+        // *answer* is unchanged: any one of them still gaps the whole call.
+        if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty()) {
+            bump(&COUNTERS.generic_candidate);
+            return None;
+        }
         if candidates.iter().any(|candidate| {
-            !candidate.type_parameters.is_empty()
-                || candidate.this_parameter.is_some()
+            candidate.this_parameter.is_some()
                 || candidate.parameters.iter().any(|parameter| parameter.rest)
-                || !candidate.parameters.iter().all(|p| self.is_selectable(p.r#type))
         }) {
+            bump(&COUNTERS.this_or_rest_parameter);
+            return None;
+        }
+        if candidates
+            .iter()
+            .any(|candidate| !candidate.parameters.iter().all(|p| self.is_selectable(p.r#type)))
+        {
+            bump(&COUNTERS.parameter_not_selectable);
             return None;
         }
         let mut argument_types = Vec::with_capacity(arguments.len());
         for &argument in arguments {
             if matches!(argument, Expression::SpreadElement(_)) {
+                bump(&COUNTERS.spread_argument);
                 return None;
             }
             let argument_type = self.check_expression(argument);
             if !self.is_selectable(argument_type) {
+                bump(&COUNTERS.argument_not_selectable);
                 return None;
             }
             argument_types.push(argument_type);
         }
         let mut chosen: Option<&Signature> = None;
+        // Splits the empty-handed case in two: no candidate takes this many
+        // arguments at all, against arity matching and the relater rejecting
+        // every one of them. Only the second is a real negative from inside
+        // `SELECTABLE`, and it is the row a widening would *not* move.
+        let mut arity_matched = false;
         for candidate in candidates {
             if !has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
+            arity_matched = true;
             let applicable =
                 argument_types.iter().zip(&candidate.parameters).all(|(&argument, parameter)| {
                     self.is_type_assignable_to(argument, parameter.r#type)
@@ -301,10 +502,26 @@ impl Checker<'_, '_> {
             match chosen {
                 // Upstream's subtype pass would decide this; see the doc
                 // comment. Same return type either way means it could not have.
-                Some(first) if first.r#type != candidate.r#type => return None,
+                Some(first) if first.r#type != candidate.r#type => {
+                    bump(&COUNTERS.ambiguous_return);
+                    return None;
+                }
                 Some(_) => {}
                 None => chosen = Some(candidate),
             }
+        }
+        match chosen {
+            Some(signature) => {
+                bump(&COUNTERS.selected);
+                // Selection succeeding is not the same as the call answering.
+                // An unported return annotation prints `error` from here, and
+                // in the gradient that is indistinguishable from a gap.
+                if signature.r#type == self.intrinsics.error {
+                    bump(&COUNTERS.selected_return_error);
+                }
+            }
+            None if arity_matched => bump(&COUNTERS.no_assignable_candidate),
+            None => bump(&COUNTERS.arity_no_match),
         }
         chosen.cloned()
     }
