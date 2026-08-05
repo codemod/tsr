@@ -87,6 +87,7 @@ pub mod flags;
 pub mod intrinsics;
 pub mod literals;
 pub mod members;
+pub mod objects;
 pub mod printing;
 pub mod resolution;
 pub mod signatures;

@@ -1529,3 +1529,90 @@ operator guards.
 - **`resolve_call_signature` on a non-anonymous type.** An interface with a call
   signature member and a function *type node* both resolve to nothing today, for
   the separate reasons above.
+
+## Object literal expressions, and the two widenings
+
+Ported 2026-08-05, cycle 3. The histogram's largest remaining expression stops
+were object and array literals, and the object-literal *answer* bucket read
+26,686 lines at 8.41% right with 23,825 gaps. `checker.md` had already predicted
+why porting the type node barely moved it — "a bucket names the answer's shape
+and not the feature that computes it" — and this collects on that: `{ a: string }`
+as a type and `{ a: 1 }` as an expression print identically and are computed by
+unrelated functions.
+
+### One renderer, shared, because two would drift
+
+`{ a: string; }` — one space inside each brace, `; ` after every member including
+the last, `{}` when empty — is compared character for character. The type-node
+path and the expression path now both call `objects::render_object_type`, and
+that sharing is under test rather than asserted: replacing the call in
+`get_type_from_type_literal` with a second inline renderer turns the *type-node*
+test red, which is the only way to prove the two cannot drift apart.
+
+### The two widenings, and why only one of them is here
+
+This is the trap in an object-literal port, and upstream records **two different
+types for one source line**
+(`baselines/reference/submodule/compiler/widenedTypes1.types:11`):
+
+```text
+var c = {x: null};
+>c : { x: any; }            ← getWidenedType, at the declaration
+>{x: null} : { x: null; }   ← checkObjectLiteral
+>x : null
+```
+
+- **A member's *literal* type is widened here**, as the literal is checked.
+  `checkExpressionForMutableLocation` (`checker.go:13878`) calls
+  `getWidenedLiteralLikeTypeForContextualType`, so `const o = { a: 1 }` is
+  `{ a: number; }` even though `const n = 1` is `1`. **Freshness stops at the
+  property boundary**, and `const` versus `let` makes no difference *inside* a
+  literal. This is what a port gets wrong by carrying the initialiser's fresh
+  type straight into the member.
+- **A member's *nullable* type is widened much later**, by `getWidenedType`
+  (`checker.go:18355`), at the declaration.
+
+The second call site is in `symbols.rs`, which this workstream does not own, so
+an object literal with a nullable member is a **gap** rather than a line that
+would be right as an expression and wrong as a declaration. That guard is not
+decoration: removing it turns a gap into a wrong line, and the test that pins it
+asserts both directions — nullable gapped, non-nullable still answered.
+`bd tsr-mli` owns the call site and the guard's removal together, because doing
+either alone is a regression.
+
+### Members keep source order; constituents do not
+
+Worth stating beside the union work, because the two rules are opposite and both
+are printed. A union's constituents are sorted by `CompareTypes`; an object
+type's members are printed in **declaration order**, because upstream builds a
+symbol table and never sorts it. `{ b: "s", a: 1 }` is `{ b: string; a: number; }`.
+
+### What is deliberately not here
+
+Object literal methods (`checkObjectLiteralMethod`, `checker.go:13865`),
+shorthand properties, spread properties (`getSpreadType`, `checker.go:13290`),
+computed names — which become *index signatures*, and there are none — and
+non-identifier string names, which need the printer's quoting rules. Each is a
+gap rather than a partial answer, on the rule the type-node path already
+established: a partial object type is a wrong answer that looks like a right one.
+
+Two of upstream's three branches in `checkExpressionForMutableLocation` are **not
+written** rather than written and left dead: `isConstContext` needs `as const`,
+which is a type assertion, and the contextual-type branch needs contextual typing
+at all. Both become live together, and `isConstContext` is the one that will need
+porting first because it recurses through enclosing literals.
+
+### Array literals are deliberately not in this slice
+
+`createArrayType` is `createTypeFromGenericGlobalType(c.globalArrayType, [elementType])`
+(`checker.go:24705`) — an array type **is** a reference to the global `Array`
+interface. There are no lib globals until `bd tsr-0e9` lands, so `[1, 2]` cannot
+honestly print `number[]`, and a type that merely prints alike is exactly the
+divergence this document has now deleted twice.
+
+Two things for whoever takes them: the printed form `number[]` is a **node
+builder special case** keyed on `sym == b.ch.globalArrayType.symbol`
+(`nodebuilderimpl.go:3370`) and not a property of the type; and
+`checkArrayLiteral` (`checker.go:8021`) is dominated by contextual typing —
+tuple context, spread elements, const context — so computing the element type is
+not the hard part.

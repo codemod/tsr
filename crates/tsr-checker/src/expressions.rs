@@ -114,6 +114,11 @@ impl Checker<'_, '_> {
                 self.check_property_access_expression(node)
             }
             Expression::CallExpression(node) => self.check_call_expression(node),
+            // `checkObjectLiteral` (`checker.go:13144`). Distinct from the
+            // `{ a: string }` *type* node in `crate::declared`, which prints
+            // identically and is computed by unrelated code — see
+            // [`crate::objects`].
+            Expression::ObjectLiteralExpression(node) => self.check_object_literal(node),
             // `checkFunctionExpressionOrObjectLiteralMethod` (`checker.go:9077`).
             // Both kinds answer through the function's own symbol, which is the
             // same arm `getTypeOfFuncClassEnumModule` serves — see

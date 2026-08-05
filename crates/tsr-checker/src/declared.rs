@@ -125,7 +125,7 @@ impl<'a> Checker<'a, '_> {
     /// whose own type is a gap.
     fn get_type_from_type_literal(&mut self, node: &tsr_ast::TypeLiteralNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
-        let mut printed = String::new();
+        let mut members = Vec::with_capacity(node.members.len());
         for member in node.members {
             let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
                 return error;
@@ -145,13 +145,16 @@ impl<'a> Checker<'a, '_> {
             let readonly = property.modifiers.iter().any(|modifier| {
                 matches!(modifier, tsr_ast::ModifierLike::Token(m) if m.kind == SyntaxKind::ReadonlyKeyword)
             });
-            printed.push_str(if readonly { "readonly " } else { "" });
-            printed.push_str(name.text);
-            printed.push_str(if optional { "?: " } else { ": " });
-            printed.push_str(&self.type_to_string(member_type));
-            printed.push_str("; ");
+            members.push(crate::objects::Member {
+                name: name.text.to_string(),
+                optional,
+                readonly,
+                printed: self.type_to_string(member_type),
+            });
         }
-        let printed = if printed.is_empty() { "{}".to_string() } else { format!("{{ {printed}}}") };
+        // Shared with `checkObjectLiteral`, so the two structural renderers
+        // cannot drift apart — see `crate::objects::render_object_type`.
+        let printed = crate::objects::render_object_type(&members);
         // The binder gives a type literal its own anonymous `__type` symbol,
         // whose members table is where a property access on this type looks.
         let members = node.node_id.and_then(|id| self.binder.symbol_of(id));
