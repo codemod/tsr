@@ -50,6 +50,12 @@ impl Checker<'_, '_> {
         else {
             return error;
         };
+        // **Before** the receiver's type, because the receiver has none: see
+        // [`Checker::module_member_type`]. `None` falls through to the ordinary
+        // path, which is what every non-module receiver takes.
+        if let Some(member) = self.module_member_type(receiver, name.text) {
+            return member;
+        }
         let receiver_type = self.check_expression(receiver);
         // `isAnyLike` (`checker.go:11266`) and the branch it guards
         // (`checker.go:11314`): a property access on `any` is `any`, whatever
@@ -106,6 +112,91 @@ impl Checker<'_, '_> {
         // decoration. The identity test above is what keeps that true now that
         // an `ANY`-flagged type has a fast path.
         self.get_type_of_property_of_type(receiver_type, name.text).unwrap_or(error)
+    }
+
+    /// A member read off a **module object** that this port never builds a type
+    /// for.
+    ///
+    /// `ns.foo` where `ns` is `import * as ns from "./m"` or
+    /// `import ns = require("./m")`. Upstream would type `ns` as the module
+    /// object and then run `getPropertyOfType` (`checker.go:18887`) /
+    /// `getTypeOfPropertyOfType` (`checker.go:18951`) over it. This does the
+    /// lookup and **not** the type.
+    ///
+    /// # Why the module object is a lookup surface and never an answer
+    ///
+    /// A module symbol's name in this port is the **file path** with its
+    /// extension stripped (`bind_source_file_as_external_module`,
+    /// `crates/tsr-binder/src/binder.rs`), while upstream's node builder prints
+    /// the shortest accessible chain — the local alias. So a printable module
+    /// type would answer `typeof /m` where upstream answers `typeof ns`.
+    ///
+    /// Measured (`crates/tsr-conformance/examples/module_object.rs`, `d8452aa`):
+    /// giving [`Checker::get_type_of_symbol`] a real type for a module symbol
+    /// converts **577** lines and manufactures **1,192** wrong ones — 648
+    /// `typeof ns`, 83 `typeof ns.x`, 461 `import("m").W`. **2.1 wrong per
+    /// converted.** The population that wants only the *member's* type, and
+    /// never prints the module object, was measured at **1,590** and **1,618** by
+    /// two probes on different code paths (`bd tsr-6ph`, `bd tsr-6j2`).
+    ///
+    /// # The receiver keeps gapping by construction, not by a guard
+    ///
+    /// There are two ways to get this and they are not equivalent. A **producer
+    /// guard** — let `get_type_of_symbol` answer a module type and have
+    /// `types_producer::type_at_location` return `error` at the alias's own
+    /// reference position — is precedented (ADR-0039's positional writer rules)
+    /// and was rejected: it leaves the checker holding a type it cannot name, so
+    /// any future consumer that prints it reintroduces the 1,192 with nothing to
+    /// catch it. This arm never creates the type, so
+    /// [`Checker::get_type_of_alias`] still answers `errorType` for `ns` and the
+    /// alias rows cannot move. See `docs/conventions.md`, *"prefer a control
+    /// pinned by construction over one pinned by arithmetic"*.
+    ///
+    /// **What would make the rejected option win:** a consumer that needs the
+    /// module object as a *value* — `ns` passed as an argument, spread, or
+    /// assigned — since this arm can serve only a member read. None exists here.
+    ///
+    /// # What it deliberately does not reach
+    ///
+    /// - **`import d from "./m"`.** `getTargetOfImportClause` goes through
+    ///   `resolveESModuleSymbol`'s synthetic-default arm
+    ///   (`checker.go:15568`), whose answer under `allowSyntheticDefaultImports`
+    ///   is a *cloned* module type rather than the module symbol. Guessing the
+    ///   module symbol there would answer the wrong member.
+    /// - **A module with `export = X`.** Gapped by
+    ///   [`Checker::module_symbol_of_namespace_alias`], the same gap
+    ///   [`Checker::get_external_module_member`] takes.
+    /// - **A qualified receiver** — `ns.a.b` reaches this only for `ns.a`; the
+    ///   outer access takes the ordinary path over `ns.a`'s type, which is right
+    ///   because `ns.a` is an ordinary export symbol.
+    /// - **`export * from`.** [`Checker::get_export_of_module`] reads the
+    ///   binder's `exports` table directly, so a re-exported name is a miss.
+    ///
+    /// Every one of those is a `None` and therefore a gap, never a wrong member.
+    fn module_member_type(
+        &mut self,
+        receiver: tsr_ast::Expression<'_>,
+        name: &str,
+    ) -> Option<TypeId> {
+        let tsr_ast::Expression::Identifier(reference) = receiver else { return None };
+        // Upstream's meaning at an expression position: `checkIdentifier` →
+        // `getResolvedSymbol` resolves in `Value`. It is not what selects the
+        // alias here — `Binder::resolve_name`'s `locals` lookup is not
+        // meaning-filtered (`crates/tsr-binder/src/lib.rs:300`) — the `ALIAS`
+        // test below is. The meaning is upstream's because it is upstream's.
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            reference.node_id?,
+            reference.text,
+            SymbolFlags::VALUE,
+        )?;
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+            return None;
+        }
+        let module_symbol = self.module_symbol_of_namespace_alias(symbol)?;
+        let member = self.get_export_of_module(module_symbol, name)?;
+        Some(self.get_type_of_symbol(member))
     }
 
     /// The **type** of a property of `id`, or `None` if there is no such
