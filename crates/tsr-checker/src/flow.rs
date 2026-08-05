@@ -82,6 +82,15 @@ struct FlowState {
     declared_type: TypeId,
     /// The type at the top of the flow graph.
     initial_type: TypeId,
+    /// Whether the declaration is one upstream types with `autoType`
+    /// (`checker.go:976`) rather than with a real `any`.
+    ///
+    /// Upstream distinguishes the two by *identity* — `autoType` is a separate
+    /// intrinsic that also prints `any` — and asks `declaredType == autoType` in
+    /// [`Checker::get_type_at_flow_assignment`]. Here the question is asked of
+    /// the declaration instead, in [`Checker::is_auto_typed_declaration`]; see
+    /// that method for why the identity trick is not reproduced.
+    is_auto: bool,
     /// Where this invocation's entries in `shared_flows` begin.
     shared_flow_start: usize,
     /// Recursion depth, against the 2,000 cap.
@@ -120,11 +129,12 @@ impl Checker<'_, '_> {
     ///
     /// # What is not ported, and what each costs
     ///
-    /// - **Evolving array types** — `ObjectFlagsEvolvingArray`,
-    ///   `autoArrayType`, `finalizeEvolvingArrayType`. A distinct mechanism from
-    ///   narrowing a declared type, and the one behind implicit-`any` references
-    ///   (`bd tsr-4sc.11`'s second population). Its absence leaves the declared
-    ///   type, which is today's answer.
+    /// - **Evolving *array* types** — `ObjectFlagsEvolvingArray`,
+    ///   `autoArrayType`, `finalizeEvolvingArrayType`. The scalar half of the
+    ///   same mechanism *is* ported (see [`Checker::is_auto_typed_declaration`]
+    ///   and [`Checker::get_type_at_flow_assignment`]); the array half is
+    ///   selected by an empty-array initialiser, which this port answers `false`
+    ///   for, so the two do not interleave.
     /// - **The `unreachableNeverType` and non-null-assertion fallbacks** at the
     ///   end of `getFlowTypeOfReferenceEx`. Neither can fire: this port produces
     ///   no `unreachableNeverType`, because `isReachableFlowNode` — the only
@@ -146,11 +156,19 @@ impl Checker<'_, '_> {
             // needed to record a flow for.
             return declared_type;
         };
+        let is_auto = self.is_auto_typed_declaration(symbol);
         let mut state = FlowState {
             reference,
             symbol,
             declared_type,
-            initial_type: declared_type,
+            // `checkIdentifier` (`checker.go:11165`): when the declared type is
+            // automatic, the type at the top of the graph is `undefined`, not
+            // the declared type. That is what makes `let x; x;` answer
+            // `undefined` and `let x; if (c) x = 1; x;` answer
+            // `number | undefined` — the second is a union built by the branch
+            // label out of the assignment on one path and this on the other.
+            initial_type: if is_auto { self.intrinsics.undefined } else { declared_type },
+            is_auto,
             shared_flow_start: self.shared_flows.len(),
             depth: 0,
         };
@@ -220,8 +238,11 @@ impl Checker<'_, '_> {
             } else if flags.contains(FlowFlags::UNREACHABLE) {
                 // Upstream's default arm: unreachable-code errors belong to the
                 // binder, and the checker returns the declared type to avoid
-                // follow-on noise. `convertAutoToAny` is the evolving-`any`
-                // half and is not ported.
+                // follow-on noise. `convertAutoToAny` (`checker.go:11186`) is
+                // upstream's follow-up here and needs no code: it maps
+                // `autoType` to `anyType`, and an automatic declaration's
+                // `declared_type` in this port already *is* `anyType` — the two
+                // are one intrinsic here rather than two.
                 break FlowType { t: state.declared_type, incomplete: false };
             } else {
                 // SWITCH_CLAUSE, CALL, ARRAY_MUTATION and REDUCE_LABEL. Each is
@@ -257,15 +278,28 @@ impl Checker<'_, '_> {
     /// `None` means "this assignment says nothing about our reference", which is
     /// upstream's nil return and sends the walk to the antecedent.
     ///
-    /// # The reduction is the gap, and it is the whole of it
+    /// # The two reductions
     ///
-    /// Upstream reduces a **union** declared type to the constituents the
-    /// assigned type could be:
-    /// `getAssignmentReducedType` (`flow.go:2399`) is
-    /// `filterType(declared, typeMaybeAssignableTo(assigned, t))`. This checker
-    /// has no assignability, so the union case returns the declared type
-    /// unreduced — the answer it gives today. Everything around it is in place,
-    /// so the gap is one function wide.
+    /// Upstream's arm has two: the **automatic** one, which replaces the
+    /// declared `any` with what was assigned (this is `any` *evolution*), and
+    /// the **union** one, which keeps the declared constituents the assigned
+    /// type could be — `getAssignmentReducedType` (`flow.go:2399`). Both are
+    /// ported here.
+    ///
+    /// # What is not
+    ///
+    /// - **Compound assignment** (`x += 1`), which takes the base type of the
+    ///   antecedent's literal type. Unported, so it leaves the declared type.
+    /// - **`autoArrayType` and the evolving-array machinery** —
+    ///   `ObjectFlagsEvolvingArray`, `getEvolvingArrayType`,
+    ///   `addEvolvingArrayElementType`, `finalizeEvolvingArrayType`. An evolving
+    ///   array is a *second* mechanism layered on this one: `let x = [];` gets
+    ///   `autoArrayType`, and every `x.push(e)` widens the element type through
+    ///   an `ARRAY_MUTATION` flow node, which this port's walk skips. Porting the
+    ///   scalar half without it is safe because the two are selected by the
+    ///   declaration: [`Checker::is_auto_typed_declaration`] answers `false` for
+    ///   `let x = [];` (it has an initialiser), so such a variable keeps today's
+    ///   answer rather than getting a half-evolved one.
     fn get_type_at_flow_assignment(
         &mut self,
         state: &mut FlowState,
@@ -275,11 +309,174 @@ impl Checker<'_, '_> {
         if !self.is_matching_reference(state, node) {
             return None;
         }
-        // Upstream also handles a compound assignment (`x += 1`) by taking the
-        // base type of the antecedent's literal type, and the `autoType` /
-        // `autoArrayType` evolution. Neither is ported; both leave the declared
-        // type.
+        if state.is_auto {
+            // `flow.go:232`. Upstream then asks whether the assigned type is
+            // assignable to the declared one and falls back to `any[]`; the
+            // declared type here is `any`, to which everything is assignable, so
+            // the fallback is unreachable and is not written out.
+            let Some(assigned) = self.get_initial_or_assigned_type(node) else {
+                // An assignment form whose right-hand side this port cannot
+                // reach — a `for..of` binding, a destructuring target. Upstream
+                // computes *something*; `any` is what this checker says today,
+                // and it is the one answer that cannot be more wrong than the
+                // status quo. Returning `None` would be worse: the walk would
+                // continue past a real assignment to the `undefined` at the top
+                // of the graph.
+                return Some(FlowType { t: state.declared_type, incomplete: false });
+            };
+            return Some(FlowType {
+                t: self.get_widened_literal_type(assigned),
+                incomplete: false,
+            });
+        }
+        if self.store.get(state.declared_type).flags.contains(TypeFlags::UNION) {
+            let declared = state.declared_type;
+            if let Some(assigned) = self.get_initial_or_assigned_type(node) {
+                return Some(FlowType {
+                    t: self.get_assignment_reduced_type(declared, assigned),
+                    incomplete: false,
+                });
+            }
+        }
         Some(FlowType { t: state.declared_type, incomplete: false })
+    }
+
+    /// Whether `symbol`'s declaration is one upstream gives `autoType`
+    /// (`getTypeForVariableLikeDeclaration`, `checker.go:16697`).
+    ///
+    /// # Why this asks the declaration rather than comparing types
+    ///
+    /// Upstream's `autoType` is a *distinct intrinsic that prints `any`*, so
+    /// `declaredType == autoType` is a pointer comparison. Reproducing that
+    /// would mean a second `any` in [`crate::intrinsics`] and a new arm in
+    /// `getTypeForVariableLikeDeclaration`, both outside this module. The
+    /// question is only ever asked here, and the declaration carries every input
+    /// to it, so it is asked here. The consequence to accept: a caller that
+    /// hands this module a declared type *not* derived from the symbol's
+    /// declaration would get the automatic treatment anyway. There is one
+    /// caller, [`crate::expressions`], and it passes `get_type_of_symbol`.
+    ///
+    /// # `noImplicitAny` is assumed on, and this is the load-bearing assumption
+    ///
+    /// Upstream gates the whole arm on `c.noImplicitAny` (`checker.go:16697`):
+    /// with it **off**, `let x; x = 1; x` is `any` at every use and nothing
+    /// evolves. This checker has no compiler options plumbed at all — nothing
+    /// reads a `CompilerOptions` anywhere in `tsr-checker` — so the flag cannot
+    /// be consulted and is assumed on, matching `strict`.
+    ///
+    /// **How you would know this was wrong:** conformance lines *regressing*
+    /// from `any` to a narrowed type in fixtures compiled without
+    /// `noImplicitAny`. That population is invisible from inside this crate; it
+    /// is the first thing to look at if the coverage delta from this commit is
+    /// negative. `bd tsr-4sc.11` tracks plumbing the options through.
+    ///
+    /// # Unported conditions, each of which makes this answer `false` too often
+    ///
+    /// - A `null` or `undefined` **initialiser** also yields `autoType`
+    ///   upstream; only a missing initialiser does here.
+    /// - An **empty array literal** initialiser yields `autoArrayType`, which is
+    ///   not ported — so answering `false` for it is correct, not a gap.
+    /// - **`export`ed** and **ambient** declarations are excluded upstream and
+    ///   are not excluded here, because modifier flags are not reachable from
+    ///   this module. An exported `let x;` therefore evolves when upstream
+    ///   leaves it `any`.
+    fn is_auto_typed_declaration(&self, symbol: SymbolId) -> bool {
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let Some(Node::VariableDeclaration(node)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        // A binding pattern is excluded upstream: `let { a } = x` declares
+        // through the pattern and the auto reduction never applies.
+        if !matches!(node.name, Some(tsr_ast::BindingName::Identifier(_))) {
+            return false;
+        }
+        node.r#type.is_none()
+            && node.initializer.is_none()
+            && !self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
+    }
+
+    /// The type an assignment flow node puts into the variable
+    /// (`getInitialOrAssignedType`, `flow.go:276`).
+    ///
+    /// The binder records an assignment's flow node against the variable
+    /// declaration when it has an initialiser, and against the *target
+    /// identifier* otherwise — so the two arms here are upstream's
+    /// `getInitialType` (`flow.go:2234`) and `getAssignedType` (`flow.go:2288`)
+    /// reduced to the forms that binder produces.
+    ///
+    /// `None` for every other form: `for..in` (upstream `string`), `for..of`,
+    /// destructuring targets, `delete`. Each needs a parent walk this module
+    /// does not do, or machinery — iteration protocol resolution — the checker
+    /// does not have.
+    fn get_initial_or_assigned_type(&mut self, node: NodeId) -> Option<TypeId> {
+        if let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) {
+            // `getInitialTypeOfVariableDeclaration` (`flow.go:2244`). The
+            // `for..in` / `for..of` arms below it are the unported ones.
+            let initializer = declaration.initializer?;
+            return Some(self.check_expression(initializer));
+        }
+        // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`), restricted to a
+        // plain `x = e`. A destructuring default (`[x = 1] = y`) reaches the same
+        // upstream function by a different route and is not handled.
+        let parent = self.nodes.parent(node)?;
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return None };
+        if binary.operator_token?.kind != SyntaxKind::EqualsToken {
+            return None;
+        }
+        if binary.left.and_then(|left| Node::from(left).node_id()) != Some(node) {
+            return None;
+        }
+        Some(self.check_expression(binary.right?))
+    }
+
+    /// Keep the constituents of a union declared type that the assigned type
+    /// could be (`getAssignmentReducedType`, `flow.go:2399`).
+    ///
+    /// The memo upstream keeps (`assignmentReducedTypes`) is not ported: it
+    /// guards repeated assignability queries, and this port's assignability is
+    /// not yet the cost centre that makes a cache pay.
+    ///
+    /// Upstream's fresh-boolean-literal step (`flow.go:2421`) is not ported
+    /// either — freshness is not modelled here.
+    fn get_assignment_reduced_type(&mut self, declared: TypeId, assigned: TypeId) -> TypeId {
+        if declared == assigned {
+            return declared;
+        }
+        if self.store.get(assigned).flags.contains(TypeFlags::NEVER) {
+            return assigned;
+        }
+        let TypeData::Union { types, .. } = &self.store.get(declared).data else {
+            return declared;
+        };
+        let constituents = types.clone();
+        let mut kept = Vec::with_capacity(constituents.len());
+        for constituent in constituents {
+            if self.type_maybe_assignable_to(assigned, constituent) {
+                kept.push(constituent);
+            }
+        }
+        let reduced = self.get_union_type(&kept);
+        // Upstream's own guard on its "crude heuristic" (`flow.go:2424`): when
+        // the assigned type is not assignable to what the filter kept, give up
+        // and narrow nothing rather than print a type the assignment refutes.
+        if self.is_type_assignable_to(assigned, reduced) { reduced } else { declared }
+    }
+
+    /// `typeMaybeAssignableTo` (`flow.go:2434`): a union source needs only one
+    /// constituent to be assignable, which is what makes assigning
+    /// `string | number` to a `string | number | boolean` declaration keep two
+    /// constituents rather than none.
+    fn type_maybe_assignable_to(&mut self, source: TypeId, target: TypeId) -> bool {
+        let sources: Option<Vec<TypeId>> = match &self.store.get(source).data {
+            TypeData::Union { types, .. } => Some(types.clone()),
+            _ => None,
+        };
+        match sources {
+            Some(sources) => sources.into_iter().any(|s| self.is_type_assignable_to(s, target)),
+            None => self.is_type_assignable_to(source, target),
+        }
     }
 
     /// The type after a condition is known to have gone one way

@@ -64,20 +64,14 @@ fn last_expression_statement<'a>(statements: &[Statement<'a>]) -> Option<tsr_ast
 fn a_truthiness_guard_removes_the_falsy_constituents() {
     // The narrowing this slice is for. `undefined` is falsy-only, so a truthy
     // guard drops it; `string` and `number` can be either, so they stay.
-    assert_eq!(
-        type_of_last_expression("let x: string | undefined = \"a\";\nif (x) { x; }"),
-        "string"
-    );
+    assert_eq!(type_of_last_expression("let x: string | undefined;\nif (x) { x; }"), "string");
     assert_eq!(
         type_of_last_expression("let x: string | number | undefined;\nif (x) { x; }"),
         "string | number"
     );
     // Parenthesised, because `narrowType` recurses through it rather than
     // treating it as an unrecognised form.
-    assert_eq!(
-        type_of_last_expression("let x: string | undefined = \"a\";\nif ((x)) { x; }"),
-        "string"
-    );
+    assert_eq!(type_of_last_expression("let x: string | undefined;\nif ((x)) { x; }"), "string");
 }
 
 #[test]
@@ -91,7 +85,7 @@ fn a_falsy_guard_does_not_narrow_a_type_that_can_be_either() {
     // measurement after the opposite was expected, and a later reader looking at
     // `if (!x)` will expect `undefined` for exactly the same wrong reason.
     assert_eq!(
-        type_of_last_expression("let x: string | undefined = \"a\";\nif (!x) { x; }"),
+        type_of_last_expression("let x: string | undefined;\nif (!x) { x; }"),
         "string | undefined"
     );
     // The `!` arm is still doing something: on a type whose only falsy
@@ -116,7 +110,7 @@ fn the_narrowing_does_not_escape_the_branch_it_belongs_to() {
     // plausible wrong type at every later reference — the failure mode this
     // module is most able to cause.
     assert_eq!(
-        type_of_last_expression("let x: string | undefined = \"a\";\nif (x) { }\nx;"),
+        type_of_last_expression("let x: string | undefined;\nif (x) { }\nx;"),
         "string | undefined"
     );
 }
@@ -128,26 +122,25 @@ fn an_unported_guard_leaves_the_declared_type_rather_than_a_wrong_one() {
     // gives the answer it gave before narrowing existed. `typeof` guards are the
     // largest such form and are not ported.
     assert_eq!(
-        type_of_last_expression(
-            "let x: string | undefined = \"a\";\nif (typeof x === \"string\") { x; }"
-        ),
+        type_of_last_expression("let x: string | undefined;\nif (typeof x === \"string\") { x; }"),
         "string | undefined"
     );
 }
 
 #[test]
-fn an_assignment_narrowing_is_not_ported_and_says_so() {
-    // `getTypeAtFlowAssignment` reduces a union declared type to the
-    // constituents the assigned type could be, through `getAssignmentReducedType`
-    // -> `typeMaybeAssignableTo`. This checker has no assignability, so the
-    // assignment arm returns the declared type unreduced.
-    //
-    // Asserted rather than left undocumented so that the day assignability
-    // lands, this test fails and points at the one function that has to change.
+fn an_assignment_reduces_a_union_wherever_it_appears() {
+    // This test used to assert the *gap*: that `getTypeAtFlowAssignment` left a
+    // union declared type unreduced because this checker had no assignability.
+    // It is kept, inverted, because the fixture is the one that proves the arm
+    // fires — and because the initialiser form below is why several truthiness
+    // fixtures in this file had to drop their initialisers.
+    assert_eq!(type_of_last_expression("let x: string | number = \"a\";\nx = 1;\nx;"), "number");
+    // An **initialiser** is an assignment too: the binder records a flow node
+    // against the declaration, so `getInitialType` reduces the union at the
+    // declaration itself and the guard downstream sees the reduced type.
     assert_eq!(
-        type_of_last_expression("let x: string | number = \"a\";\nx = 1;\nx;"),
-        "string | number",
-        "upstream answers `number` here; see `Checker::get_type_at_flow_assignment`"
+        type_of_last_expression("let x: string | undefined = \"a\";\nif (!x) { x; }"),
+        "string"
     );
 }
 
@@ -172,5 +165,90 @@ fn a_guard_on_one_variable_does_not_narrow_another() {
         ),
         "string | undefined",
         "a guard on `y` must leave `x` alone"
+    );
+}
+
+#[test]
+fn an_unannotated_let_evolves_to_what_was_assigned() {
+    // `any` evolution: the declaration is `any`, the *reference* is what the
+    // assignment reaching it put there. This is `getTypeAtFlowAssignment`'s
+    // automatic arm (`flow.go:232`), and it is why upstream prints `number` on
+    // a line whose declaration says `any`.
+    assert_eq!(type_of_last_expression("let x;\nx = 1;\nx;"), "number");
+    assert_eq!(type_of_last_expression("let x;\nx = \"a\";\nx;"), "string");
+    // Widened, as upstream widens: `getWidenedLiteralType` on the assigned type,
+    // so it is `number` and not `1`. The declaration is not `const`, so there is
+    // no freshness to keep.
+    assert_eq!(type_of_last_expression("let x;\nx = true;\nx;"), "boolean");
+    // The *last* assignment on the path wins, because the walk is backwards and
+    // stops at the first assignment it reaches.
+    assert_eq!(type_of_last_expression("let x;\nx = 1;\nx = \"a\";\nx;"), "string");
+}
+
+#[test]
+fn an_unannotated_let_is_undefined_before_it_is_assigned() {
+    // The initial type of an automatic declaration is `undefined`, not `any`
+    // (`checker.go:11165`). A reference before any assignment therefore answers
+    // `undefined` — this is upstream's answer, and it is the observable
+    // consequence of the initial type, so it is the test that would catch the
+    // initial type being left as the declared one.
+    assert_eq!(type_of_last_expression("let x;\nx;"), "undefined");
+}
+
+#[test]
+fn evolution_unions_across_a_branch() {
+    // One path assigns, the other does not, so the branch label unions the
+    // assigned type with the `undefined` from the top of the graph. Nothing
+    // about this is special-cased: it falls out of the initial type meeting
+    // `getTypeAtFlowBranchLabel`.
+    assert_eq!(type_of_last_expression("let x;\nif (x) { x = 1; }\nx;"), "number | undefined");
+    // Both paths assign, so `undefined` is unreachable at the join.
+    assert_eq!(
+        type_of_last_expression("let x;\nif (x) { x = 1; } else { x = \"a\"; }\nx;"),
+        "string | number"
+    );
+}
+
+#[test]
+fn an_annotated_or_initialised_declaration_does_not_evolve() {
+    // The boundary of the automatic arm, from both sides. An annotation means
+    // the declared type is real and the assignment cannot replace it.
+    assert_eq!(type_of_last_expression("let x: any;\nx = 1;\nx;"), "any");
+    // An initialiser means the declaration is typed from it, and — this is the
+    // one that looks wrong and is not — a later assignment does *not* change the
+    // answer, because the declared type is neither automatic nor a union.
+    assert_eq!(type_of_last_expression("let x = \"a\";\nx = 1;\nx;"), "string");
+    // `const` is excluded upstream before the automatic arm is reached.
+    assert_eq!(type_of_last_expression("const x = 1;\nx;"), "1");
+}
+
+#[test]
+fn an_assignment_reduces_a_declared_union() {
+    // The other half of `getTypeAtFlowAssignment`: a *declared* union keeps only
+    // the constituents the assigned type could be
+    // (`getAssignmentReducedType`, `flow.go:2399`).
+    assert_eq!(type_of_last_expression("let x: string | number;\nx = 1;\nx;"), "number");
+    assert_eq!(
+        type_of_last_expression("let x: string | number | undefined;\nx = \"a\";\nx;"),
+        "string"
+    );
+    // Upstream's give-up guard (`flow.go:2424`): when the assigned type is not
+    // assignable to what the filter kept, the declared type is returned whole
+    // rather than a type the assignment refutes.
+    assert_eq!(
+        type_of_last_expression("let x: string | number;\nx = true;\nx;"),
+        "string | number"
+    );
+    // A **union** assigned type needs only one constituent to be assignable to a
+    // declared constituent for that constituent to survive
+    // (`typeMaybeAssignableTo`, `flow.go:2434`). Requiring all of them would
+    // keep nothing here, and the give-up guard would then hand back the whole
+    // declared union — the same printed answer as no reduction at all, which is
+    // why this case needs its own fixture to be visible.
+    assert_eq!(
+        type_of_last_expression(
+            "let x: string | number | boolean;\nlet y: string | number;\nx = y;\nx;"
+        ),
+        "string | number"
     );
 }
