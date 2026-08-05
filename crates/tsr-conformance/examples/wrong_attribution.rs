@@ -275,6 +275,18 @@ struct Tally {
     /// that "my arm resolved it wrongly" can be told apart from "my arm resolved
     /// it correctly and a different rule is missing on top".
     missing_undefined_on_type_parameter: usize,
+    /// **The mirror shape**: *ours* carries `| undefined` and upstream's does
+    /// not. This is the direct signature of the optionality rule
+    /// over-applying, and it is counted by how the case sets
+    /// `strictNullChecks`, because that is the assumption most likely to cause
+    /// it — `addOptionalityEx` is gated on the option, and with it off upstream
+    /// adds nothing at all.
+    over_application: HashMap<&'static str, usize>,
+    /// Every wrong `Identifier` line by the same classification, so the
+    /// over-application rate can be compared against the base rate rather than
+    /// read on its own. A bucket that is large because that *kind of case* is
+    /// large is not evidence.
+    wrong_by_strictness: HashMap<&'static str, usize>,
 }
 
 impl Tally {
@@ -305,6 +317,12 @@ impl Tally {
         self.typeof_of_want += other.typeof_of_want;
         self.missing_undefined += other.missing_undefined;
         self.missing_undefined_on_type_parameter += other.missing_undefined_on_type_parameter;
+        for (k, v) in other.over_application {
+            *self.over_application.entry(k).or_default() += v;
+        }
+        for (k, v) in other.wrong_by_strictness {
+            *self.wrong_by_strictness.entry(k).or_default() += v;
+        }
         for (bucket, examples) in other.samples {
             let slot = self.samples.entry(bucket).or_default();
             for example in examples {
@@ -342,6 +360,25 @@ fn symbol_of_identifier(
     binder
         .resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE)
         .or_else(|| binder.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
+}
+
+/// How a case sets `strictNullChecks`, in upstream's resolution order.
+///
+/// `GetStrictOptionValue` falls back to `strict` when the specific option is
+/// unset, and this port assumes **on** when neither is written — which is the
+/// assumption under test here. Reported as three buckets rather than two so
+/// that "explicitly off" is distinguishable from "not stated": only the first
+/// is a case where upstream certainly adds nothing, and conflating them would
+/// make the result look tidier than the evidence is.
+fn strictness_of(options: &std::collections::BTreeMap<String, String>) -> &'static str {
+    let truthy = |v: &String| v.eq_ignore_ascii_case("true");
+    if let Some(value) = options.get("strictnullchecks") {
+        return if truthy(value) { "strictNullChecks: true" } else { "strictNullChecks: false" };
+    }
+    if let Some(value) = options.get("strict") {
+        return if truthy(value) { "strict: true" } else { "strict: false" };
+    }
+    "neither stated (we assume on)"
 }
 
 /// Every type-parameter name in scope at `id`.
@@ -575,6 +612,13 @@ fn main() {
                     if got.type_string == format!("typeof {want_type}") {
                         tally.typeof_of_want += 1;
                     }
+                    let strictness = strictness_of(&parsed.options);
+                    *tally.wrong_by_strictness.entry(strictness).or_default() += 1;
+                    // The mirror of the target shape: we added `| undefined`
+                    // and upstream did not.
+                    if got.type_string == format!("{want_type} | undefined") {
+                        *tally.over_application.entry(strictness).or_default() += 1;
+                    }
                     if want_type == format!("{} | undefined", got.type_string) {
                         tally.missing_undefined += 1;
                         if type_parameters_in_scope(&bound, &file.nodes, ids[position])
@@ -741,6 +785,25 @@ fn report(total: &Tally, arms: &[Cause]) {
         total.missing_undefined_on_type_parameter,
         pct(total.missing_undefined_on_type_parameter, total.missing_undefined)
     );
+
+    println!("\n--- OVER-APPLICATION: ours has `| undefined`, upstream does not ---");
+    println!(
+        "  (the optionality rule's own defect. Compared against the base rate of\n\
+        \x20  wrong lines in the same kind of case, because a bucket that is large\n\
+        \x20  because that kind of case is large is not evidence.)"
+    );
+    let over_total: usize = total.over_application.values().sum();
+    println!("  total                                       {over_total:>9}");
+    let mut rows: Vec<_> = total.wrong_by_strictness.iter().collect();
+    rows.sort_by_key(|(k, _)| *k);
+    for (bucket, wrong_here) in rows {
+        let over = total.over_application.get(*bucket).copied().unwrap_or(0);
+        println!(
+            "  {bucket:<32} {over:>7} of {wrong_here:>7} wrong  {:>6.2}% of that bucket, {:>6.2}% of all over-application",
+            pct(over, *wrong_here),
+            pct(over, over_total)
+        );
+    }
 
     println!("\n--- POSITIVE CONTROL: the same arms over ALL aligned Identifier lines ---");
     println!(
