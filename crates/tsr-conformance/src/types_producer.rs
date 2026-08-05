@@ -655,6 +655,45 @@ pub fn assertions_for_case(
     // widening's effect and nothing else.
     let arena = tsr_core::Arena::new();
     let program = program_for_case(&arena, case);
+    render_case(&program, case, expected, explain, None)
+}
+
+/// [`assertions_for_case`], in a caller-owned program, with the node behind
+/// each line.
+///
+/// A probe that classifies lines by *where the node sits* needs the `NodeId` and
+/// the program's tables, which the plain entry point cannot hand back because it
+/// owns the arena the program borrows. So the caller owns the arena and gets the
+/// program back beside the lines; `program.nodes()` and `program.node_map()` are
+/// then the tables the ids index.
+///
+/// This exists so a probe's denominator is the gradient's **by construction**.
+/// `examples/writer_guards.rs` re-implemented the per-unit, lib-less shape
+/// instead of calling in here, and every number it produced was measured against
+/// a corpus with no `lib.*.d.ts` in it while the gradient it was compared to had
+/// them all. `examples/overload_funnel.rs` had the identical defect and was
+/// rewired in `731b1ee`; see `docs/architecture/checker-notes-guard.md`.
+#[must_use]
+pub fn assertions_for_case_with_ids<'a>(
+    arena: &'a tsr_core::Arena,
+    case: &crate::TestCase,
+    expected: &[FileTypes],
+) -> (tsr_compiler::Program<'a>, Vec<Vec<Assertion>>, Vec<Vec<NodeId>>) {
+    let program = program_for_case(arena, case);
+    let mut ids = Vec::new();
+    let rendered = render_case(&program, case, expected, false, Some(&mut ids));
+    debug_assert_eq!(ids.len(), rendered.len(), "one id section per rendered section");
+    (program, rendered, ids)
+}
+
+/// The body both entry points share, so they cannot drift apart.
+fn render_case(
+    program: &tsr_compiler::Program<'_>,
+    case: &crate::TestCase,
+    expected: &[FileTypes],
+    explain: bool,
+    mut ids: Option<&mut Vec<Vec<NodeId>>>,
+) -> Vec<Vec<Assertion>> {
     let nodes = program.nodes();
     let node_map = program.node_map();
     let bound = program.binder();
@@ -665,23 +704,23 @@ pub fn assertions_for_case(
 
     let mut ours = Vec::new();
     for expected_file in expected {
-        let Some(unit) = case
+        // A section with no unit, a JSON unit, or a unit the loader did not put
+        // in the program — an unsupported extension, or a name it could not read
+        // — renders empty, exactly as a unit with no expected section does.
+        // Absent rather than wrong.
+        let file = case
             .files
             .iter()
             .find(|u| crate::binder_suite::same_unit(&u.name, &expected_file.file))
-        else {
+            .filter(|u| {
+                tsr_parser::ScriptKind::from_file_name(&u.name) != tsr_parser::ScriptKind::Json
+            })
+            .and_then(|u| program.source_file(&u.name));
+        let Some(file) = file else {
             ours.push(Vec::new());
-            continue;
-        };
-        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
-            ours.push(Vec::new());
-            continue;
-        }
-        // A unit the loader did not put in the program — an unsupported
-        // extension, or a name it could not read — renders empty, exactly as a
-        // unit with no expected section does. Absent rather than wrong.
-        let Some(file) = program.source_file(&unit.name) else {
-            ours.push(Vec::new());
+            if let Some(ids) = ids.as_deref_mut() {
+                ids.push(Vec::new());
+            }
             continue;
         };
         // The program's copy of the text, not the case's: they are equal, and
@@ -689,12 +728,14 @@ pub fn assertions_for_case(
         // handing the host's bytes through unchanged.
         let text = file.text();
         let mut gaps = Vec::new();
+        let mut visited = Vec::new();
         let mut rendered = assertions_for_file(
             &Node::SourceFile(file.source_file()),
             text,
             nodes,
             node_map,
             |id| {
+                visited.push(id);
                 let answer = type_at_location(&mut checker, bound, nodes, node_map, id);
                 if explain && answer == "error" {
                     gaps.push(id);
@@ -702,6 +743,10 @@ pub fn assertions_for_case(
                 answer
             },
         );
+        debug_assert_eq!(visited.len(), rendered.len(), "one recorded id per rendered line");
+        if let Some(ids) = ids.as_deref_mut() {
+            ids.push(visited);
+        }
         if explain {
             let mut gaps = gaps.into_iter();
             for assertion in &mut rendered {
