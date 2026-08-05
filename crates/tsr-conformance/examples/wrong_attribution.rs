@@ -315,6 +315,24 @@ struct Tally {
     /// is a question about where the lines actually are, not about which arm is
     /// most interesting.
     contextual_parameter_context: HashMap<String, usize>,
+    /// Wrong lines by the **symbol flags** of what the identifier resolves to.
+    ///
+    /// Parent kind names the *construct*; flags name the *dispatch*. Symbols'
+    /// accessor defect lived entirely in the second and was invisible in the
+    /// first: `interface I { get x(): number; x(): number; set x(v: number) }`
+    /// printed `() => number` where upstream prints `number`, because the merged
+    /// symbol carries `METHOD | GET_ACCESSOR | SET_ACCESSOR` and
+    /// `getTypeOfSymbol`'s accessor branch — upstream's *first* flags test,
+    /// `checker.go:16506` — was absent. By parent kind those lines are ordinary
+    /// `GetAccessor`/`SetAccessor` nodes, indistinguishable from the ones that
+    /// gap correctly. By flags the combination is obviously wrong: it has no
+    /// business reaching a signature printer.
+    ///
+    /// It took four attempts to find because a *lone* accessor already gaps and
+    /// only the **merge** reaches the arm, so three hand-built fixtures came back
+    /// clean. That is the argument for this column: a dispatch bug is a fact
+    /// about the symbol, and no syntactic bucketing can see one.
+    wrong_by_flags: HashMap<String, usize>,
     /// **Gap** lines owned by `FunctionTypeNode`, directly or transitively.
     ///
     /// `get_type_from_type_node` handles keyword, literal, parenthesised, type
@@ -393,6 +411,9 @@ impl Tally {
         self.implicit_any_total += other.implicit_any_total;
         for (k, v) in other.wrong_by_parent {
             *self.wrong_by_parent.entry(k).or_default() += v;
+        }
+        for (k, v) in other.wrong_by_flags {
+            *self.wrong_by_flags.entry(k).or_default() += v;
         }
         for (k, v) in other.function_type_gaps {
             *self.function_type_gaps.entry(k).or_default() += v;
@@ -912,6 +933,13 @@ fn main() {
                         |p| format!("{:?}", file.nodes.kind(p)),
                     );
                     *tally.wrong_by_parent.entry(parent.clone()).or_default() += 1;
+                    let flags =
+                        symbol_of_identifier(&bound, &file.nodes, &file.node_map, ids[position])
+                            .map_or_else(
+                                || "<unresolved>".to_string(),
+                                |symbol| format!("{:?}", bound.symbols().get(symbol).flags),
+                            );
+                    *tally.wrong_by_flags.entry(flags).or_default() += 1;
                     if parent == "QualifiedName" {
                         let grandparent = file
                             .nodes
@@ -1146,6 +1174,19 @@ fn report(total: &Tally, arms: &[Cause]) {
     rows.sort_unstable_by(|a, b| b.cmp(a));
     for (count, kind) in rows.iter().take(12) {
         println!("  {kind:<42} {count:>8}  {:>6.2}%", pct(*count, ctx_total));
+    }
+
+    println!("\n--- WRONG LINES BY SYMBOL FLAGS ---");
+    println!(
+        "  (parent kind names the construct; flags name the dispatch. A merged\n\
+        \x20  accessor carrying METHOD | GET_ACCESSOR | SET_ACCESSOR is a dispatch\n\
+        \x20  bug that no syntactic bucketing can see.)"
+    );
+    let mut rows: Vec<_> =
+        total.wrong_by_flags.iter().map(|(f, count)| (*count, f.as_str())).collect();
+    rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (count, flags) in rows.iter().take(12) {
+        println!("  {flags:<58} {count:>7}  {:>6.2}%", pct(*count, total.identifiers));
     }
 
     println!("\n--- GAP LINES OWNED BY `FunctionTypeNode` ---");
