@@ -1291,3 +1291,51 @@ same reason.
 Reading picked the wrong mechanism twice here; one mutation found it. Port the
 guard, then try to make it fire — and if it cannot fire, delete it and write down
 why, rather than keeping a comment that lies.
+
+### A row counts the lines that *name* a defect, not the lines downstream of them
+
+Every sizing method in this document estimates **the row**. The gradient moves by
+the row **plus everything the row was blocking**, and the two differ by a factor
+nobody had a slot for.
+
+Measured on the cross-file alias arm, `fa29e66^..fa29e66`:
+
+```
+  the two target rows lost      -428 gap lines
+  the gradient gained           +711 lines
+  cascade multiplier             1.66
+```
+
+The 283-line difference was never in either row. `import { f } from "./m"; f();`
+puts **one** line in the alias row — the declaration name — and the *call* is a
+separate assertion line that answered `errorType` only because its callee did.
+
+This reframes what a good prediction looks like. The slice predicted **389**,
+which reads as a 1.8× miss against 711 and is in fact **91% of the 428 the rows
+actually lost — a 9% error on the right quantity, reported as the wrong one.**
+Population held, rate held; the third factor was assumed to be 1.0 and was 1.66.
+
+**Two ratios, both true, answering different questions.** 1.66× against the rows
+you predicted is what a *planner* wants. 1.54× against every row that moved
+(461, including a same-file row that was not predicted to move at all) is what a
+*mechanism* reader wants. Say which you are quoting.
+
+#### And it is a property of the form, not of the fix — so it is not a constant
+
+`export { q }` converted 94 lines with **no visible cascade**, because a
+re-exported name is mostly not *used* in the file that re-exports it. An imported
+name is imported in order to be used. So the multiplier cannot be carried forward
+as a number; it has to be estimated per row, and the estimate is cheap — the same
+span-and-name test `rank_board`'s `cause()` already runs, in the opposite
+direction: instead of asking *"did something inside this node gap?"*, ask *"how
+many gapped lines name this one?"*
+
+#### The mirror of a rule already here
+
+*"Sharing a downstream function is not the same as being blocked by it"* records
+a sum that **over**-counted by 2.7×, because 83% of the rows were turned back
+before they reached the shared function. This is the same edge from the other
+side: counting only the rows that name a defect **under**-counts, because the
+lines they block are in other rows or in no row at all. **Before quoting a row as
+a deliverable, ask both — what in this row will not convert, and what outside it
+will.**
