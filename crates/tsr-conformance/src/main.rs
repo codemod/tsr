@@ -39,13 +39,31 @@ use tsr_conformance::{
 ///
 /// Rayon gives a worker 2 MiB by default, so the debug run aborted with
 /// `has overflowed its stack` — and only the debug run, which is why a release-only
-/// habit hid it. The parser is unaffected: it climbs precedence in a loop.
+/// habit hid it.
 ///
-/// Upstream does not need this. Go grows a goroutine's stack on demand up to 1 GiB,
-/// so `emitBinaryExpression` recursing 5,000 deep costs it nothing; a Rust thread's
-/// stack is fixed at spawn. That is a difference between the languages rather than
-/// between the two implementations, and it is the reason a port has to size this
-/// explicitly. Making the printer iterative is the real fix and is `bd tsr-el3`.
+/// **Two claims above were too narrow, corrected 2026-08-05 by
+/// `examples/stack_depth.rs`.** "The parser is unaffected: it climbs precedence in a
+/// loop" is true only of the *binary* shape. And the binder, recorded as passing at
+/// 2 MiB, does not in general. Minimum surviving stack at nesting depth 5,000, by
+/// generated shape:
+///
+/// | shape | parse (debug/release) | parse+bind (debug/release) |
+/// |---|---|---|
+/// | `a + a + a …` | 256 KiB / 256 KiB | 4 MiB / 4 MiB |
+/// | `((((…))))` | 1 MiB / 256 KiB | **8 MiB** / 4 MiB |
+/// | `Array<Array<…>>` | 1 MiB / 256 KiB | 4 MiB / 4 MiB |
+/// | nested conditional types | 4 MiB / 1 MiB | 4 MiB / 2 MiB |
+///
+/// So **the binder alone exceeds rayon's 2 MiB default at depth 5,000 on three of
+/// four shapes, in release as well as debug.** The original measurement tested one
+/// corpus case, whose shape happens to be the one the parser loops over.
+///
+/// Upstream does not need any of this. Go grows a goroutine's stack on demand up to
+/// 1 GiB, so recursing 5,000 deep costs it nothing; a Rust thread's stack is fixed
+/// at spawn. That is a difference between the languages rather than between the two
+/// implementations, and it is why a port has to size this explicitly — and why the
+/// checker, which recurses deeper than anything measured here, needs a policy before
+/// it is written rather than after. `bd tsr-el3`.
 const WORKER_STACK: usize = 32 * 1024 * 1024;
 
 fn main() -> Result<()> {
