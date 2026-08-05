@@ -30,7 +30,7 @@ corrected number to be visibly corrected rather than silently edited.
 3. **Row 10 splits 17.8% same-file / 82.2% cross-file.** `export { q }` is the
    largest same-file form at **198 lines — 46.8% of the same-file half**, and it
    is what this slice built. `import a = b.c` at 158 is the second, and nobody
-   has looked at it (`bd tsr-1jv`).
+   has looked at it (`bd tsr-93f`).
 4. **The existing instrument could not have produced either split, and the
    reason is structural**, not an oversight. §2 says why, and it was the first
    thing checked.
@@ -305,7 +305,7 @@ for it is quoting the wrong number.
 
 **`export { q }` is 46.8% of the same-file half, not 86%** — see §8. It is still
 the largest same-file form, and `import a = b.c` at 158 is the second and is
-unexamined (`bd tsr-1jv`).
+unexamined (`bd tsr-93f`).
 
 The cross-file half is blocked exactly as `checker-notes-arrays.md` records:
 `Checker::new` takes `(binder, nodes, node_map)` and `BindResult` exposes no
@@ -447,7 +447,7 @@ The probe in §3 shows what that looks like — `function f(x: number[]) {}` ans
   would print `typeof baz`. **Nobody has checked how many of the 158 would in
   fact print the alias's own name** — the rule is about chain length, and a
   two-link `a.b` may not behave like the three-link `foo.bar.baz` the
-  documentation is built on. `bd tsr-1jv`.
+  documentation is built on. `bd tsr-93f`.
 
 ---
 
@@ -537,7 +537,7 @@ subset.
 thing to build; but *"86% of the same-file half"* was used on this page as the
 reason not to look at anything else in that half, and at 46.8% that reasoning is
 wrong. `import a = b.c` at 158 lines is now visible as a peer, not a footnote
-(`bd tsr-1jv`).
+(`bd tsr-93f`).
 
 **The rule this cost:** a filtered run's *shares* do not transfer even when its
 *totals* look proportionate. The probe printed a banner saying the counts were
@@ -548,7 +548,8 @@ ignored for every ratio computed from them.
 
 ## 9. UNRESOLVED: the split reads 2,430 for row 10, the board reads 2,535
 
-A 105-line disagreement, 4.1%. `docs/conventions.md` treats an unexplained gap
+`bd tsr-4r4`. A 105-line disagreement, 4.1%. `docs/conventions.md` treats an
+unexplained gap
 between two instruments as a finding, not a rounding difference, and this is the
 second such disagreement this cycle — the members agent hit a 3-line version.
 
