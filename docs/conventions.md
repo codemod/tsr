@@ -419,3 +419,108 @@ passed under `cargo test -p`.
 **Verify against a commit, not against the working tree**: `git worktree add
 --detach <dir> <sha>` and run the gates there. That is how the red commit above
 was identified, and it is the only check that answers "is *this commit* green".
+
+## Estimating what a slice is worth
+
+One cycle produced six predictions, scored honestly. Five missed, one hit, and
+the misses were not close: 6.6× high, 3.6× low, 2.5× high twice, an order of
+magnitude, and one that named the wrong row entirely. The pattern in how each
+number was *made* is sharper than the pattern in who made it.
+
+| how the number was made | result |
+|---|---|
+| reasoned from code structure | 10,200 → 3,804; "40–50%" → 2.6%; "long tail" → 98.5% one shape |
+| counted source occurrences | 871 → 231; 716 → 386 |
+| counted a population | 6,000–15,000 → 950 |
+| counted lines where the form *appears* | 432 → 1,537 |
+| **counted lines + cross-checked against the instrument** | **1,500 → 1,537** |
+
+### Reading tells you what is blocked. Only measurement tells you how much.
+
+These are different questions and conflating them is what produced most of the
+misses. An agent read `getBaseTypeOfEnumLikeType` correctly, identified the
+missing back-edge exactly, built the right fix — and was still wrong about the
+population by more than an order of magnitude, because the lines were somewhere
+else. Correct mechanism, wrong magnitude.
+
+The inverse also happens: four items in one cycle were assigned as open when
+they were already built, because the board's line counts had been derived by
+reading rather than measured.
+
+### Count the lines a failure *blocks*, not the lines where the form *appears*
+
+The unit that matters is the assertion line in a `.types` baseline, and the
+mapping from source construct to blocked lines is neither 1 nor constant:
+
+- `var d = Object.assign` costs **three** wrong lines — `d`, `Object.assign`,
+  `assign` — with only `Object` right.
+- An annotation blocks its own assertion line *and* every reference to the thing
+  it annotates: a count of 432 annotation sites corresponded to 1,537 blocked
+  lines.
+- A source-text count of `get x()` occurrences over-counted its row by 2.5×.
+
+### A count without an independent cross-check is not a prediction
+
+The one prediction that landed (1,500 predicted, 1,537 measured) was the one
+where the author counted assertion lines directly **and validated the count
+against the instrument before quoting it** — 2,031 against the histogram's
+2,003, 1.4% apart. Every number quoted without such a check missed.
+
+A corollary the same agent drew, and the right way to weight incoming estimates:
+**trust a number that arrives with a cross-check; discount one that arrives with
+a mechanism story.**
+
+### Bucket by the shape of the *answer*, not the shape of the question
+
+A 12,376-line row read as an index-shape histogram says "79% numeric", which
+means arrays and tuples, which points at a real blocker — instantiated generic
+members. Counting the *answers* instead showed 10,737 of those lines answer
+`any`, so the receivers were `any`, not arrays. The syntax histogram and the
+answer histogram disagreed and only the second was the cause. One extra command
+separated a correct-sounding workstream from a landed fix.
+
+Same disease, stated three ways by three people in one cycle: *sharing a
+downstream function is not the same as being blocked by it* — 83% of the rows
+attributed to one function were turned back two lines earlier.
+
+### State the prediction, its rows, its commit pair — and how it could be right for the wrong reason
+
+The discrimination check that applies to tests applies to predictions too. A
+prediction that names only a direction can be confirmed by accident. Naming the
+mechanism makes it scoreable. Naming *how it could be right for the wrong
+reason* closes the last gap:
+
+> binder_symbols going up is not automatically a confirmation. The newly-passing
+> cases must be ones where a global has more than one declaration. If the
+> improvement is spread across single-declaration symbols, the mechanism is not
+> the one I named and I want that recorded as a miss even though the number went
+> the right way.
+
+Two further requirements, each learned by a prediction failing without them:
+
+- **If a prediction excludes a large group, name the row that group occupies and
+  predict for it separately** — otherwise the exclusion is invisible in the
+  result. A stated ~871 landed at 231 partly because the ~716 lines explicitly
+  *not* claimed shared a row with the ones that were.
+- **Name what must NOT move.** One prediction said a 2,003-line row must stay
+  put, and that if it moved the analysis was wrong. It stayed at exactly 2,003.
+  Predicting what will not change, and being right, is what distinguishes a
+  model from a guess.
+
+### Probing is not a substitute for reading
+
+The cheapest diagnosis of the cycle was five lines run against a real program:
+
+```
+Math.random   => () => number                  right today
+Object.assign => error   (declared only in es2015.core)
+```
+
+That demonstrated the receiver path was live and merging was the sole blocker —
+proof rather than inference. But it was cheap *only because* the path happened
+to be live. Had it not been, five `error`s would have said nothing about which
+of several candidate blockers was at fault, and the code reading would still
+have been required.
+
+So the rule is not "probe first". It is **probe to find which of several
+candidate blockers is the live one, once reading has narrowed it to a few.**
