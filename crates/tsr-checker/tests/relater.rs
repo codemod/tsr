@@ -9,14 +9,20 @@
 //!
 //! - assignability is **directional**, so every positive case has a negative
 //!   twin in the other direction wherever the relation is not symmetric;
-//! - the relation **terminates** on a recursive type — though see
-//!   `a_recursive_type_terminates`, whose mutation showed that the cycle guard
-//!   is not yet what makes that true.
+//! - the relation **terminates** on a recursive type — and since structural
+//!   comparison landed, both guards are what make that true. See
+//!   `mutually_recursive_interfaces_terminate` and
+//!   `a_chain_deeper_than_the_cap_gives_up`, whose mutations kill them
+//!   separately.
 //!
 //! See [`crates/tsr-checker/src/relater.rs`](../src/relater.rs) for what is
-//! deliberately gapped: object types that are not the same `TypeId` answer
-//! "not related", and that is asserted here too, so the gap is a fact of the
-//! test suite rather than an unstated limit.
+//! still gapped. Object types are now compared **structurally**, so the gaps
+//! that remain are narrower: optional properties, `readonly`, index and call
+//! signatures, and any base type this port cannot follow. Each is asserted here
+//! in the direction it fails, so a gap is a fact of the test suite rather than
+//! an unstated limit.
+
+use std::fmt::Write as _;
 
 use tsr_ast::Statement;
 use tsr_checker::{Checker, TypeId};
@@ -187,12 +193,19 @@ fn a_union_is_assignable_to_a_wider_union() {
 /// `TypeData::Intersection` and the arm actually runs. Verified by probing what
 /// `let a: string & number` resolves to, not by reading the reduction code.
 ///
+/// **The interfaces gained members when structural comparison landed.** Written
+/// as two *empty* interfaces the fixture stopped separating the arms the moment
+/// object types were compared structurally: `I -> J` is genuinely `true` for two
+/// empty interfaces — in TypeScript as much as here — so `I -> (I & J)`
+/// succeeded on both halves and the first assertion was asserting a gap that had
+/// closed. Disjoint members restore the property the test is about.
+///
 /// Reddened by: changing the target-intersection arm's `.all(` to `.any(`, which
 /// makes `I -> (I & J)` true; and by changing the source-intersection arm's
 /// `.any(` to `.all(`, which makes `(I & J) -> I` false.
 #[test]
 fn a_target_intersection_is_universal_and_a_source_intersection_existential() {
-    let source = "interface I {}\ninterface J {}\nlet a: I;\nlet b: I & J;";
+    let source = "interface I { a: string }\ninterface J { b: number }\nlet a: I;\nlet b: I & J;";
     with_checker(source, |checker, statements| {
         let i = annotation_type(checker, statements, 2);
         let both = annotation_type(checker, statements, 3);
@@ -217,22 +230,18 @@ fn undefined_and_null_do_not_relate_to_each_other() {
     assert!(assignable("let a: undefined; let b: void;"), "undefined -> void");
 }
 
-/// Object types relate only to themselves, and this is a **gap**, not a rule.
+/// Two structurally identical interfaces relate, in both directions.
 ///
-/// `interface I { x: string }` and a structurally identical `interface J` are
-/// assignable in TypeScript and answer `false` here, because structural
-/// comparison is not ported. The test asserts the current answer so that the day
-/// structural comparison lands, it goes red and is *deleted* rather than
-/// quietly contradicted.
+/// This replaces `two_structurally_identical_interfaces_are_a_gap`, the
+/// characterisation test that pinned the answer `false` while structural
+/// comparison was unported. Deleted rather than inverted in place, because the
+/// thing it asserted no longer exists.
 ///
-/// Reddened by: nothing — this is a characterisation test of a gap, labelled as
-/// one rather than counted as a verified behaviour. Mutating
-/// `structured_type_related_to`'s trailing `false` to `true` was tried and left
-/// it **green**, which located the gap precisely: a pair of plain object types
-/// is rejected by the composite gate in `is_related_to` and never reaches the
-/// structural arm at all.
+/// Reddened by: deleting the `has_members(source) && has_members(target)` arm
+/// from the gate in `is_related_to`, which sends a pair of object types back to
+/// the trailing `false`.
 #[test]
-fn two_structurally_identical_interfaces_are_a_gap() {
+fn two_structurally_identical_interfaces_relate() {
     let source = "interface I { x: string }\ninterface J { x: string }\n\
                   let a: I;\nlet b: J;\nlet c: I;";
     with_checker(source, |checker, statements| {
@@ -240,28 +249,78 @@ fn two_structurally_identical_interfaces_are_a_gap() {
         let j = annotation_type(checker, statements, 3);
         let i_again = annotation_type(checker, statements, 4);
         assert!(checker.is_type_assignable_to(i, i_again), "a type is assignable to itself");
-        assert!(!checker.is_type_assignable_to(i, j), "GAP: structural comparison is not ported");
+        assert!(checker.is_type_assignable_to(i, j), "I -> J");
+        assert!(checker.is_type_assignable_to(j, i), "J -> I");
     });
 }
 
-/// A self-referential type terminates — **but the guard is not what makes it do
-/// so, and that is the finding.**
+/// A property the target requires and the source lacks means **not related**,
+/// and a property whose *type* is wrong means the same.
 ///
-/// This test was written to redden under "remove the
-/// `self.results.insert((source, target), true)` that parks the pair before
-/// recursing". The mutation was run and the test stayed **green, in
-/// milliseconds**. The reason is structural: the only cycles in a type graph run
-/// through an object type's *members*, and this module does not walk members
-/// (see `relater.rs`). `interface I { x: I | string }` is a cycle in the type
-/// graph and not a cycle in this walk, because the walk stops at `I`.
+/// Both directions are asserted on the same fixture, which is what makes the
+/// test hard to satisfy by accident: `{ x: string }` and `{ x: string, y: number }`
+/// relate one way and not the other, so a fix that answers `true` unconditionally
+/// fails the second assertion and one that answers `false` unconditionally fails
+/// the first.
 ///
-/// So the cycle cache and [`tsr_checker::relater::MAX_DEPTH`] are currently
-/// **unexercised**. They are kept, not deleted, because the loop they guard
-/// appears the moment structural comparison lands — but they are recorded here
-/// as untested rather than counted as verified, which is the distinction
-/// `bd tsr-el3.2` exists to force.
+/// Reddened by: replacing the `return false` on a missing source property in
+/// `properties_related_to` with `continue`, which makes `narrow -> wide` answer
+/// `true`. The type-mismatch half is reddened by dropping the
+/// `!self.is_related_to(source_type, target_type)` check.
+#[test]
+fn a_missing_or_mistyped_property_does_not_relate() {
+    let source = "interface Narrow { x: string }\n\
+                  interface Wide { x: string; y: number }\n\
+                  interface Wrong { x: number }\n\
+                  let a: Narrow;\nlet b: Wide;\nlet c: Wrong;";
+    with_checker(source, |checker, statements| {
+        let narrow = annotation_type(checker, statements, 3);
+        let wide = annotation_type(checker, statements, 4);
+        let wrong = annotation_type(checker, statements, 5);
+        assert!(checker.is_type_assignable_to(wide, narrow), "extra properties are fine");
+        assert!(!checker.is_type_assignable_to(narrow, wide), "y is required and missing");
+        assert!(!checker.is_type_assignable_to(wrong, narrow), "x: number -> x: string");
+        assert!(!checker.is_type_assignable_to(narrow, wrong), "x: string -> x: number");
+    });
+}
+
+/// An **inherited** requirement counts, on both sides.
 ///
-/// The assertions below are real; only the mutation claim was wrong.
+/// This is the assertion that the deliberate gap was protecting: enumerating
+/// only a target's *own* members would answer `true` for a source that fails the
+/// base's requirements.
+///
+/// Reddened by: deleting the `base_symbols_of` recursion from
+/// `collect_property_names` (returning `true` before it), which drops `x` from
+/// `Derived`'s requirements and makes the second assertion answer `true`.
+#[test]
+fn an_inherited_property_is_a_requirement() {
+    let source = "interface Base { x: string }\n\
+                  interface Derived extends Base { y: number }\n\
+                  interface Both { x: string; y: number }\n\
+                  interface OnlyY { y: number }\n\
+                  let a: Derived;\nlet b: Both;\nlet c: OnlyY;";
+    with_checker(source, |checker, statements| {
+        let derived = annotation_type(checker, statements, 4);
+        let both = annotation_type(checker, statements, 5);
+        let only_y = annotation_type(checker, statements, 6);
+        assert!(checker.is_type_assignable_to(both, derived), "{{x,y}} -> Derived");
+        assert!(
+            !checker.is_type_assignable_to(only_y, derived),
+            "Derived's inherited x is missing"
+        );
+        assert!(checker.is_type_assignable_to(derived, both), "Derived -> {{x,y}}");
+    });
+}
+
+/// A self-referential type terminates.
+///
+/// When this test was written the walk stopped at object types, so
+/// `interface I { x: I | string }` was a cycle in the type graph and *not* a
+/// cycle in this walk — deleting the cycle guard left it green. Structural
+/// comparison closed that loop; see
+/// [`mutually_recursive_interfaces_terminate`] for the fixture that now
+/// exercises the guard, and `relater.rs` for the measurement.
 #[test]
 fn a_recursive_type_terminates() {
     let source = "interface I { x: I | string }\nlet a: I | string;\nlet b: I | string | number;";
@@ -271,5 +330,64 @@ fn a_recursive_type_terminates() {
         let wide = annotation_type(checker, statements, 2);
         assert!(checker.is_type_assignable_to(narrow, wide), "(I|string) -> (I|string|number)");
         assert!(!checker.is_type_assignable_to(wide, narrow), "(I|string|number) -> (I|string)");
+    });
+}
+
+/// Mutually recursive interfaces terminate, and the cycle cache is what makes
+/// them.
+///
+/// `interface A { x: B }` with `interface B { x: A }` is the loop the module
+/// docs promised would appear the moment structural comparison landed:
+/// relating `A -> A2` asks whether `B -> B2`, which asks whether `A -> A2`
+/// again. Nothing about the *types* is recursive in a way the earlier fixture
+/// caught — the walk has to enter members for the cycle to exist.
+///
+/// Reddened by: deleting the `self.results.insert((source, target), true)` that
+/// parks the pair before recursing in `recursive_type_related_to`. The test then
+/// fails — and fails *fast*, in the same milliseconds, because
+/// [`tsr_checker::relater::MAX_DEPTH`] catches the walk the cache no longer
+/// closes and answers `false`. So the two guards are not interchangeable and
+/// this fixture separates them: the cache is what makes the answer **`true`**,
+/// the depth cap is what makes the run **terminate**. Neither was exercised
+/// before structural comparison landed.
+#[test]
+fn mutually_recursive_interfaces_terminate() {
+    let source = "interface A { x: B }\ninterface B { x: A }\n\
+                  interface A2 { x: B2 }\ninterface B2 { x: A2 }\n\
+                  let a: A;\nlet b: A2;";
+    with_checker(source, |checker, statements| {
+        let a = annotation_type(checker, statements, 4);
+        let a2 = annotation_type(checker, statements, 5);
+        assert!(checker.is_type_assignable_to(a, a2), "A -> A2 through the cycle");
+    });
+}
+
+/// The depth cap answers `false` rather than overflowing the stack.
+///
+/// A chain of interfaces deeper than [`tsr_checker::relater::MAX_DEPTH`] nests
+/// the walk one frame per link. The assertion is the *honest gap*: upstream
+/// relates these two and this port gives up, which is the direction the module
+/// docs commit to.
+///
+/// Reddened by: raising `MAX_DEPTH` to `10_000`. The test does not merely flip
+/// to `true` — the process **aborts with a stack overflow**, measured. That is
+/// the sharpest available statement of what the cap buys: at 110 links the walk
+/// nests one frame per link and the native stack does not hold it. The cap is
+/// load-bearing for *safety*, not only for answers.
+#[test]
+fn a_chain_deeper_than_the_cap_gives_up() {
+    let mut source = String::new();
+    let depth = tsr_checker::relater::MAX_DEPTH + 10;
+    source.push_str("interface L0 { x: string }\ninterface R0 { x: string }\n");
+    for i in 1..=depth {
+        writeln!(source, "interface L{i} {{ x: L{} }}", i - 1).unwrap();
+        writeln!(source, "interface R{i} {{ x: R{} }}", i - 1).unwrap();
+    }
+    writeln!(source, "let a: L{depth};\nlet b: R{depth};").unwrap();
+    let statement_count = 2 + depth * 2;
+    with_checker(&source, |checker, statements| {
+        let left = annotation_type(checker, statements, statement_count);
+        let right = annotation_type(checker, statements, statement_count + 1);
+        assert!(!checker.is_type_assignable_to(left, right), "GAP: the depth cap gives up");
     });
 }

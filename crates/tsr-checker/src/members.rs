@@ -238,7 +238,7 @@ impl Checker<'_, '_> {
     /// Ported from `Checker.symbolIsValueEx` (`checker.go:22095`), value half
     /// only — see [`Checker::get_property_of_type`] for why the alias half is not
     /// ported.
-    fn symbol_is_value(&self, symbol: SymbolId) -> bool {
+    pub(crate) fn symbol_is_value(&self, symbol: SymbolId) -> bool {
         self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE)
     }
 }

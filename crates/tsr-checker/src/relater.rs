@@ -16,29 +16,37 @@
 //!   `string`/`number`/`bigint`/`boolean`/`symbol`, `void`, `undefined`, `null`,
 //!   `object`;
 //! - literal types, including the fresh/regular pair;
-//! - unions on either side, and intersections on either side.
+//! - unions on either side, and intersections on either side;
+//! - **structural comparison of object types**: every property of the target,
+//!   own and inherited, must have a corresponding property of the source whose
+//!   type is related to it.
 //!
 //! # What is deliberately *not* ported, and why it answers `false`
 //!
-//! **Structural comparison of object types.** Two distinct object types — a
-//! `Named` class or interface, or an `Anonymous` function type — relate here
-//! only when they are the *same* [`TypeId`]. Anything else answers "not
-//! related".
+//! **Structural comparison of object types is ported** — see
+//! [`Relater::properties_related_to`]. What is *not* ported, and each answers
+//! "not related" rather than guessing:
 //!
-//! That is a gap, and it is stated as one rather than papered over. Upstream's
-//! `structuredTypeRelatedTo` needs machinery this crate does not have: property
-//! *enumeration* of a target including its inherited members, variance markers
-//! on type references, signature relation with bivariant parameter positions,
-//! and index-signature matching. `get_property_of_type`
-//! (`crate::members`) can look a name **up**, but nothing can list a type's
-//! properties transitively through its base types, and a structural check that
-//! enumerates only a target's *own* members would silently skip the inherited
-//! requirements and answer `true` for a source that fails them. A wrong `true`
-//! produces a confident wrong type; a wrong `false` produces a gap. So: `false`,
-//! and `bd tsr-4sc` carries the follow-up.
+//! - **optionality.** A target property the source lacks always fails, so
+//!   `{ x: string } -> { x: string, y?: number }` is a gap. Reading
+//!   `SymbolFlags::OPTIONAL` is the fix, and it belongs with the property
+//!   modifiers below rather than on its own.
+//! - **a base type this port cannot follow.** `base_symbols_of`
+//!   (`crate::members`) answers `None` for a base with type arguments, a
+//!   non-identifier base, or a base with no members. A target whose inherited
+//!   requirements cannot be *enumerated* must not be satisfied by checking only
+//!   the ones that can, so the whole comparison fails.
+//! - **signatures and index signatures.** A function type or a `[k: string]:`
+//!   member contributes nothing, so two anonymous function types still relate
+//!   only when they are the same [`TypeId`].
+//! - **variance markers on type references**, so `Box<Dog> -> Box<Animal>` is
+//!   not decided by variance.
 //!
-//! For the same reason there is no bare-`{}`/`object` structural arm, no
-//! array-to-array covariance, and no signature comparison.
+//! One place is too *permissive*, and it is named rather than buried:
+//! `readonly`, `private`/`protected` identity and the property-vs-method
+//! distinction are not compared, so a source differing only in one of those
+//! relates here and would not upstream. The property **names** and **types**
+//! are fully checked; the modifiers on them are not.
 //!
 //! # `strictNullChecks` is assumed on
 //!
@@ -51,31 +59,31 @@
 //! costs it as a gap. So the strict reading is hard-coded, and this paragraph is
 //! the note to delete when options arrive.
 //!
-//! # The recursion limits are part of the port, not an optimisation
+//! # The recursion limits are exercised, and that was measured
 //!
 //! `bd tsr-el3.2` records that this project has twice *deliberately* skipped an
 //! algorithmic limit because the loop it guards did not exist in the ported
-//! subset. **Measured, that argument does apply here too, and the limits are
-//! ported anyway.** The claim written first — that `interface I { x: I }` is a
-//! cycle reachable through the union arm — is false for *this* walk: the only
-//! cycles in a type graph run through an object type's members, and this module
-//! stops at object types. Deleting the cycle guard and running
-//! `tests/relater.rs::a_recursive_type_terminates` leaves it green in
-//! milliseconds.
+//! subset. This module was the third case and is no longer one: while structural
+//! comparison was absent the guards were **unexercised**, because the only
+//! cycles in a type graph run through an object type's members and the walk
+//! stopped at object types. Structural comparison creates that loop, and both
+//! guards now bite. Measured, per guard, not asserted:
 //!
-//! They are ported regardless, because the loop appears in the same commit that
-//! adds structural comparison and retrofitting a limit means re-deriving which
-//! recursion it guards. What is *not* claimed is that they are tested: they are
-//! unexercised, said plainly here and in the test, rather than counted.
-//!
-//! Both of upstream's guards are ported, in the form the ported subset needs:
-//!
-//! - a **depth cap** ([`MAX_DEPTH`]), from upstream's `isDeeplyNestedType`,
-//!   which gives up at `maxDepth` occurrences on the stack;
+//! - a **depth cap** ([`MAX_DEPTH`]), from upstream's `isDeeplyNestedType`.
+//!   Raising it to `10_000` and running
+//!   `tests/relater.rs::a_chain_deeper_than_the_cap_gives_up` — a 110-link chain
+//!   of interfaces — **aborts the process with a stack overflow**. The cap is
+//!   load-bearing for safety, not only for answers.
 //! - a **relation cache** keyed on the type pair, from upstream's `Relation`
 //!   results map, which both memoises and — by parking an in-progress pair as
 //!   *assumed related* — closes the co-recursive cycle the way
 //!   `recursiveTypeRelatedTo` does with `RelationComparisonResultReported`.
+//!   Deleting the park makes
+//!   `tests/relater.rs::mutually_recursive_interfaces_terminate` (`interface A
+//!   { x: B }` / `interface B { x: A }`) answer `false` instead of `true`. It
+//!   still *terminates*, in milliseconds, because the depth cap catches what the
+//!   cache no longer closes — so the two guards are not interchangeable: the
+//!   cache buys the answer, the cap buys termination.
 //!
 //! **Divergence, recorded:** upstream's `Relation` lives on the `Checker` and so
 //! persists across every call. Here it is created per top-level
@@ -179,10 +187,22 @@ impl Relater<'_, '_, '_> {
         let composite = TypeFlags::UNION.union(TypeFlags::INTERSECTION);
         let s = self.checker.type_of(source).flags;
         let t = self.checker.type_of(target).flags;
-        if s.intersects(composite) || t.intersects(composite) {
+        // Two object types with members reach the structural arm; upstream's
+        // gate is `source.flags&TypeFlags::StructuredOrInstantiable != 0 &&
+        // target.flags&...`, and `Named { members: Some(_) }` is the whole of
+        // this port's "structured".
+        if s.intersects(composite)
+            || t.intersects(composite)
+            || (self.has_members(source) && self.has_members(target))
+        {
             return self.recursive_type_related_to(source, target);
         }
         false
+    }
+
+    /// Whether `id` is an object type with a members table to compare.
+    fn has_members(&self, id: TypeId) -> bool {
+        matches!(&self.checker.type_of(id).data, TypeData::Named { members: Some(_), .. })
     }
 
     /// The non-recursive arms: everything decidable from flags alone.
@@ -326,15 +346,122 @@ impl Relater<'_, '_, '_> {
             // second one.
             return constituents.iter().any(|&c| self.is_related_to(c, target));
         }
+        if self.has_members(source) && self.has_members(target) {
+            return self.properties_related_to(source, target);
+        }
         // Reached only by a type whose *flags* say union or intersection while
         // its data says otherwise, which `is_related_to`'s gate lets through.
-        //
-        // A pair of plain object types never arrives here at all: the gate in
-        // `is_related_to` requires one side to be composite, so `I -> J` answers
-        // `false` there. Measured, not assumed — mutating this `false` to `true`
-        // left `two_structurally_identical_interfaces_are_a_gap` green, which is
-        // how the real location of the gap was found.
         false
+    }
+
+    /// Every property of `target` has a corresponding property of `source`, and
+    /// the two are related.
+    ///
+    /// Ported from `Checker.propertiesRelatedTo` (`internal/checker/relater.go`),
+    /// reduced to the arm that walks `getPropertiesOfType(target)` and asks
+    /// `getPropertyOfType(source, name)` for each. Property *types* are related
+    /// covariantly, which is upstream's rule for the assignable relation on
+    /// non-method properties.
+    ///
+    /// # What is missing answers `false`, never `true`
+    ///
+    /// - **Optionality is not read.** Upstream skips a target property whose
+    ///   source counterpart is absent when the target property is optional
+    ///   (`SymbolFlags::Optional`). Here a missing property is always a failure,
+    ///   so `{ x: string } -> { x: string, y?: number }` is a gap rather than a
+    ///   wrong `true`.
+    /// - **`readonly`, variance markers, private/protected identity, index
+    ///   signatures and call/construct signatures** are not compared at all.
+    ///   Each is a *missing rejection* — a source that differs only in one of
+    ///   them relates here and would not upstream. That is the one place this
+    ///   function can be too permissive, and it is bounded to those modifiers:
+    ///   the property *names* and *types* are fully checked.
+    /// - **A base type this port cannot follow** ([`Checker::base_symbols_of`]
+    ///   answering `None`) makes the whole comparison `false`, because a target
+    ///   whose inherited requirements cannot be enumerated must not be satisfied
+    ///   by checking only the ones that can.
+    fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> bool {
+        let Some(names) = self.property_names_of(target) else {
+            return false;
+        };
+        for name in names {
+            let (Some(target_property), Some(source_property)) = (
+                self.checker.get_property_of_type(target, &name),
+                self.checker.get_property_of_type(source, &name),
+            ) else {
+                return false;
+            };
+            let target_type = self.checker.get_type_of_symbol(target_property);
+            let source_type = self.checker.get_type_of_symbol(source_property);
+            if !self.is_related_to(source_type, target_type) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// The names of every property of `id`, own and inherited, or `None` if any
+    /// base type could not be followed.
+    ///
+    /// Ported from `Checker.getPropertiesOfType` → `getPropertiesOfObjectType`
+    /// (`internal/checker/checker.go`). Upstream reads a resolved members table
+    /// that already has the base types layered in; there is none here, so this
+    /// walks the same base-symbol graph [`Checker::get_property_of_declared_symbol`]
+    /// walks and collects names instead of resolving one. Names only: the
+    /// *symbol* for a name is then taken from
+    /// [`Checker::get_property_of_type`], so shadowing is decided in exactly one
+    /// place rather than twice.
+    ///
+    /// The `None`-on-an-unfollowable-base rule is [`Checker::base_symbols_of`]'s
+    /// and is why the walk cannot silently under-report a requirement.
+    fn property_names_of(&mut self, id: TypeId) -> Option<Vec<String>> {
+        let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(id).data else {
+            return None;
+        };
+        let mut names = Vec::new();
+        let mut visiting = Vec::new();
+        self.collect_property_names(owner, &mut names, &mut visiting).then_some(names)
+    }
+
+    /// One step of [`Relater::property_names_of`]'s walk.
+    ///
+    /// The `visiting` guard is [`Checker::get_property_of_declared_symbol`]'s,
+    /// for the same reason: `class A extends B` with `class B extends A` is a
+    /// real cycle in the base-type graph. Re-entry contributes nothing rather
+    /// than failing — every name reachable through the cycle has already been
+    /// collected by the outer visit.
+    fn collect_property_names(
+        &mut self,
+        owner: tsr_binder::SymbolId,
+        names: &mut Vec<String>,
+        visiting: &mut Vec<tsr_binder::SymbolId>,
+    ) -> bool {
+        if visiting.contains(&owner) {
+            return true;
+        }
+        visiting.push(owner);
+        // A members table also holds type parameters, so the value gate is the
+        // same one `getPropertyOfType` applies; without it `interface I<T>`
+        // would demand a property named `T`.
+        let own: Vec<String> = self
+            .checker
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .filter(|&(_, &symbol)| self.checker.symbol_is_value(symbol))
+            .map(|(&name, _)| name.to_owned())
+            .collect();
+        for name in own {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let Some(bases) = self.checker.base_symbols_of(owner) else {
+            return false;
+        };
+        bases.into_iter().all(|base| self.collect_property_names(base, names, visiting))
     }
 
     /// The constituents of `id`, if it is a union.

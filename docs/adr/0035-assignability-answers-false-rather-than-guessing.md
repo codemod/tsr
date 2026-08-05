@@ -92,3 +92,37 @@ tested: they are recorded as unexercised, in the module docs and on the test.
   is a defect by construction, not a feature; there is no arm that can produce
   one today, and if one appears the structural work landed without updating this
   record.
+
+## Addendum, 2026-08-05: the limits are now exercised — correcting "unexercised"
+
+Superseded in part by
+[ADR-0037](0037-object-types-are-compared-structurally.md), which lands
+structural comparison. This section corrects the record rather than editing it,
+per `docs/conventions.md`.
+
+Two claims above are no longer true, and the second was a *number* that has been
+re-measured:
+
+1. **"Object types relate only when they are the same `TypeId`"** — no longer the
+   behaviour. `two_structurally_identical_interfaces_are_a_gap` was deleted, as
+   this ADR said it should be, and replaced by
+   `two_structurally_identical_interfaces_relate`.
+2. **"The depth cap and the cycle cache are unexercised"** — was correct when
+   written and is now false. The analysis that produced it was right about *why*:
+   every type-graph cycle runs through an object type's members, so the loop
+   appeared in the same commit that started walking them. Both guards were
+   re-measured under mutation:
+   - deleting the park-as-assumed-related insert in `recursive_type_related_to`
+     makes `mutually_recursive_interfaces_terminate` (`interface A { x: B }` /
+     `interface B { x: A }`) answer `false` instead of `true`;
+   - raising `MAX_DEPTH` from 100 to 10,000 makes
+     `a_chain_deeper_than_the_cap_gives_up` **abort with a stack overflow** on a
+     110-link chain.
+
+   The two are therefore not interchangeable: the cache buys the *answer*, the
+   cap buys *termination and stack safety*. That distinction was not visible when
+   this ADR was written and is the substantive thing the measurement added.
+
+The third falsifier above — "any `true` between two distinct object types is a
+defect by construction" — is retired, not met. It was the right falsifier for a
+module with no structural arm; ADR-0037 states the replacement.
