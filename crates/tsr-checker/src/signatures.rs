@@ -315,6 +315,89 @@ impl<'a> Checker<'a, '_> {
         // no body and its return type is `any`. That is a computed answer and not
         // a gap, which is why it is `anyType` here and `errorType` below.
         let Some(body) = body else { return Some(self.intrinsics.any) };
+        self.return_type_from_body(declaration, body, modifiers, asterisk, may_return_never)
+    }
+
+    /// What a function-like **body** infers, for a caller that has already
+    /// established there is no annotation to take instead.
+    ///
+    /// Ported from `Checker.getReturnTypeFromBody` (`checker.go:20126`), and it
+    /// is upstream's own seam rather than one invented for this port: upstream
+    /// splits the annotation test into `getReturnTypeFromAnnotation`
+    /// (`:20058`) and reaches this function only when that answers nothing.
+    /// `getTypeOfAccessors` (`:18511`) calls it directly for the same reason a
+    /// signature does — case 4, a getter with no annotation whose type is
+    /// whatever its body returns.
+    ///
+    /// # Why this is `pub(crate)` and [`Checker::return_type_of`] is not
+    ///
+    /// The signature path must consult the annotation first and must answer
+    /// `anyType` for a body-less declaration (an overload signature, an
+    /// interface method); an accessor caller wants neither. Exposing
+    /// `return_type_of` would hand out those two decisions along with the
+    /// inference, and a caller that already made them would have to work out
+    /// which of six arguments suppress them. This takes the declaration and its
+    /// body and nothing else.
+    ///
+    /// **`None` is every gap**, and they are the ones
+    /// [`Checker::get_signature_from_declaration`] lists — an aggregate of two
+    /// or more distinct types, an `async` or generator body, a return
+    /// expression whose own type is a gap. A caller must keep answering
+    /// `errorType` for `None` rather than substituting `anyType`: for an
+    /// accessor that distinction is load-bearing, because
+    /// `getTypeOfAccessors`' *fifth* case answers a computed `anyType` for an
+    /// accessor with no annotation and no getter body, and an inferable getter
+    /// that fell into it would print a plausible wrong `any` where
+    /// `accessorBodyInTypeContext.types` records `>foo : number`.
+    ///
+    /// # The `expect` on this item is a handshake, not a suppression
+    ///
+    /// It has no caller yet — `getTypeOfAccessors`' case 4 is the one it was
+    /// cut for, and that lives in `crate::symbols`. `#[expect]` rather than
+    /// `#[allow]` because an *unfulfilled* expectation is itself a warning: the
+    /// moment a caller lands, `-D warnings` fails until this attribute is
+    /// deleted. So the scaffold cannot outlive its purpose by being forgotten,
+    /// which is what `#[allow(dead_code)]` would have permitted.
+    #[expect(dead_code, reason = "entry point for getTypeOfAccessors case 4; caller lands next")]
+    pub(crate) fn get_return_type_from_body(&mut self, declaration: NodeId) -> Option<TypeId> {
+        let (body, modifiers, asterisk, may_return_never) =
+            // A get accessor is function-like upstream and reaches
+            // `getReturnTypeFromBody` through the same door, but it is
+            // deliberately **not** added to [`Checker::signature_parts_of`]:
+            // that function's domain is what `getSignaturesOfSymbol` iterates,
+            // and widening it would make an accessor symbol contribute a call
+            // signature — so a symbol merging a method with a getter
+            // (`METHOD | GET_ACCESSOR`, the case `crate::symbols` documents at
+            // its dispatch) would start printing as a function type. The parts
+            // are read here instead, where only this caller sees them.
+            if let Some(Node::GetAccessorDeclaration(node)) = self.node_map.get(declaration) {
+                (
+                    Body::Block(node.body.and_then(|body| body.node_id())?),
+                    node.modifiers,
+                    node.asterisk_token.is_some(),
+                    // `mayReturnNever` (`checker.go:20312`) covers a function
+                    // expression, an arrow and an object-literal method. An
+                    // accessor is none of them, so a getter whose body never
+                    // returns a value is `void` and not `never`.
+                    false,
+                )
+            } else {
+                let parts = self.signature_parts_of(declaration)?;
+                (parts.body?, parts.modifiers, parts.asterisk, parts.may_return_never)
+            };
+        self.return_type_from_body(declaration, body, modifiers, asterisk, may_return_never)
+    }
+
+    /// `getReturnTypeFromBody`'s body, shared by the signature path and
+    /// [`Checker::get_return_type_from_body`] so the two cannot drift.
+    fn return_type_from_body(
+        &mut self,
+        declaration: NodeId,
+        body: Body<'a>,
+        modifiers: &[ModifierLike<'_>],
+        asterisk: bool,
+        may_return_never: bool,
+    ) -> Option<TypeId> {
         if asterisk
             || modifiers.iter().any(|modifier| {
                 matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
