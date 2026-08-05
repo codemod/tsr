@@ -1,9 +1,17 @@
 # 0040 — Diagnostics come from a check traversal, and assignability gets a reporting twin
 
-**Status:** accepted, 2026-08-05. **Nothing is built.** This records how
-diagnostics will enter this port and what bounds them; the work is `bd tsr-6re`
-and `bd tsr-8yu`. Upstream references are `vendor/typescript-go` @ `5b1047d10`,
-each `grep -n`-verified.
+**Status:** accepted 2026-08-05, **partly superseded the same day by its own
+falsifiers — decision (3) is falsified and decision (4) is resized. Read
+[the correction block](#measured-2026-08-05--two-of-the-three-falsifiers-fired)
+at the foot of this file before acting on the decision list.** Decisions (1) and
+(2) stand unchanged.
+
+**Nothing is built** — no emitter, no traversal, no reporting twin. What exists is
+the instrument that measured the falsifiers,
+`crates/tsr-conformance/examples/assignability_shape.rs`. This records how
+diagnostics will enter this port and what bounds them; the work is `bd tsr-6re`,
+`bd tsr-8yu` and `bd tsr-bxp`. Upstream references are `vendor/typescript-go` @
+`5b1047d10`, each `grep -n`-verified.
 
 ## The forcing constraint
 
@@ -103,11 +111,21 @@ declaration name, and getting it wrong fails every case while looking correct.
    from types it queries.
 2. **A `check_source_file` traversal is built as a second entry point**, distinct
    from `type_at_location`. It is new machinery, not a hook.
-3. **`is_type_assignable_to` gets a reporting twin taking an error node**, rather
-   than a formatter wrapped around the boolean.
+3. ~~**`is_type_assignable_to` gets a reporting twin taking an error node**, rather
+   than a formatter wrapped around the boolean.~~
+   **SUPERSEDED 2026-08-05 for the bounded first slice**, by this ADR's own
+   message falsifier — see
+   [the correction block](#measured-2026-08-05--two-of-the-three-falsifiers-fired).
+   The reasoning below is wrong about the *structure* of `relater.go:4780`–`4797`,
+   not merely about its size: each arm above the fallthrough carries a **different
+   diagnostic code**, so the switch is five diagnostics, not five renderings of
+   one. Inside `SELECTABLE` a call-site formatter is faithful. Kept, not deleted,
+   because it is the reading that made the rest of this document plausible.
+   Decision (3) still holds for the general, unbounded case.
 4. **Emission is bounded to the domains where a `false` from our relater is
    trustworthy** — and this is the one deviation from upstream with no
-   counterpart there.
+   counterpart there. **The rule stands; the sizing under it does not** — the
+   bound turns out to contain 89 cases, not most of 516.
 
 ### Why (4) exists, and why it is ours rather than upstream's
 
@@ -215,6 +233,17 @@ Over the suite's own **5,488** judged cases:
 The shares are nearly identical and the counts are not, which is why this went
 unnoticed. `+489` remains the largest single reachable item.
 
+**And it was not unnoticed — it was flagged and then propagated anyway.** `bd
+tsr-8yu` states the caveat exactly: *"applying a rate measured over 7,025 baseline
+cases to the 5,488 judged assumes the skips are neutral on code mix. Unverified;
+that is the first thing to check before quoting ~750 as a target."* The absolute
+numbers were then quoted — in this ADR, in `bd tsr-6re`, and to the user — without
+that check being run. **Flagging a risk and then propagating the number is worse
+than not flagging it, because the caveat reads as diligence and buys the number
+credibility it has not earned.** The repair is not "flag harder": it is that a
+caveat naming a specific check is a *blocking* item on quoting the number, and the
+check here cost one probe run.
+
 ### Falsifier 1 (sizing) fired, and it fired against decision (4)
 
 Of the **478** judged TS2322-only cases, **89** have every TS2322
@@ -238,8 +267,16 @@ missed: **each arm above the fallthrough carries a different diagnostic code** �
 (`:1907`). Filtering on 2322 *is* selecting the generic branch. Empirically:
 **0 of 2,888** TS2322 header texts in the corpus are anything else.
 
+**The switch is five diagnostics, not five renderings of one.** That is a
+structural misreading, not a sizing error, and it is the load-bearing sentence of
+the rejection in "Alternatives, taken seriously" above.
+
 So decision (3), the reporting twin, is **over-engineering for the bounded first
-slice** — exactly as this ADR said it would be if the falsifier fired. It remains
+slice** — exactly as this ADR said it would be if the falsifier fired. Worth
+saying plainly: **the document worked even though its author's reading of the
+switch did not.** The "*what would make it win*" clause was written precisely to
+catch a rejection resting on an unchecked reading, and it caught this one. That
+clause is the transferable part, not the conclusion it protected. It remains
 correct for the general case. The one genuine walk output inside the bound is the
 literal generalisation in `reportRelationError` (`Type 'string'`, not
 `Type '"hello"'`), which is one `if`, and which the suite does not compare anyway

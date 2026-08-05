@@ -9,6 +9,32 @@ one yet.** `docs/adr/0040`'s sizing falsifier resolves against its own bounded
 emitter, and its message falsifier resolves against its own reporting twin. Both
 outcomes are recorded in ADR-0040 itself, dated.
 
+## The deliverable, stated plainly
+
+Anyone quoting "TS2322 is worth +536 cases" is quoting the size of a *workstream*
+as though it were the size of a *slice*. The three numbers that replace it:
+
+| | cases | share of the judged 5,488 |
+|---|---:|---:|
+| **What the call site ADR-0040 names would finish** — `checkVariableLikeDeclaration` (`checker.go:5899`) | **15** | 0.27% |
+| **Upper bound for a wholly-primitive (`SELECTABLE`-bounded) emitter**, every reporting path built | **89** | 1.62% |
+| What TS2322 is worth if the relater is *complete* | 489 | 8.91% |
+
+Both 15 and 89 are **upper bounds**: the probe classifies upstream's printed type
+names, so both assume our port already computes the right type at each position.
+
+**And the detail that decides whether anyone should ever build this:** the 137
+diagnostics inside the 89 land on **28 distinct anchors**, and the modal one is
+**`BinaryExpression / Identifier` (28 diagnostics) — assignment checking, a
+different reporting path from the one the ADR sizes**. `PropertyAssignment` (21)
+and `ArrayLiteralExpression` (15) arrive through `elaborateObjectLiteral` /
+`elaborateArrayLiteral` and never reach `checkTypeRelatedToEx` at all.
+`VariableDeclaration / Identifier` is third, at 18.
+
+The relater is shared machinery and the *positions are not*. The gap between 15
+and 89 is not one emitter's polish — it is six further reporting paths, each with
+its own elaboration rules. That is the whole argument, and §3 has the table.
+
 The instrument is `crates/tsr-conformance/examples/assignability_shape.rs`:
 
 ```
@@ -49,6 +75,21 @@ sum — and the rule that catches it is the one already written there: **a probe
 denominator must be the gradient's by construction, not by resemblance.** The
 probe prints both, side by side, so the two can never again be quoted for each
 other.
+
+### The part that is a new rule, not an instance of an old one
+
+This was **flagged in advance and propagated anyway**. `bd tsr-8yu` says it
+exactly: *"applying a rate measured over 7,025 baseline cases to the 5,488 judged
+assumes the skips are neutral on code mix. Unverified; that is the first thing to
+check before quoting ~750 as a target."* The absolute numbers were then quoted in
+ADR-0040, in `bd tsr-6re`, and to the user, with that check never run.
+
+**Flagging a risk and then propagating the number is worse than not flagging it**,
+because the caveat reads as diligence and lends the number credibility it has not
+earned — a reader who sees the caveat concludes the author weighed it. The repair
+is not to flag harder. It is that **a caveat naming a specific check is a blocking
+item on quoting the number**, not an annotation on it. The check here was one
+probe run.
 
 `+489` is still the largest single reachable item on the board. Nothing below
 disputes that. What is disputed is that a *bounded* emitter can collect it.
