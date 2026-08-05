@@ -44,6 +44,27 @@
 //! a substring test counts nested unions inside signatures and object types, an
 //! error this project has now made twice.
 //!
+//! # Two populations, and the second one was missed
+//!
+//! The first version of this instrument reported **only** the narrowing bucket
+//! and silently dropped a larger adjacent one, which is the lesson worth
+//! carrying: a filter tight enough to be trustworthy also hides everything just
+//! outside it, and nothing warns you.
+//!
+//! - **A declared type that fails to narrow.** `string | boolean` referenced as
+//!   `boolean`. This port computes the declared type and answers it everywhere.
+//! - **`any`-evolution.** `let x; x = 1; x` answers `number` at the use site,
+//!   because an implicitly-any variable gets `autoType` (`checker.go:976`) — a
+//!   *distinct* intrinsic that prints `any` — and `checkIdentifier` routes
+//!   auto-typed references through flow analysis (`checker.go:11133`, `:11182`).
+//!   An **explicit** `: any` does not evolve, and `autoType` is the only thing
+//!   that tells them apart.
+//!
+//! The two are **provably disjoint**, and the instrument now proves it rather
+//! than asserting it: a narrowing needs a declared type to narrow *from* — a
+//! union, or a primitive with literals — and `any` is neither, so no line can be
+//! in both. The measured overlap is **0**.
+//!
 //! # What the number is *not*
 //!
 //! It is an **upper bound**, for two reasons that both cut the same way. A line
@@ -55,7 +76,7 @@ use std::collections::HashMap;
 
 use tsr_conformance::{Corpus, repo_root};
 
-/// The shapes counted, in report order.
+/// The narrowing shapes counted, in report order.
 const KINDS: [&str; 3] =
     ["union constituent(s)", "literal of the primitive", "literals of the constituents"];
 
@@ -65,6 +86,10 @@ fn main() {
     let mut bare = [0usize; 3];
     let mut dotted = [0usize; 3];
     let mut files = 0usize;
+    // The adjacent population: a first assertion of `any` and a later one that
+    // is not. See the module docs on why it cannot overlap the narrowing set.
+    let mut any_evolution = 0usize;
+    let mut overlap = 0usize;
     let mut examples: Vec<(String, String, String, String)> = Vec::new();
 
     let mut stack = vec![root];
@@ -93,7 +118,17 @@ fn main() {
                     first.insert(reference, ty);
                     continue;
                 };
-                let Some(kind) = narrowing_kind(declared, ty) else { continue };
+                let evolving = declared == "any" && ty != "any";
+                let Some(kind) = narrowing_kind(declared, ty) else {
+                    if evolving {
+                        any_evolution += 1;
+                        hit = true;
+                    }
+                    continue;
+                };
+                if evolving {
+                    overlap += 1;
+                }
                 hit = true;
                 let bucket = if reference.contains('.') { &mut dotted } else { &mut bare };
                 bucket[kind] += 1;
@@ -125,6 +160,9 @@ fn main() {
         dotted.iter().sum::<usize>()
     );
     println!("\n{total} lines across {files} baseline files");
+    println!("\nthe adjacent population, which this instrument first missed:");
+    println!("  {:<34}{any_evolution:>12}", "`any`-evolution (ceiling)");
+    println!("  {:<34}{overlap:>12}  <- disjoint by construction", "overlap with narrowing");
     #[allow(clippy::cast_precision_loss, reason = "a line count is far inside f64's exact range")]
     let share = 100.0 * total as f64 / 468_921.0;
     println!("{share:.2}% of the 468,921 assertion lines the walker aligns");

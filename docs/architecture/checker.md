@@ -1974,7 +1974,62 @@ The two implementations were written independently — a throwaway script and th
 committed example — and agree to the line, which is the only reason to trust a
 number produced by a filter this aggressive.
 
+### Correction, same day: the total is ~7,800, and the decision reverses
+
+**The measurement below was right about the population it measured and wrong
+about the item.** Recorded in place, because the mistake is instructive and the
+conclusion it produced was acted on.
+
+Binder bucketed the implicit-any population independently and found its largest
+bucket is **not** an inference gap: 4,140 lines (45.89%) are a *reference to an
+implicitly-any variable*. `let x; x = 1; x` answers `number` at the use site,
+because an implicitly-any variable gets **`autoType`** (`checker.go:976`) — a
+distinct intrinsic that prints `any` — and `checkIdentifier` routes auto-typed
+references through flow analysis (`checker.go:11133`, `:11182`). That is
+`getFlowTypeOfReference`. It is the same item.
+
+**The two sets are disjoint, measured rather than assumed: the overlap is 0.**
+It is disjoint *by construction*, which is why it could be checked cheaply — a
+narrowing needs a declared type to narrow **from**, a union or a primitive with
+literals, and `any` is neither. `narrowing_cost.rs` now reports both buckets and
+their intersection instead of one bucket alone.
+
+```text
+narrowing of a declared type   3,656   (this measurement, baseline ceiling)
+`any`-evolution                4,140   (binder, measured against our answers)
+overlap                            0
+                             ≈ 7,800
+```
+
+**So narrowing is worth roughly 7,800 lines, not 3,656, and the "not built"
+decision below is superseded.**
+
+**The lesson is about the instrument, not the arithmetic.** A filter tight enough
+to be trustworthy also hides everything just outside it, and nothing warns you.
+This one was built to answer "what does a *declared* type failing to narrow
+cost", answered exactly that, and could not see the adjacent failure mode where
+the declared type is `any` and the mechanism is evolution rather than narrowing.
+Two people measuring two populations both correctly is how an item ends up
+under-ranked by more than half.
+
+### A prerequisite neither measurement showed: this port has no `autoType`
+
+`get_widened_type_for_variable_like_declaration` returns `intrinsics.any` for a
+declaration with no annotation and no initialiser. Upstream returns `autoType`,
+which is a **different type that prints the same string** — the trap this
+document already catalogues for `errorType`/`anyType` and `neverType`/
+`silentNeverType`, and the one place the port has fallen into it.
+
+It is not cosmetic. `t == c.autoType` is the *entire* test by which
+`checkIdentifier` decides to do flow analysis at all, and an explicit `: any`
+must **not** evolve. So none of the 4,140 can be addressed until `autoType`
+exists and that arm returns it. Cheap, separable, and a strict prerequisite.
+
 ### The decision: not built
+
+**Superseded by the correction above — read that first.** The reasoning below
+stands on its own numbers and is kept because the effort argument is unchanged;
+only the line count it was weighed against has moved.
 
 **Narrowing is not worth building yet, and this is the record that retires the
 ranking rather than deferring it again.** 3,656 upper-bound lines against a build
