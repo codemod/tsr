@@ -2344,6 +2344,8 @@ upstream's arrangement.
 
 ### `Member` became two shapes rather than one with blank fields
 
+(Three, since index signature members — see below.)
+
 A call signature has **no name at all**, and a method's text is whole rather than
 `name` + `: ` + `type`. Modelling either as a property with an empty name would
 move the distinction from the data into the renderer, where the two callers of
@@ -2371,6 +2373,70 @@ workstream's, so this is `bd tsr-qk9` with an `#[ignore]`d test naming it —
 resolution #3 of the three-way preference order recorded above, used here
 because the first two are unavailable: no fixture reaches the arm, and the
 "named future edit" is in a file this workstream must not touch.
+
+## Index signature members, and the discovery that member order is not source order
+
+Ported 2026-08-05. Index signatures themselves landed earlier (`8f7f3cc`) but
+reached only types declared through an `interface`, which prints by **name** and
+so never renders its members. A type literal has no name, so
+`get_type_from_type_literal` had to render the member — and until this slice it
+gapped the whole literal on any member it could not render. `{ [k: string]: number }`
+was therefore `errorType` before any `a[i]` lookup could happen.
+
+### `Member` became three shapes
+
+An index signature is neither of the two above: it has no property name (the
+identifier inside the brackets is a *parameter* name, which is why upstream keeps
+it on the declaration and not on the `IndexInfo`), and it carries a key type
+where a property carries nothing. `Member::Index { readonly, name, key, value }`,
+for the same reason `Member::Signature` exists — the distinction belongs in the
+data, not in the renderer that two call sites share.
+
+The parameter name is printed **as written**. The baselines are unambiguous:
+`{ [key: string]: string; }` (52 lines) and `{ [x: string]: unknown; }` both
+occur, so there is no canonical spelling to normalise to.
+
+### Upstream does not print members in source order — and this port did
+
+The finding that made this slice bigger than one match arm.
+`createTypeNodesFromResolvedType` (`nodebuilderimpl.go:2627`) emits **call
+signatures, then construct signatures, then index infos, then properties**, off
+a `StructuredType` whose four collections were separated when the members were
+resolved. Source order is not preserved across the group boundaries:
+
+```text
+declare const myRecord2: { a: string; b: string, [key: string]: string }
+>myRecord2 : { [key: string]: string; a: string; b: string; }
+```
+(`baselines/reference/submodule/conformance/noUncheckedIndexedAccess.types:377`)
+
+`get_type_from_type_literal` had accumulated members in one source-order vector
+since it was written. That was invisible while properties were the only member
+kind and stayed invisible after signature members landed, because a
+property-and-method literal *is* in one group. An index signature is the first
+member kind that makes the difference observable, so the ordering defect and its
+fix belong to this slice rather than to `4bf4b8c`.
+
+The grouping is applied in `get_type_from_type_literal`, where the member kind is
+known, and **not** in `render_object_type`, which emits its slice verbatim. The
+reason is that the enum cannot recover the grouping on its own: a **method** is a
+`Member::Signature` here but a *property* upstream —
+`addPropertyToElementList` renders it from the property symbol — so it groups
+after the index signatures, while a call signature groups before them. Two
+members with the same variant, two different groups.
+
+### The renderable set widened; the bar did not move
+
+An index signature whose key is neither the `string` nor the `number` intrinsic
+still gaps the whole literal, and deliberately takes the **same** gaps as
+`index_info_of` on the lookup side. `[k: string | number]` is upstream *two*
+index infos (`getIndexInfosOfIndexSymbol` splits it), not one printed with a
+union key, so printing it whole would be a confident wrong answer; and if the
+printer and the lookup disagreed, a literal could print a signature that a
+subsequent `a[i]` then fails to find.
+
+Inherited index signatures and merging several applicable signatures over an
+intersection remain unported, as recorded in `index_signatures.rs`.
 
 ## The wrong-answer differential, and why its design is written down here
 

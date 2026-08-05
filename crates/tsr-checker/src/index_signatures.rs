@@ -118,6 +118,51 @@ impl<'a> Checker<'a, '_> {
         (value != self.intrinsics.error).then_some(IndexInfo { key, value })
     }
 
+    /// One `[k: K]: V` member rendered for printing, or `None` when it is a gap.
+    ///
+    /// Ported from `indexInfoToIndexSignatureDeclarationHelper`
+    /// (`nodebuilderimpl.go:2138`), which takes the bracketed parameter's name
+    /// from the *declaration* — upstream's `IndexInfo` does not carry one — and
+    /// that is why the printed name is whatever was written: baselines record
+    /// both `[key: string]: string` and `[x: string]: unknown`.
+    ///
+    /// The gaps are deliberately the **same** ones [`Checker::index_info_of`]
+    /// takes, so a literal cannot print an index signature that a subsequent
+    /// `a[i]` lookup then fails to find:
+    ///
+    /// - a key that is not the `string` or `number` intrinsic. `[k: string | number]`
+    ///   is upstream *two* index infos rather than one printed with a union key
+    ///   (`getIndexInfosOfIndexSymbol` splits it), so printing it whole would be
+    ///   a confident wrong answer;
+    /// - a value type this port cannot compute;
+    /// - a binding pattern where the parameter name should be, which the grammar
+    ///   forbids but the AST permits.
+    pub(crate) fn index_signature_member(
+        &mut self,
+        signature: &tsr_ast::IndexSignatureDeclaration<'a>,
+    ) -> Option<crate::objects::Member> {
+        let [parameter] = signature.parameters else { return None };
+        let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { return None };
+        let key = self.get_type_from_type_node(parameter.r#type?);
+        if key != self.intrinsics.string && key != self.intrinsics.number {
+            return None;
+        }
+        let value = self.get_type_from_type_node(signature.r#type?);
+        if value == self.intrinsics.error {
+            return None;
+        }
+        let readonly = signature.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword)
+        });
+        Some(crate::objects::Member::Index {
+            readonly,
+            name: name.text.to_string(),
+            key: self.type_to_string(key),
+            value: self.type_to_string(value),
+        })
+    }
+
     /// The index signature that applies to `key`, if exactly one does.
     ///
     /// Ported from `findApplicableIndexInfo` (`checker.go:19019`), including its

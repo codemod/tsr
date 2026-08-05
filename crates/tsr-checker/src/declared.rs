@@ -131,15 +131,31 @@ impl<'a> Checker<'a, '_> {
     ///
     /// # Any member this port cannot render makes the whole type a gap
     ///
-    /// Methods, call and construct signatures, index signatures, accessors and
-    /// computed names all remain unported. A literal containing one answers
-    /// `errorType` rather than printing the members it *does* understand: a
-    /// partial object type is a wrong answer that looks like a right one, and
-    /// it would score as a mismatch either way. The same applies to a member
-    /// whose own type is a gap.
+    /// Accessors and computed names remain unported. A literal containing one
+    /// answers `errorType` rather than printing the members it *does*
+    /// understand: a partial object type is a wrong answer that looks like a
+    /// right one, and it would score as a mismatch either way. The same applies
+    /// to a member whose own type is a gap.
+    ///
+    /// # Members are grouped, not printed in source order
+    ///
+    /// `createTypeNodesFromResolvedType` (`nodebuilderimpl.go:2627`) emits call
+    /// signatures, then construct signatures, then index infos, then
+    /// properties — so
+    /// `{ a: string; b: string, [key: string]: string }` records
+    /// `{ [key: string]: string; a: string; b: string; }`
+    /// (`baselines/reference/submodule/conformance/noUncheckedIndexedAccess.types:377`).
+    ///
+    /// A **method** is a `Signature` in [`crate::objects::Member`] but a
+    /// *property* upstream — `addPropertyToElementList` renders it from the
+    /// property symbol — so it groups with the properties, not with the call
+    /// signatures. That is why the grouping happens here, where the member kind
+    /// is known, and not in the shared renderer.
     fn get_type_from_type_literal(&mut self, node: &tsr_ast::TypeLiteralNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
-        let mut members = Vec::with_capacity(node.members.len());
+        let mut signatures = Vec::new();
+        let mut indexes = Vec::new();
+        let mut properties = Vec::with_capacity(node.members.len());
         for member in node.members {
             // A method, call or construct signature prints whole and has no
             // `name: type` shape at all — see `crate::objects::Member`. Its
@@ -150,17 +166,18 @@ impl<'a> Checker<'a, '_> {
                     let tsr_ast::PropertyName::Identifier(name) = method.name else {
                         return error;
                     };
-                    Some((method.node_id, Some(name.text.to_string()), ""))
+                    // A method groups with the properties: see the doc comment.
+                    Some((method.node_id, Some(name.text.to_string()), "", true))
                 }
                 tsr_ast::TypeElement::CallSignatureDeclaration(call) => {
-                    Some((call.node_id, None, ""))
+                    Some((call.node_id, None, "", false))
                 }
                 tsr_ast::TypeElement::ConstructSignatureDeclaration(construct) => {
-                    Some((construct.node_id, None, "new "))
+                    Some((construct.node_id, None, "new ", false))
                 }
                 _ => None,
             };
-            if let Some((id, name, prefix)) = signature {
+            if let Some((id, name, prefix, is_property)) = signature {
                 let Some(id) = id else { return error };
                 // A signature this port cannot build is a gap for the *whole*
                 // literal, on the rule this function has followed since it was
@@ -171,9 +188,15 @@ impl<'a> Checker<'a, '_> {
                 };
                 let text = crate::objects::signature_member_text(self, &signature);
                 let name = name.unwrap_or_default();
-                members.push(crate::objects::Member::Signature {
+                let bucket = if is_property { &mut properties } else { &mut signatures };
+                bucket.push(crate::objects::Member::Signature {
                     printed: format!("{prefix}{name}{text}"),
                 });
+                continue;
+            }
+            if let tsr_ast::TypeElement::IndexSignatureDeclaration(index) = member {
+                let Some(rendered) = self.index_signature_member(index) else { return error };
+                indexes.push(rendered);
                 continue;
             }
             let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
@@ -194,13 +217,16 @@ impl<'a> Checker<'a, '_> {
             let readonly = property.modifiers.iter().any(|modifier| {
                 matches!(modifier, tsr_ast::ModifierLike::Token(m) if m.kind == SyntaxKind::ReadonlyKeyword)
             });
-            members.push(crate::objects::Member::Property {
+            properties.push(crate::objects::Member::Property {
                 name: name.text.to_string(),
                 optional,
                 readonly,
                 printed: self.type_to_string(member_type),
             });
         }
+        signatures.append(&mut indexes);
+        signatures.append(&mut properties);
+        let members = signatures;
         // Shared with `checkObjectLiteral`, so the two structural renderers
         // cannot drift apart — see `crate::objects::render_object_type`.
         let printed = crate::objects::render_object_type(&members);

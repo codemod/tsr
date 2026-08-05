@@ -738,9 +738,19 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     // whole literal with it, and the two below are what still cannot be
     // rendered — a bare call signature still gaps, only the method form renders.
     // Deleting them would leave the rule pinned by a shrinking set.
+    //
+    // **The index-signature case moved too**, on the slice that taught the same
+    // function to render `[k: string]: T` members — `tests/index_signature_members.rs`.
+    // What still gaps is an index signature whose *key* is neither the `string`
+    // nor the `number` intrinsic, which is the same gap the `a[i]` lookup side
+    // takes, so the two cannot disagree.
     assert_eq!(type_of_declaration("declare const x: { m(): void };", "x"), "{ m(): void; }");
     assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "error");
-    assert_eq!(type_of_declaration("declare const x: { [k: string]: string };", "x"), "error");
+    assert_eq!(
+        type_of_declaration("declare const x: { [k: string]: string };", "x"),
+        "{ [k: string]: string; }"
+    );
+    assert_eq!(type_of_declaration("declare const x: { [k: symbol]: string };", "x"), "error");
     // A member whose own type is a gap takes the whole literal with it.
     assert_eq!(type_of_declaration("declare const x: { a: [string] };", "x"), "error");
 }

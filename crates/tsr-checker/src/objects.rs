@@ -43,11 +43,12 @@ use crate::{checker::Checker, flags::TypeFlags, signatures::Signature, types::Ty
 
 /// One rendered member of a structural object type.
 ///
-/// **Two shapes, not one with optional fields.** A property has a name and a
+/// **Three shapes, not one with optional fields.** A property has a name and a
 /// type printed as `name: T`; a call signature has **no name at all** and a
-/// method prints `m(): void` rather than `m: () => void`. Those are different
-/// spellings of different things, and modelling the second as a property with a
-/// blank name would put the difference in the renderer instead of in the data.
+/// method prints `m(): void` rather than `m: () => void`; an index signature has
+/// a bracketed *parameter* and a key type. Those are different spellings of
+/// different things, and modelling the second as a property with a blank name
+/// would put the difference in the renderer instead of in the data.
 pub(crate) enum Member {
     /// `a: string`, `readonly a?: string`.
     Property {
@@ -70,6 +71,25 @@ pub(crate) enum Member {
         /// The entire member text, without its trailing `;`.
         printed: String,
     },
+    /// `[k: string]: number`, `readonly [k: number]: T`.
+    ///
+    /// A third shape rather than a `Property` with a decorated name: it has no
+    /// property name at all — the identifier inside the brackets is a
+    /// *parameter* name, which is why upstream keeps it on the declaration and
+    /// not on the `IndexInfo` — and it carries a key type where a property
+    /// carries nothing.
+    Index {
+        /// Whether the signature carries `readonly`.
+        readonly: bool,
+        /// The bracketed parameter name **as written**: upstream prints
+        /// `[key: string]` for `[key: string]` and `[x: string]` for
+        /// `[x: string]`, so this is not normalisable to one spelling.
+        name: String,
+        /// The key type's printed form — `string` or `number`.
+        key: String,
+        /// The value type's printed form.
+        value: String,
+    },
 }
 
 /// The structural form upstream's printer emits for an anonymous object type.
@@ -82,6 +102,19 @@ pub(crate) enum Member {
 /// expression path ([`Checker::check_object_literal`]) so the two cannot drift.
 /// They previously had one renderer each in draft, which is exactly how a port
 /// ends up with `{ a: string }` in one position and `{ a: string; }` in another.
+///
+/// # Order is the caller's, not this function's
+///
+/// `members` is emitted verbatim. Upstream does **not** print in source order:
+/// `createTypeNodesFromResolvedType` (`nodebuilderimpl.go:2627`) emits call
+/// signatures, then construct signatures, then index infos, then properties, so
+/// `{ a: string; b: string, [key: string]: string }` records
+/// `{ [key: string]: string; a: string; b: string; }`
+/// (`baselines/reference/submodule/conformance/noUncheckedIndexedAccess.types:377`).
+/// That grouping is applied where the member *kind* is known — see
+/// [`Checker::get_type_from_type_literal`] — because a method is a `Signature`
+/// here but a *property* upstream, so the grouping cannot be recovered from this
+/// enum alone.
 pub(crate) fn render_object_type(members: &[Member]) -> String {
     if members.is_empty() {
         return "{}".to_string();
@@ -99,6 +132,17 @@ pub(crate) fn render_object_type(members: &[Member]) -> String {
             }
             // A signature member is already whole: no name, no `: ` separator.
             Member::Signature { printed: text } => printed.push_str(text),
+            Member::Index { readonly, name, key, value } => {
+                if *readonly {
+                    printed.push_str("readonly ");
+                }
+                printed.push('[');
+                printed.push_str(name);
+                printed.push_str(": ");
+                printed.push_str(key);
+                printed.push_str("]: ");
+                printed.push_str(value);
+            }
         }
         printed.push_str("; ");
     }
