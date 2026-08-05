@@ -490,6 +490,70 @@ those names mostly fail to resolve and answer `errorType`, but a local called `b
 in scope would give `a.b` that local's type, which is a wrong answer where a gap
 belongs — the exact failure the `errorType`-not-`anyType` rule exists to prevent.
 
+### The second instrumentation finding: a roll-up row was labelled with an issue it mostly did not contain
+
+Found 2026-08-05 by the teammate working `bd tsr-9or.1`, who read the roll-up
+rather than trusting it, and confirmed by measurement the same cycle. This is the
+**second** time this histogram has reported lines under a cause the code did not
+take, and the failure mode is the same one as the first: the report and the code
+it describes drifted apart.
+
+The roll-up in `examples/types_shapes.rs` tests its categories in order, and
+`contains("annotation")` is tested **four branches before**
+`contains("does not resolve")`. A name that fails to resolve in *type* position
+arrives with the reason
+
+```text
+declaration name, symbol has no type: … / annotation TypeReference unresolved: Array
+```
+
+so it is caught by the annotation branch and filed under *"a type node we cannot
+resolve"*. It never reaches the row that carried the label **"a free name that
+does not resolve (lib files, `bd tsr-9or.1`)"**. That row therefore contained only
+value-position failures, and the label was wrong in **both** directions at once:
+
+| | lines |
+|---|---:|
+| what the row claimed for `bd tsr-9or.1` | 10,535 |
+| of those, names lib actually declares | **3,126** |
+| of those, names lib does not declare (`undefined`, `div`, `a`, `b`, `x`, `_`) | 7,409 |
+| lib names the row **omitted**, type position | 3,210 |
+| lib names the row **omitted**, the array bucket | 12,051 |
+| **lib's real direct effect** | **18,387** — 6.52% of gap lines |
+
+So the row overstated lib by 3.4× *within itself* and understated it by 15,261
+lines *outside* itself, netting to a figure 1.75× too small. The measurement that
+demoted `bd tsr-9or.1` to fourth place read 3.01%, then 3.73%, and observed that
+the number "had not moved across two ported layers" — which was taken as evidence
+the bound was real. It was not evidence of anything: **the counter sat where the
+lines could not arrive.** Porting expression and type-node layers moves lines
+*between* the other categories without ever touching the value-position row.
+
+**The fix is not a fifth row.** The roll-up rows name the *work* that would close
+them and they partition the gaps; lib cuts across three of them at once, and
+presenting a cross-cutting quantity as a partition member is what produced the
+wrong ranking in the first place. Lib attribution is now its own section,
+computed by matching unresolved names against the 2,279 names the 108 bundled
+`.d.ts` files declare at top level — read from
+`vendor/typescript-go/internal/bundled/libs/` rather than from a hand-written
+list, because a hand-written list is a guess and this measurement exists to stop
+the ranking being made from guesses.
+
+**The approximation is stated where it is made.** Top-level is taken to be
+"keyword at column 0", which does not parse and can over-report. Since the figure
+is used to argue lib is *larger* than it was ranked, over-reporting is the
+direction that flatters the argument — so 18,387 is an **upper bound**, and it
+should be re-taken against a real parse once a program exists.
+
+**How this would have been caught earlier.** The first instrumentation finding
+ended with the rule *"the instrument now mirrors the code it explains, line for
+line"*, and `gap_reason` does. What drifted this time was one layer up: the
+**roll-up over `gap_reason`'s output**, which mirrors nothing and was never
+checked against the strings it buckets. Any branch that tests `contains` against
+a free-text reason is order-dependent and silently absorbs strings it was not
+written for. The next such report should assert its categories are disjoint over
+the reasons actually observed, rather than trusting an if-else chain.
+
 ### `errorType` prints `error`, not `any`
 
 [checker.md](checker.md) said gaps and `any` were indistinguishable in output.

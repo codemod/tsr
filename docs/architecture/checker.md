@@ -343,28 +343,64 @@ also the only route to the **largest answer bucket still at zero** —
 function/signature, 55,161 lines and 11.82% of every aligned line — and to
 `typeof X` (15,866), which is what a class or module symbol's type prints as.
 
-### 3. The binder does not scope a class or interface's type parameters
+### 3. A class or interface's type parameters do not *resolve*
 (`bd tsr-y4u.21`)
 
-**New, and found by this measurement rather than by reading code.** Of the
-8,272 gap lines from names in *type* position that do not resolve, the four
-commonest names are `T` (1,843), `U` (233), `V` (162) and `K` (95) — 2,333
-lines. Probing `lookup_local` over every container of a bound file:
+**Corrected 2026-08-05. The heading of this section used to read "The binder
+does not scope a class or interface's type parameters", and that diagnosis was
+wrong.** The lines are real; the cause named here was not. Recorded rather than
+silently edited, because the wrong turn is the useful part: this is the eighth
+time in this project that an expectation and the implementation disagreed and
+**the implementation was right**.
+
+Of the 8,229 gap lines from names in *type* position that do not resolve, the
+four commonest names are `T` (1,841), `U` (233), `V` (161) and `K` (95) — 2,330
+lines.
+
+The original probe used `lookup_local`, which reads only a container's `locals`
+map, and concluded that `T` was bound nowhere for a class or interface. Probing
+the `members` table as well (`crates/tsr-binder/examples/type_parameter_scope.rs`)
+gives the opposite answer:
 
 ```text
-declare function f<T>(p: T): void;      T is bound
-type A<T> = { p: T };                   T is bound
-declare const f: <T>(p: T) => void;     T is bound
-interface I<T> { p: T }                 T is bound NOWHERE
-class C<T> { p: T; }                    T is bound NOWHERE
-declare class D<T> { m(p: T): void; }   T is bound NOWHERE
+interface I<T> { p: T }          members[T] of `I`,   T.parent = I
+class C<T> { p: T; }             members[T] of `C`,   T.parent = C
+declare class D<T> { m(p: T) }   members[T] of `D`,   T.parent = D
+const E = class<T> { … }         members[T] of `__class`
 ```
 
-Small in lines, ranked third because it is cheap, because it is a *defect*
-rather than an absence, and because item 1 walks straight into it: every member
+**The binder is correct and matches upstream exactly.**
+`declareSymbolAndAddToSymbolTable` switches on the *container* kind and sends
+`KindClassDeclaration`/`KindClassExpression` to `declareClassMember` →
+`GetMembers(symbol)`, and `KindInterfaceDeclaration` to `GetMembers(symbol)`
+(`internal/binder/binder.go:429`–`441`). ADR-0023 already landed this. Upstream
+even comments on the oddity at `symbolaccessibility.go:766`: *"Type parameters
+are bound into `members` lists so they can merge across declarations. This is
+troublesome, since in all other respects, they behave like locals :cries:"*.
+
+**The real defect is in name resolution.** `BindResult::resolve`
+(`crates/tsr-binder/src/lib.rs:243`) walks parents consulting `locals` only.
+Upstream's `(*NameResolver).Resolve` (`internal/binder/nameresolver.go`) has a
+`KindClassDeclaration | KindClassExpression | KindInterfaceDeclaration` arm that
+looks the name up in `getSymbolOfDeclaration(location).Members`, filtered by
+`meaning & SymbolFlagsType`, with two rules attached: the symbol must be a type
+parameter declared in *this* container, and a reference from a `static` member is
+an error rather than a resolution (TS 1.0 spec §3.4.1). That arm is missing.
+
+Fixing it requires a `meaning: SymbolFlags` parameter on `resolve`, because a
+class's `members` table holds its properties and methods too — returning a type
+parameter for a *value* reference would be answering a question upstream does not
+ask.
+
+Still ranked third, and for the same reasons as before: it is cheap, it is a
+*defect* rather than an absence, and item 1 walks straight into it — every member
 type that mentions `T` is a gap until it is fixed. `binder_symbols` reads 98.03%
-and cannot see it — the fourth entry in this document's list of things that suite
-sits through.
+and cannot see it, which is the fourth entry in this document's list of things
+that suite sits through.
+
+**What this cost.** Nothing was built on the wrong diagnosis, because the teammate
+who owned it probed before writing. Had they not, the work would have gone into a
+binder that was already right.
 
 ### 4. A program: lib files **and** the other files of a case (`bd tsr-9or.1`)
 
@@ -389,6 +425,31 @@ said in terms that it was a lower bound. Two layers have since been ported and
 the bound has not moved — the unresolved-name count is still 10,535 — but the
 work standing between it and the score has. It is ranked fourth rather than
 first because items 1 and 2 are three to ten times larger and neither needs it.
+
+**Corrected 2026-08-05: that paragraph reasons from a number the instrument could
+not move, and lib is 1.75× larger than it says.** The roll-up row labelled *"a
+free name that does not resolve (lib files, `bd tsr-9or.1`)"* only ever contained
+value-position failures — a name failing in *type* position is caught four
+branches earlier by the annotation test and filed under "a type node we cannot
+resolve". Measured against the 2,279 names the 108 bundled `.d.ts` files declare:
+
+| | lines |
+|---|---:|
+| the row's 10,535, of which lib actually declares | **3,126** |
+| …and does not (`undefined`, `div`, `a`, `b`, `x`, `_`) | 7,409 |
+| lib names in type position, filed elsewhere | 3,210 |
+| the array bucket — `T[]` is a reference to the global `Array` | 12,051 |
+| **lib's direct effect** | **18,387**, 6.52% of gap lines |
+
+So "the bound has not moved across two ported layers" was never evidence: the
+counter sat where those lines could not arrive, and porting layers moves lines
+between the *other* categories without touching it. The full record is in
+[checker-oracle.md](checker-oracle.md#the-second-instrumentation-finding-a-roll-up-row-was-labelled-with-an-issue-it-mostly-did-not-contain);
+18,387 is an upper bound, for the reason stated there.
+
+This does not reorder items 1 and 2 — 35,488 and its 55,184-line bucket are still
+larger — but it puts `bd tsr-9or.1` **above unions** (11,829) rather than below,
+and it means the array bucket is not a separate item to be ranked at all.
 
 ### 5. Unions (`bd tsr-4sc.9`), then narrowing (`bd tsr-4sc.11`)
 

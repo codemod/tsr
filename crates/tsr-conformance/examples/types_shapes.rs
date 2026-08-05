@@ -22,7 +22,7 @@
 //! are reported as their own bucket rather than guessed at. A line the walker
 //! lost is not evidence about the checker.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rayon::prelude::*;
 use tsr_conformance::{
@@ -274,6 +274,117 @@ fn print_kinds(kinds: &HashMap<(Shape, String), usize>, shape: Option<Shape>, ta
     }
 }
 
+/// Every name the bundled lib files declare at top level.
+///
+/// Read from `vendor/typescript-go/internal/bundled/libs/*.d.ts` — the 108 files
+/// upstream ships — rather than from a hand-written list, because a hand-written
+/// list is a guess about what lib contains and this measurement exists to stop
+/// the ranking being made from guesses.
+///
+/// **This is an approximation and the direction of its error is known.** It takes
+/// a declaration to be top-level when its keyword starts at column 0, which is
+/// how every `.d.ts` in that directory is formatted, and it does not parse. So it
+/// can over-report (a name that lib declares only inside a namespace body is not
+/// matched, but a commented-out declaration at column 0 would be) and it cannot
+/// under-report a name that is genuinely declared at top level. Since the figure
+/// is used to argue that lib is *larger* than it was ranked, over-reporting is the
+/// direction that would flatter the argument — so treat the number as an upper
+/// bound and re-take it against a real parse once a program exists (`bd tsr-9or.1`).
+fn lib_declared_names() -> HashSet<String> {
+    const KEYWORDS: [&str; 8] = [
+        "declare var ",
+        "declare const ",
+        "declare let ",
+        "declare function ",
+        "declare namespace ",
+        "declare type ",
+        "interface ",
+        "type ",
+    ];
+    let mut names = HashSet::new();
+    let directory = std::path::Path::new("vendor/typescript-go/internal/bundled/libs");
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return names;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|extension| extension != "ts") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        for line in text.lines() {
+            for keyword in KEYWORDS {
+                if let Some(rest) = line.strip_prefix(keyword) {
+                    let name: String = rest
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+                        .collect();
+                    if !name.is_empty() {
+                        names.insert(name);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    names
+}
+
+/// How many gap lines lib would answer, **across** the roll-up categories.
+///
+/// This is deliberately not a row in "where the checker stopped": those rows name
+/// the *work* that would close them and they partition the gaps, while lib cuts
+/// across three of them at once. Presenting it as a fourth row is what produced
+/// the wrong ranking it is here to correct — see the comment on the value-position
+/// row above, and `docs/architecture/checker-oracle.md`.
+fn report_lib_attribution(total: &Tally) {
+    let lib = lib_declared_names();
+    if lib.is_empty() {
+        println!("\nlib attribution: SKIPPED — no lib files found (submodule not checked out?)");
+        return;
+    }
+
+    let split = |names: &HashMap<String, usize>| {
+        let mut in_lib = 0;
+        let mut not = 0;
+        for (name, count) in names {
+            if lib.contains(name) {
+                in_lib += count;
+            } else {
+                not += count;
+            }
+        }
+        (in_lib, not)
+    };
+    let (type_lib, type_other) = split(&total.unresolved_types);
+    let (value_lib, value_other) = split(&total.unresolved);
+    let array_gaps = total.gaps.get(&Shape::Array).copied().unwrap_or_default();
+    let gap_total: usize = total.gaps.values().sum();
+
+    println!("\nlib attribution ({} names declared by the 108 bundled lib files):", lib.len());
+    println!(
+        "  {type_lib:>9}  a name in TYPE position that lib declares    (of {} unresolved)",
+        type_lib + type_other
+    );
+    println!(
+        "  {value_lib:>9}  a name in VALUE position that lib declares   (of {} unresolved)",
+        value_lib + value_other
+    );
+    println!("  {array_gaps:>9}  the array bucket — `T[]` is a reference to the global `Array`");
+    let direct = type_lib + value_lib;
+    println!(
+        "  {:>9}  TOTAL, {:.2}% of all gap lines — against the {:.2}% the\n             value-position row alone reports",
+        direct + array_gaps,
+        pct(direct + array_gaps, gap_total),
+        pct(value_lib + value_other, gap_total)
+    );
+    println!(
+        "             The array row is structural rather than a failed lookup: an\n\
+         \x20            `ArrayType` node is unported and never reaches a name, so it is\n\
+         \x20            counted here and NOT in the two rows above."
+    );
+}
+
 fn report(total: &Tally) {
     println!("cases judged:             {}", total.cases);
     println!("assertion lines upstream: {}", total.expected);
@@ -347,7 +458,20 @@ fn report(total: &Tally) {
         } else if reason.contains("the name of a") {
             "a member name, resolved as if it were free (bd tsr-tl8)"
         } else if reason.contains("does not resolve") {
-            "a free name that does not resolve (lib files, bd tsr-9or.1)"
+            // **Not "lib".** This row is only the names that fail in *value*
+            // position and reach no earlier category — a bare identifier whose
+            // resolution returned nothing. A name that fails in *type* position
+            // arrives as `... / annotation TypeReference unresolved: Array`
+            // and is caught two branches above by `contains("annotation")`, so
+            // it is filed under the type-node row and never reaches here.
+            //
+            // This row carried the label "lib files, bd tsr-9or.1" until
+            // 2026-08-05 and that was wrong in both directions: it counts
+            // `undefined`, `div` and single-letter locals which are not lib, and
+            // it omits every lib type name and the whole array bucket, which
+            // are. The lib measurement is its own section below and it deliberately
+            // cuts across these categories rather than being one of them.
+            "a free name that does not resolve, in value position"
         } else if reason.contains("neither") {
             "a symbol whose kind getTypeOfSymbol does not handle"
         } else {
@@ -396,6 +520,8 @@ fn report(total: &Tally) {
     for (count, name) in names.iter().take(20) {
         println!("  {name:<24} {count:>8}");
     }
+
+    report_lib_attribution(total);
 
     println!("\nwhere the checker stopped, on every `error` line:");
     print_kinds(&total.gap_reasons, None, 400);
