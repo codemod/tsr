@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 1076/9538 (11.28%)
-Assertion lines: 197667/478954 (41.27%)  — a gradient, not a pass rate
-Failed         : 8462
+Passed         : 1163/9538 (12.19%)
+Assertion lines: 207860/478954 (43.40%)  — a gradient, not a pass rate
+Failed         : 8375
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,11 +12,9 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 8462 failures:
+First 100 of 8375 failures:
 compiler/2dArrays
   2dArrays.ts: >ships : error — expected >ships : Ship[]
-compiler/ArrowFunctionExpression1
-  ArrowFunctionExpression1.ts: >v : error — expected >v : (x: string) => void
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
 compiler/DeclarationErrorsNoEmitOnError
@@ -40,7 +38,7 @@ compiler/abstractClassInLocalScopeIsAbstract
 compiler/abstractClassUnionInstantiation
   abstractClassUnionInstantiation.ts: >Abstracts : error — expected >Abstracts : Abstracts
 compiler/abstractPropertyInConstructor
-  abstractPropertyInConstructor.ts: >this.method(parseInt(str)) : error — expected >this.method(parseInt(str)) : void
+  abstractPropertyInConstructor.ts: >parseInt(str) : error — expected >parseInt(str) : number
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >Symbol('s') : error — expected >Symbol('s') : unique symbol
 compiler/acceptableAlias1
@@ -114,7 +112,7 @@ compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
 compiler/allowImportClausesToMergeWithTypes
   b.ts: >zzz : error — expected >zzz : 123
 compiler/allowJsClassThisTypeCrash
-  app.js: >f : error — expected >f : () => void
+  app.js: >g.prototype.m : error — expected >g.prototype.m : any
 compiler/allowJsCrossMonorepoPackage
   /packages/main/index.ts: >x : error — expected >x : "pkg"
 compiler/allowJscheckJsTypeParameterNoCrash
@@ -178,13 +176,11 @@ compiler/ambientModuleWithTemplateLiterals
 compiler/ambientModules
   ambientModules.ts: >Foo.Bar.foo : error — expected >Foo.Bar.foo : any
 compiler/ambientPropertyDeclarationInJs
-  /test.js: >this.prop = {} : error — expected >this.prop = {} : {}
-compiler/ambientStatement1
-  ambientStatement1.ts: >v1 : error — expected >v1 : () => boolean
+  /test.js: >this.prop : error — expected >this.prop : string
 compiler/ambiguousCallsWhereReturnTypesAgree
   ambiguousCallsWhereReturnTypesAgree.ts: >bar : error — expected >bar : { (x: string): void; (x: string[]): void; }
 compiler/ambiguousGenericAssertion1
-  ambiguousGenericAssertion1.ts: >r : error — expected >r : <T>(x: T) => T
+  ambiguousGenericAssertion1.ts: >r2 : error — expected >r2 : <T>(x: T) => T
 compiler/ambiguousOverload
   ambiguousOverload.ts: >foof : error — expected >foof : { (bar: string, y: any): number; (bar: string, x: any): string; }
 compiler/ambiguousOverloadResolution
@@ -213,3 +209,7 @@ compiler/anyAsReturnTypeForNewOnCall
   anyAsReturnTypeForNewOnCall.ts: >this.x : error — expected >this.x : any
 compiler/anyDeclare
   anyDeclare.ts: >myFn : error — expected >myFn : any
+compiler/anyIdenticalToItself
+  anyIdenticalToItself.ts: >foo : error — expected >foo : { (x: any): any; (x: any): any; }
+compiler/anyIndexedAccessArrayNoException
+  anyIndexedAccessArrayNoException.ts: >x : error — expected >x : any

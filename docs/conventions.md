@@ -202,3 +202,19 @@ Measured cost of getting this wrong: an arm read 0 wrong lines and its positive
 control read 52 firings; asking the same question of the answer instead read
 9,735 — a blind spot of **187×**, on the author's own work, in the direction that
 would have flattered it.
+
+### Two seams in the rules above, both found by the rules catching something
+
+**Gating your own crate does not gate your own examples.** `cargo clippy -p <crate>
+--all-targets` lints examples under a weaker set than `--workspace` does, so a
+local gate can read clean and hand a broken commit to the integrator. Verify at
+the commit in a worktree before pushing anything with an `examples/` file in it.
+
+**Build the commit, not the working tree.** Building the shared tree proves *the
+tree* compiles, which is a different claim: the tree holds other agents'
+uncommitted halves, so it can compile while the commit does not. That is exactly
+what left `origin/main` broken for four commits. Check out the commit in a
+detached worktree and build there.
+
+Both were found on the first use of the rule they refine, which is the argument
+for writing rules down while the incident is fresh rather than after.
