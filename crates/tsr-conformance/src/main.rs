@@ -142,12 +142,21 @@ fn main() -> Result<()> {
             result.total(),
             result.percentage(),
             result.skipped,
+            result.line_percentage(),
         ));
     }
 
-    println!("{:<28} {:>18}  {:>8}  {:>8}", "suite", "passed", "rate", "skipped");
-    for (name, passed, total, pct, skipped) in rows {
-        println!("{name:<28} {:>18}  {pct:>7.2}%  {skipped:>8}", format!("{passed}/{total}"));
+    // `lines` is the gradient column: the share of individual assertion lines
+    // matched, for the suites whose baselines are lists of positioned assertions.
+    // It is always at least the pass rate — a case passes only when every one of
+    // its lines matches — so it prints beside the gate and never in place of it.
+    println!("{:<28} {:>18}  {:>8}  {:>8}  {:>8}", "suite", "passed", "rate", "skipped", "lines");
+    for (name, passed, total, pct, skipped, line_pct) in rows {
+        let lines = line_pct.map_or_else(|| "—".to_string(), |rate| format!("{rate:.2}%"));
+        println!(
+            "{name:<28} {:>18}  {pct:>7.2}%  {skipped:>8}  {lines:>8}",
+            format!("{passed}/{total}")
+        );
     }
     println!("\nsnapshots written to {}", snapshot_dir.display());
 

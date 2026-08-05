@@ -100,18 +100,35 @@ case exactly as an outright wrong type does. Two places a port drifts:
 
 Both have known gaps, recorded in `bd tsr-4sc.1` rather than papered over.
 
-## The oracle is unproven, and that is the live risk
+## The oracle is proved; the producer is not
 
-From [checker-oracle.md](checker-oracle.md), and it governs how the first
-non-zero number must be treated:
+`checker_types` had no comparison code at all — every case returned
+`Unsupported`, so its judging path had executed zero times, which made it exactly
+as unproven as a suite reading 100% on its first run. That was closed on
+2026-08-05, *before* any checker work was measured with it: `types_suite::compare`
+now exists, positional and whole-line, with eight tests each verified against a
+deliberately weakened judge. The seven mutations and what each turned red are
+tabulated in [checker-oracle.md](checker-oracle.md).
 
-> `checker_types`'s judging path has never executed. All 9,538 cases are
-> classified `Unsupported`, so the comparison code has run zero times.
+What remains unproven is the **producer**. Nothing renders this crate's types in
+`.types` baseline form yet, so `compare` has only ever been fed empty output from
+the corpus side. The first non-zero `checker_types` number is therefore still not
+evidence until something deliberately wrong has been pushed through the whole
+path — checker to renderer to judge — and seen to go red.
 
-A suite that has only ever reported 0% is as unproven as one reading 100% on its
-first run — the failure `file_loader` was caught by, where 76/76 held until four
-deliberate mutations were applied to the code under test. **The first time
-`checker_types` is non-zero, mutate it before believing it.**
+## The gradient
+
+`checker_types` now reports two numbers
+([ADR-0031](../adr/0031-a-gradient-beside-the-gate.md)). The **case rate** is the
+gate and is unchanged: all lines of all files, or the case fails. Beside it is a
+**per-assertion-line tally** over the same population — 478,954 lines across the
+9,538 judged cases — because a binary gate over 60,269 lines of upstream gives one
+bit of feedback per case and would read 0% for months.
+
+The gradient is always the more forgiving of the two, is a strict lower bound (a
+missing line costs every line after it, since the comparison is positional), and a
+full tally does **not** imply a pass — produce every expected line plus one extra
+and `matched == total` while the case is wrong. Never quote it as a pass rate.
 
 The same discipline applies to this crate's own tests, and already caught one of
 them: a test asserting the expression memo worked by counting types passed with

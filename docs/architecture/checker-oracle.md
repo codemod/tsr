@@ -4,8 +4,17 @@
 
 ```
 checker_types    0/9538    0.00%   the type of every expression
-diagnostics      54/5488   0.98%   every diagnostic, by code and position
+                 0/478954  0.00%   ...and the gradient underneath it
+diagnostics      80/5488   1.46%   every diagnostic, by code and position
 ```
+
+The second `checker_types` row is the **per-assertion-line tally**
+([ADR-0031](../adr/0031-a-gradient-beside-the-gate.md)): the 9,538 judged cases
+carry 478,954 assertion lines between them, and how many of those match is
+reported beside the case rate and never in place of it. The case rate is the
+gate; a case passes only if all of its lines do, so the gradient is always the
+more forgiving number. It exists because a binary gate over 60,269 lines of
+upstream gives one bit of feedback per case and reads 0% for months.
 
 **Upstream pin:** `vendor/typescript-go` @ `5b1047d10`.
 
@@ -34,6 +43,16 @@ Measured at the pin across `compiler/` and `conformance/`:
 | `.types` baselines | **12,155** |
 | positioned type assertions in them | **594,122** |
 | cases this suite judges | **9,538** |
+| assertions in the cases it judges | **478,954** |
+
+The last row is new (2026-08-05) and is the gradient's denominator. It is smaller
+than 594,122 for exactly the reason the case count is smaller than 12,155 — the
+skips below — and the two shrink together, because a skipped case is out of both
+denominators. Nothing was corrected here; the figure had simply never been taken.
+
+(The `diagnostics` figure quoted above moved from 54/5,488 to 80/5,488 between
+2026-08-05 sessions, as binder over-report fixes landed. That is the number
+changing, not a number having been wrong.)
 
 Upstream writes `.types` and `.symbols` in lockstep — 12,155 of each, at the same
 positions. That pairing is worth knowing when the checker lands: `.symbols` tests
@@ -153,14 +172,49 @@ ships.
 Learned 2026-08-05, while using both suites to fix five binder defects. All three
 are properties of the instruments, not of the compiler.
 
-**1. `checker_types`'s judging path has never executed.** All 9,538 cases are
-classified `Unsupported`, so the comparison code has run zero times. The `.types`
-baseline *parser* has four unit tests; the suite that consumes it has none. A suite
-that has only ever reported 0% is as unproven as one that reads 100% on its first run
-— the failure this project already hit with `file_loader`, which read 76/76 until four
-deliberate mutations were applied to the code under test. **The first time this suite
-is non-zero, mutate it before believing it:** feed deliberately wrong types and confirm
-it goes red.
+**1. `checker_types`'s judging path has been proved, 2026-08-05 — before it was
+used.** The rest of this note is what that took, and it is left in place because
+the *reason* for doing it applies to the next suite as much as it did to this one.
+
+The problem as it stood: all 9,538 cases were classified `Unsupported`, so the
+comparison code had run zero times. Worse than untested — there was no comparison
+code at all, only the `Unsupported` return. The `.types` baseline *parser* had four
+unit tests; the suite consuming it had none. A suite that has only ever reported 0%
+is as unproven as one that reads 100% on its first run — the failure this project
+already hit with `file_loader`, which read 76/76 until four deliberate mutations were
+applied to the code under test.
+
+So `types_suite::compare` was written and proved before anything measured with it.
+Eight tests, and each was checked against a **deliberately weakened judge** rather
+than assumed to bite. The seven mutations and what each turned red:
+
+| mutation of `compare` | tests that went red |
+|---|---|
+| sort both sides — multiset, not positional | `the_right_types_in_the_wrong_order_fail` |
+| drop the assertion-count check | `a_missing_assertion_fails`, `an_extra_assertion_fails…` |
+| drop the file-name check | `output_for_the_wrong_file_fails…` |
+| stop after the first file | `a_multi_file_case_fails_when_only_its_second_file_is_wrong` |
+| count lines, do not compare their text | `a_wrong_type_with_the_right_count_fails`, `the_right_types_in_the_wrong_order_fail`, `a_multi_file_case…` |
+| take the denominator from our output, not the baseline | `a_missing_assertion_fails`, `an_extra_assertion_fails…`, `producing_nothing_fails_and_the_denominator_survives` |
+| never match a line — the over-strict direction | 6 of 8, including `identical_output_passes_and_the_tally_is_full` |
+
+Every mutation turned at least one test red, **and every test was turned red by at
+least one mutation** — including the positive control, which the seventh mutation
+exists to check. A control that no mutation can break is the no-op test this project
+has already shipped once (see [checker.md](checker.md) on the memo counter).
+
+Two of these earn their place beyond ceremony. The multiset mutation covers a real
+defect class — every right type attached to the wrong expression — that a
+set-based comparison would pass. And the denominator mutation is the one that
+matters for [ADR-0031](../adr/0031-a-gradient-beside-the-gate.md): taking `total`
+from our own output makes a checker that produces nothing read **100%**, which is
+the most dangerous possible failure of a gradient.
+
+What is still unproven is the *producer*: nothing yet renders our checker's types
+in baseline form, so `compare` is exercised only by its unit tests and by cases
+where our side is empty. When the producer lands, the same discipline applies to
+it — the first non-zero number is not evidence until something deliberately wrong
+has been fed through the whole path.
 
 **2. `diagnostics` is capped at 90.9%, permanently, until the parser is fixed.** 500
 of its 5,488 judged cases carry a diagnostic *we* emit and upstream does not — 2,675

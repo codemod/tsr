@@ -38,6 +38,52 @@ pub enum Outcome {
     },
 }
 
+/// How many of a case's individual assertion lines matched.
+///
+/// A *gradient*, reported alongside the case verdict and never in place of it.
+/// See [`Judgement`] for why this is not an [`Outcome`] variant.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LineTally {
+    /// Assertion lines that matched the baseline.
+    pub matched: usize,
+    /// Assertion lines the baseline carries. The denominator.
+    pub total: usize,
+}
+
+/// A case verdict, plus an optional finer-grained measure.
+///
+/// # Why the tally is not an `Outcome` variant
+///
+/// [`Outcome`] is deliberately binary — a case passes only if *every* assertion
+/// of *every* file matches — and that stays the gate. But a binary gate over a
+/// component as large as the checker gives one bit of feedback per case and
+/// reads 0% for months, which PLAN.md §4 records and rejects. `.types` cases
+/// carry 594,122 assertion lines between them, and that is a gradient worth
+/// steering by.
+///
+/// Two shapes were considered:
+///
+/// - **A new `Outcome` variant** carrying the tally. Rejected because the tally
+///   has to attach to [`Outcome::Unsupported`] too — a case the checker cannot
+///   run still has a denominator, and dropping it there would zero the
+///   denominator *precisely while the number is 0/N*, which is when the gradient
+///   is the only signal there is. A variant that only some verdicts can carry
+///   cannot express that.
+/// - **A second `Suite`.** Rejected because a `Suite` yields one `Outcome` per
+///   case and cannot express a ratio at all; "cases where every line matched" is
+///   the gate again under another name.
+///
+/// So the tally rides *alongside* the verdict, orthogonal to it. The cost is one
+/// defaulted trait method; no existing suite changes, and a snapshot gains a line
+/// only if its suite reports tallies.
+#[derive(Debug, Clone)]
+pub struct Judgement {
+    /// The case verdict. This is the gate.
+    pub outcome: Outcome,
+    /// The sub-case measure, for suites that have one.
+    pub lines: Option<LineTally>,
+}
+
 /// A judgeable stage of the compiler.
 pub trait Suite {
     /// Snapshot name, e.g. `parser_typescript`.
@@ -49,6 +95,17 @@ pub trait Suite {
 
     /// Judge one case.
     fn run(&self, case: &CaseEntry) -> Outcome;
+
+    /// Judge one case, reporting a per-assertion-line tally as well as the
+    /// verdict.
+    ///
+    /// Defaults to [`Suite::run`] with no tally, which is what every suite whose
+    /// baseline is not a list of positioned assertions wants. A suite that *does*
+    /// have a gradient overrides this and implements `run` in terms of it, so the
+    /// work happens once.
+    fn judge(&self, case: &CaseEntry) -> Judgement {
+        Judgement { outcome: self.run(case), lines: None }
+    }
 }
 
 /// Tallied results for one suite.
@@ -70,6 +127,14 @@ pub struct SuiteResult {
     pub failures: Vec<(String, String)>,
     /// The distinct reasons cases were unsupported, with counts.
     pub unsupported_reasons: Vec<(String, usize)>,
+    /// Assertion lines matched over assertion lines judged, summed across cases.
+    ///
+    /// Zero for a suite that reports no gradient, which is how the snapshot knows
+    /// not to print the row. **Never** replaces [`SuiteResult::percentage`]: a
+    /// case passes only if all of its lines match, so this number is always the
+    /// more forgiving of the two and reading it as a pass rate would overstate
+    /// the port.
+    pub lines: LineTally,
 }
 
 impl SuiteResult {
@@ -91,6 +156,20 @@ impl SuiteResult {
             self.passed as f64 / total as f64 * 100.0
         }
     }
+
+    /// Share of assertion lines matched, as a percentage, or `None` for a suite
+    /// that reports no gradient.
+    ///
+    /// This is not a pass rate and must never be presented as one; see
+    /// [`SuiteResult::lines`].
+    #[must_use]
+    pub fn line_percentage(&self) -> Option<f64> {
+        if self.lines.total == 0 {
+            return None;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        Some(self.lines.matched as f64 / self.lines.total as f64 * 100.0)
+    }
 }
 
 /// Maximum failure details recorded in a snapshot.
@@ -108,7 +187,7 @@ const MAX_REPORTED_FAILURES: usize = 100;
 /// a run whose output depends on thread timing would be useless as a ratchet.
 #[must_use]
 pub fn run_suite(suite: &(dyn Suite + Sync), cases: &[CaseEntry]) -> SuiteResult {
-    let outcomes: Vec<Outcome> = cases.par_iter().map(|case| suite.run(case)).collect();
+    let judgements: Vec<Judgement> = cases.par_iter().map(|case| suite.judge(case)).collect();
 
     let mut result = SuiteResult {
         name: suite.name().to_string(),
@@ -117,8 +196,12 @@ pub fn run_suite(suite: &(dyn Suite + Sync), cases: &[CaseEntry]) -> SuiteResult
     };
     let mut reasons: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
 
-    for (case, outcome) in cases.iter().zip(outcomes) {
-        match outcome {
+    for (case, judgement) in cases.iter().zip(judgements) {
+        if let Some(lines) = judgement.lines {
+            result.lines.matched += lines.matched;
+            result.lines.total += lines.total;
+        }
+        match judgement.outcome {
             Outcome::Passed => result.passed += 1,
             Outcome::Failed { reason } => {
                 result.failed += 1;

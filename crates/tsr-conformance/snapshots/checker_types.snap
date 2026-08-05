@@ -3,6 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line — 0% until a checker exists (bd tsr-4sc); the denominator is what this measures today
 Passed         : 0/9538 (0.00%)
+Assertion lines: 0/478954 (0.00%)  — a gradient, not a pass rate
 Unsupported    : 9538
 Skipped        : 2906 (excluded from the denominator)
 

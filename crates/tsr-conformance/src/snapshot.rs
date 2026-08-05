@@ -17,6 +17,8 @@
 
 use std::fmt::Write as _;
 
+#[cfg(test)]
+use crate::suite::LineTally;
 use crate::suite::SuiteResult;
 
 /// Render a snapshot for one suite.
@@ -36,6 +38,18 @@ pub fn render(result: &SuiteResult, upstream_commit: &str) -> String {
         result.total(),
         result.percentage()
     );
+
+    // The gradient, when the suite has one. Printed *under* the pass rate and
+    // never instead of it: a case passes only if all of its lines match, so this
+    // is always the more forgiving number. The label says "not a pass rate"
+    // in the snapshot itself, because a snapshot gets read out of context.
+    if let Some(rate) = result.line_percentage() {
+        let _ = writeln!(
+            out,
+            "Assertion lines: {}/{} ({rate:.2}%)  — a gradient, not a pass rate",
+            result.lines.matched, result.lines.total
+        );
+    }
 
     if result.failed > 0 {
         let _ = writeln!(out, "Failed         : {}", result.failed);
@@ -110,5 +124,40 @@ mod tests {
     fn percentage_of_an_empty_suite_does_not_divide_by_zero() {
         let result = SuiteResult::default();
         assert!((result.percentage() - 0.0).abs() < f64::EPSILON);
+        assert!(result.line_percentage().is_none());
+    }
+
+    #[test]
+    fn a_suite_with_no_gradient_prints_no_assertion_line_row() {
+        let result = SuiteResult {
+            name: "s".into(),
+            describes: "d".into(),
+            passed: 1,
+            ..SuiteResult::default()
+        };
+        assert!(!render(&result, "c").contains("Assertion lines"));
+    }
+
+    #[test]
+    fn the_gradient_prints_under_the_pass_rate_and_is_labelled_as_not_one() {
+        // 0 cases passed, yet 3 of 4 assertion lines matched. Both numbers have
+        // to appear, and the more forgiving one has to say what it is: the
+        // failure mode this exists to avoid is a reader quoting 75%.
+        let result = SuiteResult {
+            name: "checker_types".into(),
+            describes: "d".into(),
+            failed: 1,
+            lines: LineTally { matched: 3, total: 4 },
+            ..SuiteResult::default()
+        };
+        let rendered = render(&result, "c");
+        assert!(rendered.contains("Passed         : 0/1 (0.00%)"), "{rendered}");
+        assert!(
+            rendered.contains("Assertion lines: 3/4 (75.00%)  — a gradient, not a pass rate"),
+            "{rendered}"
+        );
+        let passed_at = rendered.find("Passed  ").expect("pass rate row");
+        let lines_at = rendered.find("Assertion lines").expect("gradient row");
+        assert!(passed_at < lines_at, "the gate prints first");
     }
 }

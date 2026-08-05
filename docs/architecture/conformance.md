@@ -217,6 +217,34 @@ without a pin is not reproducible. Failure detail is capped at 100 entries so on
 regression stays readable, but the *count* is always reported in full — truncation
 hides detail, never magnitude.
 
+## Two numbers, for the suites that have a gradient
+
+A `Suite` returns one `Outcome` per case, and that stays binary. But a suite whose
+baseline is a list of *positioned assertions* can also report how many individual
+assertions matched, via the defaulted `Suite::judge` method
+([ADR-0031](../adr/0031-a-gradient-beside-the-gate.md)):
+
+```
+checker_types Summary:
+Passed         : 0/9538 (0.00%)
+Assertion lines: 0/478954 (0.00%)  — a gradient, not a pass rate
+```
+
+and a `lines` column in the summary table, reading `—` for suites without one.
+`checker_types` is the only suite with a gradient today; `diagnostics` is the
+obvious next candidate and has not been done.
+
+Three rules, all enforced in code rather than by convention:
+
+- **The case rate is the gate.** The gradient prints under it, never instead of
+  it, and carries its own disclaimer in the snapshot text because snapshots get
+  read out of context.
+- **Same population.** A skipped case is excluded from both denominators, so the
+  two numbers always describe the same set of cases.
+- **A full tally is not a pass.** Producing every expected line plus one extra
+  leaves `matched == total` on a case that fails. The verdict comes from the
+  comparison's mismatch, never from the tally.
+
 ## Parallelism
 
 Suites run with `rayon` over cases. Outcomes are collected in case order and
