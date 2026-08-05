@@ -153,6 +153,64 @@ all: deleting the freshness check from `getWidenedLiteralType` turned **no test
 red** until that case was written, because every other path either starts from a
 fresh literal or returns an annotation without widening.
 
+## The order the rest is built in, and why
+
+Ranked 2026-08-05 by impact against effort and feasibility, with dependencies
+respected. The evidence is the distribution of **answer shapes** across all
+512,800 assertion lines in the corpus baselines:
+
+| upstream's answer | share | do we produce it? |
+|---|---:|---|
+| intrinsic (`string`, `number`, `any`…) | 35.30% | partly |
+| literal (`"a"`, `1`, `true`) | 18.86% | yes |
+| named type reference (`C`, `M.I`) | 14.25% | no |
+| function/signature (`() => void`) | 12.96% | no |
+| object literal type | 4.83% | no |
+| `typeof X` | 3.44% | no |
+| union | 3.33% | no |
+| generic reference | 3.03% | no |
+| array | 2.47% | no |
+
+**Read that table as an upper bound per feature, not a work estimate.** A bucket
+is the shape of the *answer*, not the feature needed to compute it: `f()` →
+`string` is an intrinsic answer that requires full call resolution.
+
+**The most important open question is in the first two rows.** We nominally cover
+intrinsic + literal = 54.16% and the gradient reads 22.39%, so we are getting
+under half of what we supposedly support, and nothing currently explains it.
+
+1. **`bd tsr-4sc.6` — bucket the failures by answer shape.** Cheap; the walker,
+   the checker wiring and the comparison all exist. It answers the 54%→22%
+   question and decides whether lib files or object types are the bigger prize.
+   *Nothing below should start before this reports.*
+2. **`bd tsr-4sc.1` — printing gaps.** Number boundaries at 1e21/1e-6 and the
+   escape table. Literals are 18.86% of lines and we *claim* them, so a printing
+   bug fails them silently and gets misattributed to the checker.
+3. **`bd tsr-9or.1` — lib files.** Without `lib.d.ts` every reference to a global
+   is `errorType`. High feasibility: `module_resolution` and `file_loader` are
+   both at 100%, so the machinery exists.
+4. **`bd tsr-4sc.7` — object types and `getDeclaredTypeOfSymbol`.** ~19% directly
+   and it gates 5, 6 and 7.
+5. **`bd tsr-4sc.8` — signatures and function types.** 12.96%. Needs 4, because
+   upstream models a function type as an object type with call signatures.
+6. **`bd tsr-4sc.9` — unions**, which is also what lets `boolean` stop being a
+   fake intrinsic. Reach beyond its 3.33%, because it changes how `boolean`
+   prints everywhere.
+7. **`bd tsr-4sc.10` — `typeof` queries.** 3.44%, nearly free once 4 and 5 land.
+8. **`bd tsr-4sc.11` — control-flow narrowing.** Adds no bucket; fixes the
+   *correctness* of reference lines across all of them, so its true impact is
+   probably larger than this rank. Step 1 will say.
+9. **`bd tsr-bb4.1` — per-configuration runs.** Returns 1,397 cases to
+   `checker_types`. Worth doing when the rate is high enough that the denominator
+   matters; doing it now only makes the number look worse for no information.
+
+Not in the ranking on purpose: **`bd tsr-el3.2`** (upstream's algorithmic
+recursion limits) is a standing constraint rather than a task — port each limit
+*with* the code it belongs to. And **`bd tsr-pum.11`** (~2,675 parser
+over-reports) is 9 points of the `diagnostics` ceiling but ~300 separate
+investigations with no dominant cause, which scores poorly until the checker
+emits diagnostics at all.
+
 ## Two decisions that shape the rest
 
 ### Types are handles, and nothing hands out a reference
