@@ -1,5 +1,6 @@
 //! What an unannotated parameter's type comes from when its function is a call
-//! argument.
+//! argument, the initialiser of an annotated variable, or the value of an
+//! object-literal member.
 //!
 //! Every assertion here is on a parameter that has **no annotation**, because
 //! that is the only case contextual typing can move: an annotated parameter
@@ -133,6 +134,53 @@ fn an_annotated_variable_types_its_initialiser_s_parameter() {
     assert_eq!(type_of(source, "item"), "string");
 }
 
+/// The third arm: a member of an object literal that is itself contextually
+/// typed, here by a variable annotation.
+///
+/// The members are written in the **opposite order** to the interface, so an
+/// implementation that took the contextual type's first property — or the object
+/// literal's own member index — answers `string` for `solo` and `boolean` for
+/// `duo`. Only looking the property up **by name** answers the other way round.
+///
+/// `Pair`'s own parameter names are `declaredA`/`declaredB` and appear nowhere
+/// else, so the harness's first-local walk cannot answer from the annotation.
+#[test]
+fn an_object_literal_member_is_typed_from_the_property_of_the_same_name() {
+    let source = "interface Pair { alpha: (declaredA: string) => void; beta: (declaredB: boolean) => void; }\n\
+                  const pair: Pair = { beta: solo => solo, alpha: duo => duo };";
+    assert_eq!(type_of(source, "solo"), "boolean");
+    assert_eq!(type_of(source, "duo"), "string");
+}
+
+/// The same arm reached through a **call**, which is what the
+/// `getContextualType` dispatch buys over the two-arm original.
+///
+/// The object literal has no annotation of its own; its contextual type is the
+/// callee's parameter, and only then is `onTick` looked up in it. Two levels of
+/// recursion, and `string` is reachable from nothing local to the arrow.
+#[test]
+fn an_object_literal_argument_types_its_member_through_the_callee() {
+    let source = "interface Handlers { onTick: (declaredT: string) => void; }\n\
+                  declare function attach(config: Handlers): void;\n\
+                  attach({ onTick: value => value });";
+    assert_eq!(type_of(source, "value"), "string");
+}
+
+/// A member the contextual type does not have invents nothing.
+///
+/// Upstream falls back to an index signature here (`checker.go:29946`); this
+/// port does not port that fallback, so the member has no contextual type and
+/// the parameter stays the implicit `any` — the same answer as before the arm
+/// existed. The control that the fixture is otherwise sound is the sibling
+/// `known` member, which does resolve.
+#[test]
+fn a_member_absent_from_the_contextual_type_stays_the_implicit_any() {
+    let source = "interface Known { known: (declaredK: string) => void; }\n\
+                  const obj: Known = { known: yes => yes, absent: nope => nope };";
+    assert_eq!(type_of(source, "yes"), "string");
+    assert_eq!(type_of(source, "nope"), "any");
+}
+
 /// A variable with no annotation supplies no contextual type.
 ///
 /// `const h = item => item` is the probe `members.rs` records as producing
@@ -142,4 +190,18 @@ fn an_annotated_variable_types_its_initialiser_s_parameter() {
 fn an_unannotated_variable_supplies_no_contextual_type() {
     let source = "const h = solo => solo;";
     assert_eq!(type_of(source, "solo"), "any");
+}
+
+/// A string-literal property name is keyed the same as an identifier one.
+///
+/// Kept as a test rather than assumed, because `get_property_of_type` is keyed
+/// by source text and a quoted name could have carried its quotes. It does not:
+/// `StringLiteral::text` is already unquoted. Without this the
+/// `PropertyName::StringLiteral` arm would be an unfalsifiable branch, and this
+/// module deletes those rather than leaving them as evidence.
+#[test]
+fn a_string_literal_property_name_resolves_the_same_as_an_identifier() {
+    let source = "interface Known { known: (declaredK: string) => void; }\n\
+                  const obj: Known = { \"known\": yes => yes };";
+    assert_eq!(type_of(source, "yes"), "string");
 }

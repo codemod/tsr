@@ -2,11 +2,12 @@
 //! the function it belongs to is written where a function type is expected.
 //!
 //! Ported from `Checker.getContextuallyTypedParameterType` (`checker.go:29458`),
-//! reduced to the two corpus arms that need no type inference: a function
+//! reduced to the three corpus arms that need no type inference: a function
 //! expression or arrow passed as a **call argument**, typed from the
-//! corresponding parameter of the callee's signature, and one that is the
+//! corresponding parameter of the callee's signature; one that is the
 //! initialiser of a variable carrying a **type annotation**, typed from the
-//! annotation.
+//! annotation; and one that is the value of a **member of an object literal**
+//! which itself has a contextual type, typed from the matching property of it.
 //!
 //! ```text
 //! declare function each(callback: (item: string) => void): void;
@@ -73,6 +74,15 @@
 //! all, because `getContextualTypeForVariableLikeDeclaration`
 //! (`checker.go:29438`) returns the annotation's type directly.
 //!
+//! The third arm — a **member of an object literal** that itself has a
+//! contextual type — is the largest remaining one: 297 functions in 98 files, of
+//! which **66 in 33 files** sit in an object literal whose own context this port
+//! can already answer. The per-arm measurement that ranked it above `return`
+//! (26), array element (33) and parenthesised expression (101, but ~32
+//! reachable in 7 files) is in
+//! [`Checker::contextual_type_for_object_literal_element`] and in
+//! `docs/architecture/checker-notes-ctx.md`.
+//!
 //! # A gap here is the implicit `any`, and that is not a violated rule
 //!
 //! Everywhere else in this checker an unported form answers `errorType`, because
@@ -108,7 +118,10 @@
 //! the 102 overloaded callees in the table above, and paying it is what makes
 //! this arm safe without a links table (`bd` follow-up: signature links).
 
-use tsr_ast::{BindingName, Expression, Node, NodeId, ParameterDeclaration};
+use tsr_ast::{
+    BindingName, CallExpression, Expression, Node, NodeId, ParameterDeclaration,
+    PropertyAssignment, PropertyName,
+};
 
 use crate::{
     checker::Checker,
@@ -120,7 +133,7 @@ impl<'a> Checker<'a, '_> {
     /// The type an unannotated parameter takes from its context, if any.
     ///
     /// Ported from `Checker.getContextuallyTypedParameterType`
-    /// (`checker.go:29458`), for the two arms [`Checker::contextual_signature`]
+    /// (`checker.go:29458`), for the arms [`Checker::get_contextual_type`]
     /// supplies.
     ///
     /// `None` is upstream's nil: no contextual type is available, and the caller
@@ -134,9 +147,11 @@ impl<'a> Checker<'a, '_> {
     ///   signature (`checker.go:29463`). It is a separate mechanism — the
     ///   corpus's `contextuallyTypedIife` cases are 28 of the 925 — and folding
     ///   it in here would share none of the code below.
-    /// - **Every context beyond the two above**: an object-literal member, a
-    ///   `return`, a JSX attribute, a binary operand, an array element. Each
-    ///   needs its own arm of `getContextualType` (`checker.go:29290`).
+    /// - **Every context beyond the three above**: a `return`, a JSX attribute,
+    ///   a binary operand, an array element, a parenthesised expression. Each
+    ///   needs its own arm of `getContextualType` (`checker.go:29343`); the
+    ///   populations and the concentration that rejected them are in
+    ///   [`Checker::get_contextual_type`].
     /// - **A rest parameter or a `this` parameter** on the contextually typed
     ///   function, which shift what "the parameter at this index" means —
     ///   upstream calls `getRestTypeAtPosition` for the first and subtracts the
@@ -198,97 +213,217 @@ impl<'a> Checker<'a, '_> {
     /// supplies it.
     ///
     /// Ported from `Checker.getContextualSignature` (`checker.go:10264`), which
-    /// reaches every context through one `getContextualType` switch. The two arms
-    /// below are that switch, reduced to what is measured and reachable.
-    ///
-    /// Order is not significance, it is exclusivity: a function is either a call
-    /// argument or an initialiser, never both, so the `or_else` cannot mask one
-    /// arm with the other and the two could be swapped without changing an
-    /// answer.
+    /// reaches every context through one `getContextualType` switch — here
+    /// [`Checker::get_contextual_type`].
     ///
     /// Upstream's union handling (`getContextualSignature`'s
-    /// `compareSignaturesIdentical` loop) is in neither arm: a union-typed
-    /// context answers `None`, because picking one member's signature is a guess
-    /// and building the combined one needs `createUnionSignature`.
+    /// `compareSignaturesIdentical` loop) is not ported: a union-typed context
+    /// answers `None`, because picking one member's signature is a guess and
+    /// building the combined one needs `createUnionSignature`.
     fn contextual_signature(&mut self, function: NodeId) -> Option<Signature> {
-        self.contextual_signature_from_call(function)
-            .or_else(|| self.contextual_signature_from_annotation(function))
+        let contextual = self.get_contextual_type(function)?;
+        self.single_call_signature(contextual)
     }
 
-    /// The signature `function` is contextually typed by when it is the
-    /// initialiser of a declaration carrying a **type annotation**.
+    /// The type `node` is expected to have, from where it is written.
+    ///
+    /// Ported from `Checker.getContextualType` (`checker.go:29343`) — the
+    /// dispatch every context reaches, a `switch` on the **parent's** kind. Three
+    /// of its twenty arms are here.
+    ///
+    /// # Why this is a dispatch on an expression and not a helper on a function
+    ///
+    /// The first version of this module had no such function: it asked "is this
+    /// *function* a call argument, or the initialiser of an annotated variable?"
+    /// and answered a `Signature` directly. That shape cannot express the
+    /// object-literal arm, whose subject is the enclosing **object literal** —
+    /// an expression that is not a function and has no signature. Upstream's own
+    /// structure is the fix and it is a strict generalisation: each of the two
+    /// existing arms was already `single_call_signature(<a type>)`, so factoring
+    /// the type out changes no answer. The object-literal arm is then a
+    /// recursive call rather than a fourth special case, which is exactly how
+    /// `checker.go:29925`'s `getApparentTypeOfContextualType(objectLiteral)`
+    /// reaches it.
+    ///
+    /// # The seventeen arms that are not here
+    ///
+    /// Each was measured over
+    /// `vendor/typescript-go/testdata/baselines/reference/submodule` before being
+    /// left out; the counts and the concentration are in
+    /// `docs/architecture/checker-notes-ctx.md`. The three largest omissions:
+    ///
+    /// - **`ParenthesizedExpression`** (`checker.go:29392`), a one-line recursion
+    ///   — 101 contextually typed functions, but only ~32 of them in a context
+    ///   this port can already answer, and those sit in 7 files with
+    ///   `parenthesizedContexualTyping{1,2,3}` holding most of them. Rejected on
+    ///   concentration, not on cost.
+    /// - **`ReturnStatement`** (`checker.go:29621`) — 26 functions in 15 files,
+    ///   top 10 files 81%.
+    /// - **`ArrayLiteralExpression`** (`checker.go:29380`, via
+    ///   `getContextualTypeForElementExpression`, `checker.go:29972`) — 33
+    ///   functions in 15 files, top 10 files 85%, and every one of them needs
+    ///   tuple types this port does not have.
+    ///
+    /// A `NewExpression` shares upstream's `CallExpression` arm and would cost
+    /// one pattern here, but it is not measured separately, so it is a gap.
+    fn get_contextual_type(&mut self, node: NodeId) -> Option<TypeId> {
+        let parent = self.nodes.parent(node)?;
+        match self.node_map.get(parent)? {
+            // `getContextualTypeForInitializerExpression` (`checker.go:29423`) →
+            // `getContextualTypeForVariableLikeDeclaration` (`checker.go:29438`),
+            // whose first three lines are the whole of this arm: if the
+            // declaration has a type node, the contextual type *is* that type.
+            //
+            // Restricted to a `VariableDeclaration`. The other variable-like
+            // carriers of an annotation — a `PropertyDeclaration`, a
+            // `PropertySignature`, a parameter with a function-typed annotation
+            // and a function initialiser — reach the same upstream function, but
+            // each is a separate corpus shape and none is measured, so each is a
+            // gap rather than an untested generalisation.
+            //
+            // No check that `node` is the *initialiser*. A `VariableDeclaration`
+            // has three children — name, type annotation, initialiser — and only
+            // the initialiser is an expression, so the parent test already
+            // establishes it. An earlier draft asserted it anyway; no mutation
+            // could make the assertion observable, including the one that looked
+            // most dangerous — typing the annotation's own parameter from the
+            // signature it belongs to — because such a parameter's parent is the
+            // `FunctionType` node and [`Checker::contextualisable_parameters`]
+            // turns it away one level up. Removed rather than kept as decoration,
+            // which is the call `crate::members` records making for the same
+            // reason.
+            Node::VariableDeclaration(declaration) => {
+                let annotation = declaration.r#type?;
+                Some(self.get_type_from_type_node(annotation))
+            }
+            Node::CallExpression(call) => self.contextual_type_for_argument(call, node),
+            Node::PropertyAssignment(element) => {
+                self.contextual_type_for_object_literal_element(parent, element)
+            }
+            _ => None,
+        }
+    }
+
+    /// The type an object literal's property assignment is expected to have.
     ///
     /// ```text
-    /// const f: (item: string) => void = item => item;
+    /// interface Handlers { onTick: (tick: string) => void }
+    /// const handlers: Handlers = { onTick: value => value };
+    /// //                                   ^^^^^ `string`, via `Handlers.onTick`
     /// ```
     ///
-    /// Ported from `Checker.getContextualTypeForVariableLikeDeclaration`
-    /// (`checker.go:29438`), whose first three lines are the whole of this arm:
-    /// if the declaration has a type node, the contextual type *is* that type.
-    /// There is no inference to avoid and no call to resolve, which is what makes
-    /// this the cheapest arm in `getContextualType` and the reason it follows the
-    /// argument arm rather than waiting on signature links.
+    /// Ported from `Checker.getContextualTypeForObjectLiteralElement`
+    /// (`checker.go:29920`), which is two steps: the object literal's own
+    /// contextual type, then the matching property of it.
     ///
-    /// Restricted to a `VariableDeclaration`. The other variable-like carriers of
-    /// an annotation — a `PropertyDeclaration`, a `PropertySignature`, a
-    /// parameter with a function-typed annotation and a function initialiser —
-    /// reach the same upstream function, but each is a separate corpus shape and
-    /// none is measured, so each is a gap rather than an untested generalisation.
+    /// # Measured, and why this arm and not another
     ///
-    /// Measured: **75 contextually typed function expressions in 32 files** sit
-    /// under an annotated variable declaration, largest file 8 (10.7%) — an
-    /// eighth of the argument arm's 548, and worth the ~30 lines only because it
-    /// reuses [`Checker::single_call_signature`] wholesale.
-    fn contextual_signature_from_annotation(&mut self, function: NodeId) -> Option<Signature> {
-        let declaration = self.nodes.parent(function)?;
-        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
-            return None;
+    /// 297 contextually typed function expressions in 98 files sit in an object
+    /// literal member — the largest arm after the call argument, and the second
+    /// largest of the twenty. But the population that matters is the one whose
+    /// **prerequisite is met**, because this arm answers nothing unless the
+    /// enclosing object literal already has a contextual type. Splitting the 297
+    /// by what supplies the object literal's own context:
+    ///
+    /// | the object literal is… | count | reachable today |
+    /// |---|---|---|
+    /// | an argument to a generic callee | 82 | no — needs inference |
+    /// | initialiser of a simply annotated declaration | 47 | **yes** |
+    /// | initialiser of an unannotated declaration | 28 | no |
+    /// | a member of another object literal | 23 | no — needs this arm to nest through an index signature |
+    /// | an array/tuple element | 22 | no — needs tuple types |
+    /// | initialiser of a **union**-annotated declaration | 20 | no — `getApparentTypeOfContextualType` |
+    /// | an argument to a one-signature callee | 19 | **yes** |
+    /// | parenthesised, in a block, a `return`, other | 56 | no |
+    ///
+    /// **66 in 33 files**, footprint 259 assertion lines, largest file 21%, top
+    /// 10 files 61%. That is the same order as the annotated-variable arm's 75,
+    /// and it costs less, because everything below already exists.
+    ///
+    /// # Not ported
+    ///
+    /// - **A computed property name.** Upstream checks the name expression and
+    ///   uses it if it is usable as a property name (`checker.go:29934`); here a
+    ///   `ComputedPropertyName` answers `None`. So do a numeric, bigint and
+    ///   template-literal name: [`Checker::get_property_of_type`] is keyed by the
+    ///   source text and the literal-to-name mapping is upstream's
+    ///   `getLiteralTypeFromPropertyName`, which is not ported.
+    /// - **The index-signature fallback** (`checker.go:29946`), which is what
+    ///   upstream answers when no property matches. Without it a member whose
+    ///   name is absent from the contextual type is a gap, and gapping it is why
+    ///   the 23 nested-object-literal cases above are counted as unreachable
+    ///   rather than as an untested claim.
+    /// - **`ShorthandPropertyAssignment`**, which shares upstream's arm
+    ///   (`checker.go:29376`) but cannot hold a function expression, so it could
+    ///   never reach [`Checker::get_contextually_typed_parameter_type`].
+    /// - **A `SpreadAssignment` or an object-literal method**, each a separate
+    ///   upstream branch (`checker.go:29378`, `checker.go:29964`).
+    fn contextual_type_for_object_literal_element(
+        &mut self,
+        element: NodeId,
+        assignment: &'a PropertyAssignment<'a>,
+    ) -> Option<TypeId> {
+        // `if t := element.Type(); t != nil && !ast.IsObjectLiteralMethod(element)`
+        // (`checker.go:29921`). A `PropertyAssignment` cannot be an object
+        // literal method, so the second half of upstream's test is the pattern
+        // match above rather than a check here.
+        if let Some(annotation) = assignment.r#type {
+            return Some(self.get_type_from_type_node(annotation));
+        }
+        // `c.hasBindableName(element)` (`checker.go:29927`) reduced to the names
+        // `get_property_of_type` can be keyed by. See "Not ported" above.
+        let name = match assignment.name {
+            PropertyName::Identifier(name) => name.text,
+            PropertyName::StringLiteral(name) => name.text,
+            _ => return None,
         };
-        // No check that `function` is the *initialiser*. A `VariableDeclaration`
-        // has three children — name, type annotation, initialiser — and only the
-        // initialiser can be an arrow or a function expression, so the parent
-        // test above already establishes it. An earlier draft asserted it anyway;
-        // no mutation could make the assertion observable, including the one that
-        // looked most dangerous — typing the annotation's own parameter from the
-        // signature it belongs to — because such a parameter's parent is the
-        // `FunctionType` node and [`Checker::contextualisable_parameters`] turns
-        // it away one level up. Removed rather than kept as decoration, which is
-        // the call `crate::members` records making for the same reason.
-        let annotation = variable.r#type?;
-        let declared = self.get_type_from_type_node(annotation);
-        self.single_call_signature(declared)
+        // `objectLiteral := element.Parent` (`checker.go:29924`). No check that
+        // the parent *is* an `ObjectLiteralExpression`: a `PropertyAssignment`
+        // has no other possible parent in this AST, so a guard here could not be
+        // reddened by any mutation and would read as evidence for a decision that
+        // was never made. Same call, same reason, as the initialiser guard above.
+        let object_literal = self.nodes.parent(element)?;
+        let contextual = self.get_contextual_type(object_literal)?;
+        // `getTypeOfPropertyOfContextualTypeEx` (`checker.go:29932`). Upstream
+        // maps over a union here; this port does not, so a union-typed context
+        // finds nothing and gaps — which is the 20 rows in the table above.
+        let property = self.get_property_of_type(contextual, name)?;
+        Some(self.get_type_of_symbol(property))
     }
 
-    /// The signature `function` is contextually typed by, when it sits directly
-    /// in the argument list of a call.
+    /// The type an expression is expected to have when it sits directly in the
+    /// argument list of a call.
     ///
     /// Ported from `Checker.getContextualTypeForArgumentAtIndex`
     /// (`checker.go:29772`), collapsed to the one path that needs no argument
     /// checked — see the module documentation on the recursion this avoids.
-    fn contextual_signature_from_call(&mut self, function: NodeId) -> Option<Signature> {
-        let call = self.nodes.parent(function)?;
-        let Some(Node::CallExpression(call)) = self.node_map.get(call) else {
-            return None;
-        };
+    fn contextual_type_for_argument(
+        &mut self,
+        call: &'a CallExpression<'a>,
+        argument: NodeId,
+    ) -> Option<TypeId> {
         // `getEffectiveCallArguments` (`checker.go:29772`'s `argIndex` domain).
         // A spread anywhere before this argument makes the index meaningless, so
         // it is a gap rather than an off-by-one waiting to happen.
         if call.arguments.iter().any(|a| matches!(a, Expression::SpreadElement(_))) {
             return None;
         }
-        let argument = call.arguments.iter().position(|a| a.node_id() == Some(function))?;
+        // `None` when the expression is the call's *callee* rather than one of
+        // its arguments, which is the immediately invoked function expression
+        // upstream handles at `checker.go:29463` from the argument expressions.
+        let index = call.arguments.iter().position(|a| a.node_id() == Some(argument))?;
 
         let callee = call.expression?;
         let callee_type = self.check_expression(callee);
         let parameter =
-            self.single_call_signature(callee_type)?.parameters.into_iter().nth(argument)?;
-        self.single_call_signature(parameter.r#type)
+            self.single_call_signature(callee_type)?.parameters.into_iter().nth(index)?;
+        Some(parameter.r#type)
     }
 
     /// The one call signature of `id`, or `None` if it has any other number of
     /// them or is generic.
     ///
-    /// Ported from `Checker.getSignaturesOfType` (`checker.go:19806` via
+    /// Ported from `Checker.getSignaturesOfType` (`checker.go:18959` via
     /// [`Checker::get_signatures_of_symbol`]) with the two reductions the module
     /// documentation justifies: an overload set is `None` because choosing needs
     /// arguments checked, and a generic signature is `None` because its

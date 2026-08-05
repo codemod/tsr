@@ -8,6 +8,34 @@ measurements and the reasoning that decided the slice; the module carries the
 rules. Upstream references are to the pinned submodule,
 `vendor/typescript-go` @ `5b1047d10`.
 
+## Corrections, 2026-08-05
+
+Two anchors in this document and in `contextual.rs` were wrong at the pinned
+commit. Recording the correction rather than editing silently, because a silent
+edit destroys trust in every other number here.
+
+| cited | actual at `5b1047d10` | what it is |
+|---|---|---|
+| `checker.go:29290` | **`checker.go:29343`** | `getContextualType`, the dispatch |
+| `checker.go:19806` | **`checker.go:18959`** | `getSignaturesOfType` (cited in `contextual.rs` only) |
+
+Both were off by roughly the same amount in the same direction, which is the
+signature of a number copied forward from an earlier submodule pin rather than
+of a typo. The remaining citations in this file were re-`grep -n`-verified and
+are correct: `29438` (`getContextualTypeForVariableLikeDeclaration`), `29458`
+(`getContextuallyTypedParameterType`), `29463`
+(`GetImmediatelyInvokedFunctionExpression` inside it), `18264` (`t = c.anyType`),
+`10264` (`getContextualSignature`), `10349`
+(`assignContextualParameterTypes`), `29785` (the comment introducing the
+`resolvingSignature` park; the check itself is `29787`), `11318` (inside
+`checkPropertyAccessExpression`'s `isAnyLike` branch, which opens at `11314` and
+returns the apparent type at `11320`).
+
+The four anchors in this cycle's brief were verified before use and all four
+hold: `getContextualType` `29343`, `getContextualTypeForReturnExpression`
+`29621`, `getContextualTypeForObjectLiteralElement` `29920`,
+`getContextualTypeForElementExpression` `29972`.
+
 ## The forcing constraint
 
 Contextual typing did not exist in this port at all before `contextual.rs`. It
@@ -87,7 +115,8 @@ the corresponding parameter's own signature as the contextual one.
 ## Alternatives, taken seriously
 
 **Port `getContextualType` broadly.** Upstream's `getContextualType`
-(`checker.go:29290`) has dozens of arms — variable annotation, object literal
+(`checker.go:29343` — corrected 2026-08-05 from `29290`, see "Corrections"
+above) has twenty arms — variable annotation, object literal
 member, return position, JSX attribute, binary operand, array element. Rejected
 for this slice because each arm is independent work and the argument arm is the
 plurality; a broad port would have shipped several arms untested. The
@@ -239,3 +268,297 @@ written the owner down.
 `288626/478954 (60.26%)` and `2041/9538`. The 60.60% / 2,066 figures above come
 from a run that was never committed. Anyone reading the snapshot as current will
 under-count the tip by 0.34 points and 25 cases.
+
+---
+
+## Cycle 10: the other nineteen arms, measured
+
+The two arms above were chosen without measuring the alternatives — the argument
+arm was the plurality and the annotated-variable arm was nearly free, and that
+was enough to justify them but not enough to rank what came next. This section
+measures the rest, so the next choice is made against numbers rather than
+against which shape is most recognisable.
+
+### The instrument, and its disagreement with the 925
+
+Counted over `vendor/typescript-go/testdata/baselines/reference/submodule`
+(12,155 `.types` baselines) at `5b1047d10`. A **contextually typed function
+expression** is an assertion line `>SUBJECT : TYPE` where
+
+- `SUBJECT` is a function expression or arrow whose parameters are all **bare
+  identifiers** — no annotation, no default, no rest, no destructuring; and
+- `TYPE` is `(p: T, …) => R` with the same arity, no optional parameter, and at
+  least one parameter type that is not `any`.
+
+The syntactic context is then read off the reconstructed source: the baseline's
+non-`>` lines are the source file, so the bracket stack at the function's start
+offset says whether it is a call argument, an object-literal member, an array
+element, and so on.
+
+**This instrument counts 1,557 where the cycle-9 note records 925, and the
+disagreement is not resolved.** The cycle-9 counter was not preserved, so the
+two cannot be diffed. The exclusions above are *stricter* than anything the
+cycle-9 note describes, so the 925 was probably narrower still in some way it
+did not write down. Two consequences, and the second is the one that matters:
+
+1. Every number in this section comes from **one** instrument, described above,
+   and is internally comparable. None of them is comparable to the 925/548 split
+   in the cycle-9 section.
+2. **The 548 "reachable" figure should be treated as instrument-dependent**, not
+   as a corpus fact. It is still the best estimate available for that arm, but
+   the OPEN falsifier below is stated in terms of it, and a falsifier resting on
+   an unreproducible count is weaker than it looked.
+
+The lesson is cheap and general: **a measurement is only re-checkable if the
+thing that produced it is described precisely enough to rebuild.** The criteria
+above are written out for that reason.
+
+### Population by context
+
+| upstream arm | context | count | files | largest file | top 10 files |
+|---|---|---|---|---|---|
+| `getContextualTypeForArgument` `29762` | call argument | **760** | 288 | 3% | 24% |
+| `getContextualTypeForObjectLiteralElement` `29920` | object-literal member | **297** | 98 | 13% | 47% |
+| — | `=` with no enclosing bracket (mostly JSDoc-typed JS) | 124 | 69 | 6% | 40% |
+| `getContextualType` `29392` | parenthesised expression | 101 | 28 | 18% | 79% |
+| JSX attribute / `yield` / ternary | (several arms) | 87 | 38 | 9% | 56% |
+| `getContextualTypeForSubstitutionExpression` `30030` | tagged-template substitution | 85 | 17 | 15% | 89% |
+| `getContextualTypeForInitializerExpression` `29423` | class property initialiser | 35 | 16 | 23% | 83% |
+| `getContextualTypeForElementExpression` `29972` | array element | 33 | 15 | 18% | 85% |
+| `getContextualTypeForReturnExpression` `29621` | `return` operand | **26** | 15 | 19% | 81% |
+
+The brief named three candidates. Two of them are **tiny**: `return` is 26
+functions and array element is 33, both in fifteen files with 81–85% of the
+population in ten of them. Neither is worth an arm, and the concentration check
+is what says so rather than a judgement about how "important" `return` looks.
+
+### Concentration killed the cheapest arm on the board
+
+The parenthesised-expression arm is **one line** upstream — `case
+ast.KindParenthesizedExpression: return c.getContextualType(parent,
+contextFlags)` (`checker.go:29392`) — and 101 functions is third place. It was
+the obvious build until the concentration check ran on the *reachable* subset:
+
+| the parenthesised expression is… | count | files | reachable today |
+|---|---|---|---|
+| itself parenthesised again | 19 | 4 | yes, transitively |
+| a `&&` / `\|\|` / `??=` operand | 15 | 11 | no |
+| a call argument | 11 | 5 | yes |
+| a decorator or in a block | 9 | 2 | no |
+| an annotated declaration's initialiser | 2 | 2 | yes |
+
+**~32 reachable, in 7 files**, and `parenthesizedContexualTyping{1,2,3}.types`
+plus `logicalAssignment5` hold most of it. That is the exact shape this project
+has been burned by three times — a respectable row that is a handful of test
+files exercising one syntax deliberately. Rejected. What would make it win: the
+binary-operand arm (`checker.go:29809`) landing first, which converts the 15
+`&&`/`||` rows from "not reachable" to "reachable" and moves the population out
+of two test families.
+
+### The arm that was built: object-literal member
+
+297 functions in 98 files is second place, but the number that decides it is not
+297. This arm answers nothing unless the **enclosing object literal already has
+a contextual type**, so the repaired triage question — *is the prerequisite met
+for most of the population?* — has to be asked about the object literal, not
+about the member. Splitting the 297 by what supplies the object literal's own
+context:
+
+| the object literal is… | count | files | met? |
+|---|---|---|---|
+| an argument to a generic callee | 82 | 26 | no — needs `inferTypeArguments` |
+| initialiser of a simply annotated declaration | 47 | 24 | **yes** |
+| initialiser of an unannotated declaration | 28 | 18 | no |
+| a member of another object literal | 23 | 10 | no — needs the index-signature fallback |
+| an array or tuple element | 22 | 8 | no — needs tuple types |
+| initialiser of a **union**-annotated declaration | 20 | 3 | no — needs `getApparentTypeOfContextualType` |
+| an argument to a one-signature callee | 19 | 10 | **yes** |
+| parenthesised / in a block / `return` / other | 56 | 30 | no |
+
+**66 of 297 (22%)** in 33 files. Assertion-line footprint — the function's own
+line plus every line whose subject roots at one of its contextually typed
+parameters — is **259 lines**; largest file 21%, top 10 files 61%.
+
+So the honest headline is not "297, the second-largest arm". It is **66**, which
+is the same order as the annotated-variable arm's 75 and is justified the same
+way: it is cheap because everything it needs already exists. That the two
+numbers agree so closely is a coincidence, not a cross-check.
+
+The 22% figure is also the strongest single argument that the *remaining*
+contextual-typing work is gated on inference and unions rather than on more
+arms. 82 + 20 = 102 of the 297 — a third of the arm — are blocked on two
+prerequisites, neither of which is another `getContextualType` case.
+
+### A structural deviation, and why upstream's shape had to be adopted
+
+The cycle-9 module had no notion of "the contextual type of an expression". It
+asked, of a *function*, "are you a call argument or an annotated initialiser?"
+and answered a `Signature`. **That shape cannot express the object-literal arm
+at all**, because its subject is the enclosing object literal — an expression
+that is not a function and has no signature.
+
+So `contextual.rs` now has `get_contextual_type(node)`, ported from the dispatch
+at `checker.go:29343`: a match on the **parent's** kind, answering a `TypeId`.
+Three of upstream's twenty arms are implemented. `contextual_signature` is now
+`single_call_signature(get_contextual_type(function))`.
+
+This is a strict generalisation, not a rewrite: both cycle-9 arms were already
+`single_call_signature(<some type>)` under the hood, so factoring the type out
+of them changes no answer. Verified two ways — the seven cycle-9 tests are
+untouched and green, and the exclusivity argument the old `or_else` rested on
+("a function is either a call argument or an initialiser, never both") is now
+structural rather than argued, because a node has one parent.
+
+**The alternative was a fourth special case**: `contextual_signature_from_object_literal_member`,
+sitting alongside the other two in the `or_else` chain, reaching into the object
+literal and duplicating the annotated-declaration and call-argument logic to
+find *its* context. Rejected because the duplication is unbounded — the same
+duplication would be needed again for the array-element arm, and again for
+parenthesised, since every one of them recurses on the parent's context. What
+would make it win: if only ever one more arm were going to be added, three
+special cases is less code than a dispatch. Upstream's twenty arms say
+otherwise.
+
+### The two "unreachable" buckets, re-checked rather than inherited
+
+Both cycle-9 rejections were re-verified this cycle instead of being carried
+forward, because both were rejected on facts about *other files* that have since
+moved.
+
+- **Generic callees** — still unreachable, and for a sharper reason than
+  "no inference". `crates/tsr-checker/src/inference.rs` has grown
+  `check_generic_call` and `instantiate_type` since cycle 9, so the blanket claim
+  is out of date. But `check_generic_call` instantiates **only the signature's
+  return type** (its own doc comment says so, `inference.rs:114`), never its
+  parameter types, and its first act is to `check_expression` every argument —
+  which is precisely the cycle contextual typing must not enter. So the bucket is
+  unreachable for a *second* reason that did not exist before.
+- **A gap this opened up that nobody has sized.** A call with **written** type
+  arguments — `f<string>(x => …)` — needs no inference at all: substituting the
+  written arguments into the parameter type is exactly what
+  `instantiate_type` does, and `written_type_arguments` already exists.
+  Population unmeasured; the only datum is that exactly 1 of the 297
+  object-literal cases has this shape, and `.reduce<T>(…)` appears in the raw
+  call-argument bucket. **Filed, not built — it does not exist today:
+  `bd tsr-9mx`.** Sizing it is one run of the instrument described above with one
+  extra bucket.
+- **Overloaded callees** — still rejected, and the condition the cycle-9 note set
+  for revisiting is still unmet: `grep -rn "signature_links\|resolving_signature"
+  crates/tsr-checker/src/` returns nothing at this tip, and
+  `calls.rs:568`'s `resolve_call_signature` still takes the argument list. The
+  deliverable therefore remains the one the note already gave: *this needs
+  signature links.* Nothing about it changed, and re-checking cost one grep.
+
+### What was built, and what it must not do
+
+Three arms in `get_contextual_type`, four tests, and one deletion.
+
+The **deletion**: `contextual_type_for_object_literal_element` does not check
+that the `PropertyAssignment`'s parent is an `ObjectLiteralExpression`. A
+`PropertyAssignment` has no other possible parent in this AST, so no mutation
+could redden such a guard. Same call, same reasoning, as the initialiser guard
+deleted in cycle 9 — a guard no mutation can make observable is decoration, and
+decoration is worse than nothing because it reads as evidence.
+
+The **`errorType` rule holds unchanged**: every unported shape in the new arm
+answers `None`, which one level up becomes the implicit `any` that upstream also
+answers (`checker.go:18264`). A member whose name is absent from the contextual
+type — upstream would fall back to an index signature at `checker.go:29946` —
+answers `None` rather than guessing, and
+`a_member_absent_from_the_contextual_type_stays_the_implicit_any` asserts it
+against a sibling member that does resolve.
+
+### Mutations, each confirmed applied before the run
+
+`grep`-counted to exactly one occurrence before each edit, per the rule that a
+mutation that does not apply is indistinguishable from one that does not matter.
+
+| mutation | reddens | does **not** redden |
+|---|---|---|
+| **M0** `Node::PropertyAssignment(…) => None` | all three object-literal tests | the seven cycle-9 tests |
+| **M1** `Node::VariableDeclaration(_) => None` | `…member_is_typed_from_the_property_of_the_same_name`, `…absent…`, `an_annotated_variable_types_its_initialiser_s_parameter` | `an_object_literal_argument_types_its_member_through_the_callee` |
+| **M2** `Node::CallExpression(_) => None` | `an_object_literal_argument_types_its_member_through_the_callee` + the three cycle-9 call tests | both annotated-object-literal tests |
+| **M3** `PropertyName::StringLiteral(_) => return None` | `a_string_literal_property_name_resolves_the_same_as_an_identifier` — and only that | everything else |
+
+M1 and M2 are the required pair: each reddens exactly one of the two new
+recursion paths and leaves the other green.
+
+**One claim in the fixtures has no mutation behind it, and that is stated rather
+than hidden.** `an_object_literal_member_is_typed_from_the_property_of_the_same_name`
+writes the object literal's members in the *opposite* order to the interface's,
+so an implementation that matched by position would answer the two types
+swapped. No mutation demonstrates this, because the code has no positional path
+to mutate — the fixture excludes an alternative *implementation*, not a branch.
+That is a different thing from a guard, and it is why it was kept rather than
+deleted.
+
+The fixture trap from cycle 9 was respected: `solo`, `duo`, `value`, `yes`,
+`nope` each appear exactly once in their fixture, and the interface parameter
+names (`declaredA`, `declaredB`, `declaredT`, `declaredK`) appear nowhere else,
+so the harness's first-local walk cannot answer from an annotation. No fixture
+mentions `Array`, `Promise`, `number[]` or any other lib type, because the unit
+harness loads no lib files.
+
+### Prediction
+
+Rows: the **66 reachable object-literal-member functions in 33 files**, footprint
+**259 assertion lines**. Commit pair: `X^..X` where `X` is the commit named in
+the handoff below; verify with `git log --oneline X^..X` before spending a
+measurement on it.
+
+Mechanism: the member's arrow parameter stops answering the implicit `any` and
+answers the interface property's parameter type instead, so the parameter's own
+line and every line rooting at it move from *wrong* to *right*.
+
+- **Predicted: fewer than 259 lines move, and most likely 120–200.** The
+  footprint counts every line rooting at a contextual parameter, including ones
+  whose own answer depends on machinery this port lacks for other reasons.
+- **The shape is the cycle-9 shape, not the usual one**: wrong → right, with the
+  **gap column flat**. A flat gradient here is the success case. This is stated
+  before the measurement, exactly as in cycle 9, so a small number cannot be
+  re-read afterwards as an excuse. If a future arm is predicted whose shape is
+  gap → right, say so up front, because "flat" then means failure.
+- **What must NOT move**: the gap column, and the count of passing cases must not
+  fall. Any regression falsifies the `None`-means-implicit-`any` reasoning.
+  Neither the argument arm's nor the annotated-variable arm's population may
+  change — the refactor is meant to be answer-preserving for both, and the seven
+  cycle-9 tests staying green is the evidence for that.
+- **How this could be right for the wrong reason**: the 66 are concentrated
+  enough (top 10 files 61%) that a single baseline moving for an unrelated reason
+  — three other agents are editing this checker in the same tree — could account
+  for the whole number. A corpus delta taken at the cycle tip cannot attribute it.
+  The attributable evidence is the four tests and the mutation table, not the
+  gradient.
+- **Discount this number if it arrives without a cross-check.** It has one: the
+  259 was produced by the same script that produced the 66 and the 297, and the
+  297 splits exactly into the eight rows of the reachability table. It has no
+  external cross-check, because the cycle-9 instrument that would provide one is
+  not reproducible.
+
+### The OPEN falsifier is still OPEN
+
+> If the 548 reachable count does not correspond to a visible improvement in the
+> property-access **wrong** population, then the 555 wrong lines in
+> `crates/tsr-checker/src/members.rs` are not the shape that document claims.
+
+**Not settled this cycle, and not settleable with the instruments as they
+stand.** The cycle-tip run reports passed / assertion lines / failed / skipped;
+none of those separates *wrong* from *gap*.
+
+Two things learned about the instrument that would settle it, both worth
+recording because they change what "run `wrong_attribution`" costs:
+
+- `crates/tsr-conformance/examples/wrong_attribution.rs` is on the **lib-less
+  per-unit path** (`parse_with_options`, ~line 810) rather than going through
+  `types_producer::assertions_for_case`. Its numbers are therefore measured on a
+  different checker configuration than the gradient — the same defect fixed in
+  `examples/overload_funnel.rs` in commit `731b1ee`. Fixing that is a
+  prerequisite for the falsifier, not an optional cleanup.
+- The falsifier's *left-hand side* is now known to be instrument-dependent (see
+  the 1,557-vs-925 discussion above). If the count is taken and the numbers
+  nearly agree, that is weaker evidence than it reads, because the 548 cannot be
+  reproduced.
+
+If it is ever taken and the 555 did **not** drop, the correction belongs in
+`crates/tsr-checker/src/members.rs`, where the ownership is asserted — not
+quietly here.
