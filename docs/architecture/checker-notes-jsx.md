@@ -64,6 +64,54 @@ construction, capping the metric near 98.7%. They are not unreachable. They are
 **unported**: `types_producer.rs` renders unconditionally through
 `type_to_string` and has no counterpart to any of the eight guards. See ADR-0039.
 
+## Sizing the seven remaining guards — `hadErrorBaseline` is not one of seven equals
+
+Measured read-only over all 12,155 `.types` baselines, no corpus run.
+
+`hadErrorBaseline` is **file-scoped**: when a case has an `.errors.txt`, the fast
+path at `type_symbol_baseline.go:378` is disabled for *every* node in the case,
+so the intrinsic name is never printed there. That yields a prediction sharp
+enough to be worth stating before testing it:
+
+> the string `: error` must never appear in a `.types` baseline whose case also
+> has an `.errors.txt`.
+
+**It holds, 0 violations in 12,155 baselines.** The partition:
+
+| | `: error` lines | `: any` lines |
+|---|---|---|
+| cases **with** an `.errors.txt` | **0** (predicted 0) | 69,195 |
+| cases **without** | 701 | 19,045 |
+
+Three things follow, and they change the shape of the row ADR-0039 reopened.
+
+1. **Upstream prints `error` only 701 times in the entire corpus.** Our producer
+   prints it wherever the checker gaps — tens of thousands of lines. So the
+   `error`-printing population is overwhelmingly *ours*, not upstream's, which is
+   the ADR-0038 correction restated as a number.
+2. **`hadErrorBaseline` dominates and is a single flag.** Its addressable pool is
+   the 69,195 `any` lines in cases carrying an errors baseline — 78.4% of all
+   `any` lines in the corpus. It is not a positional predicate at all; porting it
+   is threading one file-scoped boolean into the producer.
+3. **The six remaining positional guards share the 19,045-line complement**, and
+   only that. They can only fire where the fast path is live, i.e. in cases
+   *without* an errors baseline. That is a ceiling on all six together, before
+   any per-position split.
+
+**These are ceilings, not deliverables.** Most of the 69,195 are genuinely
+`anyType`, which the producer already prints as `any`; the gain is only the
+subset where our checker computes `errorType` and upstream's guard converts it.
+Sizing that subset needs a corpus run bucketed per guard — the shape of
+`examples/qualified_name_left.rs`, with an unattributed bucket printed
+unconditionally. That measurement is **not done**; `bd` it rather than assume
+these ceilings.
+
+Practical consequence for whoever scopes it: `hadErrorBaseline` was flagged as
+the hard one because the producer carries no file-scoped state, and that is still
+true — but it is now also clearly the *valuable* one, and the six positional
+guards are a much smaller pool than the eight-way split implied. Do not order
+this work by guard count.
+
 ## What was ported, and what was deliberately left
 
 Only `isIntrinsicJsxTag`. The other seven guards — `hadErrorBaseline`, binding
@@ -91,6 +139,20 @@ for them would be a guess for the 1194, so they stay `error`.
 
 The 85 element lines that already print `error` **must keep printing `error`**;
 they are the control on this change.
+
+## The `isIntrinsicJsxTag` slice has no clean number
+
+Cycle 9 moved 60.26% -> 60.60%, 2,041 -> 2,066 cases, with this guard, an
+inference change and a contextual-typing change landing together and ~1,580 lines
+shared between them after `resolve`'s isolated +48. The prediction here was ~1,779
+lines across 288 baselines, which is larger than that whole remainder — so this
+either under-delivered or the other two were near zero, and no arithmetic over
+three simultaneous changes separates them.
+
+**Recorded as unresolved: neither a hit nor a miss.** Do not read the cycle total
+as this slice's number. An isolated run of `d6dc9a7^..d6dc9a7` would settle it.
+What *is* confirmed is the control: nothing fell, so the 85 `error` element lines
+did not flip.
 
 ## Size
 
