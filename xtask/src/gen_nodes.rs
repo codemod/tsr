@@ -576,6 +576,7 @@ pub fn generate_aliases(ast: &AstDefinition, nullability: &GoNullability) -> Res
     out.push_str("        }\n    }\n}\n\n");
 
     out.push_str(&generate_named_child_accessors(ast, nullability)?);
+    out.push_str(&generate_is_declaration(ast)?);
 
     let mut alias_members: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for alias_name in ast.nodes.aliases.keys() {
@@ -694,6 +695,56 @@ pub fn generate_aliases(ast: &AstDefinition, nullability: &GoNullability) -> Res
 /// name`, `parent.AsQualifiedName().Right == node` — so what the caller wants is
 /// an **id to compare**, not a typed child. See
 /// `docs/architecture/checker-oracle.md`.
+/// Whether a base, transitively, is `DeclarationBase`.
+fn extends_declaration_base(ast: &AstDefinition, base: &str) -> bool {
+    if base == "DeclarationBase" {
+        return true;
+    }
+    ast.bases
+        .get(base)
+        .is_some_and(|b| b.extends.iter().any(|parent| extends_declaration_base(ast, parent)))
+}
+
+/// Emit `Node::is_declaration_node`.
+///
+/// Upstream's `IsDeclarationNode` is `node.DeclarationData() != nil`
+/// (`ast.go:1511`) — a *structural* test for the embedded `DeclarationBase`, not
+/// a list of kinds. So it is generated from `ast.json`'s `extends` chains, which
+/// is the same fact in the same place.
+///
+/// Worth stating why the obvious shortcut is wrong: "has a `name` field" is
+/// **not** the same question. `PropertyAccessExpression` has one — `b` in `a.b` —
+/// and extends `MemberExpressionBase`, not `DeclarationBase`. Using `name_id()`
+/// as a proxy would classify every property access as a declaration name and
+/// silently change which nodes the `.types` producer emits.
+fn generate_is_declaration(ast: &AstDefinition) -> Result<String> {
+    let declarations: Vec<&String> = ast
+        .nodes
+        .definitions
+        .iter()
+        .filter(|(_, def)| def.extends.iter().any(|b| extends_declaration_base(ast, b)))
+        .map(|(name, _)| name)
+        .collect();
+
+    let mut out = String::new();
+    out.push_str(
+        "impl Node<'_> {\n    \
+         /// Whether this node is a declaration — upstream's `IsDeclarationNode`.\n    \
+         ///\n    \
+         /// The structural test for an embedded `DeclarationBase`, generated from\n    \
+         /// `ast.json` rather than written as a list of kinds.\n    \
+         #[must_use]\n    \
+         pub fn is_declaration_node(&self) -> bool {\n        \
+         matches!(\n            self,\n",
+    );
+    for (index, name) in declarations.iter().enumerate() {
+        let sep = if index + 1 == declarations.len() { "" } else { " |" };
+        writeln!(out, "            Node::{name}(_){sep}")?;
+    }
+    out.push_str("        )\n    }\n}\n\n");
+    Ok(out)
+}
+
 /// The `ast.json` spelling is **not** uniform: `name` is lower-case while
 /// `Expression` and `Initializer` are capitalised, mirroring upstream's Go field
 /// names. Getting this wrong emits an accessor with zero match arms that compiles

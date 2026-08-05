@@ -1169,3 +1169,51 @@ fn every_named_child_accessor_fires_on_something() {
     assert!(nodes.iter().any(|n| n.expression_id().is_some()), "no node answered expression_id");
     assert!(nodes.iter().any(|n| n.initializer_id().is_some()), "no node answered initializer_id");
 }
+
+#[test]
+fn is_declaration_node_matches_ast_jsons_declaration_base() {
+    // Generated from `ast.json`'s `extends` chains, mirroring upstream's
+    // `IsDeclarationNode` — `node.DeclarationData() != nil` (`ast.go:1511`) —
+    // which is a structural test, not a list of kinds.
+    use tsr_ast::SyntaxKind as K;
+
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(
+        &arena,
+        "const v = 1;\nclass C { get g() { return 1; } }\nfunction f(p) {}\n\
+         const o = { k: 1 };\na.b;\ng(1);\nx = 2;\n",
+    );
+    let mut seen: std::collections::HashMap<tsr_ast::SyntaxKind, bool> =
+        std::collections::HashMap::new();
+    for node in all_nodes(tsr_ast::Node::SourceFile(parsed.source_file)) {
+        if let Some(id) = node.node_id() {
+            seen.insert(parsed.nodes.kind(id), node.is_declaration_node());
+        }
+    }
+    for kind in [K::VariableDeclaration, K::ClassDeclaration, K::FunctionDeclaration, K::Parameter]
+    {
+        assert_eq!(seen.get(&kind), Some(&true), "{kind:?} is a declaration");
+    }
+
+    // **A getter reaches `DeclarationBase` only transitively**, through
+    // `FunctionLikeDeclarationBase`. Exactly four definitions do — the two
+    // accessors and the function/constructor *type* nodes — so a generator that
+    // looked only at each node's direct `extends` would miss all four while still
+    // passing every other assertion here.
+    assert_eq!(seen.get(&K::GetAccessor), Some(&true));
+
+    // **`a.b` is not a declaration**, and this is the case that rules out the
+    // tempting shortcut: `PropertyAccessExpression` *has* a `name` field — `b` —
+    // so "has a name" would misclassify every property access as a declaration
+    // name and silently change which nodes the `.types` producer emits.
+    assert_eq!(seen.get(&K::PropertyAccessExpression), Some(&false));
+
+    // **A call and a binary expression ARE declarations**, which looks wrong and
+    // is not: `ast.json` gives both `DeclarationBase` because they can be
+    // *assignment* declarations — `module.exports = ...`, `a.b = function () {}`
+    // — which is exactly the `case KindBinaryExpression, KindCallExpression`
+    // branch of `getTypeOfVariableOrParameterOrPropertyWorker`
+    // (`checker.go:16623`). Asserted so nobody "fixes" it.
+    assert_eq!(seen.get(&K::CallExpression), Some(&true));
+    assert_eq!(seen.get(&K::BinaryExpression), Some(&true));
+}

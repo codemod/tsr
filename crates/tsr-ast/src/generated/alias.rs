@@ -732,6 +732,73 @@ impl Node<'_> {
     }
 }
 
+impl Node<'_> {
+    /// Whether this node is a declaration — upstream's `IsDeclarationNode`.
+    ///
+    /// The structural test for an embedded `DeclarationBase`, generated from
+    /// `ast.json` rather than written as a list of kinds.
+    #[must_use]
+    pub fn is_declaration_node(&self) -> bool {
+        matches!(
+            self,
+            Node::ArrowFunction(_)
+                | Node::BinaryExpression(_)
+                | Node::BindingElement(_)
+                | Node::CallExpression(_)
+                | Node::CallSignatureDeclaration(_)
+                | Node::ClassDeclaration(_)
+                | Node::ClassExpression(_)
+                | Node::ClassStaticBlockDeclaration(_)
+                | Node::ConstructSignatureDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+                | Node::ConstructorTypeNode(_)
+                | Node::EnumDeclaration(_)
+                | Node::EnumMember(_)
+                | Node::ExportAssignment(_)
+                | Node::ExportDeclaration(_)
+                | Node::ExportSpecifier(_)
+                | Node::FunctionDeclaration(_)
+                | Node::FunctionExpression(_)
+                | Node::FunctionTypeNode(_)
+                | Node::GetAccessorDeclaration(_)
+                | Node::ImportClause(_)
+                | Node::ImportDeclaration(_)
+                | Node::ImportEqualsDeclaration(_)
+                | Node::ImportSpecifier(_)
+                | Node::IndexSignatureDeclaration(_)
+                | Node::InterfaceDeclaration(_)
+                | Node::JSDocSignature(_)
+                | Node::JSDocTypeLiteral(_)
+                | Node::JsxAttribute(_)
+                | Node::JsxAttributes(_)
+                | Node::MappedTypeNode(_)
+                | Node::MethodDeclaration(_)
+                | Node::MethodSignatureDeclaration(_)
+                | Node::MissingDeclaration(_)
+                | Node::ModuleDeclaration(_)
+                | Node::NamedTupleMember(_)
+                | Node::NamespaceExport(_)
+                | Node::NamespaceExportDeclaration(_)
+                | Node::NamespaceImport(_)
+                | Node::NoSubstitutionTemplateLiteral(_)
+                | Node::ObjectLiteralExpression(_)
+                | Node::ParameterDeclaration(_)
+                | Node::PropertyAssignment(_)
+                | Node::PropertyDeclaration(_)
+                | Node::PropertySignatureDeclaration(_)
+                | Node::SemicolonClassElement(_)
+                | Node::SetAccessorDeclaration(_)
+                | Node::ShorthandPropertyAssignment(_)
+                | Node::SourceFile(_)
+                | Node::SpreadAssignment(_)
+                | Node::TypeAliasDeclaration(_)
+                | Node::TypeLiteralNode(_)
+                | Node::TypeParameterDeclaration(_)
+                | Node::VariableDeclaration(_)
+        )
+    }
+}
+
 /// The `AccessExpression` union.
 ///
 /// Corresponds to typescript-go's `ast.AccessExpression`.
