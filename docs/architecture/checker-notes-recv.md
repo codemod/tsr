@@ -140,7 +140,7 @@ demonstrated mechanism covers a measured 17.4% and an unmeasured remainder.~~
 `d59bee2^..d59bee2`) and it had to be moved: keyed on the 557 it would have read
 zero, for the structural reason in the header. It now partitions the parent row,
 `property access: receiver is typed` (2,562), a second way — *type arguments and
-no member found* (the population `bd tsr-el3.2` acts on), *type arguments and
+no member found* (the population `bd tsr-4qx` acts on), *type arguments and
 member found* (a control that must read zero), and *no type arguments*. The
 question this paragraph wanted answered is real; it was pointed at the wrong row.
 

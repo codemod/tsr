@@ -66,6 +66,7 @@ fn share(count: u64, total: u64) -> f64 {
 fn concentrated(snapshot: &counters::Snapshot) -> u64 {
     match std::env::var("TSR_FUNNEL_CONCENTRATION").as_deref() {
         Ok("member-error") => snapshot.callee_member_type_error,
+        Ok("receiver-generic") => snapshot.receiver_generic_member_absent,
         Ok("member-absent-intrinsic") => snapshot.member_absent_intrinsic,
         Ok("member-absent-named") => snapshot.member_absent_named_no_members,
         _ => snapshot.callee_not_anonymous,

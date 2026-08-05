@@ -220,7 +220,7 @@ answered `error`. The canonical baseline is `conformance/anyPropertyAccess.types
 ### The numeric skew nearly produced a confident wrong answer
 
 Read as an index-shape histogram, "79% numeric" says *arrays and tuples*, which
-points at instantiated generic members — a real blocker (`bd tsr-el3.2`, the same
+points at instantiated generic members — a real blocker (`bd tsr-4qx`, the same
 one that leaves `C<number>` memberless) that would have made this row a
 workstream and closed it for the cycle. But of those 11,278 numeric lines, 10,737
 answer `any`, so they are `any` receivers, not arrays. Array receivers are a real
@@ -238,7 +238,7 @@ and numeric index signatures all verified by probe before any code was written.
 - **Array and tuple receivers carry no members.** `a[0]`, `a.length` and
   `a["length"]` all gap because `create_type_reference` (`declared.rs:489`)
   builds the type with `symbol: None`. Blocked on instantiated generic members,
-  `bd tsr-el3.2`. A workstream, and not in these files.
+  `bd tsr-4qx`. A workstream, and not in these files.
 - **Numeric property names in *type* position.** `var o: { 0: string }` gaps as
   an annotation, so `o[0]` never gets a chance. This is the same gap closed on
   the object-literal *expression* side in `724da91`; the type-literal side is in
@@ -357,7 +357,7 @@ for the case metric too, since that file cannot pass without evolving arrays.
 ### The diagnosis was wrong at a level below the one it corrected
 
 The first attempt bucketed by index *syntax* (79% numeric) and pointed at array
-receivers — a real blocker, `bd tsr-el3.2`, and the wrong one. Bucketing by
+receivers — a real blocker, `bd tsr-4qx`, and the wrong one. Bucketing by
 upstream's *answer* (88% `any`) corrected that and pointed here. Both were
 measuring the wrong population.
 
@@ -521,15 +521,92 @@ unary, conditional, `new C()`, `yield`, tagged templates — 7 of the 8 assigned
 names. Accesses: an `any` receiver in `indexed.rs` and `members.rs`. Symbols in
 `symbols.rs`: export markers, and object-literal member symbol types.
 
-### Outstanding predictions
+### Outstanding predictions — SCORED 2026-08-05 (cycle 10)
 
-Each is a verified single-commit window (`git log --oneline X^..X` → 1).
+Each is a verified single-commit window (`git log --oneline X^..X` → 1). All six
+runs were done by the lead, serialised, each in its own
+`git worktree add --detach` with its own submodule checkout, so no teammate's
+edits are inside any measurement.
 
-| Pair | Item | Predicted |
-|---|---|---|
-| `1bc1f97^..1bc1f97` | tagged templates | ~100 of 289, range 40–110 |
-| `af7f12a^..af7f12a` | export markers | 3,000–6,000, most likely ~4,000 |
-| `f6ffe77^..f6ffe77` | member symbol types | 6,000–11,000, most likely ~8,000 |
+| Pair | Item | Predicted | **Measured** | Cases | Verdict |
+|---|---|---|---:|---:|---|
+| `1bc1f97^..1bc1f97` | tagged templates | ~100 of 289, range 40–110 | **+135** | +6 | miss, 1.23× over the stated ceiling |
+| `af7f12a^..af7f12a` | export markers | 3,000–6,000, ~4,000 | **+1,134** | +11 | **miss, 3.5× high** |
+| `f6ffe77^..f6ffe77` | member symbol types | 6,000–11,000, ~8,000 | **+6,605** | +109 | **hit** (in range, 1.21× low) |
+
+Raw figures, assertion lines out of 478,954: 273,367 → 273,502; 278,387 →
+279,521; 282,021 → 288,626.
+
+**The scoreboard for this project's predictions is now 2 hits, 7 misses.**
+
+#### Tagged templates: the pre-registered falsifier is mildly triggered
+
+The prediction carried one: *"If the measured movement is far above ~110,
+something is answering that should be gapping — most likely a generic tag
+slipping through, and the fence needs checking rather than celebrating."* +135 is
+above 110 and is not *far* above it, so this is a flag rather than an alarm — but
+it is the author's own stated condition and it should be checked rather than
+rounded away. The specific thing to check is whether a generic tag is being
+answered; the fence is the single-call-signature restriction inherited from
+`resolve_call_signature`.
+
+#### Export markers: the miss is the "counted where the form appears" failure
+
+The population for this arm was **measured** in this same file at *"3,144 lines
+across 463 cases"*. The prediction's range was **3,000–6,000** — that is, its
+floor was the whole measured population and its ceiling was **twice** it. A
+prediction whose range starts at 100% conversion has no room to be right, and
+1,134 is 36% of the population, which is an unremarkable conversion rate.
+
+This is `docs/conventions.md`'s *"count the lines a failure blocks, not the lines
+where the form appears"*, arriving from a direction that section does not yet
+cover: **the count here was already of blocked lines, and the error was assuming
+they would all convert.** A measured population is a *ceiling*, and quoting a
+range whose floor equals the ceiling converts a good measurement back into a
+guess. The corrective is one line: state the expected conversion *rate*
+separately from the population, and say what would make it low.
+
+#### Member symbol types: the one that hit, and why
+
+Predicted 6,000–11,000, delivered 6,605. It is the second hit in nine, and it
+shares the property of the first: **the author counted assertion lines directly
+rather than source occurrences, and checked the count against the instrument's
+own histogram before quoting it** — 8,549 lines across 1,571 cases, enumerated by
+initialiser kind (NumericLiteral 2,500, StringLiteral 1,938, AsExpression 1,069,
+ArrowFunction 630, …) rather than by summing the two visible histogram rows. The
+enumeration is what makes it a prediction; `docs/conventions.md` records the same
+bucket being sized at 4,300 by adding its two visible rows, a 2× under-count.
+
+Both hits so far were cross-checked against the instrument before quoting. All
+seven misses arrived with a mechanism story and no cross-check. That correlation
+is now 9 for 9.
+
+#### This is the slice `docs/conventions.md`'s level-4 section is about
+
+The 6,605 lines and 109 cases here are the *same event* as the "6,610 lines, 109
+cases, 6.9% against a predicted 10–25%" recorded under *"A fourth level, and it
+is the one that predicts cases"*. The two line counts differ by 5 and the case
+counts are identical, which is a reassuring independent re-derivation. **61 lines
+per case flipped** — the broad-and-shallow signature. Noted here because that
+section cites the number without naming the commit, so a reader could not
+otherwise connect the rule to the slice that bought it.
+
+#### A trap this measurement walked into, recorded because it nearly landed
+
+`crates/tsr-conformance/snapshots/*.snap` is **checked in**, so a worktree at any
+commit already has a snapshot file on disk before anything runs. Reading it gives
+a number that looks exactly like a fresh measurement. The first read of
+`f6ffe77`'s snapshot returned `273502/478954`, which is `1bc1f97`'s figure —
+snapshots had not been regenerated between those commits — and it would have been
+recorded as "this slice moved nothing".
+
+What caught it was `git status --porcelain` on the snapshot path: five of the six
+worktrees showed ` M` and one showed clean, and only the modified ones had
+actually been written by a run. **A snapshot file's existence is not evidence
+that a run produced it.** Same family as the corpus rule already in `bd`
+memory — *a missing baseline file is only evidence when some other baseline
+proves the case was run* — and it is the inverse: a *present* file is only
+evidence when its mtime or git status proves the run wrote it.
 
 ### Blocked, with the blocker named
 
@@ -540,7 +617,7 @@ Each is a verified single-commit window (`git log --oneline X^..X` → 1).
   **`enums`' same-file scoping in `964ec88` was right**; it named the wrong
   blocker (ADR-0034 globals, which do work) and reached the right conclusion.
 - **Array and tuple receivers** carrying no members. `create_type_reference`
-  (`declared.rs:489`) builds with `symbol: None`. `bd tsr-el3.2`.
+  (`declared.rs:489`) builds with `symbol: None`. `bd tsr-4qx`.
 - **`TemplateExpression`** (1,036 lines). Needs a constant evaluator plus
   const-context detection plus contextual typing — a workstream, not a slice.
 - **Contextual typing** owns the 555 wrong property-access lines this workstream
