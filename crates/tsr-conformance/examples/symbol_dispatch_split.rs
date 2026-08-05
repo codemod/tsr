@@ -86,6 +86,10 @@ struct Counts {
     /// The lines the row-9 split cannot account for, named so the next run
     /// explains them instead of bounding them.
     unexplained_9: Vec<String>,
+    /// The same two rows, keyed the way `rank_board` keys them: `row_key` over
+    /// the reason, with the case set beside the count so the case number is
+    /// comparable to the board's. `bd tsr-4r4`.
+    rank_board_keyed: BTreeMap<String, (usize, std::collections::BTreeSet<String>)>,
     /// Cases touched, for the concentration check on the sub-population.
     by_case_9: BTreeMap<String, usize>,
     by_case_10_same_file: BTreeMap<String, usize>,
@@ -98,6 +102,11 @@ impl Counts {
         self.row_10 += other.row_10;
         self.no_symbol_9 += other.no_symbol_9;
         self.unexplained_9.extend(other.unexplained_9);
+        for (key, (count, cases)) in other.rank_board_keyed {
+            let entry = self.rank_board_keyed.entry(key).or_default();
+            entry.0 += count;
+            entry.1.extend(cases);
+        }
         self.no_symbol_10 += other.no_symbol_10;
         for (map, from) in [
             (&mut self.attributed_9, other.attributed_9),
@@ -120,6 +129,25 @@ impl Counts {
             }
         }
     }
+}
+
+/// `rank_board`'s `row_key` (`examples/rank_board.rs:145`), replicated verbatim
+/// so the two instruments can be compared inside one process.
+///
+/// It is a *shortening* function: it cuts a reason at one of two markers and
+/// keeps the prefix. Neither marker occurs in either of this probe's two rows,
+/// so `row_key` is the identity on both — which is the argument this replica
+/// exists to stop being an argument. `bd tsr-4r4` records a 105-line
+/// disagreement with the board on one of the two rows, and an argument that a
+/// function is the identity is worth exactly as much as the `+=` row's argument
+/// that an arm was missing.
+fn rank_board_row_key(reason: &str) -> &str {
+    for cut in ["has no such property: ", "unresolved: "] {
+        if let Some(at) = reason.find(cut) {
+            return &reason[..at + cut.len() - 2];
+        }
+    }
+    reason
 }
 
 /// Whether an alias form resolves inside the file that declares it.
@@ -201,6 +229,19 @@ fn main() {
                     };
                     let reason =
                         types_producer::gap_reason(&mut checker, bound, nodes, node_map, id);
+                    // RECONCILIATION. `rank_board` buckets on `row_key(reason)`
+                    // paired with `cause(...)`; this buckets on `reason` alone.
+                    // Both are computed here, in one process over one set of
+                    // lines, so a disagreement between the two columns is a
+                    // fact about *this* probe and a disagreement between this
+                    // column and `rank_board`'s printed table is a fact about
+                    // `rank_board`. See `bd tsr-4r4`.
+                    let key = rank_board_row_key(&reason);
+                    if key == ROW_9 || key == ROW_10 {
+                        let entry = counts.rank_board_keyed.entry(key.to_string()).or_default();
+                        entry.0 += 1;
+                        entry.1.insert(case.name.clone());
+                    }
                     if reason == ROW_9 {
                         counts.row_9 += 1;
                         *counts.by_case_9.entry(case.name.clone()).or_default() += 1;
@@ -565,6 +606,14 @@ fn check_classifier() {
 
 fn report(counts: &Counts) {
     println!("\n# rank_board rows 9 and 10, split\n");
+
+    println!("## Reconciliation against the board (`bd tsr-4r4`)");
+    println!("  Keyed as `rank_board` keys it — row_key(reason) — over the same lines:");
+    for (key, (lines, cases)) in &counts.rank_board_keyed {
+        let row = if key == ROW_9 { "row 9 " } else { "row 10" };
+        println!("  {row}  {lines:>6} lines  {:>5} cases   {key}", cases.len());
+    }
+    println!("  Board at c60b086^: row 9 = 2,618 lines / 769 cases; row 10 = 2,535 / 1,027.\n");
 
     println!("## Controls (all must read 0)");
     println!("  row 9:  NO SYMBOL        {}", counts.no_symbol_9);

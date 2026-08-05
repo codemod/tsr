@@ -27,18 +27,27 @@ corrected number to be visibly corrected rather than silently edited.
    expression that is itself a gap, 16.4% `async`/generator waiting on
    `Promise`/`Generator`, 11.8% a destructuring parameter. Nothing in it is
    `symbols.rs` work, and almost none of it is terminal.
-3. **Row 10 splits 17.8% same-file / 82.2% cross-file.** `export { q }` is the
-   largest same-file form at **198 lines — 46.8% of the same-file half**, and it
-   is what this slice built. `import a = b.c` at 158 is the second, and nobody
-   has looked at it (`bd tsr-93f`).
-4. **The existing instrument could not have produced either split, and the
+3. **Row 10 splits 17.8% same-file / 82.2% cross-file, and the two halves are
+   different kinds.** 423 lines are kind 1; **1,956 (77%) are kind 2 behind a
+   `Checker::new` signature change** — a dependency `rank_board`'s classifier
+   cannot see, for exactly the reason finding 2 gives. The board's
+   "2,535 TERMINAL" should be read as "423 TERMINAL". `export { q }` is the
+   largest same-file form at 198 lines (46.8% of the same-file half) and is what
+   this slice built; `import a = b.c` at 158 is the second and is unexamined
+   (`bd tsr-93f`).
+4. **Row 10 has the best case-gate profile on the whole board** —
+   `finishes 117`, higher than any other Ranking A row, median residual 6. The
+   arm delivered 9.4 lines per case against the object-literal slice's 61. And
+   three-quarters of it is blocked. §4.
+5. **The existing instrument could not have produced either split, and the
    reason is structural**, not an oversight. §2 says why, and it was the first
    thing checked.
-5. **The prediction MISSED**, and it decomposes: population right, rate wrong.
+6. **The prediction MISSED**, and it decomposes: population right, rate wrong.
    §7 scores it.
-6. **The split's row-10 total (2,430) does not reconcile with the board's
-   (2,535)** at an identical compiler and an identical corpus pin. §9 records
-   what has been excluded and the one run that localises it.
+7. **The split's row-10 total (2,430) does not reconcile with the board's
+   (2,535)** at an identical compiler and an identical corpus pin, and row 9
+   agrees exactly at 2,618/769 through the same code. §9 records the five
+   exclusions and the single number that splits it.
 
 ## 1. The dispatch, read before believing either row name
 
@@ -307,10 +316,59 @@ for it is quoting the wrong number.
 the largest same-file form, and `import a = b.c` at 158 is the second and is
 unexamined (`bd tsr-93f`).
 
-The cross-file half is blocked exactly as `checker-notes-arrays.md` records:
-`Checker::new` takes `(binder, nodes, node_map)` and `BindResult` exposes no
-specifier-to-file map, so ES imports need module resolution plumbed in — a
-`Checker::new` signature change, not an arm in this file.
+### Row 10 is in Ranking A on the same grounds row 9 was, and 77% of it is kind 2
+
+§1 established that `TERMINAL` is `cause()`'s **default arm** and that row 9
+landed there by construction — a declaration name is a leaf, so `gapped_below`
+can never fire, and the reason names no initialiser and no annotation. **Every
+one of those three facts is equally true of row 10**, and the first draft of this
+page stopped one step short of applying its own finding to its own row. It argued
+from that structure only that *"every row-10 line is `Terminal`, so the board's
+2,535 is the whole row"* — which is a sound statement about `rank_board`'s
+**arithmetic** and says nothing whatever about the **kind**.
+
+The kind is not one thing:
+
+| half | lines | kind | blocked on |
+|---|---:|---|---|
+| same-file | **423** | **1 — genuinely terminal** | nothing; `export { q }` was 198 of it and is done at 47.5% |
+| cross-file | **1,956 (77%)** | **2** | module resolution: `Checker::new` takes `(binder, nodes, node_map)` and `BindResult` exposes no specifier-to-file map |
+| neither (`export as namespace N`) | 50 | — | its target is the file's own module symbol; needs no module graph and is not a local form either |
+
+`Checker::new`'s signature change is a dependency **the classifier cannot see,
+for precisely the reason §1 identifies**: it is not a gapped line inside the
+node's span, and it is not named in the reason string. So the honest statement of
+the row is **423 kind-1 lines and 1,956 kind-2 lines**, not "2,535 TERMINAL" —
+and the second reading is the one that would send the next agent at a workstream
+believing it is a slice.
+
+**This is the same trap one row over, and finding it in someone else's row did
+not stop me making it in mine.** That is worth more than the correction: a
+structural finding is only as useful as the number of places its author then
+applies it, and the natural stopping point is the row that was assigned to
+someone else.
+
+### The case-gate profile, which is the best on the board
+
+`rank_board` at `c60b086^` reports **`finishes 117`** for this row — the number
+of cases that would have *nothing left* if the row closed. That is the **highest
+of any row in Ranking A**, above `reference, the name does not resolve` (114),
+`SymbolFlags(FUNCTION)/FunctionDeclaration` (67), `CallExpression` (41),
+`ArrowFunction` (18) and `member name, the receiver has no such property` (**0**).
+Its median residual is 6 other failing lines, also among the lowest.
+
+The `export { q }` arm delivered **+10 cases from 94 lines — 9.4 lines per case**,
+inside a row whose profile predicted exactly that. Given
+`checker-notes-rank.md`'s finding that the case gate is ~2.9× cheaper than the
+gradient, **the rest of this row may be the best-shaped remaining work anywhere
+on `checker_types`** — and 1,956 lines of it is the cross-file half, which is
+kind 2.
+
+Those two sentences are in tension and both are true, which is the point:
+**the row with the best case-gate profile on the board is three-quarters blocked
+behind a `Checker::new` signature change.** That makes the signature change an
+item worth ranking on its own, rather than a caveat attached to a row nobody can
+take.
 
 ### The adjacent board row
 
@@ -539,52 +597,86 @@ reason not to look at anything else in that half, and at 46.8% that reasoning is
 wrong. `import a = b.c` at 158 lines is now visible as a peer, not a footnote
 (`bd tsr-93f`).
 
-**The rule this cost:** a filtered run's *shares* do not transfer even when its
+**The rule this cost — the third sampling error in this project, and the first
+stated as a rule:** a filtered run's *shares* do not transfer even when its
 *totals* look proportionate. The probe printed a banner saying the counts were
 not a share of the gradient, and the banner was obeyed for the totals and
 ignored for every ratio computed from them.
 
 ---
 
-## 9. UNRESOLVED: the split reads 2,430 for row 10, the board reads 2,535
+## 9. STILL UNRESOLVED: the split reads 2,430 for row 10, the board reads 2,535
 
 `bd tsr-4r4`. A 105-line disagreement, 4.1%. `docs/conventions.md` treats an
-unexplained gap
-between two instruments as a finding, not a rounding difference, and this is the
-second such disagreement this cycle — the members agent hit a 3-line version.
+unexplained gap between two instruments as a finding, not a rounding difference,
+and this is the second such disagreement this cycle — the members agent hit a
+3-line version.
 
-**Excluded, with the evidence:**
+### The localising run happened, and it narrowed the question
+
+`rank_board` at `c60b086^`, isolated worktree, own submodule checkout:
+
+```
+declaration name … SymbolFlags(FUNCT…   2618  1.88%   769   1.5%   9.2%   finishes 67   median 12
+declaration name … SymbolFlags(ALIAS…   2535  1.82%  1027   3.4%  16.5%   finishes 117  median  6
+reference        … SymbolFlags(ALIAS) / no …
+                                        1621  1.16%   595   4.9%  23.6%   finishes 0    median  8
+```
+
+Two things follow immediately:
+
+1. **Row 9 agrees exactly — 2,618 lines and 769 cases, both instruments.** The
+   selection code is *the same code* for both rows, so a selection difference
+   that loses 105 row-10 lines while losing zero row-9 lines is not a plain
+   filter difference. That is the strongest constraint available and it came for
+   free.
+2. **There are two ALIAS rows, differing only in position**: this one
+   (declaration name, 2,535) and `reference … SymbolFlags(ALIAS) / no value
+   declaration` (1,621, `finishes 0`). The population of the alias problem is
+   **4,156 lines**, not 2,535. This probe measures only the declaration-name
+   row.
+
+### What is now excluded, with the evidence
 
 - **Not compiler drift.** `git log --oneline 33e3bd5..c60b086^ -- crates/tsr-checker
   crates/tsr-binder crates/tsr-parser` is **empty**, and `git ls-tree` gives
-  `5b1047d10` for `vendor/typescript-go` at both commits. Identical compiler,
-  identical corpus.
-- **Not a keying difference.** `rank_board` buckets on `row_key(reason)`, which
-  cuts only at `"has no such property: "` and `"unresolved: "`. Row 10's string
-  contains neither, so `row_key(ROW_10) == ROW_10`; and a longer string cut down
-  would end in `"unresolved"`, never in `"no value declaration"`. The two keys
-  are equal by construction.
+  `5b1047d10` for `vendor/typescript-go` at both commits.
+- **Not a keying difference — and this is no longer an argument.** The first
+  draft reasoned that `row_key` must be the identity on this row because it cuts
+  only at `"has no such property: "` and `"unresolved: "`. That reasoning was
+  correct and it was still *an argument*, which is what the `+=` row was. The
+  probe now **replicates `row_key` verbatim** (`rank_board_row_key`) and prints
+  the two rows keyed both ways in one process over one set of lines. On the
+  `conformance/` subset the two columns are identical (746 and 746), so `row_key`
+  is measured to be the identity here rather than argued to be.
 - **Not a cause split.** Row 10's node is a leaf, so no line's span lies inside
-  it, and `cause()` cannot return `PropagatedSpan`; the reason names no
+  it and `cause()` cannot return `PropagatedSpan`; the reason names no
   dependency, so not `PropagatedNamed`; it contains neither `/ initialiser ` nor
-  `/ annotation `, so not `Unknown`. Every row-10 line is `Terminal`, and the
-  board's 2,535 is therefore the whole row rather than one cause of it.
-- **Not this probe perturbing the checker.** Measured, not argued — see §2.
+  `/ annotation `, so not `Unknown`. **This is an argument about arithmetic only
+  — see §4 for why the same structure says nothing about the row's kind.**
+- **Not this probe perturbing the checker.** Measured, not argued — §2.
 - **Not `rank_board`'s two skip paths**, both of which would make it count
-  *fewer* lines than this probe, not more: it drops a line when
-  `below.get(position)` is `None`, and that control reads 0.
+  *fewer* lines than this probe, not more.
 
-**What would localise it in one run:** `rank_board` at `c60b086^`, reading its
-row-10 line. If it still says 2,535 at a commit where this probe says 2,430, the
-two instruments disagree at identical inputs and the next step is a per-case dump
-from each — the differing cases name the cause immediately. If it says 2,430,
-the board's figure is a transcription from a different run and the disagreement
-never existed.
+### The number that splits it, and it is now instrumented
 
-Worth stating plainly because it may not be a property of either probe: **two
-independent instruments have now disagreed with `rank_board` in one cycle.** If
-the second run reproduces the disagreement, the shared suspect is `rank_board`,
-not the two probes that were built afterwards.
+The board says **1,027 cases**. This probe now prints its own row-10 case count
+in the reconciliation block:
+
+- **If it reads 1,027**, the 105 lines are inside cases this probe reached, and
+  the difference is per-line. Next step: a per-case dump from each instrument and
+  a diff — the differing cases name the cause in one step.
+- **If it reads fewer**, the 105 are in cases this probe never reached, which
+  given the exact row-9 agreement would mean a case-level difference that is
+  somehow row-specific — a stranger result, and a more interesting one.
+
+The subset run reports 312 cases for 746 lines, which says nothing on its own;
+the full-corpus number is one run away.
+
+**Worth stating plainly, because it may not be a property of either probe:** two
+independent instruments have now disagreed with `rank_board` in one cycle. If the
+case count comes back at 1,027, the shared suspect is `rank_board`, not the
+probes built afterwards.
 
 ## 10. Commands for the lead
 
@@ -596,6 +688,8 @@ cargo run -p tsr-conformance --example symbol_dispatch_split --release
 # The control mutation for §2's eliminated mechanism. Must be identical.
 SYMBOL_SPLIT_SHARE_CHECKER=1 cargo run -p tsr-conformance --example symbol_dispatch_split --release
 
-# §9's reconciliation: rank_board's own row-10 line at the same commit.
+# §9's reconciliation: the split's own row-10 CASE COUNT is the number that
+# splits it. It is printed at the top of the split's output now; the board says
+# 1,027. rank_board itself only needs re-running if a per-case diff is wanted.
 cargo run -p tsr-conformance --example rank_board --release
 ```
