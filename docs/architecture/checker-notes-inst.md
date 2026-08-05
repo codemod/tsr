@@ -210,6 +210,91 @@ No change to `crates/tsr-conformance/` was needed: the `define_counters!` macro
 generates `Snapshot::rows()` in declaration order and the example prints every
 row, so new counters appear without editing a file this workstream does not own.
 
+### Measured, 2026-08-05, at `d59bee2^..d59bee2`
+
+```text
+    property access: receiver is typed              2562
+      of which: no such member                      1985
+        receiver is Named without members           1011
+      of which: member types as error                557
+      of which: member types as a non-object          20
+      by receiver: type arguments, no member found   929
+      by receiver: type arguments, member found (CONTROL: 0)    0
+      by receiver: no type arguments                1633
+UNCLASSIFIED (typed receiver)                          0
+UNCLASSIFIED (no such member)                          0
+```
+
+All three checks this page asked for hold: 929 + 0 + 1,633 = 2,562 exactly, the
+control reads **0**, and 929 ≤ 1,011. **Call-expression nodes, not assertion
+lines** — this board has twice turned one into the other by omission.
+
+**929 is 92% of the 1,011.** Instantiation is not merely present in that sub-row,
+it is nearly the whole of it, which makes it the largest confirmed single
+mechanism anywhere on the call path — and a different defect from the 557, which
+this page spent its first section establishing.
+
+The zero control is the load-bearing half of that reading. It says the 929 are
+nodes where the lookup **never ran**, not nodes where it ran and failed, so the
+mechanism is the one named here and not a member table that exists and is
+incomplete.
+
+### The prediction for step 4, pre-registered before it is built
+
+Stated now so it cannot be fitted afterwards. The commit pair will be quoted as
+`X^..X` when it exists.
+
+**Mechanism.** Flipping `create_type_reference` to `Some(symbol)` gives every
+instantiated reference a member table, so `get_property_of_type` runs where it
+previously returned `None` before reading the name. Step 3 then substitutes the
+found member's type through the seam.
+
+**What must move:**
+
+| row | now | direction |
+|---|---|---|
+| `by receiver: type arguments, no member found` | 929 | **down** |
+| `by receiver: type arguments, member found` (today's control) | 0 | **up by the same amount** |
+| `receiver is Named without members` | 1,011 | down by the same amount |
+| `of which: no such member` | 1,985 | down by the same amount |
+
+Those four are one arithmetic identity, not four observations.
+
+**What must NOT move:**
+
+- `receiver has members, name absent` — 216. Upstream reports "property does not
+  exist" here too. **If this rises, step 4 is inventing members**, and that is a
+  revert condition rather than a result.
+- `receiver is an intrinsic` — 474 — and `receiver is a union or intersection` —
+  168. Neither shape is a type reference; if either moves, `create_type_reference`
+  is reaching types this page's model says it cannot.
+- `arity matched, nothing assignable` — 8 — and `by receiver: no type arguments`
+  — 1,633. Step 4 touches only receivers that carry type arguments.
+
+**How it could be right for the wrong reason, and this is the important half.**
+The 929 falling is *mechanically guaranteed* by step 4 and confirms **nothing**:
+giving a type a member table makes the lookup run whether or not the type it
+then produces is correct. Three quarters of this page exists because a number
+moved for a reason nobody checked. So the 929 is not the scoreable row. The
+scoreable question is **where those nodes land**:
+
+- into `of which: member types as a non-object` or out of the funnel entirely —
+  the member typed, which is the claim;
+- into `of which: member types as error` — the lookup was flipped and
+  **instantiation bought nothing**. The 557 would grow by roughly 929 and the
+  gradient would not move. That outcome is a *failure* of this item even though
+  every row above moved exactly as predicted.
+
+**No line prediction is offered.** `docs/conventions.md` scores five of six
+predictions as missing, and the sole hit was the one whose author counted
+assertion lines directly and cross-checked them against the instrument before
+quoting. Nothing here has counted a single assertion line — 929 is nodes — and a
+number derived from it by a mechanism story is exactly the shape that missed by
+6.6×, 3.6×, 2.5× twice and an order of magnitude. The cross-check that would
+license one: count `.types` assertion lines in the affected baselines whose
+subject is a property access or call on a receiver printing as `X<Y>`, and
+validate that count against the funnel's own per-case deltas before quoting it.
+
 ### The decision this gates
 
 - If `by receiver: type arguments, no member found` comes back **near the 439
@@ -225,6 +310,42 @@ row, so new counters appear without editing a file this workstream does not own.
   `checker-notes-recv.md` would still be correct and still be about a shape the
   corpus does not contain in quantity, which is the outcome this counter exists
   to be able to report.
+
+**Measured at 929, which sits between two of those thresholds and so does not
+decide it.** The rule was pre-registered and it is being reported as
+under-determined rather than rounded to whichever side is convenient — this page
+would rather say "my decision rule did not decide this" than record a threshold
+retrofitted to a number already seen, which is how the first version of the
+sizing method in `docs/conventions.md` became fitted.
+
+The open question is **ranking, not correctness**: 929 nodes at 92% of the row
+with a zero control is strong evidence the mechanism is real, and
+`checker-notes-recv.md` already demonstrated sufficiency on the shape. What is
+not settled is whether it is a gradient item or a case-gate item, and that is one
+command:
+
+```bash
+TSR_OVERLOAD_COUNTERS=1 TSR_FUNNEL_CONCENTRATION=receiver-generic \
+  RAYON_NUM_THREADS=1 cargo run -p tsr-conformance --example overload_funnel --release
+```
+
+which needs one arm added to `concentrated()` in
+`crates/tsr-conformance/examples/overload_funnel.rs` — a file this workstream
+does not own. The parent 1,011 was measured at 253 cases, 4.0 nodes per case,
+top ten 53.0%, 43.4% `Promise`: the narrow-and-deep signature
+`checker-notes-calls.md` explicitly labelled *a case-gate item, not a gradient
+item*. The default hypothesis is that the 929 inherits it, and the reason to run
+it anyway is that the same check separated the 557 from *its* parent by a factor
+of four and reversed the verdict. Inheriting the parent's concentration is an
+assumption, and this page has already been wrong once this session by inheriting
+a population instead of measuring it.
+
+**Status of the build.** Steps 1 and 2 are landed and change no answer. Steps 3
+and 4 are **not built**, and this page does not pretend otherwise — `bd
+tsr-el3.2` remains open. They are held on the concentration run above, because
+the honest scope statement differs between "a 929-node gradient item" and "five
+`Promise` baselines and a long tail", and the second is a workstream rather than
+a slice.
 
 ## Steps 1 and 2, built: the seam and the routing
 
