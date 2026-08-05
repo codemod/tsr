@@ -16,10 +16,74 @@
 //!
 //! **Get that number high before believing anything about types.**
 
+use std::sync::OnceLock;
+
 use tsr_ast::{Node, NodeId, NodeMap, NodeTable, SyntaxKind, Tree, predicates, push_children};
 use tsr_binder::SymbolFlags;
 
 use crate::types_baseline::{FileTypes, TypeAssertion};
+
+/// The current directory every case is compiled in.
+///
+/// The same one [`crate::binder_suite`] uses, so a unit named `a.ts` and a unit
+/// named `/a.ts` land on the same path in both suites.
+const CURRENT_DIRECTORY: &str = "/";
+
+/// Where the bundled `lib.*.d.ts` are mounted on the case's file system.
+///
+/// A directory no case can name: upstream's real path is machine-dependent and
+/// none of the baselines mention one, so any *observable* difference between
+/// this and a real path would be a bug on its own.
+const LIB_DIRECTORY: &str = "/.ts-lib";
+
+/// The bundled lib files, read from the submodule once per process.
+///
+/// Once, because the alternative is 12,444 reads of 3.9 MB. Their *parse* is
+/// still per case — see `docs/architecture/program.md`, "What a program of libs
+/// costs", where that was measured at 15–17 ms and judged worth paying rather
+/// than blocking on `bd tsr-6av`.
+///
+/// Empty when the submodule is absent, which degrades a case to a program with
+/// no libs — the same program this suite built before the rewire, and not an
+/// error.
+fn bundled_libs() -> &'static [(String, String)] {
+    static LIBS: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    LIBS.get_or_init(|| {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .map(|root| root.join("vendor/typescript-go/internal/bundled/libs"));
+        let Some(dir) = dir else { return Vec::new() };
+        let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+        let mut libs = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with("lib.") || !name.ends_with(".d.ts") {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(entry.path()) {
+                libs.push((format!("{LIB_DIRECTORY}/{name}"), text));
+            }
+        }
+        libs
+    })
+    .as_slice()
+}
+
+/// A case's units and the bundled libs, as a file system.
+struct CaseHost {
+    fs: tsr_vfs::InMemoryFileSystem,
+}
+
+impl tsr_module::types::ResolutionHost for CaseHost {
+    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
+        &self.fs
+    }
+
+    fn current_directory(&self) -> &str {
+        CURRENT_DIRECTORY
+    }
+}
 
 /// One `>expression : type` line, with the halves still apart.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,6 +311,60 @@ pub fn type_at_location(
         return checker.type_to_string(id);
     }
 
+    // **A base class expression prints the base's instance type, not `typeof`**,
+    // and this is a property of the *baseline writer* rather than of the checker.
+    //
+    // `class B extends A` puts `A` in an expression position, so
+    // `IsInExpressionContext` is true and `getTypeOfNode` answers `typeof A` —
+    // which is what upstream's checker answers too, correctly. Upstream
+    // compensates in the writer, at `type_symbol_baseline.go:371`, and labels it
+    // a workaround in those words:
+    //
+    // ```go
+    // // Workaround to ensure we output 'C' instead of 'typeof C' for base class expressions
+    // if ast.IsExpressionWithTypeArgumentsInClassExtendsClause(node.Parent) {
+    //     t = fileChecker.GetTypeAtLocation(node.Parent)
+    // }
+    // if t == nil || checker.IsTypeAny(t) { t = fileChecker.GetTypeAtLocation(node) }
+    // ```
+    //
+    // **`getTypeOfNode`'s own heritage branch (`checker.go:31959`) does not fix
+    // this and porting it would be dead code.** `IsExpressionNode` of an
+    // `ExpressionWithTypeArguments` is `!IsHeritageClause(node.Parent)`, so the
+    // walker never selects the `EWTA` itself and that branch is unreachable from
+    // a baseline — it exists for the language service. This function fuses
+    // upstream's walker and `getTypeOfNode`, so the compensation belongs *here*,
+    // keyed on the identifier's parent.
+    //
+    // `extends` only: `TryGetClassExtendingExpressionWithTypeArguments`
+    // (`ast/utilities.go:1430`) rejects the `implements` case, and the two halves
+    // of a class header are already asymmetric in the walker for the same reason.
+    //
+    // Worth 1,086 corpus lines, found by bucketing wrong answers by the parent
+    // kind of the node that produced them.
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(parent) == SyntaxKind::ExpressionWithTypeArguments
+        && let Some(clause) = nodes.parent(parent)
+        && let Some(Node::HeritageClause(heritage)) = map.get(clause)
+        && heritage.token.kind == SyntaxKind::ExtendsKeyword
+        && matches!(
+            nodes.parent(clause).map(|owner| nodes.kind(owner)),
+            Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
+        )
+        && nodes.kind(id) == SyntaxKind::Identifier
+        && let Some(Node::Identifier(name)) = map.get(id)
+        && let Some(symbol) =
+            binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
+    {
+        let declared = checker.get_declared_type_of_symbol(symbol);
+        // Upstream's `t == nil || IsTypeAny(t)` fallback: when the base's
+        // declared type is not available, the expression's own answer is used
+        // rather than a gap being invented here.
+        if declared != error {
+            return checker.type_to_string(declared);
+        }
+    }
+
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
         let id = checker.check_expression(expression);
         return checker.type_to_string(id);
@@ -270,6 +388,25 @@ pub fn assertions_for_case(
     expected: &[FileTypes],
     explain: bool,
 ) -> Vec<Vec<Assertion>> {
+    // **One program per case, one checker over it.** Until 2026-08-05 this loop
+    // gave each unit its own arena, bound it alone, and gave it its own
+    // `Checker`, so a case's units could not see each other and no lib file was
+    // in the picture at all. That was not a shortcut: with per-file identity a
+    // symbol from another file could not be handed to the checker without
+    // reading the wrong file's declarations. ADR-0034 widened the identity
+    // space; this is the commit that lets the measurement see it, and it is
+    // deliberately the *only* thing in its commit so its delta is the
+    // widening's effect and nothing else.
+    let arena = tsr_core::Arena::new();
+    let program = program_for_case(&arena, case);
+    let nodes = program.nodes();
+    let node_map = program.node_map();
+    let bound = program.binder();
+    // One checker for the whole program, not one per unit — which is upstream's
+    // shape (`Program` has one `Checker`) and also means a lib type resolved for
+    // the first unit is memoised for the rest.
+    let mut checker = tsr_checker::Checker::new(bound, nodes, node_map);
+
     let mut ours = Vec::new();
     for expected_file in expected {
         let Some(unit) = case
@@ -284,27 +421,25 @@ pub fn assertions_for_case(
             ours.push(Vec::new());
             continue;
         }
-        let arena = tsr_core::Arena::new();
-        let options = tsr_parser::ParseOptions {
-            jsdoc: false,
-            ..tsr_parser::ParseOptions::for_file(&unit.name)
+        // A unit the loader did not put in the program — an unsupported
+        // extension, or a name it could not read — renders empty, exactly as a
+        // unit with no expected section does. Absent rather than wrong.
+        let Some(file) = program.source_file(&unit.name, CURRENT_DIRECTORY) else {
+            ours.push(Vec::new());
+            continue;
         };
-        let file = tsr_parser::parse_with_options(&arena, &unit.content, options);
-        let bound = tsr_binder::bind(
-            file.source_file,
-            &file.nodes,
-            tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
-        );
-        let mut checker = tsr_checker::Checker::new(&bound, &file.nodes, &file.node_map);
+        // The program's copy of the text, not the case's: they are equal, and
+        // asking the file is what keeps them equal if the loader ever stops
+        // handing the host's bytes through unchanged.
+        let text = file.text();
         let mut gaps = Vec::new();
         let mut rendered = assertions_for_file(
-            &Node::SourceFile(file.source_file),
-            &unit.content,
-            &file.nodes,
-            &file.node_map,
+            &Node::SourceFile(file.source_file()),
+            text,
+            nodes,
+            node_map,
             |id| {
-                let answer =
-                    type_at_location(&mut checker, &bound, &file.nodes, &file.node_map, id);
+                let answer = type_at_location(&mut checker, bound, nodes, node_map, id);
                 if explain && answer == "error" {
                     gaps.push(id);
                 }
@@ -316,14 +451,48 @@ pub fn assertions_for_case(
             for assertion in &mut rendered {
                 if assertion.type_string == "error" {
                     let id = gaps.next().expect("one recorded gap per `error` line");
-                    assertion.reason =
-                        Some(gap_reason(&mut checker, &bound, &file.nodes, &file.node_map, id));
+                    assertion.reason = Some(gap_reason(&mut checker, bound, nodes, node_map, id));
                 }
             }
         }
         ours.push(rendered);
     }
     ours
+}
+
+/// The case's units and the bundled libs, as one program.
+///
+/// Every unit is a **root file**, rather than only the ones nothing imports:
+/// this suite renders whatever section the baseline has, and a unit dropped for
+/// being unreachable would render empty and be counted as a miss. Upstream's
+/// `programFileNames` makes the same choice for a case with no tsconfig.
+fn program_for_case<'a>(
+    arena: &'a tsr_core::Arena,
+    case: &crate::TestCase,
+) -> tsr_compiler::Program<'a> {
+    let mut files: Vec<(String, String)> = bundled_libs().to_vec();
+    let mut roots = Vec::new();
+    for unit in &case.files {
+        let name = tsr_path::get_normalized_absolute_path(&unit.name, CURRENT_DIRECTORY);
+        files.push((name.clone(), unit.content.clone()));
+        roots.push(name);
+    }
+
+    let options = crate::trace_case::apply_test_directives(
+        tsr_core::CompilerOptions::default(),
+        case,
+        CURRENT_DIRECTORY,
+    );
+    let host = CaseHost { fs: tsr_vfs::InMemoryFileSystem::new(files, [], true) };
+    tsr_compiler::Program::from_root_files(
+        arena,
+        &host,
+        tsr_compiler::LoadOptions {
+            compiler_options: options,
+            root_file_names: roots,
+            default_library_path: LIB_DIRECTORY.to_string(),
+        },
+    )
 }
 
 /// Why a property access answered `errorType`: the receiver, or the property.
@@ -797,5 +966,91 @@ mod tests {
         }];
         let ours = vec![vec![assertion("a", "X")]];
         assert_eq!(walker_agreement(&expected, &ours).matched, 0);
+    }
+
+    // ---- The program the rewire builds -------------------------------------
+
+    fn synthetic_case(source: &str) -> crate::TestCase {
+        crate::TestCase::parse("compiler/synthetic", "synthetic.ts", source)
+    }
+
+    fn sections(names: &[&str]) -> Vec<FileTypes> {
+        names
+            .iter()
+            .map(|name| FileTypes { file: (*name).to_string(), assertions: Vec::new() })
+            .collect()
+    }
+
+    /// The structural claim of the rewire, asserted where the checker's own
+    /// maturity cannot reach it.
+    ///
+    /// A `.types` line is only as good as the checker, so a test asserting a
+    /// *rendered type* would measure the checker and report it as the producer.
+    /// What the rewire changed is which files are in scope when a unit is
+    /// checked, so that is what this asserts: both units and the bundled libs,
+    /// in one program, with a lib global resolving from a case unit.
+    #[test]
+    fn a_case_is_one_program_holding_its_units_and_the_libs() {
+        let case = synthetic_case(concat!(
+            "// @filename: a.ts\n",
+            "export const a = 1;\n",
+            "// @filename: b.ts\n",
+            "import { a } from \"./a\";\n",
+            "const b = a;\n",
+        ));
+        let arena = tsr_core::Arena::new();
+        let program = program_for_case(&arena, &case);
+
+        assert!(program.source_file("a.ts", CURRENT_DIRECTORY).is_some());
+        assert!(program.source_file("b.ts", CURRENT_DIRECTORY).is_some());
+        if bundled_libs().is_empty() {
+            return; // the submodule is not checked out; see docs/conventions.md
+        }
+        assert!(
+            !program.lib_files().is_empty(),
+            "a case's program loads the bundled libs — the rewire's whole point"
+        );
+        // Not merely present: bound into the same store, which is what per-file
+        // identity could not do. `Array` is declared in `lib.es5.d.ts` and is
+        // the name the corpus asks for most.
+        let root = program
+            .source_file("b.ts", CURRENT_DIRECTORY)
+            .expect("b.ts is in the program")
+            .source_file();
+        let resolved = root.node_id.and_then(|id| {
+            program.binder().resolve_name(
+                program.nodes(),
+                program.node_map(),
+                id,
+                "Array",
+                SymbolFlags::TYPE,
+            )
+        });
+        assert!(resolved.is_some(), "a lib global resolves from a case unit");
+    }
+
+    /// The regression this rewire could most easily cause and least easily
+    /// notice: every case rendering nothing, which reads in the gate as a
+    /// checker gap rather than as a broken producer.
+    #[test]
+    fn a_single_unit_case_still_renders_its_lines() {
+        let case = synthetic_case("const x = 1;\n");
+        let rendered = assertions_for_case(&case, &sections(&["synthetic.ts"]), false);
+        assert_eq!(rendered.len(), 1);
+        assert!(
+            rendered[0].iter().any(|a| a.text == "x" && a.type_string == "1"),
+            "expected a line for `x`, got {:?}",
+            rendered[0].iter().map(Assertion::line).collect::<Vec<_>>()
+        );
+    }
+
+    /// A section naming a unit the program has no file for renders empty,
+    /// rather than panicking or borrowing another unit's tree — which is a live
+    /// possibility now that one node table holds every unit.
+    #[test]
+    fn a_section_with_no_unit_renders_empty() {
+        let case = synthetic_case("const x = 1;\n");
+        let rendered = assertions_for_case(&case, &sections(&["absent.ts"]), false);
+        assert_eq!(rendered, vec![Vec::new()]);
     }
 }

@@ -166,18 +166,10 @@ and both belong to the `.types` producer rather than to this object:
 - Whether loading the lib files moves the unresolved-name numbers — 3,126 lines
   on a lib name in value position, 3,210 in type position, 12,051 in the array
   bucket, 18,387 in all, an upper bound taken in `2f6f0bf`.
-- The conformance `.types` producer was **not** rewired to build a program, so
-  none of the lib work is visible to `checker_types` — the producer gives each
-  unit its own arena, binds it alone, and gives it its own `Checker`
-  (`types_producer.rs:273-299`). That is a property of the *measurement path*,
-  not of the lib work, and it means no further lib work can move that suite by a
-  line until the producer changes.
-
-  **Corrected 2026-08-05.** This paragraph previously gave the reason as cost
-  plus `ProgramFile` not being `Sync`, and called sharing a bound lib program a
-  prerequisite. The measurement below shows it is neither: the cost is about
-  three minutes on a corpus run, and the `Sync` problem does not arise because
-  nothing needs to be shared.
+- The conformance `.types` producer used to be the reason none of it was
+  visible to `checker_types`: it gave each unit its own arena, bound it alone,
+  and gave it its own `Checker`. **Rewired 2026-08-05**, as its own commit — see
+  below.
 
 ## The global scope, and the merge that is not ported
 
@@ -280,6 +272,32 @@ commit**. That keeps the measurement attributable: the widening lands invisibly
 else, so its delta *is* the widening's effect. Measuring the two together would
 reproduce exactly the problem this project hit when four slices landed in one
 integration run and the +5.10 could not be attributed among them.
+
+### What the rewire actually does, and what it does not
+
+`types_producer::assertions_for_case` builds **one program per case and one
+`Checker` over it**: every unit is a root file, the bundled `lib.*.d.ts` are
+mounted on the case's in-memory file system at `/.ts-lib`, and the case's own
+`@target` directives choose the default lib through
+`trace_case::apply_test_directives`. One checker rather than one per unit is
+upstream's shape and also means a lib type resolved for the first unit is
+memoised for the rest.
+
+Three consequences, stated because each of them is a way to misread the number
+it produces:
+
+- **`@lib` is not applied.** `apply_test_directives` passes `lib` straight
+  through (`trace_case.rs:417`), so a case asking for `es2015.iterable` gets the
+  *target's* default lib instead. Cases that depend on a non-default lib will
+  read as gaps for a reason that is not the checker's.
+- **The libs are parsed with JSDoc on.** The loader uses a real compiler's parse
+  options; the old producer used `jsdoc: false`. The lib text is JSDoc-dense, so
+  a corpus run costs more than the 15–17 ms/case measured above, which was taken
+  with JSDoc off.
+- **`gap_reason`'s explanations move without `gap_reason` changing.** A receiver
+  that used to be a gap can now resolve into a lib type, so lines migrate from
+  "the receiver is a gap" to "the receiver has no such property". That is the
+  instrument reading a changed world, not the instrument drifting.
 
 The alternative considered was rewiring the producer first, against today's
 per-file identity. Rejected: with per-file identity `Checker::new` takes one
