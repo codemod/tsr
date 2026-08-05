@@ -87,6 +87,23 @@ pub struct Checker<'a, 'n> {
     pub(crate) declared_types: FxHashMap<SymbolId, TypeId>,
     /// In-progress resolutions, for circularity detection.
     pub(crate) resolutions: Resolutions<SymbolId>,
+    /// Whether control-flow analysis has given up in the current container.
+    ///
+    /// Upstream's `c.flowAnalysisDisabled` (`checker.go:801`). Set when
+    /// `getTypeAtFlowNode` reaches 2,000 recursive invocations, after which
+    /// every `getFlowTypeOfReference` in the rest of the containing function or
+    /// module body answers `errorType`. It is **state, not a guard**: the limit
+    /// changes what a deep function answers rather than only protecting the
+    /// stack. See [`crate::flow`].
+    pub(crate) flow_analysis_disabled: bool,
+    /// The per-invocation memo for flow nodes with more than one antecedent.
+    ///
+    /// Upstream's `c.sharedFlows` (`checker.go:799`), a stack that each
+    /// `getFlowTypeOfReference` truncates back to its own start. Without it the
+    /// backwards walk is exponential on branchy code — a hang rather than a
+    /// wrong answer, which is why it is part of the port and not an
+    /// optimisation.
+    pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
 }
 
 impl<'a, 'n> Checker<'a, 'n> {
@@ -113,6 +130,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             resolutions: Resolutions::new(),
+            flow_analysis_disabled: false,
+            shared_flows: Vec::new(),
         }
     }
 

@@ -79,16 +79,19 @@ impl Checker<'_, '_> {
                 // grammar, so it does not arrive here.
                 _ => self.intrinsics.error,
             },
-            // Ported from `Checker.checkIdentifier`, reduced to its first step:
-            // resolve the name and take the symbol's type.
+            // Ported from `Checker.checkIdentifier`: resolve the name, take the
+            // symbol's type, and narrow it by the control flow reaching here.
             //
-            // **No control-flow narrowing.** Upstream reaches
-            // `getNarrowedTypeOfSymbol` / `getFlowTypeOfReference` here, so a
-            // reference to `let x = "a"` narrows to `"a"` at a point where the
-            // assignment dominates. This returns the *declared* type, `string`.
-            // The binder builds the flow graph already; nothing reads it yet
-            // (`bd tsr-4sc`). Until it does, reference lines in a `.types`
-            // baseline will disagree wherever narrowing applies.
+            // **Narrowing is partial**, and [`crate::flow`] says exactly which
+            // guards are ported. The property that makes that safe is upstream's
+            // own: `narrowType`'s default arm returns the type unchanged, so an
+            // unported guard leaves the declared type rather than producing a
+            // wrong one.
+            //
+            // Note that `let x = "a"` is `string` here *and* upstream —
+            // `getTypeAtFlowAssignment` reduces only when the declared type is a
+            // union, so that is not a narrowing gap however much it looks like
+            // one (`bd tsr-4sc.11`).
             Expression::Identifier(node) => {
                 let Some(id) = node.node_id else { return self.intrinsics.error };
                 // `SymbolFlags::VALUE` is upstream's meaning for an identifier
@@ -102,7 +105,20 @@ impl Checker<'_, '_> {
                     node.text,
                     SymbolFlags::VALUE,
                 ) {
-                    Some(symbol) => self.get_type_of_symbol(symbol),
+                    Some(symbol) => {
+                        let declared = self.get_type_of_symbol(symbol);
+                        // `getNarrowedTypeOfSymbol` (`checker.go`): only a
+                        // variable or parameter reference is narrowed. A class,
+                        // interface, enum or function reference is not, and
+                        // narrowing one anyway would answer a question upstream
+                        // does not ask.
+                        if self.is_narrowable_symbol(symbol) {
+                            let node_id = node.node_id.expect("checked above");
+                            self.get_flow_type_of_reference(node_id, symbol, declared)
+                        } else {
+                            declared
+                        }
+                    }
                     None => self.intrinsics.error,
                 }
             }

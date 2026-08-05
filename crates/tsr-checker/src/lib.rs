@@ -28,9 +28,6 @@
 //!
 //! Everything else, and the list is the honest measure of distance:
 //!
-//! - **No narrowing.** An identifier reference yields the *declared* type;
-//!   upstream reaches `getFlowTypeOfReference` and would narrow it. The binder
-//!   builds the flow graph and nothing reads it yet.
 //! - **No type references.** `interface I {}` cannot be used as an annotation:
 //!   `getTypeFromTypeNode` covers the keyword, literal and parenthesised forms
 //!   and yields `errorType` for everything else.
@@ -40,8 +37,13 @@
 //!   ([`unions`]), and with them `boolean` is what upstream makes it — the union
 //!   `false | true` — rather than an intrinsic.
 //! - **No assignability, inference, or overload resolution.**
-//! - **No control-flow narrowing.** The binder builds the flow graph
-//!   (`tsr-binder`) and nothing reads it yet.
+//! - **Control-flow narrowing, but only the truthiness guards.** [`flow`]
+//!   walks the binder's flow graph, so `if (x)` drops the falsy constituents of
+//!   a union. `typeof`, equality, discriminant, `instanceof` and `in` guards are
+//!   not ported, and neither is the assignment reduction, which needs an
+//!   assignability relation this crate does not have. Each unported form leaves
+//!   the declared type — upstream's `narrowType` default arm — so they are gaps
+//!   rather than wrong answers.
 //! - **No diagnostics.** Not one of the checker's error messages is ported,
 //!   including the algorithmic recursion limits (`bd tsr-el3.2`), which must be
 //!   ported as the checker is written rather than retrofitted.
@@ -86,6 +88,7 @@ pub mod checker;
 pub mod declared;
 pub mod expressions;
 pub mod flags;
+pub mod flow;
 pub mod index_signatures;
 pub mod indexed;
 pub mod intersections;
