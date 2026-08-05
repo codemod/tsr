@@ -355,28 +355,46 @@ fn an_instance_member_does_not_leak_through_typeof_c() {
 
 #[test]
 fn the_shapes_typeof_x_still_gaps() {
+    // **Every assertion below is paired with a positive control**, because a gap
+    // test whose fixture is a syntactic *form* stops testing anything the moment
+    // that form is ported, and — worse — can keep passing for a reason its
+    // comment does not claim. The control is what distinguishes "this specific
+    // step is unported" from "nothing here works at all".
+
     // **A static inherited from a base class.** Upstream reaches it through
     // `getBaseConstructorTypeOfClass` (`checker.go:20687`), which needs construct
-    // signatures (`bd tsr-4sc.8`). A miss is safe here in a way it is not for
+    // signatures (`bd tsr-4sc.8`). A miss is safe in a way it is not for
     // `base_symbols_of`: upstream layers inherited statics *underneath* own ones
     // (`addInheritedMembers`, `checker.go:20690`, adds only absent names), so a
-    // name found in the symbol's own `exports` is always upstream's symbol, and
-    // a name not found is a gap rather than the wrong one.
+    // name found in the symbol's own `exports` is always upstream's symbol.
+    let inheriting = "class B { static x = 1; }\nclass C extends B {}\n";
+    assert_eq!(type_of(&format!("{inheriting}var r = C.x;"), "r"), "error");
+    // The control: read through `B` instead of `C` and the SAME static resolves.
+    // Without this, the assertion above would pass just as well if `static x = 1`
+    // had stopped binding, or if `class C extends B` did not parse.
+    assert_eq!(type_of(&format!("{inheriting}var r = B.x;"), "r"), "number");
+
+    // **An exported type in a value position**, held out by `symbolIsValue`
+    // (`checker.go:18916`). A namespace's `exports` holds its exported types too.
+    let namespace = "namespace M { export interface I {} export const v = 1; }\n";
+    assert_eq!(value_property(namespace, "M", "I"), None);
+    // The control, and it is load-bearing here rather than ornamental: probed
+    // directly, `M`'s exports table is `["v", "I"]` — `I` **is** in the table the
+    // lookup reads. So the `None` above is the `symbolIsValue` gate rejecting it
+    // and not an empty table, which is the difference between this assertion
+    // testing the gate and testing nothing.
     assert_eq!(
-        type_of("class B { static x = 1; }\nclass C extends B {}\nvar r = C.x;", "r"),
-        "error"
+        value_property(namespace, "M", "v"),
+        Some(("v".to_string(), SymbolFlags::BLOCK_SCOPED_VARIABLE))
     );
 
-    // **An exported type in a value position.** A namespace's `exports` holds its
-    // exported types too, so `symbolIsValue` (`checker.go:18916`) is what keeps
-    // `M.I` from answering with an interface symbol.
-    assert_eq!(value_property("namespace M { export interface I {} }", "M", "I"), None);
-
-    // **A type-literal symbol.** `resolveAnonymousTypeMembers` returns at
-    // `checker.go:20662` for one, before the exports line; `crate::function_types`
-    // builds an anonymous type over `bindFunctionOrConstructorType`'s `__type`
-    // symbol, whose table holds `__call` rather than properties.
-    assert_eq!(value_property("let f: (x: number) => string;", "f", "foo"), None);
+    // **The type-literal case has no test here, deliberately.** The obvious one —
+    // `value_property("let f: (x: number) => string;", "f", "foo")` is `None` —
+    // is *vacuous*: probed directly, no symbol in that source has a non-empty
+    // `members` or `exports` table at all, so it returns `None` whether or not
+    // the flags gate exists. That is the same finding as the gate's
+    // unobservability, recorded in `crate::members`, and asserting it would
+    // dress a guaranteed `None` up as coverage.
 }
 
 #[test]
