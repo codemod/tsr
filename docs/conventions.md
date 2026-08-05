@@ -658,3 +658,29 @@ blocker biting on a fixture instead of merely being plausible. The agent that
 found this had a *real* blocker in hand for that row twice — instantiated
 generic members, `bd tsr-el3.2` — and it was the wrong one both times. No amount
 of reasoning would have revealed that; only the probe did.
+
+### The triage question, repaired: is the prerequisite *met*?
+
+The first form of this question — "does movement depend on the port computing
+something else first?" — is **true of every expression form**. `1 + 2` depends
+on typing `1`. Read strictly it classifies everything as dependency-gated and
+separates nothing.
+
+The repair is to ask not whether a prerequisite exists but whether it is **met
+for most of the population**, which is measurable rather than a judgement:
+
+| row | prerequisite | met? | outcome |
+|---|---|---|---|
+| `a += b` | LHS types | number 73%, string, any — all typed today | **kind 1** |
+| `...x` | spread type | string, number, small unions — typed today | **kind 1** |
+| `any` receiver | port produces `any` for the receiver | flow/evolving-array, unported | **kind 2**: 7,068 candidates, 950 moved |
+| `symbol has no type: …` | the symbol has a type | unmet *by construction* — the row name says so | **kind 2** |
+
+The `any`-receiver row and the `+=` row have the same *shape* of dependency and
+opposite outcomes, which is exactly why "has a dependency" cannot be the
+criterion.
+
+**The named test of this repaired criterion is `+=` and spread themselves.** If
+either converts far less than its row size when built, the repair is wrong too.
+Recorded before the work, not after — the first version of this method became
+fitted by being invented to explain a number already seen.
