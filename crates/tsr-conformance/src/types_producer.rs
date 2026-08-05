@@ -304,6 +304,25 @@ mod tests {
     }
 
     #[test]
+    fn a_heritage_clause_is_a_type_when_it_implements_and_an_expression_when_it_extends() {
+        // The two halves of a class header are not symmetric. `extends B`
+        // evaluates `B` as a value, so it gets a line; `implements I` names a
+        // type, so it does not. And `interface I extends J` is a type as well,
+        // because the clause's owner is an interface rather than a class — the
+        // `!IsClassLike(parent.Parent)` half of the upstream condition.
+        // Counted, not `contains`: `class B {}` emits `B` as its own declaration
+        // name, so a containment check passes whether or not the `extends B`
+        // reference was kept — which made an earlier version of this test blind
+        // to the case it exists for.
+        let count = |source: &str, name: &str| {
+            texts(source).into_iter().filter(|text| text == name).count()
+        };
+        assert_eq!(count("class B {} class C extends B {}", "B"), 2, "declaration and base");
+        assert_eq!(count("interface I {} class C implements I {}", "I"), 0, "both are types");
+        assert_eq!(count("interface J {} interface I extends J {}", "J"), 0, "both are types");
+    }
+
+    #[test]
     fn a_type_aliass_own_name_is_kept_although_it_declares_no_value() {
         // Upstream's exception, and its reason: "for a complex type alias
         // `type T = ...`, showing T : T isn't very helpful" — but the name is

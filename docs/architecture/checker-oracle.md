@@ -301,18 +301,23 @@ Built 2026-08-05 (`crates/tsr-conformance/src/types_producer.rs`), measured by
 `cargo run -p tsr-conformance --example types_walker --release` over the same
 9,538 cases the suite judges:
 
-| | first build | + `GetMeaningFromDeclaration` |
-|---|---:|---:|
-| assertion lines upstream | 478,954 | 478,954 |
-| assertion lines we emit | 499,816 | **481,365** |
-| text agreement | 311,705 (65.08%) | **436,072 (91.05%)** |
-| cases with the right count | 5,602 (58.73%) | **8,143 (85.37%)** |
-| cases matching every line | 5,376 (56.36%) | **7,877 (82.59%)** |
+| | first build | + `GetMeaningFromDeclaration` | + heritage clauses |
+|---|---:|---:|---:|
+| assertion lines upstream | 478,954 | 478,954 | 478,954 |
+| assertion lines we emit | 499,816 | 481,365 | **479,771** |
+| text agreement | 311,705 (65.08%) | 436,072 (91.05%) | **457,775 (95.58%)** |
+| cases with the right count | 5,602 (58.73%) | 8,143 (85.37%) | **8,629 (90.47%)** |
+| cases matching every line | 5,376 (56.36%) | 7,877 (82.59%) | **8,350 (87.54%)** |
 
-Porting `GetMeaningFromDeclaration` — 26 points — was the single largest step,
-because type declarations are dense in the corpus and every one of their names
-was producing a line upstream drops. Over-emission fell from 20,862 excess lines
-to 2,411.
+Two ports, both of predicates already named as missing, took this from two-thirds
+to 95.58%. `GetMeaningFromDeclaration` was worth 26 points, because type
+declarations are dense in the corpus and every one of their names was producing a
+line upstream drops. `isPartOfTypeExpressionWithTypeArguments` was worth a further
+4.5, and it is the more interesting of the two: the two halves of a class header
+are **not symmetric**, because `class C extends B` evaluates `B` as a value and
+gets a line while `class C implements I` names a type and gets none.
+
+Over-emission fell from 20,862 excess lines to **817**.
 
 **No type is involved in any of those numbers.** They are the prefix test
 described above, so they measure node selection and text extraction alone.
@@ -320,19 +325,18 @@ described above, so they measure node selection and text extraction alone.
 Two causes account for most of the gap, both visible in the sampled first
 divergences and both known rather than mysterious:
 
-- **`isPartOfTypeExpressionWithTypeArguments` is not ported.** In
-  `class C implements IList`, upstream treats the heritage clause's
-  `ExpressionWithTypeArguments` as part of a type and drops `IList`; we keep it.
-  This is now the largest identified cause and the obvious next step.
-- **Some keyword tokens reach the output** (`ours: const`, `ours: return`),
-  which the selection predicates should have rejected. Every sampled case is
-  invalid TypeScript, so this is either a predicate defect or an error-recovery
-  tree that differs from upstream's — not yet separated.
+- **Keyword tokens reach the output** (`ours: const`, `ours: return`), which the
+  selection predicates should have rejected. This is now the *dominant* remaining
+  cause in the sampled divergences. Every sampled case is **invalid TypeScript**
+  — `ClassDeclarationWithInvalidConstOnPropertyDeclaration` is named for it — so
+  the likeliest explanation is that our error recovery builds a different tree
+  than upstream's rather than that a predicate is wrong. Not yet separated, and
+  separating it is the next step: compare the two trees on one such case before
+  touching any predicate.
+- **Type-only namespaces**, per the `GetModuleInstanceState` approximation
+  above.
 
-An earlier third cause, **`GetMeaningFromDeclaration` being unported**, was the
-largest and is now fixed; see the table above.
-
-Read 91.05% as *the walker is mostly right and its remaining errors are
+Read 95.58% as *the walker is mostly right and its remaining errors are
 concentrated in two identified places*, not as a pass rate. The bar for wiring it
 into the suite is that the residual be small enough that a moving gradient means
 the checker rather than the walker.

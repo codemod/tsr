@@ -91,6 +91,9 @@ pub fn is_part_of_type_node(id: NodeId, tree: Tree<'_, '_>) -> bool {
         | SyntaxKind::NeverKeyword => true,
         // `void` is a type everywhere except in `void expr`.
         SyntaxKind::VoidKeyword => tree.parent_kind(id) != Some(SyntaxKind::VoidExpression),
+        SyntaxKind::ExpressionWithTypeArguments => {
+            is_part_of_type_expression_with_type_arguments(id, tree)
+        }
         SyntaxKind::TypeParameter => {
             matches!(tree.parent_kind(id), Some(SyntaxKind::MappedType | SyntaxKind::InferType))
         }
@@ -123,6 +126,35 @@ pub fn is_part_of_type_node(id: NodeId, tree: Tree<'_, '_>) -> bool {
     }
 }
 
+/// Whether an `ExpressionWithTypeArguments` sits in a *type* position.
+///
+/// Ported from `isPartOfTypeExpressionWithTypeArguments` (`utilities.go`). The
+/// distinction it draws is between the two halves of a class header:
+///
+/// - `class C extends B` — `B` is an **expression**. The base is evaluated as a
+///   value, so it gets a `.types` line.
+/// - `class C implements I` — `I` is a **type**, and gets none.
+/// - `interface I extends J` — `J` is a type too, because the heritage clause's
+///   owner is an interface rather than a class.
+///
+/// The JSDoc `@implements`/`@augments` arms are not ported; this parser does not
+/// build those tags.
+fn is_part_of_type_expression_with_type_arguments(id: NodeId, tree: Tree<'_, '_>) -> bool {
+    let Some(clause) = tree.parent(id) else { return false };
+    if tree.kind(clause) != SyntaxKind::HeritageClause {
+        return false;
+    }
+    let owner_is_class = matches!(
+        tree.parent(clause).map(|p| tree.kind(p)),
+        Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
+    );
+    let implements = match tree.node(clause) {
+        Some(Node::HeritageClause(n)) => n.token.kind == SyntaxKind::ImplementsKeyword,
+        _ => false,
+    };
+    !owner_is_class || implements
+}
+
 /// Ported from `isPartOfTypeNodeInParent` (`utilities.go:1383`).
 ///
 /// Upstream's comment is the reason this is a separate function and does **not**
@@ -145,6 +177,9 @@ fn is_part_of_type_node_in_parent(id: NodeId, tree: Tree<'_, '_>) -> bool {
         return true;
     }
     match parent_kind {
+        SyntaxKind::ExpressionWithTypeArguments => {
+            is_part_of_type_expression_with_type_arguments(parent, tree)
+        }
         SyntaxKind::TypeParameter => match tree.node(parent) {
             Some(Node::TypeParameterDeclaration(n)) => {
                 n.constraint.and_then(|c| c.node_id()) == Some(id)
