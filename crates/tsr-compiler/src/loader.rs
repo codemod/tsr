@@ -94,10 +94,24 @@ pub enum RequestKind {
     TypeReferenceDirective,
 }
 
-/// One resolution the loader asked for.
+/// One resolution the loader asked for, **and what it answered**.
 ///
-/// This is the unit the loader is judged on: it is exactly what a
-/// `======== Resolving … ========` header records.
+/// This is the unit the loader is judged on: `kind`, `name`, `containing_file`
+/// and `mode` are exactly what a `======== Resolving … ========` header records,
+/// and `(containing_file, name, mode)` is also exactly upstream's cache key —
+/// `module.ModeAwareCacheKey{Name, Mode}` under `p.resolvedModules[file.Path()]`
+/// (`internal/compiler/program.go:521`-`:527`).
+///
+/// # Why the answer is kept
+///
+/// It was computed and dropped on the line that computed it. The loader resolves
+/// a specifier, uses the resolved file name to open a subtask, and lets it go —
+/// so the program that comes out of the load knows *which files* it holds and
+/// not *which import reached which file*. That edge is the whole of what a
+/// checker needs to type a cross-file `import`, and rebuilding it later means
+/// running the resolver a second time against a file system the program no
+/// longer holds. See
+/// [ADR-0041](../../../docs/adr/0041-the-checker-asks-its-program-for-a-module.md).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolutionRequest {
     /// Module or type reference directive.
@@ -108,6 +122,22 @@ pub struct ResolutionRequest {
     pub containing_file: String,
     /// The format it is resolved as.
     pub mode: ResolutionMode,
+    /// The file name the resolver answered, when it resolved one.
+    ///
+    /// `None` is upstream's `!resolvedModule.IsResolved()`. Upstream stores an
+    /// unresolved `*module.ResolvedModule` rather than nothing, because it
+    /// reports `GetResolutionDiagnostic` off it; nothing here reads a
+    /// diagnostic yet, so the unresolved case is the absence and a consumer
+    /// cannot tell "never asked" from "asked and failed". Both must answer
+    /// `errorType`, which is why the collapse is safe today and would stop
+    /// being safe the moment TS2307 is ported.
+    ///
+    /// **Not filtered by `should_add_file`.** A resolution that the program
+    /// declines to *add* as a file — a `.js` under `allowJs: false`, say — is
+    /// still a resolution, and upstream's `resolvedModules` records it for the
+    /// same reason. Whether the target is in the program is the *reader's*
+    /// question, answered by looking the path up.
+    pub resolved: Option<String>,
 }
 
 /// What a load is asked for.
@@ -176,7 +206,7 @@ pub struct LoadedFiles<'a> {
     pub nodes: tsr_ast::NodeTable,
     /// The typed node behind each id, over the same shared numbering.
     pub node_map: tsr_ast::NodeMap<'a>,
-    /// Every resolution requested, in replay order.
+    /// Every resolution requested **and what it answered**, in replay order.
     pub requests: Vec<ResolutionRequest>,
     /// Every trace line the resolver produced, in replay order.
     pub traces: Vec<Trace>,
@@ -606,6 +636,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 name: name.clone(),
                 containing_file: containing_file.clone(),
                 mode,
+                resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -652,6 +683,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 name: directive.file_name.clone(),
                 containing_file: file_name.clone(),
                 mode,
+                resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -709,6 +741,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 name: specifier.text.clone(),
                 containing_file: file_name.clone(),
                 mode,
+                resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
             });
             self.tasks[index].resolutions_trace.extend(traces);
 
@@ -1360,6 +1393,54 @@ mod tests {
         );
         assert_eq!(names(&loaded), [("./c", "/b.ts")]);
         assert_eq!(loaded.file_names, ["/c.ts", "/b.ts", "/a.ts"]);
+    }
+
+    #[test]
+    fn a_request_carries_the_file_the_resolver_answered() {
+        // The loader computed this and threw it away on the line that computed
+        // it: `resolved.resolved_file_name` went into `add_sub_task` and was
+        // dropped. Without it a program knows *which* files it holds and not
+        // *which import reached which file*, which is the edge a cross-file
+        // alias needs. ADR-0041.
+        let loaded = load(
+            &[("/a.ts", "import \"./b\";\nimport \"./nope\";\n"), ("/b.ts", "export {};\n")],
+            &["/a.ts"],
+            traced(),
+        );
+        let answered: Vec<(&str, Option<&str>)> =
+            loaded.requests.iter().map(|r| (r.name.as_str(), r.resolved.as_deref())).collect();
+        assert_eq!(
+            answered,
+            [("./b", Some("/b.ts")), ("./nope", None)],
+            "the resolved name survives the load, and an unresolved import is `None` \
+             rather than a plausible-looking path"
+        );
+    }
+
+    #[test]
+    fn a_request_records_a_resolution_the_program_declines_to_add() {
+        // `should_add_file` is what decides membership, and it runs *after* the
+        // resolution. A `.js` under `allowJs: false` resolves and is then not
+        // added — upstream's `resolvedModules` records it just the same, so a
+        // reader asking "what did this import resolve to" gets the resolver's
+        // answer and not the program's membership test.
+        //
+        // The control is pinned by construction rather than by arithmetic: the
+        // file list here is fixed at exactly `/a.ts` **before any code runs**,
+        // because `allow_js` is off and `/b.js` is the only other file. So a
+        // change that accidentally recorded only added files would leave this
+        // request's `resolved` at `None` and cannot pass by coincidence.
+        let loaded = load(
+            &[("/a.ts", "import \"./b\";\n"), ("/b.js", "export {};\n")],
+            &["/a.ts"],
+            traced(),
+        );
+        assert_eq!(loaded.file_names, ["/a.ts"], "`/b.js` is resolved and not added");
+        assert_eq!(
+            loaded.requests.iter().map(|r| r.resolved.as_deref()).collect::<Vec<_>>(),
+            [Some("/b.js")],
+            "…and the resolution is recorded anyway"
+        );
     }
 
     #[test]
