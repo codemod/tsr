@@ -93,3 +93,55 @@ module. Reaching it needs one `pub(crate)` entry point there — an edit outside
 this slice's file, so it was left alone rather than reached for. That single
 change is the whole of case 4, and it is worth roughly the ~716 unannotated
 getters.
+
+## The most common test defect in this project: exercising without discriminating
+
+Five instances in one cycle, across three agents. It is worth naming because it
+is **invisible to every gate**: the code is right, the test passes, the test is
+mutation-checked, and the mutation *applies* — and the test still asserts nothing.
+
+A test discriminates when its fixture produces **different output under the
+correct implementation than under the plausible wrong one**. A test merely
+exercises when both readings produce the same output. Only the first is a test.
+
+### The five
+
+1. **A fixture that never reaches the mutated branch.** My first mutation of the
+   qualified-alias arm resolved a 2-level entity name; the fixture was
+   `foo.bar.baz`, 3 levels, so the mutated code returned early and never ran.
+   `grep -c` said 1/0 — the text had changed — and the test stayed green. Fixed by
+   mutating the whole walk instead. **`grep -c` proves the text changed, not that
+   the code ran.**
+2. **`contains` over a bag of pairs.** `types_producer.rs`'s import-equals test
+   used `contains(&("M", "typeof M"))` and survived a mutation disabling the rule
+   entirely, because `namespace M` emits its *own* identical pair at index 0. A
+   bag cannot tell one occurrence from another. Fixed by whole-vector equality.
+3. **Two readings that agree on the fixture.** The arrow-transparency test used
+   `function* g() { var h = () => { yield 1; }; }`. With the arrow transparent the
+   walk reaches `g`, an unannotated generator, which *also* answers `any`. Fixed
+   by annotating `g` so the two readings diverge. (Recorded in `checker.md`.)
+4. **The `typeof` constituent order**, same cycle, same shape. (Second-hand;
+   see `checker.md`.)
+5. **Designed around rather than discovered:** the accessor getter/setter
+   ordering is observable *only* when the two annotations carry different types.
+   `get x(): number` beside `set x(v: string)` discriminates; `get x(): number`
+   beside `set x(v: number)` would have passed under either order and pinned
+   nothing. The fixture was chosen for that reason.
+
+### The check that catches all five
+
+Before writing a fixture, ask: **what is the plausible wrong implementation, and
+what does this exact fixture print under it?** If the answer is "the same thing",
+the fixture is decoration however carefully the assertion is written. This is
+cheaper than mutation testing and catches the cases mutation testing misses,
+because a mutation that never executes reports success.
+
+Two corollaries, both paid for:
+
+- **A gap fixture must be a failure, not a form.** Using a syntactic form as the
+  stand-in for "the checker cannot type this" means the test silently changes
+  meaning the day someone ports the form. Prefer an unresolvable name.
+- **When printing cannot distinguish two implementations, assert about the
+  type.** An enum's declared type printed `E` both before and after it became a
+  real union, so the test asserts `UNION` in the flags and one constituent per
+  member. Reverting the arm reddens it; nothing about the printed line would have.
