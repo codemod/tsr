@@ -21,12 +21,28 @@
 //! - **It does not read tsconfig.json.** Options arrive as a
 //!   [`CompilerOptions`], which is what upstream's `program.go` takes — it
 //!   imports `internal/core` and not `internal/tsoptions`.
-//! - **It does not merge globals.** Upstream does that in the *checker*
-//!   (`initializeTypeChecker` merges each script file's locals into `c.globals`),
-//!   and so should we, when there is one. This is the reason a program that
-//!   holds `lib.es5.d.ts` still cannot answer `Array`: see
-//!   [ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md),
-//!   which says what is in the way and what would have to change.
+//! - **It does not merge globals — the *binder* does, and this note used to say
+//!   otherwise.** Until [ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md)
+//!   landed (`454478a`, `fa16ae4`) this crate held one `BindResult` per file and
+//!   no file could see another's names; the sentence here read "this is the
+//!   reason a program that holds `lib.es5.d.ts` still cannot answer `Array`".
+//!   **That has been false since the widening.** `bind_into` accumulates every
+//!   file into one `BindResult`, and `Binder::merge_globals`
+//!   (`crates/tsr-binder/src/binder.rs:511`) folds each *script* file's
+//!   top-level locals into `BindResult::globals` — upstream's
+//!   `initializeChecker` loop (`internal/checker/checker.go:1300`-`:1328`), in
+//!   the binder rather than the checker because that is where this port's
+//!   symbol tables live. ADR-0034's own outcome section measured the effect:
+//!   lib names unresolved in type position went 3,209 to **3**.
+//!
+//!   What is genuinely still missing is one step further in: upstream's
+//!   `mergeGlobalSymbol` (`checker.go:1386`) calls `mergeSymbol` (`:14146`),
+//!   which unions the *declarations* of two symbols sharing a name. This port
+//!   takes **first-in-wins** (`entry().or_insert()`) and says so where it does
+//!   it. That is not a small residue for lib types specifically —
+//!   `interface Array<T>` is declared across **8** bundled lib files and
+//!   `String` across 10 — so a global resolves, and carries only the members of
+//!   whichever file bound first. `T[]` therefore answers; `a.flat()` does not.
 //!
 //! # Two ways in
 //!
