@@ -502,9 +502,11 @@ harness loads no lib files.
 ### Prediction
 
 Rows: the **66 reachable object-literal-member functions in 33 files**, footprint
-**259 assertion lines**. Commit pair: `X^..X` where `X` is the commit named in
-the handoff below; verify with `git log --oneline X^..X` before spending a
-measurement on it.
+**259 assertion lines**. Commit pair: **`2e00f90^..2e00f90`**, verified with
+`git log --oneline 2e00f90^..2e00f90` to resolve to exactly one commit. That is
+the only commit carrying a checker change this cycle from this module; the SHA
+was filled in by the doc-only commit immediately after it, which touches no
+code.
 
 Mechanism: the member's arrow parameter stops answering the implicit `any` and
 answers the interface property's parameter type instead, so the parameter's own
