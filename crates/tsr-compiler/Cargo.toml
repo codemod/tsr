@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 tsr-ast = { workspace = true }
 tsr-binder = { workspace = true }
+tsr-checker = { workspace = true }
 tsr-core = { workspace = true }
 tsr-diagnostics = { workspace = true }
 tsr-parser = { workspace = true }
@@ -21,6 +22,10 @@ rustc-hash = { workspace = true }
 
 [dev-dependencies]
 tsr-vfs = { workspace = true }
+tsr-ast = { workspace = true }
+tsr-checker = { workspace = true }
+tsr-module = { workspace = true }
+tsr-core = { workspace = true }
 
 [lints]
 workspace = true

@@ -535,6 +535,24 @@ impl<'a> Program<'a> {
     }
 }
 
+/// `Program` is what the checker's module seam is implemented by
+/// (`internal/compiler/program.go`'s `*Program` satisfying
+/// `checker.Program`, `internal/checker/checker.go:547`).
+///
+/// The dependency runs **this way round on purpose**: `tsr-compiler` names
+/// `tsr-checker`, as upstream's `internal/compiler` imports
+/// `internal/checker`. The reverse would become a cycle as soon as the compiler
+/// drives a check traversal for diagnostics
+/// ([ADR-0040](../../../docs/adr/0040-diagnostics-come-from-a-check-traversal-and-assignability-gets-a-reporting-twin.md)),
+/// which is why the trait is declared over there and satisfied here rather than
+/// the checker taking a `Program`. See
+/// [ADR-0041](../../../docs/adr/0041-the-checker-asks-its-program-for-a-module.md).
+impl tsr_checker::resolution::ModuleHost for Program<'_> {
+    fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId> {
+        Program::resolved_module(self, importing_file, specifier)
+    }
+}
+
 /// Each file's `SourceFile` node id to its index in `files`.
 ///
 /// A file whose `SourceFile` carries no id is skipped rather than panicked on:

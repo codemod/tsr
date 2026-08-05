@@ -26,7 +26,7 @@ use tsr_binder::{BindResult, SymbolId};
 use crate::{
     intrinsics::Intrinsics,
     printing,
-    resolution::Resolutions,
+    resolution::{ModuleHost, Resolutions},
     types::{TypeId, TypeStore},
 };
 
@@ -47,6 +47,23 @@ pub struct Checker<'a, 'n> {
     /// in the node.
     pub(crate) node_map: &'n NodeMap<'a>,
     pub(crate) binder: &'a BindResult<'a>,
+    /// The program, reduced to the one question the checker cannot answer for
+    /// itself: which file a module specifier names.
+    ///
+    /// Upstream's `c.program` (`internal/checker/checker.go:581`), whose type is
+    /// the `Program` interface declared at `checker.go:547` and assigned at
+    /// `checker.go:908`. `Option` because upstream's is never absent and this
+    /// port's frequently is — see [`Checker::new`] for why that is a
+    /// constructor decision rather than a defect.
+    ///
+    /// **Lifetime `'n`, not `'a`.** `'a` is the arena every node and symbol
+    /// borrows from; `'n` is the borrow of the tables. The host is a
+    /// `tsr_compiler::Program`, which *borrows* the arena rather than owning it
+    /// ([ADR-0034](../../../docs/adr/0034-a-program-needs-one-identity-space.md),
+    /// "Who owns the arena"), so its own borrow is the shorter of the two and
+    /// tying it to `'a` would demand a program that outlives the arena it
+    /// borrows — which no caller can supply.
+    pub(crate) module_host: Option<&'n dyn ModuleHost>,
     /// `expression node -> its type`, the memo upstream keeps in `nodeLinks`.
     pub(crate) node_types: FxHashMap<NodeId, TypeId>,
     /// How many times the *worker* has run, as opposed to the memo answering.
@@ -140,12 +157,62 @@ pub struct Checker<'a, 'n> {
 }
 
 impl<'a, 'n> Checker<'a, 'n> {
-    /// Create a checker over one bound file.
+    /// Create a checker with no way to reach another file.
+    ///
+    /// # Why the host is a second constructor and not a fourth parameter
+    ///
+    /// `Checker::new` has **84 call sites** (`grep -rn "Checker::new" crates
+    /// --include='*.rs' | wc -l` at the time of writing), spread over
+    /// `crates/tsr-checker/tests/`, `crates/tsr-conformance/`,
+    /// `crates/tsr-checker-spike/` and a bench. All but one of them parse a
+    /// single file and have no program to offer. Three options were weighed:
+    ///
+    /// | shape | cost |
+    /// |---|---|
+    /// | fourth `Option<&dyn ModuleHost>` parameter | 84 edits, ~81 of them writing `None`, across five crates and three other agents' files |
+    /// | a builder | a second way to construct the central type, for one optional field |
+    /// | **a second constructor** | one new function; `new` keeps its signature and delegates |
+    ///
+    /// The second constructor wins on the property the change is judged by:
+    /// **a call site with no host must behave bit-for-bit as it does today.**
+    /// Under the fourth-parameter shape that is a claim about 81 hand-edits;
+    /// here it is true *by construction*, because `new` is literally
+    /// [`Checker::with_module_host`] applied to `None` and there is one body.
+    /// That is the same reasoning `contextual.rs` used when it returned `None`
+    /// rather than an answer: returning nothing invents nothing, so the only
+    /// lines that can move are ones someone moved deliberately.
+    ///
+    /// **What would make the fourth parameter win:** a second optional
+    /// dependency. Two `Option` fields means four constructors under this
+    /// shape and one signature under that one, and at that point the builder
+    /// becomes the right answer rather than the parameter. Upstream has no
+    /// such fork because its `Program` interface is never absent — every
+    /// upstream checker comes from `NewChecker(program)` — so the fork is
+    /// this port's, created by a unit-test harness that predates the program.
     #[must_use]
     pub fn new(
         binder: &'a BindResult<'a>,
         nodes: &'n NodeTable,
         node_map: &'n NodeMap<'a>,
+    ) -> Self {
+        Self::with_module_host(binder, nodes, node_map, None)
+    }
+
+    /// Create a checker that can reach another file through `module_host`.
+    ///
+    /// `NewChecker(program)` (`internal/checker/checker.go:908`, where
+    /// `c.program = program`), with the interface narrowed to
+    /// [`ModuleHost`] — see that trait for why one method rather than
+    /// eighteen.
+    ///
+    /// Passing `None` is [`Checker::new`], and the two share this body so they
+    /// cannot drift.
+    #[must_use]
+    pub fn with_module_host(
+        binder: &'a BindResult<'a>,
+        nodes: &'n NodeTable,
+        node_map: &'n NodeMap<'a>,
+        module_host: Option<&'n dyn ModuleHost>,
     ) -> Self {
         let mut store = TypeStore::new();
         let intrinsics = Intrinsics::create(&mut store);
@@ -189,6 +256,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             nodes,
             node_map,
             binder,
+            module_host,
             computations: 0,
             node_types: FxHashMap::default(),
             regular_types: FxHashMap::default(),
@@ -202,6 +270,20 @@ impl<'a, 'n> Checker<'a, 'n> {
             flow_analysis_disabled: false,
             shared_flows: Vec::new(),
         }
+    }
+
+    /// The program this checker can reach another file through, if it has one.
+    ///
+    /// Upstream reads `c.program` directly (`internal/checker/checker.go:581`)
+    /// because everything in `checker.go` is one package; here the arms that
+    /// need it live in sibling modules and read the `pub(crate)` field. This
+    /// accessor exists for the *other* reader: a caller outside the crate that
+    /// wants to know whether the checker it built is the cross-file kind — which
+    /// `crates/tsr-compiler/tests/module_host.rs` is, and which is the only
+    /// direct evidence that [`Checker::new`] passes `None`.
+    #[must_use]
+    pub fn module_host(&self) -> Option<&'n dyn ModuleHost> {
+        self.module_host
     }
 
     /// The well-known types.
