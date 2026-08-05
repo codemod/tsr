@@ -195,6 +195,16 @@ the same instrument, the arm reads **0 / 0 / 0 / 0** — the ported-JSX signatur
 meaning its lines have been converted away from `error` and the arm can no longer
 claim them.
 
+Isolated commit pair: **`53588b1^..53588b1`** (one commit; verified with
+`git log --oneline 53588b1^..53588b1` rather than quoted as "my last commit to
+this one", which in a four-agent checkout resolves to whatever teammates landed
+in between).
+
+**This slice is measured, not unmeasured.** The corpus run below was done with the
+guard in place, on the same instrument that sized it. It is the arm's own numbers
+that make it checkable without re-running anything: the `label name` row went
+209 → 0/0/0/0.
+
 **It converted 597 lines, not 209.** The accounting closes exactly:
 
 | | before | after | delta |
