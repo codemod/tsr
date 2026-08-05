@@ -117,6 +117,7 @@ pub struct BindResult<'a> {
     node_symbols: Vec<Option<SymbolId>>,
     locals: FxHashMap<NodeId, SymbolTable<'a>>,
     global_exports: SymbolTable<'a>,
+    globals: SymbolTable<'a>,
     computed_names: FxHashMap<NodeId, NodeId>,
     diagnostics: Vec<Diagnostic>,
     flow: FlowStore,
@@ -128,6 +129,33 @@ pub struct BindResult<'a> {
 }
 
 impl<'a> BindResult<'a> {
+    /// Nothing bound yet: the seed a program's first file is bound into.
+    ///
+    /// Not a `Default` impl, because "an empty bind result" is a *starting
+    /// point* for accumulation rather than a sensible value to fall back to —
+    /// and something that silently produces an empty symbol table when a real
+    /// one was expected is precisely the shape of bug this crate exists to
+    /// avoid.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            max_depth: 0,
+            symbols: SymbolStore::new(),
+            node_symbols: Vec::new(),
+            locals: FxHashMap::default(),
+            global_exports: SymbolTable::default(),
+            globals: SymbolTable::default(),
+            computed_names: FxHashMap::default(),
+            diagnostics: Vec::new(),
+            flow: FlowStore::new(),
+            node_flow: Vec::new(),
+            facts: FxHashMap::default(),
+            end_flow: FxHashMap::default(),
+            return_flow: FxHashMap::default(),
+            fallthrough_flow: FxHashMap::default(),
+        }
+    }
+
     /// TEMPORARY instrumentation for `bd tsr-el3.1`: peak `bind()` recursion depth.
     #[must_use]
     pub fn max_depth(&self) -> u32 {
@@ -343,7 +371,29 @@ impl<'a> BindResult<'a> {
             last = Some(node);
             current = nodes.parent(node);
         }
-        None
+        // The walk has run off the top of the file. Upstream's
+        // `resolveNameHelper` ends at `c.globals` (`nameresolver.go`), which is
+        // every script file's top-level names merged together — including the
+        // bundled `lib.*.d.ts`, which is how `Array` and `Promise` resolve at
+        // all.
+        //
+        // Reached only after every enclosing scope has been tried, so a local
+        // always shadows a global, which is the order upstream has and the
+        // reason this is here rather than earlier.
+        //
+        // Empty unless several files were bound into one result
+        // ([`bind_into`]), so a file bound alone behaves exactly as before.
+        self.globals.get(name).copied()
+    }
+
+    /// Every name visible to the whole program (`c.globals`).
+    ///
+    /// Empty for a file bound on its own: a program's globals are the union of
+    /// its *script* files' top-level names, and one file is only a program if
+    /// something says so. See [`bind_into`].
+    #[must_use]
+    pub fn globals(&self) -> &SymbolTable<'a> {
+        &self.globals
     }
 
     /// `r.lookup(getSymbolOfDeclaration(location).Members, name, meaning & Type)`
@@ -442,5 +492,31 @@ pub struct FileInfo<'a> {
 /// Bind a parsed file.
 #[must_use]
 pub fn bind<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable, info: FileInfo<'a>) -> BindResult<'a> {
-    binder::Binder::new(nodes).bind_source_file(file, info)
+    bind_into(BindResult::empty(), file, nodes, info)
+}
+
+/// Bind a file **into what the program's earlier files produced**.
+///
+/// The binder half of ADR-0034's identity widening, and the counterpart of
+/// `tsr_parser::parse_into`: every file of a program binds into one
+/// [`SymbolStore`], so a [`SymbolId`] names one symbol across the program rather
+/// than one per file. Together with a shared node table that is what makes a
+/// symbol from another file safe to hand to the checker at all — its
+/// `value_declaration` then indexes the same node table the checker is reading.
+///
+/// `nodes` must be the shared table the file was parsed into, and the files must
+/// be bound in the order they were parsed. Neither is checked: the first is a
+/// type-level truth only for the arena, and the second is the caller's, because
+/// the binder cannot tell which range of ids belongs to the file it was handed.
+///
+/// [`bind`] is this with an [`BindResult::empty`] seed, and remains the entry
+/// point for anything binding one file alone.
+#[must_use]
+pub fn bind_into<'a>(
+    previous: BindResult<'a>,
+    file: &'a SourceFile<'a>,
+    nodes: &NodeTable,
+    info: FileInfo<'a>,
+) -> BindResult<'a> {
+    binder::Binder::resuming(nodes, previous).bind_source_file(file, info)
 }

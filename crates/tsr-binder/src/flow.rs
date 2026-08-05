@@ -206,11 +206,24 @@ impl FlowStore {
         store
     }
 
-    /// The file's single unreachable node.
+    /// Reserve room for `additional` more records.
     ///
-    /// One per file, as upstream: the binder tests `current == unreachable()` by
-    /// identity in several places (`bindChildren`, `bindCaseBlock`), and that
-    /// test is only meaningful if there is exactly one such node.
+    /// For a store several files of one program bind into, which cannot be
+    /// sized once at construction. See [`FlowStore::with_capacity`] for why the
+    /// sizing matters at all.
+    pub fn reserve(&mut self, additional: usize) {
+        self.records.reserve(additional);
+    }
+
+    /// The single unreachable node.
+    ///
+    /// Upstream has one per file. This has one per *store*, which is one per
+    /// program once several files bind into it — a deliberate difference, and a
+    /// safe one: the binder tests `current == unreachable()` by identity in
+    /// several places (`bindChildren`, `bindCaseBlock`), and that test asks
+    /// "is control unreachable here", which a single canonical sentinel answers
+    /// for every file at once. The node carries no file-specific data. What
+    /// would break the test is *more* than one such node, not fewer.
     #[must_use]
     pub const fn unreachable(&self) -> FlowId {
         FlowId::ZERO

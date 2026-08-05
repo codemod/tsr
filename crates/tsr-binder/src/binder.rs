@@ -238,6 +238,12 @@ pub(crate) struct Binder<'a, 'n> {
     /// because it is a different question: what the file is called when loaded
     /// as a script, not what it exports.
     global_exports: SymbolTable<'a>,
+    /// Every name visible to the whole program, merged across its script files.
+    ///
+    /// Upstream's `c.globals` (`internal/checker/checker.go:930`), filled by
+    /// `initializeChecker` (`:1296`). See [`Binder::merge_globals`] for why it
+    /// is filled here rather than in the checker.
+    globals: SymbolTable<'a>,
 
     // ---- control flow ----
     flow: FlowStore,
@@ -292,21 +298,70 @@ pub(crate) struct Binder<'a, 'n> {
 }
 
 impl<'a, 'n> Binder<'a, 'n> {
-    pub(crate) fn new(nodes: &'n NodeTable) -> Self {
+    /// A binder that **adds to** what an earlier file of the same program
+    /// produced.
+    ///
+    /// The counterpart of `tsr_parser::parse_into`, and the second half of
+    /// ADR-0034's identity widening: symbols from every file of a program live
+    /// in one [`SymbolStore`], so a [`SymbolId`] means one thing across the
+    /// program and can be handed to a checker that holds the program's node
+    /// table.
+    ///
+    /// Only the *accumulating* state is carried — exactly the fields of
+    /// [`BindResult`]. Every per-file cursor (`container`, `owner`,
+    /// `this_container`, `commonjs_module`, the flow targets, the ancestor
+    /// stack) is initialised fresh here, the same way it always was, so
+    /// resuming cannot leak one file's position into the next. That split is
+    /// why this takes a `BindResult` rather than a `Binder`: the result is
+    /// precisely the set of fields that should survive, and letting the type
+    /// system enumerate them means a field added later cannot be silently
+    /// forgotten.
+    pub(crate) fn resuming(nodes: &'n NodeTable, previous: BindResult<'a>) -> Self {
+        let BindResult {
+            max_depth,
+            symbols,
+            node_symbols,
+            locals,
+            global_exports,
+            globals,
+            computed_names,
+            diagnostics,
+            mut flow,
+            node_flow,
+            facts,
+            end_flow,
+            return_flow,
+            fallthrough_flow,
+        } = previous;
+
         // Measured: `checker.ts`, `dom.generated.d.ts`, `Herebyfile.mjs` and a
         // `.tsx` fixture come to 81,713 flow nodes for 419,464 AST nodes — one
         // per 5.1. Reserving for one per five costs a few percent of slack and
         // removes every growth reallocation of a megabyte-scale vector.
-        let flow = FlowStore::with_capacity(nodes.len() / 5 + 16);
+        //
+        // `nodes.len()` is the *program's* node count once files share a table,
+        // so this reserves against the whole program on the first file and
+        // against nothing much afterwards. Reserving the difference rather than
+        // the total is what keeps this linear: sizing a fresh dense vector per
+        // file would be O(files × program nodes).
+        flow.reserve((nodes.len() / 5 + 16).saturating_sub(flow.len()));
         let unreachable = flow.unreachable();
+
+        // `resize`, not `vec![None; …]`: the earlier files' entries must survive,
+        // and only the new file's rows are added. Same reason as above.
+        let mut node_symbols = node_symbols;
+        let mut node_flow = node_flow;
+        node_symbols.resize(nodes.len(), None);
+        node_flow.resize(nodes.len(), None);
+
         Self {
             depth: 0,
-            max_depth: 0,
+            max_depth,
             nodes,
-            symbols: SymbolStore::new(),
-            node_symbols: vec![None; nodes.len()],
-            locals: rustc_hash::FxHashMap::default(),
-            diagnostics: Vec::new(),
+            symbols,
+            node_symbols,
+            locals,
+            diagnostics,
             container: NodeId::ZERO,
             block: NodeId::ZERO,
             owner: None,
@@ -317,14 +372,15 @@ impl<'a, 'n> Binder<'a, 'n> {
             module_symbol: None,
             commonjs_module: false,
             this_container: NodeId::ZERO,
-            computed_names: rustc_hash::FxHashMap::default(),
+            computed_names,
             name_nodes: rustc_hash::FxHashMap::default(),
             expando_assignments: Vec::new(),
             expando_initializers: rustc_hash::FxHashMap::default(),
             is_module: false,
-            global_exports: SymbolTable::default(),
+            global_exports,
+            globals,
             flow,
-            node_flow: vec![None; nodes.len()],
+            node_flow,
             current_flow: unreachable,
             current_break_target: None,
             current_continue_target: None,
@@ -341,10 +397,10 @@ impl<'a, 'n> Binder<'a, 'n> {
             in_ambient_module: false,
             in_assignment_pattern: false,
             seen_this_keyword: false,
-            facts: rustc_hash::FxHashMap::default(),
-            end_flow: rustc_hash::FxHashMap::default(),
-            return_flow: rustc_hash::FxHashMap::default(),
-            fallthrough_flow: rustc_hash::FxHashMap::default(),
+            facts,
+            end_flow,
+            return_flow,
+            fallthrough_flow,
             ancestors: Vec::new(),
             children: Vec::new(),
         }
@@ -395,10 +451,13 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.declare_commonjs_variable("exports", root_id);
         }
 
+        self.merge_globals(root_id);
+
         BindResult {
             max_depth: self.max_depth,
             computed_names: self.computed_names,
             global_exports: self.global_exports,
+            globals: self.globals,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
             locals: self.locals,
@@ -409,6 +468,64 @@ impl<'a, 'n> Binder<'a, 'n> {
             end_flow: self.end_flow,
             return_flow: self.return_flow,
             fallthrough_flow: self.fallthrough_flow,
+        }
+    }
+
+    /// Merge this file's top-level names into the program's global scope.
+    ///
+    /// Ported from the first loop of `initializeChecker`
+    /// (`internal/checker/checker.go:1296`): for each file that is **not** an
+    /// external module, every one of its `Locals` becomes a global; and a file's
+    /// `GlobalExports` — the names a UMD module claims with
+    /// `export as namespace N` — are merged with first-in-wins semantics.
+    ///
+    /// # Why this is in the binder and not the checker
+    ///
+    /// Upstream runs it in the checker because that is where `c.files` first
+    /// exists. Here the accumulating `BindResult` already *is* the program's
+    /// symbol state, and it is the only object that has every file's locals in
+    /// one place; putting the merge in the checker would mean handing the
+    /// checker every file's `BindResult` in order to build a table the binder
+    /// could have built as it went. The rule applied is upstream's, in
+    /// upstream's order — file order, which decides which declaration of a
+    /// repeated name is kept. Only the location differs.
+    ///
+    /// # What is not ported, and what it costs
+    ///
+    /// **Declaration merging.** Upstream calls `mergeGlobalSymbol`, which merges
+    /// a second declaration of a name *into* the first — two `interface Array`
+    /// declarations become one symbol with the union of their members. Here the
+    /// first declaration wins outright and the second is dropped.
+    ///
+    /// That is a real divergence with a visible consequence, not a technicality:
+    /// `lib.es5.d.ts` and `lib.es2015.iterable.d.ts` both declare
+    /// `interface Array`, so `Array` resolves to the ES5 one and its ES2015
+    /// members are simply absent. It converts "the name does not resolve" into
+    /// "the name resolves and this member is missing", which is progress on the
+    /// ranked measurement and is *not* the same as being finished.
+    ///
+    /// It is safe in the one way that matters here: a member that did not merge
+    /// is absent rather than wrong, so a lookup for it still answers
+    /// `errorType`. A gap stays distinguishable from an answer. `bd tsr-0e9`
+    /// carries the follow-up.
+    fn merge_globals(&mut self, root_id: NodeId) {
+        // `ast.IsExternalOrCommonJSModule`. A module's top-level names are its
+        // exports, not globals — which is the entire distinction between a
+        // script and a module, and the reason `lib.*.d.ts` are scripts.
+        if !self.is_module
+            && !self.commonjs_module
+            && let Some(locals) = self.locals.get(&root_id)
+        {
+            for (name, symbol) in locals {
+                // Upstream's `mergeGlobalSymbol` would merge here; see the doc
+                // comment. First-in-wins is what this does instead.
+                self.globals.entry(name).or_insert(*symbol);
+            }
+        }
+        // UMD global exports are merged for *every* file, module or not, and
+        // upstream states the first-in-wins rule outright ("see #9771").
+        for (name, symbol) in &self.global_exports {
+            self.globals.entry(name).or_insert(*symbol);
         }
     }
 
