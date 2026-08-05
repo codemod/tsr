@@ -1389,3 +1389,44 @@ reference position is syntactically distinguishable from a member access hanging
 off it, so *"port the position, not the arm"* may still recover the 577 — but
 only if the rendering path and the checker's internal type can disagree for one
 node, which nobody has shown here (`bd tsr-6j2`).
+
+#### "Looked up in" and "printed" are not as separable as they look
+
+The reverse-cascade section above ends by naming an escape: if a type is
+*negative* to build because it cannot be spelled, build it as a **lookup surface**
+and never as an answer, so the members resolve and the receiver keeps gapping.
+That escape was measured, built, and **reverted the same day** (`3baeb70`,
+`a618e3a`).
+
+The design was the careful one. `get_type_of_symbol` never returned a module
+type, so the property was supposed to hold *by construction* rather than by a
+guard someone maintains — the preference this document records everywhere else.
+Measured over the corpus:
+
+```
+              before      after     delta
+  right      292,606    292,764      +158
+  gap        138,585    138,025      -560
+  wrong       37,709     38,111      +402
+```
+
+**560 gap lines converted: 158 right, 402 wrong — 2.5 wrong per right**, against a
+premise of *zero*. The pre-registered must-not-move rows moved in the direction
+that gives it away: `typeof ns.x` 83 → 2, `import("m").W` 461 → 327.
+
+**The mechanism is the lesson.** The module symbol genuinely never got a printable
+type. But a member *read* through it yields types that reach printed positions the
+slice never targeted — most of them the `import("m").W` family, whose entire
+purpose in the corpus is symbols with **no accessible name**. Withholding the
+type from one node does not withhold what that node makes reachable.
+
+The tell was available in advance and nobody drew the line: the 2.5 measured here
+is close to the **2.1** that the same probe had already computed for the *printing*
+design. **Two designs that differ in what they print, and agree to within 20% on
+what they break, are not two designs.**
+
+So the escape is narrower than stated: *port the capability, not the rendering*
+holds only when the capability's outputs are themselves spellable. Before
+building a lookup-only version of an unspellable type, enumerate what the lookup
+**returns**, not just what it is. If those answers include the same unnameable
+family, the escape is the original item wearing different clothes.
