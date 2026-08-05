@@ -636,6 +636,36 @@ impl<'a> Checker<'a, '_> {
                     self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
                 }),
             }),
+            // `getSignatureFromDeclaration` treats a function *type node* like
+            // any other function-like declaration (`checker.go:19836` — it
+            // switches on `declaration.Parameters()`, not on the kind), so this
+            // mirrors `MethodSignatureDeclaration`: no modifiers, no asterisk,
+            // no body, and therefore a return type of `any` when the annotation
+            // is absent.
+            //
+            // **`ConstructorTypeNode` is deliberately not folded in here**, even
+            // though upstream builds its signature through the same function and
+            // the parts would line up. The two diverge in the *printer*: a
+            // construct signature emits `ast.KindConstructorType`
+            // (`nodebuilderimpl.go:2712`), which prints `new (x: T) => U`, and
+            // `abstract new (x: T) => U` when the declaration carries the
+            // `abstract` modifier that `FunctionTypeNode` cannot have.
+            // [`Signature`] has no construct flag and
+            // [`Checker::signature_to_string`] always emits the call form, so
+            // adding the arm alone would print every one of the corpus's 523
+            // constructor-type lines without its `new` — a wrong answer on all
+            // of them rather than a gap. It needs a `construct` flag on
+            // `Signature`, the `new `/`abstract new ` prefix, and a test per
+            // spelling; that is a slice, not an arm.
+            Node::FunctionTypeNode(node) => Some(SignatureParts {
+                modifiers: &[],
+                asterisk: false,
+                type_parameters: node.type_parameters,
+                parameters: node.parameters,
+                return_annotation: node.r#type,
+                body: None,
+                may_return_never: false,
+            }),
             Node::MethodSignatureDeclaration(node) => Some(SignatureParts {
                 modifiers: node.modifiers,
                 asterisk: false,
@@ -760,5 +790,78 @@ impl<'a> Checker<'a, '_> {
         out.push_str(") => ");
         out.push_str(&self.type_to_string(signature.r#type));
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tsr_ast::SyntaxKind;
+
+    /// The printed signature of the first `FunctionTypeNode` in `source`.
+    ///
+    /// In-crate because [`super::Checker::get_signature_from_declaration`] is
+    /// `pub(crate)` — which is the point: its consumer is
+    /// `getTypeFromTypeNode`'s function-type arm, inside this crate, and the
+    /// whole reason this arm exists is so that arm does not rebuild a signature
+    /// by hand.
+    fn signature_of(source: &str) -> String {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        for index in 0..parsed.nodes.len() {
+            #[allow(clippy::cast_possible_truncation)]
+            let id = tsr_ast::NodeId::new(index as u32);
+            // Both kinds, so the constructor test below asks the real question
+            // — "does this arm claim it?" — rather than the vacuous one, "is
+            // there a function type node in a constructor fixture?". The first
+            // version asked the second, and no mutation could turn it red.
+            if !matches!(
+                parsed.nodes.kind(id),
+                SyntaxKind::FunctionType | SyntaxKind::ConstructorType
+            ) {
+                continue;
+            }
+            return match checker.get_signature_from_declaration(id) {
+                Some(signature) => checker.signature_to_string(&signature),
+                None => "error".to_string(),
+            };
+        }
+        "<no signature-bearing type node>".to_string()
+    }
+
+    #[test]
+    fn a_function_type_node_yields_a_signature() {
+        // The arm exists so `getTypeFromTypeNode` can reach this machinery
+        // instead of re-deriving optionality, rest parameters,
+        // `minArgumentCount` and the `this`-parameter split by hand.
+        assert_eq!(signature_of("declare const f: (x: number) => void;"), "(x: number) => void");
+        assert_eq!(signature_of("declare const f: () => void;"), "() => void");
+        assert_eq!(signature_of("declare const f: <T>(p: T) => T;"), "<T>(p: T) => T");
+        // A `?` and a rest parameter come through the shared path, which is the
+        // whole argument for routing here rather than rebuilding.
+        assert_eq!(
+            signature_of("declare const f: (x?: string, y: number) => void;"),
+            "(x?: string, y: number) => void"
+        );
+        // No body and no annotation is `any`, exactly as for a method signature:
+        // `getReturnTypeOfSignature`'s `NodeIsMissing(Body())` arm.
+        assert_eq!(signature_of("declare const f: (x: number) => any;"), "(x: number) => any");
+    }
+
+    #[test]
+    fn a_constructor_type_node_is_not_reached_by_this_arm() {
+        // Deliberate: the parts line up but the *printer* does not. A construct
+        // signature emits `ast.KindConstructorType` and prints `new (x: T) => U`;
+        // [`super::Signature`] has no construct flag, so folding it in here would
+        // print 523 corpus lines without their `new` — a wrong answer on every
+        // one rather than a gap. This pins the absence so the next person adds
+        // the flag and the prefix together.
+        assert_eq!(signature_of("declare const c: new (x: number) => void;"), "error");
     }
 }
