@@ -301,13 +301,18 @@ Built 2026-08-05 (`crates/tsr-conformance/src/types_producer.rs`), measured by
 `cargo run -p tsr-conformance --example types_walker --release` over the same
 9,538 cases the suite judges:
 
-```
-assertion lines upstream: 478,954
-assertion lines we emit:  499,816
-text agreement:           311,705/478,954  (65.08%)
-cases with the right count: 5,602/9,538    (58.73%)
-cases matching every line:  5,376/9,538    (56.36%)
-```
+| | first build | + `GetMeaningFromDeclaration` |
+|---|---:|---:|
+| assertion lines upstream | 478,954 | 478,954 |
+| assertion lines we emit | 499,816 | **481,365** |
+| text agreement | 311,705 (65.08%) | **436,072 (91.05%)** |
+| cases with the right count | 5,602 (58.73%) | **8,143 (85.37%)** |
+| cases matching every line | 5,376 (56.36%) | **7,877 (82.59%)** |
+
+Porting `GetMeaningFromDeclaration` — 26 points — was the single largest step,
+because type declarations are dense in the corpus and every one of their names
+was producing a line upstream drops. Over-emission fell from 20,862 excess lines
+to 2,411.
 
 **No type is involved in any of those numbers.** They are the prefix test
 described above, so they measure node selection and text extraction alone.
@@ -315,20 +320,22 @@ described above, so they measure node selection and text extraction alone.
 Two causes account for most of the gap, both visible in the sampled first
 divergences and both known rather than mysterious:
 
-- **`GetMeaningFromDeclaration` is not ported**, so identifiers naming a type —
-  `interface IList`, `type T`, an import alias — still get a line where upstream
-  drops them. This is why we emit **4.4% more lines than upstream**, and the
-  samples show it directly (`ours: IList`, `ours: I`, `ours: N`).
+- **`isPartOfTypeExpressionWithTypeArguments` is not ported.** In
+  `class C implements IList`, upstream treats the heritage clause's
+  `ExpressionWithTypeArguments` as part of a type and drops `IList`; we keep it.
+  This is now the largest identified cause and the obvious next step.
 - **Some keyword tokens reach the output** (`ours: const`, `ours: return`),
-  which the selection predicates should have rejected. That is either a
-  predicate defect or an error-recovery tree that differs from upstream's, and it
-  has not yet been separated — the sampled cases are all ones where the source is
-  invalid TypeScript.
+  which the selection predicates should have rejected. Every sampled case is
+  invalid TypeScript, so this is either a predicate defect or an error-recovery
+  tree that differs from upstream's — not yet separated.
 
-Read 65.08% as *the walker is roughly two-thirds right and its errors are
-concentrated in two identified places*, not as a pass rate. It has to go
-substantially higher before the `checker_types` line gradient says anything about
-the checker rather than about the walker.
+An earlier third cause, **`GetMeaningFromDeclaration` being unported**, was the
+largest and is now fixed; see the table above.
+
+Read 91.05% as *the walker is mostly right and its remaining errors are
+concentrated in two identified places*, not as a pass rate. The bar for wiring it
+into the suite is that the residual be small enough that a moving gradient means
+the checker rather than the walker.
 
 ### What blocks it
 

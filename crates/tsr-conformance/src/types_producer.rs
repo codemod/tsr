@@ -85,13 +85,24 @@ fn selects(id: NodeId, tree: Tree<'_, '_>) -> bool {
     if predicates::is_part_of_type_node(id, tree) || kind == SyntaxKind::OmittedExpression {
         return false;
     }
-    // NOT PORTED, and it costs lines: upstream also drops an identifier whose
-    // parent's `GetMeaningFromDeclaration` has no `Value` meaning unless it names
-    // a type alias — which is what keeps `interface I` and `type T` names out of
-    // a `.types` baseline. `GetMeaningFromDeclaration` is 58 lines and needs
-    // `GetModuleInstanceState` for its module case; `bd tsr-4sc.3` owns it. The
-    // effect is extra assertion lines on type declarations, which
-    // `walker_agreement` will show as a count mismatch rather than hide.
+    // Upstream's third drop (`:361`): an identifier whose parent declares no
+    // *value* gets no line — which is what keeps `interface I`, an import's
+    // names, and a type parameter out of a `.types` baseline while `const x`
+    // stays in.
+    //
+    // The exception is deliberate and upstream's: a **type alias's own name** is
+    // kept even though `type T` means only a type, *"because that may evaluate to
+    // some interesting type"*.
+    if kind == SyntaxKind::Identifier
+        && let Some(parent) = tree.parent(id)
+    {
+        let meaning = predicates::meaning_from_declaration(parent, tree);
+        let names_a_type_alias = tree.kind(parent) == SyntaxKind::TypeAliasDeclaration
+            && tree.node(parent).and_then(|n| n.name_id()) == Some(id);
+        if !meaning.contains(predicates::SemanticMeaning::VALUE) && !names_a_type_alias {
+            return false;
+        }
+    }
     true
 }
 
@@ -273,6 +284,33 @@ mod tests {
         // not an identifier, and it is not in an expression context either —
         // `"k"` is the *name* of the property assignment, not its initialiser.
         assert!(texts(r#"const o = { "k": 1 };"#).contains(&r#""k""#.to_string()));
+    }
+
+    #[test]
+    fn a_name_that_declares_no_value_gets_no_assertion() {
+        // Upstream's third drop. An interface names only a type, so its name gets
+        // no line; a `const` names a value, so it does. Worth 26 points of walker
+        // agreement — 65.08% to 91.05% — because type declarations are dense in
+        // the corpus.
+        // The interface *name* goes; its *members* stay, because a property
+        // signature declares a value. Confirmed against
+        // `compiler/sourceMapValidationDestructuringVariableStatementNestedObjectBindingPattern.types`,
+        // which records `interface Robot { name: string }` as `>name : string`
+        // with no line for `Robot`. Asserted here as `["m"]` — the first draft
+        // said `[]` and the implementation was right.
+        assert_eq!(texts("interface I { m: string }"), ["m"]);
+        assert_eq!(texts("const x = 1;"), ["x", "1"]);
+        assert_eq!(texts("function f<T>(p: T) {}"), ["f", "p"], "the type parameter is dropped");
+    }
+
+    #[test]
+    fn a_type_aliass_own_name_is_kept_although_it_declares_no_value() {
+        // Upstream's exception, and its reason: "for a complex type alias
+        // `type T = ...`, showing T : T isn't very helpful" — but the name is
+        // kept because the type "may evaluate to some interesting type". Without
+        // the exception the alias name would be dropped with every other
+        // type-only name.
+        assert_eq!(texts("type T = string;"), ["T"]);
     }
 
     #[test]

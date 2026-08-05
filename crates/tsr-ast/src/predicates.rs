@@ -361,3 +361,102 @@ pub fn is_declaration_name(id: NodeId, tree: Tree<'_, '_>) -> bool {
     };
     is_declaration && parent_node.name_id() == Some(id)
 }
+
+bitflags::bitflags! {
+    /// What a declaration contributes to a name.
+    ///
+    /// Ported from `SemanticMeaning` (`utilities.go:2194`), bit values included.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct SemanticMeaning: u8 {
+        /// The name denotes a value.
+        const VALUE = 1 << 0;
+        /// The name denotes a type.
+        const TYPE = 1 << 1;
+        /// The name denotes a namespace.
+        const NAMESPACE = 1 << 2;
+    }
+}
+
+impl SemanticMeaning {
+    /// `SemanticMeaningAll`.
+    pub const ALL: Self = Self::VALUE.union(Self::TYPE).union(Self::NAMESPACE);
+}
+
+/// What the declaration at `id` means.
+///
+/// Ported from `GetMeaningFromDeclaration` (`utilities.go:2200`). The `.types`
+/// baseline writer uses it to drop an identifier whose parent declares no
+/// **value** — which is what keeps `interface I` and an import's names out of a
+/// `.types` baseline while `const x` stays in.
+///
+/// # The module case is approximated
+///
+/// Upstream answers `Namespace | Value` for an ambient module and for one whose
+/// `GetModuleInstanceState` is `Instantiated`, and bare `Namespace` otherwise —
+/// i.e. a namespace containing only types has no value side and its name is
+/// dropped. `GetModuleInstanceState` is a recursive analysis this port does not
+/// have, so `ModuleDeclaration` answers `Namespace | Value` unconditionally.
+///
+/// **The error is one-directional**: a type-only namespace keeps a line upstream
+/// would drop, so we over-emit rather than under-emit. Recorded in
+/// `docs/architecture/checker-oracle.md` and owned by `bd tsr-4sc.3`.
+#[must_use]
+#[allow(
+    clippy::match_same_arms,
+    reason = "the arms mirror upstream's explicit list in GetMeaningFromDeclaration;               collapsing the ones that happen to share an answer into the fallback               would lose which kinds upstream names and make the next drift               invisible"
+)]
+pub fn meaning_from_declaration(id: NodeId, tree: Tree<'_, '_>) -> SemanticMeaning {
+    match tree.kind(id) {
+        SyntaxKind::VariableDeclaration
+        | SyntaxKind::Parameter
+        | SyntaxKind::BindingElement
+        | SyntaxKind::PropertyDeclaration
+        | SyntaxKind::PropertySignature
+        | SyntaxKind::PropertyAssignment
+        | SyntaxKind::ShorthandPropertyAssignment
+        | SyntaxKind::MethodDeclaration
+        | SyntaxKind::MethodSignature
+        | SyntaxKind::Constructor
+        | SyntaxKind::GetAccessor
+        | SyntaxKind::SetAccessor
+        | SyntaxKind::FunctionDeclaration
+        | SyntaxKind::FunctionExpression
+        | SyntaxKind::ArrowFunction
+        | SyntaxKind::CatchClause
+        | SyntaxKind::JsxAttribute => SemanticMeaning::VALUE,
+
+        SyntaxKind::TypeParameter
+        | SyntaxKind::InterfaceDeclaration
+        | SyntaxKind::TypeAliasDeclaration
+        | SyntaxKind::TypeLiteral => SemanticMeaning::TYPE,
+
+        SyntaxKind::EnumMember | SyntaxKind::ClassDeclaration => {
+            SemanticMeaning::VALUE | SemanticMeaning::TYPE
+        }
+
+        // Two upstream arms with the same answer, merged because clippy rejects
+        // identical bodies — but they are there for different reasons.
+        //
+        // `SourceFile` is `Namespace | Value` outright: an external module can be
+        // a value.
+        //
+        // `ModuleDeclaration` is `Namespace | Value` only when the module is
+        // ambient or *instantiated*; a namespace holding nothing but types is
+        // bare `Namespace` upstream, and its name gets no line. That distinction
+        // needs `GetModuleInstanceState`, which is not ported — see this
+        // function's doc comment. The error over-emits rather than under-emits.
+        SyntaxKind::ModuleDeclaration | SyntaxKind::SourceFile => {
+            SemanticMeaning::NAMESPACE | SemanticMeaning::VALUE
+        }
+
+        SyntaxKind::EnumDeclaration
+        | SyntaxKind::NamedImports
+        | SyntaxKind::ImportSpecifier
+        | SyntaxKind::ImportEqualsDeclaration
+        | SyntaxKind::ImportDeclaration
+        | SyntaxKind::ExportAssignment
+        | SyntaxKind::ExportDeclaration => SemanticMeaning::ALL,
+
+        _ => SemanticMeaning::ALL,
+    }
+}
