@@ -28,7 +28,12 @@ baseline.
 printed in a spelling that differs from how the same numeral prints as a literal
 type.
 
-## Blocked: non-identifier string property names need `printing::quote`
+## ~~Blocked~~ RESOLVED 2026-08-05: non-identifier string property names
+
+> **Superseded.** `printing::quote` was made `pub(crate)` in `891371a` and the
+> arm landed in `73396dd`. The reasoning below is kept because the *argument*
+> for not duplicating the escape table outlived the blocker, and because a
+> resolved blocker deleted is a blocker rediscovered.
 
 `{ "a-b": 1 }` should print `{ "a-b": number; }` and currently gaps. It is worth
 having — `{ "resolution-mode": string; }` is 24 baseline lines, `{ "a b": number; }`
@@ -58,15 +63,24 @@ string is not identifier text, print `quote(text)`.
 
 Measured against the baselines, for whoever picks this up next:
 
-| Gap | Rough size | What it needs |
+**Corrected 2026-08-05.** The first two rows of this table are now done; the
+sizes below are re-measured rather than estimated.
+
+| Gap | Size | Status / what it needs |
 |---|---|---|
-| Non-identifier string names | ~45 lines | `printing::quote` made `pub(crate)` — see above |
+| Non-identifier string names | ~45 lines | **DONE** `73396dd` |
+| Numeric names | ~130 lines | **DONE** `724da91` |
+| Shorthand `{ a }` | ~89 lines | **DONE** `c707889` |
+| Member *symbol* types | 8,549 lines | **DONE** `f6ffe77` — the big one, and it was never the lookup |
+| Arrow-valued members `{ f: () => 1 }` | 630 lines | the arrow's own return inference gaps; not an object-literal item |
 | Methods `{ m() {} }` | ~3 lines | `checkObjectLiteralMethod`, and a signature this port can print |
 | Spread `{ ...x }` | not measured | `getSpreadType` |
 | Accessors | not measured | `getTypeOfAccessors`, unported |
 | Computed names `{ [k]: v }` | not measured | `isTypeUsableAsPropertyName` |
 
-Only the first is worth a slice on its own, and only once it is unblocked.
+Nothing left here is worth a slice on its own. The 630 arrow-valued members are
+the largest remaining number and they belong to whoever owns return inference,
+not to `objects.rs`.
 
 ## Tagged templates are a call, so they reuse the call's resolution (2026-08-05)
 
@@ -493,3 +507,50 @@ rather than assumed.
 `const o = { a: 1 }` also gives `number`: `as const` is what would keep `1`, and
 it is unported. The widening is a property of the property boundary, not of how
 the object was bound.
+
+## State at handoff (2026-08-05)
+
+Written because this file is the handoff, and a handoff that only records
+successes is the same failure as a doc that outlives its truth.
+
+### Landed in this workstream
+
+Expression forms in `expressions.rs` and `calls.rs`: `typeof`, prefix and postfix
+unary, conditional, `new C()`, `yield`, tagged templates — 7 of the 8 assigned,
+~8,181 lines. Object literals in `objects.rs`: shorthand, numeric names, quoted
+names. Accesses: an `any` receiver in `indexed.rs` and `members.rs`. Symbols in
+`symbols.rs`: export markers, and object-literal member symbol types.
+
+### Outstanding predictions
+
+Each is a verified single-commit window (`git log --oneline X^..X` → 1).
+
+| Pair | Item | Predicted |
+|---|---|---|
+| `1bc1f97^..1bc1f97` | tagged templates | ~100 of 289, range 40–110 |
+| `af7f12a^..af7f12a` | export markers | 3,000–6,000, most likely ~4,000 |
+| `f6ffe77^..f6ffe77` | member symbol types | 6,000–11,000, most likely ~8,000 |
+
+### Blocked, with the blocker named
+
+- **ES imports / cross-file aliases** (~869 lines). `Checker::new` takes only
+  `(binder, nodes, node_map)`; the checker has no path or module awareness and
+  `BindResult` exposes no specifier→file map. Needs module resolution plumbed
+  into the checker — a `Checker::new` signature change, not a `symbols.rs` arm.
+  **`enums`' same-file scoping in `964ec88` was right**; it named the wrong
+  blocker (ADR-0034 globals, which do work) and reached the right conclusion.
+- **Array and tuple receivers** carrying no members. `create_type_reference`
+  (`declared.rs:489`) builds with `symbol: None`. `bd tsr-el3.2`.
+- **`TemplateExpression`** (1,036 lines). Needs a constant evaluator plus
+  const-context detection plus contextual typing — a workstream, not a slice.
+- **Contextual typing** owns the 555 wrong property-access lines this workstream
+  created. Named at the arm in `members.rs`.
+
+### The thing most likely to be rediscovered
+
+`get_type_of_symbol`'s dispatch is where three separate rows turned out to live:
+export markers, object-literal member symbols, and the alias arm. Each was a
+missing `match` arm rather than missing machinery, and in each case the row's
+*name* pointed at the wrong step — the lookup already worked. Anyone ranking a
+row that mentions a symbol flag or a declaration kind should check that dispatch
+before believing the row is about what it says it is about.
