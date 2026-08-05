@@ -424,6 +424,26 @@ either, and that is worth learning for the same cost.
 
 Asked as a lead question, answered from this page's numbers only.
 
+> **CORRECTION 2026-08-05.** "The current number is 58.17%" below is wrong, and
+> the error is the same lib-less-probe error this page's own opening section
+> corrects for a different number. **58.17% is not the `checker_types` gradient.**
+> It is `examples/writer_guards.rs`'s figure over that probe's own lib-less
+> population; the gradient at `53588b1`'s successor `33e3bd5` is **60.92%**
+> (291,799/478,954 upstream assertion lines, `examples/rank_board.rs`), and
+> `writer_guards.rs` itself has since been corrected (`91ad1b3`) to 62.14% over
+> *its* aligned population. So the gap to 90% stated below is ~2.7 points too
+> large. The same wrong figure is quoted in `bd tsr-4sc` and in ADR-0039's
+> resolution.
+>
+> **The paragraph's conclusion survives the correction and its mechanism does
+> not.** The 90% question is re-answered from a whole-corpus partition, with the
+> case rate and the line gradient separated — they are nearly orthogonal and the
+> case gate is the cheaper target — in
+> [`checker-notes-rank.md`](checker-notes-rank.md) §10. That page also confirms
+> this one's central result by an independent method: the span test finds
+> **1,854 of 11,414** `CallExpression` gap lines terminal, against the 22×
+> collapse recorded here. The text below is left unedited.
+
 The cycle deltas are **+4.94, +3.36, +0.34**. The current number is 58.17%
 (`53588b1`). Reaching 90% needs **+31.8 points**, which at the last cycle's rate
 is 94 cycles and at the best of the three is 6.5 — and the trend across the three
