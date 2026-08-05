@@ -1144,3 +1144,40 @@ instruments — `rank_board.rs` and the repaired `wrong_attribution.rs` — writ
 by different authors along different code paths. **That agreement is the
 evidence**, and it is the strongest form available here: not a control bucket
 reading zero, but two things that could disagree and do not.
+
+#### Prefer a control pinned by *construction* over one pinned by *arithmetic*
+
+The rule above says a control only proves a partition if some input can reach it.
+There is a second axis, and it is the one that catches the errors arithmetic
+cannot.
+
+An agent copying `rank_board`'s span test into another probe reproduced the
+expression correctly and its **polarity** backwards — that probe binds
+`below[i] = true` to mean *nothing* gapped below, and passes `!gapped_below`. The
+inverted reading printed one row as 100% propagated and the other as 100%
+terminal, which is entirely plausible unless you already know the first row is a
+**leaf**.
+
+**Every sum still reconciled. Every arithmetic control still read zero.** Totals,
+roll-ups, pairing counts — all intact, because the bug moved lines *between*
+buckets rather than losing them.
+
+What caught it was a bucket whose value is fixed by a property of the subject
+rather than by the classifier: *row 5's node is the `b` of `a.b`, a leaf, so
+nothing can be nested inside it, so its propagated-by-span count is **0** — and
+that was true before any code was written.* Under the mutation it read **65**.
+
+So, two classes, and they catch different things:
+
+| control | pinned by | catches | blind to |
+|---|---|---|---|
+| `sum of parts == whole` | arithmetic | a lost or double-counted line | any error that moves lines *between* buckets |
+| `this bucket is 0 because the subject cannot produce it` | construction | a semantic inversion | a bookkeeping slip |
+
+The usable form: **for each control, ask what input would make it non-zero, and
+prefer the one whose answer is fixed by the subject rather than by the code under
+test.** A partition of *n* items into *k* buckets has exactly one arithmetic
+control and usually several structural ones going unused — a leaf that cannot
+contain, a receiver that cannot be generic, a position upstream never visits.
+Write those down; they are free, and they fail loudly in the one direction the
+sums cannot see.
