@@ -31,7 +31,7 @@
 //! signature's return type *does* depend on the arguments, so a call to one is a
 //! gap.
 
-use tsr_ast::CallExpression;
+use tsr_ast::{CallExpression, TaggedTemplateExpression};
 
 use crate::{
     checker::Checker,
@@ -66,6 +66,66 @@ impl Checker<'_, '_> {
             // needs inference (`inferTypeArguments`, `checker.go:9310`). Answering
             // the uninstantiated return type would print `T` where upstream prints
             // what `T` was inferred as.
+            return error;
+        }
+        signature.r#type
+    }
+
+    /// The type of a tagged template: ``tag`a${b}c` ``.
+    ///
+    /// Ported from `Checker.checkTaggedTemplateExpression` (`checker.go:10034`),
+    /// which is three lines once the grammar checks are set aside: resolve the
+    /// tag's signature and return its return type.
+    ///
+    /// # The same reduction as a call, because upstream treats it as one
+    ///
+    /// `getResolvedSignature` is the *same* entry point a call expression uses —
+    /// a tagged template is a call whose arguments are the template strings
+    /// array and the substitutions. So this shares
+    /// [`Checker::resolve_call_signature`] rather than growing a second
+    /// resolution path, and inherits its restriction to a callee with exactly
+    /// one call signature for exactly the same reason: choosing among several
+    /// needs assignability.
+    ///
+    /// The arguments are not checked, which is sound here for the same reason it
+    /// is sound for a call — a non-generic signature's return type does not
+    /// depend on them. **The template is still checked**, so its own line is
+    /// populated; today that line is usually a gap, because
+    /// `TemplateExpression` is unported and correctly stays so
+    /// (`checker-notes-arrays.md` records why it is a workstream). A tag applied
+    /// to a template with no substitutions gets a real answer for the template,
+    /// since that is a `NoSubstitutionTemplateLiteral`.
+    ///
+    /// Not ported, each answering `errorType`: an optional chain (``tag?.`x` ``,
+    /// **unobservable** — the grammar prohibits it and the parser rejects it, so
+    /// the guard mirrors `check_call_expression` rather than covering a reachable
+    /// case), explicit type arguments, a generic tag signature, and a tag whose type has
+    /// anything other than exactly one call signature. The generic case is the
+    /// one that matters most — `String.raw` and every typed template helper is
+    /// generic — which is why the 289 gap lines this form carries will not all
+    /// close here.
+    pub(crate) fn check_tagged_template_expression(
+        &mut self,
+        node: &TaggedTemplateExpression<'_>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        if node.question_dot_token.is_some() || !node.type_arguments.is_empty() {
+            return error;
+        }
+        let Some(tag) = node.tag else { return error };
+        let tag_type = self.check_expression(tag);
+        // Checked for its own line; the template's type does not reach the
+        // answer, exactly as a call's arguments do not.
+        if let Some(template) = node.template {
+            self.check_expression(template.into());
+        }
+        let Some(signature) = self.resolve_call_signature(tag_type) else {
+            return error;
+        };
+        if !signature.type_parameters.is_empty() {
+            // A generic tag's return type depends on the inferred arguments,
+            // which for a tagged template means inferring from the template
+            // strings array and each substitution.
             return error;
         }
         signature.r#type

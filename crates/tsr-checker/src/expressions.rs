@@ -173,6 +173,11 @@ impl Checker<'_, '_> {
             Expression::NewExpression(node) => self.check_new_expression(node),
             // `checkYieldExpression` (`checker.go:10952`).
             Expression::YieldExpression(node) => self.check_yield_expression(node),
+            // `checkTaggedTemplateExpression` (`checker.go:10034`) — see
+            // [`crate::calls`], which owns signature resolution.
+            Expression::TaggedTemplateExpression(node) => {
+                self.check_tagged_template_expression(node)
+            }
             _ => self.intrinsics.error,
         }
     }

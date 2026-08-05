@@ -67,3 +67,56 @@ Measured against the baselines, for whoever picks this up next:
 | Computed names `{ [k]: v }` | not measured | `isTypeUsableAsPropertyName` |
 
 Only the first is worth a slice on its own, and only once it is unblocked.
+
+## Tagged templates are a call, so they reuse the call's resolution (2026-08-05)
+
+``tag`a${b}c` `` — `checkTaggedTemplateExpression` (`checker.go:10034`) is three
+lines once the grammar checks are set aside: resolve the tag's signature through
+**`getResolvedSignature`** and return its return type. That is the *same* entry
+point a call expression uses, because a tagged template **is** a call whose
+arguments are the template strings array and the substitutions.
+
+So the port shares `resolve_call_signature` rather than growing a second
+resolution path, and inherits its restriction to a callee with exactly one call
+signature for exactly the same reason: choosing among several needs
+assignability. Writing a separate resolver would have been the natural shape —
+the syntax looks nothing like a call — and would have drifted from the call path
+the first time either changed.
+
+The answer comes from the **tag**, never from the template. A port could
+plausibly answer `string` here, since that is what most tags return and what the
+untagged template answers; the test uses a tag returning a class type to make
+the difference visible.
+
+**A template with substitutions still gets a real answer.** The template itself
+is a `TemplateExpression`, which is unported and correctly stays a gap on its own
+line, but the tagged template does not inherit that — the tag's signature is what
+decides. This is the second form in this workstream where a gap in a sub-
+expression does *not* propagate (`typeof` was the first), and both times the
+reason is upstream's own structure rather than a convenience.
+
+### What stays gapped, and why the 289 lines will not all close
+
+A **generic tag** gaps, and this is the big one: `String.raw` and essentially
+every typed template helper is generic, so its return type depends on inference
+over the template strings array and each substitution. Also gapped: explicit type
+arguments, and a tag whose type has anything other than exactly one call
+signature.
+
+The optional-chain guard is **unobservable** — the grammar prohibits
+``tag?.`x` `` ("Tagged template expressions are not permitted in an optional
+chain") and this port's parser rejects it outright — so it is documented, not
+tested, on the same rule as the `{ a = 1 }` guard in `objects.rs`.
+
+### Prediction, recorded before measurement
+
+Of the 289 gap lines this form carries, I expect **roughly 100 to close**, with a
+plausible range of 40–110, concentrated in the `string` answer row (the baseline
+split over tagged-template lines is 108 `string`, 37 `any`, 4
+`TemplateStringsArray`). The gap between 289 and ~100 is generic tags and
+overloaded tags, neither of which this closes. Attribute to the commit pair
+**724da91 → this commit**.
+
+If the measured movement is far above ~110, something is answering that should
+be gapping — most likely a generic tag slipping through — and the fence needs
+checking rather than celebrating.
