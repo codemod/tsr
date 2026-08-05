@@ -468,11 +468,104 @@ pub fn type_at_location(
         }
     }
 
+    // **An intrinsic JSX tag name prints `any`, and the checker is not what
+    // decides that** — the writer is, exactly as for the two compensations
+    // above.
+    //
+    // `>div : any` appears 1,025 times in the corpus and never once as anything
+    // else, *including* in cases carrying a complete `JSX` namespace where the
+    // paired `.symbols` line resolves the same node to
+    // `Symbol(JSX.IntrinsicElements.div, Decl(react.d.ts, ...))`. It is tempting
+    // to read that as upstream computing `anyType`. It does not. Upstream's
+    // checker answers **`errorType`** here: `getIntrinsicTagSymbol`
+    // (`jsx.go:1216`) caches its resolved symbol on the *opening element's*
+    // links rather than the tag name's, and
+    // `checkJsxOpeningLikeElementOrOpeningFragment` (`jsx.go:130`) takes
+    // `getStringLiteralType(tagName.Text())` for an intrinsic and deliberately
+    // never calls `checkExpression(tagName)`. So the tag name reaches
+    // `getTypeOfNode` unvisited, `resolveName("div", Value)` misses, and
+    // `checkIdentifier` returns the error type.
+    //
+    // The writer then renders that error type **twice over, two different
+    // ways**. `type_symbol_baseline.go:378` prints `t.AsIntrinsicType()
+    // .IntrinsicName()` — the literal string `"error"` — unless one of eight
+    // guards excludes the node, in which case it falls through to the node
+    // builder, which renders any `TypeFlagsAny` type as the `any` keyword. One
+    // of those eight is `isIntrinsicJsxTag`, ported below.
+    //
+    // `conformance/inlineJsxFactoryOverridesCompilerOption.types` shows both
+    // spellings of one type on adjacent lines, which is the whole proof:
+    //
+    // ```text
+    // ><h></h> : error      <- errorType, fast path, prints the intrinsic name
+    // >h : any              <- the SAME errorType, guard fires, node builder
+    // ```
+    //
+    // This corrects ADR-0038, which read the `any` spelling as evidence that
+    // upstream renders `errorType` as `any` everywhere and concluded the
+    // `error`-printing population was unreachable. It is reachable; it is
+    // unported. See ADR-0039.
+    //
+    // **Only this one guard is ported.** The other seven — `hadErrorBaseline`,
+    // binding element, label name, global scope augmentation, meta property, and
+    // the import/export statement names — move populations nobody has measured,
+    // and the property-access/qualified-name one is already covered above by a
+    // rule reached along a different route. Porting them blind would present an
+    // unmeasured net as a gain.
+    //
+    // The `IsTypeAny` precondition is upstream's and is load-bearing rather than
+    // defensive: a **lowercase tag name that does resolve** — `const foo = () =>
+    // {}` used as `<foo/>` — has a real type, never reaches the fast path at
+    // all, and must keep printing it. The corpus discriminates this at 32 lines
+    // printing `() => any` and 24 printing `typeof foo`.
+    if nodes.kind(id) == SyntaxKind::Identifier
+        && let Some(parent) = nodes.parent(id)
+        && jsx_tag_name_of(parent, map) == Some(id)
+        && let Some(Node::Identifier(name)) = map.get(id)
+        && is_intrinsic_jsx_name(name.text)
+    {
+        let tag = tsr_ast::Expression::try_from(node)
+            .map_or(error, |expression| checker.check_expression(expression));
+        if tag == error || tag == checker.intrinsics().any {
+            return checker.type_to_string(checker.intrinsics().any);
+        }
+    }
+
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
         let id = checker.check_expression(expression);
         return checker.type_to_string(id);
     }
     checker.type_to_string(error)
+}
+
+/// The tag name of a JSX opening, closing or self-closing element.
+///
+/// The element kinds are upstream's, from the first clause of `isIntrinsicJsxTag`
+/// (`internal/testutil/tsbaseline/type_symbol_baseline.go:481`). A JSX fragment
+/// has no tag name and a `JsxNamespacedName` tag is not an identifier, so both
+/// answer `None` and fall through to the ordinary expression path.
+fn jsx_tag_name_of(element: NodeId, map: &NodeMap<'_>) -> Option<NodeId> {
+    match map.get(element)? {
+        Node::JsxOpeningElement(n) => n.tag_name.and_then(|tag| tag.node_id()),
+        Node::JsxClosingElement(n) => n.tag_name.and_then(|tag| tag.node_id()),
+        Node::JsxSelfClosingElement(n) => n.tag_name.and_then(|tag| tag.node_id()),
+        _ => None,
+    }
+}
+
+/// Whether a JSX tag name is an *intrinsic* element rather than a value reference.
+///
+/// Ported from `IsIntrinsicJsxName` (`internal/scanner/utilities.go:98`):
+///
+/// ```go
+/// return len(name) != 0 && (name[0] >= 'a' && name[0] <= 'z' || strings.ContainsRune(name, '-'))
+/// ```
+///
+/// The hyphen clause is not decoration — it is what makes `<public-foo>` a custom
+/// element rather than a name lookup, and `conformance/jsxParsingError4` carries
+/// exactly that shape.
+fn is_intrinsic_jsx_name(name: &str) -> bool {
+    name.starts_with(|first: char| first.is_ascii_lowercase()) || name.contains('-')
 }
 
 /// Render every baseline section of a case, in the baseline's order.
@@ -959,6 +1052,73 @@ mod tests {
         .into_iter()
         .map(|a| (a.text, a.type_string))
         .collect()
+    }
+
+    /// [`typed`], for a source that has to be parsed as `.tsx`.
+    fn typed_tsx(source: &str) -> Vec<(String, String)> {
+        let arena = tsr_core::Arena::new();
+        let parsed =
+            tsr_parser::parse_with_script_kind(&arena, source, tsr_parser::ScriptKind::Tsx);
+        assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.tsx", text: source },
+        );
+        let mut checker = tsr_checker::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        assertions_for_file(
+            &Node::SourceFile(parsed.source_file),
+            source,
+            &parsed.nodes,
+            &parsed.node_map,
+            |id| type_at_location(&mut checker, &bound, &parsed.nodes, &parsed.node_map, id),
+        )
+        .into_iter()
+        .map(|a| (a.text, a.type_string))
+        .collect()
+    }
+
+    #[test]
+    fn an_intrinsic_jsx_tag_name_prints_any() {
+        // The whole population this rule is for. Our checker answers the error
+        // type for `div` — correctly, and the same as upstream's — so without
+        // the writer guard both tag names print `error` and every one of the
+        // corpus's 1,779 intrinsic tag-name lines is a mismatch.
+        //
+        // Both the opening and the closing tag name get a line, which is why
+        // `div` appears twice; a guard keyed only on `JsxOpeningElement` would
+        // fix half the population and look like a whole fix.
+        let out = typed_tsx("const e = <div></div>;");
+        let tags: Vec<_> =
+            out.iter().filter(|(text, _)| text == "div").map(|(_, ty)| ty.as_str()).collect();
+        assert_eq!(tags, ["any", "any"], "in {out:?}");
+
+        // A hyphenated custom element is the second clause of
+        // `IsIntrinsicJsxName` and is intrinsic despite no lowercase-only rule
+        // reaching it. `conformance/jsxParsingError4` carries this shape.
+        let out = typed_tsx("const e = <x-foo></x-foo>;");
+        let tags: Vec<_> =
+            out.iter().filter(|(text, _)| text == "x-foo").map(|(_, ty)| ty.as_str()).collect();
+        assert_eq!(tags, ["any", "any"], "in {out:?}");
+    }
+
+    #[test]
+    fn a_lowercase_tag_name_that_resolves_keeps_its_own_type() {
+        // Upstream's `IsTypeAny` precondition, and the case that separates a
+        // port of the guard from "a lowercase tag prints `any`". `foo` is an
+        // intrinsic *name* by `IsIntrinsicJsxName` — it is lowercase — but it
+        // resolves to a value, so the writer never reaches the fast path and
+        // prints the real type. The corpus has 32 lines printing `() => any`
+        // and 24 printing `typeof foo` that depend on this.
+        let out = typed_tsx("const foo = () => 1;\nconst e = <foo/>;");
+        let tag = out
+            .iter()
+            .filter(|(text, _)| text == "foo")
+            .map(|(_, ty)| ty.as_str())
+            .next_back()
+            .expect("a tag name line");
+        assert_ne!(tag, "any", "in {out:?}");
+        assert_eq!(tag, "() => number", "in {out:?}");
     }
 
     /// Assertion texts for a source, with types stubbed out.
