@@ -52,6 +52,14 @@ pub struct Checker<'a, 'n> {
     regular_types: FxHashMap<TypeId, TypeId>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     symbol_types: FxHashMap<SymbolId, TypeId>,
+    /// `(generic symbol, type arguments) -> the instantiated reference`,
+    /// upstream's `d.instantiations` keyed by `getTypeListKey`
+    /// (`checker.go:17342`).
+    ///
+    /// Identity matters even though nothing yet looks inside one of these types:
+    /// `C<number>` written twice must be one type, or the first relation check
+    /// written will compare two handles that should have been equal.
+    instantiations: FxHashMap<(SymbolId, Vec<TypeId>), TypeId>,
     /// `symbol -> the type it *declares*`, upstream's
     /// `declaredTypeLinks[symbol].declaredType`.
     ///
@@ -85,6 +93,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             regular_types: FxHashMap::default(),
             symbol_types: FxHashMap::default(),
             declared_types: FxHashMap::default(),
+            instantiations: FxHashMap::default(),
             resolutions: Resolutions::new(),
         }
     }
@@ -660,22 +669,22 @@ impl<'a, 'n> Checker<'a, 'n> {
         let Some(tsr_ast::EntityName::Identifier(name)) = node.type_name else {
             return error;
         };
-        if !node.type_arguments.is_empty() {
-            return error;
-        }
         let Some(id) = name.node_id else { return error };
         let Some(symbol) = self.binder.resolve(self.nodes, id, name.text) else {
             return error;
         };
-        // Upstream errors when a generic type is referenced with no arguments —
-        // "Generic type 0 requires 1 type argument(s)" — and answers `errorType`
-        // in a TypeScript file (`checker.go:23189`). So the gap and the answer
-        // coincide here, which is why there is no separate test for the arity.
-        if !self.local_type_parameters_of(symbol).is_empty() {
-            return error;
+        let parameters = self.local_type_parameters_of(symbol).len();
+        if parameters == 0 {
+            // `checkNoTypeArguments` (`checker.go:23157`): arguments on a type
+            // that takes none is an error, and answering the bare declared type
+            // would quietly drop them.
+            if !node.type_arguments.is_empty() {
+                return error;
+            }
+            let declared = self.get_declared_type_of_symbol(symbol);
+            return self.get_regular_type_of_literal_type(declared);
         }
-        let declared = self.get_declared_type_of_symbol(symbol);
-        self.get_regular_type_of_literal_type(declared)
+        self.get_instantiated_type_reference(node, symbol, parameters)
     }
 
     /// Ported from `Checker.getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`
@@ -727,6 +736,78 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
         let printed = if printed.is_empty() { "{}".to_string() } else { format!("{{ {printed}}}") };
         self.store.new_named(TypeFlags::OBJECT, printed)
+    }
+
+    /// A reference to a generic type: `C<number>`, `Tree<T>`.
+    ///
+    /// Ported from `getTypeFromClassOrInterfaceReference` and
+    /// `getTypeFromTypeAliasReference` (`checker.go:23168`, `:23222`), reduced to
+    /// what a printed line needs — the target and its arguments — and interned
+    /// on that pair so `C<number>` written twice is one type.
+    ///
+    /// # There is no substitution here, and therefore no depth limit
+    ///
+    /// Upstream instantiates by *substituting* the arguments through the target's
+    /// members, and guards that with an instantiation depth of 100 and a count of
+    /// 5,000,000 (`checker.go:22111`) because self-referential generics generate
+    /// new type identities forever. This port has no members to substitute into
+    /// (see `getDeclaredTypeOfClassOrInterface`), so the recursion those limits
+    /// exist to stop does not happen yet: the only recursion is over the *source*
+    /// nesting of the argument type nodes, which is finite in a parsed file.
+    ///
+    /// **The limits are therefore not ported here, deliberately, and they are not
+    /// optional later.** `bd tsr-el3.2` records that they belong with
+    /// `instantiateType` — the code that actually recurses — and porting them now
+    /// would be a guard around a loop that does not exist, which reads as
+    /// coverage and provides none.
+    ///
+    /// # Arity
+    ///
+    /// Upstream reports and answers `errorType` when the count is outside
+    /// `[minTypeArgumentCount, len(typeParameters)]` (`checker.go:23189`). Fewer
+    /// arguments than parameters *within* that range is legal and fills from the
+    /// parameters\' defaults (`fillMissingTypeArguments`), and a default may
+    /// reference an earlier parameter — which is substitution, so that case is a
+    /// gap rather than a guess.
+    fn get_instantiated_type_reference(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        symbol: SymbolId,
+        parameters: usize,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        if node.type_arguments.len() != parameters {
+            return error;
+        }
+        let mut arguments = Vec::with_capacity(parameters);
+        for argument in node.type_arguments {
+            let resolved = self.get_type_from_type_node(*argument);
+            // A gap in an argument is a gap in the reference: `C<Unported>` is
+            // not `C<any>`, and printing it as though the argument were known
+            // would be a wrong line rather than a missing one.
+            if resolved == error {
+                return error;
+            }
+            arguments.push(resolved);
+        }
+        if let Some(&cached) = self.instantiations.get(&(symbol, arguments.clone())) {
+            return cached;
+        }
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        let printed = arguments
+            .iter()
+            .map(|&argument| self.type_to_string(argument))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // `OBJECT` even when the target is a type alias, where upstream\'s
+        // instantiated type carries the flags of the alias\'s *body*. The flags
+        // are consulted by the arithmetic and `+` arms, and claiming
+        // `Alias<number>` is string- or number-like would be worse than claiming
+        // it is an object: `object` is the one answer those arms treat as
+        // neither.
+        let id = self.store.new_named(TypeFlags::OBJECT, format!("{name}<{printed}>"));
+        self.instantiations.insert((symbol, arguments), id);
+        id
     }
 
     /// The type a *type* symbol declares.
@@ -792,12 +873,19 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// contains such cases deliberately.
     fn get_declared_type_of_type_alias(&mut self, symbol: SymbolId) -> TypeId {
         let error = self.intrinsics.error;
-        if !self.local_type_parameters_of(symbol).is_empty() {
-            // A generic alias keeps its own name in the printed form —
-            // `type Tree<T> = ...` reads `>Tree : Tree<T>` — because upstream
-            // records an alias symbol on the instantiated type. That is the
-            // alias-symbol machinery, not this function, so it is a gap.
-            return error;
+        // A generic alias keeps its own name in the printed form:
+        // `type Tree<T> = T | { left: Tree<T> }` records `>Tree : Tree<T>`
+        // (`conformance/genericTypeAliases.types`), because upstream\'s declared
+        // type for one is the body instantiated with the alias\'s own parameters
+        // and carrying it as an alias symbol. The body is not expanded here —
+        // which is also why a self-referential alias like `Tree` terminates
+        // rather than needing the guard below.
+        let parameters = self.local_type_parameter_names_of(symbol);
+        if !parameters.is_empty() {
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            return self
+                .store
+                .new_named(TypeFlags::OBJECT, format!("{name}<{}>", parameters.join(", ")));
         }
         let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
         else {

@@ -366,7 +366,8 @@ could not resolve.
 |---|---|---|
 | *(before)* | 313 | 28.72% |
 | `getDeclaredTypeOfSymbol` + type references | 554 | 33.57% |
-| anonymous object types | **571** | **34.06%** |
+| anonymous object types | 571 | 34.06% |
+| generic references | **587** | **34.92%** |
 
 The named-reference answer bucket went from **0.74% to 34.80%** right, and 241
 whole cases landed on the first slice — the largest case movement so far.
@@ -444,21 +445,55 @@ answer's shape and not the feature that computes it. `{ a: string; }` on an
 annotation and `{ a: string; }` inferred from `{ a: "x" }` are one bucket and two
 features.
 
+### A generic reference carries its arguments, and substitutes nothing
+
+`C<number>` is the target symbol plus its resolved arguments, interned on that
+pair so the same instantiation written twice is one type. The generic-reference
+answer bucket went **7.30% → 34.86%** right and the gradient 34.06% → 34.92%.
+
+A generic *alias* keeps its own name, unlike the transparent non-generic case:
+`type Tree<T> = T | { left: Tree<T> }` records `>Tree : Tree<T>`
+(`conformance/genericTypeAliases.types`). The body is not expanded, which is
+also why a self-referential alias terminates here.
+
+**No substitution means no depth limit, and that is deliberate.** Upstream
+guards `instantiateType` with a depth of 100 and a count of 5,000,000
+(`checker.go:22111`) because self-referential generics generate new type
+identities forever. This port has no members to substitute *into*, so the only
+recursion is over the source nesting of the argument type nodes, which is finite
+in a parsed file. Porting the limits now would be a guard around a loop that
+does not exist — it would read as coverage and provide none. `bd tsr-el3.2`
+records that they belong with `instantiateType`, and they are not optional then.
+
+Two arities are distinguished, because only one of them is upstream's error:
+outside `[minTypeArgumentCount, len(parameters)]` upstream reports and answers
+`errorType`; *inside* it, missing arguments are filled from the parameters'
+defaults, and a default may reference an earlier parameter — which is
+substitution, so that case is a gap rather than a guess.
+
 ### What is left under `bd tsr-4sc.7`
 
 From the histogram, after this work:
 
 ```text
-13,710  generic references — instantiation, with upstream's depth 100 and
-        count 5,000,000 guards ported alongside it (bd tsr-el3.2)
-12,065  array types — upstream models `T[]` as a reference to the global
-        `Array` interface, so this one genuinely does want lib files
-        (bd tsr-9or.1) rather than another type that prints alike
-24,383  object-literal answers still missing, nearly all from expressions
-        rather than annotations
-         qualified names (`M.I`), which need resolveEntityName through
-        module exports
+24,344  object-literal answers, nearly all from expressions not annotations
+12,051  array types
+ 9,506  generic references that still fail — largely names that do not
+        resolve, which is the next point
+        qualified names (`M.I`), needing resolveEntityName through exports
 ```
+
+**The lib-file argument has strengthened, and the measurement says so.** When
+`bd tsr-4sc.6` demoted `bd tsr-9or.1` it noted the 3% figure was a *direct-effect
+lower bound*, because most of what a global unlocks sat behind unported
+expressions. Two of those layers are now ported, and what remains in front of
+the array bucket (12,051 lines, still 0.00%) and in a third of the surviving
+generic-reference gaps is exactly that: upstream models `T[]` as a reference to
+the global `Array` interface, and `Promise`, `Object`, `Math`, `Date`, `Symbol`
+are among the commonest names that do not resolve. The unresolved-name count
+itself has not moved — 10,535 — but the work standing between it and the score
+has shrunk. Re-rank lib files from the histogram before the next big slice
+rather than from either of these paragraphs.
 
 ## Two decisions that shape the rest
 

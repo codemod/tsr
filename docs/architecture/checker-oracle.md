@@ -3,8 +3,8 @@
 **Status:** wired, and non-zero for the first time on 2026-08-05.
 
 ```
-checker_types    571/9538      5.99%   the type of every expression
-                 gradient     34.06%   ...share of individual assertion lines
+checker_types    587/9538      6.15%   the type of every expression
+                 gradient     34.92%   ...share of individual assertion lines
 diagnostics       80/5488      1.46%   every diagnostic, by code and position
 ```
 
@@ -15,9 +15,10 @@ Movement, all of it 2026-08-05, and all of it in the order the histogram ranked:
 | the producer is wired | 278 | 22.39% |
 | binary operators (`bd tsr-4sc.13`) | 313 | 28.72% |
 | named types (`bd tsr-4sc.7`) | 554 | 33.57% |
-| anonymous object types | **571** | **34.06%** |
+| anonymous object types | 571 | 34.06% |
+| generic references | **587** | **34.92%** |
 
-Two ranked items, +11.67 gradient points and +293 cases. That is the evidence
+Two ranked items, +12.53 gradient points and +309 cases. That is the evidence
 that the ranking is any good, and it is why the next item should be re-derived
 from the histogram rather than from this list.
 

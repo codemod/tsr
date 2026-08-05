@@ -612,18 +612,14 @@ fn a_circular_type_alias_answers_rather_than_hanging() {
 }
 
 #[test]
-fn a_generic_type_is_printed_with_its_type_parameters_and_a_reference_to_one_is_a_gap() {
+fn a_generic_type_is_printed_with_its_type_parameters() {
     // The declared type of `class C<T>` prints `C<T>` — upstream's baselines
     // record `class A { }` as `>A : A` and `class C<T> {}` as `>C : C<T>`.
     assert_eq!(declared_type_of("class C<T> {}", "C"), "C<T>");
     assert_eq!(declared_type_of("interface I<T, U> {}", "I"), "I<T, U>");
     assert_eq!(declared_type_of("class C {}", "C"), "C");
-    // A *reference* carrying type arguments needs instantiation, which is not
-    // ported: it must be a gap and not the uninstantiated `C<T>`, which would be
-    // a wrong answer that looks right in a printed line.
-    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C<number>;", "x"), "error");
-    // And a generic type referenced with *no* arguments is an error upstream,
-    // which answers `errorType` too.
+    // A generic type referenced with *no* arguments is an error upstream, which
+    // answers `errorType` too.
     assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C;", "x"), "error");
     // Type arguments on a *non*-generic type are `checkNoTypeArguments`, and
     // they must not be ignored: without this line the arguments could be
@@ -734,4 +730,90 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     assert_eq!(type_of_declaration("declare const x: { [k: string]: string };", "x"), "error");
     // A member whose own type is a gap takes the whole literal with it.
     assert_eq!(type_of_declaration("declare const x: { a: [string] };", "x"), "error");
+}
+
+/// Generic references (`bd tsr-4sc.7`, third slice).
+#[test]
+fn a_reference_to_a_generic_type_carries_its_arguments() {
+    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C<number>;", "x"), "C<number>");
+    assert_eq!(
+        type_of_declaration("interface I<T, U> {}\ndeclare const x: I<string, number>;", "x"),
+        "I<string, number>"
+    );
+    // Nested, so the argument itself goes back through `getTypeFromTypeNode`.
+    assert_eq!(
+        type_of_declaration("class C<T> {}\ndeclare const x: C<C<string>>;", "x"),
+        "C<C<string>>"
+    );
+    // A generic alias keeps its name, unlike the transparent non-generic case.
+    assert_eq!(
+        type_of_declaration("type A<T> = T;\ndeclare const x: A<number>;", "x"),
+        "A<number>"
+    );
+    assert_eq!(declared_type_of("type Tree<T> = T;", "Tree"), "Tree<T>");
+}
+
+#[test]
+fn the_arity_of_a_generic_reference_is_checked() {
+    // Outside `[minTypeArgumentCount, len(parameters)]` upstream reports and
+    // answers `errorType`. Inside it — fewer arguments than parameters, filled
+    // from defaults — needs substitution and is a gap rather than a guess.
+    assert_eq!(type_of_declaration("class C<T, U> {}\ndeclare const x: C<number>;", "x"), "error");
+    assert_eq!(
+        type_of_declaration("class C<T> {}\ndeclare const x: C<number, string>;", "x"),
+        "error"
+    );
+    assert_eq!(type_of_declaration("class C<T = string> {}\ndeclare const x: C;", "x"), "error");
+}
+
+#[test]
+fn a_gap_in_a_type_argument_is_a_gap_in_the_reference() {
+    // `C<Unported>` is not `C<any>`. Printing the reference with a guessed
+    // argument would turn a missing line into a wrong one.
+    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C<[string]>;", "x"), "error");
+}
+
+#[test]
+fn a_self_referential_generic_alias_terminates() {
+    // `type Tree<T> = T | { left: Tree<T> }` is the shape upstream guards with
+    // an instantiation depth of 100. Nothing here substitutes into the body, so
+    // it terminates for a different reason than upstream's — which is why the
+    // limits are documented as belonging with `instantiateType` rather than
+    // ported here.
+    assert_eq!(declared_type_of("type Tree<T> = { left: Tree<T> };", "Tree"), "Tree<T>");
+    assert_eq!(
+        type_of_declaration(
+            "type Tree<T> = { left: Tree<T> };\ndeclare const x: Tree<number>;",
+            "x"
+        ),
+        "Tree<number>"
+    );
+}
+
+#[test]
+fn the_same_instantiation_written_twice_is_one_type() {
+    // Identity, not printing: two `C<number>` annotations must produce the same
+    // `TypeId`, the way two `"a"` literals do. Nothing looks inside these types
+    // yet, so this is the only place the interning is observable — and the first
+    // relation check written would compare two handles that should be equal.
+    let arena = Arena::new();
+    let source = "class C<T> {}\ndeclare const x: C<number>;\ndeclare const y: C<number>;\n\
+                  declare const z: C<string>;";
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let type_of = |checker: &mut Checker<'_, '_>, name: &str| {
+        checker.get_type_of_symbol(bound.lookup_local(root, name).expect("declared"))
+    };
+    let x = type_of(&mut checker, "x");
+    let y = type_of(&mut checker, "y");
+    let z = type_of(&mut checker, "z");
+    assert_eq!(x, y, "`C<number>` twice is one type");
+    assert_ne!(x, z, "`C<number>` and `C<string>` are not");
 }
