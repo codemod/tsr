@@ -684,3 +684,29 @@ criterion.
 either converts far less than its row size when built, the repair is wrong too.
 Recorded before the work, not after — the first version of this method became
 fitted by being invented to explain a number already seen.
+
+### A number can be true and answer a different question
+
+Two sizing errors this cycle had the same shape, and neither was a
+miscalculation — both numbers were correct:
+
+- **Summing rows that share a downstream function.** Four histogram rows all
+  reached `resolve_call_signature`, which was verified. 83% of them were turned
+  back two lines earlier and never got there. The rows were real; "these rows
+  share a path" answered a different question than "this fix unblocks these
+  rows".
+- **Summing the sub-rows you can see.** A bucket was sized at 4,300 by adding
+  its `NumericLiteral` and `StringLiteral` rows — the two visible in the
+  histogram's top entries. The full bucket across all initialiser kinds was
+  **8,549**. Nobody asked what else was in it.
+
+The first over-counted by 2.7×, the second under-counted by 2×, and both were
+arithmetic on accurate inputs. **Before summing, state which question the sum
+answers and check that it is the question being asked.** For a bucket, that
+means enumerating what is in it rather than adding the visible rows; for a
+dependency, it means walking from each row to the fix and confirming nothing
+earlier gates it.
+
+This is the same family as the three-level bucketing rule: a count over the
+syntax, a count over upstream's answers, and a count over *our* failure are all
+true, and only the last predicts movement.
