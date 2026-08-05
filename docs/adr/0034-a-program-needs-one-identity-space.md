@@ -202,10 +202,29 @@ one of them is observable in an oracle.
 - If a language service or incremental build lands before the widening does,
   the "nothing needs per-file replacement" premise is false and this decision
   should be superseded rather than implemented.
-- If, after the widening, the gap count falls by markedly less than the 18,387
-  lines this ADR attributes to it, then those lines were never blocked on
+- If, after the widening, the **gap-line** count falls by markedly less than the
+  18,387 lines this ADR attributes to it, then those lines were never blocked on
   identity and the ranking that produced `bd tsr-9or.1` was measuring something
   else. Read this one with care: 18,387 is an upper bound taken by matching
   names at column 0, so a shortfall of a few thousand falsifies the *bound*
   rather than the decision. A shortfall approaching the 12,051-line array
   bucket would falsify the decision.
+
+  **The denominator is gap lines, and substituting the unresolved-*name* count
+  for it inverts the test.** Recorded because it was reached twice in one
+  session, once by the person who had taken the measurement:
+
+  |  | lines |
+  |---|---|
+  | unresolved-name count (10,535 value + 8,229 type) | 18,764 |
+  | of which lib names, the only part a widening can move | **6,336** |
+  | of which not lib — `undefined` (intrinsic), `div` (JSX), `T`/`U`/`V`/`K` (`bd tsr-y4u.21`) | 12,428 |
+  | the 12,051-line array bucket, which is *not in the name count at all* | — |
+
+  The two totals look interchangeable — 18,764 against 18,387, within 2% — and
+  they are different pools. A **flawless** widening moves 6,336 of the name
+  count, roughly a third of what a name-count test stated against 18,764 would
+  demand, and that test would report a complete success as a two-thirds
+  failure. The array bucket does not make up the difference, because array
+  lines are gap lines and not name lines. Whenever these numbers are quoted,
+  quote the denominator with them.
