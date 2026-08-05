@@ -316,3 +316,87 @@ accessors, against a number produced after the method was invented — so it is 
 confirmation, not a validated technique. `arrays`' ~10,000-line pair and
 `indexsig`'s ~1,500-line pair are the next two chances to falsify it, and both
 are being measured anyway.
+
+## FALSIFIED: the baseline-counting method is not a predictor
+
+The method above — count assertion lines in the `.types` baselines instead of
+occurrences in the source — was published as *one confirmation* (744 vs 673 on
+accessors) with the fitted-method risk named, because it was invented after
+seeing the number it had to reproduce. It was then given a genuine blind test on
+two forms whose measurements neither the author nor the lead had seen.
+
+**It failed both, in opposite directions.**
+
+| form | predicted | measured | error |
+|---|---|---|---|
+| `any` receiver on a member access | 6,300 (range 5,000–7,100) | **950** | 6.6× high |
+| call/construct signature members | 432 (range 380–432) | **1,537** | 3.6× low |
+
+Opposite-direction errors are worse than a consistent bias, which could have been
+calibrated. And the form nominated *in advance* as the method's best case —
+Form B, one assertion per annotation, no cascade — is the one that missed by
+3.6×. The stated failure mode ("works only where I already understand the form")
+did not occur; the real one is that the count has no reliable relationship to the
+measured quantity in either direction.
+
+### Two distinct failure modes, which is why the errors diverged
+
+**1. Counting where a construct APPEARS, not the lines its failure BLOCKS.**
+Form B counted 432 annotation sites. But one un-renderable annotation blocks the
+declaration's own line *and every reference to that variable*. Checked rather
+than assumed:
+
+| | |
+|---|---|
+| annotation sites (what was counted) | 286 |
+| further assertion lines naming those variables | 1,507 |
+| implied blocked total | **1,793** |
+| measured | **1,537** |
+
+So the correction lands within 17% where the original was out by 260%. This
+failure mode is **real and correctable** — it is the same multiplier `overloads`
+found running the other way, where one `var d = Object.assign` costs three lines.
+
+**2. The baselines cannot say whether this port can compute a PREREQUISITE.**
+Form A's movement depends on whether the port produces `any` for the *receiver*.
+A baseline records what **upstream** computes, never what this port can currently
+compute for a dependency. Two attempted bounds, both wrong, in opposite
+directions:
+
+| bound | value | vs measured 950 |
+|---|---|---|
+| every `any`-receiver access (after the evolving-array exclusion) | 7,068 | 7.4× high |
+| only receivers with an explicit `: any` annotation | 225 | 4.2× low |
+
+The answer sits between two proxies that bracket it by a factor of 31. **This
+failure mode is not correctable from baselines at all** — the information is not
+in them. It is a property of the port.
+
+The method cannot tell in advance which kind a form is, which is the fatal part:
+a form of kind 1 is predictable after correction, a form of kind 2 is not
+predictable at all, and nothing in the baselines distinguishes them.
+
+### What survives
+
+- The 744-vs-673 accessor agreement stands for that one form, and now reads as
+  luck rather than evidence — accessors happen to be kind 1 with a multiplier
+  near 1.
+- **The exclusion analysis is the transferable part**, and it is independent of
+  the count being predictive: finding that `largeControlFlowGraph.types` alone
+  contributed 10,000 of a naive 17,100, recognising it as the evolving-array case
+  the author had pre-registered as out of scope, and cutting it. That was correct
+  and load-bearing. It also did not save the prediction.
+- Counting assertion lines rather than source occurrences remains the right
+  *unit*. It is simply not sufficient.
+
+### The rule that replaces it
+
+**A line count without an independent check against the instrument is not a
+prediction, whatever unit it uses.** `indexsig` reached this from the other side:
+its estimate held because it cross-validated against the instrument before
+quoting a number. Both blind counts here had no cross-check available *by
+construction* — that is what made the test fair, and it is what the counts could
+not survive.
+
+Trust a number that arrives with a cross-check; discount one that arrives with a
+story. This section is the worked example, and the story was mine.
