@@ -640,3 +640,21 @@ seam was genuinely the blocker for case 4. Probing only that would still have
 missed that the *ordering* around it was load-bearing: case 4 must gap before
 the implicit-`any` arm, or every inferable accessor becomes a plausible wrong
 `any`. No probe of the blocker alone surfaces that.
+
+#### The three steps that produce one
+
+1. **Find where the volume actually is.** Rank the *files*, not the rows. One
+   command showed 9,999 of 11,363 lines sitting in a single baseline rather than
+   spread across the corpus, which is what broke that row open.
+2. **Read the source shape, not the aggregate.** The aggregate said "an `any`
+   receiver". The source said `const data = []` — an evolving array, a different
+   problem with a different owner.
+3. **Probe our port on that exact shape.** The receiver is not `any` here, so
+   the access propagates our own gap correctly and no work in the access code
+   could ever have touched those lines.
+
+Step 3 is what makes it a demonstration rather than a story: it shows the
+blocker biting on a fixture instead of merely being plausible. The agent that
+found this had a *real* blocker in hand for that row twice — instantiated
+generic members, `bd tsr-el3.2` — and it was the wrong one both times. No amount
+of reasoning would have revealed that; only the probe did.
