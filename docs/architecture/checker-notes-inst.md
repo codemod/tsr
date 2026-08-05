@@ -1,5 +1,18 @@
 # Members on an instantiated generic type: why the slice is not one edit
 
+> **Correction, 2026-08-05, and it moves the item.** The section "Coverage,
+> honestly" below asked for the 557 `member types as error` nodes to be split by
+> whether the receiver carries type arguments. **That split is zero by
+> construction and asks the wrong row.** A receiver carrying type arguments has
+> no member table, so `get_property_of_type` returns `None` before it reads the
+> name and the node lands in `no such member` — never in `member types as
+> error`. The population instantiated members acts on is inside the **1,985**,
+> and almost certainly inside the **1,011** `Named`-without-members sub-row that
+> `checker-notes-calls.md` already measured as 43.4% `Promise`. See
+> [the counter section](#the-counter-bd-tsr-fua-and-why-it-had-to-move-rows).
+> The same wrong claim is in `checker-notes-recv.md` ("97 of the 557, 17.4%");
+> that page is another agent's and has not been edited here.
+
 Status: designed 2026-08-05, **no production code changed**. Written for the
 item `bd tsr-el3.2` names and that
 [`checker-notes-recv.md`](checker-notes-recv.md) demonstrated is the blocker for
@@ -118,7 +131,104 @@ index infos, and instantiated *base* types (`class C extends B<number>`) — the
 symbol walk in `get_property_of_declared_symbol` reaches the base symbol, not a
 base reference, so an inherited member of a generic base stays `errorType`.
 
+## The counter, `bd tsr-fua`, and why it had to move rows
+
+**Superseded by measurement below: the paragraph in "Coverage, honestly" that
+asked for a split of the 557.** It is left in place because the wrong turn is the
+useful part of the record.
+
+### The forcing fact, pinned by a test rather than asserted
+
+`create_type_reference` (`crates/tsr-checker/src/declared.rs`) builds every
+instantiated reference with `members: None`. `get_property_of_type`
+(`crates/tsr-checker/src/members.rs`) matches only
+`TypeData::Named { members: Some(..) }` and `TypeData::Anonymous`, and returns
+`None` for everything else **before it reads the name**. Compose the two:
+
+> A call whose receiver carries type arguments *cannot* reach
+> `of which: member types as error`. It lands in `of which: no such member`,
+> sub-row `receiver is Named without members`.
+
+That is a two-hop code reading, which is exactly the kind this project has been
+wrong about eight times, so it is a test:
+`calls::tests::a_generic_receiver_has_no_member_table_so_the_lookup_never_runs`
+asserts `get_property_of_type(P<number>, "get") == None` and that the same
+interface *without* the type parameter answers `Some` — the A/A' discrimination
+from `checker-notes-recv.md`, one token apart. Its named mutation is step 4
+itself (`new_named(.., Some(symbol))` in `create_type_reference`), so the test is
+simultaneously the falsifier for this finding and the tripwire for the change
+that ends it.
+
+The consequence for the two pages that sized this item: **`checker-notes-recv.md`
+fixture A — `interface P<T> { get(): string; } declare var p: P<number>; p.get()`
+— is not a member of the 557.** The demonstration is still sound; the population
+it was attached to was the wrong one. The "97 of the 557" figure was arrived at
+by summing `promiseType` (51) and `promiseTypeStrictNull` (46) out of the *case*
+concentration of the 557, which says which files those nodes are in and nothing
+about their mechanism. The Promise nodes that *are* this shape are the 122 + 122
+of the **1,011**, not the 51 + 46 of the 557. This is the
+"a row named after one case is about that case" error one level down, and it is
+recorded here rather than quietly fixed.
+
+### What was built instead
+
+A second, **orthogonal** partition of `property access: receiver is typed`
+(2,562), keyed on the receiver's *provenance* rather than on the member lookup's
+outcome. `Checker::receiver_carries_type_arguments` asks the reverse index
+`type_reference_targets` (`docs/architecture/checker-notes-subst.md`) — upstream
+asks `objectFlags & ObjectFlagsReference` and reads `target` off the type
+(`createTypeReference`, `checker.go:25103`, verified at `5b1047d10`), which this
+port cannot, because the `(symbol, arguments)` pair is the intern map's key.
+
+```text
+      by receiver: type arguments, no member found          ?   <- the population
+      by receiver: type arguments, member found (CONTROL: 0) ?  <- must read 0
+      by receiver: no type arguments                        ?
+```
+
+The three sum to 2,562, which the reader can check off the printed rows; that is
+the partition control. The **zero control** is the middle row, and it is not a
+residual — it is reachable in principle and empty in fact for the reason above.
+A zero there over 2,562 samples re-derives the invariant on every run instead of
+trusting the two-hop reading, exactly as `classify_unresolved_callee`'s existing
+control buckets do. It stops being a control the moment step 4 lands, at which
+point it becomes the measurement of how many generic receivers newly resolve a
+member — the same counter answering the before and after question.
+
+`receiver_generic_member_absent` is also predicted to be **≤ 1,011**, since
+carrying type arguments implies `Named`-without-members. If it exceeds that,
+`create_type_reference` is not the only producer of `type_reference_targets`
+entries and this page's model of the type store is wrong.
+
+### How to run it
+
+```bash
+TSR_OVERLOAD_COUNTERS=1 cargo run -p tsr-conformance --example overload_funnel --release
+```
+
+No change to `crates/tsr-conformance/` was needed: the `define_counters!` macro
+generates `Snapshot::rows()` in declaration order and the example prints every
+row, so new counters appear without editing a file this workstream does not own.
+
+### The decision this gates
+
+- If `by receiver: type arguments, no member found` comes back **near the 439
+  Promise nodes**, this is the same case-gate item `checker-notes-calls.md`
+  already ranked: ~4 nodes per case, half in ten files, and worth building for
+  cases rather than for the gradient.
+- If it comes back **materially above 1,000**, it is the largest single
+  confirmed mechanism on the call path and step 4 is the highest-value build item
+  on this board.
+- If it comes back **near zero**, the receivers in the 1,011 are `Named` types
+  with no member table for reasons unrelated to instantiation — a different item
+  — and steps 1–4 should not be built at all. The demonstration in
+  `checker-notes-recv.md` would still be correct and still be about a shape the
+  corpus does not contain in quantity, which is the outcome this counter exists
+  to be able to report.
+
 ## Coverage, honestly
+
+*Superseded by the section above; retained per "never delete a decision record".*
 
 Measured share is unchanged from `checker-notes-recv.md` and this page adds none:
 `promiseType` + `promiseTypeStrictNull` are **97 of the 557 (17.4%)** and are this

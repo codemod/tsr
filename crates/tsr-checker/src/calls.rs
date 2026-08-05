@@ -216,6 +216,36 @@ pub mod counters {
         /// **Subset.** The member exists and types as a real non-object type.
         /// Upstream reports "not callable" too, so this is **not a gap**.
         callee_member_not_object = "      of which: member types as a non-object",
+        /// **A second, orthogonal split of `property access: receiver is
+        /// typed`** — `bd tsr-fua`. The three rows below partition the same
+        /// 2,562 the three `of which` rows above do, by whether the receiver's
+        /// type **carries type arguments**: whether it came out of
+        /// `create_type_reference` (`crate::declared`) as `C<number>` rather
+        /// than as `C`. That is the discriminator for `bd tsr-el3.2`,
+        /// instantiated members, and nothing measured so far separates it.
+        ///
+        /// Receiver carries type arguments and the member lookup found
+        /// nothing. This is the population instantiated members would act on.
+        receiver_generic_member_absent = "      by receiver: type arguments, no member found",
+        /// Receiver carries type arguments and `get_property_of_type` found a
+        /// member — **the control bucket, and it must read zero today.**
+        ///
+        /// `create_type_reference` builds every such type with `members: None`
+        /// (`crate::declared`), and `get_property_of_type` (`crate::members`)
+        /// returns `None` for a `Named` with no member table before it reads
+        /// the name. So a receiver that carries type arguments can never reach
+        /// `member types as error` or `member types as a non-object`. That
+        /// invariant is the load-bearing fact of `bd tsr-fua`; a counter
+        /// re-derives it on every corpus run instead of trusting this comment.
+        ///
+        /// It stops being a control the moment step 4 of `bd tsr-el3.2` flips
+        /// `create_type_reference` to `Some(symbol)`, at which point this row
+        /// becomes the measurement of how many generic receivers newly resolve
+        /// a member.
+        receiver_generic_member_found = "      by receiver: type arguments, member found (CONTROL: 0)",
+        /// Receiver carries no type arguments. Instantiated members cannot
+        /// reach these, whatever else is wrong with them.
+        receiver_not_generic = "      by receiver: no type arguments",
         /// `a[b]()`.
         callee_element_access = "    element access",
         /// Any other callee form: a call, a parenthesis, `this`, `new`, a
@@ -352,6 +382,27 @@ impl Checker<'_, '_> {
     /// is that `check_expression` throws away *which* of "no symbol" and
     /// "symbol with no type" produced its `error`, and that distinction is the
     /// whole question.
+    /// Whether `id` is an **instantiated type reference** — `C<number>` rather
+    /// than `C` — asked of a `TypeId` alone.
+    ///
+    /// Upstream asks this as `t.objectFlags & ObjectFlagsReference != 0` and
+    /// then reads `target` and `resolvedTypeArguments` straight off the type
+    /// (`createTypeReference`, `checker.go:25103`). Here the `(symbol,
+    /// arguments)` pair is the intern map's *key*, so the only way back from a
+    /// `TypeId` is the reverse index
+    /// [`Checker::type_reference_targets`](crate::checker::Checker) — see
+    /// `docs/architecture/checker-notes-subst.md`.
+    ///
+    /// The `!is_empty` test is not defensive padding: it states what the bucket
+    /// means. `create_type_reference` is only reached with at least one
+    /// argument today (`crate::declared`'s `get_type_from_type_reference`
+    /// returns the bare declared type when the target takes no parameters), so
+    /// the test is currently redundant — and it is the *definition* of "carries
+    /// type arguments", which is what the counters below are counting.
+    pub(crate) fn receiver_carries_type_arguments(&self, id: TypeId) -> bool {
+        self.type_reference_targets.get(&id).is_some_and(|(_, arguments)| !arguments.is_empty())
+    }
+
     fn classify_unresolved_callee(&mut self, callee: Expression<'_>, callee_type: TypeId) {
         let error = self.intrinsics.error;
         match callee {
@@ -417,6 +468,17 @@ impl Checker<'_, '_> {
                 } else {
                     bump(&COUNTERS.callee_member_not_object);
                 }
+                // `bd tsr-fua`: the same 2,562 partitioned a second way, by
+                // whether the receiver carries type arguments. Orthogonal to
+                // the split above on purpose — the question "is this an
+                // instantiated generic" is about the receiver's *provenance*
+                // and the split above is about the member lookup's outcome,
+                // and only the join of the two sizes `bd tsr-el3.2`.
+                bump(match (self.receiver_carries_type_arguments(receiver), member.is_some()) {
+                    (true, false) => &COUNTERS.receiver_generic_member_absent,
+                    (true, true) => &COUNTERS.receiver_generic_member_found,
+                    (false, _) => &COUNTERS.receiver_not_generic,
+                });
             }
             Expression::ElementAccessExpression(_) => bump(&COUNTERS.callee_element_access),
             _ => bump(&COUNTERS.callee_other_form),
@@ -705,4 +767,140 @@ impl Checker<'_, '_> {
 fn has_correct_arity(candidate: &Signature, argument_count: usize) -> bool {
     let required = candidate.parameters.iter().take_while(|p| !p.optional).count();
     argument_count >= required && argument_count <= candidate.parameters.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use tsr_ast::Statement;
+    use tsr_core::Arena;
+
+    use crate::{Checker, types::TypeId};
+
+    /// A checker over one file, plus the type of the variable named `name`.
+    ///
+    /// **No lib files are loaded**, which is the confound recorded in
+    /// `docs/architecture/checker-notes-recv.md`: `number[]`, `Array`, `Promise`
+    /// and every other lib global answer `error` in this harness for reasons
+    /// that have nothing to do with the code under test. Every fixture below
+    /// therefore names no lib type, and
+    /// [`the_no_lib_control_still_holds`](self::tests::the_no_lib_control_still_holds)
+    /// pins that the confound is present rather than assuming it is absent.
+    fn with_declared_variable<R>(
+        source: &str,
+        name: &str,
+        body: impl FnOnce(&mut Checker<'_, '_>, TypeId) -> R,
+    ) -> R {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "fixture must parse: {:?}",
+            parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+        );
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let declaration = parsed
+            .source_file
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::VariableStatement(statement) => statement.declaration_list,
+                _ => None,
+            })
+            .flat_map(|list| list.declarations.iter())
+            .find(|declaration| match declaration.name {
+                Some(tsr_ast::BindingName::Identifier(identifier)) => identifier.text == name,
+                _ => false,
+            })
+            .copied()
+            .expect("the fixture must declare the variable");
+        let symbol = bound
+            .symbol_of(declaration.node_id.expect("a registered node"))
+            .expect("the variable must be bound");
+        let id = checker.get_type_of_symbol(symbol);
+        body(&mut checker, id)
+    }
+
+    /// A receiver written with type arguments is reachable *as* one from its
+    /// `TypeId` alone, which is what the `bd tsr-fua` counters ask.
+    ///
+    /// Mutation that reddens this and not the sibling below: make
+    /// `receiver_carries_type_arguments` return `false` unconditionally.
+    #[test]
+    fn a_generic_receiver_carries_type_arguments() {
+        with_declared_variable(
+            "interface P<T> { get(): string; }\ndeclare var p: P<number>;",
+            "p",
+            |checker, id| {
+                assert_eq!(checker.type_to_string(id), "P<number>");
+                assert!(checker.receiver_carries_type_arguments(id));
+            },
+        );
+    }
+
+    /// The same declaration with the type parameter removed — one token apart,
+    /// as `checker-notes-recv.md`'s A/A' pair is.
+    ///
+    /// Mutation that reddens this and not the sibling above: make
+    /// `receiver_carries_type_arguments` return `true` unconditionally.
+    #[test]
+    fn a_plain_receiver_does_not() {
+        with_declared_variable(
+            "interface P { get(): string; }\ndeclare var p: P;",
+            "p",
+            |checker, id| {
+                assert_eq!(checker.type_to_string(id), "P");
+                assert!(!checker.receiver_carries_type_arguments(id));
+            },
+        );
+    }
+
+    /// **The load-bearing fact of `bd tsr-fua`**, and the reason the counter
+    /// this commit adds is not quite the one the item was written to ask for.
+    ///
+    /// `create_type_reference` builds `P<number>` with `members: None`
+    /// (`crate::declared`), and `get_property_of_type` (`crate::members`)
+    /// returns `None` for a `Named` with no member table **before it reads the
+    /// name**. So a call whose receiver carries type arguments lands in
+    /// `no such member`, never in `member types as error` — the 557 cannot
+    /// contain this shape at all, and splitting *the 557* by this discriminator
+    /// is asking a question whose answer is zero by construction. The
+    /// population is inside the 1,985.
+    ///
+    /// Mutation that reddens this: pass `Some(symbol)` instead of `None` to
+    /// `new_named` in `create_type_reference` — which is step 4 of
+    /// `bd tsr-el3.2`, so this test is both the falsifier for the finding and
+    /// the tripwire for the change that ends it. It reddens neither sibling
+    /// above: `receiver_carries_type_arguments` reads the reverse index, which
+    /// that mutation does not touch.
+    #[test]
+    fn a_generic_receiver_has_no_member_table_so_the_lookup_never_runs() {
+        with_declared_variable(
+            "interface P<T> { get(): string; }\ndeclare var p: P<number>;",
+            "p",
+            |checker, id| assert_eq!(checker.get_property_of_type(id, "get"), None),
+        );
+        // The same declaration without the type parameter *does* find it, so
+        // the `None` above is about the type arguments and not about interface
+        // members in general. This is the A/A' discrimination.
+        with_declared_variable(
+            "interface P { get(): string; }\ndeclare var p: P;",
+            "p",
+            |checker, id| assert!(checker.get_property_of_type(id, "get").is_some()),
+        );
+    }
+
+    /// The one-line control from `checker-notes-recv.md`. If this ever passes,
+    /// the harness has grown lib files and every fixture above must be re-read
+    /// for whether it still measures what it claims.
+    #[test]
+    fn the_no_lib_control_still_holds() {
+        with_declared_variable("declare var x: number[];", "x", |checker, id| {
+            assert_eq!(checker.type_to_string(id), "error");
+        });
+    }
 }
