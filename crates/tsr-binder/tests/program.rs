@@ -180,7 +180,7 @@ fn a_local_shadows_a_global() {
 }
 
 #[test]
-fn a_repeated_global_keeps_the_first_declaration_and_does_not_merge() {
+fn a_repeated_global_merges_into_one_symbol_carrying_both_declarations() {
     // The divergence `merge_globals` documents, pinned so it cannot change
     // silently. Upstream's `mergeGlobalSymbol` would produce one symbol carrying
     // both declarations; this keeps the first and drops the second.
@@ -203,14 +203,28 @@ fn a_repeated_global_keeps_the_first_declaration_and_does_not_merge() {
 
     let symbol = resolve(&result, &nodes, &node_map, &files[2], "repeated").expect("resolves");
     let declaration = result.symbols().get(symbol).value_declaration.expect("has one");
+    // `SetValueDeclaration` keeps the FIRST — upstream only replaces when the
+    // target has none (`checker.go:14176`), so this half is unchanged by
+    // merging and is what distinguishes "merged" from "second one won".
     assert!(
         files[0].nodes.contains(&declaration.as_u32()),
-        "the first declaration wins; when merging lands this becomes one merged symbol",
+        "the first declaration is still the value declaration after merging",
     );
+    // This assertion read `1` until merging landed, with a comment saying
+    // "merging would make this 2". It does.
     assert_eq!(
         result.symbols().get(symbol).declarations.len(),
-        1,
-        "and it carries only its own declaration — merging would make this 2",
+        2,
+        "`mergeSymbol` unions the declarations (`checker.go:14178`)",
+    );
+    // And both declarations are the ones that were written, one per file —
+    // not the first counted twice, which is what a merge that appended the
+    // wrong side would produce.
+    let declarations = &result.symbols().get(symbol).declarations;
+    assert!(
+        declarations.iter().any(|d| files[0].nodes.contains(&d.as_u32()))
+            && declarations.iter().any(|d| files[1].nodes.contains(&d.as_u32())),
+        "one declaration from each file",
     );
 }
 
@@ -380,5 +394,93 @@ fn a_user_file_resolves_the_real_libs_globals() {
     }
     assert!(
         result.resolve_name(&nodes, &node_map, user.root, "NotAThing", SymbolFlags::TYPE).is_none(),
+    );
+}
+
+#[test]
+fn two_declarations_of_a_global_interface_merge_their_members() {
+    // The case the whole change exists for: `interface Array<T>` is declared in
+    // 8 bundled lib files and `String` in 11, and first-in-wins kept one. With
+    // merging, `Math.trunc` (declared only in `lib.es2015.core.d.ts`) resolves
+    // through the `Math` symbol whose base declaration is in `lib.es5.d.ts`.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            ("first.ts", "interface I { a: number; }"),
+            ("second.ts", "interface I { b: string; }"),
+            ("third.ts", "const unrelated = 1;"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    let symbol = resolve(&result, &nodes, &node_map, &files[2], "I").expect("resolves");
+    let data = result.symbols().get(symbol);
+    assert_eq!(data.declarations.len(), 2, "both interface declarations");
+    let mut members: Vec<&str> = data.members.keys().copied().collect();
+    members.sort_unstable();
+    assert_eq!(members, ["a", "b"], "`mergeSymbolTable` (`checker.go:14109`)");
+}
+
+#[test]
+fn a_member_declared_in_both_halves_merges_rather_than_taking_the_first() {
+    // **Why the member merge recurses.** Two declarations of a lib interface
+    // routinely split a member's *overloads* between them — `Array.from` has one
+    // in `lib.es2015.core.d.ts` and another in `lib.es2015.iterable.d.ts`. If
+    // the member table took first-in-wins, `m` would carry one declaration and
+    // print a single signature where upstream prints the overload set: a wrong
+    // answer, not a missing one.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            ("first.ts", "interface I { m(): void; }"),
+            ("second.ts", "interface I { m(x: string): void; }"),
+            ("third.ts", "const unrelated = 1;"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    let symbol = resolve(&result, &nodes, &node_map, &files[2], "I").expect("resolves");
+    let member = *result.symbols().get(symbol).members.get("m").expect("`m` is a member");
+    assert_eq!(
+        result.symbols().get(member).declarations.len(),
+        2,
+        "the member symbol carries BOTH signatures, so the overload set is complete",
+    );
+}
+
+#[test]
+fn a_conflicting_redeclaration_does_not_merge() {
+    // `getExcludedSymbolFlags` (`checker.go:14147`) gates the merge, and
+    // `SymbolFlags::excludes` is this port's spelling of it: a `let` may not be
+    // redeclared at all in value space, so these two stay unmerged. Upstream
+    // reports a diagnostic here and this port has none (`bd tsr-5e7.6`), so the
+    // observable part is only that the tables were not joined.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[
+            ("first.ts", "declare let conflicting: number;"),
+            ("second.ts", "declare let conflicting: string;"),
+            ("third.ts", "const unrelated = 1;"),
+        ],
+        &mut nodes,
+        &mut node_map,
+    );
+
+    let symbol = resolve(&result, &nodes, &node_map, &files[2], "conflicting").expect("resolves");
+    assert_eq!(
+        result.symbols().get(symbol).declarations.len(),
+        1,
+        "a conflicting redeclaration is left alone, not merged",
     );
 }

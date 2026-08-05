@@ -102,3 +102,81 @@ upstream has it — is matching more than `EnumLike`. The ordering is currently
 unobservable here because this port's member type carries `ENUM` alone, where
 upstream's carries `EnumLiteral | NumberLiteral`; it is written upstream's way
 so that it stays correct if the member type ever gains that flag.
+
+## Global declaration merging, and the machinery this port does not need
+
+`merge_globals` took **first-in-wins**: the second declaration of a global name
+was dropped. `interface Array<T>` is declared in 8 bundled lib files and
+`String` in 11, so `Math.random` (`lib.es5.d.ts`) answered correctly while
+`Math.trunc` (`lib.es2015.core.d.ts` only) answered `error`.
+
+### Sized by answers, after being sized wrongly by counting
+
+The first sizing counted *member accesses* in the baselines: 4,169 lines, of
+which 1,250 name a member that exists only in a non-base declaration. That is
+the number this section would have quoted, and it would have been the same
+mistake the enum widening arm made — where 1,250 baseline lines yielded 93
+actual conversions, because the population was somewhere the change could not
+reach.
+
+So it was re-sized by reading what the checker *answers*, against a real
+lib-loaded program:
+
+```text
+Math.random    => () => number                RIGHT already
+Object.keys    => (o: object) => string[]     RIGHT already
+Math.trunc     => error                       es2015.core only
+Object.assign  => error                       es2015.core only
+```
+
+The receiver path was already live — `Math` resolved to `Math`, `Object` to
+`ObjectConstructor` — and merging was the only thing missing. That is the
+evidence the enum estimate lacked: the exact line was watched going from `error`
+to a correct signature.
+
+Two populations are blocked *upstream* of merging and must not be credited to
+it: anything generic dies at `create_type_reference`, which carries no members
+on purpose (`bd tsr-4sc.7`), and anything on a primitive needs `getApparentType`,
+which is not ported. `Array.from` and `Object.entries` still answer `error`
+after merging — the first through generics, the second because its type is a
+tuple.
+
+### Upstream's indirection layer is unnecessary here, and that is a fact about this port
+
+`mergeSymbol` (`checker.go:14146`) clones the target, records the result, and is
+then read back through `getMergedSymbol` — 37 call sites in `checker.go` alone.
+That exists because a `*ast.Symbol` can be shared between programs, so merging
+must not mutate what another program sees.
+
+A `BindResult` here *is* one program: `bind_into` resumes the binder over the
+previous result, so every symbol belongs to one arena and nothing outside holds
+a view. Merging in place is sound, and it removes the clone, the record, and all
+37 read sites together. **This is porting the decision rather than the code**:
+the constraint that produced upstream's shape does not exist here. If symbols
+ever become shared across programs, this is the first decision to revisit.
+
+### The member merge recurses, and that is not an optimisation
+
+A name present in both tables is merged rather than taken first-in-wins, because
+two declarations of a lib interface routinely split a member's *overloads*:
+`Array.from` has one in `lib.es2015.core.d.ts` and another in
+`lib.es2015.iterable.d.ts`. Taking one would print a single signature where
+upstream prints the overload set — a wrong answer rather than a missing one,
+which is the exact failure this change exists to remove. `Object.assign` is the
+case that proves it works: it prints all four overloads as a type literal,
+character for character with the baseline.
+
+### What stays a gap
+
+An alias on either side (nothing follows aliases yet), a conflicting
+redeclaration (`SymbolFlags::excludes`, upstream's `getExcludedSymbolFlags` —
+upstream reports a diagnostic and this port has none), and module augmentation.
+
+### How you would know this is wrong
+
+**`binder_symbols` is the rail, and it should go UP or stay flat.** It is defined
+as "every symbol in the `.symbols` baseline exists with the same *declaration
+lines*", and merging is precisely what produces the union of declaration lines
+while first-in-wins truncates it. A DROP means merging is losing symbols rather
+than uniting them — most likely the members/exports merge clobbering rather than
+unioning — and the change comes out.

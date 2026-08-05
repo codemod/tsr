@@ -492,22 +492,19 @@ impl<'a, 'n> Binder<'a, 'n> {
     ///
     /// # What is not ported, and what it costs
     ///
-    /// **Declaration merging.** Upstream calls `mergeGlobalSymbol`, which merges
-    /// a second declaration of a name *into* the first — two `interface Array`
-    /// declarations become one symbol with the union of their members. Here the
-    /// first declaration wins outright and the second is dropped.
+    /// **Declaration merging.** Upstream calls `mergeGlobalSymbol`
+    /// (`checker.go:1386`), which merges a second declaration of a name *into*
+    /// the first — two `interface Array` declarations become one symbol with the
+    /// union of their members. [`Binder::merge_symbol`] now does the same.
     ///
-    /// That is a real divergence with a visible consequence, not a technicality:
-    /// `lib.es5.d.ts` and `lib.es2015.iterable.d.ts` both declare
-    /// `interface Array`, so `Array` resolves to the ES5 one and its ES2015
-    /// members are simply absent. It converts "the name does not resolve" into
-    /// "the name resolves and this member is missing", which is progress on the
-    /// ranked measurement and is *not* the same as being finished.
-    ///
-    /// It is safe in the one way that matters here: a member that did not merge
-    /// is absent rather than wrong, so a lookup for it still answers
-    /// `errorType`. A gap stays distinguishable from an answer. `bd tsr-0e9`
-    /// carries the follow-up.
+    /// This read "the first declaration wins outright and the second is
+    /// dropped" until merging landed, and the consequence it described was
+    /// real: `interface Array<T>` is declared in 8 bundled lib files and
+    /// `String` in 11, so `Math.trunc` — declared only in
+    /// `lib.es2015.core.d.ts` — answered `error` while `Math.random` from
+    /// `lib.es5.d.ts` answered correctly. Measured before building: of 4,169
+    /// corpus assertion lines that are a member access on a named lib global,
+    /// 1,250 name a member that exists only in a non-base declaration.
     fn merge_globals(&mut self, root_id: NodeId) {
         // `ast.IsExternalOrCommonJSModule`. A module's top-level names are its
         // exports, not globals — which is the entire distinction between a
@@ -516,16 +513,124 @@ impl<'a, 'n> Binder<'a, 'n> {
             && !self.commonjs_module
             && let Some(locals) = self.locals.get(&root_id)
         {
+            let locals: Vec<(&'a str, SymbolId)> =
+                locals.iter().map(|(name, symbol)| (*name, *symbol)).collect();
             for (name, symbol) in locals {
-                // Upstream's `mergeGlobalSymbol` would merge here; see the doc
-                // comment. First-in-wins is what this does instead.
-                self.globals.entry(name).or_insert(*symbol);
+                // `mergeGlobalSymbol` (`checker.go:1386`): merge into the
+                // existing global if there is one, otherwise take this symbol.
+                match self.globals.get(name) {
+                    Some(&target) => self.merge_symbol(target, symbol, 0),
+                    None => {
+                        self.globals.insert(name, symbol);
+                    }
+                }
             }
         }
         // UMD global exports are merged for *every* file, module or not, and
         // upstream states the first-in-wins rule outright ("see #9771").
         for (name, symbol) in &self.global_exports {
             self.globals.entry(name).or_insert(*symbol);
+        }
+    }
+
+    /// Merge `source`'s declarations into `target`, in place.
+    ///
+    /// Ported from `Checker.mergeSymbol` (`checker.go:14146`) and
+    /// `mergeSymbolTable` (`:14109`), **reduced to what a single-program port
+    /// needs**.
+    ///
+    /// # Why almost none of upstream's machinery is here
+    ///
+    /// Upstream clones the target (`cloneSymbol`), records the result in a
+    /// merged-symbol table, and then reads every symbol back through
+    /// `getMergedSymbol` — which appears 37 times in `checker.go` alone. That
+    /// indirection exists because a `*ast.Symbol` can be shared between
+    /// programs, so merging must not mutate what another program sees.
+    ///
+    /// Here a [`BindResult`] *is* one program: [`bind_into`] resumes this binder
+    /// over the previous result, so every symbol in play belongs to one arena
+    /// and nothing outside it holds a view. Merging in place is therefore sound,
+    /// and it removes the clone, the record, and all 37 read sites at once. This
+    /// is the port's shape rather than upstream's because the constraint that
+    /// produced upstream's shape does not exist here — if symbols ever become
+    /// shared across programs, this is the decision that has to be revisited
+    /// first.
+    ///
+    /// # What is deliberately not merged
+    ///
+    /// - **An alias on either side.** Upstream resolves it (`resolveSymbol`)
+    ///   before deciding, and nothing here follows aliases yet
+    ///   (`bd tsr-y4u.12`). First-in-wins is kept, so an alias merge is a gap
+    ///   rather than a wrong table.
+    /// - **A conflicting redeclaration.** [`SymbolFlags::excludes`] is
+    ///   upstream's `getExcludedSymbolFlags` and gates the same branch
+    ///   (`checker.go:14147`). Upstream reports a diagnostic and does not merge;
+    ///   this does not merge, and has no diagnostics to report
+    ///   (`bd tsr-5e7.6`).
+    /// - **Module augmentation** (`mergeModuleAugmentation`), which needs module
+    ///   resolution.
+    ///
+    /// # Members and exports recurse
+    ///
+    /// A name in both tables is merged rather than taken first-in-wins, because
+    /// the two declarations of a lib interface routinely split a member's
+    /// *overloads* between them — `Array.from` has one in
+    /// `lib.es2015.core.d.ts` and another in `lib.es2015.iterable.d.ts`. Taking
+    /// one would print a single signature where upstream prints the overload
+    /// set: a wrong answer, not a missing one, which is the failure this whole
+    /// change exists to remove.
+    ///
+    /// `depth` bounds that recursion. The tables are trees in every tree the
+    /// parser produces, so the cap is a guard and not a limit; it is here
+    /// because a cycle would otherwise be a hang rather than a wrong answer.
+    fn merge_symbol(&mut self, target: SymbolId, source: SymbolId, depth: u32) {
+        const MAX_MERGE_DEPTH: u32 = 32;
+        if target == source || depth > MAX_MERGE_DEPTH {
+            return;
+        }
+        let (source_flags, target_flags) =
+            (self.symbols.get(source).flags, self.symbols.get(target).flags);
+        if (source_flags | target_flags).intersects(SymbolFlags::ALIAS)
+            || source_flags.excludes().intersects(target_flags)
+        {
+            return;
+        }
+
+        // Read everything needed from `source` before touching `target`: the two
+        // are entries in one store, so the borrows cannot overlap.
+        let declarations = self.symbols.get(source).declarations.clone();
+        let value_declaration = self.symbols.get(source).value_declaration;
+        let members: Vec<(&'a str, SymbolId)> =
+            self.symbols.get(source).members.iter().map(|(n, s)| (*n, *s)).collect();
+        let exports: Vec<(&'a str, SymbolId)> =
+            self.symbols.get(source).exports.iter().map(|(n, s)| (*n, *s)).collect();
+
+        {
+            let entry = self.symbols.get_mut(target);
+            entry.flags |= source_flags;
+            entry.declarations.extend(declarations);
+            // `SetValueDeclaration` keeps the first one; upstream only replaces
+            // when the target has none.
+            if entry.value_declaration.is_none() {
+                entry.value_declaration = value_declaration;
+            }
+        }
+
+        for (name, member) in members {
+            match self.symbols.get(target).members.get(name) {
+                Some(&existing) => self.merge_symbol(existing, member, depth + 1),
+                None => {
+                    self.symbols.get_mut(target).members.insert(name, member);
+                }
+            }
+        }
+        for (name, export) in exports {
+            match self.symbols.get(target).exports.get(name) {
+                Some(&existing) => self.merge_symbol(existing, export, depth + 1),
+                None => {
+                    self.symbols.get_mut(target).exports.insert(name, export);
+                }
+            }
         }
     }
 
