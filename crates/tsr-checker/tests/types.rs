@@ -1517,3 +1517,74 @@ fn an_accessor_symbol_is_a_gap_even_when_it_merges_with_a_method() {
     // The guard is on the accessor flags, not on merged symbols in general.
     assert_eq!(type_of_member("interface I { x(): number; }", "I", "x"), "() => number");
 }
+
+// ---------------------------------------------------------------------------
+// Index signatures (`bd tsr-4sc.8`, fourth slice). `getIndexInfosOfType` /
+// `findApplicableIndexInfo` (`checker.go:18974`, `:19019`).
+//
+// Every expectation below is upstream's rule read from `isApplicableIndexType`
+// (`checker.go:19040`), not reasoned about — the applicability is asymmetric and
+// getting it backwards looks right on half the corpus.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_string_index_signature_applies_to_a_numeric_key_but_not_the_reverse() {
+    let with = |head: &str, index: &str| {
+        type_of_declaration(
+            &format!(
+                "interface A {{ {head} }}\ndeclare const i: {index};\ndeclare const a: A;\nconst x = a[i];"
+            ),
+            "x",
+        )
+    };
+    // *"A `string` index signature applies to types assignable to `string` **or
+    // `number`**"* — the half that is easy to drop, and dropping it loses every
+    // `a[0]` on a string-indexed type.
+    assert_eq!(with("[k: string]: number", "string"), "number");
+    assert_eq!(with("[k: string]: number", "number"), "number");
+    // The reverse does not hold, and this is the assertion that pins the
+    // asymmetry: a `number` index signature never applies to a `string` key.
+    assert_eq!(with("[k: number]: boolean", "number"), "boolean");
+    assert_eq!(with("[k: number]: boolean", "string"), "error");
+}
+
+#[test]
+fn a_string_index_signature_is_considered_only_when_no_other_one_applies() {
+    // `findApplicableIndexInfo`'s precedence rule, stated in its own comment.
+    // With both signatures present a numeric key must take the *number* one —
+    // taking the first declared, or preferring the string one, both answer
+    // `number` here and are wrong.
+    let both = "interface A { [k: string]: number; [j: number]: boolean }";
+    assert_eq!(
+        type_of_declaration(
+            &format!("{both}\ndeclare const i: number;\ndeclare const a: A;\nconst x = a[i];"),
+            "x"
+        ),
+        "boolean"
+    );
+    assert_eq!(
+        type_of_declaration(
+            &format!("{both}\ndeclare const i: string;\ndeclare const a: A;\nconst x = a[i];"),
+            "x"
+        ),
+        "number"
+    );
+}
+
+#[test]
+fn a_named_lookup_that_misses_falls_back_to_an_index_signature() {
+    let lookup = |head: &str, key: &str| {
+        type_of_declaration(
+            &format!("interface A {{ {head} }}\ndeclare const a: A;\nconst x = a[{key}];"),
+            "x",
+        )
+    };
+    assert_eq!(lookup("[k: string]: number", "\"anything\""), "number");
+    // A declared property still wins over the index signature.
+    assert_eq!(lookup("b: string; [k: string]: number", "\"b\""), "string");
+    // `isNumericLiteralName`: a string literal that *spells* a number reaches a
+    // number index signature. The round-trip is the definition, so `"0"` is a
+    // numeric name and `"00"` is not — they are distinct property names.
+    assert_eq!(lookup("[k: number]: boolean", "\"0\""), "boolean");
+    assert_eq!(lookup("[k: number]: boolean", "\"00\""), "error");
+}

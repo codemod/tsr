@@ -74,12 +74,18 @@ impl Checker<'_, '_> {
         }
         let index_type = self.check_expression(index);
         let Some(name) = self.property_name_from_index(index_type) else {
-            return error;
+            // Not a literal, so it names no property. `getIndexedAccessType`
+            // falls to the index signatures (`checker.go:21902`).
+            return self
+                .get_applicable_index_info(object_type, index_type)
+                .map_or(error, |info| info.value);
         };
-        match self.get_property_of_type(object_type, &name) {
-            Some(property) => self.get_type_of_symbol(property),
-            None => error,
+        if let Some(property) = self.get_property_of_type(object_type, &name) {
+            return self.get_type_of_symbol(property);
         }
+        // A named lookup that misses still reaches the index signatures, which is
+        // what makes `{ [k: string]: number }["anything"]` answer `number`.
+        self.get_applicable_index_info(object_type, index_type).map_or(error, |info| info.value)
     }
 
     /// The property name an index type names, if it names one.

@@ -2192,3 +2192,132 @@ That is the better resolution wherever it is available. The `#[ignore]`d test
 with a named unblocking event is for guards that genuinely cannot be reached
 yet; a guard that can be reached by a fixture nobody had written is not one of
 them.
+
+## Index signatures, and the half of them that is blocked (`bd tsr-4sc.8`)
+
+`ElementAccessExpression` was still the second-largest single stop at 13,442
+lines after the literal-index slice — the half deliberately gapped, because a
+non-literal index needs index signatures and no type had any.
+
+### The applicability rule is asymmetric, and it was taken from upstream
+
+`isApplicableIndexType` (`checker.go:19040`) is the whole feature in one
+function, and it does not read the way symmetry would suggest:
+
+- a **string** index signature applies to a `string` key **and to a `number`
+  key** — `{ [k: string]: T }` answers `a[0]`;
+- a **number** index signature applies only to a `number` key, plus a string
+  literal that *spells* a number (`isNumericLiteralName`), never to `string`.
+
+`findApplicableIndexInfo` then adds a precedence rule in its own comment —
+*"index signatures for type `string` are considered only when no other index
+signature applies"* — so a type carrying both answers a numeric access from the
+**number** signature.
+
+Getting either backwards looks right on half the corpus, which is why all three
+are pinned by tests and each has a mutation that turns one red.
+
+**Applicability is decided structurally, not by assignability.** Upstream asks
+`isTypeAssignableTo` and there is no relation here. For the key shapes this port
+can produce — the `string` and `number` intrinsics and their literal types —
+assignability is decidable by inspection; every other key is a gap rather than a
+guess, because a wrong index type yields a confident wrong *value* type.
+
+`isNumericLiteralName`'s round-trip is the definition rather than a shortcut:
+`"0"` is a numeric name, `"00"`, `"1.0"` and `" 1"` are not, and all four are
+distinct property names.
+
+### It pays on interfaces only, and the blocker is one function away
+
+Measured rather than assumed: every case works through an `interface` and
+**none** works through a type literal. `get_type_from_type_literal`
+(`declared.rs`) gaps the *whole* type when it meets a member it cannot render,
+and an index signature is such a member — so `{ [k: string]: number }` is
+`errorType` before any lookup happens.
+
+That is the right rule for a printer (a partial object type is a wrong answer
+dressed as a right one) and it means this slice reaches only the named half of
+its population. Teaching `get_type_from_type_literal` to render
+`{ [k: string]: number; }` unblocks the rest, and it is a change in a file this
+cycle did not own.
+
+### What is not ported
+
+- **`noUncheckedIndexedAccess`.** An index signature does not make a property
+  optional and does not add `| undefined`. That is a compiler option this port
+  does not read (`bd tsr-y5a`), and the two are deliberately not blended.
+- **Inherited index signatures.** `resolveObjectTypeMembers` layers a base's
+  under the derived type's; this reads a symbol's own declarations only, so an
+  inherited one is a miss. A gap, not a wrong answer, and it belongs with base
+  type walking.
+- **Merging several applicable signatures** into a synthetic `IndexInfo` over the
+  intersection of their value types. Two applicable signatures is a gap.
+- Index signatures on a class or a mapped type, and `symbol`/pattern keys.
+
+## Array literals: two pieces of machinery meeting
+
+Ported 2026-08-05, cycle 8. 15,053 gap lines — 10,807 declarations whose
+initialiser is an array literal, 4,246 the literals themselves — and the largest
+buildable population on the board, unblocked by the array *type* landing one
+slice earlier.
+
+Almost nothing here is new. The element type is the **union of the elements**,
+and the result is an **array type**, so `checkArrayLiteral` is `crate::unions`
+meeting `crate::declared`: `[1, "a"]` is `(string | number)[]` because the union
+sorts by `TypeFlags` and the `Array` reference prints its element parenthesised.
+Upstream records that exact line.
+
+The payoff of the array type being a real reference rather than a lookalike
+shows up here and is tested: **`[1]` and `number[]` are one type**, the inferred
+and the written form interned together.
+
+### `[]` is `never[]`
+
+`implicitNeverType` under `strictNullChecks`, `undefinedWideningType` without it
+(`checker.go:8098`). The corpus splits **461 `never[]` to 297 `undefined[]`** on
+exactly that option — an independent confirmation of the assumption this crate
+made three slices ago, arrived at from a different direction. It is also the
+cheapest test that separates a real implementation from one that only handles
+the non-empty path.
+
+`implicitNeverType` is another of upstream's distinct types printing `never`, and
+this port has only `neverType`; recorded rather than merged silently.
+
+### The wrong union reduction, deliberately, and where it shows
+
+Upstream reduces the element union with **`UnionReductionSubtype`**
+(`checker.go:8096`); this port has only `UnionReductionLiteral`, because
+`removeSubtypes` needs assignability. For every element type this slice can
+produce the two agree — widened primitives are mutually unrelated, and literal
+types survive only in a const context, which is unported.
+
+They part company on **object-typed elements**, and not subtly: an object literal
+type is not interned, so `[{a: 1}, {a: 1}]` is a union of two *distinct* types
+that print the same string, which subtype reduction collapses to one. Printing
+`({ a: number; } | { a: number; })[]` would be a wrong line that reads as a
+formatting bug. So two or more object-typed constituents make the literal a gap,
+and **one does not** — `[{a: 1}, 1]` is `(number | { a: number; })[]`, which
+subtype reduction would not have merged either.
+
+That element order was predicted wrong and the implementation was right for the
+tenth time: `NUMBER` is `1 << 6` and `OBJECT` is `1 << 20`, so the object type
+sorts second.
+
+### A guard that is unobservable today and load-bearing under one named edit
+
+Spreads and omissions are rejected before the element is checked. Deleting that
+test changes nothing **today**, because `check_expression` has no `SpreadElement`
+arm and the gap-in-an-element guard catches them anyway.
+
+Rather than record that and move on — which this document has done four times —
+the pair of mutations that makes it matter was applied together: remove the guard
+*and* give `SpreadElement` its operand's type, which is the obvious next edit.
+`[...[1]]` then answers `number[][]` and the test goes red. So the guard is kept
+with its unblocking edit named, and the test is known to bite rather than assumed
+to.
+
+This is the third resolution for an unobservable guard, and they now form a
+preference order: **make it observable with a fixture** (the `Array` arity check);
+failing that, **verify it against the named future edit** (this, and the tuple
+gap); failing that, an `#[ignore]`d test naming the issue (the `const` assertion
+arm). Only when none of the three is possible should it be prose.
