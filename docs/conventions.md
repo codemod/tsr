@@ -184,3 +184,21 @@ not compile for four commits. The file list looked exactly right.
 Only building catches it. Run `cargo build -p <crate>` immediately before any
 `git commit -- <paths>` that touches a file outside your sole ownership. Seconds,
 not a full gate.
+
+## Attribute by the answer, not by the name
+
+A `.types` line is emitted for a **declaration**, not for the type reference
+inside its annotation. `class C<T> { p: T }` produces a line for `p` — a
+`PROPERTY` symbol — so a probe that asks "what does the identifier on this line
+resolve to" can never see a change that altered what `T` resolves to.
+
+That is not a quirk of one probe. Given what the walker emits, **any slice whose
+effect lands on a declaration is invisible to a name-side arm**, and that is most
+slices. Attribute by whether the *answer* has the property you changed, not by
+what the name resolves to, whenever the change alters what a declaration's type
+is.
+
+Measured cost of getting this wrong: an arm read 0 wrong lines and its positive
+control read 52 firings; asking the same question of the answer instead read
+9,735 — a blind spot of **187×**, on the author's own work, in the direction that
+would have flattered it.
