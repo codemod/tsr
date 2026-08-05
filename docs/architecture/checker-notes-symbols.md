@@ -1381,7 +1381,7 @@ calls a function, not what a run does.** Inertness is a claim about execution.
 
 ### What the original section got right, kept
 
-`ce83aed` and `1e4bddb` do not compile (`bd tsr-6yg`): `checker.rs` imports
+`ce83aed` and `1e4bddb` do not compile (`bd tsr-iv7`): `checker.rs` imports
 `ModuleHost` at `ce83aed`, and `trait ModuleHost` first appears in `fa29e66`.
 The runs against them failed and **left the committed snapshots in place, which
 read exactly the baseline** — so the control very nearly reported "exactly zero"
@@ -1394,7 +1394,7 @@ non-zero, and now in `docs/conventions.md` as its own entry. The two zeroes are
 indistinguishable in the output and are distinguished only by reading the run's
 own stdout, which is what caught it.
 
-The ordering rule that would have prevented the whole thing, `bd tsr-6yg`:
+The ordering rule that would have prevented the whole thing, `bd tsr-iv7`:
 **the first commit must be the one that builds alone, which is the declaration,
 not the consumer.** Compressed: *blocking is not the same as first.*
 
