@@ -124,15 +124,80 @@ Two consequences worth stating so they are not mistaken for capabilities:
   12,051 in the array bucket — 18,387 in all, an upper bound taken in `2f6f0bf`.
   All three are behind the
   identity widening, not behind the loading.
-- The conformance `.types` producer was **not** rewired to build a program.
-  Doing so would load 3.9 MB of lib text per case across 12,444 cases, and
-  `ProgramFile` is deliberately not `Sync`
-  ([ADR-0011](../adr/0011-unsafe-is-opt-in.md),
-  `crates/tsr-compiler/src/file.rs:88`), so one parsed-and-bound lib file cannot
-  be shared between the programs of a parallel run. Rewiring it before the
-  program can answer a cross-file name would cost the corpus run minutes and
-  change no number. Sharing bound files across programs is the prerequisite, and
-  it is a second decision, not a detail of this one.
+- The conformance `.types` producer was **not** rewired to build a program, so
+  none of the lib work is visible to `checker_types` — the producer gives each
+  unit its own arena, binds it alone, and gives it its own `Checker`
+  (`types_producer.rs:273-299`). That is a property of the *measurement path*,
+  not of the lib work, and it means no further lib work can move that suite by a
+  line until the producer changes.
+
+  **Corrected 2026-08-05.** This paragraph previously gave the reason as cost
+  plus `ProgramFile` not being `Sync`, and called sharing a bound lib program a
+  prerequisite. The measurement below shows it is neither: the cost is about
+  three minutes on a corpus run, and the `Sync` problem does not arise because
+  nothing needs to be shared.
+
+## What a program of libs costs, and why that decides an ordering
+
+Added 2026-08-05, measured by
+[`examples/lib_program_cost.rs`](../../crates/tsr-compiler/examples/lib_program_cost.rs)
+in release, second pass of two so the first warms the file cache.
+
+| default lib | files | text | nodes | globals | per case | over 12,444 cases |
+|---|---|---|---|---|---|---|
+| `lib.es5.d.ts` alone | 3 | 0.22 MB | 10,933 | 132 | 1.4 ms | 18 s |
+| `lib.d.ts` (the ES5 default, pulls in DOM) | 18 | 2.55 MB | 126,815 | 2,202 | 15.6–17.1 ms | **194–213 s** |
+| `lib.es2015.d.ts` | 13 | 0.30 MB | 15,469 | 163 | 1.5–1.6 ms | 19 s |
+| `lib.esnext.full.d.ts` | 93 | 2.85 MB | 140,767 | 2,241 | 14.3–15.4 ms | 178–192 s |
+
+**The timings are a range because the machine was not quiet** — three other
+agents were working during both runs, and the two passes differ by about 10%.
+The file counts, byte counts, node counts and global counts are exact and
+stable. The conclusion below turns on an order of magnitude, not on a
+percentage, so the noise does not reach it; a number quoted to one decimal place
+from this table would be false precision. Re-take it on a quiet machine if it is
+ever load-bearing.
+
+### The ordering decision
+
+The `.types` producer parses, binds and checks **each unit standalone** — a
+fresh arena per unit, `bind` alone, one `Checker` per unit. So it cannot see a
+program, and no amount of lib work moves `checker_types` until it does. That
+made the question: is sharing one bound lib program across cases
+(`bd tsr-6av`) a *precondition* for the producer building a program, or an
+optimisation?
+
+**It is an optimisation, worth about three to four minutes on a corpus run.** Each case
+building its own program costs 15–17 ms, and the cases are independent, so the
+cost parallelises exactly as the corpus run already does.
+
+Two things follow, and the second corrects an earlier claim in this document:
+
+- **The `Sync` problem does not arise.** It was filed as the obstacle: one
+  parsed-and-bound lib file cannot be shared between the programs of a parallel
+  run because `ProgramFile` is `Send` and not `Sync`. True, and irrelevant —
+  nothing has to be *shared*. Each worker builds its own program and `Send` is
+  all a worker needs.
+- **The widening makes sharing harder, not easier.** Under program-wide
+  identity a case's files bind into the same `SymbolStore` as the libs, so a
+  read-only lib prefix cannot be extended without copying it. `bd tsr-6av`'s
+  original shape — "bind the libs once, share the result" — is no longer
+  available; what remains is "copy a pre-parsed prefix per case", which trades
+  parse time for a memory copy and is worth doing only if three minutes proves
+  intolerable.
+
+So `bd tsr-0e9` goes first and finishes with the producer rewire **as its own
+commit**. That keeps the measurement attributable: the widening lands invisibly
+(the suites are flat across it, checked), and the rewire commit changes nothing
+else, so its delta *is* the widening's effect. Measuring the two together would
+reproduce exactly the problem this project hit when four slices landed in one
+integration run and the +5.10 could not be attributed among them.
+
+The alternative considered was rewiring the producer first, against today's
+per-file identity. Rejected: with per-file identity `Checker::new` takes one
+file's `BindResult`, so a "program" in the producer would still check each unit
+separately — it would pay the three minutes and read the same number, and then need a
+second rewire when the identity model changed underneath it.
 
 ## What is not here
 
