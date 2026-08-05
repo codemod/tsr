@@ -88,6 +88,24 @@ pub struct Checker<'a, 'n> {
     /// `C<number>` written twice must be one type, or the first relation check
     /// written will compare two handles that should have been equal.
     pub(crate) instantiations: FxHashMap<(SymbolId, Vec<TypeId>), TypeId>,
+    /// The reverse of [`Checker::instantiations`]: `the instantiated reference
+    /// -> (generic symbol, type arguments)`.
+    ///
+    /// Upstream needs no such table because a `TypeReference` *carries* its
+    /// target and its `resolvedTypeArguments`
+    /// (`internal/checker/types.go`), so `instantiateType` reads the pair
+    /// straight off the type. Here the pair is the intern map's **key**, which
+    /// makes it unreachable from a [`TypeId`] — and substitution is exactly the
+    /// operation that has a `TypeId` and needs the pair. Writing it into a side
+    /// table keyed by id is the ADR-0003 move, and it costs one insert per
+    /// *distinct* reference rather than per lookup, because
+    /// [`crate::declared`]'s `create_type_reference` returns early on a hit.
+    ///
+    /// The entry is the whole of what substitution can rebuild. A tuple or a
+    /// function type is not interned on a `(symbol, arguments)` pair at all, so
+    /// it has no entry and no rebuild — see
+    /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
+    pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
     /// A class symbol to its `this` type, upstream's `d.thisType`
     /// (`checker.go:17334`). One per class, so `this` has a stable identity
     /// inside one.
@@ -179,6 +197,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),
+            type_reference_targets: FxHashMap::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
             shared_flows: Vec::new(),

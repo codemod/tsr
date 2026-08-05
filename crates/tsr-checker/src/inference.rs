@@ -81,7 +81,15 @@
 //! calls in the corpus whose callee has a written return annotation, 14 return a
 //! bare type parameter and are answered, 5 mention no type parameter and are
 //! free, and **21 return a type that merely contains one** — `T[]`, `[T, U]`,
-//! `C<T>` — which needs a structural rebuild that does not exist.
+//! `C<T>` — which needs a structural rebuild.
+//!
+//! That rebuild is now [`Checker::instantiate_type`], and it covers exactly the
+//! shapes whose construction is interned on a `(symbol, arguments)` pair:
+//! `T[]`, `Array<T>`, `C<T>` and a union of those. **`[T, U]` and `(x: T) => U`
+//! are still gaps**, and not by oversight — a tuple and a function type are not
+//! built through `create_type_reference`, so there is no pair to reverse and
+//! nothing to rebuild them from. They become answerable when they gain a
+//! structured `TypeData`, not before.
 //!
 //! **The constraint check is not ported.** `f<string>(x)` where `T extends
 //! number` is an error upstream and answers `string` here. That is the one
@@ -159,15 +167,8 @@ impl Checker<'_, '_> {
             if !self.mentions_type_parameter(returned, &parameters, &names) {
                 return returned;
             }
-            // The identity case, which is the whole of the substitution this
-            // port can perform: the return type *is* a type parameter, so it
-            // becomes the type argument written in that position. `T[]`, `C<T>`
-            // and `[T, U]` need a structural rebuild that does not exist yet —
-            // see the module docs for why that is separate work.
-            return parameters
-                .iter()
-                .position(|parameter| *parameter == returned)
-                .map_or(error, |index| written[index]);
+            let map = parameters.iter().copied().zip(written).collect::<Vec<_>>();
+            return self.instantiate_type(returned, &map, &parameters, &names);
         }
 
         // A return type that mentions no type parameter of this signature does
@@ -178,40 +179,124 @@ impl Checker<'_, '_> {
             return returned;
         }
 
-        // The remaining answerable shape: the return type *is* one of the type
-        // parameters, so the answer is that parameter's single candidate.
-        if !parameters.contains(&returned) {
-            return error;
-        }
         // A rest parameter makes position-to-argument mapping a tuple problem
         // (`getSpreadArgumentType`, `checker.go`), so the whole signature is a
         // gap rather than the rest position alone.
         if signature.parameters.iter().any(|parameter| parameter.rest) {
             return error;
         }
-        let mut candidate = None;
-        for (index, parameter) in signature.parameters.iter().enumerate() {
-            if parameter.r#type != returned {
-                continue;
+        // One candidate per type parameter, from the positions typed by that
+        // parameter *bare*. Inference from `x: T[]` against `number[]` is
+        // `inferFromTypes` (`checker.go:21287`) and is not ported, so such a
+        // position contributes nothing — which leaves its type parameter
+        // unmapped, and an unmapped mention is what makes the answer below
+        // `errorType` rather than a guess.
+        let mut map = Vec::with_capacity(parameters.len());
+        for &type_parameter in &parameters {
+            let mut candidate = None;
+            for (index, parameter) in signature.parameters.iter().enumerate() {
+                if parameter.r#type != type_parameter {
+                    continue;
+                }
+                let Some(&inferred) = argument_types.get(index) else {
+                    // The position was not supplied. Upstream would fall back to
+                    // the constraint or the default; neither is ported.
+                    return error;
+                };
+                match candidate {
+                    // Two bare positions for one type parameter: upstream unions
+                    // the candidates (`getCovariantInference`), which needs a
+                    // union of types this port would have to build without
+                    // knowing whether subtype reduction applies.
+                    Some(previous) if previous != inferred => return error,
+                    _ => candidate = Some(inferred),
+                }
             }
-            let Some(&inferred) = argument_types.get(index) else {
-                // The position was not supplied. Upstream would fall back to
-                // the constraint or the default; neither is ported.
-                return error;
-            };
             match candidate {
-                // Two bare positions for one type parameter: upstream unions the
-                // candidates (`getCovariantInference`), which needs a union of
-                // types this port would have to build without knowing whether
-                // subtype reduction applies.
-                Some(previous) if previous != inferred => return error,
-                _ => candidate = Some(inferred),
+                Some(inferred) if inferred != error => map.push((type_parameter, inferred)),
+                Some(_) => return error,
+                None => {}
             }
         }
-        match candidate {
-            Some(inferred) if inferred != error => inferred,
-            _ => error,
+        self.instantiate_type(returned, &map, &parameters, &names)
+    }
+
+    /// `Checker.instantiateType` (`checker.go:22100`) — substitution, over the
+    /// shapes this port can rebuild.
+    ///
+    /// Upstream's mapper walks a structured type: a `TypeReference` carries its
+    /// target and `resolvedTypeArguments`, so `instantiateTypeWorker`
+    /// (`checker.go:22220`) rebuilds it by mapping the arguments. Here a
+    /// reference's payload is a *printed string*, and the pair it was built
+    /// from lives in the intern map as a key. [`Checker::type_reference_targets`]
+    /// makes that key reachable from the id, and this function is what it is
+    /// for.
+    ///
+    /// The four arms, in order:
+    ///
+    /// 1. **Identity** — `id` is a mapped type parameter, so it becomes its
+    ///    image. `T` with `T := number` is `number`.
+    /// 2. **Unchanged** — `id` mentions no type parameter of this signature, so
+    ///    substitution is the identity on it. Upstream reaches the same answer
+    ///    through `couldContainTypeVariables`.
+    /// 3. **Reference** — `id` came from `create_type_reference`, so its
+    ///    arguments are substituted and the reference rebuilt through the same
+    ///    function. Rebuilding through it rather than around it is what keeps
+    ///    `Array<number>` and `number[]` one interned type.
+    /// 4. **Union** — constituents substituted, then [`Checker::get_union_type`]
+    ///    (`unions.rs`), because a union of substituted members may collapse
+    ///    (`T | string` with `T := string`) and only that function knows how.
+    ///
+    /// Anything else answers **`errorType`**, and that includes an *unmapped*
+    /// type parameter: it falls past arm 1, mentions itself so it fails arm 2,
+    /// and is neither a reference nor a union. A tuple and a function type land
+    /// here too — they are a `TypeData::Named` or `TypeData::Anonymous` holding
+    /// text, built without an intern key, so there is no pair to reverse.
+    ///
+    /// **No recursion limit.** Upstream's `instantiateType` carries
+    /// `instantiationDepth` and `instantiationCount` because a mapper can build
+    /// unboundedly deep types from a bounded source. Nothing here can: every
+    /// argument reached is one that a *written* type node already produced, so
+    /// the recursion is bounded by the source nesting. That stops being true the
+    /// moment a generic's members are instantiated, which is `bd tsr-el3.2`.
+    pub(crate) fn instantiate_type(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        if let Some(&(_, image)) = map.iter().find(|&&(from, _)| from == id) {
+            return image;
         }
+        if !self.mentions_type_parameter(id, parameters, names) {
+            return id;
+        }
+        let error = self.intrinsics.error;
+        if let Some((symbol, arguments)) = self.type_reference_targets.get(&id).cloned() {
+            let mut substituted = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                let image = self.instantiate_type(argument, map, parameters, names);
+                if image == error {
+                    return error;
+                }
+                substituted.push(image);
+            }
+            return self.create_type_reference(symbol, substituted);
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(id).data {
+            let types = types.clone();
+            let mut substituted = Vec::with_capacity(types.len());
+            for constituent in types {
+                let image = self.instantiate_type(constituent, map, parameters, names);
+                if image == error {
+                    return error;
+                }
+                substituted.push(image);
+            }
+            return self.get_union_type(&substituted);
+        }
+        error
     }
 
     /// The [`TypeId`] of each of a signature's own type parameters, in order.
@@ -471,6 +556,93 @@ mod tests {
                 "both"
             ),
             "1"
+        );
+    }
+
+    #[test]
+    fn a_return_type_that_contains_a_type_parameter_is_rebuilt() {
+        // `T[]` and `C<T>` are the 21 of 40 written-argument calls the module
+        // docs count. Both are a reference interned on `(symbol, arguments)`,
+        // which is the only thing that makes them rebuildable.
+        //
+        // Three wrong implementations are separated. Answering the
+        // uninstantiated return type prints `T[]` / `C<T>` — that is what this
+        // module did before the reverse index and is the failure the test is
+        // named for. Answering the *written argument* rather than the
+        // substituted reference prints `string` / `number`, which is the
+        // shortcut a one-line "identity case" invites. Answering `errorType`
+        // prints `error`.
+        assert_eq!(
+            generic_call(
+                "interface Array<T> { }\ndeclare function f<T>(x: T): T[];\nconst a = f<string>(\"s\");",
+                "f"
+            ),
+            "string[]"
+        );
+        assert_eq!(
+            generic_call(
+                "interface C<T> { }\ndeclare function g<T>(x: T): C<T>;\nconst a = g<number>(1);",
+                "g"
+            ),
+            "C<number>"
+        );
+        // The inference path reaches the same rebuild through a candidate
+        // rather than a written argument. `n` is annotated so the answer is
+        // `number` rather than the literal type `1`, which keeps this measuring
+        // substitution and not widening.
+        assert_eq!(
+            generic_call(
+                "interface Array<T> { }\ndeclare const n: number;\ndeclare function f<T>(x: T): T[];\nconst a = f(n);",
+                "f"
+            ),
+            "number[]"
+        );
+        // Nested, so that a rebuild one level deep is separated from a general
+        // one: `C<T[]>` needs the inner reference rebuilt before the outer.
+        assert_eq!(
+            generic_call(
+                "interface Array<T> { }\ninterface C<T> { }\ndeclare function g<T>(x: T): C<T[]>;\nconst a = g<string>(\"s\");",
+                "g"
+            ),
+            "C<string[]>"
+        );
+    }
+
+    #[test]
+    fn a_shape_with_no_intern_key_is_still_a_gap() {
+        // The boundary of the reverse index, and the reason it is a boundary: a
+        // function type is not built through `create_type_reference`, so no
+        // `(symbol, arguments)` pair exists to reverse and there is nothing to
+        // rebuild it from.
+        //
+        // This is the test that fails if substitution is ever made to guess — a
+        // fallback to the uninstantiated type would print `(y: T) => T`, a
+        // wrong line rather than an absent one.
+        //
+        // A **tuple** return type belongs in this list and is deliberately not
+        // asserted here: `[T, U]` gaps *earlier*, in
+        // `get_signature_from_declaration`, which answers `None` when the
+        // return annotation does not resolve — so the call never reaches this
+        // module and a fixture for it would pin the wrong function's behaviour.
+        // Measured, not assumed: the assertion was written, panicked on "a
+        // signature", and was removed rather than weakened.
+        assert_eq!(
+            generic_call(
+                "declare function k<T>(x: T): (y: T) => T;\nconst a = k<string>(\"s\");",
+                "k"
+            ),
+            "error"
+        );
+        // An *unmapped* type parameter is the third way in: `U` appears in the
+        // return type and in no bare parameter position, so inference leaves it
+        // unmapped and the whole answer is a gap rather than a half-substituted
+        // `C<string, U>`.
+        assert_eq!(
+            generic_call(
+                "interface C<T> { }\ndeclare function m<T, U>(x: T): C<U>;\nconst a = m(\"s\");",
+                "m"
+            ),
+            "error"
         );
     }
 

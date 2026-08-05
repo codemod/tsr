@@ -512,7 +512,12 @@ impl<'a> Checker<'a, '_> {
         // tell the two apart anyway while `bd tsr-y4u.21` keeps a class's type
         // parameters out of every scope.
         let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
-        self.instantiations.insert((symbol, arguments), id);
+        self.instantiations.insert((symbol, arguments.clone()), id);
+        // The same pair, the other way round. Substitution starts from a
+        // `TypeId` and needs the pair, which only exists here as a key — see
+        // [`crate::checker::Checker::type_reference_targets`]. Written on the
+        // miss path only, so it is one insert per distinct reference.
+        self.type_reference_targets.insert(id, (symbol, arguments));
         id
     }
 
