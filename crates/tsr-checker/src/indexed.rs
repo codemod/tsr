@@ -1,8 +1,9 @@
 //! Element access: `a["b"]`, `a[0]`, `a[k]`.
 //!
 //! Ported from `Checker.checkIndexedAccess` into `checkElementAccessExpression`
-//! (`checker.go:8133`, `:8146`) and the part of `getPropertyTypeForIndexType`
-//! (`checker.go:21902`) that a literal index reaches.
+//! (`checker.go:8133`, `:8146`) and `getPropertyTypeForIndexType`
+//! (`checker.go:21902`) — both the arm a literal index reaches and the fall-back
+//! to the index signatures.
 //!
 //! # The whole slice is one observation from upstream
 //!
@@ -25,10 +26,18 @@
 //! initialised with a string literal keeps its literal type (the freshness rule
 //! this crate already implements), the type-directed reading answers it.
 //!
+//! # An index that names no property is not a gap
+//!
+//! `a[i]` for a `number` `i` names no property, and upstream falls to the index
+//! signatures. So does this: both the no-name path and a *named* lookup that
+//! misses reach [`Checker::get_applicable_index_info`], which is what makes
+//! `{ [k: string]: number }["anything"]` answer `number`. The applicability rule
+//! is asymmetric and lives in [`crate::index_signatures`]; what remains gapped
+//! there — a `symbol` key, two applicable signatures, `noUncheckedIndexedAccess`
+//! — is gapped here by propagation.
+//!
 //! # What is a gap
 //!
-//! - **An index whose type is not a literal** — `a[i]` for a `number` `i`. That
-//!   needs index signatures (`getIndexInfoOfType`), which no type here has.
 //! - **An optional chain**, `a?.[b]`.
 //! - **A `unique symbol` index**, the third arm of `getPropertyNameFromType`.
 //! - **A name that is not a property of the receiver.** Upstream reports

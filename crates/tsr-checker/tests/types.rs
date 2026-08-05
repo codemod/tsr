@@ -1410,7 +1410,9 @@ fn the_index_name_comes_from_the_types_of_the_index_not_its_syntax() {
 
 #[test]
 fn an_element_access_this_slice_cannot_resolve_is_a_gap() {
-    // A non-literal index needs index signatures, which no type here has.
+    // A non-literal index falls to the index signatures, and this receiver
+    // declares none. (When it declares one, see
+    // `a_string_index_signature_applies_to_a_numeric_key_but_not_the_reverse`.)
     assert_eq!(
         type_of_declaration(
             "declare const a: { b: number };\ndeclare const i: string;\nconst x = a[i];",
