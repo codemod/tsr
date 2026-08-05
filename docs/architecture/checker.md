@@ -249,46 +249,125 @@ ModuleDeclaration, no type at all                             5,569
 
 ### The ranking that follows
 
-1. **`bd tsr-4sc.13` — the remaining expression forms**, in measured order:
-   binary, property access, call, element access. 40% of gaps and the largest
-   single item in the corpus. Property access and call need 2 for anything but
-   the simplest receivers, so the honest first slice is the binary operators —
-   **done, and it moved the gradient 22.39% → 28.72%**; see below. Property
-   access (23,732 lines), call (15,867) and element access (13,549) remain, and
-   all three now wait on 2.
-2. **`bd tsr-4sc.7` — `getTypeFromTypeNode` and `getDeclaredTypeOfSymbol`.** 21%
-   of gaps sat on an annotation. **First slices done** — named types and
-   anonymous object types, 28.72% → 34.06%; see below. Members, heritage and
-   instantiation remain, and they are what still gates 3, 5 and 7.
-3. **`bd tsr-4sc.8` — `getTypeOfFuncClassEnumModule`.** 12.5% of gaps are a
-   symbol whose kind has no type at all: 7,485 function declarations, 7,227
-   classes, 5,569 modules.
-4. **`bd tsr-tl8` — the member-name defect.** Worth no lines today, and ranked
-   above things that are, because it is the one place this port can answer
-   *wrongly* where a gap belongs.
-5. **`bd tsr-4sc.1` — printing gaps.** Literals are 74% right and 620 of their
-   misses are wrong answers rather than gaps — `true` → `boolean` is 181 of
-   them, which is a widening defect and not a printing one. Small, and now
-   measurable line by line.
-6. **`bd tsr-9or.1` — lib files.** Demoted from third by the measurement above.
-7. **`bd tsr-4sc.9` — unions**, which is also what lets `boolean` stop being a
-   fake intrinsic, and **`bd tsr-4sc.10` — `typeof` queries**, nearly free once
-   2 and 3 land.
-8. **`bd tsr-4sc.11` — control-flow narrowing.** Still last, and still probably
-   underranked: it changes the *correctness* of reference lines everywhere and
-   the histogram cannot see it, because a line we answer `error` on would be
-   wrong with or without narrowing. It becomes measurable once 1 and 2 land, and
-   should be re-ranked then rather than now.
-9. **`bd tsr-bb4.1` — per-configuration runs.** Returns 1,397 cases to
-   `checker_types`. Worth doing when the rate is high enough that the denominator
-   matters; doing it now only makes the number look worse for no information.
+**Superseded 2026-08-05 by the re-ranking below, after three of its items
+landed.** Kept in one line each so the predictions can be checked against what
+happened: expressions first (`bd tsr-4sc.13`), then declared types
+(`bd tsr-4sc.7`), then `getTypeOfFuncClassEnumModule` (`bd tsr-4sc.8`), the
+member-name defect (`bd tsr-tl8`), printing (`bd tsr-4sc.1`), lib files
+(`bd tsr-9or.1`), unions and `typeof` (`bd tsr-4sc.9`, `.10`), narrowing
+(`bd tsr-4sc.11`), per-configuration runs (`bd tsr-bb4.1`).
 
-Not in the ranking on purpose: **`bd tsr-el3.2`** (upstream's algorithmic
-recursion limits) is a standing constraint rather than a task — port each limit
-*with* the code it belongs to. And **`bd tsr-pum.11`** (~2,675 parser
-over-reports) is 9 points of the `diagnostics` ceiling but ~300 separate
-investigations with no dominant cause, which scores poorly until the checker
-emits diagnostics at all.
+The first two were done, in that order, and moved the gradient 22.39% → 34.92%
+with +309 cases. **The ranking predicted the direction and understated the
+size**, which is the outcome a ranking is supposed to have.
+
+## The re-ranking, 2026-08-05
+
+Taken from the histogram at `72d148a`, not from the list above. Gap totals are
+over the 287,990 assertion lines this port still answers `errorType` on, of
+468,921 aligned.
+
+| where the checker stops | lines | share of gaps |
+|---|---:|---:|
+| an expression we do not compute | 112,230 | 38.97% |
+| a type node we cannot resolve | 53,926 | 18.73% |
+| an initialiser expression we do not compute | 44,656 | 15.51% |
+| a symbol kind `getTypeOfSymbol` does not handle | 35,488 | 12.32% |
+| a member name resolved as if it were free (`bd tsr-tl8`) | 21,939 | 7.62% |
+| a free name that does not resolve | 10,535 | 3.66% |
+| other | 9,202 | 3.20% |
+
+And by the shape of upstream's answer, the buckets still reading **0.00%**:
+
+```text
+55,161  function/signature   11.82% of all aligned lines
+24,344  object literal        5.69%
+15,866  typeof                3.39%
+12,051  array                 2.66%
+12,026  union                 2.91%
+```
+
+### 1. Members on object types, and property access
+
+Expressions are 54.5% of gaps once initialisers are counted with them, and the
+largest single stop inside that is `PropertyAccessExpression` — 23,732 lines.
+It is blocked on the piece of `bd tsr-4sc.7` that was deliberately left out:
+class, interface and object types currently have **identity and a printed form
+and no members**. That was sound while nothing looked inside a type; property
+access is exactly the thing that looks inside.
+
+This is one item and not two. Porting members without property access scores
+nothing, and property access without members cannot be written.
+
+### 2. `getTypeOfFuncClassEnumModule` (`bd tsr-4sc.8`)
+
+35,488 gap lines are a symbol whose kind `getTypeOfSymbol` does not handle:
+7,485 function declarations, 7,227 classes, 5,569 modules, 5,686 methods. It is
+also the only route to the **largest answer bucket still at zero** —
+function/signature, 55,161 lines and 11.82% of every aligned line — and to
+`typeof X` (15,866), which is what a class or module symbol's type prints as.
+
+### 3. The binder does not scope a class or interface's type parameters
+(`bd tsr-y4u.21`)
+
+**New, and found by this measurement rather than by reading code.** Of the
+8,272 gap lines from names in *type* position that do not resolve, the four
+commonest names are `T` (1,843), `U` (233), `V` (162) and `K` (95) — 2,333
+lines. Probing `lookup_local` over every container of a bound file:
+
+```text
+declare function f<T>(p: T): void;      T is bound
+type A<T> = { p: T };                   T is bound
+declare const f: <T>(p: T) => void;     T is bound
+interface I<T> { p: T }                 T is bound NOWHERE
+class C<T> { p: T; }                    T is bound NOWHERE
+declare class D<T> { m(p: T): void; }   T is bound NOWHERE
+```
+
+Small in lines, ranked third because it is cheap, because it is a *defect*
+rather than an absence, and because item 1 walks straight into it: every member
+type that mentions `T` is a gap until it is fixed. `binder_symbols` reads 98.03%
+and cannot see it — the fourth entry in this document's list of things that suite
+sits through.
+
+### 4. A program: lib files **and** the other files of a case (`bd tsr-9or.1`)
+
+These were separate concerns and the measurement says they are one item, because
+they are one missing object: there is no program, so every file is parsed, bound
+and checked entirely on its own.
+
+- **Lib.** Of the twenty commonest unresolved *type* names — 5,897 of those 8,272
+  lines — `Promise` (645), `Object` (369), `Array` (304), `Record` (212),
+  `Number` (189), `Partial` (142), `Readonly` (104) and `Iterable` (89) are lib
+  types: 2,054 lines. The **array bucket** (12,051 lines, still 0.00%) is
+  structurally the same request: upstream models `T[]` as a reference to the
+  global `Array` interface, which is why this port should *not* answer it with
+  another type that merely prints alike.
+- **Multi-file cases.** 1,091 of 9,538 judged cases (11.44%) have more than one
+  file section. They carry 26,479 aligned lines (5.65% of the total) and read
+  **24.50% right against 35.67% overall** — a name declared in one file of a case
+  cannot resolve from another.
+
+`bd tsr-4sc.6` demoted lib files from third on a 3.01% direct-effect number and
+said in terms that it was a lower bound. Two layers have since been ported and
+the bound has not moved — the unresolved-name count is still 10,535 — but the
+work standing between it and the score has. It is ranked fourth rather than
+first because items 1 and 2 are three to ten times larger and neither needs it.
+
+### 5. Unions (`bd tsr-4sc.9`), then narrowing (`bd tsr-4sc.11`)
+
+12,026 gap lines directly, plus the logical operators left as gaps by
+`bd tsr-4sc.13`, plus `boolean` ceasing to be a fake intrinsic, plus the enum
+divergence recorded above, which must be **replaced** by a real union rather than
+extended. Narrowing still adds no bucket of its own and still cannot be seen by
+this histogram; it becomes measurable once 1 and 2 land.
+
+Unchanged from the previous ranking and repeated only so they are not lost:
+`bd tsr-tl8` (the member-name defect, 21,939 lines and the one place this port
+can answer *wrongly* where a gap belongs), `bd tsr-4sc.1` (printing — literals
+are 87.22% right and 721 of their misses are wrong answers rather than gaps),
+and `bd tsr-bb4.1` (per-configuration runs, still worth doing only when the rate
+makes the denominator matter).
 
 ## The binary operators, and one deliberate deviation
 

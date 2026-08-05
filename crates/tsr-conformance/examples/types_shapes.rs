@@ -58,6 +58,20 @@ struct Tally {
     gap_kinds: HashMap<(Shape, String), usize>,
     /// `error` answers by (upstream's shape, why the checker stopped).
     gap_reasons: HashMap<(Shape, String), usize>,
+    /// Cases whose baseline has more than one file section, and what they
+    /// carry. Each file is parsed, bound and checked **on its own** — there is
+    /// no program (`bd tsr-9or.1`) — so a name declared in one file of a case
+    /// cannot resolve from another. This measures how much of the corpus that
+    /// costs, which no other row can say.
+    multi_file_cases: usize,
+    multi_file_aligned: usize,
+    multi_file_right: usize,
+    multi_file_gaps: usize,
+    /// Names in *type* position that did not resolve, by the name itself. The
+    /// same question as [`Tally::unresolved`], asked about annotations, and the
+    /// one that ranks lib files: `Array` and `Promise` are lib types, `Foo` is
+    /// someone's own.
+    unresolved_types: HashMap<String, usize>,
     /// Names that did not resolve at all, by the name itself. This is the direct
     /// test of the lib-file hypothesis (`bd tsr-9or.1`): if the misses are
     /// `Array`, `console`, `Math`, they are globals we have no declarations for.
@@ -96,6 +110,13 @@ impl Tally {
         }
         for (key, count) in other.unresolved {
             *self.unresolved.entry(key).or_default() += count;
+        }
+        self.multi_file_cases += other.multi_file_cases;
+        self.multi_file_aligned += other.multi_file_aligned;
+        self.multi_file_right += other.multi_file_right;
+        self.multi_file_gaps += other.multi_file_gaps;
+        for (key, count) in other.unresolved_types {
+            *self.unresolved_types.entry(key).or_default() += count;
         }
         for (key, count) in other.wrong_kinds {
             *self.wrong_kinds.entry(key).or_default() += count;
@@ -142,6 +163,8 @@ fn main() {
             let Ok(parsed) = case.load() else { return tally };
             let ours = types_producer::assertions_for_case(&parsed, &expected, true);
             tally.cases = 1;
+            let multi_file = expected.len() > 1;
+            tally.multi_file_cases = usize::from(multi_file);
 
             for (index, expected_file) in expected.iter().enumerate() {
                 let our_file = ours.get(index);
@@ -155,6 +178,14 @@ fn main() {
                         continue;
                     };
                     tally.aligned += 1;
+                    if multi_file {
+                        tally.multi_file_aligned += 1;
+                        if want_type == got.type_string {
+                            tally.multi_file_right += 1;
+                        } else if got.type_string == "error" {
+                            tally.multi_file_gaps += 1;
+                        }
+                    }
                     let shape = type_shape::classify(want_type);
                     *tally.lines.entry(shape).or_default() += 1;
                     if want_type == got.type_string {
@@ -173,7 +204,18 @@ fn main() {
                     if got.type_string == "error" {
                         *tally.gaps.entry(shape).or_default() += 1;
                         *tally.gap_kinds.entry((shape, kind)).or_default() += 1;
-                        let reason = got.reason.clone().unwrap_or_else(|| "?".to_string());
+                        let mut reason = got.reason.clone().unwrap_or_else(|| "?".to_string());
+                        // The unresolved *type* name rides along in the reason
+                        // so that it can be counted separately without a second
+                        // pass over the corpus; the reason itself is normalised
+                        // back so the roll-up stays readable.
+                        if let Some(cut) = reason.find("TypeReference unresolved") {
+                            let tail = &reason[cut..];
+                            if let Some((head, name)) = tail.split_once(": ") {
+                                *tally.unresolved_types.entry(name.to_string()).or_default() += 1;
+                                reason = format!("{}{head}", &reason[..cut]);
+                            }
+                        }
                         if reason == "reference, the name does not resolve" {
                             *tally.unresolved.entry(got.text.clone()).or_default() += 1;
                         }
@@ -316,7 +358,34 @@ fn report(total: &Tally) {
         println!("  {count:>9}  {:>6.2}%  {what}", pct(count, gap_total));
     }
 
-    println!("\nthe names that do not resolve at all, commonest first:");
+    println!(
+        "\nmulti-file cases: {} of {} ({:.2}%), carrying {} aligned lines ({:.2}%)",
+        total.multi_file_cases,
+        total.cases,
+        pct(total.multi_file_cases, total.cases),
+        total.multi_file_aligned,
+        pct(total.multi_file_aligned, total.aligned)
+    );
+    println!(
+        "  right in them: {}/{} ({:.2}%) against {:.2}% over all aligned lines; gaps {}",
+        total.multi_file_right,
+        total.multi_file_aligned,
+        pct(total.multi_file_right, total.multi_file_aligned),
+        pct(total.matched.values().sum::<usize>(), total.aligned),
+        total.multi_file_gaps
+    );
+
+    println!("\nthe names in TYPE position that do not resolve, commonest first:");
+    let mut type_names: Vec<_> =
+        total.unresolved_types.iter().map(|(name, count)| (*count, name.clone())).collect();
+    type_names.sort_unstable_by(|a, b| b.cmp(a));
+    let unresolved_type_lines: usize = type_names.iter().map(|(count, _)| count).sum();
+    println!("  {unresolved_type_lines} lines over {} distinct names", type_names.len());
+    for (count, name) in type_names.iter().take(20) {
+        println!("  {name:<24} {count:>8}");
+    }
+
+    println!("\nthe names in VALUE position that do not resolve, commonest first:");
     let mut names: Vec<_> =
         total.unresolved.iter().map(|(name, count)| (*count, name.clone())).collect();
     names.sort_unstable_by(|a, b| b.cmp(a));

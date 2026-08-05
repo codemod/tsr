@@ -307,6 +307,43 @@ pub fn assertions_for_case(
     ours
 }
 
+/// Why a *type node* could not be resolved, one level finer than its kind.
+///
+/// The distinction this exists for is the one that ranks lib files
+/// (`bd tsr-9or.1`): an annotation that reads `TypeReference` may be a name with
+/// no declaration anywhere — `Array`, `Promise` — or a name that resolves to
+/// something whose declared type is unported, or a generic whose arity this port
+/// will not guess at. Those are three different pieces of work behind one node
+/// kind, and the roll-up cannot tell them apart without this.
+fn type_node_reason(
+    binder: &tsr_binder::BindResult<'_>,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    id: NodeId,
+) -> String {
+    let kind = nodes.kind(id);
+    if kind != SyntaxKind::TypeReference {
+        return format!("{kind:?}");
+    }
+    let Some(Node::TypeReferenceNode(reference)) = map.get(id) else {
+        return format!("{kind:?}");
+    };
+    let arguments = if reference.type_arguments.is_empty() { "" } else { " with arguments" };
+    let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
+        return "TypeReference qualified name".to_string();
+    };
+    match name.node_id.and_then(|node| binder.resolve(nodes, node, name.text)) {
+        // The name is carried in the reason so the report can histogram it; see
+        // `examples/types_shapes.rs`, which splits it back off. It is the direct
+        // test of "is this a lib type": `Array` and `Promise` are, `Foo` is not.
+        None => format!("TypeReference unresolved{arguments}: {}", name.text),
+        Some(symbol) => {
+            let flags = binder.symbols().get(symbol).flags;
+            format!("TypeReference resolved{arguments}: {flags:?}")
+        }
+    }
+}
+
 /// `ast.IsTypeDeclaration` (`ast/utilities.go:3585`), for the kinds a `.types`
 /// baseline can reach. The import forms are omitted deliberately: they depend on
 /// `IsTypeOnly` and on the import machinery, and answering them by kind alone
@@ -363,7 +400,10 @@ pub fn gap_reason(
             let half = symbols.get(symbol).value_declaration.and_then(|d| map.get(d)).map_or_else(
                 String::new,
                 |node| match (node.type_id(), node.initializer_id()) {
-                    (Some(annotation), _) => format!(" / annotation {:?}", nodes.kind(annotation)),
+                    (Some(annotation), _) => format!(
+                        " / annotation {}",
+                        type_node_reason(binder, nodes, map, annotation)
+                    ),
                     (None, Some(initializer)) => {
                         format!(" / initialiser {:?}", nodes.kind(initializer))
                     }
