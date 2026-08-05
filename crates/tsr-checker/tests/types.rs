@@ -1778,6 +1778,18 @@ fn a_cycle_in_the_base_graph_terminates() {
         ),
         "error"
     );
+    // The control, and the fixture needs one: it carries an index signature, so
+    // without this the assertion above would keep passing — silently — if index
+    // signatures regressed for any reason at all. Break the cycle and the same
+    // shape answers, which is what pins the gap to the cycle.
+    assert_eq!(
+        type_of_declaration(
+            "interface A extends B { [k: string]: number; }\ninterface B {}\n\
+             declare const a: A;\nconst x = a[\"k\"];",
+            "x"
+        ),
+        "number"
+    );
 }
 
 /// A base this port cannot follow does not answer through it.
@@ -1804,6 +1816,17 @@ fn a_base_this_port_cannot_follow_does_not_answer_through_it() {
             "x"
         ),
         "error"
+    );
+    // The control, for the same reason as the cycle test above: drop the type
+    // ARGUMENTS and the identical shape answers, so the gap is pinned to the
+    // generic base rather than to index signatures or to `extends` in general.
+    assert_eq!(
+        type_of_declaration(
+            "interface B { [k: string]: number; }\ninterface D extends B {}\n\
+             declare const a: D;\nconst x = a[\"k\"];",
+            "x"
+        ),
+        "number"
     );
 }
 

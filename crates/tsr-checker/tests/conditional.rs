@@ -90,13 +90,40 @@ fn branches_of_different_primitives_are_a_two_member_union() {
 fn an_object_branch_is_a_gap_because_subtype_reduction_would_collapse_it() {
     // `>true ? a : b : { Foo?: Base; }` — upstream prints ONE object type where
     // this port would print a two-member union, because `UnionReductionSubtype`
-    // drops a constituent assignable to another. Emitting `A | B` here would be
+    // drops a constituent assignable to another. Emitting `D | B` here would be
     // a wrong line on every such baseline, so it gaps.
+    //
+    // **Two DISTINCT types, one assignable to the other.** This fixture used to
+    // be `var p: A; var q: A;` — two *identical* types, which plain
+    // deduplication collapses without any reduction at all, as the neighbouring
+    // `two_branches_of_one_type_collapse_to_that_type` demonstrates for
+    // `string`. So it never exercised the mechanism its own comment named, and
+    // would have passed under an implementation that simply refused every
+    // object-typed branch. Repaired after that was measured rather than noticed.
+    assert_eq!(
+        type_of_last(
+            "var c: boolean;\ninterface B { a: string; }\ninterface D extends B { b: string; }\n\
+             var p: D;\nvar q: B;\nconst x = c ? p : q;"
+        ),
+        "error"
+    );
+    // **And this port is more conservative than upstream here**, which the old
+    // fixture hid rather than showed. Two identical object types need no
+    // reduction — dedup alone answers `A` — and this still gaps, because the
+    // guard is on object-ness and not on reduction. That is a second, smaller
+    // divergence, and it is the one that would be cheapest to close first.
     assert_eq!(
         type_of_last(
             "var c: boolean;\ninterface A { a: string; }\nvar p: A;\nvar q: A;\nconst x = c ? p : q;"
         ),
         "error"
+    );
+    // The control that makes both assertions mean something: dedup demonstrably
+    // works for a non-object type, so neither line above is passing because
+    // conditionals are broken.
+    assert_eq!(
+        type_of_last("var c: boolean;\nvar p: string;\nvar q: string;\nconst x = c ? p : q;"),
+        "string"
     );
 }
 
