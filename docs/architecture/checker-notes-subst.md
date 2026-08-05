@@ -69,6 +69,40 @@ substitution for one field. **It wins the moment a second consumer needs the
 pair** — instantiated members (`bd tsr-4sc.7`) is the likely one — at which
 point the side table should be deleted rather than kept alongside.
 
+### The second consumer arrived, and the trigger was declined — 2026-08-05
+
+`Checker::receiver_carries_type_arguments` (`crates/tsr-checker/src/calls.rs`,
+`bd tsr-fua`) reads `type_reference_targets` to ask whether a call's receiver is
+`C<number>` rather than `C`. It is the second consumer this paragraph named, and
+the pre-registered response was to build `TypeData::Reference` and delete the
+side table. **That was not done, and this is the reasoning, taken explicitly
+rather than by omission.**
+
+The trigger as written predicted the *arrival* of a second consumer. What it
+could not predict was what the second consumer would need, and that turns out to
+decide it: this one needs the pair **keyed by `TypeId`**, which is precisely what
+the reverse index already is, in one hash lookup. Every cost the original
+rejection listed is still payable and nothing new is bought. A second consumer of
+the same *shape* is evidence the side table is the right home, not evidence
+against it.
+
+The same holds for step 3 of `bd tsr-el3.2` (instantiating a member's type inside
+`get_type_of_property_of_type`): it starts from the receiver's `TypeId` and wants
+the pair. Two consumers of that shape, zero of the other.
+
+**What would make `TypeData::Reference` win, stated concretely so this stays
+revisitable:** a consumer that needs the pair *and* cannot tolerate "no entry"
+and "not a reference" being the same answer, or a design in which the reference
+type grows per-reference state of its own. The second is live and near:
+upstream's `resolveTypeReferenceMembers` (`checker.go:19095`) writes a whole
+instantiated `ast.SymbolTable` **onto the reference type**. If this port ever
+eagerly materialises an instantiated member table rather than instantiating
+lazily per lookup, the type is already carrying per-reference state and the pair
+should move there with it, side table deleted in the same commit. The lazy
+design in `docs/architecture/checker-notes-inst.md` is what keeps that from being
+true today, so **the trigger is not gone — it is re-armed on the eager
+variant.**
+
 **Substitute on the printed string.** Rewrite `T[]` to `number[]` textually.
 Rejected: it produces a type that prints right and has no identity, so
 `Array<number>` written elsewhere would be a different `TypeId` that compares
@@ -93,6 +127,39 @@ unequal. That is the failure mode `checker.md` warns about — answering a type
   from bounded source. Nothing here can: every argument reached came from a
   written type node, so recursion is bounded by source nesting. **That ceases
   to hold the moment a generic's members are instantiated** — `bd tsr-el3.2`.
+
+  **Re-examined 2026-08-05, when that item was built up to step 3.** The
+  falsifier is half-fired and the half that fired is already contained:
+
+  - *Inside one `instantiate_type` call*, nothing changes. A member's declared
+    type is a written type node like any other, so substituting it still
+    terminates on source nesting. `C<T> { next: C<C<T>> }` instantiated at
+    `T := number` yields `C<C<number>>` in one bounded pass.
+  - *Across iterated calls* it does change, and the shape is
+    `get_type_of_property_of_type` handing back a **strictly larger** type than
+    the receiver, so a consumer that walks members structurally never reaches a
+    fixed point. `crate::relater`'s `properties_related_to` is such a consumer,
+    and its `results` cycle cache cannot help: every pair it meets is a fresh
+    `TypeId`, so the memo never hits.
+  - **It terminates anyway**, because `MAX_DEPTH` (`crate::relater`) already
+    caps the structural walk at 100 and answers `false` — a gap, never a
+    permissive `true`. That cap was built for a different reason (a stack
+    overflow on mutually recursive interfaces) and it is what makes this a
+    performance question rather than a hang.
+
+  So the guard `bd tsr-el3.2` adds is upstream's `instantiationDepth`
+  (`checker.go:22111`, limit 100, yielding `errorType`) and **not** a lowering
+  of `MAX_DEPTH` to upstream's `isDeeplyNestedType` depth of 3
+  (`relater.go:3113`). Lowering it would change answers on non-generic code
+  this slice does not touch, which is a separate item. `instantiationCount`
+  (5M per statement) is not ported: it bounds total work per statement rather
+  than one chain, and nothing here yet generates types outside a chain.
+
+  **How you would know this is wrong:** if a corpus run after step 4 gets
+  materially slower, or a baseline case times out, the containment is depth-100
+  where upstream's is depth-3 — 33× more nested types built before the same
+  `false` — and the answer is upstream's recursion *identity* (same target
+  symbol on the stack), not a smaller number.
 
 ## How this would be shown wrong
 
