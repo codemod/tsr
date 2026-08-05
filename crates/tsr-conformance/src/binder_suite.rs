@@ -474,6 +474,11 @@ fn anonymity_of(name: &str) -> Anonymity {
 /// string compare. The 18 cases above are the argument: a probe that mis-pairs
 /// units silently attributes lines to the wrong file, which is the same class of
 /// drift `types_producer::gap_reason` is kept in step to avoid.
+///
+/// `#[must_use]` because `must_use_candidate` fires only on *public* functions,
+/// so widening the visibility above is what surfaced it — a lint appearing on an
+/// unchanged body is worth a word rather than a silent attribute.
+#[must_use]
 pub fn same_unit(unit: &str, baseline: &str) -> bool {
     fn normalise(path: &str) -> String {
         let slashes = path.replace('\\', "/");
