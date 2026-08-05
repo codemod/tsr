@@ -90,10 +90,16 @@ fn a_member_this_port_cannot_type_makes_the_whole_literal_a_gap() {
     // The same rule the type-node path already follows: a partial object type is
     // a wrong answer that looks like a right one.
     assert_eq!(type_of_initialiser("const o = { a: unknownThing };"), "error");
-    // A method needs a signature; shorthand needs the identifier as a value;
-    // spread needs `getSpreadType`. All gaps, none of them faked.
+    // A method needs a signature; spread needs `getSpreadType`. Both gaps,
+    // neither faked.
+    //
+    // The shorthand `{ a }` used to be asserted here as a third gap. It is now
+    // ported (see `tests/shorthand_properties.rs`) and answers `{ a: number; }`,
+    // so the line was removed rather than updated: this test is about members
+    // that CANNOT be typed, and a member that can no longer belongs in it. That
+    // is the gap-fixture hazard — a fixture standing in for "unported" must be a
+    // failure, not a form, or it silently asserts the opposite of its name.
     assert_eq!(type_of_initialiser("const o = { m() { return 1; } };"), "error");
-    assert_eq!(type_of_initialiser_at("const a = 1; const o = { a };", 1), "error");
     assert_eq!(type_of_initialiser("const o = { ...{ a: 1 } };"), "error");
     assert_eq!(type_of_initialiser("const o = { [1]: 1 };"), "error");
 }

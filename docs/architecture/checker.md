@@ -3461,3 +3461,40 @@ arrow and answers `any`. This is the second time in this slice that a mutation
 that failed to redden exposed a test asserting less than it claimed — the first
 was the `typeof` constituent order. Both were found only because every test was
 mutation-checked, and neither would have been found by reading the test.
+
+### Shorthand object-literal properties (2026-08-05)
+
+`{ a }`. Small, but it makes a structural point worth recording.
+
+`checkShorthandPropertyAssignment` (`checker.go:13689`) runs
+`checkExpressionForMutableLocation` on **the name used as an expression** — not
+on the symbol's declared type. So `{ a }` and `{ a: a }` are the same type *by
+construction*, and the shorthand widens at the property boundary exactly like
+any other member: `const n = 1; ({ n })` is `{ n: number; }`, not `{ n: 1; }`.
+Reusing the symbol's type instead would be the natural shortcut and would get
+that case wrong; a mutation swapping `check_expression_for_mutable_location` for
+plain `check_expression` reddens precisely that test and nothing else.
+
+The destructuring form `{ a = 1 }` is guarded and the guard is **unobservable
+today**, the same status as the spread guard in `array_literals.rs`. The only way
+to write the form is as an assignment target, and `check_binary_expression` gaps
+the whole assignment before the literal is reached — verified by making the arm
+answer `never` and watching the result stay `error`. It is deliberately not
+covered by a test, because the obvious fixture passes whether or not the guard
+exists. It stays because it becomes load-bearing the moment destructuring lands.
+
+#### The gap-fixture hazard, third instance — this time in someone else's test
+
+`tests/objects.rs :: a_member_this_port_cannot_type_makes_the_whole_literal_a_gap`
+asserted that `{ a }` was a gap. Porting the shorthand made it answer
+`{ a: number; }` — upstream's correct answer — so a test whose *name* is about
+members that cannot be typed was left asserting that a member which now can be
+typed cannot. The line was removed rather than updated, since the test's subject
+is the gap rule and a working member no longer belongs in it.
+
+This is the third time in this workstream: `-new C()` and the `typeof` operand
+were the first two, both mine. The pattern is now well enough evidenced to state
+as a rule: **a fixture standing in for "this port cannot type X" must be a
+failure — an unresolvable annotation — never a form.** A form gets ported, and
+when it does the test either fails loudly (lucky) or silently starts asserting
+something else (not).

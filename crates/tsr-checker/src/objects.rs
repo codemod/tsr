@@ -205,6 +205,18 @@ pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signa
     out
 }
 
+/// Where an object-literal member's type comes from.
+///
+/// Two shapes because `checkObjectLiteral` dispatches on the member kind
+/// (`checker.go:13223`) before it has a type: a property assignment types its
+/// initialiser, a shorthand types its own **name as an expression**.
+enum PropertyValue<'a> {
+    /// `{ a: expr }` — the initialiser.
+    Initializer(tsr_ast::Expression<'a>),
+    /// `{ a }` — the name, used as an identifier expression.
+    Shorthand(&'a tsr_ast::Identifier<'a>),
+}
+
 impl Checker<'_, '_> {
     /// Ported from `Checker.checkObjectLiteral` (`checker.go:13144`).
     ///
@@ -244,10 +256,51 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         let mut members = Vec::with_capacity(node.properties.len());
         for property in node.properties {
-            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
-                return error;
+            // `checker.go:13223` dispatches over three member kinds. Only two are
+            // reachable here: a method needs `checkObjectLiteralMethod` and a
+            // signature member this port cannot print, and a spread or accessor
+            // is not in that list at all.
+            let (name_node, value) = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    let Some(initializer) = assignment.initializer else { return error };
+                    (assignment.name, PropertyValue::Initializer(initializer))
+                }
+                // `{ a }`. `checkShorthandPropertyAssignment` (`checker.go:13689`)
+                // runs `checkExpressionForMutableLocation` on the **name used as
+                // an expression**, so `{ a }` and `{ a: a }` are the same type by
+                // construction rather than by coincidence.
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    // `{ a = 1 }` carries an `ObjectAssignmentInitializer`, which
+                    // the grammar only permits inside a destructuring pattern.
+                    // `checkShorthandPropertyAssignment` types it through
+                    // `checkBinaryLikeExpression` (`checker.go:12562`), a
+                    // different path.
+                    //
+                    // **Unobservable today and load-bearing under one named
+                    // edit**, the same status as the spread guard in
+                    // [`crate::array_literals`]. The only way to write this form
+                    // is as an assignment target, and `check_binary_expression`
+                    // gaps the whole assignment before this literal is ever
+                    // checked — verified by making this arm answer `never` and
+                    // watching the result stay `error`. It becomes live the
+                    // moment destructuring assignment is ported, at which point
+                    // deleting it would answer `{ a: number; }` for a pattern
+                    // rather than a type. Deliberately NOT covered by a test:
+                    // the obvious fixture passes whether or not this line
+                    // exists, which would be a decoration.
+                    if shorthand.object_assignment_initializer.is_some() {
+                        return error;
+                    }
+                    let tsr_ast::PropertyName::Identifier(identifier) = shorthand.name else {
+                        // The grammar gives a shorthand an identifier name; any
+                        // other spelling is a parse error already reported.
+                        return error;
+                    };
+                    (shorthand.name, PropertyValue::Shorthand(identifier))
+                }
+                _ => return error,
             };
-            let name = match assignment.name {
+            let name = match name_node {
                 tsr_ast::PropertyName::Identifier(name) => name.text.to_string(),
                 // A string-named property prints its name *unquoted* when it is
                 // a valid identifier and quoted otherwise; only the first is
@@ -260,8 +313,14 @@ impl Checker<'_, '_> {
                 }
                 _ => return error,
             };
-            let Some(initializer) = assignment.initializer else { return error };
-            let member_type = self.check_expression_for_mutable_location(initializer);
+            let member_type = match value {
+                PropertyValue::Initializer(initializer) => {
+                    self.check_expression_for_mutable_location(initializer)
+                }
+                PropertyValue::Shorthand(identifier) => self.check_expression_for_mutable_location(
+                    tsr_ast::Expression::Identifier(identifier),
+                ),
+            };
             if member_type == error {
                 return error;
             }
