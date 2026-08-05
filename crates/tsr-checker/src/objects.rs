@@ -39,18 +39,37 @@
 
 use tsr_ast::ObjectLiteralExpression;
 
-use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
+use crate::{checker::Checker, flags::TypeFlags, signatures::Signature, types::TypeId};
 
 /// One rendered member of a structural object type.
-pub(crate) struct Member {
-    /// The property name as written.
-    pub name: String,
-    /// Whether the property carries `?`.
-    pub optional: bool,
-    /// Whether the property carries `readonly`.
-    pub readonly: bool,
-    /// The member type's printed form.
-    pub printed: String,
+///
+/// **Two shapes, not one with optional fields.** A property has a name and a
+/// type printed as `name: T`; a call signature has **no name at all** and a
+/// method prints `m(): void` rather than `m: () => void`. Those are different
+/// spellings of different things, and modelling the second as a property with a
+/// blank name would put the difference in the renderer instead of in the data.
+pub(crate) enum Member {
+    /// `a: string`, `readonly a?: string`.
+    Property {
+        /// The property name as written.
+        name: String,
+        /// Whether the property carries `?`.
+        optional: bool,
+        /// Whether the property carries `readonly`.
+        readonly: bool,
+        /// The member type's printed form.
+        printed: String,
+    },
+    /// A method, call or construct signature, printed whole: `m(): void`,
+    /// `(x: number): string`, `new (): C`.
+    ///
+    /// One field because the three differ only in what precedes the parameter
+    /// list, and that prefix is decided where the member is read rather than
+    /// where it is rendered.
+    Signature {
+        /// The entire member text, without its trailing `;`.
+        printed: String,
+    },
 }
 
 /// The structural form upstream's printer emits for an anonymous object type.
@@ -69,16 +88,77 @@ pub(crate) fn render_object_type(members: &[Member]) -> String {
     }
     let mut printed = String::from("{ ");
     for member in members {
-        if member.readonly {
-            printed.push_str("readonly ");
+        match member {
+            Member::Property { name, optional, readonly, printed: ty } => {
+                if *readonly {
+                    printed.push_str("readonly ");
+                }
+                printed.push_str(name);
+                printed.push_str(if *optional { "?: " } else { ": " });
+                printed.push_str(ty);
+            }
+            // A signature member is already whole: no name, no `: ` separator.
+            Member::Signature { printed: text } => printed.push_str(text),
         }
-        printed.push_str(&member.name);
-        printed.push_str(if member.optional { "?: " } else { ": " });
-        printed.push_str(&member.printed);
         printed.push_str("; ");
     }
     printed.push('}');
     printed
+}
+
+/// A signature rendered as an object-type **member**: `(x: number): string`.
+///
+/// Ported from the member half of upstream's node builder
+/// (`nodebuilderimpl.go:1792`): a signature in a type literal is emitted as a
+/// method or call signature member, whose return type follows a **colon**,
+/// where a standalone function type emits a function type node and an
+/// **arrow**. Same signature, two spellings, chosen by position:
+///
+/// ```text
+/// { m(): void; }          member  — `): `
+/// { m: () => void; }      property holding a function type — `) => `
+/// ```
+///
+/// So this deliberately does **not** reuse `signature_to_string`, which renders
+/// the arrow form. Turning one into the other by string surgery would have to
+/// find the top-level `) => ` and a parameter type can contain one.
+pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signature) -> String {
+    let mut out = String::new();
+    if !signature.type_parameters.is_empty() {
+        out.push('<');
+        for (index, parameter) in signature.type_parameters.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&parameter.name);
+            if let Some(constraint) = parameter.constraint {
+                out.push_str(" extends ");
+                out.push_str(&checker.type_to_string(constraint));
+            }
+            if let Some(default) = parameter.default {
+                out.push_str(" = ");
+                out.push_str(&checker.type_to_string(default));
+            }
+        }
+        out.push('>');
+    }
+    out.push('(');
+    for (index, parameter) in
+        signature.this_parameter.iter().chain(signature.parameters.iter()).enumerate()
+    {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        if parameter.rest {
+            out.push_str("...");
+        }
+        out.push_str(&parameter.name);
+        out.push_str(if parameter.optional { "?: " } else { ": " });
+        out.push_str(&checker.type_to_string(parameter.r#type));
+    }
+    out.push_str("): ");
+    out.push_str(&checker.type_to_string(signature.r#type));
+    out
 }
 
 impl Checker<'_, '_> {
@@ -146,7 +226,7 @@ impl Checker<'_, '_> {
             if self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE) {
                 return error;
             }
-            members.push(Member {
+            members.push(Member::Property {
                 name,
                 optional: false,
                 readonly: false,

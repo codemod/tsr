@@ -2321,3 +2321,53 @@ preference order: **make it observable with a fixture** (the `Array` arity check
 failing that, **verify it against the named future edit** (this, and the tuple
 gap); failing that, an `#[ignore]`d test naming the issue (the `const` assertion
 arm). Only when none of the three is possible should it be prose.
+
+## Signature members print with a colon, not an arrow
+
+Ported 2026-08-05, cycle 9. `get_type_from_type_literal` rejected the **whole**
+literal unless every member was a property signature, so `{ m(): void }` never
+reached any dispatch — 3,337 gap lines, and none of them touchable by the
+function-type work they had been counted under.
+
+### The spelling is the slice
+
+A **method member** prints `m(): void`; a property holding a function type
+prints `m: () => void`. Same signature, two forms, chosen by position — upstream
+emits a `MethodSignature` in the first case and a `FunctionTypeNode` in the
+second, and the difference is a colon against an arrow.
+
+So `signature_member_text` deliberately does **not** reuse `signature_to_string`,
+which renders the arrow form. Converting one into the other by string surgery
+would have to find the top-level `) => `, and a parameter type can contain one.
+The two functions render two different things and share nothing, which is also
+upstream's arrangement.
+
+### `Member` became two shapes rather than one with blank fields
+
+A call signature has **no name at all**, and a method's text is whole rather than
+`name` + `: ` + `type`. Modelling either as a property with an empty name would
+move the distinction from the data into the renderer, where the two callers of
+`render_object_type` could then drift. `Member::Property` and `Member::Signature`
+keep it in one place, and the object-literal path uses the same enum.
+
+### The reject-the-whole-literal rule is unchanged
+
+This slice raises what is renderable; it does not lower the bar. An accessor is
+still unported and a literal containing one is still a gap — including a method
+whose parameter type is a gap. "A partial object type is a wrong answer that
+looks like a right one" still holds, and a mutation that lets an unbuildable
+method fall through turns the test red.
+
+### Call and construct signatures gap on someone else's file
+
+`signature_parts_of` (`signatures.rs`) has arms for `FunctionDeclaration`,
+`FunctionTypeNode`, `MethodDeclaration` and `MethodSignatureDeclaration` — and
+none for `CallSignatureDeclaration` or `ConstructSignatureDeclaration`. So
+`{ (): number }` gaps on that and nothing else: the dispatch recognises it and
+the rendering is in place, both exercised by the method cases.
+
+Two match arms in `signatures.rs` make them live. That file is another
+workstream's, so this is `bd tsr-qk9` with an `#[ignore]`d test naming it —
+resolution #3 of the three-way preference order recorded above, used here
+because the first two are unavailable: no fixture reaches the arm, and the
+"named future edit" is in a file this workstream must not touch.

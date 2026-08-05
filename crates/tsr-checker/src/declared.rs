@@ -60,6 +60,7 @@ impl<'a> Checker<'a, '_> {
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
             TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
+            TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
             // `getTypeFromTypeOperatorNode` (`checker.go:22960`). Only the
             // `readonly` arm: it is transparent — the readonly-ness is carried by
             // the *target* the array node picks, not by a wrapper type — and it
@@ -140,6 +141,41 @@ impl<'a> Checker<'a, '_> {
         let error = self.intrinsics.error;
         let mut members = Vec::with_capacity(node.members.len());
         for member in node.members {
+            // A method, call or construct signature prints whole and has no
+            // `name: type` shape at all — see `crate::objects::Member`. Its
+            // three spellings differ only in what precedes the parameter list,
+            // which is decided here rather than in the renderer.
+            let signature = match member {
+                tsr_ast::TypeElement::MethodSignatureDeclaration(method) => {
+                    let tsr_ast::PropertyName::Identifier(name) = method.name else {
+                        return error;
+                    };
+                    Some((method.node_id, Some(name.text.to_string()), ""))
+                }
+                tsr_ast::TypeElement::CallSignatureDeclaration(call) => {
+                    Some((call.node_id, None, ""))
+                }
+                tsr_ast::TypeElement::ConstructSignatureDeclaration(construct) => {
+                    Some((construct.node_id, None, "new "))
+                }
+                _ => None,
+            };
+            if let Some((id, name, prefix)) = signature {
+                let Some(id) = id else { return error };
+                // A signature this port cannot build is a gap for the *whole*
+                // literal, on the rule this function has followed since it was
+                // written: a partial object type is a wrong answer that looks
+                // like a right one.
+                let Some(signature) = self.get_signature_from_declaration(id) else {
+                    return error;
+                };
+                let text = crate::objects::signature_member_text(self, &signature);
+                let name = name.unwrap_or_default();
+                members.push(crate::objects::Member::Signature {
+                    printed: format!("{prefix}{name}{text}"),
+                });
+                continue;
+            }
             let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
                 return error;
             };
@@ -158,7 +194,7 @@ impl<'a> Checker<'a, '_> {
             let readonly = property.modifiers.iter().any(|modifier| {
                 matches!(modifier, tsr_ast::ModifierLike::Token(m) if m.kind == SyntaxKind::ReadonlyKeyword)
             });
-            members.push(crate::objects::Member {
+            members.push(crate::objects::Member::Property {
                 name: name.text.to_string(),
                 optional,
                 readonly,
