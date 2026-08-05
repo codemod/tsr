@@ -385,14 +385,26 @@ impl Relater<'_, '_, '_> {
             return false;
         };
         for name in names {
-            let (Some(target_property), Some(source_property)) = (
-                self.checker.get_property_of_type(target, &name),
-                self.checker.get_property_of_type(source, &name),
+            // Through [`Checker::get_type_of_property_of_type`], not
+            // `get_property_of_type` + `get_type_of_symbol`. The symbol is the
+            // *uninstantiated* declaration, so on a `C<number>` with a member
+            // declared `a: T` this comparison would run against `T`. **This is
+            // the site where that matters most**, because it is the one
+            // consumer that acts on a `false`: a wrong member type here does
+            // not degrade to a gap, it promotes the next overload candidate and
+            // yields a confident wrong type (`docs/conventions.md`, "A
+            // conservative `false` is safe for one kind of consumer and unsafe
+            // for the other"). Answers identically today; `bd tsr-el3.2`.
+            //
+            // `None` still means *no such property* — a property that exists
+            // and does not type answers `Some(errorType)` — so the existence
+            // test below is unchanged.
+            let (Some(target_type), Some(source_type)) = (
+                self.checker.get_type_of_property_of_type(target, &name),
+                self.checker.get_type_of_property_of_type(source, &name),
             ) else {
                 return false;
             };
-            let target_type = self.checker.get_type_of_symbol(target_property);
-            let source_type = self.checker.get_type_of_symbol(source_property);
             if !self.is_related_to(source_type, target_type) {
                 return false;
             }

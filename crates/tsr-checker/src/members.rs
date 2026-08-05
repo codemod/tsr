@@ -105,10 +105,46 @@ impl Checker<'_, '_> {
         // make the guard observable, so it was removed rather than kept as
         // decoration. The identity test above is what keeps that true now that
         // an `ANY`-flagged type has a fast path.
-        match self.get_property_of_type(receiver_type, name.text) {
-            Some(property) => self.get_type_of_symbol(property),
-            None => error,
-        }
+        self.get_type_of_property_of_type(receiver_type, name.text).unwrap_or(error)
+    }
+
+    /// The **type** of a property of `id`, or `None` if there is no such
+    /// property.
+    ///
+    /// Ported from `Checker.getTypeOfPropertyOfType` (`checker.go:18951`),
+    /// which is three lines and the same three: look the property up, and if it
+    /// is there, take its type.
+    ///
+    /// # Why a two-line function is worth having
+    ///
+    /// Not for the deduplication. `get_property_of_type` returns a
+    /// [`SymbolId`], and a symbol is the *uninstantiated* declaration: on a
+    /// receiver `C<number>` whose member is declared `a: T`, the symbol's type
+    /// is `T` and every caller that turns the symbol into a type on its own
+    /// gets `T` where upstream answers `number`. There were three such callers
+    /// — property access (here), element access (`crate::indexed`) and both
+    /// sides of the relater's structural comparison (`crate::relater`) — and
+    /// substituting in one of them would leave the other two answering a
+    /// **confident wrong type**. At the relater that is the dangerous
+    /// direction: it acts on a `false`, so a wrong member type promotes the
+    /// next overload candidate rather than degrading to a gap. See
+    /// *"A conservative `false` is safe for one kind of consumer and unsafe for
+    /// the other"* in `docs/conventions.md`.
+    ///
+    /// So this is the single place instantiation can be added once and be true
+    /// everywhere, which is `bd tsr-el3.2`. **Today it adds no instantiation and
+    /// changes no answer** — that is deliberate, and it is what makes the
+    /// change that does add it a one-function change rather than a three-site
+    /// one.
+    ///
+    /// `None` means *no such property*, exactly as upstream's `nil` does. A
+    /// property that exists and whose type this port cannot compute answers
+    /// `Some(errorType)`, which is what keeps the relater's existence test
+    /// (`crate::relater`'s `properties_related_to`) meaning what it did.
+    #[must_use]
+    pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        let property = self.get_property_of_type(id, name)?;
+        Some(self.get_type_of_symbol(property))
     }
 
     /// Ported from `Checker.getPropertyOfTypeEx` (`checker.go:18899`) through

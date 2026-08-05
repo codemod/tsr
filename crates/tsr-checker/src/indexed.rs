@@ -114,8 +114,13 @@ impl Checker<'_, '_> {
                 .get_applicable_index_info(object_type, index_type)
                 .map_or(error, |info| info.value);
         };
-        if let Some(property) = self.get_property_of_type(object_type, &name) {
-            return self.get_type_of_symbol(property);
+        // Through [`Checker::get_type_of_property_of_type`] rather than
+        // `get_property_of_type` + `get_type_of_symbol`, because the symbol
+        // carries the *uninstantiated* declaration: `c["a"]` on a `C<number>`
+        // whose member is declared `a: T` must answer `number`, and only the
+        // seam can know that. It answers identically today (`bd tsr-el3.2`).
+        if let Some(property_type) = self.get_type_of_property_of_type(object_type, &name) {
+            return property_type;
         }
         // A named lookup that misses still reaches the index signatures, which is
         // what makes `{ [k: string]: number }["anything"]` answer `number`.

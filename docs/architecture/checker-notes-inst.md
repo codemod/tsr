@@ -226,6 +226,50 @@ row, so new counters appear without editing a file this workstream does not own.
   corpus does not contain in quantity, which is the outcome this counter exists
   to be able to report.
 
+## Steps 1 and 2, built: the seam and the routing
+
+**Built, and it changes no answer.** `Checker::get_type_of_property_of_type`
+(`crates/tsr-checker/src/members.rs`), anchored to `getTypeOfPropertyOfType`
+(`checker.go:18951`, verified at `5b1047d10`), and the three type-taking callers
+routed through it: property access (`members.rs`), element access
+(`crate::indexed`) and both sides of `properties_related_to`
+(`crate::relater`). `calls.rs`'s classification counter asks only *existence* and
+deliberately still calls `get_property_of_type`.
+
+This is the whole of the safety argument for step 3. Substituting at the
+property-access site alone would leave element access and the relater answering
+`T` where upstream answers `number` — a confident wrong type, and at the relater
+the dangerous direction, since it is the one consumer that acts on a `false`.
+
+Why it was committed before the counter came back: it is a pure consolidation
+that is correct whatever the counter says, and its cost if the counter kills
+step 4 is one two-line function with an upstream anchor.
+
+### It is verified by mutation, not by a new test
+
+No new test was written, because nothing new is observable — a test asserting
+today's answers would pass identically before and after and would be
+decoration. What *is* checkable is that all three routes are **live**, and an
+arm that is never entered has tests that pass without running it. So the seam
+was mutated to `None` unconditionally and the suite re-run:
+
+| suite | failing under the mutation | which route |
+|---|---|---|
+| `tests/members.rs` | 7 | property access |
+| `tests/types.rs`, `tests/index_signature_members.rs` | `a_literal_index_is_a_property_lookup_by_name`, index-signature fallbacks | element access |
+| `tests/relater.rs` | `two_structurally_identical_interfaces_relate`, `an_inherited_property_is_a_requirement`, `a_missing_or_mistyped_property_does_not_relate` | relater, both sides |
+
+Seven test binaries redden in total. Restored, all green. That is the evidence
+that step 3 has exactly one place to go.
+
+### The consequence accepted
+
+`get_type_of_property_of_type` widens the public surface by one function that
+today does nothing its callers could not do inline. If the counter kills step 4,
+this is dead weight with an upstream anchor rather than a wrong answer — the
+cheapest of the available failure modes, and the reason it was safe to build
+ahead of the number.
+
 ## Coverage, honestly
 
 *Superseded by the section above; retained per "never delete a decision record".*
