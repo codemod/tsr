@@ -61,16 +61,49 @@ is 1.02× its exact size — no transient at all. The real spread is 6,656 again
 1,488 and 3,156: **4.5× and 2.1×**, not the 10× the naive byte comparison
 suggested.
 
-**4.02 ms is an upper bound, and a loose one.** It is the cost of a *separate*
-walk, and it is 10% of the 39.8 ms parse+bind for the same fixtures. The binder
-already walks every node with the typed node in hand and already calls
-`set_parent`, so building the table there is one indexed store per node on a
-traversal that happens regardless.
+**4.02 ms is the cost of a separate walk** — 10% of the 39.8 ms parse+bind for
+the same fixtures.
+
+> **Corrected 2026-08-05, during implementation.** This paragraph originally
+> called 4.02 ms "an upper bound, and a loose one", on the grounds that *"the
+> binder already walks every node with the typed node in hand, so building the
+> table there is one indexed store per node on a traversal that happens
+> regardless."* **That is false**, and the correction is in the next section. The
+> separate walk turned out to be necessary, so 4.02 ms is the estimate, not a
+> ceiling above the real figure. The measured cost is in "The consequences
+> accepted".
 
 ## The decision
 
-**A dense `Vec<Option<Node<'a>>>` indexed by `NodeId`, one per source file,
-populated by the binder.**
+**A dense `Vec<Option<Node<'a>>>` indexed by `NodeId`, one per source file, filled
+by a dedicated pre-pass in the binder** (`Binder::record_nodes`, run before the
+bind walk).
+
+## The bind walk does not reach every node — corrected during implementation
+
+This ADR was written expecting the table to be a free rider on the bind walk:
+record in `bind_inner`, which is the one place holding a node's typed form and its
+id together, and pay nothing extra. **That was measured on implementation and is
+wrong.**
+
+The bind walk reaches **417,837** of the 419,565 nodes a `push_children` walk
+reaches — **1,728 short, 0.41%**. The gap is `case` and `default` keyword tokens,
+plus some zero-width `ForOfStatement` nodes from error recovery. The cause is not
+a defect on either side: `push_children` is generated from `ast.json` and includes
+token-valued fields, while `bind_children` is a port of upstream's `bindChildren`,
+whose `ForEachChild` does not visit those tokens. **The two walks answer different
+questions**, and the checker's lookup table wants the more inclusive one.
+
+0.41% is small enough to have shipped unnoticed and is exactly the wrong kind of
+hole: unprincipled, invisible at the call site, and certain to read as a checker
+bug years later. `BindResult::node` returns `Option`, so a miss degrades to
+`errorType` rather than to a wrong answer — the safe direction — but "safe when it
+fails" is not a reason to let it fail. Completeness is bought explicitly instead.
+
+`crates/tsr-binder/tests/bind.rs` pins this with
+`a_case_keyword_is_in_the_table_even_though_the_bind_walk_never_visits_it`, which
+was verified to fail against the `bind_inner` version — the shape this ADR
+originally specified.
 
 ## Why, and it is capability rather than cost
 
@@ -125,11 +158,51 @@ round-trip suite parses 11,735 cases and binds none of them. The binder is the
 right owner because it is the first stage that needs the tree *and* the ids
 together.
 
+This one **gets stronger** now that the free-rider assumption has collapsed. The
+comparison was "free in the binder against a cost in the parser"; it is now "one
+extra walk in the binder against one extra store in the parser", which is much
+closer. It still loses on the 11,735 parse-only cases, and it would put a field
+the parser has no use for into the parser's hot path — but if the pre-pass ever
+shows up as a real regression, this is the alternative to re-measure first,
+not lazy construction.
+
 ## The consequences accepted
 
-- **+6,656 KiB on these fixtures: +44% on the binder's memory**, and total
-  bytes-per-source-byte moves 7.54 → 8.75. This is real and it will show on the
-  rss gate. It is the price of not having pointers in symbols.
+Measured after implementation, against a same-session stashed baseline, three
+readings each, at a load average of 0.32–1.06. Medians:
+
+| | without | with | |
+|---|---:|---:|---:|
+| `checker.ts` parse+bind | 25.11 ms | 29.16 ms | **+16.1%** |
+| `dom.generated.d.ts` parse+bind | 8.91 ms | 9.63 ms | **+8.1%** |
+| binder memory | 15,056 KiB | 21,760 KiB | **+44.5%** |
+| binder bytes per source byte | 2.77 | 4.01 | |
+| total bytes per source byte | 7.54 | 8.68 | |
+
+- **Memory came in as predicted.** +6,704 KiB against the +6,656 KiB this ADR
+  estimated, and total bytes-per-source-byte 7.54 → 8.68 against a predicted
+  8.75. It is the price of not having pointers in symbols, and it will show on
+  the rss gate.
+- **Time did not.** +16.1% on `checker.ts` parse+bind is a materially larger
+  regression than this ADR implied when it expected the table to ride free on the
+  bind walk, and larger than the 4.02 ms standalone walk alone accounts for.
+  `checker.ts` is 72% of the benchmark's nodes, so a proportional share of that
+  walk would be ~2.9 ms; the measured delta is 4.05 ms. The difference is most
+  likely the per-bind allocation: `vec![None; nodes.len()]` zeroes 4.8 MB for
+  `checker.ts` on **every** bind, which the standalone measurement paid three
+  times and the benchmark pays once per iteration.
+- **That is the ADR's own falsifier firing**, and it is recorded rather than
+  absorbed: "if populating in the binder measurably slows binding by more than
+  the ~4.0 ms a separate walk costs". It did. The named next step is to
+  re-measure parser-side population, which avoids *both* costs at once — the
+  parser hands out ids sequentially, so the table becomes a `push` with no
+  zeroing and no second walk. Filed as `bd tsr-4sc.5`; this ADR is not
+  superseded until that is measured, because the parse-only consumers it would
+  charge are real (11,735 printer round-trip cases bind nothing).
+- **The regression is accepted for now** because the capability is a hard
+  prerequisite for any checker at all, and the cheaper shape is a change of
+  *where* the table is filled, not of what it is — no consumer of
+  `BindResult::node` changes if it moves.
 - **Cost is linear in nodes**, so a large program pays proportionally. Nothing
   here is amortised.
 - **The table is sized by `NodeTable::len()`**, which counts rows registered
@@ -151,12 +224,16 @@ together.
   call sites as the port proceeds. Upstream's 1,134 makes this unlikely, but
   "upstream does it" is not the same as "our port must", and if the count is
   still zero after the first ~10,000 lines of checker, revisit this.
-- **If memory turns out superlinear on larger inputs.** The claim here is
-  linear-in-nodes, measured at one size. If the rss gate on a bigger corpus shows
-  the ratio worsening rather than holding at ~1.21 bytes per source byte, the
-  model is wrong and lazy construction stops being deferrable.
-- **If populating in the binder measurably slows binding** by more than the
-  ~4.0 ms a separate walk costs. That would mean the store per node is not the
-  cheap operation this assumes, and the parser-side or lazy variants deserve
-  re-measuring. `cargo bench -p tsr-binder --bench bind` against a same-session
-  stashed baseline is the test, three readings, as ADR-0009 requires.
+- ~~**If populating in the binder measurably slows binding** by more than the
+  ~4.0 ms a separate walk costs.~~ **This one fired.** +16.1% on `checker.ts`
+  parse+bind, measured the way it specified — `cargo bench -p tsr-binder --bench
+  bind` against a same-session stashed baseline, three readings, as ADR-0009
+  requires. The consequence it named is now open work (`bd tsr-4sc.5`):
+  re-measure parser-side population, which removes the second walk *and* the
+  per-bind zeroing. Left struck through rather than deleted, because a falsifier
+  that fired is the most useful line in the document.
+- **If the memory model turns out superlinear on larger inputs.** The claim is
+  linear-in-nodes, measured at one size, and it held to within 1% on
+  implementation (+6,704 KiB against +6,656 KiB predicted). If the rss gate on a
+  bigger corpus shows the ratio worsening rather than holding near 1.21 bytes per
+  source byte, the model is wrong and lazy construction stops being deferrable.

@@ -68,7 +68,7 @@ mod narrowing;
 mod symbol;
 
 use rustc_hash::FxHashMap;
-use tsr_ast::{NodeId, NodeTable, SourceFile};
+use tsr_ast::{Node, NodeId, NodeTable, SourceFile};
 use tsr_core::Idx as _;
 use tsr_diagnostics::Diagnostic;
 
@@ -115,6 +115,7 @@ pub struct BindResult<'a> {
     max_depth: u32,
     symbols: SymbolStore<'a>,
     node_symbols: Vec<Option<SymbolId>>,
+    nodes_by_id: Vec<Option<Node<'a>>>,
     locals: FxHashMap<NodeId, SymbolTable<'a>>,
     global_exports: SymbolTable<'a>,
     computed_names: FxHashMap<NodeId, NodeId>,
@@ -144,6 +145,26 @@ impl<'a> BindResult<'a> {
     #[must_use]
     pub fn symbol_of(&self, node: NodeId) -> Option<SymbolId> {
         self.node_symbols.get(node.index()).copied().flatten()
+    }
+
+    /// The typed node behind an id.
+    ///
+    /// The checker's way back into the tree: a [`Symbol`] holds
+    /// `value_declaration: NodeId`, and the annotation and initialiser it needs
+    /// live in the node rather than in [`NodeTable`], which stores only kind,
+    /// span, flags and parent. This is also what makes `nodes.parent(id)`
+    /// usable — upstream reads `.Parent` 1,134 times in `internal/checker`
+    /// alone, and every one of those needs the node, not the id.
+    ///
+    /// `None` for an id this binder never visited, which in practice means a row
+    /// registered during an abandoned speculative parse (`bd tsr-pum.12`).
+    /// Returning `Option` rather than panicking keeps a parser artefact from
+    /// becoming a checker crash.
+    ///
+    /// See [ADR-0032](../../../docs/adr/0032-reaching-a-typed-node-from-an-id.md).
+    #[must_use]
+    pub fn node(&self, id: NodeId) -> Option<Node<'a>> {
+        self.nodes_by_id.get(id.index()).copied().flatten()
     }
 
     /// The scope table owned by `container`, if it owns one.
@@ -259,6 +280,7 @@ impl<'a> BindResult<'a> {
     #[must_use]
     pub fn heap_bytes(&self) -> usize {
         self.node_symbols.capacity() * size_of::<Option<SymbolId>>()
+            + self.nodes_by_id.capacity() * size_of::<Option<Node<'a>>>()
             + self.node_flow.capacity() * size_of::<Option<FlowId>>()
             + self.flow.heap_bytes()
             + self.locals.capacity() * (size_of::<NodeId>() + size_of::<SymbolTable<'a>>())

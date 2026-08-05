@@ -146,6 +146,19 @@ pub(crate) struct Binder<'a, 'n> {
     symbols: SymbolStore<'a>,
     /// `node -> the symbol it declares`. Dense, because node ids are dense.
     node_symbols: Vec<Option<SymbolId>>,
+    /// `node id -> the typed node`. Dense, for the same reason.
+    ///
+    /// The checker cannot compute a declaration's type without this: a symbol
+    /// holds a `NodeId`, while the annotation and initialiser live in the typed
+    /// node, and [`NodeTable`] stores only kind, span, flags and parent. Upstream
+    /// never needs it — a Go `*ast.Symbol` holds a real `*ast.Node`.
+    ///
+    /// Filled here rather than by a separate pass because this walk already has
+    /// every node in hand; the cost is one indexed store per node.
+    /// [ADR-0032](../../../docs/adr/0032-reaching-a-typed-node-from-an-id.md)
+    /// has the three shapes that were measured and why the dense one won on
+    /// capability rather than on price.
+    nodes_by_id: Vec<Option<Node<'a>>>,
     /// `container node -> its locals`. Sparse: most nodes are not containers.
     locals: rustc_hash::FxHashMap<NodeId, SymbolTable<'a>>,
     diagnostics: Vec<Diagnostic>,
@@ -305,6 +318,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             nodes,
             symbols: SymbolStore::new(),
             node_symbols: vec![None; nodes.len()],
+            nodes_by_id: vec![None; nodes.len()],
             locals: rustc_hash::FxHashMap::default(),
             diagnostics: Vec::new(),
             container: NodeId::ZERO,
@@ -363,6 +377,8 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.container = root_id;
         self.block = root_id;
 
+        self.record_nodes(root);
+
         // Upstream's `bindSourceFileIfExternalModule`. A file's own symbol exists
         // only for a *module*; a script's top-level declarations are globals and
         // belong in the file's locals, with nothing to export them from.
@@ -401,6 +417,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             global_exports: self.global_exports,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
+            nodes_by_id: self.nodes_by_id,
             locals: self.locals,
             diagnostics: self.diagnostics,
             flow: self.flow,
@@ -409,6 +426,37 @@ impl<'a, 'n> Binder<'a, 'n> {
             end_flow: self.end_flow,
             return_flow: self.return_flow,
             fallthrough_flow: self.fallthrough_flow,
+        }
+    }
+
+    /// Fill `nodes_by_id` — every node in the tree, before binding starts.
+    ///
+    /// # Why this is its own pass rather than a line in `bind_inner`
+    ///
+    /// Because recording in `bind_inner` produces an **incomplete** table, which
+    /// was measured rather than reasoned about and contradicted this author's
+    /// first guess. The bind walk reaches 417,837 of the 419,565 nodes a
+    /// `push_children` walk reaches — 1,728 short, 0.41%. The gap is `case` and
+    /// `default` keyword tokens, plus some zero-width `ForOfStatement` nodes from
+    /// error recovery: `push_children` is generated from `ast.json` and includes
+    /// token-valued fields, while `bind_children` is a port of upstream's
+    /// `bindChildren`, whose `ForEachChild` does not visit those tokens.
+    ///
+    /// Neither walk is wrong — they answer different questions. But a lookup
+    /// table with an unprincipled 0.41% hole is the kind of gap that later reads
+    /// as a checker bug, so completeness is bought explicitly here.
+    ///
+    /// Iterative, because the corpus contains trees deep enough to overflow a
+    /// thread stack; see [ADR-0029](../../../docs/adr/0029-stack-discipline-is-guards-plus-a-budget.md).
+    fn record_nodes(&mut self, root: Node<'a>) {
+        let base = self.children.len();
+        self.children.push(root);
+        while self.children.len() > base {
+            let node = self.children.pop().expect("non-empty above base");
+            if let Some(id) = node.node_id() {
+                self.nodes_by_id[id.index()] = Some(node);
+            }
+            push_children(node, &mut self.children);
         }
     }
 

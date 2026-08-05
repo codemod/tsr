@@ -240,7 +240,37 @@ fn main() {
                     entries += table.len();
                     sparse_kept.push(table);
                 }
-                "none" | "coverage" => {}
+                // The table as actually shipped, filled by the binder's own walk
+                // rather than by a separate one. The question this answers is
+                // whether ADR-0032's claim holds — that the binder reaches every
+                // node, so populating there loses nothing against the standalone
+                // `push_children` walk the `dense` arm measures.
+                "binder" if round == 0 => {
+                    let mut reached = 0usize;
+                    let mut walk_reached = 0usize;
+                    let mut disagree = Vec::new();
+                    walk(root_node, |node| {
+                        if let Some(id) = node.node_id() {
+                            walk_reached += 1;
+                            match result.node(id) {
+                                Some(_) => reached += 1,
+                                None => disagree.push(id),
+                            }
+                        }
+                    });
+                    println!(
+                        "  walk reached {walk_reached}, binder table has {reached}, missing {}",
+                        disagree.len()
+                    );
+                    for &id in disagree.iter().take(8) {
+                        println!(
+                            "    missing: {:?} {:?}",
+                            file.nodes.kind(id),
+                            file.nodes.span(id)
+                        );
+                    }
+                }
+                "none" | "coverage" | "binder" => {}
                 other => panic!("unknown option {other}"),
             }
         }

@@ -61,11 +61,18 @@ resolved to a typed node.
 
 Three results were not what the issue predicted, and are worth carrying forward:
 the dense table is the **fastest** to populate despite being ten times the size
-(it stores by index; the others probe a hash map per node); the cheap options'
-resident cost is 2.2–2.3× their byte counts because both need a transient set
-during the walk, so the real spread is 4.5× rather than 10×; and 4.02 ms is an
-upper bound, being a *separate* walk — in the binder it is one store per node on
-a traversal that already happens.
+(it stores by index; the others probe a hash map per node); and the cheap
+options' resident cost is 2.2–2.3× their byte counts, because both need a
+transient set during the walk, so the real spread is 4.5× rather than 10×.
+
+**A third prediction was wrong and was corrected on implementation.** The ADR
+expected the table to ride free on the binder's existing walk. It cannot: the
+bind walk reaches 417,837 of 419,565 nodes — 1,728 short, 0.41% — because
+`push_children` is generated from `ast.json` and includes token-valued fields
+while `bind_children` ports upstream's `bindChildren`, which does not visit them.
+So the table is filled by a dedicated pre-pass, `Binder::record_nodes`, and the
+extra walk is a real cost rather than the free rider the ADR assumed. The 0.41%
+was `case`/`default` keywords and some zero-width `ForOfStatement` nodes.
 
 The accepted price is **+6,656 KiB, +44% on binder memory**, bytes-per-source-byte
 7.54 → 8.75.
