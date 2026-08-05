@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 596/9538 (6.25%)
-Assertion lines: 173260/478954 (36.17%)  — a gradient, not a pass rate
-Failed         : 8942
+Passed         : 1076/9538 (11.28%)
+Assertion lines: 197667/478954 (41.27%)  — a gradient, not a pass rate
+Failed         : 8462
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,49 +12,21 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 8942 failures:
+First 100 of 8462 failures:
 compiler/2dArrays
   2dArrays.ts: >ships : error — expected >ships : Ship[]
 compiler/ArrowFunctionExpression1
   ArrowFunctionExpression1.ts: >v : error — expected >v : (x: string) => void
-compiler/ClassDeclaration10
-  ClassDeclaration10.ts: >foo : error — expected >foo : () => any
-compiler/ClassDeclaration11
-  ClassDeclaration11.ts: >foo : error — expected >foo : () => void
-compiler/ClassDeclaration13
-  ClassDeclaration13.ts: >foo : error — expected >foo : () => any
-compiler/ClassDeclaration14
-  ClassDeclaration14.ts: >foo : error — expected >foo : () => any
-compiler/ClassDeclaration15
-  ClassDeclaration15.ts: >foo : error — expected >foo : () => any
-compiler/ClassDeclaration21
-  ClassDeclaration21.ts: >0 : error — expected >0 : () => any
-compiler/ClassDeclaration22
-  ClassDeclaration22.ts: >"foo" : error — expected >"foo" : () => any
-compiler/ClassDeclaration25
-  ClassDeclaration25.ts: >data : error — expected >data : () => T
 compiler/ClassDeclaration26
   ClassDeclaration26.ts: 5 assertion(s), expected 6
-compiler/ClassDeclaration9
-  ClassDeclaration9.ts: >foo : error — expected >foo : () => any
 compiler/DeclarationErrorsNoEmitOnError
   DeclarationErrorsNoEmitOnError.ts: >T : { x: number; } — expected >T : T
 compiler/ExportAssignment7
   ExportAssignment7.ts: >B : error — expected >B : any
 compiler/ExportAssignment8
   ExportAssignment8.ts: >B : error — expected >B : any
-compiler/FunctionDeclaration3
-  FunctionDeclaration3.ts: >foo : error — expected >foo : () => any
-compiler/FunctionDeclaration4
-  FunctionDeclaration4.ts: >foo : error — expected >foo : () => any
-compiler/FunctionDeclaration6
-  FunctionDeclaration6.ts: >foo : error — expected >foo : () => any
-compiler/FunctionDeclaration7
-  FunctionDeclaration7.ts: >M : error — expected >M : typeof M
 compiler/MemberAccessorDeclaration15
   MemberAccessorDeclaration15.ts: >Foo : error — expected >Foo : number
-compiler/ParameterList4
-  ParameterList4.ts: >F : error — expected >F : (A: any) => void
 compiler/ParameterList5
   ParameterList5.ts: >A : error — expected >A : () => (B: any) => C
 compiler/ParameterList6
@@ -67,22 +39,18 @@ compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : error — expected >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : void
 compiler/abstractClassUnionInstantiation
   abstractClassUnionInstantiation.ts: >Abstracts : error — expected >Abstracts : Abstracts
-compiler/abstractIdentifierNameStrict
-  abstractIdentifierNameStrict.ts: >foo : error — expected >foo : () => void
-compiler/abstractInterfaceIdentifierName
-  abstractInterfaceIdentifierName.ts: >abstract : error — expected >abstract : () => void
 compiler/abstractPropertyInConstructor
   abstractPropertyInConstructor.ts: >this.method(parseInt(str)) : error — expected >this.method(parseInt(str)) : void
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >Symbol('s') : error — expected >Symbol('s') : unique symbol
 compiler/acceptableAlias1
-  acceptableAlias1.ts: >M : error — expected >M : typeof M
+  acceptableAlias1.ts: >X : error — expected >X : any
 compiler/accessInstanceMemberFromStaticMethod01
-  accessInstanceMemberFromStaticMethod01.ts: >bar : error — expected >bar : () => void
+  accessInstanceMemberFromStaticMethod01.ts: >k : error — expected >k : any
 compiler/accessOverriddenBaseClassMember1
   accessOverriddenBaseClassMember1.ts: >toString : error — expected >toString : () => string
 compiler/accessStaticMemberFromInstanceMethod01
-  accessStaticMemberFromInstanceMethod01.ts: >bar : error — expected >bar : () => void
+  accessStaticMemberFromInstanceMethod01.ts: >k : error — expected >k : any
 compiler/accessorBodyInTypeContext
   accessorBodyInTypeContext.ts: 12 assertion(s), expected 10
 compiler/accessorDeclarationEmitJs
@@ -98,29 +66,27 @@ compiler/accessorsEmit
 compiler/accessors_spec_section-4.5_error-cases
   accessors_spec_section-4.5_error-cases.ts: >AnnotatedSetter_SetterFirst : error — expected >AnnotatedSetter_SetterFirst : number
 compiler/accessors_spec_section-4.5_inference
-  accessors_spec_section-4.5_inference.ts: >A : error — expected >A : A
+  accessors_spec_section-4.5_inference.ts: >A : typeof A — expected >A : A
 compiler/addMoreCallSignaturesToBaseSignature
   addMoreCallSignaturesToBaseSignature.ts: >kitty : error — expected >kitty : string
 compiler/addMoreCallSignaturesToBaseSignature2
   addMoreCallSignaturesToBaseSignature2.ts: >kitty : error — expected >kitty : string
-compiler/addMoreOverloadsToBaseSignature
-  addMoreOverloadsToBaseSignature.ts: >f : error — expected >f : () => string
 compiler/aliasAssignments
   aliasAssignments_1.ts: >moduleA : error — expected >moduleA : typeof moduleA
 compiler/aliasBug
-  aliasBug.ts: >foo : error — expected >foo : typeof foo
+  aliasBug.ts: >provide : error — expected >provide : typeof foo
 compiler/aliasDoesNotDuplicateSignatures
-  demo.d.ts: >demoNS : error — expected >demoNS : typeof demoNS
+  demo.d.ts: >'demoModule' : error — expected >'demoModule' : typeof import("demoModule")
 compiler/aliasErrors
-  aliasErrors.ts: >foo : error — expected >foo : typeof foo
+  aliasErrors.ts: >provide : error — expected >provide : typeof foo
 compiler/aliasInaccessibleModule
-  aliasInaccessibleModule.ts: >M : error — expected >M : typeof M
+  aliasInaccessibleModule.ts: >X : error — expected >X : any
 compiler/aliasInaccessibleModule2
-  aliasInaccessibleModule2.ts: >M : error — expected >M : typeof M
+  aliasInaccessibleModule2.ts: >R : error — expected >R : typeof N
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
-  aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >e : error — expected >e : E
+  aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >Err : error — expected >Err : typeof ErrImpl & (<T>() => T)
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
-  aliasInstantiationExpressionGenericIntersectionNoCrash2.ts: >x : error — expected >x : T
+  aliasInstantiationExpressionGenericIntersectionNoCrash2.ts: >ClassAlias : ClassAlias<T> — expected >ClassAlias : typeof Class<T>
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a : error — expected >a : a
 compiler/aliasOnMergedModuleInterface
@@ -158,29 +124,27 @@ compiler/allowSyntheticDefaultImports1
 compiler/allowSyntheticDefaultImports10
   a.ts: >Foo : error — expected >Foo : typeof Foo
 compiler/allowSyntheticDefaultImports4
-  b.d.ts: >Foo : error — expected >Foo : Foo
+  b.d.ts: >Foo : typeof Foo — expected >Foo : Foo
 compiler/allowSyntheticDefaultImports9
-  b.d.ts: >foo : error — expected >foo : () => any
+  a.ts: >default : error — expected >default : typeof Foo
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   color.ts: >Color : error — expected >Color : Color
 compiler/alwaysStrict
-  alwaysStrict.ts: >f : error — expected >f : () => void
+  alwaysStrict.ts: >arguments : error — expected >arguments : any[]
 compiler/alwaysStrictAlreadyUseStrict
-  alwaysStrictAlreadyUseStrict.ts: >f : error — expected >f : () => void
+  alwaysStrictAlreadyUseStrict.ts: >a : error — expected >a : any[]
 compiler/alwaysStrictES6
-  alwaysStrictES6.ts: >f : error — expected >f : () => void
+  alwaysStrictES6.ts: >arguments : error — expected >arguments : any[]
 compiler/alwaysStrictModule
-  alwaysStrictModule.ts: >M : error — expected >M : typeof M
+  alwaysStrictModule.ts: >arguments : error — expected >arguments : any[]
 compiler/ambientClassDeclarationWithExtends
-  ambientClassDeclarationExtends_singleFile.ts: >A : error — expected >A : A
+  ambientClassDeclarationExtends_singleFile.ts: >A : typeof A — expected >A : A
 compiler/ambientClassDeclaredBeforeBase
-  a.d.ts: >ns : error — expected >ns : typeof ns
+  a.d.ts: >FirstNS : error — expected >FirstNS : FirstNS
 compiler/ambientClassMergesOverloadsWithInterface
-  ambientClassMergesOverloadsWithInterface.ts: >baz : error — expected >baz : () => any
-compiler/ambientClassOverloadForFunction
-  ambientClassOverloadForFunction.ts: >foo : error — expected >foo : typeof foo
+  ambientClassMergesOverloadsWithInterface.ts: >foo : error — expected >foo : { (n: number): any; (n: number): any; }
 compiler/ambientConstLiterals
-  ambientConstLiterals.ts: >f : error — expected >f : <T>(x: T) => T
+  ambientConstLiterals.ts: >A : error — expected >A : E.A
 compiler/ambientEnum1
   ambientEnum1.ts: >y : error — expected >y : E1.y
 compiler/ambientEnumElementInitializer1
@@ -194,22 +158,58 @@ compiler/ambientEnumElementInitializer4
 compiler/ambientEnumElementInitializer5
   ambientEnumElementInitializer5.ts: >e : error — expected >e : E.e
 compiler/ambientEnumElementInitializer6
-  ambientEnumElementInitializer6.ts: >M : error — expected >M : typeof M
+  ambientEnumElementInitializer6.ts: >e : error — expected >e : E.e
 compiler/ambientExportDefaultErrors
   foo.d.ts: >Foo : error — expected >Foo : typeof import("./foo")
 compiler/ambientExternalModuleInAnotherExternalModule
-  ambientExternalModuleInAnotherExternalModule.ts: >D : error — expected >D : D
+  ambientExternalModuleInAnotherExternalModule.ts: >D : typeof D — expected >D : D
 compiler/ambientExternalModuleReopen
   ambientExternalModuleReopen.ts: >"fs" : error — expected >"fs" : typeof import("fs")
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
   ambientExternalModuleWithRelativeExternalImportDeclaration.ts: >"OuterModule" : error — expected >"OuterModule" : typeof import("OuterModule")
 compiler/ambientExternalModuleWithRelativeModuleName
   ambientExternalModuleWithRelativeModuleName.ts: >"./relativeModule" : error — expected >"./relativeModule" : typeof import("./relativeModule")
-compiler/ambientFundule
-  ambientFundule.ts: >f : error — expected >f : typeof f
 compiler/ambientModuleExports
-  ambientModuleExports.ts: >Foo : error — expected >Foo : typeof Foo
+  ambientModuleExports.ts: >Foo.a() : error — expected >Foo.a() : void
 compiler/ambientModuleWithClassDeclarationWithExtends
-  ambientModuleWithClassDeclarationWithExtends.ts: >foo : error — expected >foo : typeof foo
+  ambientModuleWithClassDeclarationWithExtends.ts: >A : error — expected >A : A
 compiler/ambientModuleWithTemplateLiterals
-  ambientModuleWithTemplateLiterals.ts: >Foo : error — expected >Foo : typeof Foo
+  ambientModuleWithTemplateLiterals.ts: >a : error — expected >a : Bar.a
+compiler/ambientModules
+  ambientModules.ts: >Foo.Bar.foo : error — expected >Foo.Bar.foo : any
+compiler/ambientPropertyDeclarationInJs
+  /test.js: >this.prop = {} : error — expected >this.prop = {} : {}
+compiler/ambientStatement1
+  ambientStatement1.ts: >v1 : error — expected >v1 : () => boolean
+compiler/ambiguousCallsWhereReturnTypesAgree
+  ambiguousCallsWhereReturnTypesAgree.ts: >bar : error — expected >bar : { (x: string): void; (x: string[]): void; }
+compiler/ambiguousGenericAssertion1
+  ambiguousGenericAssertion1.ts: >r : error — expected >r : <T>(x: T) => T
+compiler/ambiguousOverload
+  ambiguousOverload.ts: >foof : error — expected >foof : { (bar: string, y: any): number; (bar: string, x: any): string; }
+compiler/ambiguousOverloadResolution
+  ambiguousOverloadResolution.ts: >A : typeof A — expected >A : A
+compiler/amdDependencyComment1
+  amdDependencyComment1.ts: >m1 : error — expected >m1 : any
+compiler/amdDependencyCommentName1
+  amdDependencyCommentName1.ts: >m1 : error — expected >m1 : any
+compiler/amdLikeInputDeclarationEmit
+  typing.d.ts: >define : error — expected >define : <T = unknown>(name: string, modules: string[], ready: (...modules: unknown[]) => T) => any
+compiler/anonClassDeclarationEmitIsAnon
+  wrapClass.ts: >wrapClass : error — expected >wrapClass : (param: any) => typeof Wrapped
+compiler/anonterface
+  anonterface.ts: >m : error — expected >m : (fn: { (n: number): string; }, n2: number) => string
+compiler/anonymousClassDeclarationDoesntPrintWithReadonly
+  anonymousClassDeclarationDoesntPrintWithReadonly.ts: >y : error — expected >y : () => typeof (Anonymous class)
+compiler/anonymousClassExpression1
+  anonymousClassExpression1.ts: >f : error — expected >f : () => boolean
+compiler/anonymousClassExpression2
+  anonymousClassExpression2.ts: >this.methodA : error — expected >this.methodA : any
+compiler/anonymousModules
+  anonymousModules.ts: >module : error — expected >module : any
+compiler/anyAndUnknownHaveFalsyComponents
+  anyAndUnknownHaveFalsyComponents.ts: >y1 : error — expected >y1 : any
+compiler/anyAsReturnTypeForNewOnCall
+  anyAsReturnTypeForNewOnCall.ts: >this.x : error — expected >this.x : any
+compiler/anyDeclare
+  anyDeclare.ts: >myFn : error — expected >myFn : any
