@@ -339,29 +339,21 @@ fn a_self_referential_initialiser_resolves_instead_of_hanging() {
     assert_eq!(type_of_declaration("const a = a;", "a"), "any");
 }
 
-#[test]
-fn a_symbol_shape_this_slice_does_not_port_is_an_error_type() {
-    // An accessor symbol goes to `getTypeOfAccessors`, which is unported. It must
-    // read as a gap rather than as `any`.
-    //
-    // This test used to name a *function* symbol, which now has a type
-    // (`bd tsr-4sc.8`). The shape moved; the discipline did not.
-    let arena = Arena::new();
-    let source = "class C { get a() { return 1; } }";
-    let parsed = tsr_parser::parse(&arena, source);
-    let bound = tsr_binder::bind(
-        parsed.source_file,
-        &parsed.nodes,
-        tsr_binder::FileInfo { name: "test.ts", text: source },
-    );
-    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
-    let class = bound.lookup_local(root, "C").expect("`C` is declared");
-    let symbol = *bound.symbols().get(class).members.get("a").expect("`a` is a member");
-    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
-    let id = checker.get_type_of_symbol(symbol);
-    assert_eq!(id, checker.intrinsics().error);
-    assert_ne!(id, checker.intrinsics().any);
-}
+// `a_symbol_shape_this_slice_does_not_port_is_an_error_type` was DELETED here,
+// not re-pointed. It asserted that an unported `getTypeOfSymbol` shape answers
+// `errorType` and not `anyType`, using whatever shape happened to be unported as
+// the fixture. It had already been re-pointed once — from a function symbol to
+// an accessor — when its first fixture was ported, and the accessor arm has now
+// been ported too.
+//
+// A third re-pointing would keep the test alive without keeping it honest: with
+// every `SymbolFlags` shape `getTypeOfSymbol` dispatches on now answered, the
+// premise has no fixture left that is unported for a structural reason rather
+// than a not-yet-done one. Its two claims are guarded where they belong —
+// `the_intrinsics_that_print_alike_are_still_distinct_types` pins the
+// `errorType`/`anyType` identity directly, and
+// `an_unported_expression_form_is_error_not_any` pins the discipline on the
+// expression side, where unported forms still exist.
 
 #[test]
 fn a_symbols_type_is_computed_once_and_memoised() {

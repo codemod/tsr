@@ -87,12 +87,27 @@ rows moving but the *wrong-answer* differential rising by a similar amount, the
 to the declarations that provably have no body and no annotation rather than to
 treat it as the default.
 
-**What would have to change for case 4 to land.** `getReturnTypeFromBody` exists
-in this port as `crate::signatures`' inference path, but it is private to that
-module. Reaching it needs one `pub(crate)` entry point there — an edit outside
-this slice's file, so it was left alone rather than reached for. That single
-change is the whole of case 4, and it is worth roughly the ~716 unannotated
-getters.
+**Case 4 landed.** `7b366d8` cut the seam as
+`get_return_type_from_body(declaration) -> Option<TypeId>` — the `Option` shape
+requested before the seam existed, because a bare `TypeId` returning `errorType`
+for both "inference failed" and "inferred an error" would have forced this arm to
+gap conservatively and left the ~716 unannotated getters red anyway.
+
+`None` becomes `errorType`, never `anyType`, and that single `unwrap_or` is what
+keeps case 5 honest: upstream's `getReturnTypeFromBody` always produces a type,
+so upstream never falls from case 4 to case 5. Every `None` here is a declaration
+upstream *would* have inferred, so letting it reach the `any` arm would print a
+plausible wrong `any` on exactly the accessors that have a real answer.
+
+A getter whose body cannot complete is `void`, not `never`: `mayReturnNever`
+(`checker.go:20312`) covers a function expression, an arrow and an object-literal
+method, and an accessor is none of the three.
+
+**And a live instance of the discrimination check, on my own test.** The first
+fixture for that rule was `get foo() { }` — an empty body, which answers `void`
+under *either* reading. Flipping `may_return_never` to `true` left it green. The
+fixture had to `throw` before the two readings diverged. Written down because it
+is the check catching its own author, two commits after being written.
 
 ## The most common test defect in this project: exercising without discriminating
 

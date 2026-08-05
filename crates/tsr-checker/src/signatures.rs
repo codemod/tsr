@@ -358,7 +358,6 @@ impl<'a> Checker<'a, '_> {
     /// moment a caller lands, `-D warnings` fails until this attribute is
     /// deleted. So the scaffold cannot outlive its purpose by being forgotten,
     /// which is what `#[allow(dead_code)]` would have permitted.
-    #[expect(dead_code, reason = "entry point for getTypeOfAccessors case 4; caller lands next")]
     pub(crate) fn get_return_type_from_body(&mut self, declaration: NodeId) -> Option<TypeId> {
         let (body, modifiers, asterisk, may_return_never) =
             // A get accessor is function-like upstream and reaches

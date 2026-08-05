@@ -94,7 +94,7 @@ impl<'a> Checker<'a, '_> {
     /// 4. else the getter's inferred body return type (`checker.go:18531`),
     /// 5. else `anyType`, with an implicit-any diagnostic (`checker.go:18545`).
     ///
-    /// **1, 2 and 5 are ported; 3 and 4 gap.** The order is the whole content of
+    /// **1, 2, 4 and 5 are ported; only 3 gaps.** The order is the whole content of
     /// the function and is not negotiable: `compiler/accessorBodyInTypeContext.types`
     /// records `set foo(v: any) { }` as `>foo : any`, so a setter annotation is a
     /// real answer and not a fallback.
@@ -109,10 +109,13 @@ impl<'a> Checker<'a, '_> {
     /// this port gets right into a line it reports as missing.
     ///
     /// The distinction is only safe because case 4 is separated out first: a
-    /// getter *with a body* would be inferred upstream, so it gaps here rather
-    /// than falling into the `any` arm and claiming an answer it did not compute.
-    /// That separation is the one piece of this function that is not a
-    /// transliteration, and it is what stops `any` from becoming a lie.
+    /// getter *with a body* is inferred, and when this port's inference cannot
+    /// answer it yields `errorType` rather than falling into the `any` arm and
+    /// claiming a result it did not compute. That separation is the one piece of
+    /// this function that is not a transliteration, and it is what stops `any`
+    /// from becoming a lie. It mattered more when case 4 gapped wholesale; it
+    /// still matters, because `get_return_type_from_body` answers `None` for
+    /// every aggregate, `async` and generator body.
     fn get_type_of_accessors(&mut self, symbol: SymbolId) -> TypeId {
         if let Some(&cached) = self.symbol_types.get(&symbol) {
             return cached;
@@ -157,15 +160,22 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.error;
         }
         // `checker.go:18529`: an unannotated getter *with a body* is inferred
-        // from that body. `getReturnTypeFromBody` is reachable only through
-        // `crate::signatures`, which does not expose it, so this gaps — and it
-        // must gap **before** the `any` arm below, or an inferable accessor
-        // would claim `any`. `compiler/accessorBodyInTypeContext.types` records
+        // from that body. `compiler/accessorBodyInTypeContext.types` records
         // `get foo() { return 0 }` as `>foo : number`, not `any`.
+        //
+        // **`None` becomes `errorType`, never `anyType`, and this is the one
+        // line in the function where that matters.** Upstream's
+        // `getReturnTypeFromBody` always produces a type, so upstream never
+        // falls from here to case 5. This port's inference has gaps, and every
+        // one of them is a declaration upstream WOULD have inferred — so
+        // letting `None` fall through to the `any` below would print a
+        // plausible wrong `any` on exactly the accessors that have a real
+        // answer. The `unwrap_or` is what keeps case 5's computed `any` honest.
         if let Some(getter) = getter
             && matches!(self.node_map.get(getter), Some(Node::GetAccessorDeclaration(node)) if node.body.is_some())
         {
-            return self.intrinsics.error;
+            let inferred = self.get_return_type_from_body(getter);
+            return inferred.unwrap_or(self.intrinsics.error);
         }
         // `checker.go:18545`. Upstream's answer, not this port's shrug.
         self.intrinsics.any

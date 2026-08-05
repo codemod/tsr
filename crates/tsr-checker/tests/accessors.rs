@@ -95,20 +95,66 @@ fn an_accessor_with_nothing_to_go_on_is_any_because_that_is_upstreams_answer() {
 }
 
 #[test]
-fn an_unannotated_getter_with_a_body_gaps_rather_than_claiming_any() {
+fn an_unannotated_getter_is_inferred_from_its_body() {
     // `compiler/accessorBodyInTypeContext.types` records
     //
     //     get foo() { return 0 }
     //     >foo : number
     //
-    // — upstream infers `number` from the body (`checker.go:18531`).
-    // `getReturnTypeFromBody` is reachable only through `crate::signatures`,
-    // which does not expose it, so this gaps.
+    // — upstream's case 4 (`checker.go:18531`), reached only because neither
+    // annotation arm answered.
     //
-    // The load-bearing part is that it gaps *before* the `any` arm above.
-    // Falling through to `any` would produce a plausible, wrong, and
-    // indistinguishable-from-computed line on every inferable accessor in the
-    // corpus — the exact failure the `errorType`-not-`anyType` rule exists to
-    // prevent, arrived at from the opposite direction.
-    assert_eq!(type_of_member("class C { get foo() { return 0; } }", "foo"), "error");
+    // **This test exists to reach the ACCESSOR arm**, not the inference beneath
+    // it: `tests/return_inference.rs` already covers the inference through the
+    // signature path, so a test that only proved "inference works" would pass
+    // even if `get_return_type_from_body` read the wrong field off a
+    // `GetAccessorDeclaration`. The accessor arm was shipped untested for
+    // exactly that reason and this is the caller that exercises it.
+    assert_eq!(type_of_member("class C { get foo() { return 0; } }", "foo"), "number");
+    // A getter whose body CANNOT COMPLETE is `void`, not `never`:
+    // `mayReturnNever` (`checker.go:20312`) covers a function expression, an
+    // arrow and an object-literal method, and an accessor is none of the three.
+    //
+    // The fixture must `throw`. An empty body — `get foo() { }` — answers
+    // `void` under either reading, so it exercises the arm without
+    // discriminating on it; flipping `may_return_never` to `true` left it green.
+    // `throw` is where the two readings diverge, and it reddens.
+    assert_eq!(type_of_member("class C { get foo() { throw 1; } }", "foo"), "void");
+    // No "control" assertion from the method side here: I guessed one and it
+    // was wrong (a method answers `() => void`, not what I assumed), and a
+    // guessed control is worse than none. What pins this is the mutation —
+    // flipping `may_return_never` to `true` reddens the `throw` fixture.
+    // And the annotation still wins over the body — case 1 before case 4, with
+    // a body whose inferred type DIFFERS from the annotation, or the ordering
+    // would not be observable.
+    assert_eq!(
+        type_of_member("class C { get foo(): string { return null as any; } }", "foo"),
+        "string"
+    );
+}
+
+#[test]
+fn an_inference_this_port_cannot_make_is_error_and_never_a_plausible_any() {
+    // `compiler/accessorBodyInTypeContext.types` records
+    //
+    //     get foo() { return 0 }
+    //     >foo : number
+    //
+    // Upstream's `getReturnTypeFromBody` ALWAYS produces a type, so upstream
+    // never falls from case 4 to case 5. This port's inference has gaps, and
+    // every one of them is a declaration upstream would have inferred — so
+    // `None` must become `errorType`. Letting it fall to the `any` arm would
+    // print a plausible, wrong, indistinguishable-from-computed line on exactly
+    // the accessors that have a real answer.
+    //
+    // Two return statements of distinct types: an aggregate this port cannot
+    // reduce (`tests/return_inference.rs`), so the inference answers `None`.
+    assert_eq!(
+        type_of_member("class C { get foo() { if (1) { return 1; } return \"a\"; } }", "foo"),
+        "error"
+    );
+    // The discriminator for the `unwrap_or`: an accessor with NO body and no
+    // annotation reaches case 5 and is a computed `any`. Same test, two
+    // outcomes, so neither arm can be deleted without the other noticing.
+    assert_eq!(type_of_member("interface I { get foo(); }", "foo"), "any");
 }
