@@ -734,3 +734,35 @@ been shorter, and one wrong recommendation avoided entirely.
 
 The general form is the three-level rule again — the row name describes the
 *question*, and only reading the code says which step answers it.
+
+### A fourth level, and it is the one that predicts *cases*
+
+The three levels above predict **lines**. They say nothing about **cases**, and
+the two goals want different items.
+
+  1. the syntax of the question
+  2. what upstream answers
+  3. what our port fails on — **predicts lines**
+  4. **what else in the same case still fails — predicts cases**
+
+Measured: one slice converted **6,610 lines** and flipped **109 cases** of the
+1,571 it touched — 6.9%, against a predicted 10–25%. The author's reasoning
+("whole-file gating needs the rest to match") was the right mechanism and the
+wrong estimate, because it counted the cases the fix *touches* rather than the
+cases the fix *finishes*.
+
+**61 lines per case flipped.** That ratio is the signature of a broad, shallow
+fix: it reaches many files and completes few. A narrow deep fix does the
+reverse.
+
+So the ranking consequence is concrete, and nothing on the board currently
+distinguishes it:
+
+- **Targeting the gradient?** Rank as described above — breadth wins, and the
+  concentration check's usual verdict (prefer distributed rows) is right.
+- **Targeting cases?** Rank items concentrated in *few files with few other
+  defects* — the opposite verdict. A distributed row is the worst possible shape
+  for the case gate.
+
+The statistic for level 4 is the distribution of *remaining* failures per
+affected case. It costs one extra bucket in a probe that is already being run.
