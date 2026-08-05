@@ -160,3 +160,86 @@ Two corollaries, both paid for:
   type.** An enum's declared type printed `E` both before and after it became a
   real union, so the test asserts `UNION` in the flags and one constituent per
   member. Reverting the arm reddens it; nothing about the printed line would have.
+
+### Sixth instance, and a new sub-kind: the fixture whose SUBJECT gets ported
+
+`types.rs::a_symbol_shape_this_slice_does_not_port_is_an_error_type` asserted
+that an unported `getTypeOfSymbol` shape answers `errorType` and not `anyType`,
+using whatever shape happened to be unported as the fixture. It was re-pointed
+once — function symbol to accessor — when its first fixture was ported, and the
+accessor arm then ported the replacement.
+
+This is **not** the failure the other five are. The fixture discriminated
+perfectly well at every moment; what decayed is that its *subject* kept being
+ported out from under it. The defect is a test whose claim is "something here is
+unported" rather than "this specific thing behaves this way" — a claim with no
+stable referent.
+
+**Delete rather than re-point when no fixture remains that is unported for a
+STRUCTURAL reason rather than a not-yet-done one.** With every `SymbolFlags`
+shape `getTypeOfSymbol` dispatches on now answered, that condition was met. Both
+its claims survive where they belong:
+`the_intrinsics_that_print_alike_are_still_distinct_types` pins the
+`errorType`/`anyType` identity, and `an_unported_expression_form_is_error_not_any`
+pins the discipline on the expression side, where unported forms still exist.
+
+**The tell is mechanically greppable**, unlike the other five, because
+re-pointings leave a trace in the comment and in the history:
+
+```
+grep -rn -i "used to name\|this test used to\|used to assert\|re-pointed\|\
+was written when\|no longer\|stopped being" crates/tsr-checker/tests/*.rs
+```
+
+Run over the whole suite it returned **eleven hits and no new defects** — every
+other one is a *healthy* re-pointing that records its own history. Two are worth
+copying:
+
+- `relater.rs`'s `two_structurally_identical_interfaces_relate` replaced a
+  characterisation test that pinned `false` while structural comparison was
+  unported, "deleted rather than inverted in place, because the thing it
+  asserted no longer exists" — and its doc names the mutation that reddens it.
+- `types.rs::a_property_that_is_not_there_is_a_gap_and_not_a_free_name` records
+  an assertion **removed** rather than inverted when inherited members landed.
+
+So the sub-kind is real but rare here, and the suite's habit of writing down why
+a test moved is what makes it findable at all.
+
+## Predicting against a row you have already excluded part of
+
+The accessor prediction failed and the way it failed is worth more than the
+number. Stated: ~871 lines, from 352 annotated getters and 519 annotated
+setters. Measured across the window: 231.
+
+The row breakdown is what makes it diagnosable:
+
+| row | before | after |
+|---|---|---|
+| `SET_ACCESSOR` | 133 | **0** |
+| `GET_ACCESSOR \| SET_ACCESSOR` | 302 | 206 |
+| `GET_ACCESSOR` | 182 | **180** |
+
+The setter row closing completely is the annotation arm working as predicted.
+The getter row moving by **two** against a predicted 352 is the finding — and
+the asymmetry rules out "the row is the wrong instrument", which was the
+falsifier I had written.
+
+**The likely cause, stated as an unverified hypothesis:** the measurement
+predates the case-4 commit, so the ~716 unannotated getters — the group the
+prediction *explicitly excluded* — were still red and still sitting in the same
+row. A 352-line improvement inside a row dominated by 716 unmoved lines reads as
+noise. If so the ceiling was sound and the row was fine; what was wrong was
+predicting against a row whose other occupant I had already declared out of
+scope, which makes the exclusion invisible in the number.
+
+**Settling it is cheap:** measure `GET_ACCESSOR` at the case-4 commit. A drop of
+roughly 700 confirms it. A second flat result means accessor lines are not
+reaching that row at all, and both accessor commits are worth much less than they
+appear — which is worth knowing before anything is built on them.
+
+**The rule, for next time:** *if a prediction excludes a large group, name the
+row that group occupies and predict for it separately.* Otherwise the exclusion
+cannot be seen in the result, and a correct prediction and a badly wrong one look
+identical. Measuring at the commit pair's parent fixes attribution across
+commits; it does not fix this, because this is one commit predicting against one
+row.
