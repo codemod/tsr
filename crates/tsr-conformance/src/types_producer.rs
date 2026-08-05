@@ -780,6 +780,32 @@ mod tests {
         }
     }
 
+    /// Every `{text} : {type}` pair for a source, through the **real** checker.
+    ///
+    /// [`texts`] stubs the type out, which is right for the walker tests and
+    /// useless for anything about `type_at_location`. This runs the whole path.
+    fn typed(source: &str) -> Vec<(String, String)> {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let mut checker = tsr_checker::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        assertions_for_file(
+            &Node::SourceFile(parsed.source_file),
+            source,
+            &parsed.nodes,
+            &parsed.node_map,
+            |id| type_at_location(&mut checker, &bound, &parsed.nodes, &parsed.node_map, id),
+        )
+        .into_iter()
+        .map(|a| (a.text, a.type_string))
+        .collect()
+    }
+
     /// Assertion texts for a source, with types stubbed out.
     fn texts(source: &str) -> Vec<String> {
         let arena = tsr_core::Arena::new();
@@ -884,6 +910,69 @@ mod tests {
         assert_eq!(count("class B {} class C extends B {}", "B"), 2, "declaration and base");
         assert_eq!(count("interface I {} class C implements I {}", "I"), 0, "both are types");
         assert_eq!(count("interface J {} interface I extends J {}", "J"), 0, "both are types");
+    }
+
+    #[test]
+    fn the_base_of_an_extends_clause_is_the_base_type_and_a_reference_is_still_typeof() {
+        // 1,086 corpus lines, and every one of them a *wrong* answer rather than
+        // a gap. `class B extends A {}` records `>A : A`, not `>A : typeof A`.
+        //
+        // **Both directions, on the same source**, because the two are different
+        // questions with different right answers and a fix for either one breaks
+        // the other if it is applied indiscriminately. Routing everything through
+        // `getDeclaredTypeOfSymbol` would make the heritage line pass and take
+        // the `typeof` answer bucket — 15,912 corpus lines — to zero.
+        let pairs = typed("abstract class A {}\nclass B extends A {}\nconst x = A;");
+        assert_eq!(
+            pairs,
+            vec![
+                ("A".to_string(), "A".to_string()),        // declaration name
+                ("B".to_string(), "B".to_string()),        // declaration name
+                ("A".to_string(), "A".to_string()),        // the base of `extends`
+                ("x".to_string(), "typeof A".to_string()), // a variable holding it
+                ("A".to_string(), "typeof A".to_string()), // a value reference
+            ],
+        );
+    }
+
+    #[test]
+    fn a_base_that_names_no_type_falls_through_instead_of_being_hijacked() {
+        // The branch resolves in `SymbolFlags::TYPE` meaning and bails when that
+        // finds nothing, so a base naming a *value* keeps the answer the
+        // expression path gives it — which is upstream's answer too.
+        assert_eq!(
+            typed("declare const V: any;\nclass C extends V {}"),
+            vec![
+                ("V".to_string(), "any".to_string()),
+                ("C".to_string(), "C".to_string()),
+                ("V".to_string(), "any".to_string()),
+            ],
+        );
+
+        // **Three of the branch's guards are unobservable, and that is recorded
+        // rather than covered by tests that would not bite.** Measured, not
+        // assumed — each was mutated and turned nothing red:
+        //
+        // - **the `extends` token test** and **the class-like owner test**.
+        //   Upstream's predicate is
+        //   `IsExpressionWithTypeArgumentsInClassExtendsClause`
+        //   (`ast/utilities.go:1426`), and both halves matter *there*. Here
+        //   neither `implements` nor `interface I extends J` produces an
+        //   assertion at all, because the walker drops both as type nodes — so
+        //   no producer test can separate a guard that checks them from one that
+        //   does not. The two assertions below pin that emptiness, which is the
+        //   only part of the claim that is checkable.
+        // - **`SymbolFlags::TYPE` rather than `VALUE`**. A class declares both a
+        //   type and a value under one symbol, so both meanings resolve to it.
+        //   The meaning would start to matter for a base that is a value and not
+        //   a type, and that case falls through on the `declared != error` test
+        //   instead — which *is* pinned, by this test's first assertion.
+        //
+        // All three are kept because each is upstream's, and because the first
+        // two become load-bearing the moment the walker's treatment of a
+        // heritage clause changes.
+        assert!(typed("interface I {}\nclass C implements I {}").iter().all(|(t, _)| t != "I"));
+        assert!(typed("interface J {}\ninterface I extends J {}").is_empty());
     }
 
     #[test]
