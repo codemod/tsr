@@ -305,3 +305,80 @@ fn binding_a_second_file_does_not_disturb_the_first_files_symbols() {
     );
     assert!(result.symbol_of(in_a).is_some(), "and so did its node-to-symbol column");
 }
+
+/// The bundled lib file, or `None` when the submodule is not checked out.
+/// See docs/conventions.md — a submodule-dependent test skips.
+fn bundled_lib(name: &str) -> Option<String> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)?
+        .join("vendor/typescript-go/internal/bundled/libs")
+        .join(name);
+    std::fs::read_to_string(path).ok()
+}
+
+#[test]
+fn a_user_file_resolves_the_real_libs_globals() {
+    // The end of the chain, against the actual shipped `lib.es5.d.ts` rather
+    // than a fixture that declares `interface Array<T> {}`. A fixture would
+    // prove the machinery works on something shaped like a lib file; this
+    // proves it works on the file whose absence `bd tsr-9or.1` measured at
+    // 18,387 gap lines.
+    //
+    // `lib.es5.d.ts` is a script, not a module — it has no top-level `import`
+    // or `export` — which is exactly why its declarations are globals.
+    let Some(lib) = bundled_lib("lib.es5.d.ts") else {
+        return; // the submodule is not checked out
+    };
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let (result, files) = bind_program(
+        &arena,
+        &[("lib.es5.d.ts", lib.as_str()), ("user.ts", "const x = 1;")],
+        &mut nodes,
+        &mut node_map,
+    );
+    let user = &files[1];
+
+    // Type-position names, which is where the measurement put 3,210 lines.
+    for name in ["Array", "Object", "String", "Number", "Boolean", "Function"] {
+        let symbol = result
+            .resolve_name(&nodes, &node_map, user.root, name, SymbolFlags::TYPE)
+            .unwrap_or_else(|| panic!("`{name}` should resolve from a user file"));
+        assert_eq!(result.symbols().get(symbol).name, name);
+        let declaration = result.symbols().get(symbol).declarations.first().copied();
+        let declaration = declaration.unwrap_or_else(|| panic!("`{name}` has a declaration"));
+        assert!(
+            files[0].nodes.contains(&declaration.as_u32()),
+            "`{name}` must resolve to the lib file's declaration, not something in user.ts",
+        );
+    }
+
+    // Value-position names, where the measurement put 3,126.
+    for name in ["parseInt", "NaN", "Infinity", "JSON", "Math"] {
+        assert!(
+            result.resolve_name(&nodes, &node_map, user.root, name, SymbolFlags::VALUE).is_some(),
+            "`{name}` should resolve from a user file",
+        );
+    }
+
+    // And the negatives, so the test cannot pass by resolving everything.
+    //
+    // **This first named `Promise` and the implementation was right.**
+    // `lib.es5.d.ts` declares `interface Promise<T>` — it is
+    // `PromiseConstructor` and `declare var Promise` that live in
+    // `lib.es2015.promise.d.ts`. So `Promise` in *type* position resolves from
+    // ES5 alone, which is worth knowing: the measurement counted 640 `Promise`
+    // lines and they are reachable without the ES2015 libs. `Map`, `Set` and
+    // `Iterable` really are ES2015-only — checked against the shipped files.
+    for name in ["Map", "Set", "WeakMap", "Iterable"] {
+        assert!(
+            result.resolve_name(&nodes, &node_map, user.root, name, SymbolFlags::TYPE).is_none(),
+            "`{name}` is declared in an ES2015 lib this program did not load",
+        );
+    }
+    assert!(
+        result.resolve_name(&nodes, &node_map, user.root, "NotAThing", SymbolFlags::TYPE).is_none(),
+    );
+}
