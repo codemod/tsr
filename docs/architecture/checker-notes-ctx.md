@@ -190,4 +190,52 @@ appears nowhere else in its fixture, and the harness's doc comment says why.
 - If the 548 reachable count does not correspond to a visible improvement in the
   property-access wrong population, then the 555 wrong lines in `members.rs` are
   not the shape this document claims and the ownership note there needs
-  correcting rather than quietly leaving.
+  correcting rather than quietly leaving. **Status: open — see below.**
+
+## What actually happened, cycle 9
+
+Recorded here rather than in a message, because the messages do not survive the
+session and the numbers need to be checkable against the next run.
+
+Corpus tip after the cycle: assertion lines **60.26% -> 60.60%**, cases
+**2,041 -> 2,066**. That is the whole cycle across four agents, not this module
+alone; contextual typing's own contribution is not separable from that figure.
+
+**The prediction that mattered held: the gap column did not move, and nothing
+regressed.** Both were stated before the measurement — a flat gradient with an
+improved right/wrong split was named as the success case in advance, precisely so
+a small number could not be re-read afterwards as an excuse. It should be read
+that way now.
+
+### One falsifier is still OPEN, and it is the sharpest one
+
+> If the 548 reachable count does not correspond to a visible improvement in the
+> property-access wrong population, then the 555 wrong lines in `members.rs` are
+> not the shape this document claims.
+
+**This has not been checked.** The cycle-tip run reports passed / assertion lines
+/ failed / skipped, and none of those separates *wrong* from *gap*, which is the
+only split that can settle it. It is recorded as open, not as passed. Do not cite
+the +0.34 as evidence for it either way.
+
+To settle it, the instrument needs something it does not have today: a count of
+assertion lines where this port answers a **confident** type that differs from
+upstream, bucketed by the syntactic form of the subject — specifically
+`>receiver.member : any` against an upstream line that is not `any`. That is a
+change to the conformance reporting, not to the checker. Until it exists, the
+ownership claim in `members.rs` — that those 555 lines belong to contextual
+typing rather than to the property-access arm — rests on the reasoning in this
+document and on the probe `const y = x => x.foo`, not on a measurement taken
+after the fix.
+
+If the count is taken and the 555 did **not** drop, the correction belongs in
+`crates/tsr-checker/src/members.rs`, where the ownership is asserted. Correcting
+it there rather than quietly dropping the claim is the whole point of having
+written the owner down.
+
+### The snapshot in the tree is older than the tip
+
+`crates/tsr-conformance/snapshots/checker_types.snap` still reads
+`288626/478954 (60.26%)` and `2041/9538`. The 60.60% / 2,066 figures above come
+from a run that was never committed. Anyone reading the snapshot as current will
+under-count the tip by 0.34 points and 25 cases.
