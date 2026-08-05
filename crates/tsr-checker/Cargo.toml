@@ -18,6 +18,14 @@ tsr-diagnostics = { workspace = true }
 
 [dev-dependencies]
 tsr-parser = { workspace = true }
+tsr-binder = { workspace = true }
+tsr-core = { workspace = true }
+
+[[bench]]
+name = "check"
+# Not a libtest harness: the loop mirrors Go's `b.Loop()` so the two sides are
+# comparable. See docs/adr/0009-performance-gate.md.
+harness = false
 
 [lints]
 workspace = true

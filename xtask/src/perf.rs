@@ -113,8 +113,19 @@ pub fn run(root: &Path) -> Result<()> {
         }
     };
 
+    // Parse+bind+check, ours only — there is no upstream half yet, so this is a
+    // trend line rather than a comparison. See `rust_check_ns`. A failure here
+    // must not fail the run: it is the one row with nothing to gate on.
+    let check_rows = match rust_check_ns(root) {
+        Ok(ours) => ours,
+        Err(error) => {
+            println!("parse+bind+check (ours) unavailable: {error:#}");
+            BTreeMap::new()
+        }
+    };
+
     let rss_ratio = our_rss as f64 / their_rss as f64;
-    write_artifacts(root, &rows, &bind_rows, our_rss, their_rss, rss_ratio)?;
+    write_artifacts(root, &rows, &bind_rows, &check_rows, our_rss, their_rss, rss_ratio)?;
 
     // Report everything before failing, so one run tells you about every breach
     // rather than only the first.
@@ -308,6 +319,50 @@ fn go_bind_ns(root: &Path) -> Result<BTreeMap<String, f64>> {
     Ok(parse_go_bench(&String::from_utf8_lossy(&output.stdout), "BenchmarkTsrParseBind/"))
 }
 
+/// Our parse+bind+check benchmark, JSON mode.
+///
+/// **Tracked, not compared.** There is no `tsgo_ns` for this row and no ratio,
+/// because the upstream half does not exist yet: `func Benchmark` across
+/// `internal/` finds no checker benchmark, and writing one needs a full
+/// `Program` rather than the single-file setup `bind_test.go` gets away with.
+/// See `bd` for that follow-up.
+///
+/// It is recorded anyway because the trend is the point — the number that
+/// matters is this row moving in `perf-results.json` between runs, which is
+/// exactly what a checker under active construction needs and what nothing
+/// currently watches.
+///
+/// **It must not become a gate by default when the Go side lands.** This port
+/// answers a fraction of what upstream's checker does, and an unported form
+/// returns `errorType` immediately and costs nothing — so the ratio flatters us
+/// by precisely the amount of work not yet written, and gets *worse* as the
+/// checker gets *better*. That is the trap [`BIND_IS_GATED`] documents, and the
+/// checker is deeper into it than the binder ever was.
+fn rust_check_ns(root: &Path) -> Result<BTreeMap<String, f64>> {
+    let output = Command::new("cargo")
+        .current_dir(root)
+        .args(["bench", "-q", "-p", "tsr-checker", "--bench", "check", "--", "--json"])
+        .output()
+        .context("running the Rust parse+bind+check benchmark")?;
+    if !output.status.success() {
+        bail!("the Rust check benchmark failed:\n{}", String::from_utf8_lossy(&output.stderr));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let start = text.find('[').context("no JSON array in the benchmark output")?;
+    let end = text.rfind(']').context("unterminated JSON array in the benchmark output")? + 1;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text[start..end]).context("parsing the benchmark's JSON")?;
+    let mut out = BTreeMap::new();
+    for entry in parsed.as_array().context("benchmark JSON is not an array")? {
+        let name = entry["name"].as_str().context("benchmark entry has no name")?;
+        let ns = entry["ns_per_op_parse_bind_check"]
+            .as_f64()
+            .context("benchmark entry has no ns_per_op_parse_bind_check")?;
+        out.insert(name.to_string(), ns);
+    }
+    Ok(out)
+}
+
 /// Peak RSS in KiB, ours.
 fn rust_peak_rss(root: &Path) -> Result<u64> {
     let output = Command::new("cargo")
@@ -361,6 +416,7 @@ fn write_artifacts(
     root: &Path,
     rows: &[Row],
     bind_rows: &[Row],
+    check_rows: &BTreeMap<String, f64>,
     our_rss: u64,
     their_rss: u64,
     rss_ratio: f64,
@@ -391,6 +447,11 @@ fn write_artifacts(
         })
         .collect();
 
+    let check_fixtures: Vec<serde_json::Value> = check_rows
+        .iter()
+        .map(|(fixture, ns)| serde_json::json!({ "fixture": fixture, "tsr_ns_per_op": ns }))
+        .collect();
+
     let json = serde_json::json!({
         "pinned_commit": pinned_commit(root),
         "wall_clock": { "max_ratio": MAX_WALL_RATIO, "fixtures": fixtures },
@@ -399,6 +460,15 @@ fn write_artifacts(
             "note": "our binder has no control-flow graph and upstream's does, so \
                      this compares a partial binder against a complete one",
             "fixtures": bind_fixtures,
+        },
+        "parse_bind_check": {
+            "gated": false,
+            "note": "ours only — upstream has no checker benchmark, so this is a \
+                     trend line and not a comparison. It must not become a gate \
+                     by default: an unported form answers errorType and costs \
+                     nothing, so a ratio would flatter us by the amount of work \
+                     not yet written and would worsen as the checker improves.",
+            "fixtures": check_fixtures,
         },
         "peak_rss_kib": {
             "max_ratio": MAX_RSS_RATIO,
@@ -461,6 +531,21 @@ fn write_artifacts(
              control-flow graph and upstream's does, so this compares a partial binder \
              against a complete one and flatters us by the amount of work we have not \
              written. It becomes a gate when the flow graph lands.\n",
+        );
+    }
+    if !check_rows.is_empty() {
+        md.push_str("\n| Parse + bind + check | tsr |\n|---|---:|\n");
+        for (fixture, ns) in check_rows {
+            writeln!(md, "| `{fixture}` | {:.3} ms |", ns / 1e6)?;
+        }
+        md.push_str(
+            "\n**Ours only, and tracked rather than compared.** typescript-go has no \
+             checker benchmark to compare against, so there is no ratio here — the \
+             number that matters is this row moving between runs. It must not become \
+             a gate when an upstream half lands: an unported form answers `errorType` \
+             immediately and costs nothing, so the ratio would flatter us by exactly \
+             the work not yet written, and would get *worse* as the checker gets \
+             *better*.\n",
         );
     }
     fs::write(root.join("perf-summary.md"), md).context("writing perf-summary.md")?;
