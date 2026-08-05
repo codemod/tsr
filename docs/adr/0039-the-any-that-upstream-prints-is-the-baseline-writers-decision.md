@@ -95,12 +95,18 @@ caches on the opening element, not the tag name, and never feeds that path.
   by falling off a dispatch rather than by upstream's resolution miss, and the
   string matches while the path differs.
 
-## Resolved, 2026-08-05: the ceiling is 40,759 and the deliverable is ~1,500
+## Resolved, 2026-08-05: the ceiling is 29,936 and the deliverable is ~1,500
 
 This ADR left the ceiling unknown and asked for a per-guard measurement before
 scoping. That measurement exists (`crates/tsr-conformance/examples/writer_guards.rs`,
-commit `fba67d2`). **Ceiling 40,759 lines / +8.69 points. Honest deliverable
-~1,500.**
+commit `fba67d2`, corrected in `edb37c3`). **Ceiling 29,936 lines / +6.38
+points. Honest deliverable ~1,500.**
+
+> **Corrected.** The figures first recorded here (40,759 / +8.69) came from a
+> probe that re-implemented the harness and so loaded no `lib.*.d.ts`. Rewired
+> and re-measured; the ceiling falls 27%. The verdict is unchanged and the
+> control rate that carries it moved 7.0% -> 7.06%. See
+> `docs/architecture/checker-notes-guard.md`.
 
 **`hadErrorBaseline` must not be ported**, and the reason is a *kind* difference
 rather than a size one — which is what this ADR got wrong by treating the eight
@@ -115,9 +121,9 @@ guards as one item:
   refused, wearing the clothes of a positional guard.
 - The control bucket proves it empirically. Where the fast path is live and no
   guard fires, on lines we print `error`, upstream's type is an any-flagged
-  intrinsic 5,603 times and is `errorType` on **392** — 7.0%. The other 93% are
+  intrinsic 5,537 times and is `errorType` on **391** — 7.06%. The other 93% are
   a genuine `anyType` upstream computed and we did not.
-- 49.1% of the 40,759 is **one case**, `largeControlFlowGraph`, which
+- 33.4% of the 29,936 is **one case**, `largeControlFlowGraph`, which
   `conventions.md` already records as upstream computing `any` through
   `autoArrayType` machinery this port lacks. Provably false credit, from
   evidence already in the repository.
@@ -131,7 +137,8 @@ augmentation and meta property are **empty, not small** — nothing to port.
 
 ### The per-guard numbers are floors, not values
 
-The label arm predicted 209 and converted **597**. Attribution follows upstream's
+The label arm predicted 209 and converted **597** (that pair is itself lib-less
+and unverified; see the note). Attribution follows upstream's
 conjunction order, so the dominant arm was claiming lines a subordinate arm would
 convert — 391 of the 600 sat in errors-baseline cases. **Every positional figure
 in that table is an under-estimate for the same reason.** The `hadErrorBaseline`

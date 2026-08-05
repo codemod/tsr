@@ -155,6 +155,67 @@ fn flatten() -> bool {
     std::env::var_os("WRITER_GUARDS_FLATTEN").is_some()
 }
 
+/// Which *role* inside its parent a claimed node plays.
+///
+/// `docs/conventions.md`: "a row named after a position is usually not about
+/// that position". `!ast.IsPropertyAccessOrQualifiedName(node.Parent)` is one
+/// guard over four unrelated nodes — the receiver and the name of `a.b`, and the
+/// left and right of `A.B` — and the port already answers two of them by other
+/// routes (`type_at_location`'s `bd tsr-tl8` rule for the name, and its
+/// qualified-name-left rule). Only the split says which sub-position the arm's
+/// lines are actually in, and therefore whether anything is left to build.
+///
+/// The discriminator this exists to find is the **label-arm signature**: a
+/// position whose `-> any` equals its claims with an empty `-> other`, which is
+/// what "upstream holds `errorType` here, always" looks like from a baseline and
+/// is the one shape that converts without false credit.
+fn role_of(nodes: &NodeTable, map: &NodeMap<'_>, id: NodeId) -> &'static str {
+    let Some(parent) = nodes.parent(id) else { return "no parent" };
+    match map.get(parent) {
+        Some(Node::PropertyAccessExpression(n)) => {
+            if n.name.and_then(|name| name.node_id()) == Some(id) {
+                "property access: the name `b` of `a.b`"
+            } else {
+                "property access: the receiver `a` of `a.b`"
+            }
+        }
+        Some(Node::QualifiedName(n)) => {
+            if n.right.and_then(|right| right.node_id) == Some(id) {
+                "qualified name: the right `B` of `A.B`"
+            } else {
+                "qualified name: the left `A` of `A.B`"
+            }
+        }
+        Some(Node::BindingElement(n)) => {
+            if n.name.and_then(|name| name.node_id()) == Some(id) {
+                "binding element: the bound name"
+            } else if n.property_name.and_then(|name| name.node_id()) == Some(id) {
+                "binding element: the property name"
+            } else {
+                "binding element: elsewhere (initialiser, dotdotdot)"
+            }
+        }
+        Some(Node::ImportSpecifier(n)) => {
+            if n.property_name.and_then(|name| name.node_id()) == Some(id) {
+                "import: the property name of `{a as b}`"
+            } else {
+                "import: the local name of `{a}` / `{a as b}`"
+            }
+        }
+        Some(Node::ImportClause(_)) => "import: the default clause name",
+        Some(Node::ImportEqualsDeclaration(_)) => "import: the name of `import x = ...`",
+        Some(Node::ExportSpecifier(n)) => {
+            if n.property_name.and_then(|name| name.node_id()) == Some(id) {
+                "export: the property name of `{a as b}`"
+            } else {
+                "export: the exported name of `{a}` / `{a as b}`"
+            }
+        }
+        Some(Node::ExportAssignment(_)) => "export: the expression of `export = x`",
+        _ => "another parent",
+    }
+}
+
 /// `ast.IsLabelName` (`internal/ast/utilities.go:2263`): the label of a labeled
 /// statement, or the target of a `break`/`continue`.
 fn is_label_name(nodes: &NodeTable, map: &NodeMap, id: NodeId) -> bool {
@@ -242,6 +303,14 @@ struct Tally {
     split: HashMap<Guard, [usize; 3]>,
     /// Per guard, the substitution we would leave behind on an `-> other` line.
     other_subst: HashMap<(Guard, String), usize>,
+    /// The same three-way split, one level finer, for the four guards that name
+    /// a parent kind rather than a position. See [`role_of`].
+    by_role: HashMap<&'static str, [usize; 3]>,
+    /// Converting lines per (role, case), so the concentration check can be run
+    /// on a sub-position rather than only on the whole conversion. A row that is
+    /// half one file is a different item from one spread over 2,000 cases, and
+    /// that is decided per row, not per table.
+    role_cases: HashMap<(&'static str, String), usize>,
     /// Converted lines per case, for the concentration check.
     per_case: HashMap<String, usize>,
     /// For each case with at least one converted line: (converted, still wrong
@@ -266,6 +335,15 @@ impl Tally {
         }
         for (key, value) in other.other_subst {
             *self.other_subst.entry(key).or_default() += value;
+        }
+        for (key, value) in other.by_role {
+            let entry = self.by_role.entry(key).or_insert([0; 3]);
+            for (slot, add) in entry.iter_mut().zip(value) {
+                *slot += add;
+            }
+        }
+        for (key, value) in other.role_cases {
+            *self.role_cases.entry(key).or_default() += value;
         }
         for (key, value) in other.per_case {
             *self.per_case.entry(key).or_default() += value;
@@ -305,53 +383,29 @@ fn main() {
                 tally.cases_with_error_baseline = 1;
             }
 
+            // **Through the harness, not around it.** The first version of this
+            // probe parsed, bound and checked each unit itself, so it loaded no
+            // `lib.*.d.ts` and measured a different compiler than the gradient it
+            // quoted. `assertions_for_case_with_ids` is the same program the
+            // suite judges, and hands back the `NodeId` behind each line so the
+            // guard arms can be asked positionally. See the convention added in
+            // `dc61c84`.
+            let arena = tsr_core::Arena::new();
+            let (program, rendered, ids) =
+                types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
+            let nodes = program.nodes();
+            let map = program.node_map();
+
             let mut converted = 0;
             let mut residue = 0;
 
-            for expected_file in &expected {
-                let Some(unit) = parsed.files.iter().find(|u| {
-                    tsr_conformance::binder_suite::same_unit(&u.name, &expected_file.file)
-                }) else {
+            for (section, expected_file) in expected.iter().enumerate() {
+                let (Some(ours), Some(section_ids)) = (rendered.get(section), ids.get(section))
+                else {
                     continue;
                 };
-                if tsr_parser::ScriptKind::from_file_name(&unit.name)
-                    == tsr_parser::ScriptKind::Json
-                {
-                    continue;
-                }
-                let arena = tsr_core::Arena::new();
-                let options = tsr_parser::ParseOptions {
-                    jsdoc: false,
-                    ..tsr_parser::ParseOptions::for_file(&unit.name)
-                };
-                let file = tsr_parser::parse_with_options(&arena, &unit.content, options);
-                let bound = tsr_binder::bind(
-                    file.source_file,
-                    &file.nodes,
-                    tsr_binder::FileInfo { name: &unit.name, text: &unit.content },
-                );
-                let mut checker = tsr_checker::Checker::new(&bound, &file.nodes, &file.node_map);
-                let mut ids = Vec::new();
-                let rendered = types_producer::assertions_for_file(
-                    &Node::SourceFile(file.source_file),
-                    &unit.content,
-                    &file.nodes,
-                    &file.node_map,
-                    |id| {
-                        ids.push(id);
-                        types_producer::type_at_location(
-                            &mut checker,
-                            &bound,
-                            &file.nodes,
-                            &file.node_map,
-                            id,
-                        )
-                    },
-                );
-                assert_eq!(ids.len(), rendered.len(), "one recorded id per rendered line");
-
                 for (position, want) in expected_file.assertions.iter().enumerate() {
-                    let Some(got) = rendered.get(position) else { continue };
+                    let Some(got) = ours.get(position) else { continue };
                     let Some(want_type) = want.text.strip_prefix(&format!("{} : ", got.text))
                     else {
                         continue;
@@ -379,8 +433,8 @@ fn main() {
                         }
                         continue;
                     }
-                    let guard =
-                        guard_of(&file.nodes, &file.node_map, ids[position], has_error_baseline);
+                    let Some(&id) = section_ids.get(position) else { continue };
+                    let guard = guard_of(nodes, map, id, has_error_baseline);
                     let slot = match want_type {
                         "any" => 0,
                         "error" => 1,
@@ -389,6 +443,26 @@ fn main() {
                     tally.split.entry(guard).or_insert([0; 3])[slot] += 1;
                     if slot == 2 {
                         *tally.other_subst.entry((guard, want_type.to_string())).or_default() += 1;
+                    }
+                    // The four arms named after a *parent kind* rather than a
+                    // position, split one level finer. Not mine — the sub-position
+                    // splitter and its two tallies were already in this file when
+                    // I rewired the loop, and this is its call site restored.
+                    if matches!(
+                        guard,
+                        Guard::BindingElement
+                            | Guard::PropertyAccessOrQualifiedName
+                            | Guard::ImportStatementName
+                            | Guard::ExportStatementName
+                    ) {
+                        let role = role_of(nodes, map, id);
+                        tally.by_role.entry(role).or_insert([0; 3])[slot] += 1;
+                        if slot == 0 {
+                            *tally
+                                .role_cases
+                                .entry((role, case.stem().to_string()))
+                                .or_default() += 1;
+                        }
                     }
                     if guard != Guard::None && slot == 0 {
                         converted += 1;
@@ -498,6 +572,47 @@ fn report(total: &Tally) {
     println!(
         "CONTRADICTIONS (a firing guard whose line upstream prints `error`) {contradictions}   <- MUST BE 0"
     );
+    println!();
+
+    println!("--- the four parent-kind arms, split by the position inside the parent ---");
+    let mut roles: Vec<_> = total.by_role.iter().map(|(k, v)| (*k, *v)).collect();
+    roles.sort_by(|a, b| (b.1[0] + b.1[1] + b.1[2]).cmp(&(a.1[0] + a.1[1] + a.1[2])));
+    println!(
+        "{:<48} {:>8} {:>9} {:>9} {:>9}",
+        "position", "claims", "-> any", "-> error", "-> other"
+    );
+    for (role, [any, error, other]) in &roles {
+        println!("{role:<48} {:>8} {any:>9} {error:>9} {other:>9}", any + error + other);
+    }
+    println!();
+
+    // The concentration check, **per sub-position**, for the ones that carry the
+    // label-arm signature — an empty `-> other` column. Those are the only rows
+    // a port can convert without the false-credit discount, so they are the only
+    // ones worth ranking by case.
+    println!("--- concentration of the clean sub-positions (empty `-> other`) ---");
+    for (role, [any, _, other]) in &roles {
+        if *other != 0 || *any == 0 {
+            continue;
+        }
+        let mut rows: Vec<_> = total
+            .role_cases
+            .iter()
+            .filter(|((r, _), _)| r == role)
+            .map(|((_, case), n)| (*n, case.clone()))
+            .collect();
+        rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let sum: usize = rows.iter().map(|(n, _)| n).sum();
+        let top10: usize = rows.iter().take(10).map(|(n, _)| n).sum();
+        println!(
+            "  {role}: {sum} lines over {} cases, top 10 hold {:.1}%",
+            rows.len(),
+            pct(top10, sum)
+        );
+        for (n, case) in rows.iter().take(10) {
+            println!("    {n:>5}  {case}");
+        }
+    }
     println!();
 
     println!("--- concentration: converted lines by case ---");

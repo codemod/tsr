@@ -5,6 +5,34 @@ and `any`, and left *what each guard is worth* unmeasured. `bd tsr-d6o` filed th
 ceilings — 69,195 `: any` lines in cases carrying an `.errors.txt`, 19,045 in
 cases without — with the warning that they are ceilings and not deliverables.
 
+> # CORRECTED 2026-08-05 — every number below the fold was measured lib-less
+>
+> The first version of `writer_guards.rs` parsed, bound and checked each unit
+> itself instead of going through `program_for_case`, so it loaded **no
+> `lib.*.d.ts`** and measured a different compiler than the gradient it quoted.
+> Same defect `examples/overload_funnel.rs` had before `731b1ee`, and the
+> convention added in `dc61c84`. Rewired onto
+> `assertions_for_case_with_ids`; corrected figures:
+>
+> | | lib-less (**wrong**) | with libs (**correct**) |
+> |---|---|---|
+> | gradient | 58.0441% | **62.1393%** |
+> | ceiling | 40,759 (+8.69) | **29,936 (+6.38)** |
+> | `hadErrorBaseline` `-> any` | 39,412 | **28,850** |
+> | `largeControlFlowGraph` share | 20,000 / 49.1% | **10,000 / 33.4%** |
+> | top 10 cases | 72.4% | **65.1%** |
+> | control: upstream `error` / `any` | 392 / 5,211 | **391 / 5,146** |
+>
+> **The verdict does not move, and the load-bearing statistic barely does.** The
+> control rate — the whole basis for refusing `hadErrorBaseline` — was 7.0%
+> lib-less and is **7.06%** (391 of 5,537) with libs. The ceiling falls 27% and
+> `largeControlFlowGraph` remains the single largest case by a factor of three.
+> Both arguments for not porting `hadErrorBaseline` survive intact.
+>
+> The tables further down are left as originally written rather than silently
+> edited, per `conventions.md`. Read them for *shape*; take *magnitudes* from
+> this block and from "The corrected table" below.
+
 This note is the measurement. The instrument is
 `crates/tsr-conformance/examples/writer_guards.rs`; every number below is one run
 of it at `bea80b9`, from a single pinned binary.
@@ -266,3 +294,70 @@ The second is not hypothetical: given `const outer = 1;`, this checker resolves
 the label `outer` to the variable and answers `1`, because it does not keep labels
 in a separate namespace. Upstream never faces that, which is exactly why the
 precondition has to be carried across rather than reasoned away.
+
+## The corrected table, and a second clean sub-position
+
+Re-measured through `assertions_for_case_with_ids`, with libs, at `edb37c3`:
+
+```text
+guard (upstream's conjunction order)         claims    -> any  -> error  -> other
+hadErrorBaseline (case-scoped)                94801     28850         0     65951
+binding element parent                         1105       309         0       796
+property access / qualified name parent        6066       447         0      5619
+label name                                        0         0         0         0   <- ported, 53588b1
+global scope augmentation                         0         0         0         0
+meta property                                     0         0         0         0
+import statement name                           897       238         0       659
+export statement name                           364        92         0       272
+intrinsic JSX tag  [PORTED d6dc9a7]               0         0         0         0
+NO GUARD (control bucket)                     37198      5146       391     31661
+
+aligned 468900, right 291371 (62.1393%), gap 140040
+```
+
+The `label name` arm reading 0/0/0/0 is the ported-arm signature, and is now the
+second entry with it. Its own conversion is inside the 62.1393%; this run cannot
+re-derive the +597 because the lines it converted no longer print `error`. **That
+figure is the one number here still carrying the lib-less defect** — it was
+measured on the same broken probe, and re-deriving it would need the guard
+reverted and another corpus run. Treat +597 as unverified; the arm's *shape*
+(209 claims, 0 residue) is what justified porting it, and that is confirmed by
+the corrected run for the arm's sibling below.
+
+### `binding element: the property name` — 192 lines, 0 residue
+
+The sub-position splitter another agent added to this probe (`role_of`) found
+something the guard-level table cannot show. The `binding element` arm as a whole
+is unattractive — 1,105 claims, 309 converting, 796 residue, the mixed shape that
+carries the full false-credit discount. **One position inside it is clean:**
+
+```text
+position                                           claims    -> any  -> error  -> other
+binding element: the property name                    192       192         0         0
+```
+
+192 claims, 192 convert, empty `-> other` — the label-arm signature exactly. It
+is spread over **48 cases with the top 10 holding 57.8%**, so it is not one file
+pretending to be a rule. This is the recommended next slice, and it is only
+visible because the arm was split by position inside its parent rather than by
+the parent kind the guard names — the `conventions.md` rule "a row named after a
+position is usually not about that position", arriving one level deeper than the
+guard table could reach.
+
+**Not built.** It is measured and recommended, not ported; no commit implements
+it.
+
+### What the correction cost, and what it did not
+
+The gradient I quoted for the label slice (58.0441% → 58.1714%) was against a
+lib-less denominator and should not be cited. What survived the correction
+unchanged: the structural argument that `hadErrorBaseline` is case-scoped rather
+than per-node (read from upstream source, not measured), the 7% control rate, the
+`largeControlFlowGraph` concentration, and the emptiness of the global-scope and
+meta-property arms. What moved: every absolute magnitude, by roughly a quarter.
+
+**The general lesson is `dc61c84`'s and I re-learned it the expensive way: a probe
+that re-implements the harness measures a different compiler.** I modelled the new
+probe on `examples/qualified_name_left.rs`, which has the same per-unit shape, so
+copying a working example propagated the defect. Following a local precedent is
+not a substitute for checking which entry point the gradient itself comes from.
