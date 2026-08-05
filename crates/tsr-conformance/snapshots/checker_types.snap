@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 1539/9538 (16.14%)
-Assertion lines: 251932/478954 (52.60%)  — a gradient, not a pass rate
-Failed         : 7999
+Passed         : 1789/9538 (18.76%)
+Assertion lines: 272527/478954 (56.90%)  — a gradient, not a pass rate
+Failed         : 7749
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 7999 failures:
+First 100 of 7749 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -29,8 +29,6 @@ compiler/ParameterList5
   ParameterList5.ts: >A : error — expected >A : () => (B: any) => C
 compiler/TransportStream
   TransportStream.ts: >G : error — expected >G : any
-compiler/abstractClassInLocalScope
-  abstractClassInLocalScope.ts: >(() => {    abstract class A {}    class B extends A {}    new B();    return A;})() : error — expected >(() => {    abstract class A {}    class B extends A {}    new B();    return A;})() : typeof A
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : error — expected >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : void
 compiler/abstractClassUnionInstantiation
@@ -44,7 +42,7 @@ compiler/acceptableAlias1
 compiler/accessInstanceMemberFromStaticMethod01
   accessInstanceMemberFromStaticMethod01.ts: >k : error — expected >k : any
 compiler/accessOverriddenBaseClassMember1
-  accessOverriddenBaseClassMember1.ts: >toString : error — expected >toString : () => string
+  accessOverriddenBaseClassMember1.ts: >super(x, y) : error — expected >super(x, y) : void
 compiler/accessStaticMemberFromInstanceMethod01
   accessStaticMemberFromInstanceMethod01.ts: >k : error — expected >k : any
 compiler/accessorBodyInTypeContext
@@ -70,15 +68,15 @@ compiler/addMoreCallSignaturesToBaseSignature2
 compiler/aliasAssignments
   aliasAssignments_1.ts: >moduleA : error — expected >moduleA : typeof moduleA
 compiler/aliasBug
-  aliasBug.ts: >provide : error — expected >provide : typeof foo
+  aliasBug.ts: >booz : error — expected >booz : typeof booz
 compiler/aliasDoesNotDuplicateSignatures
   demo.d.ts: >'demoModule' : error — expected >'demoModule' : typeof import("demoModule")
 compiler/aliasErrors
-  aliasErrors.ts: >provide : error — expected >provide : typeof foo
+  aliasErrors.ts: >booz : error — expected >booz : typeof booz
 compiler/aliasInaccessibleModule
-  aliasInaccessibleModule.ts: >X : error — expected >X : any
+  aliasInaccessibleModule.ts: >X : typeof N — expected >X : any
 compiler/aliasInaccessibleModule2
-  aliasInaccessibleModule2.ts: >R : error — expected >R : typeof N
+  aliasInaccessibleModule2.ts: >X : error — expected >X : typeof N
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
   aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >Err : error — expected >Err : typeof ErrImpl & (<T>() => T)
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
@@ -138,21 +136,9 @@ compiler/ambientClassDeclarationWithExtends
 compiler/ambientClassDeclaredBeforeBase
   a.d.ts: >FirstNS : error — expected >FirstNS : FirstNS
 compiler/ambientConstLiterals
-  ambientConstLiterals.ts: >A : error — expected >A : E.A
+  ambientConstLiterals.ts: >"non identifier" : E.non identifier — expected >"non identifier" : (typeof E)["non identifier"]
 compiler/ambientEnum1
-  ambientEnum1.ts: >y : error — expected >y : E1.y
-compiler/ambientEnumElementInitializer1
-  ambientEnumElementInitializer1.ts: >e : error — expected >e : E.e
-compiler/ambientEnumElementInitializer2
-  ambientEnumElementInitializer2.ts: >e : error — expected >e : E.e
-compiler/ambientEnumElementInitializer3
-  ambientEnumElementInitializer3.ts: >e : error — expected >e : E.e
-compiler/ambientEnumElementInitializer4
-  ambientEnumElementInitializer4.ts: >e : error — expected >e : E.e
-compiler/ambientEnumElementInitializer5
-  ambientEnumElementInitializer5.ts: >e : error — expected >e : E.e
-compiler/ambientEnumElementInitializer6
-  ambientEnumElementInitializer6.ts: >e : error — expected >e : E.e
+  ambientEnum1.ts: >'foo'.length : error — expected >'foo'.length : number
 compiler/ambientExportDefaultErrors
   foo.d.ts: >Foo : error — expected >Foo : typeof import("./foo")
 compiler/ambientExternalModuleInAnotherExternalModule
@@ -164,13 +150,13 @@ compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
 compiler/ambientExternalModuleWithRelativeModuleName
   ambientExternalModuleWithRelativeModuleName.ts: >"./relativeModule" : error — expected >"./relativeModule" : typeof import("./relativeModule")
 compiler/ambientModuleExports
-  ambientModuleExports.ts: >Foo.a() : error — expected >Foo.a() : void
+  ambientModuleExports.ts: >c : C — expected >c : Foo.C
 compiler/ambientModuleWithClassDeclarationWithExtends
   ambientModuleWithClassDeclarationWithExtends.ts: >A : error — expected >A : A
 compiler/ambientModuleWithTemplateLiterals
-  ambientModuleWithTemplateLiterals.ts: >a : error — expected >a : Bar.a
+  ambientModuleWithTemplateLiterals.ts: >c : error — expected >c : Bar.a
 compiler/ambientModules
-  ambientModules.ts: >Foo.Bar.foo : error — expected >Foo.Bar.foo : any
+  ambientModules.ts: >Foo.Bar : typeof Bar — expected >Foo.Bar : typeof Foo.Bar
 compiler/ambientPropertyDeclarationInJs
   /test.js: >this.prop : error — expected >this.prop : string
 compiler/ambiguousCallsWhereReturnTypesAgree
@@ -194,7 +180,7 @@ compiler/anonterface
 compiler/anonymousClassDeclarationDoesntPrintWithReadonly
   anonymousClassDeclarationDoesntPrintWithReadonly.ts: >y : error — expected >y : () => typeof (Anonymous class)
 compiler/anonymousClassExpression1
-  anonymousClassExpression1.ts: >f : error — expected >f : () => boolean
+  anonymousClassExpression1.ts: >class {} : error — expected >class {} : typeof (Anonymous class)
 compiler/anonymousClassExpression2
   anonymousClassExpression2.ts: >this.methodA : error — expected >this.methodA : any
 compiler/anonymousModules
@@ -213,3 +199,17 @@ compiler/anyInferenceAnonymousFunctions
   anyInferenceAnonymousFunctions.ts: >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : error — expected >paired.reduce(function (a1, a2) {    return a1.concat({});} , []) : any
 compiler/anyMappedTypesError
   anyMappedTypesError.ts: >Foo : error — expected >Foo : Foo
+compiler/anyPlusAny1
+  anyPlusAny1.ts: >x.name : error — expected >x.name : any
+compiler/argsInScope
+  argsInScope.ts: >arguments.length : error — expected >arguments.length : number
+compiler/arguments
+  arguments.ts: >x : error — expected >x : any
+compiler/argumentsAsPropertyName
+  argumentsAsPropertyName.ts: >MyType : { arguments: string[]; } — expected >MyType : MyType
+compiler/argumentsAsPropertyName2
+  argumentsAsPropertyName2.ts: >[].forEach(function () { i }) : error — expected >[].forEach(function () { i }) : void
+compiler/argumentsObjectCreatesRestForJs
+  main.js: >arguments : error — expected >arguments : IArguments
+compiler/argumentsObjectIterator01_ES6
+  argumentsObjectIterator01_ES6.ts: >doubleAndReturnAsArray : error — expected >doubleAndReturnAsArray : (x: number, y: number, z: number) => [number, number, number]
