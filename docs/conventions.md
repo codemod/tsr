@@ -93,3 +93,34 @@ in a side table keyed by `NodeId` ([ADR-0003](adr/0003-tree-plus-side-tables.md)
 which can be locked or sharded independently of the tree. See
 [ADR-0012](adr/0012-ast-is-sync.md); there is a compile-time assertion, and it is
 the only thing keeping the property true.
+
+## A check that cannot fail is not a check — anchor it uniquely
+
+Two rules, both bought with incidents rather than reasoned out in advance.
+
+**Assert a substring occurs *exactly once* before writing it, not merely that it
+is present.** The weaker form was already the rule here after two silent no-op
+replaces slipped through. It is not enough. On 2026-08-05 a mutation test aimed
+at `from_root_files` matched the *identical* three lines in `Program::new`
+first — the mutation applied, tests went red, and the signal read exactly like a
+passed verification. It was caught only because the failing test names were the
+wrong ones; had the two functions shared a test, a mutation that never touched
+the code it claimed to would have been recorded as verified. A one-shot replace
+against a non-unique anchor tests whatever it happened to hit.
+
+**Never act on a belief about a file's or a number's state — check it.** Five
+incidents in one day, all the same shape: a `git checkout --` that destroyed
+another agent's uncommitted work; a `cargo fmt --all` run across three
+half-written files by an agent assuming it was the only writer; a
+restore-byte-for-byte that would have silently reverted someone else's fix; a
+recovery replayed onto a file that had already been recovered; and a superseded
+falsifier quoted from memory an hour after the correction was read. The
+countermeasures are all one countermeasure: diff against `git show HEAD:<path>`
+rather than against a copy whose freshness is an assumption, quote a denominator
+with every number, and prefer `git commit -- <paths>` over `git add` then
+`git commit`, which can be raced by a concurrent stage.
+
+The general form, which is the same failure as the instrumentation ones in
+[checker-oracle.md](architecture/checker-oracle.md): **a check that appears to
+pass while measuring something else is worse than no check**, because it also
+spends the credibility that a real check would have earned.
