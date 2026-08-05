@@ -185,3 +185,86 @@ line workstream and the bounded emitter is reachable now.
   as the elaboration expression is the discriminating detail.
 - If `diagnostics` moves and `over_reports.rs`'s buckets grow at the same time,
   the bound is leaking and decision (4) is not being enforced where it is claimed.
+
+---
+
+## Measured, 2026-08-05 — two of the three falsifiers fired
+
+Recorded here rather than by editing the text above, per
+`docs/conventions.md`: the wrong turns are the useful part of the archive. The
+instrument is `crates/tsr-conformance/examples/assignability_shape.rs`; the full
+working is `docs/architecture/checker-notes-diag.md`. **No emitter was built, and
+these numbers are why.**
+
+### Correction: the sizing table above is over the wrong denominator
+
+The `7,025` / `516` / `+536` figures are counts over the **7,027 `*.errors.txt`
+files**, of which **1,180** are configuration variants (`case(target=es5)…`) that
+the `diagnostics` suite excludes by construction
+(`CaseEntry::has_varied_errors`, `crates/tsr-conformance/src/corpus.rs:163`).
+Over the suite's own **5,488** judged cases:
+
+| | as written above | measured |
+|---|---:|---:|
+| scanner + parser + binder only | 1,063 / 15.13% | **765 / 13.94%** |
+| + TS2322 | 1,599 / 22.76% | **1,254 / 22.85%** |
+| + assignability family | 1,808 / 25.74% | **1,445 / 26.33%** |
+| TS2322 gains | +536 | **+489** |
+| cases whose only code is TS2322 | 516 | **478** |
+
+The shares are nearly identical and the counts are not, which is why this went
+unnoticed. `+489` remains the largest single reachable item.
+
+### Falsifier 1 (sizing) fired, and it fired against decision (4)
+
+Of the **478** judged TS2322-only cases, **89** have every TS2322
+primitive-to-primitive, 25 are mixed, and **364 (76.2%) have none**. This ADR
+wrote the consequence in advance — *"If most of the 516 are object-to-object, the
+real item is the complete relater and this ADR's bounded emitter converts almost
+nothing"* — and that is the measured outcome.
+
+89 is an **upper bound** (it classifies upstream's printed type names, not ours).
+The bucket that decides the *first slice* — cases whose every TS2322 sits on a
+`VariableDeclaration` name, the one call site this ADR names at
+`checker.go:5899` — is **15**, or 0.27% of the suite.
+
+### Falsifier 2 (message) fired, and it fired against decision (3)
+
+Within the `SELECTABLE` bound, upstream's `relater.go:4780`–`4797` switch
+*provably always* falls through to the generic message, for a reason this ADR
+missed: **each arm above the fallthrough carries a different diagnostic code** —
+2678 comparable (`diagnostics_generated.go:1629`), 2719 two-different-types
+(`:1707`), 2375 exactOptionalPropertyTypes (`:1103`), 2820 did-you-mean
+(`:1907`). Filtering on 2322 *is* selecting the generic branch. Empirically:
+**0 of 2,888** TS2322 header texts in the corpus are anything else.
+
+So decision (3), the reporting twin, is **over-engineering for the bounded first
+slice** — exactly as this ADR said it would be if the falsifier fired. It remains
+correct for the general case. The one genuine walk output inside the bound is the
+literal generalisation in `reportRelationError` (`Type 'string'`, not
+`Type '"hello"'`), which is one `if`, and which the suite does not compare anyway
+because it compares `(file, line, column, code)` and not text.
+
+### Falsifier 3 (position): mechanism confirmed, distribution fatal
+
+`GetErrorRangeForNode`
+(`vendor/typescript-go/internal/scanner/scanner.go:2588`) maps
+`ast.KindVariableDeclaration` to `ast.GetNameOfDeclaration(node)`, so passing the
+declaration reports at the name, as this ADR says. But the 137 convertible
+diagnostics land on **28 distinct anchors**, and the modal one is
+`BinaryExpression / Identifier` (28) — assignment checking — not
+`VariableDeclaration / Identifier` (18). `PropertyAssignment` (21) and
+`ArrayLiteralExpression` (15) arrive through `elaborateObjectLiteral` /
+`elaborateArrayLiteral` and never reach `checkTypeRelatedToEx` at all. The
+relation walk is shared; the **positions are not**, and positions are what the
+suite compares.
+
+### What this ADR still gets right
+
+Decisions (1) and (2) are untouched: diagnostics are produced inside the checker
+and a `check_source_file` traversal is the machinery this port lacks. Decision (4)
+— bounding emission to where a `false` is trustworthy — is untouched as a *rule*;
+what changed is that the bound turns out to contain 89 cases rather than most of
+516, which makes the bounded emitter a poor next step rather than a wrong one.
+The clean end state this ADR names, a complete relater, is where 364 of the 478
+live.
