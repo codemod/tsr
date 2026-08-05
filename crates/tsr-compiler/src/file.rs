@@ -26,7 +26,7 @@
 
 use std::cell::OnceCell;
 
-use tsr_ast::{NodeTable, SourceFile};
+use tsr_ast::{NodeMap, NodeTable, SourceFile};
 use tsr_binder::{BindResult, FileInfo};
 use tsr_core::Arena;
 use tsr_diagnostics::Diagnostic;
@@ -57,6 +57,15 @@ self_cell::self_cell! {
 struct Contents<'a> {
     source_file: &'a SourceFile<'a>,
     jsdoc: JSDocTable<'a>,
+    /// The way back from a `NodeId` to the typed node
+    /// ([ADR-0033](../../../docs/adr/0033-the-parser-fills-the-node-map.md)).
+    ///
+    /// Kept rather than dropped because it is a *required input* to everything
+    /// downstream of binding — `Checker::new` takes one, and so does
+    /// `BindResult::resolve_name` — and it borrows from the arena, so a caller
+    /// that wanted one later could not build it. The parser fills it during the
+    /// parse either way, so keeping it costs storage and no time.
+    node_map: NodeMap<'a>,
     /// Empty until [`ProgramFile::bind`]. See the module docs for why the
     /// storage exists before the value does.
     binder: OnceCell<BindResult<'a>>,
@@ -111,6 +120,7 @@ impl ProgramFile {
             Contents {
                 source_file: parsed.source_file,
                 jsdoc: parsed.jsdoc,
+                node_map: parsed.node_map,
                 binder: OnceCell::new(),
             }
         });
@@ -198,6 +208,25 @@ impl ProgramFile {
         self.cell.with_dependent(|_owner, contents| {
             let binder = contents.binder.get().expect("the file is bound before it is handed out");
             f(contents.source_file, binder)
+        })
+    }
+
+    /// Run `f` on the tree, the file's symbols, and its node map.
+    ///
+    /// A second accessor rather than a wider [`ProgramFile::with_bound`], so
+    /// that a caller wanting only symbols is not made to name a parameter it
+    /// ignores.
+    ///
+    /// # Panics
+    ///
+    /// If the file has not been bound, as [`ProgramFile::with_bound`] does.
+    pub fn with_bound_and_map<R>(
+        &self,
+        f: impl for<'a> FnOnce(&'a SourceFile<'a>, &'a BindResult<'a>, &'a NodeMap<'a>) -> R,
+    ) -> R {
+        self.cell.with_dependent(|_owner, contents| {
+            let binder = contents.binder.get().expect("the file is bound before it is handed out");
+            f(contents.source_file, binder, &contents.node_map)
         })
     }
 

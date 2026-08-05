@@ -459,10 +459,33 @@ mod tests {
             },
         );
         let a = program.source_file("/a.ts", "/").expect("the root file is in the program");
-        let resolved = a.with_bound(|source_file, bound| {
-            source_file.node_id.and_then(|id| bound.resolve(a.nodes(), id, "globalThing")).is_some()
-        });
-        assert!(!resolved, "cross-file name resolution does not exist yet — see ADR-0034");
+        let resolves = |name: &str| {
+            a.with_bound_and_map(|source_file, bound, node_map| {
+                source_file
+                    .node_id
+                    .and_then(|id| {
+                        bound.resolve_name(
+                            a.nodes(),
+                            node_map,
+                            id,
+                            name,
+                            tsr_binder::SymbolFlags::VALUE,
+                        )
+                    })
+                    .is_some()
+            })
+        };
+        // The positive control. Without it this test passes just as well when the
+        // resolution call answers `None` for everything, and "cross-file
+        // resolution does not work" is exactly what that looks like. Verified by
+        // mutation: forcing `resolves` to `false` turns this line red.
+        //
+        // It does **not** guard the `meaning` argument. `BindResult::lookup_local`
+        // is deliberately not meaning-filtered (see its docs), so passing
+        // `SymbolFlags::empty()` here changes no answer — checked, and stated
+        // rather than left as an implied guarantee.
+        assert!(resolves("x"), "a name in the file's own scope must resolve");
+        assert!(!resolves("globalThing"), "…and one in a lib file must not — see ADR-0034");
     }
 
     #[test]

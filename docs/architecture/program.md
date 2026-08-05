@@ -120,8 +120,9 @@ the alternatives, and the falsifiers are in
 Two consequences worth stating so they are not mistaken for capabilities:
 
 - Loading the lib files does **not** move the unresolved-name numbers. Measured
-  at `78cfcba`: 10,535 lines on a free name that resolves to nothing, 8,229 on a
-  type-position name, 12,491 in the array bucket. All three are behind the
+  3,126 lines on a lib name in value position, 3,210 on one in type position,
+  12,051 in the array bucket — 18,387 in all, an upper bound taken in `2f6f0bf`.
+  All three are behind the
   identity widening, not behind the loading.
 - The conformance `.types` producer was **not** rewired to build a program.
   Doing so would load 3.9 MB of lib text per case across 12,444 cases, and

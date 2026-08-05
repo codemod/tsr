@@ -7,19 +7,41 @@
 ## Context
 
 `bd tsr-9or.1` merged two items — "load lib files" and "check a multi-file case
-as one program" — on the finding that they are one missing object. Measured at
-`78cfcba` over the 468,921 assertion lines the `.types` walker aligns:
+as one program" — on the finding that they are one missing object. Measured over
+the 468,921 assertion lines the `.types` walker aligns:
 
 | | lines | share |
 |---|---|---|
-| a free name that resolves to nothing | 10,535 | 3.73% of gaps |
-| type-position names that resolve to nothing, over 306 distinct names | 8,229 | — |
-| of those, lib types (`Promise` 640, `Object` 369, `Array` 304, `Record` 212, `Number` 189, `Partial` 142, `Readonly` 104, `Iterable` 89) | 2,054 | — |
+| unresolved names lib declares, **value** position | 3,126 | — |
+| unresolved names lib declares, **type** position | 3,210 | — |
+| the array bucket (`T[]`, still 0.00% right) | 12,051 | — |
+| **lib's direct effect** | **18,387** | 6.52% of gap lines |
 | lines in multi-file cases (1,091 of 9,538 judged cases) | 26,479 | 5.65% |
 
-Multi-file cases read 24.88% right against 36.95% overall. The `T[]` bucket —
-12,491 lines, still 0.00% — is the same request again, because upstream models
-an array type as a reference to the global `Array` interface.
+Multi-file cases read 24.88% right against 36.95% overall. The array bucket is
+part of this and not a separate item, because upstream models an array type as a
+reference to the global `Array` interface.
+
+> **These numbers were corrected on 2026-08-05, after this ADR was first
+> written.** The figures it originally carried — 10,535 lines, 3.73% of gaps —
+> came from a roll-up row in `examples/types_shapes.rs` whose
+> `contains("annotation")` branch sits four tests before its
+> `contains("does not resolve")` branch, so every unresolved name in *type*
+> position was filed elsewhere and never reached the row labelled for this
+> issue. The row overstated lib 3.4× within itself (7,409 of its 10,535 lines
+> are names lib does not declare — `undefined`, `div`, `a`, `b`, `x`, `_`) and
+> omitted 15,261 lib lines outside it; net, 1.75× too small. Measured and
+> recorded in `2f6f0bf`; see `docs/architecture/checker-oracle.md`, "The second
+> instrumentation finding".
+>
+> **18,387 is an upper bound.** Lib names are matched by "keyword at column 0"
+> rather than by parsing, and over-reporting is the direction that flatters the
+> argument. Re-taking it against a real parse is an early use for the program
+> this ADR is about.
+>
+> One consequence is load-bearing for the decision below: the observation that
+> "the unresolved-name count did not move across two ported layers" was **never
+> evidence of a ceiling**. The counter sat where those lines could not arrive.
 
 This ADR records what was found when the object was built: **the missing
 object was two objects, and only one of them was missing.**
@@ -73,6 +95,32 @@ A program-wide identity means: every file of one program parses into one
 needs one further step — when the walk falls off a source file's root, consult a
 merged globals table built as `initializeChecker` builds `c.globals`.
 
+### What that costs, stated before it is built
+
+Two consequences follow from "one `NodeTable`" that are easy to miss when the
+decision is argued at the level of ids, and both are larger than the id change
+itself.
+
+**One `NodeTable` across files implies one arena across files.** `NodeMap<'a>`
+borrows typed nodes from the parse arena
+([ADR-0033](0033-the-parser-fills-the-node-map.md)), so program-wide `NodeId`s
+mean the *program* owns the allocator and every file parses into it. That is a
+`tsr-parser` change, and its blast radius reaches past the checker: the printer,
+the declaration transform, and every parse-only conformance suite consume a
+parse result today and would have to consume a program-of-one-file instead.
+The expectation is that they degrade to exactly that and change by nothing.
+**That is a prediction, not a finding.** ADR-0033 exists because this repository
+once predicted a fill was free and measured +16.1%.
+
+**So it is measured, not argued.** ADR-0033 put the current shape at −17.0% for
+parse+bind and +7.4% for parse-only. Whatever program-wide identity is built has
+to be reported beside those two numbers, in
+[architecture/performance.md](../architecture/performance.md), before it is
+called done. A shared arena plausibly *improves* parse+bind — one allocator
+instead of one per file, and no per-file `NodeTable` growth — and plausibly
+worsens peak memory, since nothing can be dropped until the program is. Neither
+guess is worth anything without the measurement.
+
 This ADR **records the decision, not its implementation.** Nothing in this
 commit widens the identity space; the work lands in `tsr-binder` and
 `tsr-parser` and is tracked separately. What this commit does is build the
@@ -88,7 +136,19 @@ it belongs to.
 
 This is the option that requires no change below the checker, and it is what a
 reader who knows upstream's `*ast.Symbol` would reach for first, since a pointer
-*is* a global identity. It loses because the cost lands in the wrong place:
+*is* a global identity.
+
+**It loses first on fidelity, and only then on cost.** There is no file tag
+anywhere in `internal/checker`, because with pointer identity the question never
+arises. Threading a `FileId` through every id comparison would introduce a
+distinction upstream does not have and then maintain it forever — the same
+failure as answering a question upstream does not ask, one crate lower down.
+[ADR-0003](0003-tree-plus-side-tables.md) points the same way: when state is
+side tables keyed by id, the way to cover more things is to widen the id space,
+not to teach every consumer which table its id came from.
+
+The cost argument is the second one, and it is that the cost lands in the wrong
+place:
 `Checker`'s three borrowed fields become three indexed collections, and every
 one of the 13 binder call sites plus every future one has to name a file. The
 checker is the part of this port that will grow from 2,165 lines to something
@@ -119,9 +179,10 @@ one of them is observable in an oracle.
   no more names than it did before. That is worth stating plainly, because a
   changelog entry saying "lib files are now loaded" would otherwise be read as
   "globals now resolve".
-- **The 10,535 unresolved-name figure will not move on this commit.** Nor will
-  the 12,491-line array bucket. Neither was expected to; both are behind the
-  widening, not behind the loading.
+- **None of the 18,387 lines moves on this commit.** Not the 3,126 in value
+  position, not the 3,210 in type position, not the 12,051-line array bucket.
+  None was expected to; all three are behind the widening, not behind the
+  loading.
 - **A second parse of the lib files is now avoided but a shared one is not
   possible.** `ProgramFile` is `Send` and deliberately not `Sync`
   (`crates/tsr-compiler/src/file.rs:88`) — the arena's bump pointer is a `Cell`
@@ -141,7 +202,10 @@ one of them is observable in an oracle.
 - If a language service or incremental build lands before the widening does,
   the "nothing needs per-file replacement" premise is false and this decision
   should be superseded rather than implemented.
-- If, after the widening, the unresolved-name count falls by markedly less than
-  the 10,535 + 8,229 lines this ADR attributes to it, then those lines were
-  never blocked on identity and the ranking that produced `bd tsr-9or.1` was
-  measuring something else.
+- If, after the widening, the gap count falls by markedly less than the 18,387
+  lines this ADR attributes to it, then those lines were never blocked on
+  identity and the ranking that produced `bd tsr-9or.1` was measuring something
+  else. Read this one with care: 18,387 is an upper bound taken by matching
+  names at column 0, so a shortfall of a few thousand falsifies the *bound*
+  rather than the decision. A shortfall approaching the 12,051-line array
+  bucket would falsify the decision.
