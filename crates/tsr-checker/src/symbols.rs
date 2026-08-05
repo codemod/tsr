@@ -162,27 +162,46 @@ impl<'a> Checker<'a, '_> {
         let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
             return self.intrinsics.error;
         };
-        // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2690`) emits a bare
-        // `FunctionTypeNode` only for a resolved type with exactly one call
-        // signature, no construct signatures, no properties and no index
-        // signatures. More than one — an overload set — prints as a type literal
-        // of call signatures, `{ (): void; (x: string): void; }`, which is a
-        // different rendering; the first signature dressed up as the whole would
-        // be a wrong answer where a gap belongs.
-        let [signature] = signatures.as_slice() else { return self.intrinsics.error };
         // `createTypeNodeFromObjectType` emits a bare `FunctionTypeNode` only
         // when the resolved type has **no properties and no index signatures**
-        // (`nodebuilderimpl.go:2698`). A function with expando properties —
+        // (`nodebuilderimpl.go:2698`), and takes the same test before rendering
+        // the type-literal form. A function with expando properties —
         // `function f() {} f.a = "s";` — has them, and upstream prints
-        // `{ (): void; a: string; }`. Printing the bare signature there is a
+        // `{ (): void; a: string; }`. Printing only the signatures there is a
         // *wrong* answer rather than a partial one, which is worse: it looks
-        // like a result. Rendering the type literal needs member ordering this
-        // port does not have, so it is a gap, and `bd tsr-4sc.8` owns it.
+        // like a result. Rendering the members needs member ordering this port
+        // does not have, so it is a gap, and `bd tsr-4sc.8` owns it.
         let symbol_data = self.binder.symbols().get(symbol);
         if !symbol_data.exports.is_empty() || !symbol_data.members.is_empty() {
             return self.intrinsics.error;
         }
-        let printed = self.signature_to_string(signature);
+        // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2690`) emits a bare
+        // `FunctionTypeNode` only for a resolved type with exactly one call
+        // signature and no construct signatures (`nodebuilderimpl.go:2706`).
+        // Anything else with two or more falls through to the type-literal arm
+        // (`nodebuilderimpl.go:2740`), whose members are the call signatures in
+        // declaration order rendered as *members* — a colon before the return
+        // type, not an arrow. `compiler/overloadConsecutiveness.types:15` is the
+        // spelling this reproduces: `{ (): void; (): any; }`.
+        //
+        // The empty case is a gap rather than upstream's `{}`
+        // (`nodebuilderimpl.go:2699`): `getSignaturesOfSymbol` returns an empty
+        // vector both for a symbol that genuinely has no call signature and for
+        // one whose every declaration was skipped, and those two must not print
+        // the same thing.
+        let printed = match signatures.as_slice() {
+            [] => return self.intrinsics.error,
+            [signature] => self.signature_to_string(signature),
+            many => {
+                let mut out = String::from("{ ");
+                for signature in many {
+                    out.push_str(&crate::objects::signature_member_text(self, signature));
+                    out.push_str("; ");
+                }
+                out.push('}');
+                out
+            }
+        };
         self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol)
     }
 

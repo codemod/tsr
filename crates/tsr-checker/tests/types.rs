@@ -1053,12 +1053,88 @@ fn an_overload_set_takes_the_overload_signature_and_not_the_implementation() {
         type_of_declaration("function f(x?: number, y: string);\nfunction f() {}", "f"),
         "(x?: number, y: string) => any"
     );
-    // Two *overloads* print as a type literal of call signatures,
-    // `{ (): void; (x: string): void; }` (`nodebuilderimpl.go:2690` emits a bare
-    // function type only for a single call signature). That rendering is
-    // unported, and the first signature dressed up as the whole would be a wrong
-    // answer where a gap belongs.
-    assert_eq!(type_of_member("interface I { m(): void; m(x: string): void }", "I", "m"), "error");
+    // Two *overloads* print as a type literal of call signatures — see
+    // [`an_overload_set_prints_as_a_type_literal_of_call_signatures`].
+    assert_eq!(
+        type_of_member("interface I { m(): void; m(x: string): void }", "I", "m"),
+        "{ (): void; (x: string): void; }"
+    );
+}
+
+#[test]
+fn an_overload_set_prints_as_a_type_literal_of_call_signatures() {
+    // `createTypeNodeFromObjectType` (`nodebuilderimpl.go:2690`) emits a bare
+    // `FunctionTypeNode` only for a resolved type with exactly one call
+    // signature (`nodebuilderimpl.go:2706`); two or more fall through to the
+    // type-literal arm (`nodebuilderimpl.go:2740`), whose members are the call
+    // signatures in declaration order rendered as *members* — a colon before
+    // the return type, not an arrow.
+    //
+    // `submodule/conformance/anyAssignabilityInInheritance.types:18` records
+    // exactly this fixture:
+    //
+    // ```text
+    // declare function foo2(x: number): number;
+    // >foo2 : { (x: number): number; (x: any): any; }
+    // ```
+    assert_eq!(
+        type_of_declaration(
+            "declare function foo2(x: number): number;\ndeclare function foo2(x: any): any;",
+            "foo2"
+        ),
+        "{ (x: number): number; (x: any): any; }"
+    );
+    // A method reaches the same arm.
+    // `submodule/conformance/memberFunctionsWithPublicPrivateOverloads.types:8`
+    // records `>foo : { (x: number): any; (x: number, y: string): any; }` for
+    // this class, implementation excluded and modifiers unprinted.
+    assert_eq!(
+        type_of_member(
+            "class C {\n    private foo(x: number);\n    public foo(x: number, y: string);\n    private foo(x: any, y?: any) { }\n}",
+            "C",
+            "foo"
+        ),
+        "{ (x: number): any; (x: number, y: string): any; }"
+    );
+    // Three of them, to pin that the separator is `; ` *between* members and
+    // that there is one more `;` before the closing brace rather than a
+    // separator-joined list — the two spellings agree at two members only for
+    // the trailing one, so a two-signature fixture alone would not tell them
+    // apart. Same baseline, line 22, dropping the string-literal parameter
+    // whose quotes upstream reproduces from the source.
+    assert_eq!(
+        type_of_member(
+            "class C {\n    bar(x: boolean);\n    bar(x: string);\n    bar(x: number, y: string);\n    bar(x: any, y?: any) { }\n}",
+            "C",
+            "bar"
+        ),
+        "{ (x: boolean): any; (x: string): any; (x: number, y: string): any; }"
+    );
+}
+
+#[test]
+fn an_overload_set_carrying_expando_properties_is_still_a_gap() {
+    // The properties-and-index-signatures test at `nodebuilderimpl.go:2698`
+    // guards the type-literal arm as much as the bare-function one: upstream
+    // prints the expando members *interleaved* with the signatures, and member
+    // ordering is not ported (`bd tsr-4sc.8`). Printing only the signatures
+    // would be a wrong answer where a gap belongs, so the guard has to sit
+    // ahead of the signature-count match rather than inside its one-signature
+    // arm.
+    assert_eq!(
+        type_of_declaration(
+            "function f(x: number);\nfunction f(x: string);\nfunction f(x: any) {}\nf.a = \"s\";",
+            "f"
+        ),
+        "error"
+    );
+    // And a signature this port cannot answer gaps the whole set, not just its
+    // own member: `getSignaturesOfSymbol` yields `None`, exactly as it does for
+    // a lone declaration.
+    assert_eq!(
+        type_of_declaration("function f(x: number);\nfunction f({ a }: any);", "f"),
+        "error"
+    );
 }
 
 #[test]

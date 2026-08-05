@@ -2570,3 +2570,71 @@ looking at constructs would have found it.
   by narrowing to a *single* baseline and printing our assertions beside
   upstream's with node kinds attached. The bucket says where to look; it never
   says what is wrong.
+
+## An overload set prints as a type literal of call signatures
+
+`createTypeNodeFromObjectType` (`nodebuilderimpl.go:2690`) emits a bare
+`FunctionTypeNode` only for a resolved type with **exactly one** call signature
+and no construct signatures (`nodebuilderimpl.go:2706`). Two or more fall
+through to the type-literal arm (`nodebuilderimpl.go:2740`), whose members are
+the call signatures in declaration order rendered as *members* — a colon before
+the return type, not an arrow:
+
+```text
+declare function foo2(x: number): number;
+declare function foo2(x: any): any;
+>foo2 : { (x: number): number; (x: any): any; }
+```
+
+That is `submodule/conformance/anyAssignabilityInInheritance.types:18`, quoted
+rather than reconstructed: the whole line is compared verbatim, so the spelling
+is the feature. `getTypeOfFuncClassEnumModuleWorker` returned `errorType` for
+every set of two or more before this, which the histogram at `78cfcba` priced at
+~6,500 gap lines.
+
+### The renderer was already written, in someone else's file
+
+`objects::signature_member_text` renders a signature in the member spelling —
+the arrow/colon split is recorded above under *Signature members print with a
+colon, not an arrow*. The alternative was string surgery on
+`signature_to_string`'s arrow form, which that function's own doc comment
+already rejects for the reason that still holds: finding the *top-level*
+`) => ` means parsing, because a parameter type can contain one. Reusing the
+member renderer costs a cross-module call and keeps one definition of the
+spelling; it would stop being the right call only if the two renderings diverged
+in something other than that separator, and nothing upstream suggests they do.
+
+### The properties guard moved *ahead* of the signature-count match
+
+The expando gap — `function f() {} f.a = "s"`, which upstream prints as
+`{ (): void; a: string; }` — was previously tested inside the one-signature
+path. Upstream's test at `nodebuilderimpl.go:2698` guards the *whole* block:
+a type with properties skips both the bare-function arm and the single-construct
+arm, and its members are then interleaved with its signatures by
+`createTypeNodesFromResolvedType` (`nodebuilderimpl.go:2636`). Left where it
+was, an *overloaded* expando function would have printed its signatures and
+silently dropped `a: string` — a wrong answer wearing the shape of a result,
+which is exactly the failure the gap discipline exists to prevent. Member
+ordering is still not ported (`bd tsr-4sc.8`), so both cases remain gaps; the
+guard just now covers both.
+
+### Zero signatures is a gap, not upstream's `{}`
+
+Upstream prints `{}` for a resolved type with no signatures, properties or index
+infos (`nodebuilderimpl.go:2699`). This port does not, because
+`getSignaturesOfSymbol` returns an empty vector for two different situations: a
+symbol that genuinely declares no call signature, and one whose every
+declaration was skipped as unanswerable. Printing `{}` would merge a real answer
+with a gap in the one direction the instrument cannot recover. The moment
+`getSignaturesOfSymbol` distinguishes "none" from "none I could read" — an
+`Option` per declaration rather than per symbol — this arm should print `{}`.
+
+### How you would know this is wrong
+
+A conformance line reading `{ ... }` where upstream reads a bare
+`(x: number) => number`, or the reverse, means the one-versus-many boundary is
+misplaced. A line whose members are in the wrong order means declaration order
+is not upstream's order — `getSignaturesOfSymbol` walks `symbol.declarations`,
+and if the binder ever appends out of source order the whole rendering shifts
+without any test here noticing, since every fixture has monotonically ordered
+declarations.
