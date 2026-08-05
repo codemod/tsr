@@ -1181,3 +1181,43 @@ control and usually several structural ones going unused — a leaf that cannot
 contain, a receiver that cannot be generic, a position upstream never visits.
 Write those down; they are free, and they fail loudly in the one direction the
 sums cannot see.
+
+### An anchor that *resolves* and points at the wrong construct is worse than one that fails
+
+`cargo run -p xtask -- anchors` checks that a cited `file:line` exists. It cannot
+check that the line is the thing you meant.
+
+Two briefings this cycle described upstream's checker as "taking an interface
+(`checker.go:550-566`)". Verified afterwards with `grep -n` on the declarations:
+
+| what | where |
+|---|---|
+| `type Program interface {` | **`checker.go:547`** |
+| the field `program Program` | **`checker.go:581`** |
+| first `c.program = program` | **`checker.go:908`** |
+
+`550` is `SourceFiles()` and `566` is `GetProjectReferenceFromOutputDts` — the
+middle of the method list. The span is real, so the citation **resolves, the gate
+reads 0 unresolved, and the anchor is never looked at again.** An anchor that
+fails gets fixed on the next run; one that quietly misleads outlives everyone who
+could have caught it.
+
+So the gate's guarantee is narrower than it reads: **`anchors` proves a line
+exists, not that it is the declaration you named.** The only thing that proves
+that is taking the number from `grep -n` on the declaration itself:
+
+```
+grep -n "^func (c \*Checker) resolveExternalModuleName(" vendor/typescript-go/internal/checker/checker.go
+grep -n "^type Program interface"                        vendor/typescript-go/internal/checker/checker.go
+```
+
+#### Three distinct anchor failures in one session, and they argue for one rule
+
+1. **Stale, in a briefing.** `resolveCall` quoted at `:9563`, actually `:8843` — four cycles old, copied forward, and invisible to the gate because a briefing is not source (see "The anchors gate does not see your briefing").
+2. **Off by a few, from counting.** `GetResolvedModule` reported as `program.go:522` and `getExternalModuleMember` as `:14671`; they are `:521` and `:14667`. Both are the error you get from reading a `sed -n` window and counting rows rather than grepping the declaration — and one of them was offered as a *correction* to an anchor that was already right.
+3. **Resolving but wrong**, above.
+
+All three have the same corrective, which is why it is worth stating once rather
+than three times: **the number comes from `grep -n` on the declaration you mean,
+every time, including when you are correcting someone else's.** A window, a
+memory, or a neighbouring line is not a source.
