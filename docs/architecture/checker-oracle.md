@@ -233,6 +233,78 @@ three was a diagnostic they happened to produce, bucketed by declaring construct
 `crates/tsr-binder/tests/bind.rs`, each verified to fail with its fix reverted. See
 [binder.md](binder.md).
 
+## The producer: what it has to reproduce
+
+`checker_types` cannot move until something renders our types the way upstream's
+baseline writer does. That writer is
+`vendor/typescript-go/internal/testutil/tsbaseline/type_symbol_baseline.go`
+(490 lines), and it is specified here because re-deriving it is most of the work
+and because two of its properties are not what a reader would guess.
+
+**Node selection** (`visitNode`, `:304`) is a pre-order DFS via `ForEachChild`,
+children pushed reversed so they come out in source order, keeping nodes where:
+
+```go
+ast.IsExpressionNode(n) || n.Kind == ast.KindIdentifier || ast.IsDeclarationName(n)
+```
+
+`writeTypeOrSymbol` (`:345`) then **drops** a kept node when it `IsPartOfTypeNode`
+— "don't try to get the type of something that's already a type" — when it is an
+`Identifier` whose parent's `GetMeaningFromDeclaration` carries no `Value`
+meaning and it is not a type alias's own name, or when it is an omitted
+expression.
+
+**The line text** is the raw source slice, not anything printed:
+`source[skipTrivia(node.Pos()) .. node.End()]`, with line delimiters stripped,
+and the line number is that of the post-trivia position. `iterateBaseline`
+(`:196`) interleaves the file's own source lines between the assertions.
+
+Two things that will bite:
+
+- **The type string is not `type_to_string`.** Upstream builds a type *node* with
+  `NodeBuilder.TypeToTypeNode` and prints it (`:390`), under
+  `NoTruncation | AllowUniqueESSymbolType | GenerateNamesForShadowedTypeParams`,
+  short-circuiting to the bare intrinsic name when the type is `any` and the node
+  is not in one of eight listed positions. Our printer is equivalent only for the
+  intrinsic and literal types this port has, and that equivalence ends the moment
+  object types exist. The node builder's depth limit of 10
+  (`nodebuilderimpl.go:3158`) belongs with it — `bd tsr-el3.2`.
+- **`push_children` is a superset of `ForEachChild`.** Ours is generated from
+  `ast.json` and includes token-valued fields; upstream's does not
+  ([ADR-0033](../adr/0033-the-parser-fills-the-node-map.md) measured the gap at
+  0.41% of nodes). The three selection predicates probably filter those out
+  anyway — but that is an assumption, and it must be measured rather than
+  believed.
+
+### How to prove the walker without the checker
+
+This matters more than it sounds, because **a wrong walker and a wrong checker are
+indistinguishable in the line gradient**: both simply fail to match, and the
+gradient cannot say which is at fault. A producer built and measured only against
+types would give no way to tell.
+
+There is a sound separation. Upstream's assertion is `{sourceText} : {type}`, and
+`sourceText` can itself contain `" : "` — which is why this suite compares whole
+lines and never splits them. But a line can still be tested for the **prefix**
+`our_source_text + " : "`. That needs no type at all, and isolates node selection
+and text extraction completely.
+
+So the order is: build the walker, report *of upstream's assertion lines, how many
+do we emit at the same index with the same expression text*, and get that number
+high **before comparing a single type**. If it reads high the denominator is
+trustworthy; if it reads low the gradient is meaningless no matter how good the
+checker gets.
+
+### What blocks it
+
+All four selection predicates ask "is this node its parent's `name` / `expression`
+/ `initializer`?", and nothing in `tsr-ast` can answer that: `ast.json` defines 41
+`name` fields, 37 `expression` and 10 `initializer`, with no accessor reaching any
+of them through the `Node` union. They have to be **generated**
+(`xtask/src/gen_nodes.rs`, alongside the existing `node_id()` dispatch) rather
+than hand-written, for the reason that dispatch is generated in the first place.
+`bd tsr-5e7.8`, blocking `bd tsr-4sc.3`.
+
 ## What is still missing for Phase 4
 
 - **Per-configuration runs** (`bd tsr-bb4.1`), which would return 1,397 cases to
