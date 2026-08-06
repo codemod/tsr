@@ -1943,3 +1943,47 @@ This project's target is a line gradient, and the tidy answer would have moved i
 by nothing. **When a result is unusually quotable, check it harder** — not
 because elegance is evidence of error, but because it removes the friction that
 normally makes a wrong number feel wrong.
+
+### "The easy leg of three" may be a leg that cannot be reached without the others
+
+A distinct failure mode, found by an agent whose registered premise the probe
+falsified.
+
+`TemplateExpression` is 1,067 gap lines and **100% terminal** — every operand
+types, the form's own rule is simply missing. It looked like three separable
+legs, and the cheap one was *"answer `string` where the result cannot be a
+literal"*. The premise, registered in its own commit before anything ran:
+
+> A span that is not constant makes the folding leg unreachable **by
+> construction**, so answer `string` only when some span's type is not a unit
+> type.
+
+Cross-tabbed against the baseline, that bucket wants `string` **262 of 557 —
+47.0%**. The other 295 want a *folded literal*: `"-1"`, `"05"`, `"2-1"`, from
+spans like `${1-2}`. This port types that span `number`, the test therefore calls
+it non-constant, and **upstream's `evaluate` folds the arithmetic anyway.**
+
+The reason is structural: **`evaluate` is a syntactic constant folder and
+consults no types at all.** So no type-level test can separate the `string` leg
+from the folding leg — the separation *is* the evaluator.
+
+> **Before slicing a terminal row into a cheap leg and an expensive one, check
+> that the legs are separable by something you can compute.** A row that reads as
+> "three cases, take the easy one" can be one case wearing three hats, and the
+> test that would tell them apart may be the expensive thing itself.
+
+#### How it differs from the rules already here
+
+- *"Half a mechanism renders the collateral of the half you built"* is about the
+  **downstream** of a partial port. This is about the **partition** being
+  unavailable in the first place.
+- *"Size the conversion, not the population"* would not have caught it: the
+  population was right, the row genuinely is 1,067 terminal lines, and the
+  conversion estimate was wrong because the *predicate defining the slice* did
+  not mean what it appeared to.
+
+The tell is a slice defined by **our** notion of a property — "not a constant" —
+rather than by upstream's. Where upstream's own function decides the same
+question by a different route, our predicate is a proxy for it, and
+`c0cf629` applies: a proxy agreeing with the thing it proxies is not evidence the
+proxy works, and here it disagreed on **53%** of the bucket.
