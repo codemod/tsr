@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured through the `tsr-jril` merge, 2026-08-07 (fifth session).
+Measured through both teammate merges, 2026-08-07 (fifth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -33,21 +33,21 @@ Measured through the `tsr-jril` merge, 2026-08-07 (fifth session).
 | `module_resolution` | 95/95 | 100% | |
 | `file_loader` | 96/96 | 100% | |
 | `printer_round_trip` | 11,681/11,737 | 99.52% | |
-| `parser_typescript` | 5,000/5,031 | 99.38% | |
-| `binder_symbols` | 8,292/8,459 | 98.03% | |
+| `parser_typescript` | 5,001/5,031 | 99.40% | |
+| `binder_symbols` | 8,293/8,460 | 98.03% | |
 | `isolated_declarations` | 13/15 | 86.67% | |
 | `dts_shape` | 618/912 | 67.76% | |
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,608/9,538** | **27.34%** | **gradient 70.59%** — the target |
+| **`checker_types`** | **2,617/9,538** | **27.44%** | **gradient 70.81%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-338,082 / 478,954 assertion lines = 70.59%
-  right 338,082 | gap ~89,180 | wrong ~41,415   (41,189 at b00738d; …, −47, +55, +14, +104 by same-probe pairs through tsr-jril)
+339,123 / 478,954 assertion lines = 70.81%
+  right 339,123 | gap ~88,335 | wrong ~41,496   (41,189 at b00738d; …, +104, +81 by same-probe pairs through the type-predicate merge)
 ```
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
@@ -120,7 +120,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **70.59% of lines** | the mountain; §4 and §5 |
+| **checker** | **70.81% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -131,6 +131,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| type predicates | **`x is T` in return position** — `getTypeFromTypeNode`'s `KindTypePredicate` arm plus the node builder's return slot, and a parser ASI fix (`next_is_is_keyword` lacked `!hasPrecedingLineBreak`) that moved `parser_typescript` and `binder_symbols` **up** (`checker-notes-typepred.md`) | +1,041 |
 | `tsr-jril` | **constructor type nodes** — `new (x: T) => U` and `abstract new`; a `SignatureKind` on `Signature` so one renderer serves both spellings (`checker-notes-ctortype.md`) | +1,358 |
 | `tsr-rppd` | **`getApparentType` reads a type parameter through its `extends` constraint** — its bar fired at net 0 first and the diagnosis was a missing symbol route (`checker-notes-apparent.md`) | +156 |
 | `tsr-0opd` | **private names** — `this.#x`; the binder already filed `#x` members, only the access-side name extraction was missing (`checker-notes-privname.md`) | +590 |
