@@ -400,3 +400,28 @@ the issue's "as mechanical as the six nullable bits" missed. Three parts:
 end-to-end (both facts directions correct). If they stay wrong while
 `string`/`number` convert, the facts table is half-right — a state worse than
 absent, and leg 4's concentration split will show it.
+
+### §6 scored — all four legs pass; the concentration split names three owners
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ 120 | **+745** (767/22) | pass |
+| 2 | gained ≥ 3 × lost | **34.9×** | pass |
+| 3 | 0 case regressions | 0, **+12 pass** | pass |
+| 4 | Δwrong ≤ −150 | **−448** (708 fixed, 260 new) | pass |
+
+The falsifier did not fire — `never` wants convert with the rest — and the
+260 new wrong decompose into three families, none of them this arm's bits:
+**loop fixpoints** (`controlFlowWithIncompleteTypes`: upstream's
+incomplete-types iteration re-widens across loop back-edges, unported —
+`want string | number, got number` is the arm being *right* on a straight
+line the loop re-widens), **further narrows** this port lacks (truthiness on
+`boolean` to `true`, discriminants — the `bd tsr-97d` family), and
+**want-`any` ceiling lines** now computed concretely (`any` vs the resolved
+`toFixed` signature — ADR-0038's asymmetry seen from the other side).
+
+Conversion: +745 against the 440-line sized population — **169%**, the third
+mechanism this session to overshoot its row (the narrowed reference feeds
+every consumer downstream of it). The three unported forms — `in`,
+`instanceof`, comparability — stay with `bd tsr-q9g`, re-sized per the
+refmatch split.

@@ -119,10 +119,15 @@ fn the_narrowing_does_not_escape_the_branch_it_belongs_to() {
 fn an_unported_guard_leaves_the_declared_type_rather_than_a_wrong_one() {
     // The property that makes a partial port of `narrowType` safe: its default
     // arm returns the type unchanged, so a form this port does not recognise
-    // gives the answer it gave before narrowing existed. `typeof` guards are the
-    // largest such form and are not ported.
+    // gives the answer it gave before narrowing existed. This fixture used a
+    // `typeof` guard as its stand-in until `bd tsr-q9g` landed that arm and
+    // it came due — the third such expiry in one session, which is exactly why
+    // the conventions require the PAIR. The stand-in is now **comparability**
+    // (`x === "a"` needs `areTypesComparable`, unported, `bd tsr-97d`), and
+    // the ported half of the pair is asserted beside it in
+    // `a_typeof_guard_narrows_by_the_named_primitive`.
     assert_eq!(
-        type_of_last_expression("let x: string | undefined;\nif (typeof x === \"string\") { x; }"),
+        type_of_last_expression("let x: string | undefined;\nif (x === \"a\") { x; }"),
         "string | undefined"
     );
 }
@@ -466,5 +471,74 @@ fn an_assignment_to_the_receiver_resets_the_property_narrowing() {
     assert_eq!(
         type_of_last_expression("declare let obj: { a?: string };\nif (obj.a) { obj.a; }"),
         "string"
+    );
+}
+
+/// `typeof` guards — `bd tsr-q9g`, `checker-notes-narrow.md` §6. Every
+/// expectation is a `conformance/typeGuardOfFormTypeOf*.types` line:
+///   if (typeof strOrNum === "string") { strOrNum; }   >strOrNum : string
+///   if (typeof strOrNum !== "string") { strOrNum; }   >strOrNum : number
+/// and from `typeGuardOfFormTypeOfBoolean` / `...Number` the same pattern for
+/// the other primitives.
+#[test]
+fn a_typeof_guard_narrows_by_the_named_primitive() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare var strOrNum: string | number;\nif (typeof strOrNum === \"string\") { strOrNum; }"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare var strOrNum: string | number;\nif (typeof strOrNum !== \"string\") { strOrNum; }"
+        ),
+        "number"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare var strOrBool: string | boolean;\nif (typeof strOrBool === \"boolean\") { strOrBool; }"
+        ),
+        "boolean"
+    );
+    // The operand orders are one rule (`narrowTypeByTypeof` flips on the
+    // operator, not the sides).
+    assert_eq!(
+        type_of_last_expression(
+            "declare var strOrNum: string | number;\nif (\"number\" === typeof strOrNum) { strOrNum; }"
+        ),
+        "number"
+    );
+}
+
+/// `typeGuardTypeOfUndefined.types`:
+///   if (typeof x === "undefined") { x; }  — on `boolean | undefined` shapes
+/// the true branch keeps `undefined`, the false branch removes it.
+#[test]
+fn a_typeof_undefined_guard_splits_the_nullable() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare var b: boolean | undefined;\nif (typeof b === \"undefined\") { b; }"
+        ),
+        "undefined"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare var b: boolean | undefined;\nif (typeof b !== \"undefined\") { b; }"
+        ),
+        "boolean"
+    );
+}
+
+/// The refused pair: a guard whose target the matcher does not match narrows
+/// nothing, and a non-union reference under a FALSE typeof test collapses to
+/// `never` only when the facts say it must — `typeGuardOfFormTypeOfString`:
+///   if (typeof strOrNum === "string") {} else { strOrNum; }  >strOrNum : number
+#[test]
+fn the_else_branch_removes_the_named_primitive() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare var strOrNum: string | number;\nif (typeof strOrNum === \"string\") {} else { strOrNum; }"
+        ),
+        "number"
     );
 }

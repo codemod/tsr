@@ -124,6 +124,38 @@ bitflags::bitflags! {
     /// without a translation table.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) struct TypeFacts: u32 {
+        /// `typeof x === "string"` can hold for a value of the type.
+        const TYPEOF_EQ_STRING = 1 << 0;
+        /// `typeof x === "number"` can hold.
+        const TYPEOF_EQ_NUMBER = 1 << 1;
+        /// `typeof x === "bigint"` can hold.
+        const TYPEOF_EQ_BIG_INT = 1 << 2;
+        /// `typeof x === "boolean"` can hold.
+        const TYPEOF_EQ_BOOLEAN = 1 << 3;
+        /// `typeof x === "symbol"` can hold.
+        const TYPEOF_EQ_SYMBOL = 1 << 4;
+        /// `typeof x === "object"` can hold.
+        const TYPEOF_EQ_OBJECT = 1 << 5;
+        /// `typeof x === "function"` can hold.
+        const TYPEOF_EQ_FUNCTION = 1 << 6;
+        /// `typeof x` can be a host-object string outside the standard eight.
+        const TYPEOF_EQ_HOST_OBJECT = 1 << 7;
+        /// `typeof x !== "string"` can hold.
+        const TYPEOF_NE_STRING = 1 << 8;
+        /// `typeof x !== "number"` can hold.
+        const TYPEOF_NE_NUMBER = 1 << 9;
+        /// `typeof x !== "bigint"` can hold.
+        const TYPEOF_NE_BIG_INT = 1 << 10;
+        /// `typeof x !== "boolean"` can hold.
+        const TYPEOF_NE_BOOLEAN = 1 << 11;
+        /// `typeof x !== "symbol"` can hold.
+        const TYPEOF_NE_SYMBOL = 1 << 12;
+        /// `typeof x !== "object"` can hold.
+        const TYPEOF_NE_OBJECT = 1 << 13;
+        /// `typeof x !== "function"` can hold.
+        const TYPEOF_NE_FUNCTION = 1 << 14;
+        /// `typeof x` can be something other than a host-object string.
+        const TYPEOF_NE_HOST_OBJECT = 1 << 15;
         /// The type can compare equal to `undefined`.
         const EQ_UNDEFINED = 1 << 16;
         /// The type can compare equal to `null`.
@@ -853,6 +885,40 @@ impl Checker<'_, '_> {
                 let (Some(left), Some(right)) = (left.node_id(), right.node_id()) else {
                     return t;
                 };
+                // `typeof x === "…"` before the value-equality path, which is
+                // upstream's dispatch order in `narrowTypeByBinaryExpression`
+                // (`flow.go:500` region): a `TypeOfExpression` on either side
+                // with a string literal on the other reaches
+                // `narrowTypeByTypeof` (`flow.go:614`). Only the
+                // matching-reference half is ported; the discriminant and
+                // optional-chain halves of that function stay unported and
+                // answer the type unchanged (`bd tsr-q9g`,
+                // `checker-notes-narrow.md` §6).
+                let typeof_pair = match (self.node_map.get(left), self.node_map.get(right)) {
+                    (
+                        Some(Node::TypeOfExpression(typeof_expr)),
+                        Some(Node::StringLiteral(literal)),
+                    )
+                    | (
+                        Some(Node::StringLiteral(literal)),
+                        Some(Node::TypeOfExpression(typeof_expr)),
+                    ) => Some((typeof_expr, literal.text)),
+                    _ => None,
+                };
+                if let Some((typeof_expr, literal)) = typeof_pair {
+                    let Some(target) = typeof_expr.expression.and_then(|e| e.node_id()) else {
+                        return t;
+                    };
+                    if !self.is_matching_reference(state, target) {
+                        return t;
+                    }
+                    let negated = matches!(
+                        operator.kind,
+                        SyntaxKind::ExclamationEqualsToken
+                            | SyntaxKind::ExclamationEqualsEqualsToken
+                    );
+                    return self.narrow_type_by_typeof_literal(t, literal, assume_true != negated);
+                }
                 // Upstream normalises with `getReferenceCandidate` on the left
                 // and reads the value from the right; the reference can sit on
                 // either side, so both orders are tried and the *other* operand
@@ -955,6 +1021,129 @@ impl Checker<'_, '_> {
         self.get_type_with_facts(t, facts)
     }
 
+    /// `narrowTypeByLiteralExpression` (`flow.go:646`): the true branch
+    /// narrows by the type the string names, the false branch filters by the
+    /// matching `typeofNEFacts` bit (`flow.go:635`), with `TypeofNEHostObject`
+    /// for a string outside the standard eight.
+    fn narrow_type_by_typeof_literal(
+        &mut self,
+        t: TypeId,
+        literal: &str,
+        assume_true: bool,
+    ) -> TypeId {
+        if !assume_true {
+            let facts = match literal {
+                "string" => TypeFacts::TYPEOF_NE_STRING,
+                "number" => TypeFacts::TYPEOF_NE_NUMBER,
+                "bigint" => TypeFacts::TYPEOF_NE_BIG_INT,
+                "boolean" => TypeFacts::TYPEOF_NE_BOOLEAN,
+                "symbol" => TypeFacts::TYPEOF_NE_SYMBOL,
+                "undefined" => TypeFacts::NE_UNDEFINED,
+                "object" => TypeFacts::TYPEOF_NE_OBJECT,
+                "function" => TypeFacts::TYPEOF_NE_FUNCTION,
+                _ => TypeFacts::TYPEOF_NE_HOST_OBJECT,
+            };
+            return self.get_type_with_facts(t, facts);
+        }
+        // `narrowTypeByTypeName` (`flow.go:657`), arm for arm.
+        match literal {
+            "string" => {
+                let implied = self.intrinsics.string;
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_STRING)
+            }
+            "number" => {
+                let implied = self.intrinsics.number;
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_NUMBER)
+            }
+            "bigint" => {
+                let implied = self.intrinsics.bigint;
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_BIG_INT)
+            }
+            "boolean" => {
+                let implied = self.intrinsics.boolean;
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_BOOLEAN)
+            }
+            "symbol" => {
+                let implied = self.intrinsics.es_symbol;
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_SYMBOL)
+            }
+            "object" => {
+                if t == self.intrinsics.any {
+                    return t;
+                }
+                let non_primitive = self.intrinsics.non_primitive;
+                let null = self.intrinsics.null;
+                let object_half =
+                    self.narrow_type_by_type_facts(t, non_primitive, TypeFacts::TYPEOF_EQ_OBJECT);
+                let null_half = self.narrow_type_by_type_facts(t, null, TypeFacts::EQ_NULL);
+                self.get_union_type(&[object_half, null_half])
+            }
+            "function" => {
+                if t == self.intrinsics.any {
+                    return t;
+                }
+                // `c.globalFunctionType`. A lib-less program has no `Function`
+                // interface; narrowing is then declined rather than
+                // approximated with a made-up type.
+                let Some(function_symbol) = self.global_type_symbol("Function") else {
+                    return t;
+                };
+                let implied = self.get_declared_type_of_symbol(function_symbol);
+                if implied == self.intrinsics.error {
+                    return t;
+                }
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_FUNCTION)
+            }
+            "undefined" => {
+                let implied = self.intrinsics.undefined;
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::EQ_UNDEFINED)
+            }
+            _ => {
+                let implied = self.intrinsics.non_primitive;
+                self.narrow_type_by_type_facts(t, implied, TypeFacts::TYPEOF_EQ_HOST_OBJECT)
+            }
+        }
+    }
+
+    /// `narrowTypeByTypeFacts` (`flow.go:687`): each constituent keeps itself,
+    /// collapses to the implied type, intersects with it, or leaves — decided
+    /// by the strict-subtype relation and the facts bit.
+    fn narrow_type_by_type_facts(
+        &mut self,
+        t: TypeId,
+        implied: TypeId,
+        facts: TypeFacts,
+    ) -> TypeId {
+        let never = self.intrinsics.never;
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let mut mapped = Vec::with_capacity(constituents.len());
+        for constituent in constituents {
+            let image = if self.is_type_related_to(
+                constituent,
+                implied,
+                crate::relater::Relation::StrictSubtype,
+            ) {
+                if self.get_type_facts(constituent).intersects(facts) { constituent } else { never }
+            } else if self.is_type_subtype_of(implied, constituent) {
+                implied
+            } else if self.get_type_facts(constituent).intersects(facts) {
+                self.get_intersection_type(&[constituent, implied], None)
+            } else {
+                never
+            };
+            if image != never {
+                mapped.push(image);
+            }
+        }
+        if mapped.is_empty() {
+            return never;
+        }
+        self.get_union_type(&mapped)
+    }
+
     /// The type of a **literally written** `null` or `undefined` operand, or
     /// `None` for anything else.
     ///
@@ -1049,12 +1238,36 @@ impl Checker<'_, '_> {
             TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_UNDEFINED_OR_NULL | TypeFacts::NE_NULL;
         let null_facts =
             TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL | TypeFacts::NE_UNDEFINED;
+        // The eight `typeof` NE bits together — every `Base*StrictFacts`
+        // aggregate is "EQ of my own kind, NE of the other seven", which reads
+        // as `typeof_eq(kind) | (typeof_ne_all - typeof_ne(kind))` below
+        // (`checker.go:432`-region, bit for bit).
+        let typeof_ne_all = TypeFacts::TYPEOF_NE_STRING
+            | TypeFacts::TYPEOF_NE_NUMBER
+            | TypeFacts::TYPEOF_NE_BIG_INT
+            | TypeFacts::TYPEOF_NE_BOOLEAN
+            | TypeFacts::TYPEOF_NE_SYMBOL
+            | TypeFacts::TYPEOF_NE_OBJECT
+            | TypeFacts::TYPEOF_NE_FUNCTION
+            | TypeFacts::TYPEOF_NE_HOST_OBJECT;
         // The undecidable default: **every** bit, so `filter_type` keeps the
         // constituent under any query. A wrong `NE` claim deletes a
         // constituent and prints a confident wrong type; the default must
         // never be the one that does that.
-        let both =
-            TypeFacts::TRUTHY | TypeFacts::FALSY | nullable_never | undefined_facts | null_facts;
+        let both = TypeFacts::TRUTHY
+            | TypeFacts::FALSY
+            | nullable_never
+            | undefined_facts
+            | null_facts
+            | typeof_ne_all
+            | TypeFacts::TYPEOF_EQ_STRING
+            | TypeFacts::TYPEOF_EQ_NUMBER
+            | TypeFacts::TYPEOF_EQ_BIG_INT
+            | TypeFacts::TYPEOF_EQ_BOOLEAN
+            | TypeFacts::TYPEOF_EQ_SYMBOL
+            | TypeFacts::TYPEOF_EQ_OBJECT
+            | TypeFacts::TYPEOF_EQ_FUNCTION
+            | TypeFacts::TYPEOF_EQ_HOST_OBJECT;
         let ty = self.store.get(t);
         let flags = ty.flags;
 
@@ -1082,16 +1295,74 @@ impl Checker<'_, '_> {
         // VOID` as one bucket — which is what the truthiness answer above
         // allowed — would make `x !== null` fail to narrow `void` away.
         if flags.intersects(TypeFlags::UNDEFINED | TypeFlags::VOID) {
-            return TypeFacts::FALSY | undefined_facts;
+            // `TypeFactsUndefinedFacts`/`VoidFacts`: `typeof undefined` is none
+            // of the eight strings' EQ side — all eight NE bits, no EQ.
+            return TypeFacts::FALSY | undefined_facts | typeof_ne_all;
         }
         if flags.contains(TypeFlags::NULL) {
-            return TypeFacts::FALSY | null_facts;
+            // `TypeFactsNullFacts`: `typeof null === "object"`, so EQ_OBJECT
+            // joins and NE_OBJECT does **not** — the one aggregate whose NE
+            // set is seven bits, not eight.
+            return TypeFacts::FALSY
+                | null_facts
+                | TypeFacts::TYPEOF_EQ_OBJECT
+                | (typeof_ne_all - TypeFacts::TYPEOF_NE_OBJECT);
         }
-        // An object, a symbol, or a non-primitive is always truthy — and is
-        // never nullable, which is the `Base*StrictFacts` half every
-        // non-nullable type shares.
-        if flags.intersects(TypeFlags::OBJECT | TypeFlags::ES_SYMBOL | TypeFlags::NON_PRIMITIVE) {
-            return TypeFacts::TRUTHY | nullable_never;
+        // A symbol is `typeof … === "symbol"` (`TypeFactsSymbolStrictFacts`).
+        if flags.intersects(TypeFlags::ES_SYMBOL) {
+            return TypeFacts::TRUTHY
+                | nullable_never
+                | TypeFacts::TYPEOF_EQ_SYMBOL
+                | (typeof_ne_all - TypeFacts::TYPEOF_NE_SYMBOL);
+        }
+        // An object or a non-primitive is always truthy and never nullable.
+        // Which `typeof` family it carries splits by shape, and the split errs
+        // toward `both` — a wrong NE bit deletes a constituent:
+        //
+        // - a signature-shaped type (`Anonymous { signature: true }`, or one
+        //   whose call signatures are recorded in `signature_types`) is
+        //   upstream's `isFunctionObjectType` → `FunctionStrictFacts`;
+        // - `typeof C` for a **class** is a constructor — `"function"` too;
+        // - `typeof E` / `typeof N` for an enum or value module is a plain
+        //   object at runtime → `ObjectStrictFacts`;
+        // - a `Named` type with a members table cannot carry call signatures
+        //   in this port (the binder deliberately files no `__call`,
+        //   `binder.rs:3482`), so `ObjectStrictFacts` is consistent with the
+        //   port's own model rather than a guess about upstream's;
+        // - anything else object-flagged keeps every bit.
+        if flags.intersects(TypeFlags::OBJECT | TypeFlags::NON_PRIMITIVE) {
+            let object_strict = TypeFacts::TRUTHY
+                | nullable_never
+                | TypeFacts::TYPEOF_EQ_OBJECT
+                | TypeFacts::TYPEOF_EQ_HOST_OBJECT
+                | (typeof_ne_all - TypeFacts::TYPEOF_NE_OBJECT - TypeFacts::TYPEOF_NE_HOST_OBJECT);
+            let function_strict = TypeFacts::TRUTHY
+                | nullable_never
+                | TypeFacts::TYPEOF_EQ_FUNCTION
+                | TypeFacts::TYPEOF_EQ_HOST_OBJECT
+                | (typeof_ne_all
+                    - TypeFacts::TYPEOF_NE_FUNCTION
+                    - TypeFacts::TYPEOF_NE_HOST_OBJECT);
+            if flags.intersects(TypeFlags::NON_PRIMITIVE) {
+                return object_strict;
+            }
+            return match &ty.data {
+                TypeData::Anonymous { signature: true, .. } => function_strict,
+                _ if self.signature_types.contains_key(&t) => function_strict,
+                TypeData::Anonymous { symbol, .. } => {
+                    let symbol_flags = self.binder.symbols().get(*symbol).flags;
+                    if symbol_flags.intersects(SymbolFlags::CLASS) {
+                        function_strict
+                    } else if symbol_flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE)
+                    {
+                        object_strict
+                    } else {
+                        both
+                    }
+                }
+                TypeData::Named { members: Some(_), .. } => object_strict,
+                _ => both,
+            };
         }
         // Every arm below is a **non-nullable** type, so each carries
         // `nullable_never` beside its truthiness — the `Base*StrictFacts`
@@ -1145,7 +1416,22 @@ impl Checker<'_, '_> {
             // is decidable, so every bit — see the note on `both`.
             _ => return both,
         };
-        truthiness | nullable_never
+        // The `typeof` half of the `Base*StrictFacts` aggregate the arm above
+        // belongs to, decided by the same flags that decided the arm.
+        let typeof_family = if flags.intersects(TypeFlags::STRING_LIKE) {
+            TypeFacts::TYPEOF_EQ_STRING | (typeof_ne_all - TypeFacts::TYPEOF_NE_STRING)
+        } else if flags.intersects(TypeFlags::NUMBER_LIKE) {
+            TypeFacts::TYPEOF_EQ_NUMBER | (typeof_ne_all - TypeFacts::TYPEOF_NE_NUMBER)
+        } else if flags.intersects(TypeFlags::BIG_INT_LIKE) {
+            TypeFacts::TYPEOF_EQ_BIG_INT | (typeof_ne_all - TypeFacts::TYPEOF_NE_BIG_INT)
+        } else if flags.intersects(TypeFlags::BOOLEAN_LIKE) {
+            TypeFacts::TYPEOF_EQ_BOOLEAN | (typeof_ne_all - TypeFacts::TYPEOF_NE_BOOLEAN)
+        } else {
+            // Unreachable while the match above returns `both` for everything
+            // else; kept total rather than panicking, and kept SAFE.
+            both
+        };
+        truthiness | nullable_never | typeof_family
     }
 
     /// Whether a symbol is one upstream would narrow a reference to.

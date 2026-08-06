@@ -117,6 +117,18 @@ pub const MAX_DEPTH: usize = 100;
 pub enum Relation {
     /// Upstream's `c.assignableRelation`.
     Assignable,
+    /// Upstream's `c.subtypeRelation`. Added for `narrowTypeByTypeFacts`
+    /// (`bd tsr-q9g`); the simple arms carry upstream's three relation tests,
+    /// and the structural walk is shared with `Assignable` — a stated
+    /// divergence (`checker-notes-narrow.md` §6), reachable only for
+    /// structured constituents the narrowing shapes do not produce.
+    Subtype,
+    /// Upstream's `c.strictSubtypeRelation` — the relation
+    /// `narrowTypeByTypeFacts` filters constituents with. Differs from
+    /// [`Relation::Subtype`] in the simple arms only (an `any` source does not
+    /// relate to `unknown`, and an object source's relation to `object` is
+    /// freshness-gated upstream).
+    StrictSubtype,
 }
 
 /// One relation check, carrying the cache and the depth cap.
@@ -150,6 +162,22 @@ impl Checker<'_, '_> {
     #[must_use]
     pub fn is_type_assignable_to(&mut self, source: TypeId, target: TypeId) -> bool {
         self.is_type_related_to(source, target, Relation::Assignable)
+    }
+
+    /// Whether `source` is a subtype of `target`.
+    ///
+    /// Ported from `Checker.isTypeSubtypeOf` (`internal/checker/relater.go`);
+    /// the caller this exists for is `narrowTypeByTypeFacts` (`flow.go:687`).
+    #[must_use]
+    pub fn is_type_subtype_of(&mut self, source: TypeId, target: TypeId) -> bool {
+        self.is_type_related_to(source, target, Relation::Subtype)
+    }
+
+    /// Whether `source` is a strict subtype of `target` — the constituent
+    /// filter `narrowTypeByTypeFacts` runs.
+    #[must_use]
+    pub fn is_type_strict_subtype_of(&mut self, source: TypeId, target: TypeId) -> bool {
+        self.is_type_related_to(source, target, Relation::StrictSubtype)
     }
 
     /// Whether `source` and `target` stand in `relation`.
@@ -226,12 +254,13 @@ impl Relater<'_, '_, '_> {
         if t.intersects(TypeFlags::ANY) || s.intersects(TypeFlags::NEVER) {
             return true;
         }
-        // Upstream excludes `strictSubtypeRelation` with an `any` source here.
-        // Only the assignable relation is ported, so the exclusion cannot fire —
-        // matched rather than assumed, so that adding `Subtype` to [`Relation`]
-        // fails to compile here instead of silently taking the wrong branch.
-        let Relation::Assignable = self.relation;
-        if t.intersects(TypeFlags::UNKNOWN) {
+        // Upstream excludes `strictSubtypeRelation` with an `any` source here
+        // (`relater.go:212`) — `any` is assignable to `unknown` but not its
+        // strict subtype, which is what keeps an `any` constituent from
+        // surviving a `typeof` filter it should not survive.
+        if t.intersects(TypeFlags::UNKNOWN)
+            && !(matches!(self.relation, Relation::StrictSubtype) && s.intersects(TypeFlags::ANY))
+        {
             return true;
         }
         if t.intersects(TypeFlags::NEVER) {
@@ -263,20 +292,25 @@ impl Relater<'_, '_, '_> {
         if s.intersects(TypeFlags::NULL) && t.intersects(TypeFlags::NULL) {
             return true;
         }
-        // Upstream guards this with a `strictSubtypeRelation` exception for the
-        // empty anonymous object type; that relation is not ported.
+        // Upstream guards this with a `strictSubtypeRelation` exception for a
+        // stale empty anonymous object type (`relater.go:258`). This port has
+        // no object freshness and no `IsEmptyAnonymousObjectType`, so the
+        // exception is a stated divergence rather than an arm: `{}` relates to
+        // `object` under every relation here, which upstream denies only for
+        // `StrictSubtype` on that one shape.
         if s.intersects(TypeFlags::OBJECT) && t.intersects(TypeFlags::NON_PRIMITIVE) {
             return true;
         }
-        // The **assignable-only** arms. Upstream guards this block with
-        // `relation == c.assignableRelation || relation == c.comparableRelation`,
-        // which is exactly why `any` on the *source* side is not in the block
-        // above: `any -> string` is assignable but not a subtype, and folding
-        // the two would make the subtype relation wrong the day it is ported.
+        // The **assignable-only** arms (`relater.go:261`, `relation ==
+        // assignable || relation == comparable`). This gate is the whole
+        // reason `Subtype`/`StrictSubtype` exist as distinct variants:
+        // `any -> string` is assignable but not a subtype, and
+        // `narrowTypeByTypeFacts` counts on the difference to leave an `any`
+        // constituent alone.
         //
         // The enum arms in the same upstream block are not ported — there are no
         // enum types in this crate — so `number -> E` is a gap.
-        if s.intersects(TypeFlags::ANY) {
+        if matches!(self.relation, Relation::Assignable) && s.intersects(TypeFlags::ANY) {
             return true;
         }
         false
