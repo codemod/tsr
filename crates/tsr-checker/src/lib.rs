@@ -5,6 +5,14 @@
 //!
 //! # What exists today
 //!
+//! **STALE — do not size an item from this section.** The two lists below were
+//! written on the day `checker_types` read 0% and have not been maintained; at
+//! the time of writing this warning the gradient is 71.06% and most of "what
+//! does not exist" does. Only the assignability bullet has been corrected, and
+//! only because a stale reading of it cost a session (see
+//! `docs/architecture/checker-notes-assign.md` §1). `STATUS.md` is the
+//! authority on what is ported; `bd tsr-7wkn` is the bullet-by-bullet rewrite.
+//!
 //! **This crate is a foundation, not a checker.** Stated plainly because the
 //! difference matters to anyone reading the conformance table:
 //!
@@ -36,13 +44,16 @@
 //! - **No intersection, conditional or indexed-access types.** Unions exist
 //!   ([`unions`]), and with them `boolean` is what upstream makes it — the union
 //!   `false | true` — rather than an intrinsic.
-//! - **Assignability over primitives, literals, unions and intersections**
-//!   ([`relater`]), and nothing else in the relation family. Object types relate
-//!   only to themselves — structural comparison is not ported — so a `false`
-//!   from [`is_type_assignable_to`](Checker::is_type_assignable_to) between two
-//!   object types is a gap, not an answer. **Nothing calls it yet**: the
-//!   assignment reduction in [`flow`] and overload resolution in [`calls`] are
-//!   the two callers it was built for and both are still unported.
+//! - **Assignability** ([`relater`]) over primitives, literals, unions,
+//!   intersections **and object types, compared structurally** — the last
+//!   landed in `e24b7ca` and is exercised by
+//!   `tests/relater.rs::two_structurally_identical_interfaces_relate`. Both
+//!   callers it was built for now call it: the assignment reduction in [`flow`]
+//!   and overload resolution in [`calls`]. What remains is not the *comparison*
+//!   but its **trustworthiness**: a `false` between two object types may mean
+//!   "unrelated" or "this port could not tell", and the relation has no third
+//!   answer to distinguish them. That is why [`calls`]'s `SELECTABLE` still
+//!   excludes object types. See `docs/architecture/checker-notes-assign.md`.
 //! - **No inference, and no overload resolution.**
 //! - **Control-flow narrowing, but only the truthiness guards.** [`flow`]
 //!   walks the binder's flow graph, so `if (x)` drops the falsy constituents of

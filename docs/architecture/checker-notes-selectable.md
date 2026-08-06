@@ -1,5 +1,16 @@
 # `bd tsr-6v7` — widening `SELECTABLE` is blocked on assignability. REFUSED.
 
+> **Correction, sixth session.** The refusal stands and its numbers stand, but
+> the reason quoted below — *"`relater.rs` says in its own module doc that two
+> distinct object types answer `false` because structural comparison is
+> narrow"* — cited a doc that was already stale. Structural comparison of object
+> types **is** ported (`e24b7ca`, 387 commits before this file was written). The
+> correct reason is that the relation has no way to say *"I could not tell"*, so
+> a `false` between object types is still untrustworthy — for six enumerated
+> reasons, none of which is "structural comparison is missing". See
+> `checker-notes-assign.md` §1 and §2. What would overturn the refusal is
+> therefore `bd tsr-kmzf` (a third answer), not structural comparison.
+
 Fifth session, `examples/selectable.rs`. C1 = 0, C2 exact.
 
 `examples/callgate.rs` measured overload selection's own population at 1,095
