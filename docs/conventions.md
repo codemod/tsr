@@ -2775,3 +2775,53 @@ candidate set is a **wrong rule**, not a bad trade, and a rule is not priced.
 > failure mode was manufacturing a specific wrong answer rather than trading
 > badly. Pick the bar's *shape* from how the mechanism can fail, not from what
 > the last build used.
+
+### A crate-level "what exists today" list is a claim with no test, and it misled the lead
+
+`STATUS.md` §4.3b was written this session, from three independent
+measurements, and its central sentence was **false**: *"`relater.rs` compares
+object types only to themselves"*. Structural comparison of object types had
+landed at `e24b7ca` — **387 commits earlier, and an ancestor of the very commit
+that wrote the claim.**
+
+The measurements were fine. `selectable.rs`'s 303 object-parameter lines are
+real, and they really are blocked. What was wrong was the *diagnosis*, and it
+came from `crates/tsr-checker/src/lib.rs`'s crate doc, still frozen at the day
+`checker_types` read 0% — "No inference, and no overload resolution", "Nothing
+calls it yet", "only the truthiness guards", under the heading "Why
+`checker_types` still reads 0%".
+
+This document already records four stale comments outliving their truth in one
+session, and a fifth in `members.rs`. This is a sixth, and it is worse than the
+others in one specific way:
+
+> **A crate-level inventory is the one doc every item touches and no item
+> owns.** A stale comment beside a function misleads whoever edits that
+> function. A stale "what exists today" list misleads whoever is deciding *what
+> to build next* — and it does so at exactly the moment nobody is reading the
+> code, because the point of the list is to avoid having to.
+
+Two properties made it survive 380 commits: it carried **no date and no
+gradient**, so no reader could tell it was describing a different compiler; and
+it is prose, so no gate could contradict it — `anchors` checks citations,
+`issue-ids` checks issue references, and nothing checks an inventory.
+
+The rules that follow:
+
+- **An inventory doc carries the commit and the number it was true at**, the
+  same rule `STATUS.md` runs on. Without them it is unfalsifiable.
+- **`STATUS.md` §3 is the only inventory**; every other "what exists" list
+  links to it rather than restating it. `lib.rs` now carries a STALE banner
+  saying so.
+- **Before sizing an item on "X is unported", grep for X.** The cost here was
+  one agent-session of forensics; the cost of the grep is one command. This
+  document already says a prerequisite stated in a comment is a *hypothesis* —
+  that rule was written about a comment claiming what **upstream** requires,
+  and it applies at least as strongly to a comment claiming what **this port**
+  has.
+
+The finding underneath is worth more than the correction: the relation exists
+and cannot say *"I could not tell"*, so decidability is a property of the
+**pair**, not of either type. That is why no widening of a flag set like
+`SELECTABLE` could ever have worked, and it retargets the item from "port a
+relation" to "make the relation three-valued" (`bd tsr-kmzf`).

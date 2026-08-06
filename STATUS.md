@@ -243,31 +243,50 @@ and the band puts a realistic ceiling for the whole family near **+0.6 to +2.5
 points**. Call resolution is the largest *family* on the board and it is not a
 double-digit item. The three mechanisms it decomposes into are scored above.
 
-### 4.3b Structural assignability is the single highest-leverage unported thing
+### 4.3b ~~Structural assignability is unported~~ — **CORRECTED, same session**
 
-Measured this session, from three independent directions that all end at the
-same relation. `relater.rs` compares object types only to themselves, and its
-own module doc says a `false` between two distinct object types means
-"comparison is narrow", not "unrelated".
+> **This section was WRONG when first written, hours earlier in this same
+> session, and it is corrected rather than edited away.** It claimed
+> *"`relater.rs` compares object types only to themselves"*. Structural
+> comparison of object types landed at **`e24b7ca`**, *387 commits before this
+> section was written* and an ancestor of the commit that wrote it:
+> `properties_related_to` / `property_names_of` / `collect_property_names` walk
+> every property of the target, own and inherited over base symbols, and six of
+> `tests/relater.rs`'s eighteen tests assert it. Verified against the code, not
+> taken on report.
+>
+> **The source of the error was `crates/tsr-checker/src/lib.rs`'s crate doc**,
+> frozen at the day `checker_types` read 0% and still saying "Object types
+> relate only to themselves — structural comparison is not ported", under a
+> heading "Why `checker_types` still reads 0%". It was quoted here in good
+> faith. `bd tsr-7wkn`; the file now carries a STALE banner naming this page as
+> the authority.
 
-| dependent | lines | measured by |
-|---|---:|---|
-| overload selection's `SELECTABLE` gate | **303** of 492 | `selectable.rs` — 62% of what the gate excludes is object parameters |
-| the `Named`-callee remainder's disagreeing overload sets | 48 | `namedcallee.rs` |
-| unions and intersections in the same gate | 44 | `selectable.rs` |
-| `\|\|` / `??` (`UnionReductionSubtype`) | 358 + 96 | §5, standing |
-| `removeSubtypes` | ~500 | §5, standing |
-| destructuring defaults (annotation-less) | 155 | `checker-notes-destructure.md` §3 |
-| `ArrayLiteral` own-root row | 604 | §5, standing |
+**The numbers survive; the diagnosis does not.** The seven dependents are real
+and still blocked — `selectable.rs`'s 303 object-parameter lines and 44 union
+lines, `namedcallee.rs`'s 48 disagreeing overload sets, `||`/`??`'s 358 + 96,
+`removeSubtypes`, the destructuring defaults, the `ArrayLiteral` row. What
+blocks them is **not a missing relation**. It is that the relation cannot say
+*"I could not tell"*.
 
-**~2,100 lines across seven items, none of which is buildable without it**, and
-three of the seven were refused *this session* on grounds that reduce to it.
-That is a different shape from the rest of the board: it is one relation with
-many dependents rather than many rows with one cause each.
+`checker-notes-assign.md` §2 names six sites that answer `false` without
+knowing — an unfollowable base, an absent property whose counterpart may be
+optional, either side lacking a members table (function and index-signature
+types never reach the structural arm at all), the depth cap, generic member
+types, and signature-bearing types. The last is the load-bearing one: for
+signature-bearing types the relation is unsound **in both directions at once**,
+so *no per-type flag predicate can separate the trustworthy pairs from the
+rest*. **Decidability is a property of the pair, not of either type** — which
+is precisely why widening `SELECTABLE` with more flags cannot work, and
+`checker-notes-selectable.md`'s refusal stands on better grounds than the ones
+it was written with.
 
-It is also the reason the board keeps producing measured refusals rather than
-builds — five rows dissolved this session, and the recurring sentence in each
-is some form of "the mechanism is fine, the relation underneath it is not".
+So the real item is a **three-valued relation** — `Related` / `NotRelated` /
+`Unknown`, Kleene logic through the composite arms — and its first step is
+cheap: re-run `selectable.rs` with a decidability predicate and count how many
+of the 303 a ternary actually decides. `bd tsr-kmzf`, bar registered
+**unmeasured** in `checker-notes-assign.md` §3, with the falsifier flagged as
+the likely outcome.
 
 ### 4.4 What the scores say about 80%
 
