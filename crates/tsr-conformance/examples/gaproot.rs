@@ -297,6 +297,14 @@ struct CaseReport {
     /// The `RIGHT` arm only, by receiver kind, so the work items inside it are
     /// separable exactly as they were in Part 2.
     access_right_family: HashMap<&'static str, usize>,
+    /// **The cross-file merge split.** For `RIGHT`-arm lines whose receiver is a
+    /// plain named type: does a global of that name have declarations in more
+    /// than one **file**?
+    ///
+    /// This is the pass the naming agent specified, and it is the one that says
+    /// whether the merge asymmetry is a large item or a small one. Keyed by the
+    /// verdict; unit is gap assertion lines.
+    merge_split: HashMap<&'static str, usize>,
     roots: HashMap<(Root, String), Tally>,
     depth_hist: BTreeMap<usize, usize>,
     /// How many *distinct top-level* gapped children a span step chose from. 1
@@ -717,6 +725,12 @@ fn walk(
             *report.access_right_by_case.entry(case_name.to_string()).or_default() += 1;
             *report.access_right_rhs.entry(want_type.to_string()).or_default() += 1;
             *report.access_right_family.entry(family).or_default() += 1;
+            if family.starts_with("named / other") {
+                *report
+                    .merge_split
+                    .entry(merge_verdict(checker, bound, nodes, map, line_ids[start]))
+                    .or_default() += 1;
+            }
         }
     }
     // **RULE-2's B1**, read at the root rather than at the line: is the access
@@ -861,6 +875,58 @@ fn receiver_fidelity(
         ("receiver typed as upstream types it", Some(checker.type_to_string(receiver_type)))
     } else {
         ("receiver typed DIFFERENTLY", None)
+    }
+}
+
+/// Is the receiver's named type an interface declared in **more than one
+/// file**? — the cross-file merge split.
+///
+/// The test is on the printed type name looked up in `globals()`, which is the
+/// table `merge_globals` writes into, and then on the **files** its
+/// declarations live in. Two declarations in one file are an ordinary
+/// same-file merge and are not this item; two in two files are.
+///
+/// **This is an approximation and its direction is stated rather than implied.**
+/// It can only see receivers whose printed type is a bare global name, so it
+/// **undercounts** — a receiver typed through a local alias or a namespace
+/// member is missed entirely. It cannot overcount: a name with declarations in
+/// two files really does have them.
+fn merge_verdict(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    access: NodeId,
+) -> &'static str {
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return "not an access";
+    };
+    let Some(receiver) = node.expression else { return "no receiver" };
+    let receiver_type = checker.check_expression(receiver);
+    let printed = checker.type_to_string(receiver_type);
+    let Some(&symbol) = bound.globals().get(printed.as_str()) else {
+        return "receiver's type is not a global name (undercount: aliases, namespace members)";
+    };
+    let files: std::collections::BTreeSet<NodeId> = bound
+        .symbols()
+        .get(symbol)
+        .declarations
+        .iter()
+        .filter_map(|&declaration| {
+            let mut current = Some(declaration);
+            while let Some(id) = current {
+                if nodes.kind(id) == SyntaxKind::SourceFile {
+                    return Some(id);
+                }
+                current = nodes.parent(id);
+            }
+            None
+        })
+        .collect();
+    if files.len() > 1 {
+        "MERGED ACROSS FILES — the getMergedSymbol item"
+    } else {
+        "declared in one file — not the merge item"
     }
 }
 
@@ -1495,6 +1561,20 @@ fn report(reports: &[CaseReport]) {
     family_ranked.sort_unstable_by(|a, b| b.cmp(a));
     for (n, family) in family_ranked {
         println!("      {n:>7} {:>7.2}%  {family}", pct(n, right_total));
+    }
+
+    println!("\n  THE CROSS-FILE MERGE SPLIT — `named / other` receivers only (unit: gap lines):");
+    let mut merge: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (verdict, n) in &case.merge_split {
+            *merge.entry(verdict).or_default() += n;
+        }
+    }
+    let merge_total: usize = merge.values().sum();
+    let mut merge_rows: Vec<_> = merge.iter().map(|(v, n)| (*n, *v)).collect();
+    merge_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, verdict) in merge_rows {
+        println!("      {n:>7} {:>7.2}%  {verdict}", pct(n, merge_total));
     }
 
     println!("\n## CONTROLS — what pins each\n");

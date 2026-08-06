@@ -893,6 +893,109 @@ commit is a tripwire, not an invariant.** The fix is not fresher constants — i
 is finding the sub-quantity the two instruments must agree on *by construction*,
 and letting the rest be a printed measurement.
 
+---
+
+# Part 4 — the cross-file merge item changed owner twice, and it is 702 lines
+
+Measured at **`5eb252c`**. No rule is registered for this section because
+**nothing was built and nothing could be**: the section is a reproduction, a
+re-diagnosis and a size, and the boundary was found before any threshold could
+matter.
+
+## The premise, corrected twice
+
+`bd tsr-9or.1` was briefed as *"the globals are never merged across files"*.
+Then, corrected by the naming agent, as *"the binder merges them; the lookup
+that answers `false` is downstream of both — in `get_property_of_type`, in
+`members.rs`. Yours."*
+
+**The first is wrong and the second is wrong**, and
+`crates/tsr-checker/tests/members_cross_file_merge.rs` is the reproduction that
+shows both.
+
+| asked how | file `a`'s member | file `b`'s member |
+|---|---|---|
+| through `globals()` — the merge **target** | found | found |
+| from a reference **in file `a`** | found | found |
+| from a reference **in file `b`** | **NOT found** | found |
+
+Two script files, each `interface I` with one property. The binder's merged
+table holds both — the first briefing is refuted by the first row. And the
+lookup is not wrong either: it is handed a **different symbol**.
+
+`merge_symbol` (`binder.rs:630`) unions `source` into `target` and **records no
+link back**. `grep` for `merge_id`, `merged_symbol` or `mergeId` across the
+binder and the checker returns **nothing**. So a reference inside the *source's*
+file resolves through `resolve_name` → `lookup_local`, reaches the **source**
+symbol, and that symbol's members table legitimately holds only its own file's
+members. `get_property_of_type` answers correctly for the symbol it was given.
+
+Upstream's mechanism is **`getMergedSymbol`** (`checker.go:14355`, from `grep -n`
+on the declaration), backed by a `mergedSymbols` source→target map and applied
+at every symbol read. This port has neither the map nor the redirect.
+
+**So the ownership conclusion is stronger than "not mine".** The information the
+fix needs *does not exist outside the binder*. There is no version of it that
+can be written in `members.rs` — not a partial one, not a local one — because
+nothing anywhere connects symbol `b-I` to symbol `a-I`. This is not a case of
+declining to build half a mechanism; it is a case where half a mechanism is
+unreachable.
+
+## Sized, as an interval, and the ~2,936 is withdrawn
+
+**Do not carry ~2,936 forward.** It was my own `named / other` root-blocked
+figure from Part 2's B1 split and it conflates several causes. Measured directly
+over the `RIGHT` arm's 2,599 named-receiver lines. Unit: **gap assertion lines**.
+
+| verdict | lines | share |
+|---|---:|---:|
+| **MERGED ACROSS FILES — the `getMergedSymbol` item** | **702** | 27.01% |
+| declared in one file — **not** this item | 494 | 19.01% |
+| receiver's type is not a bare global name — **unmeasured** | 1,403 | 53.98% |
+
+The test looks the printed type name up in `globals()` and then asks which
+**files** its declarations live in. **It undercounts by construction** — a
+receiver typed through a local alias or a namespace member is invisible to it —
+**and it cannot overcount**, because a name with declarations in two files
+really has them.
+
+**So the size is the interval [702, 2,105]**: 702 measured, 494 positively
+excluded, and the 1,403 unmeasured bounded above by the arm itself. Quote the
+floor and the interval; there is no point estimate inside it that this
+measurement supports. That is the same discipline as `e6ab9c9` — **the error bar
+belongs on the leg that is inferred**, and here the inferred leg is the 1,403,
+so the interval is asymmetric and open upward rather than a tidy ± around 702.
+
+## Sequencing, and a premise of the handover I have to correct
+
+The handover says *"you are in `get_type_of_property_of_type` for the generics
+seam"*. **I am not.** Part 3 refused `tsr-4qx` and handed it back — steps 3 and
+4 are both `declared.rs` — so there is nothing of mine in that call path to
+collide with, and no conflict to sequence.
+
+The two items *do* land in the same lookup, and both are in files this
+workstream does not own:
+
+| item | what it changes | file |
+|---|---|---|
+| `tsr-4qx` | **what** the symbol's type carries (instantiated members) | `declared.rs` |
+| `getMergedSymbol` | **which** symbol the lookup receives | the binder |
+
+They are independent — one is the argument, the other the answer — but they will
+both be measured through `get_property_of_type`, so a before/after pair for
+either must name which one moved.
+
+## And the renderer question, asked before it was needed
+
+`c592d0f` says half a mechanism renders the collateral of the half you built.
+Asked of this item: what would print the members it unblocks? They are ordinary
+interface properties — `a: string`, `b: number` — whose types are written
+annotations, so the renderer involved is the same one already printing them in
+their own file. **That is a materially lower risk than the generics seam**,
+whose unblocked members are instantiated types handed to a printer nobody has
+checked. Recorded here because the question is cheap and the answer differs
+sharply between two items that look adjacent.
+
 ## Everything filed from this page
 
 | id | what | sized as |
