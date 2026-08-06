@@ -998,7 +998,11 @@ impl Checker<'_, '_> {
     ///
     /// A non-union either survives whole or becomes `never`, which is upstream's
     /// behaviour and is what makes `if (x)` on a plain `undefined` give `never`.
-    fn filter_type(&mut self, t: TypeId, predicate: impl Fn(&Self, TypeId) -> bool) -> TypeId {
+    pub(crate) fn filter_type(
+        &mut self,
+        t: TypeId,
+        predicate: impl Fn(&Self, TypeId) -> bool,
+    ) -> TypeId {
         let constituents: Option<Vec<TypeId>> = match &self.store.get(t).data {
             TypeData::Union { types, .. } => Some(types.clone()),
             _ => None,

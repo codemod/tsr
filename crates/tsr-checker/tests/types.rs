@@ -1717,10 +1717,36 @@ fn an_element_access_this_slice_cannot_resolve_is_a_gap() {
         type_of_declaration("declare const a: { b: number };\nconst x = a[\"c\"];", "x"),
         "error"
     );
-    // An optional chain is unported.
+    // This assertion said "an optional chain is unported" and asserted
+    // `error` until the `checker-notes-nnaccess.md` build. The chain now
+    // computes; the expectations are `elementAccessChain.types` verbatim:
+    //   o1?.["b"];   >o1?.["b"] : string | undefined   (o1: { b: string } | undefined)
+    // and a chain on a NON-nullable receiver strips nothing, so no
+    // `undefined` joins (`propagateOptionalTypeMarker`'s `wasOptional` is
+    // false).
+    assert_eq!(
+        type_of_declaration(
+            "declare const o1: undefined | { b: string };\nconst x = o1?.[\"b\"];",
+            "x"
+        ),
+        "string | undefined"
+    );
     assert_eq!(
         type_of_declaration("declare const a: { b: number };\nconst x = a?.[\"b\"];", "x"),
-        "error"
+        "number"
+    );
+    // A PLAIN access on a nullable receiver strips without rejoining
+    // `undefined` — the TS2532 report is a diagnostic, not the type answer.
+    // `compiler/narrowingOfQualifiedNames.types` pins the semantics:
+    // `>foo.a.b.c : string | undefined` where `foo.a.b` is
+    // `{ c?: string; } | undefined` — the `undefined` in the answer is `c`'s
+    // own optionality, not the receiver's, which the stripped lookup shows.
+    assert_eq!(
+        type_of_declaration(
+            "declare const r: { b: string } | undefined;\nconst x = r[\"b\"];",
+            "x"
+        ),
+        "string"
     );
     // A receiver we cannot type takes the access with it.
     assert_eq!(type_of_declaration("const x = unknownThing[\"b\"];", "x"), "error");

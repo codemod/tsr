@@ -59,3 +59,31 @@ mixes chains with flow narrowing. If its lines convert to *wrong* rather than
 right — the access answers, then the narrow this port lacks flips the line —
 leg 4 fires concentrated in that one case, and the item's real owner is
 narrowing, not access.
+
+## 4. Scored — all four legs pass, and the falsifier fired as designed
+
+`casedelta`/`wrongdelta` over the pair at the `t[0]` commit:
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ 200 | **+590**, 0 lost | pass |
+| 2 | lost == 0 | 0 | pass |
+| 3 | 0 case regressions | 0 | pass |
+| 4 | gained ≥ 3 × new wrong | **590 vs 129 = 4.6×** | pass |
+
+Conversion ran **86% of the sized 683** — above the band, as §3 predicted for
+a population conditioned on the receiver typing.
+
+**The §3 falsifier fired exactly as named**: 106 of the 129 new wrong lines
+sit in `controlFlowOptionalChain`, and their shape is the predicted one —
+want `42` / `"abc"` (the narrow upstream applies *after* the access), got the
+un-narrowed lookup result (`string | number`). The access arm is right; the
+owner is the flow matcher, which does not treat an optional-chain access as a
+matching reference form. Filed as `bd tsr-97d` with the per-case split, so
+the 106 lines are attributed the day they are converted rather than
+re-diagnosed.
+
+Two mutations bite disjointly (never-propagate-the-marker; disable-the-strip)
+and are restored; the expectations in `tests/types.rs` are
+`elementAccessChain.types` and `narrowingOfQualifiedNames.types` verbatim,
+including the pair rule for the plain-nullable and non-nullable-chain forms.

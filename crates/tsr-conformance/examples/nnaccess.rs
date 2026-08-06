@@ -116,11 +116,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                                 tsr_ast::MemberName::PrivateIdentifier(i) => i.node_id,
                             }) == Some(id) =>
                         {
-                            (
-                                "member name",
-                                access.expression,
-                                access.question_dot_token.is_some(),
-                            )
+                            ("member name", access.expression, access.question_dot_token.is_some())
                         }
                         _ => continue,
                     }
@@ -139,10 +135,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             if types_producer::type_id_at_location(&mut checker, bound, nodes, map, id) != error {
                 report.c1_not_gap += 1;
             }
-            let form = format!(
-                "{access_kind}{}",
-                if optional { " (optional chain)" } else { "" }
-            );
+            let form = format!("{access_kind}{}", if optional { " (optional chain)" } else { "" });
             let wants_any = want.text.rsplit_once(" : ").is_some_and(|(_, answer)| answer == "any");
             if wants_any {
                 *report.wants_any.entry(form.clone()).or_default() += 1;

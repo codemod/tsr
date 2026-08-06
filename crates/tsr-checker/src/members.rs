@@ -59,7 +59,143 @@ impl Checker<'_, '_> {
             return error;
         };
         let receiver_type = self.check_expression(receiver);
-        self.access_member_lookup(receiver_type, name.text, node.node_id)
+        if receiver_type == error {
+            return error;
+        }
+        // `checkPropertyAccessExpression` hands `checkNonNullExpression(expr)`
+        // to the lookup (`checker.go:11258`), and a chain link goes through
+        // `checkPropertyAccessChain` (`checker.go:11253`) — the receiver is
+        // stripped of `null`/`undefined` (the "possibly undefined" report is a
+        // *diagnostic*, a channel this port does not have — ADR-0040), the
+        // lookup and flow narrowing run on the remainder, and
+        // `propagateOptionalTypeMarker` (`checker.go:29082`) unions
+        // `undefined` back in when `?.` stripped anything.
+        // `docs/architecture/checker-notes-nnaccess.md`.
+        let non_optional = self.get_optional_expression_type(
+            receiver_type,
+            receiver.node_id(),
+            node.question_dot_token.is_some(),
+        );
+        let stripped = self.check_non_null_type(non_optional);
+        if stripped == error {
+            return error;
+        }
+        let result = self.access_member_lookup(stripped, name.text, node.node_id);
+        if result == error {
+            return error;
+        }
+        self.propagate_optional_type_marker(result, non_optional != receiver_type)
+    }
+
+    /// `checkNonNullType` (`checker.go:7409`), without the diagnostics: an
+    /// `unknown` receiver is `errorType` in strict mode; a nullable one is
+    /// answered by its non-nullable remainder; a remainder that is itself
+    /// nullable or `never` refuses.
+    pub(crate) fn check_non_null_type(&mut self, id: TypeId) -> TypeId {
+        let error = self.intrinsics.error;
+        if self.store.get(id).flags.intersects(crate::flags::TypeFlags::UNKNOWN) {
+            return error;
+        }
+        let non_nullable = self.get_non_nullable_type(id);
+        if non_nullable == id {
+            return id;
+        }
+        let flags = self.store.get(non_nullable).flags;
+        if flags.intersects(crate::flags::TypeFlags::NULLABLE.union(crate::flags::TypeFlags::NEVER))
+        {
+            return error;
+        }
+        non_nullable
+    }
+
+    /// `GetNonNullableType` (`checker.go:18663`): the `NEUndefinedOrNull`
+    /// facts filter, which for the shapes this port builds is the flag test —
+    /// a `null`/`undefined` constituent carries `TypeFlags::NULLABLE` and
+    /// nothing else does.
+    pub(crate) fn get_non_nullable_type(&mut self, id: TypeId) -> TypeId {
+        self.filter_type(id, |checker, constituent| {
+            !checker.store.get(constituent).flags.intersects(crate::flags::TypeFlags::NULLABLE)
+        })
+    }
+
+    /// `getOptionalExpressionType` (`checker.go:29064`): a chain **root**
+    /// strips nullable outright; an inner link removes the propagated marker.
+    ///
+    /// Upstream's marker is `optionalType`, an `undefined` distinct from the
+    /// real one; this port has one `undefined`, and the divergence is owned in
+    /// `checker-notes-nnaccess.md` §2 — the type answers coincide because
+    /// upstream's own `checkNonNullType` strips a genuine `undefined` on the
+    /// same path.
+    pub(crate) fn get_optional_expression_type(
+        &mut self,
+        expression_type: TypeId,
+        receiver: Option<tsr_ast::NodeId>,
+        node_is_chain_root: bool,
+    ) -> TypeId {
+        if node_is_chain_root {
+            return self.get_non_nullable_type(expression_type);
+        }
+        if receiver.is_some_and(|id| self.expression_is_optional_chain(id)) {
+            return self.filter_type(expression_type, |checker, constituent| {
+                !checker.store.get(constituent).flags.intersects(crate::flags::TypeFlags::UNDEFINED)
+            });
+        }
+        expression_type
+    }
+
+    /// `propagateOptionalTypeMarker` (`checker.go:29082`): when the chain
+    /// stripped anything, `undefined` joins the result. Upstream distinguishes
+    /// the outermost link (`getOptionalType`, a real `undefined`) from an
+    /// inner one (the marker); with one `undefined` the two are the same
+    /// union.
+    pub(crate) fn propagate_optional_type_marker(
+        &mut self,
+        id: TypeId,
+        was_optional: bool,
+    ) -> TypeId {
+        if !was_optional {
+            return id;
+        }
+        let undefined = self.intrinsics.undefined;
+        self.get_union_type(&[id, undefined])
+    }
+
+    /// Whether this expression is a link of an optional chain: it, or an
+    /// access/call/non-null assertion on its receiver spine, carries `?.`.
+    /// Upstream stores this as `NodeFlagsOptionalChain`, stamped by the
+    /// parser; this port derives it by walking the spine, which a parenthesis
+    /// deliberately breaks — `(a?.b).c` is not a chain link, exactly as
+    /// upstream's flag propagation stops at the parenthesis.
+    fn expression_is_optional_chain(&self, id: tsr_ast::NodeId) -> bool {
+        let mut current = id;
+        loop {
+            let next = match self.node_map.get(current) {
+                Some(Node::PropertyAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    access.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::ElementAccessExpression(access)) => {
+                    if access.question_dot_token.is_some() {
+                        return true;
+                    }
+                    access.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::CallExpression(call)) => {
+                    if call.question_dot_token.is_some() {
+                        return true;
+                    }
+                    call.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::NonNullExpression(assertion)) => {
+                    assertion.expression.and_then(|e| e.node_id())
+                }
+                _ => return false,
+            };
+            let Some(next) = next else { return false };
+            current = next;
+        }
     }
 
     /// Ported from `Checker.checkQualifiedName` (`checker.go:8122`), which is
@@ -87,6 +223,9 @@ impl Checker<'_, '_> {
             }
             tsr_ast::EntityName::QualifiedName(inner) => self.check_qualified_name(inner),
         };
+        // `checkQualifiedName` routes the left through `checkNonNullExpression`
+        // (`checker.go:8127`) exactly as a property access does its receiver.
+        let left_type = self.check_non_null_type(left_type);
         self.access_member_lookup(left_type, right.text, node.node_id)
     }
 

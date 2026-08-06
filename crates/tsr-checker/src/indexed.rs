@@ -67,7 +67,7 @@ impl Checker<'_, '_> {
         &mut self,
         node: &ElementAccessExpression<'_>,
     ) -> TypeId {
-        let computed = self.check_element_access_type(node);
+        let (computed, was_optional) = self.check_element_access_type(node);
         // The flow narrowing `checkIndexedAccess` ends with, the same call
         // `crate::members` makes for `a.b` — `bd tsr-6ka`. Split into a wrapper
         // rather than threaded through the six early returns below, because
@@ -81,25 +81,56 @@ impl Checker<'_, '_> {
             return computed;
         }
         let Some(id) = node.node_id else { return computed };
-        self.get_flow_type_of_reference(id, None, computed)
+        let narrowed = self.get_flow_type_of_reference(id, None, computed);
+        // `checkElementAccessChain` wraps the whole access — flow narrowing
+        // included — in `propagateOptionalTypeMarker` (`checker.go:8140`),
+        // the same ordering as the property-access twin.
+        self.propagate_optional_type_marker(narrowed, was_optional)
     }
 
-    /// The type `a[b]` computes before flow narrowing.
-    fn check_element_access_type(&mut self, node: &ElementAccessExpression<'_>) -> TypeId {
+    /// The type `a[b]` computes before flow narrowing, and whether an
+    /// optional chain stripped anything on the way (the marker
+    /// `check_element_access_expression` propagates).
+    fn check_element_access_type(&mut self, node: &ElementAccessExpression<'_>) -> (TypeId, bool) {
         let error = self.intrinsics.error;
-        if node.question_dot_token.is_some() {
-            return error;
-        }
         let (Some(receiver), Some(index)) = (node.expression, node.argument_expression) else {
-            return error;
+            return (error, false);
         };
         let object_type = self.check_expression(receiver);
         // Upstream returns the object type when it is `errorType`
         // (`checker.go:8154`), which is the same answer by identity — an
         // unreachable receiver takes the access with it.
         if object_type == error {
-            return error;
+            return (error, false);
         }
+        // The nullable-receiver strip and the chain marker — the same trio a
+        // property access runs (`checker-notes-nnaccess.md`): `?.` strips at
+        // the root, an inner link removes the marker, the lookup runs on
+        // `checkNonNullType`'s remainder.
+        let non_optional = self.get_optional_expression_type(
+            object_type,
+            receiver.node_id(),
+            node.question_dot_token.is_some(),
+        );
+        let stripped = self.check_non_null_type(non_optional);
+        if stripped == error {
+            return (error, false);
+        }
+        let was_optional = non_optional != object_type;
+        let object_type = stripped;
+        (self.element_access_lookup(node, object_type, index), was_optional)
+    }
+
+    /// The lookup half: the index type against the receiver's properties and
+    /// index signatures.
+    fn element_access_lookup(
+        &mut self,
+        node: &ElementAccessExpression<'_>,
+        object_type: TypeId,
+        index: tsr_ast::Expression<'_>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let _ = node;
         let index_type = self.check_expression(index);
         // An `any` receiver makes the access `any`, whatever the index.
         //

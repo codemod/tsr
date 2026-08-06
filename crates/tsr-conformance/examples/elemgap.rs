@@ -134,7 +134,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             // downstream symptom (§4.3's rule — not this row's item), where a
             // lookup that finds nothing needs either members this port has not
             // built or an index signature it has not applied.
-            let cause = if receiver_shape == "other receiver"
+            let miss_cause = if receiver_shape == "other receiver"
                 && (index_shape == "string literal" || index_shape == "numeric literal")
             {
                 let name = index_text.trim_matches('"').to_string();
@@ -146,7 +146,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             } else {
                 ""
             };
-            let form = format!("{receiver_shape} [{index_shape}]{cause}");
+            let form = format!("{receiver_shape} [{index_shape}]{miss_cause}");
             let wants_any = want.text.rsplit_once(" : ").is_some_and(|(_, answer)| answer == "any");
             if wants_any {
                 *report.wants_any.entry(form.clone()).or_default() += 1;
