@@ -723,6 +723,176 @@ is to size it over the board rather than over a row.
 > a type-parameter→argument mapping and that is what `type_parameter_types`
 > builds.
 
+## RESULTS — Part 3
+
+*(Nothing above this line was edited after the run.)*
+
+Measured at **`5eb252c`** (`main` at 62.49%, 2,259 cases). Gradient: **299,291
+right / 131,950 gap / 37,659 wrong / 10,054 unaligned**.
+
+### P1 — the property-access population, and the prediction held
+
+Unit: **gap assertion lines**. `|P|` is every gap line whose **node kind** is
+`PropertyAccessExpression`; the kind is a property of the AST, so `|P|` cannot
+move under what is being measured.
+
+| arm | lines | share |
+|---|---:|---:|
+| `gapped` — the receiver is itself a gap; **symptom** | 8,241 | 56.10% |
+| **`RIGHT` — we hold upstream's own type and cannot look the member up** | **5,441** | **37.04%** |
+| `wrong` — the receiver is confidently wrong; **symptom** | 999 | 6.80% |
+| `not rendered` — the default arm | 8 | 0.05% |
+| **TOTAL** | **14,689** | |
+
+`checker-notes-wrong.md`'s addendum reads **15,215** for this kind at `f67b8e5`;
+this reads 14,689 at `5eb252c`. The 526-line difference is the corpus moving
+between the two commits — this session's `getApparentType` slice alone converted
+976 lines, most of them in this very population. **Two instruments, two commits,
+and the difference is in the direction and of the order the intervening work
+predicts.**
+
+| RULE-3 leg | threshold | measured | verdict |
+|---|---|---:|---|
+| **P1a** size | ≥ 2,000 | **5,441** | **PASS** |
+| **P1b** concentration | top-1 ≤ 40%, top-10 ≤ 90% | **6.8%** / 30.9%, over **1,123 cases** | **PASS** |
+| **P1c** spellability | `any` ≤ 25%, unnameable ≤ 25% | **10.3%** / **1.7%** | **PASS** |
+
+**The prediction registered before the run was 3,000–6,000. It came in at
+5,441.** For contrast, `ElementAccessExpression`'s equivalent arm is 786 of
+13,141 (6.0%) — this population's `RIGHT` share is **six times** that, and the
+reason predicted in advance is the right one: that population is 76% TS2563 and
+this one has **zero** TS2563 exposure.
+
+**5,441 lines, 1,123 cases, top-1 6.8%, 1.7% unnameable — this is the least
+concentrated large actionable population measured on this board**, and it is
+5.6× the slice that landed this session.
+
+### But it is not one work item either, and the split names four owners
+
+The `RIGHT` arm by receiver kind. Unit: **gap assertion lines**.
+
+| receiver kind | lines | share of `RIGHT` | owner |
+|---|---:|---:|---|
+| named / other — an interface whose member we did not find | **2,599** | **47.77%** | mixed; `SymbolConstructor` is `bd tsr-9or.1` |
+| `this` — the `this` type | 1,165 | 21.41% | not ported |
+| instantiated generic | 958 | 17.61% | `bd tsr-4qx` |
+| array (`Array<T>`'s members) | 358 | 6.58% | `bd tsr-4qx` |
+| union / intersection | 295 | 5.42% | `intersections.rs` (mine) |
+| primitive + literals | 66 | 1.21% | **`members.rs` — and this is the residue of the slice already landed** |
+
+The primitive bucket is down to 66 lines from 1,165, which is the same fact as
+Part 2's corpus result seen from the population side, and is the cleanest
+confirmation available that the slice did what it was sized to do.
+
+**The lesson repeats at a third scale.** 24,072 → 14,689 gap → 5,441 actionable
+→ 2,599 in the largest single sub-item. Every time this board has offered a
+large number, the number has been a sum over owners. `docs/conventions.md`'s
+*"a row named after a node kind is usually not about that node kind"* is now
+measured three times on three populations.
+
+### P2 — `tsr-4qx` re-derived on lines: the size passes and the boundary fails
+
+**P2a — size, on the line gradient.** Gap lines blocked by a receiver that is an
+instantiated generic or an array, at `5eb252c`, unit gap assertion lines:
+
+| receiver kind | lines blocked |
+|---|---:|
+| instantiated generic | 3,896 |
+| array | 1,265 |
+| **total** | **5,161** |
+
+Threshold ≥ 2,000: **PASS**, by 2.6×. The parked case-gate verdict — *"of the
+225 affected cases, ZERO have nothing else failing"* — is true and is **not**
+what refuses this on the line axis. `cad4a4c` is right about that.
+
+**P2b — the seam is landable in files I own: FAIL. And the boundary is not the
+file that was flagged.**
+
+Traced, function by function:
+
+| step | what it needs | where it lives | mine? |
+|---|---|---|---|
+| 1. add `get_type_of_property_of_type` | — | `members.rs:145` | **already done** (`8fa6a3e`) |
+| 2. route `indexed.rs`, `relater.rs` through it | — | `indexed.rs:122`, `relater.rs:403-404` | **already done** |
+| 3. instantiate inside the seam | `instantiate_type` | `inference.rs:262`, **`pub(crate)`** | **callable — not a boundary** |
+| 3. …and the type-parameter list for a class/interface | `local_type_parameters_of` | `declared.rs:789`, **private** | **NO** |
+| 4. flip `create_type_reference` to carry members | `create_type_reference` | `declared.rs:486` | **NO** |
+
+**Steps 1 and 2 are already landed.** There is nothing left for this workstream
+to do on `tsr-4qx` in its own files — not "a little", *nothing*.
+
+**The flagged risk was `inference.rs` and that is not the boundary.**
+`instantiate_type` is already `pub(crate)` and callable from `members.rs`
+without touching the file. The real boundary is **`declared.rs`**, and it blocks
+*both* remaining steps:
+
+- Step 3 needs `local_type_parameters_of` (`declared.rs:789`), which is
+  **private**. Making it visible is a one-word edit in a file I do not own.
+- Step 4 **is** `create_type_reference` (`declared.rs:486`), whose
+  `self.store.new_named(TypeFlags::OBJECT, printed, None)` — `members: None` —
+  is precisely why `get_property_of_type` misses on `Promise<boolean>`.
+
+**My own prediction was wrong in the same way the briefing was**: I predicted the
+`inference.rs` boundary would be real at step 4. It is not a boundary at all,
+and the one that is real sits in a different file. Recorded because a prediction
+that is wrong in the same direction as the briefing it was checking is worth more
+than one that agrees.
+
+**And the order is not negotiable, which is what makes a local workaround
+wrong.** `create_type_reference`'s own comment says a member of `class C<T>`
+answered without instantiation gives `T` where upstream gives `number`. So
+flipping step 4 without step 3 does not convert 5,161 gap lines — it converts
+them into **wrong** lines. The two steps are one change, they are both in
+`declared.rs`, and re-implementing `local_type_parameters_of` in `members.rs` to
+get around that would be a second copy of another workstream's function that
+passes every gate. **Refused, reported, not built.**
+
+| RULE-3 leg | verdict |
+|---|---|
+| **P2a** size ≥ 2,000 lines | **PASS** — 5,161 |
+| **P2b** landable in my files | **FAIL** — steps 3 and 4 are both `declared.rs` |
+| **P2c** wrong-per-right ≤ 0.5 | **not reached** — P2b's boundary outranks |
+
+`tsr-4qx` is handed back with the axis corrected and the boundary named: it is
+worth **5,161 gap lines / ~1.08 points** on the line gradient, and it is
+**`declared.rs`'s owner's to build**, in one change that does steps 3 and 4
+together.
+
+### C7 was one control doing two jobs, and it is now two
+
+C7 went stale a **third** time on this run — 22,739/45,814 at `b5decc5`,
+22,764/44,342 at `b9a4f5c`, 22,793/44,254 after my own slice, 22,354/43,250 at
+`5eb252c`. Four values in one session. Chasing the constants a third time was
+the wrong response, so the control was split by asking what each leg is pinned
+by. Measured against `rank_board` at `5eb252c`, unit **gap assertion lines**:
+
+| bucket | `rank_board` | `gaproot` | delta |
+|---|---:|---:|---:|
+| `TERMINAL` | 22,354 | 22,354 | **0** |
+| `propagated/named` | 16,844 | 16,458 | **−386** |
+| `propagated/span` | 33,064 | 33,257 | +193 |
+| `UNMATCHED` | 16,438 | 16,730 | +292 |
+| `DEPENDENT-UNKNOWN` | 43,250 | 43,151 | −99 |
+| **sum** | 131,950 | 131,950 | **0** |
+
+`rank_board` builds `Checker::new`; this probe builds
+`Checker::with_module_host`, which is what `render_case` itself builds and so is
+the configuration the gradient is scored through. The host can only ever *give a
+receiver a type*, and the only arm that reads is `the receiver is a gap`.
+
+**`TERMINAL` requires that no dependency is named at all, so no line the module
+host affects can enter or leave it.** That makes **C7a an invariant across two
+instruments rather than a coincidence**, and it is the leg carrying the
+evidence. The other legs are **C7b, a measurement**: the divergence is 386 lines
+here against 54 at `b9a4f5c`, and it *should* grow as the cross-file seam
+answers more.
+
+The general form is worth stating, because I got it wrong twice before getting
+it right: **a cross-instrument control whose constants must be re-taken on every
+commit is a tripwire, not an invariant.** The fix is not fresher constants — it
+is finding the sub-quantity the two instruments must agree on *by construction*,
+and letting the rest be a printed measurement.
+
 ## Everything filed from this page
 
 | id | what | sized as |
@@ -733,6 +903,7 @@ is to size it over the board rather than over a row.
 | `tsr-qgk` | only the first gapped operand is credited | 34.4% of 176,593 span steps had a choice |
 | `tsr-phd` | the `any` leg disqualifies apparent work, and may be too strict | 34,180 lines held out |
 | `tsr-wii` | the primitive-receiver residue after the slice: 84 lines want `any` (must not be closed), 46 want a real type | 46 lines |
+| `tsr-iks` | the `PropertyAccessExpression` RIGHT arm — the largest clean population on the board | **5,441 gap lines**, of which the largest sub-item is 2,599 |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
