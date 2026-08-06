@@ -51,6 +51,21 @@ pub struct Parameter {
     pub rest: bool,
     /// `getTypeOfSymbol` of the parameter symbol.
     pub r#type: TypeId,
+    /// The written annotation's own text, when the node builder would reuse
+    /// the node instead of re-printing the computed type.
+    ///
+    /// `symbolToParameterDeclaration` reaches `serializeTypeForDeclaration`
+    /// (`nodebuilderimpl.go:2216`), whose reuse branch
+    /// (`tryReuseExistingTypeNode`, `nodebuilderimpl.go:2229` region) keeps the
+    /// **written** node when the type it denotes equals the computed type —
+    /// which holds by construction for the very annotation this signature's
+    /// type was computed *from*. Carried only for a `TypeQueryNode` annotation
+    /// (`typeof a`), the one form whose computed print differs from its
+    /// written text: measured on the first `bd tsr-4sc.10` run, 1,341
+    /// gap→wrong lines, 1,059 of them with `typeof` still in the wanted text
+    /// (`docs/architecture/checker-notes-tquery.md` §5). Wider reuse — every
+    /// annotation — stands refused at 9.1 lost-per-gained (`bd tsr-a2c`).
+    pub written_text: Option<String>,
 }
 
 /// One type parameter of a [`Signature`].
@@ -86,6 +101,11 @@ pub struct Signature {
     pub parameters: Vec<Parameter>,
     /// The return type.
     pub r#type: TypeId,
+    /// The written return annotation's text, under the same node-reuse rule as
+    /// [`Parameter::written_text`] — `serializeReturnTypeForSignature` reuses
+    /// the written node too, and `typeof a` in return position is the corpus's
+    /// most common carrier (`subtypingWithCallSignatures2` et al.).
+    pub written_return: Option<String>,
 }
 
 /// A function-like declaration's body.
@@ -290,7 +310,15 @@ impl<'a> Checker<'a, '_> {
             may_return_never,
         )?;
 
-        Some(Signature { declaration, type_parameters, this_parameter, parameters, r#type })
+        let written_return = return_annotation.and_then(Self::type_query_written_text);
+        Some(Signature {
+            declaration,
+            type_parameters,
+            this_parameter,
+            parameters,
+            r#type,
+            written_return,
+        })
     }
 
     /// `getReturnTypeOfSignature`'s `default` arm (`checker.go:20013`) and the
@@ -830,7 +858,34 @@ impl<'a> Checker<'a, '_> {
             optional: false,
             rest: node.dot_dot_dot_token.is_some(),
             r#type,
+            written_text: node.r#type.and_then(Self::type_query_written_text),
         })
+    }
+
+    /// The written text of a `typeof x` annotation, for the node-reuse rule on
+    /// [`Parameter::written_text`]. `None` for every other node kind, and for
+    /// the forms `get_type_from_type_query_node` refuses anyway.
+    fn type_query_written_text(annotation: TypeNode<'_>) -> Option<String> {
+        let TypeNode::TypeQueryNode(query) = annotation else { return None };
+        if !query.type_arguments.is_empty() {
+            return None;
+        }
+        let mut segments = Vec::new();
+        let mut current = query.expr_name?;
+        loop {
+            match current {
+                tsr_ast::EntityName::Identifier(identifier) => {
+                    segments.push(identifier.text);
+                    break;
+                }
+                tsr_ast::EntityName::QualifiedName(qualified) => {
+                    segments.push(qualified.right?.text);
+                    current = qualified.left?;
+                }
+            }
+        }
+        segments.reverse();
+        Some(format!("typeof {}", segments.join(".")))
     }
 
     /// One type parameter, or `None` for a form this port cannot print exactly.
@@ -1085,10 +1140,16 @@ impl<'a> Checker<'a, '_> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            out.push_str(&self.type_to_string(parameter.r#type));
+            match &parameter.written_text {
+                Some(written) => out.push_str(written),
+                None => out.push_str(&self.type_to_string(parameter.r#type)),
+            }
         }
         out.push_str(") => ");
-        out.push_str(&self.type_to_string(signature.r#type));
+        match &signature.written_return {
+            Some(written) => out.push_str(written),
+            None => out.push_str(&self.type_to_string(signature.r#type)),
+        }
         out
     }
 }

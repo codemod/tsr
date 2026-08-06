@@ -62,6 +62,7 @@ impl<'a> Checker<'a, '_> {
             TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
             TypeNode::TupleTypeNode(node) => self.get_type_from_tuple_type_node(node),
             TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
+            TypeNode::TypeQueryNode(node) => self.get_type_from_type_query_node(node),
             // `getTypeFromTypeOperatorNode` (`checker.go:22960`). Only the
             // `readonly` arm: it is transparent — the readonly-ness is carried by
             // the *target* the array node picks, not by a wrapper type — and it
@@ -75,6 +76,63 @@ impl<'a> Checker<'a, '_> {
             }
             _ => self.intrinsics.error,
         }
+    }
+
+    /// Ported from `Checker.getTypeFromTypeQueryNode` (`checker.go:24102`) via
+    /// `checkExpressionWithTypeArguments` (`checker.go:10637`): `typeof x` in
+    /// type position is the *expression* type of the entity name, then
+    /// `getRegularTypeOfLiteralType(getWidenedType(t))`.
+    ///
+    /// Two refusals, whole-construct rather than approximated
+    /// (`docs/architecture/checker-notes-tquery.md` §4 sizes both):
+    ///
+    /// - **`typeof this`** (20 corpus lines): upstream routes it through
+    ///   `checkThisExpression` (`checker.go:10652`), whose per-container answer
+    ///   this port only partially has.
+    /// - **Instantiation expressions** `typeof f<string>` (10 lines): with type
+    ///   arguments present, `getInstantiationExpressionType`
+    ///   (`checker.go:10660`) filters signatures by arity and instantiates
+    ///   each; without them it returns the expression type unchanged, which is
+    ///   the only half ported here.
+    ///
+    /// Divergence, stated: this port has no general `getWidenedType`
+    /// (`checker.go:18355`). Entity-name expression types come from
+    /// `get_type_of_symbol`, which widens variable-like declarations at the
+    /// declaration, so the residual work here is fresh-literal regularisation —
+    /// `get_regular_type_of_literal_type`. A `typeof` line needing
+    /// object-literal widening *at the query* is owned by the notes page §2.
+    fn get_type_from_type_query_node(&mut self, node: &tsr_ast::TypeQueryNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
+        if !node.type_arguments.is_empty() {
+            return error;
+        }
+        let Some(name) = node.expr_name else { return error };
+        // The first run of this arm refused `typeof` over a parameter symbol
+        // here, after the registered bar fired (+1,341 gap→wrong,
+        // `checker-notes-tquery.md` §5). That narrowing is superseded by the
+        // faithful mechanism: signature rendering reuses the written
+        // `typeof a` node ([`crate::signatures::Parameter::written_text`]),
+        // which is where every one of those wrong lines was printed. The
+        // computation below is upstream's for every entity-name form.
+        let id = match name {
+            // Upstream's `isThisIdentifier` dispatch (`checker.go:10651`). The
+            // guard does not currently bite under mutation — `check_expression`
+            // answers `errorType` for a `this` identifier anyway, because
+            // `resolve_name` finds no such value — and it stays because it is
+            // upstream's dispatch, with the same standing as the
+            // `SymbolFlags::VALUE` test `checker-notes-symbols.md` §5 records:
+            // it becomes observable the moment `check_expression` learns
+            // `this`, and whoever adds that should re-run the mutation and
+            // expect `type_query.rs` red.
+            tsr_ast::EntityName::Identifier(identifier) if identifier.text == "this" => {
+                return error;
+            }
+            tsr_ast::EntityName::Identifier(identifier) => {
+                self.check_expression(Expression::Identifier(identifier))
+            }
+            tsr_ast::EntityName::QualifiedName(qualified) => self.check_qualified_name(qualified),
+        };
+        self.get_regular_type_of_literal_type(id)
     }
 
     /// Ported from `Checker.getTypeFromTypeReference` into

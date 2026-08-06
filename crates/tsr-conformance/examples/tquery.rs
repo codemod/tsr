@@ -139,7 +139,7 @@ impl Report {
 }
 
 /// The base of an entity name: the `a` of `a.b.c`, or the identifier itself.
-fn entity_base<'a>(name: tsr_ast::EntityName<'a>) -> Option<&'a tsr_ast::Identifier<'a>> {
+fn entity_base(name: tsr_ast::EntityName<'_>) -> Option<&tsr_ast::Identifier<'_>> {
     let mut current = name;
     loop {
         match current {
@@ -237,8 +237,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             let mut visited: HashSet<NodeId> = HashSet::new();
             visited.insert(current);
             let mut depth = 0usize;
-            loop {
-                let Some(next) = step(&mut checker, bound, nodes, map, current) else { break };
+            while let Some(next) = step(&mut checker, bound, nodes, map, current) {
                 if !gaps(&mut checker, bound, nodes, map, next) {
                     break;
                 }

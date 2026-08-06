@@ -114,3 +114,66 @@ leg 4 as gap→wrong concentrated in `typeof`-annotated declarations.
 The `QualifiedName` twin **is** built: it is one dispatch line into the
 member-lookup path `members.rs` already has, and refusing it would orphan the
 90 base-types-today lines for no saving.
+
+## 5. Scored against the bar — it FIRED once, and the answer was a mechanism
+
+All measurements are `casedelta.rs`/`wrongdelta.rs` over the same
+`git stash` pair; the wrong totals are same-probe, same-pair.
+
+**First build** (the arm exactly as §2 describes, nothing else):
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ 350 | **+1,053**, 0 lost | pass |
+| 2 | lost == 0 | 0 | pass |
+| 3 | 0 case regressions | 0, +33 pass | pass |
+| 4 | gained ≥ 3 × new wrong | 1,053 vs **+1,341** | **FIRED** |
+
+Per the registered rule, first hypothesis: the build is wrong. It is not —
+the computed types match upstream's semantics. Second hypothesis: the bar's
+premise is wrong. Also no — leg 4 was designed for exactly this and caught it.
+The finding is a **mechanism boundary**: 1,059 of the 1,341 keep `typeof X` in
+the *wanted* text. Upstream's `.types` writer renders a function's signature
+from its **declaration** — `signatureToSignatureDeclarationHelper` →
+`serializeTypeForDeclaration`'s reuse branch keeps the written `typeof a`
+node — while this port printed the resolved structure. The reuse condition
+(the node's type equals the computed type) holds **by construction** for the
+very annotation the type was computed from.
+
+An intermediate attempt — refuse `typeof` over a parameter symbol — cut the
+damage to +1,084 against +1,024 and still failed, because the family is not
+"parameters": it is *every* `typeof` written in a signature's parameter or
+return annotation (`typeof actionA`, `typeof foo` over ambient functions).
+The narrowing was removed in favour of the mechanism it was approximating:
+[`Parameter::written_text`] / [`Signature::written_return`] carry the written
+`typeof` text, both signature printers prefer it, and instantiation drops it
+when substitution changes the type (upstream's reuse condition).
+
+**Final build, same pair:**
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ 350 | **+1,958**, 0 lost | pass |
+| 2 | lost == 0 | 0 | pass |
+| 3 | 0 case regressions | 0, **+57 pass** | pass |
+| 4 | gained ≥ 3 × new wrong | **1,958 vs +436 = 4.5×** | pass |
+
+Δwrong for the pair: 42,110 → 42,533 (**+423** net; 436 new, 13 fixed).
+
+Two things worth keeping:
+
+- **The conversion exceeded the sized row** — +1,958 against a 1,728-line
+  root population — because the reuse mechanism also converts lines whose
+  `depend.rs` root was *not* the `TypeQuery` node (signature prints reached
+  through object-literal members and initialisers). A population is a ceiling
+  *for the row it was measured on*, not for a mechanism that turns out wider.
+- **The residual 436 decompose into owned families**, none of them this
+  arm's: `typeof Backbone.Model` printed `typeof Model` (no accessibility
+  chains, `bd tsr-93f`); `typeof moduleA` printing the module's internal
+  path-name (`checker-notes-symbols.md` §7's known form); `M2.Point` vs
+  `Point` and `FuncType` vs its structure (alias/qualified naming); and
+  `(a: number | string)` printing sorted — evidence that upstream's
+  signature-position reuse covers **all** written annotations, not just
+  `typeof`, filed as `bd tsr-5o2`. Wider *declaration* reuse stays refused
+  (`bd tsr-a2c`, 9.1 lost-per-gained — a different position with a different
+  denominator).

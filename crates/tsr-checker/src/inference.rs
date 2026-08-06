@@ -498,9 +498,21 @@ impl Checker<'_, '_> {
             this_parameter.r#type = substitute(self, this_parameter.r#type)?;
         }
         for parameter in &mut signature.parameters {
-            parameter.r#type = substitute(self, parameter.r#type)?;
+            let image = substitute(self, parameter.r#type)?;
+            // Upstream's node reuse is conditional on the written node still
+            // denoting the current type (`tryReuseExistingTypeNode`); once
+            // substitution changes the type, the written `typeof a` text is no
+            // longer its print and must not survive the instantiation.
+            if image != parameter.r#type {
+                parameter.written_text = None;
+            }
+            parameter.r#type = image;
         }
-        signature.r#type = substitute(self, signature.r#type)?;
+        let image = substitute(self, signature.r#type)?;
+        if image != signature.r#type {
+            signature.written_return = None;
+        }
+        signature.r#type = image;
         Some(signature)
     }
 

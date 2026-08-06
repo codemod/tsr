@@ -59,6 +59,47 @@ impl Checker<'_, '_> {
             return error;
         };
         let receiver_type = self.check_expression(receiver);
+        self.access_member_lookup(receiver_type, name.text, node.node_id)
+    }
+
+    /// Ported from `Checker.checkQualifiedName` (`checker.go:8122`), which is
+    /// one call into the same `checkPropertyAccessExpressionOrQualifiedName`
+    /// tail as a property access — the reason the lookup below is shared
+    /// rather than duplicated. Reached from `typeof A.B` in type position
+    /// (`bd tsr-4sc.10`); an expression-position qualified name does not exist
+    /// in the grammar outside import assignments.
+    ///
+    /// `typeof this.x` is refused whole-construct: upstream routes a `this`
+    /// left through `checkThisExpression` plus `checkNonNullType`
+    /// (`checker.go:8125`), a per-container answer this port only partially
+    /// has. `docs/architecture/checker-notes-tquery.md` §4 owns the refusal.
+    pub fn check_qualified_name(&mut self, node: &tsr_ast::QualifiedName<'_>) -> TypeId {
+        let error = self.intrinsics.error;
+        let (Some(left), Some(right)) = (node.left, node.right) else {
+            return error;
+        };
+        let left_type = match left {
+            tsr_ast::EntityName::Identifier(identifier) if identifier.text == "this" => {
+                return error;
+            }
+            tsr_ast::EntityName::Identifier(identifier) => {
+                self.check_expression(tsr_ast::Expression::Identifier(identifier))
+            }
+            tsr_ast::EntityName::QualifiedName(inner) => self.check_qualified_name(inner),
+        };
+        self.access_member_lookup(left_type, right.text, node.node_id)
+    }
+
+    /// The shared tail of `checkPropertyAccessExpressionOrQualifiedName`
+    /// (`checker.go:11244`): apparent type, the `any` fast path, the member
+    /// lookup, and flow narrowing keyed on the access node itself.
+    fn access_member_lookup(
+        &mut self,
+        receiver_type: TypeId,
+        name: &str,
+        node_id: Option<tsr_ast::NodeId>,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
         // `isAnyLike` (`checker.go:11266`) and the branch it guards
         // (`checker.go:11314`): a property access on `any` is `any`, whatever
         // the property name.
@@ -122,8 +163,7 @@ impl Checker<'_, '_> {
         // make the guard observable, so it was removed rather than kept as
         // decoration. The identity test above is what keeps that true now that
         // an `ANY`-flagged type has a fast path.
-        let property_type =
-            self.get_type_of_property_of_type(receiver_type, name.text).unwrap_or(error);
+        let property_type = self.get_type_of_property_of_type(receiver_type, name).unwrap_or(error);
         // `checkPropertyAccessExpressionOrQualifiedName` ends by narrowing the
         // property's declared type by the flow reaching this access
         // (`getFlowTypeOfReference`, `checker.go:11430`) — `bd tsr-6ka`. Until
@@ -139,7 +179,7 @@ impl Checker<'_, '_> {
         // A gap is not narrowed: `errorType` carries `TypeFlags::ANY`, and
         // filtering it would answer `never` for a property this port could not
         // type — a confident wrong line out of a missing one.
-        let Some(id) = node.node_id else { return property_type };
+        let Some(id) = node_id else { return property_type };
         if property_type == error {
             return property_type;
         }

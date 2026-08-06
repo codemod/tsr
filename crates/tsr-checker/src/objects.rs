@@ -206,10 +206,19 @@ pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signa
         }
         out.push_str(&parameter.name);
         out.push_str(if parameter.optional { "?: " } else { ": " });
-        out.push_str(&checker.type_to_string(parameter.r#type));
+        // The node-reuse rule on `Parameter::written_text`: a `typeof a`
+        // annotation prints as written, in this form exactly as in the
+        // `FunctionTypeNode` form.
+        match &parameter.written_text {
+            Some(written) => out.push_str(written),
+            None => out.push_str(&checker.type_to_string(parameter.r#type)),
+        }
     }
     out.push_str("): ");
-    out.push_str(&checker.type_to_string(signature.r#type));
+    match &signature.written_return {
+        Some(written) => out.push_str(written),
+        None => out.push_str(&checker.type_to_string(signature.r#type)),
+    }
     out
 }
 

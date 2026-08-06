@@ -106,16 +106,25 @@ fn a_function_type_is_parenthesised() {
 // The baselines agree: `typeof A | undefined` 6 times, `typeof Baz | undefined`
 // 4, `typeof x | undefined` 1, and `(typeof A) | undefined` never.
 //
-// The fixture `class A {} let x: typeof A | undefined;` answers `error`,
-// because `get_type_from_type_node` has no `TypeQuery` arm at all — type
-// queries are unported, `bd tsr-4sc.10`. So a test written here would assert
-// `error` and go green whatever the parenthesiser did, which is the decorative
-// test this project deletes rather than keeps.
-//
-// What holds the property today is construction plus the corpus: `symbols.rs`
-// creates the `typeof X` type with `signature: false`, and the corpus delta for
-// this build lost **0 lines across 9,538 cases**. The test belongs with
-// `bd tsr-4sc.10`, whose arm is what would make it reachable.
+// This paragraph used to say the fixture `class A {} let x: typeof A |
+// undefined;` answers `error` because type queries were unported, so a test
+// here would be decorative. The `bd tsr-4sc.10` arm landed and made it
+// reachable, so the test it deferred now exists below. The baseline is
+// `compiler/optionalChainWithInstantiationExpression1.types`:
+//   declare const a: typeof A | undefined;   >a : typeof A | undefined
+// and `(typeof A) | undefined` appears in no baseline.
+
+/// A `typeof C` constituent is never parenthesised: upstream gives
+/// `TypeQueryNode` `TypePrecedenceTypeOperator`, equal to the constituent
+/// precedence, so the `<` test fails. Deferred to `bd tsr-4sc.10` by the
+/// comment above, and delivered with it.
+#[test]
+fn a_type_query_is_not_parenthesised_as_a_union_constituent() {
+    assert_eq!(
+        type_of_annotation("class A {}\nlet x: typeof A | undefined;"),
+        "typeof A | undefined"
+    );
+}
 
 /// `boolean` is the union `false | true` and carries `TypeFlags::UNION`, so
 /// every structural test for "is this a union" says yes. It prints as a
