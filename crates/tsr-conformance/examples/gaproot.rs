@@ -382,6 +382,11 @@ struct CaseReport {
     /// **E2 for object literals.** Which member form makes
     /// `check_object_literal` bail, which is what names the owner.
     e7_object_member: HashMap<&'static str, usize>,
+    /// **E1 re-measured over the SPREAD subset alone**, which is the condition
+    /// registered before `bd tsr-sps` may be built: the 5.9% `any` and 0.0%
+    /// unnameable are over all 575 and the 156 may differ.
+    e7_spread_rhs: HashMap<String, usize>,
+    e7_spread_by_case: HashMap<String, usize>,
     /// The same lines by case, for the concentration leg.
     e7_by_case: HashMap<(&'static str, String), usize>,
     /// **RULE-5.** The three remaining `members.rs` questions, each keyed by
@@ -877,6 +882,10 @@ fn walk(
                     break;
                 }
                 *report.e7_object_member.entry(verdict).or_default() += 1;
+                if verdict.starts_with("SPREAD") {
+                    *report.e7_spread_rhs.entry(want_type.to_string()).or_default() += 1;
+                    *report.e7_spread_by_case.entry(case_name.to_string()).or_default() += 1;
+                }
             }
         }
     }
@@ -2410,6 +2419,44 @@ fn report(reports: &[CaseReport]) {
     for (n, verdict) in om_rows {
         println!("      {n:>6} {:>7.2}%  {verdict}", pct(n, om_total));
     }
+
+    println!("\n  E1 RE-MEASURED OVER THE SPREAD SUBSET ALONE (bd tsr-sps's precondition):");
+    let mut srhs: HashMap<&str, usize> = HashMap::new();
+    let mut scases: HashMap<&str, usize> = HashMap::new();
+    for case in reports {
+        for (text, n) in &case.e7_spread_rhs {
+            *srhs.entry(text.as_str()).or_default() += n;
+        }
+        for (name, n) in &case.e7_spread_by_case {
+            *scases.entry(name.as_str()).or_default() += n;
+        }
+    }
+    let stotal: usize = srhs.values().sum();
+    let sany: usize = srhs.iter().filter(|(t, _)| **t == "any").map(|(_, n)| *n).sum();
+    let sunn: usize = srhs
+        .iter()
+        .filter(|(t, _)| t.starts_with("typeof ") || t.contains("import("))
+        .map(|(_, n)| *n)
+        .sum();
+    println!(
+        "      {stotal} lines | `any` {sany} ({:.1}%) | unnameable {sunn} ({:.1}%)  — bar is 25% each",
+        pct(sany, stotal),
+        pct(sunn, stotal)
+    );
+    let mut sranked: Vec<_> = srhs.into_iter().map(|(t, n)| (n, t)).collect();
+    sranked.sort_unstable_by(|a, b| b.cmp(a));
+    let sample: Vec<String> =
+        sranked.iter().take(8).map(|(n, t)| format!("{} {n}", truncate(t, 22))).collect();
+    println!("      {}", sample.join(" | "));
+    let mut sc: Vec<_> = scases.into_iter().map(|(c, n)| (n, c)).collect();
+    sc.sort_unstable_by(|a, b| b.cmp(a));
+    let stop1 = sc.first().map_or(0, |(n, _)| *n);
+    println!(
+        "      concentration: {} cases, top-1 {:.1}%  [{}]",
+        sc.len(),
+        pct(stop1, stotal),
+        sc.iter().take(3).map(|(n, c)| format!("{c} {n}")).collect::<Vec<_>>().join(" | ")
+    );
 
     println!("\n## CONTROLS — what pins each\n");
     let c1: usize = reports.iter().map(|r| r.c1_root_names_dependency).sum();

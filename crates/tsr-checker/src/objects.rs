@@ -39,7 +39,15 @@
 
 use tsr_ast::ObjectLiteralExpression;
 
-use crate::{checker::Checker, flags::TypeFlags, printing, signatures::Signature, types::TypeId};
+use tsr_binder::{SymbolFlags, SymbolId};
+
+use crate::{
+    checker::Checker,
+    flags::TypeFlags,
+    printing,
+    signatures::Signature,
+    types::{TypeData, TypeId},
+};
 
 /// One rendered member of a structural object type.
 ///
@@ -298,6 +306,22 @@ impl Checker<'_, '_> {
                     };
                     (shorthand.name, PropertyValue::Shorthand(identifier))
                 }
+                // `{ ...a }`. Ported from `Checker.getSpreadType`
+                // (`checker.go:13387`, from `grep -n` on the declaration),
+                // **object-typed sources only** — see
+                // [`Checker::spread_members_of`] for what is deliberately
+                // gapped and why.
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread) => {
+                    let Some(expression) = spread.expression else { return error };
+                    let source = self.check_expression(expression);
+                    let Some(spread_members) = self.spread_members_of(source) else {
+                        return error;
+                    };
+                    for member in spread_members {
+                        upsert_member(&mut members, member);
+                    }
+                    continue;
+                }
                 _ => return error,
             };
             let name = match name_node {
@@ -352,12 +376,21 @@ impl Checker<'_, '_> {
             if self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE) {
                 return error;
             }
-            members.push(Member::Property {
-                name,
-                optional: false,
-                readonly: false,
-                printed: self.type_to_string(member_type),
-            });
+            // **`upsert`, not `push`.** A later member of the same name
+            // replaces an earlier one *in the earlier one's position*, which is
+            // upstream's spread ordering: `{ ...{ a: 1, b: 2 }, a: "x" }` is
+            // `{ a: string; b: number; }`, with `a` still first. Plain
+            // literals go through the same call because `{ a: 1, ...o }` has to
+            // let `o`'s `a` win, and a `push` here would print `a` twice.
+            upsert_member(
+                &mut members,
+                Member::Property {
+                    name,
+                    optional: false,
+                    readonly: false,
+                    printed: self.type_to_string(member_type),
+                },
+            );
         }
         let printed = render_object_type(&members);
         // The binder gives an object literal its own `__object` symbol, whose
@@ -365,6 +398,76 @@ impl Checker<'_, '_> {
         // arrangement `get_type_from_type_literal` relies on for `__type`.
         let symbol = node.node_id.and_then(|id| self.binder.symbol_of(id));
         self.store.new_named(TypeFlags::OBJECT, printed, symbol)
+    }
+
+    /// The members a `{ ...source }` contributes, or `None` when this port
+    /// cannot compute them — in which case the whole literal gaps.
+    ///
+    /// Ported from `Checker.getSpreadType` (`checker.go:13387`) reduced to the
+    /// one branch this port can answer: a source that is a **named object type
+    /// with a members table**. Everything else returns `None` and the literal
+    /// answers `errorType`.
+    ///
+    /// # What is gapped, and why each is a gap rather than a guess
+    ///
+    /// - **A non-object source** — a primitive, a union, `any`, `errorType`.
+    ///   Upstream distributes a spread over a union and drops primitives;
+    ///   answering `{}` for `{ ...someUnion }` would be a confident wrong type.
+    /// - **A member whose own type gaps**, and **a member whose type is
+    ///   nullable**, which is the same `getWidenedType` limitation the plain
+    ///   member path already gaps on (see the module docs). `a?: number` on the
+    ///   source yields `number | undefined` and stops the literal.
+    /// - **A method member.** A spread copies a *property*; upstream then
+    ///   prints it as `m: () => void` where the source printed `m(): void`, and
+    ///   this port has no measurement of which side it lands on. A gap here is
+    ///   one line; a guess is a wrong line.
+    /// - **A member with no declaration**, which would have no source position
+    ///   and therefore no defined order.
+    ///
+    /// # Order comes from the declaration, never from the table
+    ///
+    /// `SymbolTable` is an `FxHashMap` (`crates/tsr-binder/src/symbol.rs:291`),
+    /// so iterating it yields members in **hash order**. Printing from that
+    /// would make the rendered type non-deterministic across runs — a defect
+    /// that would show up as a flapping baseline and be blamed on anything but
+    /// the map. Members are therefore sorted by their declaration's source
+    /// position, which is the order upstream prints.
+    fn spread_members_of(&mut self, source: TypeId) -> Option<Vec<Member>> {
+        let error = self.intrinsics.error;
+        if source == error {
+            return None;
+        }
+        let owner = match &self.store.get(source).data {
+            TypeData::Named { members: Some(owner), .. } => *owner,
+            _ => return None,
+        };
+        let mut entries: Vec<(u32, String, SymbolId)> = Vec::new();
+        for (name, &member) in &self.binder.symbols().get(owner).members {
+            let declaration = *self.binder.symbols().get(member).declarations.first()?;
+            entries.push((self.nodes.span(declaration).start, (*name).to_string(), member));
+        }
+        entries.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+
+        let mut spread = Vec::with_capacity(entries.len());
+        for (_, name, member) in entries {
+            let flags = self.binder.symbols().get(member).flags;
+            if flags.intersects(SymbolFlags::METHOD) {
+                return None;
+            }
+            let member_type = self.get_type_of_symbol(member);
+            if member_type == error
+                || self.store.get(member_type).flags.intersects(TypeFlags::NULLABLE)
+            {
+                return None;
+            }
+            spread.push(Member::Property {
+                name,
+                optional: flags.intersects(SymbolFlags::OPTIONAL),
+                readonly: false,
+                printed: self.type_to_string(member_type),
+            });
+        }
+        Some(spread)
     }
 
     /// Ported from `Checker.checkExpressionForMutableLocation`
@@ -386,6 +489,27 @@ impl Checker<'_, '_> {
         let widened = self.get_widened_literal_type(id);
         self.get_regular_type_of_literal_type(widened)
     }
+}
+
+/// Add `member`, replacing an existing property of the same name **in place**.
+///
+/// Upstream's spread keeps the first occurrence's position and the last
+/// occurrence's type: `{ ...{ a: 1, b: 2 }, a: "x" }` prints
+/// `{ a: string; b: number; }`. A `push` would print `a` twice, which is not a
+/// type upstream can produce.
+///
+/// Only `Property` members carry names, so only they can collide; a signature
+/// or index member is always appended.
+fn upsert_member(members: &mut Vec<Member>, member: Member) {
+    if let Member::Property { name, .. } = &member
+        && let Some(existing) = members.iter_mut().find(
+            |held| matches!(held, Member::Property { name: held_name, .. } if held_name == name),
+        )
+    {
+        *existing = member;
+        return;
+    }
+    members.push(member);
 }
 
 /// Whether a property name can be printed without quotes.
