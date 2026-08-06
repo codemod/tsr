@@ -196,7 +196,7 @@ score = (reachable / effort) x feasibility
 | **374** | **element access remainder.** Decomposed by `examples/elemgap.rs` at `ec981ae`: 757 lines have both sides typed. The tuple families landed at `9eaa2f1` (+103); the remainder is **"other receiver" families** — 204 string-literal lookup misses, 210 non-literal indexes without index info, 48 optional chains, 75 union receivers — each needing its own mechanism split before costing. | ~650 | 2 | 0.55 | `indexed.rs` |
 | **230** | **JSX.** `JsxSelfClosingElement` 742 + `JsxElement` 570. Self-contained and entirely unported. | 1,312 | 4 | 0.70 | new module |
 | **165** | **template literal types.** Refused once: the cheap leg is **not separable**, because upstream's `evaluate` is a syntactic folder consulting no types. Kept on the list because the row survived the session unchanged. | 1,237 | 3 | 0.40 | `declared.rs` |
-| **133** | **narrowing guard forms** (`bd tsr-q9g`) — `typeof`, `in`, `instanceof`, comparability. Measured by `refmatch.rs`. Unblocked twice over: they needed the structural matcher (built at `c72ebf2`) *and* an arm. `in` needs only `get_type_of_property_of_type`. | 296 | 2 | 0.90 | `flow.rs` |
+| ~~133~~ | **narrowing guard forms** (`bd tsr-q9g`) — **re-priced downward at `945f44a`** by the refmatch per-form split: on access lines the forms are typeof **18**, `in` **9**, instanceof **0**, comparability **68** (blocked on `areTypesComparable`), other **201**. "typeof is the largest form" was upstream inference, not corpus measurement. The unsized population is *identifier* references under typeof guards — the one probe that unlocks this item, moved to §4.3. | 27 | 2 | 0.90 | `flow.rs` |
 
 ### 4.3 Measurement first — cheap probes that unlock a score
 
@@ -210,6 +210,7 @@ populations as work would break this file's fourth rule.**
 | 3,739 | **property access, "the property has no type"** — a *downstream symptom*: the property's own declaration gaps elsewhere. `bd tsr-mcd` established this and it is not an item | follow to the type-node roots, which is how tuples were found |
 | 2,223 | **object-literal remainder** — accessors (`bd tsr-32y`) and computed names both fall into the catch-all, in unknown proportion. Accessors are **not** a copy of the method arm: upstream prints an accessor as a *property* | split the catch-all by member kind |
 | 1,425 | unresolved **value** names — 79.5% want `any`; the reachable remnant has never been characterised | split the 1,425 by what the baseline wants |
+| ? | **identifier references under `typeof` guards** — `refmatch.rs` measures access lines only, and the four-form split at `945f44a` showed the access-line typeof population is 18; the identifier population has never been counted by anything | count gap/wrong identifier lines governed by a `typeof x ===` guard |
 
 ### 4.4 What the scores say about 80%
 
