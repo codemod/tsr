@@ -2,9 +2,7 @@
 //!
 //! Ported from `Checker.inferTypeArguments` (`checker.go:9390`) and the part of
 //! `Checker.getSignatureInstantiation` (`checker.go:19293`) a return type needs,
-//! reduced to the **one inference rule that needs no type relation**: a type
-//! parameter written bare as a parameter's type is whatever the argument at that
-//! position turned out to be.
+//! reduced to the inference rules that need **no type relation**.
 //!
 //! # Why this is a slice and not the algorithm
 //!
@@ -17,6 +15,12 @@
 //! `(x: T) => U`, `Partial<T>`, a mapped type — because then the candidate has
 //! to be dug out of the argument's type rather than read off it.
 //!
+//! [`Checker::infer_from_types`] (`bd tsr-g30h`) is four arms of that walk, and
+//! its own doc comment says which and why the rest cannot be expressed here.
+//! **There is still no priority lattice and no contravariant bucket**: every
+//! position is walked covariantly and two positions that disagree gap the whole
+//! call. The rule below is arm 1 of four.
+//!
 //! Measured over the corpus source carried in the `.types` baselines
 //! (`vendor/typescript-go/testdata/baselines/reference/submodule`), of 1,145
 //! declarations initialised by a call to a locally declared generic function:
@@ -28,9 +32,12 @@
 //! | explicit type arguments, `f<string>(x)` | 93 | 8% |
 //! | some, but not all, written bare | 77 | 7% |
 //!
-//! The 53% row is the cliff and it is not approached here. The bare-parameter
-//! row is the one where the candidate *is* the argument type, which is a lookup
-//! rather than an inference, and it is what this module does.
+//! The 53% row is the cliff. `bd tsr-g30h` takes the part of it that the two
+//! substitution reverse indices make decomposable — references against
+//! references, signatures against signatures, and a restricted union arm — and
+//! refuses the rest; `docs/architecture/checker-notes-infer2.md` sizes both
+//! halves by counterfactual. The bare-parameter row remains the one where the
+//! candidate *is* the argument type, a lookup rather than an inference.
 //!
 //! # Nothing is widened, and that is not an omission
 //!
@@ -63,12 +70,13 @@
 //!
 //! # What answers `errorType`
 //!
-//! A spread argument, a rest parameter, a return type that mentions a type
-//! parameter in any position other than *being* one, a type parameter with no
-//! bare parameter position, two bare positions disagreeing about the same type
-//! parameter, an argument whose own type is a gap, and — for a call with
-//! written type arguments — the wrong count of them, a defaulted type
-//! parameter, or an argument that does not resolve.
+//! A spread argument, a rest parameter, a type parameter [`Checker::infer_from_types`]
+//! finds no candidate for, two positions disagreeing about the same type
+//! parameter, a candidate that is `null` or `undefined` (upstream widens it and
+//! this port does not), a return type [`Checker::instantiate_type`] cannot
+//! rebuild, an argument whose own type is a gap, and — for a call with written
+//! type arguments — the wrong count of them, a defaulted type parameter, or an
+//! argument that does not resolve.
 //!
 //! # Written type arguments need substitution, not inference, and that is why
 //! they are here
@@ -203,30 +211,72 @@ impl Checker<'_, '_> {
         if argument_types.len() < required.count() {
             return error;
         }
+        // `inferTypes` (`inference.go:53`): every supplied argument walked
+        // against its parameter's type, accumulating `(type parameter,
+        // candidate)` pairs. See [`Checker::infer_from_types`] for which of
+        // upstream's arms are ported and why the rest cannot be.
+        let mut candidates: Vec<(TypeId, TypeId)> = Vec::new();
+        for (index, parameter) in signature.parameters.iter().enumerate() {
+            let Some(&argument) = argument_types.get(index) else { continue };
+            self.infer_from_types(argument, parameter.r#type, &parameters, &mut candidates, 0);
+        }
         let mut map = Vec::with_capacity(parameters.len());
         for (position, &type_parameter) in parameters.iter().enumerate() {
+            // `getCovariantInference` (`inference.go`) unions the candidates.
+            // This port cannot build that union in general — it would need the
+            // subtype reduction refused at `bd tsr-eak` — but `never` is the
+            // **identity** for union and `add_type_to_union` (`crate::unions`)
+            // drops it, so a `never` candidate beside any other contributes
+            // nothing and can be struck without deciding anything.
+            //
+            // `f([], 3)` against `<T>(arr: T[], elemnt: T) => T` is the case
+            // that forced this: `T[]` against `never[]` yields `never`, `T`
+            // against `3` yields `3`, and upstream answers `3`
+            // (`baselines/reference/submodule/compiler/undefinedInferentialTyping.types:12`).
+            // Without the strike the two disagree and the call gaps — which is
+            // how the bar's second leg found it.
+            let never = self.intrinsics.never;
+            let has_other = candidates
+                .iter()
+                .any(|&(from, inferred)| from == type_parameter && inferred != never);
             let mut candidate = None;
-            let mut bare_position_supplied = false;
-            for (index, parameter) in signature.parameters.iter().enumerate() {
-                if parameter.r#type != type_parameter {
+            for &(from, inferred) in &candidates {
+                if from != type_parameter {
                     continue;
                 }
-                let Some(&inferred) = argument_types.get(index) else {
-                    // The position was not supplied. Bare positions with no
-                    // argument contribute no candidate; whether the parameter
-                    // then takes its default is decided below, on the same
-                    // no-inference-source test every position gets.
+                if has_other && inferred == never {
                     continue;
-                };
-                bare_position_supplied = true;
+                }
                 match candidate {
-                    // Two bare positions for one type parameter: upstream unions
-                    // the candidates (`getCovariantInference`), which needs a
-                    // union of types this port would have to build without
-                    // knowing whether subtype reduction applies.
+                    // Two positions disagreeing about one type parameter:
+                    // upstream unions the candidates
+                    // (`getCovariantInference`), which needs a union this port
+                    // would have to build without knowing whether subtype
+                    // reduction applies (`removeSubtypes`, refused at
+                    // `bd tsr-eak`).
                     Some(previous) if previous != inferred => return error,
                     _ => candidate = Some(inferred),
                 }
+            }
+            // `getWidenedType` (`checker.go:16090`): with `strictNullChecks`
+            // **off** upstream widens a `null` or `undefined` inference to
+            // `any`, and nothing on this port's inference path widens.
+            // Measured, not assumed — `checker-notes-infer2.md` §2.2 records 19
+            // own-node lines wanting `Promise<any>` where the unwidened
+            // candidate prints `Promise<null>`.
+            //
+            // **The strictness test is load-bearing and was missing on the
+            // first run**, which fired the bar's second leg: under
+            // `strictNullChecks` upstream does *not* widen, so a `null`
+            // candidate is the right answer and refusing it turned six right
+            // lines in `strictNullChecksNoWidening` and
+            // `undefinedInferentialTyping` into gaps. §5 of
+            // `checker-notes-infer2.md` records the diagnosis.
+            if let Some(inferred) = candidate
+                && !self.strict_null_checks
+                && matches!(self.type_to_string(inferred).as_str(), "null" | "undefined")
+            {
+                return error;
             }
             match candidate {
                 Some(inferred) if inferred != error => map.push((type_parameter, inferred)),
@@ -251,10 +301,9 @@ impl Checker<'_, '_> {
                     // `Promise<number>` — a confident wrong line. Those calls
                     // stay gaps.
                     let name = names[position];
-                    let structural_source_supplied = bare_position_supplied
-                        || signature.parameters.iter().enumerate().any(|(index, parameter)| {
+                    let structural_source_supplied =
+                        signature.parameters.iter().enumerate().any(|(index, parameter)| {
                             argument_types.get(index).is_some()
-                                && parameter.r#type != type_parameter
                                 && self.mentions_type_parameter(
                                     parameter.r#type,
                                     &[type_parameter],
@@ -284,6 +333,175 @@ impl Checker<'_, '_> {
             }
         }
         self.instantiate_type(returned, &map, &parameters, &names)
+    }
+
+    /// `inferFromTypes` (`inference.go:1236`) — walk a *source* type against a
+    /// *target* type, pushing `(type parameter, candidate)` for every match.
+    ///
+    /// # Why only four arms
+    ///
+    /// Upstream's walk reads structure straight off the type. Here a type's
+    /// payload is a **printed string** ([ADR-0003](../../../docs/adr/0003-tree-plus-side-tables.md)
+    /// and what followed from it), so a shape is decomposable only where a side
+    /// table already records how it was built. Two exist, and both were written
+    /// for *substitution* — the opposite direction:
+    /// [`Checker::type_reference_targets`] (`bd tsr-4qx`) and
+    /// [`Checker::signature_types`] (`bd tsr-0hc`). That is the whole budget,
+    /// and it is a large one: `T[]` **is** `Array<T>` through
+    /// [`Checker::create_type_reference`], and an array literal's type is built
+    /// by the same function, so `T[]` against `number[]`, `Promise<T>` against
+    /// `Promise<string>` and `C<T>` against `C<X>` are one arm.
+    ///
+    /// 1. **Identity** (`inference.go:1236`) — the target *is* a type
+    ///    parameter; the candidate is the source. This is the rule that shipped
+    ///    before `bd tsr-g30h`.
+    /// 2. **`inferFromTypeArguments`** (`inference.go:1046`) — two references
+    ///    to the same target symbol with equal argument counts, argument for
+    ///    argument. **Variance is not consulted**: upstream picks
+    ///    covariant/contravariant/invariant per position, and every position
+    ///    here is walked covariantly, which is safe only because a
+    ///    disagreement between two positions gaps the whole call rather than
+    ///    picking one.
+    /// 3. **`inferToMultipleTypes`** (`inference.go:700`), restricted — the
+    ///    target is a union, the source is not, at most one constituent *is* a
+    ///    type parameter, and no reference constituent faces a reference source
+    ///    of a different symbol. The source is inferred into every constituent
+    ///    and the ones that cannot match contribute nothing. `p.then(f)` is the
+    ///    head case: `then`'s parameter is
+    ///    `((value: T) => …) | null | undefined`.
+    /// 4. **`inferFromSignature`** (`inference.go:1112`) — one call signature
+    ///    each, neither generic, no rest parameters, positions paired up to the
+    ///    shorter list (`applyToParameterTypes`, `inference.go:1140`, so
+    ///    `p.then(() => 1)` pairs against `(value: T) => …`), then the return
+    ///    types.
+    ///
+    /// # The two restrictions that are refusals, not omissions
+    ///
+    /// Arm 3 refuses a **union source** and a **second naked type variable**
+    /// because that is `inferToMultipleTypes`' branch that strikes the matched
+    /// constituents and re-unions the remainder — it needs
+    /// [`Checker::get_union_type`] plus a subtype decision this port does not
+    /// have (`removeSubtypes`, refused at `bd tsr-eak`).
+    ///
+    /// Arm 3 also refuses a reference source facing a reference constituent of
+    /// a **different symbol**. `Promise<void>` against
+    /// `TResult1 | PromiseLike<TResult1>`: upstream matches the reference
+    /// constituent through `Promise`'s base type and infers `void`; with no
+    /// base-type walk here the naked variable would swallow the whole thing and
+    /// print `Promise<Promise<void>>`. Measured, not assumed —
+    /// `docs/architecture/checker-notes-infer2.md` §2.2 records that this one
+    /// guard moved the counterfactual from 161 converted / 59 wrong to 157 / 35.
+    ///
+    /// Everything else — object-type members, index signatures, tuples, mapped
+    /// and conditional types, `keyof`, intersections — contributes **no
+    /// candidate**, which leaves its type parameter unmapped, which gaps the
+    /// whole call. The largest such family is object members
+    /// (`{ keys: T[] }` against `{ keys: string[] }`) and it needs a members
+    /// reverse index that does not exist.
+    fn infer_from_types(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameters: &[TypeId],
+        out: &mut Vec<(TypeId, TypeId)>,
+        depth: usize,
+    ) {
+        // Not a stack guard: a recursive generic type
+        // (`interface List<T> { next: List<List<T>> }`) can nest a reference
+        // arbitrarily, and `instantiate_type`'s own limit sits on the other
+        // side of the walk. Sixteen is far past anything the corpus reaches.
+        if depth > 16 {
+            return;
+        }
+        if parameters.contains(&target) {
+            out.push((target, source));
+            return;
+        }
+        let target_reference = self.type_reference_targets.get(&target).cloned();
+        let source_reference = self.type_reference_targets.get(&source).cloned();
+        if let (Some((ts, ta)), Some((ss, sa))) = (target_reference, source_reference) {
+            if ts == ss && ta.len() == sa.len() {
+                for (t, s) in ta.iter().zip(sa.iter()) {
+                    self.infer_from_types(*s, *t, parameters, out, depth + 1);
+                }
+            }
+            return;
+        }
+        if let TypeData::Union { types, .. } = &self.store.get(target).data {
+            let constituents = types.clone();
+            if constituents.iter().filter(|t| parameters.contains(t)).count() > 1 {
+                return;
+            }
+            if matches!(self.store.get(source).data, TypeData::Union { .. }) {
+                return;
+            }
+            if let Some((source_symbol, _)) = self.type_reference_targets.get(&source).cloned()
+                && constituents.iter().any(|c| {
+                    self.type_reference_targets.get(c).is_some_and(|(s, _)| *s != source_symbol)
+                })
+            {
+                return;
+            }
+            // `inferToMultipleTypes` (`inference.go:700`) strikes the target
+            // constituents the source already matches **before** anything
+            // reaches the naked type variable. `f1(1, "hello")` against
+            // `<T>(x: T, y: string | T) => T` is the case: `"hello"` matches
+            // the `string` constituent, so upstream infers nothing from that
+            // position and the answer is `1`
+            // (`baselines/reference/submodule/conformance/unionTypeInference.types:27`).
+            // Without this the naked `T` also collects `"hello"`, the two
+            // positions disagree and a right line becomes a gap — which is how
+            // the bar's second leg found it.
+            //
+            // `is_type_assignable_to` decides this over exactly the domain it
+            // is proved on — primitives, literals and unions of them
+            // (`crate::relater`) — and answers `false` between two object types
+            // rather than guessing, which is a refusal in the safe direction
+            // here: it leaves the position contributing a candidate, and a
+            // disagreeing candidate gaps.
+            //
+            // `never` and `any` are excluded as sources: both are assignable
+            // to everything, so they would strike every union position and
+            // contribute nothing anywhere. Upstream infers *from* them
+            // normally — `never` is a real candidate — and including them cost
+            // **84 converted lines** against the two the strike was added for,
+            // measured over the corpus pair.
+            let source_is_wildcard =
+                source == self.intrinsics.never || source == self.intrinsics.any;
+            if !source_is_wildcard
+                && constituents
+                    .iter()
+                    .any(|&c| !parameters.contains(&c) && self.is_type_assignable_to(source, c))
+            {
+                return;
+            }
+            for constituent in constituents {
+                self.infer_from_types(source, constituent, parameters, out, depth + 1);
+            }
+            return;
+        }
+        let (Some(target_signatures), Some(source_signatures)) =
+            (self.signature_types.get(&target), self.signature_types.get(&source))
+        else {
+            return;
+        };
+        let ([t], [s]) = (target_signatures.as_slice(), source_signatures.as_slice()) else {
+            return;
+        };
+        // A signature carrying its own type parameters is refused: upstream
+        // erases them first (`getErasedSignature`, `checker.go:19700`), which
+        // this port has no route to.
+        if !t.type_parameters.is_empty() || !s.type_parameters.is_empty() {
+            return;
+        }
+        if t.parameters.iter().chain(&s.parameters).any(|parameter| parameter.rest) {
+            return;
+        }
+        let (t, s) = (t.clone(), s.clone());
+        for (tp, sp) in t.parameters.iter().zip(s.parameters.iter()) {
+            self.infer_from_types(sp.r#type, tp.r#type, parameters, out, depth + 1);
+        }
+        self.infer_from_types(s.r#type, t.r#type, parameters, out, depth + 1);
     }
 
     /// `Checker.instantiateType` (`checker.go:22100`) — substitution, over the
@@ -339,7 +557,7 @@ impl Checker<'_, '_> {
     /// ([`Checker::instantiation_count`](crate::checker)). Upstream reports
     /// `Type_instantiation_is_excessively_deep_and_possibly_infinite`; this
     /// port has no diagnostics, so the `errorType` is the whole observable.
-    pub(crate) fn instantiate_type(
+    pub fn instantiate_type(
         &mut self,
         id: TypeId,
         map: &[(TypeId, TypeId)],
@@ -669,6 +887,13 @@ mod tests {
     /// site there is one line, and going round it keeps these tests measuring
     /// inference rather than signature resolution.
     fn generic_call(source: &str, function: &str) -> String {
+        generic_call_with_strictness(source, function, true)
+    }
+
+    /// [`generic_call`] with `strictNullChecks` chosen explicitly — the flag
+    /// `getWidenedType` consults, and the one the `null`-candidate refusal in
+    /// [`Checker::check_generic_call`] is gated on.
+    fn generic_call_with_strictness(source: &str, function: &str, strict: bool) -> String {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         assert!(
@@ -682,6 +907,7 @@ mod tests {
             tsr_binder::FileInfo { name: "test.ts", text: source },
         );
         let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        checker.set_strict_null_checks(strict);
 
         let declaration = parsed
             .source_file
@@ -918,5 +1144,126 @@ mod tests {
         assert!(!mentions_identifier("number[]", "T"));
         assert!(!mentions_identifier("T2", "T"));
         assert!(!mentions_identifier("_T", "T"));
+    }
+
+    /// Every expected string below was taken from a `.types` baseline **before
+    /// it was written down**, and each fixture's source is the baseline's own
+    /// source. `docs/conventions.md` records five intuition-written
+    /// expectations across earlier sessions, all five wrong and the port right
+    /// every time — and records separately that a rule stated in a file header
+    /// is not applied by being stated.
+    ///
+    /// Arm 4 of [`Checker::infer_from_types`] — one signature against another —
+    /// has **no synthetic fixture here**, and that is stated rather than
+    /// hidden: no baseline gives it a small enough exact expectation, and every
+    /// reduction of one that suggested itself would have been an expectation
+    /// written from intuition. It is exercised by the corpus instead (14
+    /// converted lines in `compiler/promisePermutations3`, 4 in
+    /// `conformance/genericCallWithGenericSignatureArguments`), and its
+    /// *refusal* boundary is asserted below.
+    #[test]
+    fn a_reference_argument_is_decomposed_against_a_reference_parameter() {
+        // `conformance/neverInference.types:20` — `>f1(neverArray) : never`.
+        // `T[]` against `never[]`: both are `Array` references through
+        // `create_type_reference`, which is the only reason the candidate can
+        // be dug out at all. Before `bd tsr-g30h` this was a gap.
+        assert_eq!(
+            generic_call(
+                "interface Array<T> { }\ndeclare function f1<T>(x: T[]): T;\ndeclare const neverArray: never[];\nvar a2 = f1(neverArray);",
+                "f1"
+            ),
+            "never"
+        );
+    }
+
+    #[test]
+    fn a_never_candidate_is_struck_when_another_candidate_exists() {
+        // `compiler/undefinedInferentialTyping.types:12` — `>f([], 3) : 3`.
+        // `T[]` against `never[]` yields `never` and `T` against `3` yields
+        // `3`. Upstream unions the candidates and `never` is the union's
+        // identity, so the answer is `3`. The two plausible wrong
+        // implementations are "the candidates disagree, gap" (prints `error`)
+        // and "first candidate wins" (prints `never`).
+        assert_eq!(
+            generic_call(
+                "interface Array<T> { }\nfunction f<T>(arr: T[], elemnt: T): T { return null; }\nvar a = f([], 3);",
+                "f"
+            ),
+            "3"
+        );
+    }
+
+    #[test]
+    fn a_union_parameter_strikes_the_constituent_its_argument_matches() {
+        // `conformance/unionTypeInference.types:19` — `>f1(1, "hello") : 1`.
+        // `"hello"` matches the `string` constituent of `string | T`, so
+        // upstream infers nothing from that position. An implementation that
+        // pours the source into the naked `T` regardless collects `"hello"`
+        // beside `1`, and the two disagree — which prints `error`.
+        assert_eq!(
+            generic_call(
+                "declare function f1<T>(x: T, y: string | T): T;\nconst a2 = f1(1, \"hello\");",
+                "f1"
+            ),
+            "1"
+        );
+        // `conformance/unionTypeInference.types:82` — `>f3(5) : 5`. The mirror:
+        // `5` matches neither `string` nor `false`, so the naked `T` is where
+        // the candidate lands. Without the union arm this is a gap.
+        assert_eq!(
+            generic_call(
+                "declare function f3<T>(x: string | false | T): T;\nconst c1 = f3(5);",
+                "f3"
+            ),
+            "5"
+        );
+    }
+
+    #[test]
+    fn the_union_arm_still_refuses_what_needs_a_union_built() {
+        // `conformance/unionTypeInference.types:13` — `>f1(1, 2) : 1 | 2`.
+        // Both positions yield a candidate and they disagree, so upstream
+        // unions them. This port cannot: the union would need the subtype
+        // reduction refused at `bd tsr-eak`. The paired form above answers and
+        // this one gaps, which is what stops the refusal from being read as
+        // "union parameters are unsupported".
+        assert_eq!(
+            generic_call(
+                "declare function f1<T>(x: T, y: string | T): T;\nconst a1 = f1(1, 2);",
+                "f1"
+            ),
+            "error"
+        );
+    }
+
+    #[test]
+    fn a_generic_source_signature_is_refused_because_erasure_is_unported() {
+        // `conformance/genericCallWithFunctionTypedArguments.types:17` —
+        // `>foo(<U>(x: U) => '') : unknown`. Upstream erases the source
+        // signature's own type parameters (`getErasedSignature`) before
+        // inferring; with no route to that, arm 4 refuses a generic signature
+        // on either side rather than inferring `U` into `T`.
+        assert_eq!(
+            generic_call(
+                "function foo<T>(x: (a: T) => T) { return x(null); }\nvar r = foo(<U>(x: U) => '');",
+                "foo"
+            ),
+            "error"
+        );
+    }
+
+    #[test]
+    fn a_null_candidate_is_refused_only_where_upstream_would_widen_it() {
+        // A pair, because the whole content of the rule is the flag.
+        // `getWidenedType` (`checker.go:16090`) widens a `null` inference to
+        // `any` **only** with `strictNullChecks` off, and this port does not
+        // widen — so the non-strict side must gap and the strict side must
+        // answer. Refusing both is what the first corpus run did, and it turned
+        // six right lines in `conformance/strictNullChecksNoWidening` and
+        // `compiler/undefinedInferentialTyping` into gaps; that is how the
+        // bar's second leg found the defect.
+        let source = "declare function f<T>(x: T): T;\nvar a = f(null);";
+        assert_eq!(generic_call_with_strictness(source, "f", true), "null");
+        assert_eq!(generic_call_with_strictness(source, "f", false), "error");
     }
 }

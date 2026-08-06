@@ -432,6 +432,29 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.store.get(id)
     }
 
+    /// Read-only view of [`Checker::type_reference_targets`] — the
+    /// `(symbol, arguments)` pair a reference was interned on.
+    ///
+    /// Exposed for **measurement**: a counterfactual probe outside this crate
+    /// (`crates/tsr-conformance/examples/infergen.rs`) has to decompose a
+    /// reference the same way substitution does, and reconstructing the pair
+    /// from the printed text would forecast a different algorithm than the one
+    /// being sized. Visibility only — nothing here computes anything.
+    #[must_use]
+    pub fn type_reference_target(&self, id: TypeId) -> Option<&(SymbolId, Vec<TypeId>)> {
+        self.type_reference_targets.get(&id)
+    }
+
+    /// Read-only view of [`Checker::signature_types`] — the signatures a baked
+    /// function-shaped type was rendered from.
+    ///
+    /// The sibling of [`Checker::type_reference_target`], and exposed for the
+    /// same measurement reason.
+    #[must_use]
+    pub fn signatures_of_type(&self, id: TypeId) -> Option<&Vec<crate::signatures::Signature>> {
+        self.signature_types.get(&id)
+    }
+
     /// Render a type as a `.types` baseline would print it.
     #[must_use]
     pub fn type_to_string(&self, id: TypeId) -> String {

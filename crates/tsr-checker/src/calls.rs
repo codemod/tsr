@@ -709,7 +709,7 @@ impl Checker<'_, '_> {
     /// nothing: the first needs call-signature members and the second is an
     /// unported type node. Both are gaps rather than wrong answers, and both are
     /// named in `docs/architecture/checker.md`.
-    fn resolve_call_signature(
+    pub fn resolve_call_signature(
         &mut self,
         callee: TypeId,
         arguments: Option<&[Expression<'_>]>,

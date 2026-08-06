@@ -234,7 +234,7 @@ impl<'a> Checker<'a, '_> {
     /// `conformance/functionOverloadErrorsSyntax.types` alone.
     ///
     /// `None` if any declaration is one this slice cannot answer exactly.
-    pub(crate) fn get_signatures_of_symbol(&mut self, symbol: SymbolId) -> Option<Vec<Signature>> {
+    pub fn get_signatures_of_symbol(&mut self, symbol: SymbolId) -> Option<Vec<Signature>> {
         let declarations: Vec<NodeId> =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
         let mut result = Vec::new();
