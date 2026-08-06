@@ -160,6 +160,8 @@ the written name in *type* position and `any` in *value* position. See §5.
 | # | item | reachable | file |
 |---|---|---:|---|
 | 1 | **property access: `a.b` where the receiver types** — the two rows together | **12,742** over ~2,400 cases | `members.rs` |
+| 1a | — of which **instantiated generic receivers** (`tsr-4qx`): `Promise<boolean>` 738, `Promise<number>` 264, `any[]`/`string[]`/`number[]` 506, `IPromise<…>` 311, `Record<…>` 156 — **2,357 in the top ten alone**, tail long. `create_type_reference` sets `members: None` for every instantiated reference (`declared.rs:501`), deliberately, and that is what makes every generic receiver a dead end | | `declared.rs` |
+| 1b | — of which **the property has no type** (`tsr-mcd`): 1,947 + 1,212 member names = **3,159** | | `members.rs` |
 | 2 | **call resolution** — the least ceiling-contaminated large row, 2.5% top-1 | **4,551** | `calls.rs` |
 | 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,331 | measurement |
 | 4 | `tsr-e10` optionality in a declaration-name position | ≤483 | `optionality.rs` |

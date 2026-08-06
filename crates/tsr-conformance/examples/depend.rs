@@ -269,6 +269,9 @@ struct Report {
     /// root histogram cannot see and which contaminates every row whose
     /// receiver is an unresolved *value* (`bd tsr-eep` records the asymmetry).
     wants_any: BTreeMap<(String, &'static str), usize>,
+    /// For the property-access roots that are **not** ceiling, the checker's own
+    /// `gap_reason` — which names the arm that refused, rather than the kind.
+    access_reasons: BTreeMap<String, usize>,
     cycles: usize,
     too_deep: usize,
     c1_root_does_not_gap: usize,
@@ -288,6 +291,9 @@ impl Report {
             for (case, n) in cases {
                 *mine.entry(case.clone()).or_default() += n;
             }
+        }
+        for (k, n) in &other.access_reasons {
+            *self.access_reasons.entry(k.clone()).or_default() += n;
         }
         for (k, n) in &other.wants_any {
             *self.wants_any.entry(k.clone()).or_default() += n;
@@ -407,10 +413,24 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     *report.unresolved.entry(entry).or_default() += 1;
                 }
             }
+            let kind_label = kind.clone();
             let key = (kind, ending);
             *report.roots.entry(key.clone()).or_default() += 1;
-            if want.text.strip_prefix(&format!("{} : ", got.text)) == Some("any") {
+            let wants_any = want.text.strip_prefix(&format!("{} : ", got.text)) == Some("any");
+            if wants_any {
                 *report.wants_any.entry(key.clone()).or_default() += 1;
+            }
+            // The reachable property-access roots, by the arm that refused.
+            if !wants_any
+                && matches!(
+                    nodes.kind(current),
+                    SyntaxKind::PropertyAccessExpression | SyntaxKind::Identifier
+                )
+                && kind_label.starts_with("PropertyAccess")
+                || (!wants_any && kind_label.contains("member NAME"))
+            {
+                let reason = types_producer::gap_reason(&mut checker, bound, nodes, map, current);
+                *report.access_reasons.entry(reason).or_default() += 1;
             }
             *report.root_cases.entry(key).or_default().entry(case.name.clone()).or_default() += 1;
             *report.depths.entry(depth.min(6)).or_default() += 1;
@@ -466,6 +486,13 @@ fn main() {
         let share = *n as f64 / total.max(1) as f64 * 100.0;
         let label = if *depth >= 6 { "6+".to_string() } else { depth.to_string() };
         println!("  {label:>3} steps  {n:>7}  {share:>5.1}%");
+    }
+
+    println!("\n## Property access: why the reachable roots refused — top 14\n");
+    let mut reasons: Vec<_> = report.access_reasons.iter().collect();
+    reasons.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+    for (reason, n) in reasons.iter().take(14) {
+        println!("  {n:>6}  {}", &reason[..reason.len().min(110)]);
     }
 
     println!("\n## The names that do not resolve — top 24\n");
