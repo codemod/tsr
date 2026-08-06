@@ -50,13 +50,10 @@ Measured at **`b00738d`**, 2026-08-06 (third session).
   right 330,612 | gap 97,099 | wrong ~41,189   (41,391 at 0fe102a; −600 +17 −18 −37 +290 +146)
 ```
 
-**The previous “wrong ~37,252” was stale and is corrected, and it was worth a
-worktree to find out.** `wrongflip.rs` run at the pre-build commit `2d490b8`
-reads **41,286**, so the `tsr-4qx` build's true wrong delta is **+105** — which
-is also exactly what the registered leg-4 expression (−Δgap − Δright over
-aligned lines) derived. The first post-build reading, 41,391 against the stale
-37,252, looked like +4,139 and would have failed the leg by 20 lines; a
-cross-instrument, cross-session subtraction is not a measurement.
+**The wrong figure is carried forward by measured deltas, not re-derived.**
+It was once quoted 4,000 lines stale, which nearly failed a bar by 20 lines: a
+cross-instrument, cross-session subtraction is not a measurement. Re-run
+`wrongflip.rs` at both ends of a pair if the number matters.
 
 **The gate is whole-baseline and positional; the gradient is per-line. They are
 nearly orthogonal** — a change can add 2,733 lines and flip zero cases. Say which
@@ -129,25 +126,22 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 
 ### Inside the checker — what has an arm
 
-Landed and measured this cycle: cross-file alias resolution, export-marker symbol
-link, `getApparentType` for primitives, `autoArrayType` for `const x = []`,
-unit-return widening, `this` with a written `this` parameter, `super` (both
-disjuncts), object-literal spread, `getMergedSymbol`, **the `&&` arm of
-`checkBinaryLikeExpression`** (`5290e1a`, +958 lines, 0 lost), the
-**instantiation depth/count guard** (`40970d7`, `checker.go:22111`,
-corpus-neutral by measurement), and **instantiated generic members**
-(`0fe102a`, `tsr-4qx`: +12,357 lines, 0 lost, +26 cases — property access,
-element access, index signatures and the relater all substitute through the
-`get_type_of_property_of_type` seam), **signature-typed members plus
-`strictNullChecks`** (`856972a`, `tsr-0hc`: +2,266), **calls through
-instantiated members and default type arguments** (`385fb60`, `tsr-1uz`:
-+405), and **equality narrowing against `null`/`undefined`** (`2642e7b`: +30,
-bar overridden — §7), and **narrowing for property/element references**
-(`c72ebf2`, `tsr-6ka`: +58 — `isMatchingReference` is structural, both access
-forms reach the flow walk, and `containsMatchingReference` resets narrowing on
-assignment to a receiver), **plain tuple type nodes** (`bf5681b`: +1,227, 0
-lost — 74.9% of printed tuples, with the per-element flags model still
-refusing), and **object-literal method members** (`b00738d`: +420, 0 lost).
+Landed across the three sessions to date, newest first:
+
+| commit | what | net |
+|---|---|---|
+| `b00738d` | object-literal method members | +420 |
+| `bf5681b` | plain tuple type nodes (74.9% of printed tuples; modifiers still refuse) | +1,227 |
+| `c72ebf2` | narrowing for property/element references (`tsr-6ka`) | +58 |
+| `2642e7b` | equality narrowing against `null`/`undefined` | +30 |
+| `385fb60` | calls through instantiated members, default type arguments (`tsr-1uz`) | +405 |
+| `856972a` | signature-typed members instantiate, `strictNullChecks` plumbed (`tsr-0hc`) | +2,266 |
+| `0fe102a` | instantiated generic members (`tsr-4qx`) — property access, element access, index signatures and the relater all through one seam | +12,357 |
+| `40970d7` | instantiation depth/count guard (`checker.go:22111`) | 0, by design |
+| `d356450` | an unresolved type reference prints the written name (`tsr-eep`) | +4,645 |
+| `3b7fa44` | namespace exports resolve (`tsr-56r`) | +4,319 |
+| `5290e1a` | the `&&` arm of `checkBinaryLikeExpression` | +958 |
+| earlier | cross-file aliases, export markers, `getApparentType`, `autoArrayType`, unit-return widening, `this` parameter, `super`, object spread, `getMergedSymbol`, union parenthesisation and ordering | +11,000 approx |
 
 Deliberately **not** ported, each with a reason on record: the evolving-array
 `x.push(e)` widening (53 lines, all already wrong); `hadErrorBaseline`
@@ -156,120 +150,91 @@ rendering `any` for `errorType` (ADR-0038).
 
 ---
 
-## 4. What is next — the ranked board
+## 4. What is next — the scored board
 
-**Rewritten 2026-08-06 from `docs/architecture/checker-notes-armsplit.md`.
-Three of the previous board's top four rows were not what their numbers said,
-and the previous ordering rule — *"unmeasured items rank above measured
-refusals, because the cheapest thing available is a row nobody has refused
-yet"* — is **withdrawn**. It is sound about cost and silent about value, and it
-put an item worth ~1,004 diffuse lines in position 4 on a figure of 11,008.
-The replacement rule: **rank by the conversion, and where the conversion is
-unknown, rank by how cheap it is to find out.**
+Measured at **`b00738d`** by `examples/depend.rs`. Two lists, because the
+project's ordering rule has two halves: **rank by the conversion, and where the
+conversion is unknown, rank by how cheap it is to find out.**
 
-### The ranking
+### 4.1 How the score is built, and what it is not
 
-**Rewritten 2026-08-06 from `examples/depend.rs`, which walks declaration edges
-and now splits every root by whether the baseline wants `any`** — ADR-0038's
-ceiling, which no root histogram can see. The `want-any` column is why this
-board looks nothing like the previous one.
+```
+score = (reachable / effort) x feasibility
+```
 
-| root of the gap | lines | want `any` | **reachable** | cases | top-1 |
-|---|---:|---:|---:|---:|---:|
-| **`a.b` — receiver types, lookup fails** | 10,494 | 45.2% | **5,755** | 1,091 | 13.9% |
-| `BinaryExpression` (probe has no step arm) | 7,542 | 16.5% | 6,295 | 814 | 19.9% |
-| unresolved **value** name | 6,960 | **79.5%** | 1,425 | 858 | 16.2% |
-| **`CallExpression` — callee types** | 6,863 | **11.4%** | **6,084** | 1,063 | **4.4%** |
-| **the member *name* of `a.b`** | 5,240 | 40.0% | **3,144** | 1,016 | 12.8% |
-| `NewExpression` — callee types | 4,078 | 13.0% | 3,548 | 487 | 6.1% |
-| `ElementAccessExpression` | 1,391 | 21.2% | 1,096 | 221 | 7.8% |
+- **reachable** is *measured*: the root's gap lines minus its `want-any` share.
+  It is a **ceiling, never a forecast** — this file's fourth rule. Observed
+  conversion over the seven builds of the third session ran **15% to 57%** of
+  the sized population (tuples 57%, property references 35%, member
+  instantiation 18% ex-windfall, object methods 15%), so read a score as an
+  *ordering*, not as a line count.
+- **effort** is 1–5, anchored to builds that actually happened rather than to
+  intuition: **1** = one arm on machinery that exists (tuples, object methods);
+  **2** = a few arms plus new data (the six narrowing facts bits); **3** = a new
+  side table or a reshape (signature instantiation); **4** = a subsystem with a
+  partial already in place (contextual typing); **5** = a subsystem from
+  scratch (overload resolution).
+- **feasibility** is 0–1: are the prerequisites ported, and has the item been
+  refused before *with a number*? This is the only judgement column, and it is
+  the one to argue with.
 
-**Re-measured at `856972a` after the two builds of the third session.**
-Element access collapsed 12,544 → 1,391 at the first build (§2); the
-property-access rows fell 12,921 → 10,494 and 6,047 → 5,240 at the second,
-whose gains also made the **call row grow** 5,303 → 6,863 with
-`compiler/promiseType` as its new top case — lines that used to gap at the
-member access now gap at the *call through it*, because
-`resolve_call_signature` deliberately refuses an instantiated signature type
-rather than resolving its uninstantiated symbol. That population is
-`bd tsr-1uz` and it is the cleanest item this session leaves behind: the
-recorded `Vec<Signature>` is already on the type, and upstream's shape —
-`getSignaturesOfType` reads the *type*, not the symbol (`checker.go:18959`) —
-says exactly where the arm goes.
+### 4.2 The scored list
 
-| # | item | reachable | file |
-|---|---|---:|---|
-| 0 | **`ArrowFunction` roots — 4,011 lines at a 0.7% ceiling over 830 cases, top-1 3.9%.** The largest diffuse row nobody has opened, and `depend.rs` has no step arm for it so it has never been ranked. Almost certainly contextual typing (`get_signature_from_declaration` gaps an unannotated parameter that has a contextual type), which stands refused at *"86% entangled"* — **re-measure that refusal before believing it**, the population has changed completely since | ≤3,986 | measurement first |
-| 1 | **the unported narrowing guard forms** (`bd tsr-q9g`) — `typeof`, `in`, `instanceof`, comparability. Measured at **296 in-range lines** by `refmatch.rs`, and unblocked twice over as of `c72ebf2`: they needed both the structural matcher (now built) and an arm. `typeof` is the largest and needs eight facts bits as mechanical as the six that landed; `in` needs only `get_type_of_property_of_type`. **Register a bar — `tsr-6ka` shipped without one** | **296** measured, but see the bracket caveat in `checker-notes-narrow.md` §5 | `flow.rs` |
-| 2 | **call resolution** — the largest reachable mass, ceiling 11.4%, and the sole owner of what `tsr-1uz` left behind: **overload sets**, including every multi-signature instantiated member. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | ~**6,000** | `calls.rs` |
-| 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,295 | measurement |
-| 4 | `tsr-y9x` — 16 lines printing `undefined`/`error` where upstream prints `any` | 16 | resolver |
+| score | item | reachable | eff | feas | file |
+|---:|---|---:|---:|---:|---|
+| **869** | **call resolution — overload sets.** The largest reachable mass and the sole owner of what `tsr-1uz` left behind, including every multi-signature instantiated member. Needs the relater's subtype relation, so it is genuinely a subsystem; the old R2′ refusal no longer stands (§5) but a **counterfactual** does. | 9,660 | 5 | 0.45 | `calls.rs`, `relater.rs` |
+| **761** | **contextual typing.** `ArrowFunction` 3,978 + `FunctionExpression` 1,096 at a **0.7% ceiling** over ~1,070 cases — the largest diffuse rows nobody has opened. `contextual.rs` exists with three arms; the refusal at *"86% entangled"* predates every change of the third session and **must be re-measured before it is believed**. | 5,074 | 4 | 0.60 | `contextual.rs` |
+| **680** | **`typeof x` in type position (`TypeQuery`).** No arm at all, yet `symbols.rs` already computes `typeof C` for a class/enum/module symbol — the node only needs entity-name resolution and the symbol's type. Highest feasibility of anything this size. | 1,600 | 2 | 0.85 | `declared.rs` |
+| **649** | **destructuring / binding patterns.** Zero references in the checker today. `BindingElement` cycles are the root. Unblocked by tuples landing, since array patterns need a tuple element list. | 2,781 | 3 | 0.70 | new module |
+| **374** | **element access remainder.** 1,245 after the `tsr-4qx` collapse took the row from 12,544 to 1,391. Refused three times historically on a `want-any` share that is now **19.2%**, not 59.3% — that refusal is stale. | 1,245 | 2 | 0.60 | `indexed.rs` |
+| **230** | **JSX.** `JsxSelfClosingElement` 742 + `JsxElement` 570. Self-contained and entirely unported. | 1,312 | 4 | 0.70 | new module |
+| **165** | **template literal types.** Refused once: the cheap leg is **not separable**, because upstream's `evaluate` is a syntactic folder consulting no types. Kept on the list because the row survived the session unchanged. | 1,237 | 3 | 0.40 | `declared.rs` |
+| **133** | **narrowing guard forms** (`bd tsr-q9g`) — `typeof`, `in`, `instanceof`, comparability. Measured by `refmatch.rs`. Unblocked twice over: they needed the structural matcher (built at `c72ebf2`) *and* an arm. `in` needs only `get_type_of_property_of_type`. | 296 | 2 | 0.90 | `flow.rs` |
+| **20** | **tuple ordering in unions** (`bd tsr-5ll`). A **defect introduced by the tuple build**, not a feature: `compare_types` has no tuple arm, so `[string] | [number, boolean]` sorts against upstream. Low score, but it is a correctness regression and cheap. | ~29 | 1 | 0.70 | `unions.rs` |
 
-**Landed or closed 2026-08-06 (third session):** the depth/count guard
-(`40970d7`, corpus-neutral alone), member instantiation (`0fe102a`, +12,357),
-signature instantiation plus `strictNullChecks` plumbing (`856972a`, +2,266),
-calls through instantiated members plus the default-type-argument fallback
-(`385fb60`, +405), `tsr-4qx`/`tsr-0hc`/`tsr-1uz` closed with scores.
+### 4.3 Measurement first — cheap probes that unlock a score
 
-**Item 0 was added after the board was written and then refused the same day.**
-Sized at `0a1fbdd` by `examples/subtypes.rs`: the mechanism would break **255
-lines that are right today** against at most 263 changed, and only **500 of the
-2,146** structured wrong lines are even its population — the rest are narrowing
-(483), printing (438) and answers that differ outright. What replaced it on the
-board is two items that fell out of that sizing and are better specified than it
-ever was. `docs/architecture/checker-notes-armsplit.md` §9.
+None of these can be scored yet, and each is one probe. **Quoting any of these
+populations as work would break this file's fourth rule.**
 
-### Is 80% reachable at the implied rate?
+| population | why it cannot be scored | the probe |
+|---:|---|---|
+| 6,233 | **`BinaryExpression` roots** — `depend.rs` has no step arm for the kind, so the row has never been decomposed at all | add the step arm, as was done for property access |
+| 3,855 | **`TypeReference`, no further dependency** — but **top-1 is 51.1%** (`resolvingClassDeclarationWhenInBaseTypeResolution`), so ~1,988 is one case and the real row is ~1,867 of unknown cause | split by case, then by why the reference resolves to nothing |
+| 3,739 | **property access, "the property has no type"** — a *downstream symptom*: the property's own declaration gaps elsewhere. `bd tsr-mcd` established this and it is not an item | follow to the type-node roots, which is how tuples were found |
+| 2,223 | **object-literal remainder** — accessors (`bd tsr-32y`) and computed names both fall into the catch-all, in unknown proportion. Accessors are **not** a copy of the method arm: upstream prints an accessor as a *property* | split the catch-all by member kind |
+| 1,425 | unresolved **value** names — 79.5% want `any`; the reachable remnant has never been characterised | split the 1,425 by what the baseline wants |
 
-The arithmetic, restated at `2642e7b`:
+### 4.4 What the scores say about 80%
 
-- Distance to 80%: **+52,551 lines** (was +69,314 at the session's start), and
-  to the **70%** this session was steered by, **+4,656**.
-- This session: **+16,763** over seven kept builds, of which 10,000 is the
-  one-case windfall §2 records. Excluding it, the seven read
-  **+2,357 / +2,266 / +405 / +30 / +58 / +1,227 / +420**. The tail fell and
-  then **recovered**, and what recovered it is worth naming: the two largest
-  late builds were *type-node* arms (tuples, object-literal methods), not
-  expression arms. The falling rate was a property of the rows being picked —
-  expression roots gated behind capabilities — rather than of the port running
-  out of cheap work. `depend.rs`'s type-node roots are where the remaining
-  cheap work is, and the cheap arms are done, and what remains is gated behind
-  **capabilities** rather than behind arms. The last two builds are the
-  clearest case — an equality arm converted 33 lines because no property
-  reference could match, and building that matcher then converted 58. Neither
-  number is the arm's worth; both are what the boundary let through.
-- Both board items 1 and 2 are capability items with **unmeasured
-  conversion**. That is the honest shape of the remaining distance, and §4's
-  standing conclusion — 80% is reachable and not reachable by ranking rows —
-  is unchanged by anything this session found.
+- Distance to **80%** is **+52,551 lines**; to **70%**, **+4,656**.
+- The scored list's *reachable* column sums to ~22,000. At the observed 15–57%
+  conversion that is **+3,300 to +12,500** — so 70% is reachable from this
+  board, and **80% is not**, even if every item on it lands.
+- The rest is behind the five capabilities named repeatedly by four cycles of
+  ranking: **assignability, call resolution, qualified naming, contextual
+  typing, structured signature types.** Two of those five moved this session.
 
-The gap is not a list of missing expression arms. **22,596 lines were measured
-as `ROOT/own-rule` and this cycle took the three largest of those rows apart:
-one landed at 958, one is one case, one is the call item.** What is left is
-concentrated behind five capabilities — assignability, call resolution,
-qualified naming, contextual typing, and (named by the `tsr-4qx` survivor
-analysis, third session) **structured signature types** — and every one of them
-is a subsystem rather than a row.
-
-So the honest statement is: **80% is reachable and it is not reachable by
-ranking rows.** What would have to change is that a session takes on one of the
-four blockers as its whole deliverable, accepting that it converts nothing until
-it is finished. `casedelta` and the pre-registered-rule discipline make that
-safe to attempt; the row-by-row board does not make it *unnecessary*, which is
-what four cycles of ranking have now established.
+So the standing conclusion holds and is now quantified: **80% is reachable and
+it is not reachable by ranking rows.** A session has to take one capability as
+its whole deliverable and accept that it converts nothing until finished.
 
 ---
 
 ## 5. Refused, with the number that refused it
 
 **Do not rebuild these without new evidence. Each cost a measured cycle.**
+Rows marked **WITHDRAWN** are kept because the rule is never to delete a
+refusal — but their stated grounds have since been contradicted by a
+measurement, which is named in the row. A withdrawn refusal is not a licence:
+it means the item returns to §4 needing a fresh bar, not that it is now good.
 
 | item | population | why refused |
 |---|---:|---|
-| call resolution | 18,294 | ~~spellability **68.3%** vs 70% bar — 85 lines short~~ **CORRECTED 2026-08-06.** That figure was taken at `058b4a9`; re-run unchanged at `d75cf16` the same expression reads **69.4%, 34 lines short**. R2′'s numerator moves with the compiler, so a bar it crosses by tens of lines decides nothing. Split by row: **CALL 70.6% (+25), `new` 64.8% (−60), `InitCall` 58.9%, `ExprCall` 76.3%.** The refusal no longer stands on its stated grounds and R2′ has stopped discriminating — §4 item 2 |
-| contextual typing | 2,082 + 1,809 wrong | **86% entangled**, 48.8% behind call resolution |
+| **WITHDRAWN** — call resolution | 18,294 | ~~spellability **68.3%** vs 70% bar — 85 lines short~~ **CORRECTED 2026-08-06.** That figure was taken at `058b4a9`; re-run unchanged at `d75cf16` the same expression reads **69.4%, 34 lines short**. R2′'s numerator moves with the compiler, so a bar it crosses by tens of lines decides nothing. Split by row: **CALL 70.6% (+25), `new` 64.8% (−60), `InitCall` 58.9%, `ExprCall` 76.3%.** The refusal no longer stands on its stated grounds and R2′ has stopped discriminating — §4 item 2 |
+| **WITHDRAWN** — contextual typing | 2,082 + 1,809 wrong | **86% entangled**, 48.8% behind call resolution. **Stale as of `b00738d`:** taken before member instantiation, signature instantiation and call-through-members landed, all three of which cut the entanglement it measured. §4.2 scores it 761 and requires a re-measurement first |
 | qualified naming build | 1,318 | 90.7% accurate on target row; counterfactual **lost 3,202 lines, regressed 753 cases** |
-| element access | 1,590 | **59.3% want `any`** over the corrected population; refused 3× |
+| **WITHDRAWN** — element access | 1,590 | **59.3% want `any`**; refused 3×. **Superseded at `b00738d`:** the `tsr-4qx` build collapsed the row 12,544 → 1,391 and the `want-any` share with it, to **19.2%**. The refusal was true of a population that no longer exists |
 | `TemplateExpression` | 1,036 | cheap leg **not separable** — upstream's `evaluate` is a syntactic folder consulting no types |
 | module object (`tsr-6ph`) | 3,539 | 2.1 and 2.5 wrong per right, two designs |
 | ALIAS row | 5,207 | convertible set and spellable set are **disjoint** |
@@ -338,35 +303,30 @@ Append one row per session. Keep it to what a future session needs.
 | 2026-08-06 | `5290e1a` | **63.54%** | **2,275** | **+0.20 pts, +958 lines, +5 cases** | the `&&` arm of `checkBinaryLikeExpression` — the only unblocked arm in the board's top three rows. The session's main product is the **board rewrite**: `tsr-jle` fell 11,008 → 1,004, `ArrayLiteral` and `\|\|`/`??` were shown blocked on assignability, and `new` was sized alone for the first time |
 | 2026-08-06 | `3299f53` | **63.34%** | **2,270** | **+2.25 pts, +10,761 lines** | export-marker link (+2,265), `this` parameter (+2,733), `super` (+838), `@lib`/`@noLib` harness fidelity (+431), unit-return widening (+1,188), `getApparentType` (+973), `getMergedSymbol` (+430), `autoArrayType` (+1,005), object spread (+74) |
 
-**2026-08-06, second session — and a gate failure to record.** `5290e1a` was
-committed with a **failing test**: `cargo test --workspace` was piped through
-`head -30`, which cut it off at the 30th of 96 test binaries, and
-`the_logical_operators_are_still_a_gap` — a test whose purpose is to go red when
-`&&` lands — was below the cut. Fixed at `HEAD`. A gate you sampled is not a
-gate you ran; reduce its output by counting, never by `head`.
-
-**2026-08-06, second session:** two new instruments (`armsplit.rs`,
-`namesample.rs`), one correction to a **doc comment that was acting as a
-prerequisite** — `binary.rs` claimed `extractDefinitelyFalsyTypes` reaches
-`getTypeFacts`; grepped on the declarations it does not, and that is what
-separated `&&` from `||` and `??`. One pre-existing defect found by a unit test
-and invisible to every gap histogram: `undefined | null` prints as
-`null | undefined` (`bd tsr-iiu`). Three of seven test expectations in the new
-file were written from intuition and were wrong; the port was right each time.
-
-**2026-08-06 also corrected three instruments and one ADR**, which changed what
-the project believes is worth building: `TERMINAL` was a default arm and is
-16.41% not 34.92%; the wrong bucket is 81% symptom; ADR-0038's ceiling is
-~26,000 not ~6,000. Six builds were refused on measured grounds.
+**Process failures worth carrying, all now written up in
+`docs/conventions.md`:** a gate piped through `head` reported green while a
+test failed (`5290e1a`); a registered bar fired and was overridden on
+independent evidence (`2642e7b`); two builds shipped with **no bar registered
+at all** (`c72ebf2`, `b00738d`); and five test expectations across the sessions
+were written from intuition and were wrong — the port was right every time.
+`docs/architecture/checker-notes-*.md` hold the per-item reasoning; this table
+holds only the numbers.
 
 ---
 
 ## 8. Updating this file
 
-**At the end of every session**, whoever ran it updates §1 (numbers + commit),
-§4 (what moved off the board, what arrived), §5 (anything newly refused, with its
-number), and appends one row to §7.
+**At the end of every session**, whoever ran it updates §1 (numbers + the
+commit they were measured at), §3 (what landed), §4 (re-score from a fresh
+`depend.rs` run; move finished items off, move measured items up from §4.3),
+§5 (anything newly refused, **with its number**), and appends one row to §7.
+
+**On §4's scores:** `reachable` is measured and must be re-taken, never
+carried; `effort` and `feasibility` are judgement and should be argued with
+rather than inherited. If an item lands, record its *actual* conversion against
+the `reachable` it was scored on — that ratio is what keeps the 15–57% band in
+§4.1 honest.
 
 If a number here turns out to be wrong, **correct it and say so** — do not
-silently edit. Three of this project's most expensive mistakes were numbers that
-were true of a different population than the one they were quoted about.
+silently edit. Three of this project's most expensive mistakes were numbers
+that were true of a different population than the one they were quoted about.
