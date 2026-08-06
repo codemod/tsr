@@ -339,7 +339,7 @@ impl Checker<'_, '_> {
     /// ([`Checker::instantiation_count`](crate::checker)). Upstream reports
     /// `Type_instantiation_is_excessively_deep_and_possibly_infinite`; this
     /// port has no diagnostics, so the `errorType` is the whole observable.
-    pub(crate) fn instantiate_type(
+    pub fn instantiate_type(
         &mut self,
         id: TypeId,
         map: &[(TypeId, TypeId)],
