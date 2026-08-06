@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured through the `tsr-g30h` merge, 2026-08-07 (fifth session).
+Measured at **`a4e3991`**, 2026-08-07 (sixth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,15 +40,29 @@ Measured through the `tsr-g30h` merge, 2026-08-07 (fifth session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,657/9,538** | **27.86%** | **gradient 71.14%** — the target |
+| **`checker_types`** | **2,663/9,538** | **27.92%** | **gradient 71.16%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-340,719 / 478,954 assertion lines = 71.14%
-  right 340,719 | gap ~86,716 | wrong ~41,519   (41,189 at b00738d; …, +104, +81 by same-probe pairs through the type-predicate merge)
+340,821 / 478,954 assertion lines = 71.16%
+  right 340,821 | gap 86,545 | wrong ~41,522   (41,189 at b00738d; …, +104, +81, +3 by same-probe pairs through the ternary gate build)
 ```
+
+**Corrected in place: §1 carried `340,719` and the snapshot at `df13a69` read
+`340,727`.** Eight lines, from commits landed after the `tsr-g30h` merge the
+figure was taken at. The gap figure is `depend.rs`'s own walk at `a4e3991`, not
+a subtraction.
+
+**An open discrepancy, recorded rather than reconciled away.** `wrongdelta.rs`'s
+raw dump reads **42,443 lines** at `a4e3991`, and `right + gap + wrong` sums to
+469,809 against a denominator of 478,954 — 9,145 short. The three instruments do
+not share a denominator (`depend` attributes gap lines it can reach; `wrongdelta`
+dumps per-case). **Do not substitute 42,443 for the carried figure**: that would
+be exactly the cross-instrument subtraction this section forbids two paragraphs
+below. One probe reconciling the three denominators is worth a future session's
+first hour.
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
 It was once quoted 4,000 lines stale, which nearly failed a bar by 20 lines: a
@@ -120,7 +134,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **71.14% of lines** | the mountain; §4 and §5 |
+| **checker** | **71.16% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -131,6 +145,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `d8590ff` | **the overload gate asks about the PAIR** — `relater.rs` made three-valued (`Related`/`NotRelated`/`Unknown`, Kleene composition) and `calls.rs`'s `SELECTABLE` **flag set deleted**, plus an `any`-parameter positional refusal priced at 40/26 → 33/2. The ternary itself converts **zero**; it is what makes removing the gate safe (`checker-notes-assign.md` §5–§6) | +94 |
 | `tsr-g30h` | **structural type-argument inference** — the candidate walk for `T[]`, `(x: T) => U` and friends; leg 2 fired **twice** and both were build defects a +311 net had hidden (`checker-notes-infer2.md`) | +372 |
 | `tsr-4sa` | **a `Named` callee reaches signature lookup** — call and construct signatures resolved off an interface's members, with `unique symbol` (291) and namespace-qualified naming (75) **refused positionally**; the naive design measured 646 converts against 377 wrong and those two refusals cost **zero** conversions (`checker-notes-namedcallee.md`) | +1,018 |
 | `tsr-84iz` | **an array pattern implies a tuple over its literal** — the construct `tsr-o00` refused; a shared `create_tuple_type` keeps an inferred tuple interned with a written one (`checker-notes-patctx.md`) | +206 |
@@ -281,12 +296,36 @@ is precisely why widening `SELECTABLE` with more flags cannot work, and
 `checker-notes-selectable.md`'s refusal stands on better grounds than the ones
 it was written with.
 
-So the real item is a **three-valued relation** — `Related` / `NotRelated` /
-`Unknown`, Kleene logic through the composite arms — and its first step is
-cheap: re-run `selectable.rs` with a decidability predicate and count how many
-of the 303 a ternary actually decides. `bd tsr-kmzf`, bar registered
-**unmeasured** in `checker-notes-assign.md` §3, with the falsifier flagged as
-the likely outcome.
+~~So the real item is a **three-valued relation**~~ — **MEASURED AND BUILT,
+sixth session, and the diagnosis in that sentence was wrong.** `bd tsr-kmzf` is
+closed; `checker-notes-assign.md` §5–§6 carries it.
+
+Leg 1 forecast **33** conversions against a floor of 150 — the falsifier the
+registration flagged as likely. **Control C3 fired harder and is the finding:
+all 33 are conversions the EXISTING BINARY relation already makes.** The
+cross-tab it forced carries no `[NEEDS the ternary]` row anywhere, and
+`stringLiteralTypesOverloads01` settles why: its overloads take
+`"boolean" | "string"` parameters, which the binary relation decides without
+difficulty and which `SELECTABLE` — a **flag set** containing `STRING_LITERAL`
+but not `UNION` — never *asked* about.
+
+> **The blocker was the gate, not the relation.** This section's own premise
+> conflated the two, for the second time on this item: §4.3b was wrong about
+> whether the relation existed, and its replacement was wrong about what the
+> relation lacked. Both times the numbers were right.
+
+Three-valuedness is worth **zero conversions** and is load-bearing for the
+*safety* of deleting the gate — the 52 `UNDECIDED` lines are precisely what a
+naive removal decides wrongly. Both landed together: **+94 net, 0 lost, 6 cases
+finished, 0 regressed, Δwrong +3**, against a fresh bar registered before the
+code (§6.1).
+
+**What this does to §4.4.** Assignability is first of the five capabilities that
+four cycles of ranking said the remaining gradient hides behind. On the
+population it was named to unblock it is now measured at **33 lines**, and the
+whole build — reaching wider than its counterfactual, through property-access
+callees the probe never classified — was **+94**. One of the five is answered,
+and the answer is that it was not where the mass is.
 
 ### 4.4 What the scores say about 80%
 
@@ -342,6 +381,9 @@ it means the item returns to §4 needing a fresh bar, not that it is now good.
 | **the `this` half of `getApparentType`'s head** | 827 | fifth session, `checker-notes-apparent.md`: **zero** convertible. 522 find the member and gap on its own type; 305 are absent from the class's declared type entirely — filed as a separate members-table question |
 | **the contravariant inference bucket** | 6 own-node / ~36 with cascade | fifth session, `checker-notes-infer2.md` §6. Recommended by me on "the same mechanism owns both the losses and the largest share of the new wrong" — and that was **a ceiling on a row, not a forecast of a mechanism**, this file's fourth rule catching its own author. Re-derived line by line: of the 120 wrong lines in the four contravariant-named cases, **4** are this mechanism; 116 belong to five other items. It also needs `strictFunctionTypes`, an option this port does not model, and guessing a sibling flag wrong once cost 1,221 lines. A tenth of the smallest thing ever refused here |
 | **destructuring an array literal without the pattern's contextual type** | ~80 wrong minted | the first `tsr-o00` run answered `var [a, b] = [1, "x"]` elements as `string \| number`; upstream infers the **tuple** through `getTypeFromBindingPattern`'s implied contextual type (`checker.go:16748`). Approximating it passed the bar's ratio leg (6.0×) and was refused anyway — the construct refuses whole until `tsr-84iz` builds the mechanism |
+| **`bd tsr-kmzf` — a three-valued relation, as an ITEM** | 33 / 0 | sixth session, `checker-notes-assign.md` §5–§6. Leg 1 forecast **33 against a floor of 150**; control C3 then showed **all 33 are conversions the existing BINARY relation already makes**, so the mechanism's own marginal yield is **0**. Refused as an item and **shipped anyway**, because it is what makes deleting `SELECTABLE` safe — the 52 `UNDECIDED` lines are what a naive removal decides wrongly. Do not re-open as "make the relation three-valued": that is done, and it converts nothing |
+| **widening `SELECTABLE` as a flag set** | — | same measurement, and it is a *structural* refusal rather than a numeric one. Decidability is a property of the **pair**: for signature-bearing types the old relation was unsound in **both directions at once**, so no per-type flag predicate separates the trustworthy pairs from the rest. The flag set is now deleted rather than widened |
+| **the `any`-parameter overload set** | 7 conversions | sixth session. `any` relates to everything both ways, so such a candidate is trivially applicable and declaration-order selection always stops on it — a **wrong rule, not a bad trade**. Refusing it positionally costs 7 conversions and removes **24** would-be-wrong lines: 40/26 → **33/2** |
 | **`removeSubtypes` (`tsr-eak`)** | 5 rows, ~1,100 quoted | **255 right lines broken vs ≤263 changed — 1.03 gained per lost at the ceiling**, worse than the 2.1 / 2.5 / 2.7 that refused three earlier items. And only **500 of 2,146** structured wrong lines are its population; 21,093 of 26,140 union lines carry no structured constituent and are outside it by construction |
 
 ---
@@ -381,6 +423,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-07 | `a4e3991` | **71.16%** | **2,663** | **+94, 0 lost, +6 cases, 0 regressed, Δwrong +3** | **the sixth session — assignability answered, and it was not where the mass is.** `bd tsr-kmzf`'s bar said run leg 1 before writing checker code and named its own falsifier as likely; both fired. The ternary relation is real (`Related`/`NotRelated`/`Unknown`, Kleene composition, **behaviour-neutral by construction** — `is_type_related_to` is *defined* as `relate_ternary(..) == Related`, and `checker_types` was bit-identical across the refactor, which is what made the forecast readable). Leg 1 read **33 against a floor of 150**, and **control C3 fired harder**: all 33 are conversions the existing **binary** relation already makes. The blocker was `calls.rs`'s `SELECTABLE` **flag set**, not the relation — my own C3 premise had conflated the gate with the relation, the **second** time this item's diagnosis was wrong while its numbers were right. Gate deleted, `choose_overload` now asks about the **pair**; the `any`-parameter positional refusal priced at 40/26 → **33/2** before shipping. The registered falsifier (net > 60) fired and was followed: `objectCreate`/`objectCreate2` supply 18 of the 94 through a **property-access callee the counterfactual never classified**. Residual read despite a passing ratio — 2 of the 5 lines entering the wrong bucket are the already-refused qualified-naming family, 2 were wrong before and are wrong differently, **exactly 1 is new.** A workspace example failing to compile made `cargo test` print **zero** result blocks; `grep -c` caught it where `head` would not have |
 | 2026-08-07 | `1c20e57` | **70.85%** | **2,617** | **+3,352 across six builds** | **the fifth session's second half, two teammates in isolated worktrees.** Landed: constructor type nodes **+1,358**, type predicates **+1,041** (with a parser ASI fix that moved `parser_typescript` and `binder_symbols` **up**), private names **+590**, `tsr-84iz`'s pattern-implied tuple **+206**, `getApparentType`'s instantiable head **+156**. **Five rows were retired by measurement rather than converted** — `TemplateExpression` refused with a *ratio* (0.76 and 0.99 gained per wrong, replacing "not separable"), the object-literal row shown **77% downstream** with the accessor item at 78 lines not 2,223, the `FunctionDeclaration` row decomposed to unported type-node inputs, JSX re-scored to 0.25 feasibility, and the largest unopened root (2,404) shown to be **93% import aliases already refused on naming grounds**. Two registered bars fired and both were build bugs, caught by the bar: `tsr-rppd` at net **0** (no symbol route existed) and `tsr-84iz`'s leg 3 vacuous at `0 < 0` |
 | 2026-08-06 | `tsr-tgov` | **70.15%** | **2,564** | **+686, 0 lost, +24 cases, 0 regressed, Δwrong −47** | **`new C<T>()` instantiates** — the call side already substituted written type arguments (`inference.rs:153`) while `check_new_expression` refused at its first line; 826 lines sat in that asymmetry. Sized by a **counterfactual** (`newgen.rs` forecasts the printed string against the baseline: 166 exact, 1 miss named in advance) rather than by the row, bar committed first. Conversion **413% of the forecast** — the cascade, named as upside in the registration. Reading the 68 residual instead of banking an 8.4× ratio found upstream's one name-independent quoting rule (a **method** named `new` prints `"new"`, `nodebuilderimpl.go:2384`), worth **+114 and 84 pre-existing wrong lines**. Twelfth stand-in fixture came due |
 | 2026-08-06 | probe | — | — | 0 lines, by design | **`bd tsr-klm` answered — and it re-scored the board's top item down 8×** (`callgate.rs`, `checker-notes-callres.md` §13). Control C3 fired on 2,569 of 8,398 lines and the diagnosis was the *instrument*: `check_new_expression` had no counters at all, and it is the more admitted half of the row. Six gates added there, four splitting `single candidate`, `checker_types` unchanged across the change. The result: **overload selection owns 1,095 lines, not 9,660** — that figure was the row, not the mechanism — the largest gate is **inference at 2,324**, and the whole call family cannot reach 10% of the gradient at any conversion (§4.3a) |
