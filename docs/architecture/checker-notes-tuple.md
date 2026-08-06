@@ -295,3 +295,41 @@ the computed pieces — was built and measured **net-negative** (+323/−270,
 `promiseTypeStrictNull` alone −244), because upstream's reuse gate involves
 the builder's enclosing declaration, not only the node's type. The reverted
 implementation is in this commit's history for whoever takes `tsr-5o2` up.
+
+## 8. `t[0]` — tuple element access, sized and registered (element-access row)
+
+Fourth session, at `ec981ae`. `examples/elemgap.rs` (committed with this
+section) decomposes the element-access remainder: **757 gap lines whose
+receiver and index both type today**, of which **56 are a tuple receiver
+indexed by a numeric literal — `want-any` 0** — plus 7 `tuple[number]` (needs
+the union of the element types) and 6 `tuple["…"]` (mostly `"length"`), both
+refused separately. Head case `conformance/indexerWithTuple` 24.
+
+The mechanism is one arm at the seam every consumer shares
+(`get_type_of_property_of_type`): a tuple's numeric-literal property *is* its
+element — upstream reaches it through the synthesised tuple target's members
+(`createNormalizedTupleType`) and the resolved type arguments. The element
+list is exact by construction: the modifier forms (`?`, `...`, named members)
+refuse at the mint (`get_type_from_tuple_type_node`), so every recorded
+element is a plain one. Out-of-range answers `None` — upstream errors
+(TS2493) there, and a gap beats a wrong `undefined`. A name that does not
+round-trip (`"01"`, `"-0"`) is not an element index.
+
+**This spends §3's safety argument** — "nothing structural about a tuple is
+claimed" — deliberately and with its own measurement, which is what §3 said a
+consumer must do. `tests/tuples.rs`'s `a_tuple_has_no_members` fixture stays
+red-on-purpose only through the *type-node* path (`typeof t[0]` is an
+`IndexedAccessTypeNode`, still unported); its comment is updated with this
+section.
+
+**The bar:**
+
+1. **net ≥ 20** (36% of the 56-line population — mid-band);
+2. **lost == 0**, and this leg's denominator is empty by construction (the
+   arm fires only where the lookup answered `None` and the access answered
+   `errorType`); any loss is a cascade bug, diagnosed not priced;
+3. **0 case regressions**;
+4. **gained ≥ 3 × new wrong** by `wrongdelta` — the live leg: a wrong element
+   type where upstream widens or narrows differently.
+
+Bar fires → build wrong first, premise wrong second, no third.
