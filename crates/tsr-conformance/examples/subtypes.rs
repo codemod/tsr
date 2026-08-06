@@ -152,6 +152,11 @@ struct Report {
     /// no-op/collapsed split cannot answer, because "collapsed" lumps subtype
     /// reduction together with everything else that shortens a union.
     families: BTreeMap<&'static str, usize>,
+    /// For the nullable-not-stripped family (`bd tsr-e10`): the node kind of the
+    /// line, and its parent's. The issue registers that the provenance must be
+    /// established before the build is sized — a line reached through a path
+    /// this port does not walk is not converted by adding a facts bit.
+    nullable_sites: BTreeMap<(String, String), usize>,
     /// §C. Gap populations, by the guard that produced them. Populations only.
     gaps: BTreeMap<&'static str, usize>,
     gap_cases: BTreeMap<&'static str, HashMap<String, usize>>,
@@ -180,6 +185,9 @@ impl Report {
         }
         for (k, n) in &other.families {
             *self.families.entry(k).or_default() += n;
+        }
+        for (k, n) in &other.nullable_sites {
+            *self.nullable_sites.entry(k.clone()).or_default() += n;
         }
         for (k, n) in &other.gaps {
             *self.gaps.entry(k).or_default() += n;
@@ -363,7 +371,15 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                         .pairs
                         .entry((got.type_string.clone(), want_type.clone()))
                         .or_default() += 1;
-                    *report.families.entry(family(&got.type_string, &want_type)).or_default() += 1;
+                    let fam = family(&got.type_string, &want_type);
+                    *report.families.entry(fam).or_default() += 1;
+                    if fam == "narrowing: a nullable was not stripped" {
+                        let kind = format!("{:?}", nodes.kind(id));
+                        let parent = nodes
+                            .parent(id)
+                            .map_or_else(|| "<root>".to_owned(), |p| format!("{:?}", nodes.kind(p)));
+                        *report.nullable_sites.entry((parent, kind)).or_default() += 1;
+                    }
                 }
             }
         }
@@ -471,6 +487,14 @@ fn main() {
     pairs.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
     for ((ours, want), n) in pairs.iter().take(12) {
         println!("      {n:>5}  {ours}\n             -> {want}");
+    }
+
+    println!("\n## B2. `bd tsr-e10` — where the nullable-not-stripped lines sit\n");
+    println!("    parent kind                          node kind                       lines");
+    let mut sites: Vec<_> = report.nullable_sites.iter().collect();
+    sites.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+    for ((parent, kind), n) in sites.iter().take(14) {
+        println!("    {parent:<36} {kind:<30} {n:>6}");
     }
 
     println!("\n## C. The gap rows — POPULATIONS, with no conversion beside them\n");

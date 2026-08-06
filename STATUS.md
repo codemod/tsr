@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`5290e1a`**, 2026-08-06.
+Measured at **`39a3853`**, 2026-08-06.
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`5290e1a`**, 2026-08-06.
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,275/9,538** | **23.85%** | **gradient 63.54%** — the target |
+| **`checker_types`** | **2,275/9,538** | **23.85%** | **gradient 63.64%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-304,324 / 478,954 assertion lines = 63.54%
-  right 304,324 | gap ~127,736 | wrong ~37,678
+304,805 / 478,954 assertion lines = 63.64%
+  right 304,805 | gap ~127,736 | wrong ~37,197
 ```
 
 **The gate is whole-baseline and positional; the gradient is per-line. They are
@@ -86,9 +86,9 @@ analysis. The decision is unaffected and strengthened.
 
 ```
 reachable denominator   ~452,954 of 478,954
-today                    304,324 / 452,954 = ~67.2% of reachable
+today                    304,805 / 452,954 = ~67.3% of reachable
 80% of the full          383,163 lines  =  ~84.6% of reachable
-gap to 80%               +78,839 lines
+gap to 80%               +78,358 lines
 ```
 
 ---
@@ -141,8 +141,9 @@ unknown, rank by how cheap it is to find out.**
 | # | item | converts | file | the rule that would license it | what would falsify the estimate |
 |---|---|---:|---|---|---|
 | 0 | ~~`removeSubtypes` + a `Subtype` arm~~ (`tsr-eak`) | **REFUSED 2026-08-06** | — | — | 255 right lines broken against ≤263 changed — see §5 |
-| 0 | **Union rendering: parenthesisation + constituent order** (`tsr-dto`) | **438**, no prerequisite | `unions.rs` / `printing.rs` | deterministic string rules, so the counterfactual is one build and one `casedelta` | the mechanism fires on all 26,140 union lines, **22,368 of them right today** — the bar belongs on that population, not on the 438 |
-| 0b | **`getNonNullableType`: 483 lines want a nullable stripped** (`tsr-e10`) | 483 | `flow.rs` | `TypeFacts` needs `NEUndefinedOrNull`; it carries only `TRUTHY`/`FALSY` | the 483 may not be reached through a narrowing path this port already walks |
+| 0 | ~~Union parenthesisation~~ (`tsr-xm9`) | **DONE `39a3853`, +481, 0 lost** | — | — | — |
+| 0b | **Optionality in a declaration-name position** (`tsr-e10`, **rediagnosed**) | ≤483, of which **204 confirmed** | `optionality.rs` / `symbols.rs` | **none yet** — partition the 204 by declaration shape and by the case's `strictNullChecks`, then read the baselines per bucket | the baselines contradict a blanket rule: `classWithOptionalParameter` records `>x : string \| undefined`, other cases record `>opt : number` 19× |
+| 0c | Union **constituent order** (`tsr-bgz`) | 137 | `unions.rs` + `types.rs` | needs `TypeData::Named` to carry a symbol and a type-argument list — a reshape | |
 | 1 | **`new C()` — the lib `*Constructor` arm** | unsized; **not 1,074** | `calls.rs` | **R2′ 75.9% on 1,074 lines, 229 cases, top-1 15.1%** — passed its registered test on 2026-08-06 | the typed arrays in it are generic instantiations (`tsr-4qx`, blocked). Size the `*Constructor` population **minus** those before quoting anything — one more bucket in `callres.rs` |
 | 2 | ~~Re-take the call row's bar with `new` scored separately~~ | **run 2026-08-06** | — | — | see §5 — R2′ has stopped discriminating and the answer is a counterfactual |
 | 3 | `tsr-n23` + contextual typing, as **one** cross-file item | 2,082 gap **+ 1,809 wrong** | `symbols.rs` **and** `signatures.rs` | 48.8% of it sits behind call resolution — item 2 gates this | a build confined to either file converts half of each function's lines, which is the measured reason it is one item |
@@ -242,6 +243,7 @@ what four cycles of ranking have now established.
 | **`ArrayLiteral` own-root row** | 604 | 602 are the object-reduction guard; **355 are one case**; needs assignability |
 | **`new C()`, the cheap design** | 1,052 | *strip `typeof` from the callee* exact-matches **23 of 1,052 — 2.2%**, and on 712 the callee is not `typeof X` at all |
 | **`\|\|` and `??`** | 358 + 96 | both need `UnionReductionSubtype`. `&&` does not, which is why only `&&` landed |
+| **`tsr-iiu` — `undefined \| null` prints backwards** | — | **NOT A DEFECT.** Upstream prints `null \| undefined` too — 6+3+2+2… baseline instances, the other order **zero**. I filed a defect against correct code from an expectation I never checked |
 | **`removeSubtypes` (`tsr-eak`)** | 5 rows, ~1,100 quoted | **255 right lines broken vs ≤263 changed — 1.03 gained per lost at the ceiling**, worse than the 2.1 / 2.5 / 2.7 that refused three earlier items. And only **500 of 2,146** structured wrong lines are its population; 21,093 of 26,140 union lines carry no structured constituent and are outside it by construction |
 
 ---
@@ -279,6 +281,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `39a3853` | **63.64%** | **2,275** | **+0.10 pts, +481 lines, 0 lost** | union-constituent parenthesisation (`tsr-xm9`) +353, and the same predicate fixing a pre-existing defect in `array_element_text` +128. Also this session: `removeSubtypes` sized and **refused**, `tsr-jle` and `tsr-iiu` withdrawn, the call row's bar re-scored with `new` separated |
 | 2026-08-06 | `5290e1a` | **63.54%** | **2,275** | **+0.20 pts, +958 lines, +5 cases** | the `&&` arm of `checkBinaryLikeExpression` — the only unblocked arm in the board's top three rows. The session's main product is the **board rewrite**: `tsr-jle` fell 11,008 → 1,004, `ArrayLiteral` and `\|\|`/`??` were shown blocked on assignability, and `new` was sized alone for the first time |
 | 2026-08-06 | `3299f53` | **63.34%** | **2,270** | **+2.25 pts, +10,761 lines** | export-marker link (+2,265), `this` parameter (+2,733), `super` (+838), `@lib`/`@noLib` harness fidelity (+431), unit-return widening (+1,188), `getApparentType` (+973), `getMergedSymbol` (+430), `autoArrayType` (+1,005), object spread (+74) |
 

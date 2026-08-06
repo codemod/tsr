@@ -2444,3 +2444,94 @@ was going to absorb them.
 > *why* each line is wrong.** "The baseline is shorter than our answer" is not a
 > diagnosis; narrowing, reduction, ordering and bracketing all shorten a union,
 > and only one of them is the mechanism you are costing.
+
+### An absolute bar catches a wrong predicate that a ratio bar ships
+
+The union-parenthesisation build registered **`keep if lost == 0 and gained
+≥ 150`** — deliberately not the gained/lost ratio the earlier items used. The
+reasoning was in the registration: parenthesisation only *adds* characters, so a
+line that is right today and whose text changes becomes wrong **by
+construction**. A loss therefore cannot mean "unprofitable"; it can only mean
+the predicate disagrees with upstream.
+
+First run: **+353 gained, 19 lost.** A ratio bar of 3.0 — or of 2.0, or of 1.5 —
+passes that comfortably, and the build ships.
+
+The 19 named the defect exactly: `(TaggedString1) | (TaggedString2)` where the
+baseline says `TaggedString1 | TaggedString2`. An intersection that a **type
+alias names** prints as that name, which upstream's builder emits as a
+`TypeReferenceNode` — the highest precedence, never parenthesised. The rule
+tested the *type's variant* where upstream tests the *node kind*, and for an
+aliased intersection those differ. Fixed, the same build is **+481 and 0 lost**.
+
+> **When a change can only add or only remove, the honest bar is an absolute
+> zero on the other direction, not a ratio.** A ratio is the right shape when a
+> mechanism trades wins against losses — assignability, naming, reduction. It is
+> the wrong shape when losses are *proof of a bug*, because it prices something
+> that has no price.
+
+The general question to ask when registering: **is a loss here evidence of a bad
+trade, or evidence of a wrong rule?** They deserve different bars, and the same
+number can be either depending on the mechanism.
+
+#### And the same predicate found a pre-existing bug because its comment was honest
+
+`declared.rs`'s `array_element_text` wrapped every union and intersection under
+this note:
+
+> Intersections are wrapped on the same precedence grounds and **no baseline
+> exercises one**, which is stated rather than presented as verified.
+
+One does — `compiler/inferTypePredicates` wants `Bar[]` and this printed
+`(Bar)[]`. The same one-line predicate fixed it for **+128 lines**.
+
+That comment is the reason the fix was five minutes rather than a session. A
+comment saying *"this is unverified"* is a standing invitation that costs one
+sentence; the alternative — an unverified clause presented as reasoned — reads as
+settled and is never revisited. This document already forbids a comment that
+*claims* a safety property it does not have; this is the same rule pointed at
+coverage rather than at safety.
+
+### Establish where a population lives before sizing the mechanism for it
+
+`bd tsr-e10` was filed at **483 lines** as a `getNonNullableType` item: unions
+printing `T | undefined` where the baseline says `T`, diagnosed as flow
+narrowing needing an `NEUndefinedOrNull` facts bit. Its own text registered the
+check — *"check whether the 483 are reached through a narrowing path this port
+already walks"*.
+
+Run, by parent node kind:
+
+```
+  Parameter                / Identifier                168
+  PropertyAccessExpression / Identifier                 92
+  PropertySignature        / Identifier                 36
+  ...
+  NonNullExpression        / PropertyAccessExpression    6   <- the whole `x!` population
+```
+
+**Six.** The item is `optionality.rs` and `symbols.rs` — declaration-name
+positions reached through `get_type_of_symbol` — and not `flow.rs` at all.
+Building the facts bit would have converted about six lines against a quoted
+483, and every number in the issue was correct.
+
+> **A population identified by the *shape of the wrong answer* is not thereby
+> attributed to a mechanism.** `T | undefined` where `T` is wanted looks like a
+> narrowing failure and is mostly a declaration-typing failure. Take the
+> syntactic position of the lines — parent kind and node kind is enough — before
+> costing anything.
+
+#### And stopping is a result
+
+The same run made a replacement diagnosis tempting: 168 parameter names plus 36
+property signatures *look* like "an optional declaration prints without its
+`undefined`". The baselines refuse it — `conformance/classWithOptionalParameter`
+records `>x : string | undefined`, while other cases record `>opt : number`
+nineteen times — so the rule depends on the declaration shape or on the case's
+`strictNullChecks`, and two greps do not settle which.
+
+The issue was updated with *what is known* and an explicit note of *what is not
+claimed*. Three expectations written from intuition had already been wrong in
+this same session, and a fourth was a defect report filed against correct code.
+**The failure mode is not being wrong once; it is being wrong the fourth time in
+the same session because the first three were cheap to fix.**
