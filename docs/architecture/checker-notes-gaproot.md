@@ -1317,6 +1317,56 @@ largest — the 1,165 that made it look largest was a receiver crossing, and 70%
 of that is a family already refused. It is a real item and it is small, and on
 this board that is worth saying before anyone plans a cycle around it.
 
+---
+
+# Part 7 — what is left in `members.rs`
+
+## RULE-5, registered before the measurement, and it is a **different question**
+
+RULE-4's Q2 was a **≥ 500 lines per sub-item** bar, and I refused to sum three
+rows to clear it. That refusal was right and the bar is now the wrong
+instrument, so it is **retired here rather than reused or quietly relaxed**.
+
+**Why the question changed.** Q2 asked *"is this a work item worth a cycle,
+against the alternatives on the board"*. Every alternative in my files has now
+been measured away: 80.7% of the property-access population belongs to the
+binder, `declared.rs` or the `this` type, and those are dispatched. The question
+that remains is *"is this **correct and cheap** to build, given it is the last
+known mechanism in a file I own"* — and against that question a size bar
+answers nothing. A 104-line fix that is right is worth landing; a 600-line one
+that manufactures wrong lines is not.
+
+**Population.** Three things, at `8229b58`:
+
+- the **545** of `bd tsr-n22` — receiver declared once, no heritage clause,
+  member absent;
+- the **base-type walk**, ~104 named-receiver lines plus ~115 `this`-receiver
+  lines, which are the same mechanism reached from two receiver kinds;
+- the **174** `member name is not an identifier` lines, unsized.
+
+> **RULE-5.** Build a sub-item only if **all three** hold. There is **no size
+> bar, deliberately**, and the size is reported prominently anyway so that
+> nobody can quote it as a cycle.
+>
+> - **S1 — the mechanism is known and lives wholly in my files**
+>   (`members.rs`, `index_signatures.rs`, `indexed.rs`, `relater.rs`,
+>   `objects.rs`, `types.rs`, `unions.rs`, `intersections.rs`). If it needs the
+>   binder, `declared.rs`, `expressions.rs` or `inference.rs`, hand it back and
+>   say so. **A fifth relocation is a finding, not a failure.**
+> - **S2 — spellability, exact match, both legs named.** Under 25% of the lines
+>   it unblocks want `any`, and under 25% want a form this port cannot name.
+>   Bar on the inferred leg.
+> - **S3 — collateral.** `casedelta` pair, gains and losses read **separately**,
+>   wrong-per-right ≤ 0.5, and **0 cases lost is measured, not assumed**.
+>
+> **Prediction, registered to be falsified.** I predict: the 545 splits
+> **majority outside my files** (a fifth relocation); the base-type walk clears
+> S1 and is **~100–220 lines**, the only buildable thing left; and the 174 is
+> **not mine** — a private-identifier or computed-name row whose owner is the
+> parser/printer surface. If all three land that way, the honest report is
+> **"`members.rs` is done until the three blockers land"**, which Part 5 already
+> predicted — and a confirmed prediction is worth more than a forced build.
+
 ## Everything filed from this page
 
 | id | what | sized as |
