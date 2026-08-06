@@ -651,13 +651,25 @@ impl Checker<'_, '_> {
     /// keeps every constituent, so narrowing leaves the type alone and the
     /// answer is the one given today. Claiming a type is truthy when it is not
     /// would delete a constituent and print a plausible wrong type.
-    fn get_type_facts(&self, t: TypeId) -> TypeFacts {
+    pub(crate) fn get_type_facts(&self, t: TypeId) -> TypeFacts {
         let both = TypeFacts::TRUTHY | TypeFacts::FALSY;
         let ty = self.store.get(t);
         let flags = ty.flags;
 
         if flags.contains(TypeFlags::NEVER) {
             return TypeFacts::empty();
+        }
+        // A union's facts are the **union** of its constituents'
+        // (`getTypeFactsWorker`, `checker.go:30987`). Without this arm a union
+        // falls to the `_ => both` default below, which is the safe answer for
+        // *narrowing* — where this function is only ever called on a
+        // constituent, so the arm is unreachable from `filter_type` — and the
+        // wrong answer for [`Checker::check_logical_and`], which asks about the
+        // whole left operand. `undefined | null` must report `FALSY` alone.
+        if let TypeData::Union { types, .. } = &ty.data {
+            return types
+                .iter()
+                .fold(TypeFacts::empty(), |facts, &c| facts | self.get_type_facts(c));
         }
         // `undefined`, `null` and `void` are the whole of the falsy-only set
         // among the types this checker builds.

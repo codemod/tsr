@@ -3,12 +3,17 @@
 //! Ported from `Checker.checkBinaryExpression` / `checkBinaryLikeExpression`
 //! (`checker.go:12331`, `:12336`). Split out of [`crate::checker`] because
 //! upstream's worker is a dozen unrelated rules behind one node kind and they
-//! land at different times — the logical operators are still a gap and belong
-//! to unions (`bd tsr-4sc.9`).
+//! land at different times — `||` and `??` are still gaps and belong to
+//! assignability (`bd tsr-5s2`).
 
 use tsr_ast::{Expression, SyntaxKind};
 
-use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
+use crate::{
+    checker::Checker,
+    flags::TypeFlags,
+    flow::TypeFacts,
+    types::{TypeData, TypeId},
+};
 
 impl Checker<'_, '_> {
     /// Ported from `Checker.checkBinaryExpression` / `checkBinaryLikeExpression`
@@ -19,9 +24,10 @@ impl Checker<'_, '_> {
     /// Upstream's worker is a dozen unrelated rules behind one node kind, and
     /// they do not become available at the same time. Ported: assignment, the
     /// arithmetic/bitwise/shift family, `+`, the relational and equality
-    /// families, `in`, `instanceof` and the comma operator. Not ported: the
-    /// logical operators — which need `getTypeFacts` and `strictNullChecks`
-    /// rather than unions, see the arm below (`bd tsr-5s2`) — and destructuring
+    /// families, `in`, `instanceof`, the comma operator, and `&&`
+    /// ([`Checker::check_logical_and`]). Not ported: `||`, `??` and their
+    /// compound forms — which need `UnionReductionSubtype` and therefore
+    /// assignability, see the arm below (`bd tsr-5s2`) — and destructuring
     /// assignment, whose left-hand side is an object or array literal pattern
     /// (`bd tsr-4sc.13`). Both yield `errorType`.
     ///
@@ -121,15 +127,23 @@ impl Checker<'_, '_> {
             // lookup, so it joins the arm rather than getting one of its own.
             | SyntaxKind::InstanceOfKeyword => self.intrinsics.boolean,
 
-            // The logical operators build a union of the operands, and unions
-            // now exist — but the union is not determined by the operand types
-            // alone. `&&` unions `extractDefinitelyFalsyTypes(left)` with the
-            // right type (`checker.go:12495`), and `extractDefinitelyFalsyTypes`
-            // reaches `getTypeFacts` (`checker.go:30982`), a large table this
-            // port does not have. `||` and `??` additionally reduce with
-            // `UnionReductionSubtype`, which is `removeSubtypes` and needs
-            // assignability. Answering without either would be a wrong line
-            // rather than a missing one. `bd tsr-5s2`.
+            SyntaxKind::AmpersandAmpersandToken => {
+                self.check_logical_and(left_type, right_type)
+            }
+
+            // `||` and `??` are still gaps, and for a reason `&&` does **not**
+            // share — see [`Checker::check_logical_and`]. `||` filters the left
+            // operand with `hasTypeFacts(Truthy)` and then reduces the union
+            // with `UnionReductionSubtype` (`checker.go:12509`); `??` does the
+            // same after `getNonNullableType` (`checker.go:12519`). That
+            // reduction is `removeSubtypes` and needs assignability, which this
+            // port does not have, so the answer would be a wrong line rather
+            // than a missing one. `bd tsr-5s2`.
+            //
+            // The compound forms `&&=`, `||=` and `??=` additionally reach
+            // `checkAssignmentOperator`, and are left with the family they
+            // belong to rather than split off for the sake of three lines
+            // corpus-wide.
             //
             // `errorType`, not the left type, which would be right only when the
             // left operand is never falsy.
@@ -222,5 +236,140 @@ impl Checker<'_, '_> {
         // Upstream reports and answers `any` here; without diagnostics the honest
         // answer is that nothing was computed.
         self.intrinsics.error
+    }
+
+    /// The `&&` arm of `checkBinaryLikeExpression` (`checker.go:12496`).
+    ///
+    /// ```go
+    /// resultType := leftType
+    /// if c.hasTypeFacts(leftType, TypeFactsTruthy) {
+    ///     t := leftType
+    ///     if !c.strictNullChecks { t = c.getBaseTypeOfLiteralType(rightType) }
+    ///     resultType = c.getUnionType([]*Type{c.extractDefinitelyFalsyTypes(t), rightType})
+    /// }
+    /// return resultType
+    /// ```
+    ///
+    /// # Why this arm lands and `||` and `??` do not
+    ///
+    /// This module previously recorded all three as one gap, on the grounds
+    /// that `extractDefinitelyFalsyTypes` reaches `getTypeFacts`. **It does
+    /// not**, and the correction is what separated them
+    /// (`docs/architecture/checker-notes-armsplit.md` §3.1, `bd tsr-rmi`).
+    /// Taken with `grep -n` on the declarations:
+    ///
+    /// - `extractDefinitelyFalsyTypes` (`checker.go:29110`) is
+    ///   `mapType(t, getDefinitelyFalsyPartOfType)`, and
+    ///   [`Checker::get_definitely_falsy_part_of_type`] (`checker.go:29114`) is
+    ///   a pure switch on `TypeFlags` consulting no table at all.
+    /// - It is `removeDefinitelyFalsyTypes` (`checker.go:29106`), the **`||`**
+    ///   arm, that calls `hasTypeFacts(Truthy)` through `filterType`.
+    /// - `&&` unions with plain `getUnionType`. `||` and `??` use
+    ///   `getUnionTypeEx(…, UnionReductionSubtype, …)`, which is `removeSubtypes`
+    ///   and needs assignability.
+    ///
+    /// The one facts bit `&&` does need — the gate — this port already had:
+    /// [`Checker::get_type_facts`] has carried `TRUTHY`/`FALSY` since narrowing
+    /// landed. It gained a union arm for this caller, because narrowing only
+    /// ever asks it about a *constituent*.
+    ///
+    /// # Two branches of upstream's that are not written here
+    ///
+    /// The `!strictNullChecks` branch is dead: this crate assumes
+    /// `strictNullChecks` **on** throughout (`crate::unions`,
+    /// `crate::array_literals`). Writing it would be writing a line no corpus
+    /// case can reach, which this project treats as worse than omitting it.
+    ///
+    /// **A gap in is a gap out**, as in [`Checker::check_arithmetic_operation`]
+    /// and for the same reason: `errorType` carries `TypeFlags::ANY`, so
+    /// upstream's `AnyOrUnknown` case in the falsy switch would map it to
+    /// itself and `getUnionType` would answer `error` anyway — but only by
+    /// accident of the flag. The test is written explicitly, on **identity**,
+    /// so that a genuine `any` operand still answers `any` (56 corpus lines are
+    /// `any && true`) while an unported form still gaps.
+    fn check_logical_and(&mut self, left: TypeId, right: TypeId) -> TypeId {
+        if self.is_error(left) || self.is_error(right) {
+            return self.intrinsics.error;
+        }
+        if !self.get_type_facts(left).contains(TypeFacts::TRUTHY) {
+            // The left operand can never be truthy, so the right is never
+            // evaluated and the result is the left type unchanged.
+            return left;
+        }
+        let falsy = self.extract_definitely_falsy_types(left);
+        self.get_union_type(&[falsy, right])
+    }
+
+    /// `Checker.extractDefinitelyFalsyTypes` (`checker.go:29110`) —
+    /// `mapType(t, getDefinitelyFalsyPartOfType)`.
+    ///
+    /// `mapType` (`checker.go:25561`) returns `never` unchanged, applies the
+    /// function directly to a non-union, and otherwise maps each constituent
+    /// and re-unions. The `origin` branch of `mapTypeEx` (`checker.go:25574`)
+    /// is not ported: this port builds no denormalised union origins — the one
+    /// place upstream would want one, `union_type_worker` answers `errorType`
+    /// instead (`crate::unions`), so there is no origin to read.
+    fn extract_definitely_falsy_types(&mut self, id: TypeId) -> TypeId {
+        let ty = self.store.get(id);
+        if ty.flags.contains(TypeFlags::NEVER) {
+            return id;
+        }
+        let TypeData::Union { types, .. } = &ty.data else {
+            return self.get_definitely_falsy_part_of_type(id);
+        };
+        let constituents = types.clone();
+        let mapped: Vec<TypeId> =
+            constituents.into_iter().map(|c| self.get_definitely_falsy_part_of_type(c)).collect();
+        self.get_union_type(&mapped)
+    }
+
+    /// `getDefinitelyFalsyPartOfType` (`checker.go:29114`).
+    ///
+    /// The falsy *value* a type can hold, or `never` when it can hold none.
+    /// Upstream's order is kept: the three wide primitives first, then the
+    /// types that are already definitely falsy and map to themselves.
+    ///
+    /// The zero literals are interned **regular**, not fresh — upstream's
+    /// `emptyStringType`, `zeroType` and `zeroBigIntType` are created by
+    /// `getStringLiteralType`/`getNumberLiteralType`, which produce the regular
+    /// form. A fresh `0` here would print identically and compare unequal, and
+    /// the first thing to notice would be a union failing to dedupe.
+    fn get_definitely_falsy_part_of_type(&mut self, id: TypeId) -> TypeId {
+        let ty = self.store.get(id);
+        let flags = ty.flags;
+        if flags.contains(TypeFlags::STRING) {
+            return self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral(String::new()),
+                false,
+            );
+        }
+        if flags.contains(TypeFlags::NUMBER) {
+            return self.store.intern_literal(
+                TypeFlags::NUMBER_LITERAL,
+                TypeData::NumberLiteral("0".to_owned()),
+                false,
+            );
+        }
+        if flags.contains(TypeFlags::BIG_INT) {
+            return self.store.intern_literal(
+                TypeFlags::BIG_INT_LITERAL,
+                TypeData::BigIntLiteral("0n".to_owned()),
+                false,
+            );
+        }
+        // The already-falsy set. `AnyOrUnknown` is upstream's and is why
+        // `any && x` is `any`: `any`'s falsy part is `any`, and the union
+        // absorbs the right operand.
+        let definitely_falsy = flags
+            .intersects(TypeFlags::VOID | TypeFlags::NULLABLE | TypeFlags::ANY_OR_UNKNOWN)
+            || match &ty.data {
+                TypeData::BooleanLiteral(value) => !*value,
+                TypeData::StringLiteral(value) => value.is_empty(),
+                TypeData::NumberLiteral(value) => matches!(value.as_str(), "0" | "-0"),
+                TypeData::BigIntLiteral(value) => matches!(value.as_str(), "0n" | "-0n"),
+                _ => false,
+            };
+        if definitely_falsy { id } else { self.intrinsics.never }
     }
 }

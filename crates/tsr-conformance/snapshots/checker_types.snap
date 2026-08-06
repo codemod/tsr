@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 2270/9538 (23.80%)
-Assertion lines: 303366/478954 (63.34%)  — a gradient, not a pass rate
-Failed         : 7268
+Passed         : 2275/9538 (23.85%)
+Assertion lines: 304324/478954 (63.54%)  — a gradient, not a pass rate
+Failed         : 7263
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 7268 failures:
+First 100 of 7263 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -170,7 +170,7 @@ compiler/anonymousClassExpression2
 compiler/anonymousModules
   anonymousModules.ts: >module : error — expected >module : any
 compiler/anyAndUnknownHaveFalsyComponents
-  anyAndUnknownHaveFalsyComponents.ts: >y1 : error — expected >y1 : any
+  anyAndUnknownHaveFalsyComponents.ts: >foo1 : error — expected >foo1 : () => any
 compiler/anyAsReturnTypeForNewOnCall
   anyAsReturnTypeForNewOnCall.ts: >this.x : error — expected >this.x : any
 compiler/anyDeclare
