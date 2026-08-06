@@ -734,7 +734,7 @@ Two items already measured elsewhere rank as follows against this board:
   "case-gate item, not a gradient item" and this board agrees: 929 nodes is
   outside the gradient top 20, and 225 cases with a 57.6% top-10 share is
   concentrated enough that its case yield will land well below 225.
-- **The binding-element position** (`bd tsr-4qa`: 192 claims, 192 convert,
+- **The binding-element position** (`bd tsr-4ri`: 192 claims, 192 convert,
   **empty residue**, 48 cases, top-10 57.8%). Small, but the empty residue is
   the strongest signal on the board — a position where upstream always holds
   `errorType` converts fully or not at all. Carry its caveat: **192 is a floor,

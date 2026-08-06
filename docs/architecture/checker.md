@@ -2247,7 +2247,7 @@ cycle did not own.
 
 - **`noUncheckedIndexedAccess`.** An index signature does not make a property
   optional and does not add `| undefined`. That is a compiler option this port
-  does not read (`bd tsr-y5a`), and the two are deliberately not blended.
+  does not read (`bd tsr-dwm`), and the two are deliberately not blended.
 - **Inherited index signatures.** `resolveObjectTypeMembers` layers a base's
   under the derived type's; this reads a symbol's own declarations only, so an
   inherited one is a miss. A gap, not a wrong answer, and it belongs with base
@@ -3172,7 +3172,7 @@ either spelling is a confident wrong answer on a large fraction of them. The
 alternative — answer non-strict and accept the loss — would win the non-strict
 cases and lose the strict ones silently, with no way to tell the two apart in the
 histogram. It becomes correct as soon as the checker reads compiler options
-(`bd tsr-y5a`).
+(`bd tsr-dwm`).
 
 **How we would know this is wrong:** a baseline line where this port prints a
 return type and upstream prints a different one — most likely `() => "a"` against

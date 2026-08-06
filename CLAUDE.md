@@ -118,6 +118,7 @@ cargo fmt --all
 
 cargo run -p xtask -- codegen && cargo fmt --all   # regenerate the AST
 cargo run -p xtask -- anchors                      # every upstream anchor still resolves
+cargo run -p xtask -- issue-ids                    # every `bd <id>` cited in docs/ exists
 cargo run -p tsr-conformance --bin coverage   # conformance run; writes snapshots
 ```
 
