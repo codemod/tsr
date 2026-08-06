@@ -107,8 +107,18 @@ fn a_member_this_port_cannot_type_makes_the_whole_literal_a_gap() {
     // precedent set two lines above is what said to delete rather than update,
     // and this is the second time this fixture file has paid for having it
     // written down.
-    assert_eq!(type_of_initialiser("const o = { m() { return 1; } };"), "error");
+    // **And a third time, for the method fixture.** `{ m() { return 1; } }`
+    // now answers `{ m(): number; }` — object-literal methods are ported
+    // (`crate::objects`' `MethodDeclaration` arm) — so by the rule stated
+    // above it is removed here rather than updated, and covered positively in
+    // `a_method_member_prints_as_a_signature` below.
+    //
+    // The rule has now been applied three times in this one file. What is left
+    // must be a member that genuinely cannot be typed: a computed name.
     assert_eq!(type_of_initialiser("const o = { [1]: 1 };"), "error");
+    // A method whose *signature* cannot be built keeps the whole literal a
+    // gap, which is the property the removed line was really testing.
+    assert_eq!(type_of_initialiser("const o = { m(x: keyof string) {} };"), "error");
 }
 
 #[test]
@@ -155,4 +165,21 @@ fn an_object_literal_type_carries_the_symbol_a_property_access_looks_in() {
         panic!("an object literal type prints structurally, like a type literal");
     };
     assert!(members.is_some(), "and carries the symbol its properties live in");
+}
+
+#[test]
+fn a_method_member_prints_as_a_signature() {
+    // `m(): void`, not `m: () => void` — the distinction `Member`'s own doc
+    // calls out and the reason `Member::Signature` exists. The corpus prints
+    // 3,012 object types carrying a method; `{ fn(): void; }` (68 instances)
+    // and `{ log(msg: any): void; }` (366) are the head of that population.
+    assert_eq!(type_of_initialiser("const o = { m() {} };"), "{ m(): void; }");
+    assert_eq!(type_of_initialiser("const o = { m() { return 1; } };"), "{ m(): number; }");
+    assert_eq!(
+        type_of_initialiser("const o = { log(msg: any): void {} };"),
+        "{ log(msg: any): void; }"
+    );
+    // Beside a property, so the two member spellings are rendered by one pass
+    // and the ordering is the literal's own.
+    assert_eq!(type_of_initialiser("const o = { a: 1, m() {} };"), "{ a: number; m(): void; }");
 }

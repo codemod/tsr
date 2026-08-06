@@ -322,6 +322,36 @@ impl Checker<'_, '_> {
                     }
                     continue;
                 }
+                // `{ m() {} }`. Upstream types the member as a signature and
+                // prints it `m(): void`, not `m: () => void` — the distinction
+                // [`Member`]'s own doc calls out, and the reason `Signature`
+                // exists as a variant rather than a property with a function
+                // type.
+                //
+                // Rendered through the same `signature_member_text` the type
+                // literal arm and `crate::symbols`' multi-signature arm use, so
+                // the three spellings of a method cannot drift.
+                //
+                // A method whose signature this port cannot build — an
+                // unannotated parameter needing a contextual type, a
+                // destructuring parameter — gaps the **whole literal**, which
+                // is the rule every other member arm here already follows.
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
+                    let Some(id) = method.node_id else { return error };
+                    let Some(signature) = self.get_signature_from_declaration(id) else {
+                        return error;
+                    };
+                    let tsr_ast::PropertyName::Identifier(name) = method.name else {
+                        // A computed or string-literal method name needs the
+                        // same quoting rules the property path has and is not
+                        // measured; a gap is one line, a guess is a wrong one.
+                        return error;
+                    };
+                    let printed =
+                        format!("{}{}", name.text, signature_member_text(self, &signature));
+                    upsert_member(&mut members, Member::Signature { printed });
+                    continue;
+                }
                 _ => return error,
             };
             let name = match name_node {

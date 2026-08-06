@@ -166,3 +166,59 @@ behaved this way since `tsr-eep` landed and its own test says so.
 That is the fifth expectation this project has written from intuition and had
 corrected by the code — and the third that was wrong in the *pessimistic*
 direction, expecting a gap where the port already answers.
+
+---
+
+## 6. Object-literal methods, built in the same cycle
+
+`objects.rs`'s member dispatch ported property, shorthand and spread members and
+sent everything else to a catch-all that gaps the **whole literal**. The row
+`depend.rs` ranks as `ObjectLiteralExpression` — 2,873 lines, a **3.9%**
+ceiling, 767 cases, top-1 2.7%, with `conformance/spreadMethods` at its head —
+is mostly that catch-all, and methods are most of what falls into it: the
+corpus prints **3,012 object types carrying a method member**, headed by
+`{ log(msg: any): void; }` (366) and `{ fn(): void; }` (68).
+
+The arm is small because the infrastructure was already right: `Member` has a
+`Signature` variant precisely because *"a method prints `m(): void` rather than
+`m: () => void`"*, and `signature_member_text` already renders the member
+spelling. A method whose signature cannot be built — an unannotated parameter
+needing a contextual type — gaps the whole literal, the rule every other member
+arm here follows.
+
+```
+  net +420 | 330,192 -> 330,612 | 68.94% -> 69.03%
+  gained 420 in 86 cases | lost 0 | 13 finished, 0 regressed
+  gap 97,665 -> 97,099  =>  Δwrong = +146
+```
+
+**No bar was registered before this one either**, which is the second time in
+two sessions (`checker-notes-narrow.md` §5 records the first). Against the
+standing figures it is a clear keep — zero lost, thirteen cases finished, none
+regressed — but Δwrong at +146 against a +420 gain is **0.35, just over the
+1-in-3 the last three registrations used**, and that is exactly the kind of
+marginal call a pre-registered bar exists to make in advance rather than after
+the fact. Recorded rather than rounded down.
+
+Accessors (`get`/`set`) still hit the catch-all and are **not** a copy of this
+arm — upstream prints an accessor as a *property*, and `signature_parts_of`
+excludes accessors deliberately. `bd tsr-32y`.
+
+### The defect the wrong bucket named
+
+`wrongdelta.rs` over the pair attributes the largest new-wrong families to the
+**tuple** build rather than to methods, and they are one defect:
+
+```
+  18   [string] | [number, boolean]        ->  [number, boolean] | [string]
+  11   null[] | [number, string]           ->  [number, string] | null[]
+```
+
+**Tuples sort wrongly inside a union.** `compare_types` is upstream's
+`CompareTypes`, which sorts by increasing `TypeFlags` and then by name; a plain
+tuple is a `TypeData::Named` whose text begins with `[`, so it sorts by ASCII
+against other object types, where upstream's tuple is a *reference to a
+synthesised target* and sorts as a reference. Same family as the union-order
+build at `a371ec8`, and it carries that build's caution: a change to union
+ordering fires on all ~26,000 union lines, most of which are right today, so
+the at-risk population is the bar. `bd tsr-5ll`.
