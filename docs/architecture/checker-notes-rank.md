@@ -1,5 +1,65 @@
 # The ranked board for `checker_types`
 
+> **FIXED 2026-08-06 (cycle 12). The correction below diagnosed the defect and
+> asked for a positive terminal arm; `cause()` now has one, and the `KIND` column
+> has been re-measured. `TERMINAL` is 16.41%, not 34.92%.**
+>
+> The 2026-08-05 correction (kept in full below) said `TERMINAL` was an *upper
+> bound* on kind 1 rather than a measurement of it. Measured, **more than half of
+> it was not kind 1**:
+>
+> | | published (`33e3bd5`) | old classifier at `9b10272` | **fixed** |
+> |---|---:|---:|---:|
+> | `TERMINAL` | 34.92% | 47,933 (34.59%) | **22,739 (16.41%)** |
+> | `propagated/span` | — | 34,332 (24.77%) | 34,332 (24.77%) |
+> | `propagated/named` | — | 19,112 (13.79%) | 19,112 (13.79%) |
+> | `DEPENDENT-UNKNOWN` | — | 37,208 (26.85%) | **45,814 (33.06%)** |
+> | `UNMATCHED` (the control) | — | 0, and could not be non-zero | **16,588 (11.97%)** |
+>
+> **Of the 47,933 lines the old classifier called `TERMINAL`, 25,194 — 52.6% —
+> were not.** 8,606 name a dependency the span test cannot see; 16,588 carried no
+> evidence either way and had been absorbed by the `else`.
+>
+> **Two changes, both of them positive tests:**
+>
+> 1. `Terminal` now requires **`has_inner`** — that the node has at least one
+>    rendered line strictly inside its span. The span test returns two facts
+>    instead of one, because *"nothing inside this node gapped"* and *"this node
+>    has nothing inside it"* are the same `false` and mean opposite things.
+>    Collapsing them is precisely what let a **leaf** claim the strongest label on
+>    the page. A line no arm claims now falls to `UNMATCHED`, which is the
+>    control, and the control can finally be reached.
+> 2. `no value declaration` and `the name does not resolve` join `initialiser` and
+>    `annotation` as `DEPENDENT-UNKNOWN`. Both name a dependency outside the
+>    node's span; neither is evidence that the work is local to the row.
+>
+> **The control that makes this trustworthy is M0: revert `cause()` to its
+> published form and re-run.** `propagated/span` (34,332) and `propagated/named`
+> (19,112) are then **identical to the digit** — the change moved lines only
+> between the three buckets it touches, and 47,933 − 22,739 = 8,606 + 16,588
+> exactly. Nothing leaked.
+>
+> **Row 9 reclassifies itself.** The 2,618-line declaration-name row that an agent
+> measured by hand at **68.6% propagated** now reads `UNMATCHED` by construction,
+> from a classifier that knows nothing about that investigation. A hand result and
+> a structural fix agreeing is the strongest evidence form available here.
+>
+> Two more pairs fall out of the same mechanism and are worth carrying: `member
+> name, the receiver has no such property` (4,016) reads `UNMATCHED` while its twin
+> `property access, the receiver has no such property` (4,005) reads
+> `propagated/span`, and `member name, the property has no type` (1,861) pairs the
+> same way with 1,860. `a.b` renders two lines, the member name is the leaf, and
+> the access is not — so **where a member-name row reads `UNMATCHED`, its access
+> twin's label is the better estimate of what it is really waiting on.** That is a
+> next-reader's inference, not a measurement, and it is not folded into any
+> number here.
+>
+> Figures at `9b10272`, which is `058b4a9` plus two documentation commits — the
+> compiler is unchanged, and `right` reads 292,606 either way. They differ from
+> the published `33e3bd5` figures because three checker commits landed in between
+> (`fa29e66`, `1e4bddb`, `979f18c`); gap is 138,585 here against 139,612 there.
+> See `bd tsr-v1j`.
+
 > **CORRECTED 2026-08-05 (cycle 11). `TERMINAL` does not mean what this page
 > reads it as, and the control bucket that appears to guarantee it cannot fire.**
 >
@@ -69,9 +129,12 @@ omission, so the unit is restated on every table.
 1. **The board has been ranked on the wrong axis.** The line gradient and the
    case gate are nearly orthogonal, and the case gate — the harder-sounding
    target — is the *cheaper* one. §7.
-2. **Only 34.92% of the gap is confirmed kind 1.** The repaired triage question
-   has now been asked of every gap line rather than row by row, and the majority
-   of the gap is either propagation or unmeasured. §4.
+2. **Only ~~34.92%~~ 16.41% of the gap is confirmed kind 1.** The repaired triage
+   question has now been asked of every gap line rather than row by row, and the
+   majority of the gap is either propagation or unmeasured. §4.
+   **Requoted 2026-08-06:** the 34.92% was the default arm's total. With a
+   positive terminal test it is **16.41%**, and 11.97% of the gap is `UNMATCHED` —
+   no evidence either way. See the header.
 3. **20.03% of the residual is not a gap at all.** 37,489 lines are already
    typed and *wrong*, they appear in no histogram in `docs/architecture/`, and
    the largest case-flipping row on the whole board is among them. §6.

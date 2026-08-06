@@ -98,6 +98,20 @@ struct CaseReport {
 /// So the span test is used where it is valid and the reason string is used
 /// where it is not, and the cases the reason string leaves open are reported as
 /// their own bucket rather than folded into either answer.
+/// What the span test found beneath one rendered line.
+///
+/// Two fields rather than one boolean, because *"nothing inside this node
+/// gapped"* and *"this node has nothing inside it"* are the same `false` and
+/// mean opposite things. Collapsing them is what let a leaf claim
+/// [`Cause::Terminal`].
+#[derive(Clone, Copy)]
+struct Below {
+    /// A rendered line strictly inside this node's span answered `error`.
+    inner_gapped: bool,
+    /// There was at least one rendered line strictly inside this node's span.
+    has_inner: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 enum Cause {
     /// Nothing this line depends on is known to have gapped. The row's own rule
@@ -108,9 +122,25 @@ enum Cause {
     /// The reason names a dependency that is itself a gap.
     PropagatedNamed,
     /// The reason names a dependency the span test cannot see — an initialiser
-    /// or an annotation beside the node rather than inside it — and this probe
-    /// does not measure whether it gapped. **Not** evidence of either answer.
+    /// or an annotation beside the node rather than inside it, a symbol declared
+    /// elsewhere, or a name that never resolved — and this probe does not measure
+    /// whether it gapped. **Not** evidence of either answer.
     Unknown,
+    /// **The control.** No arm matched: the reason names no dependency, and the
+    /// node has nothing inside its span for the span test to look at, so there is
+    /// no evidence either way.
+    ///
+    /// This bucket exists because the arm below it used to be `else`. A default
+    /// arm carrying the load-bearing label absorbs every line no test matched and
+    /// reports them as the strongest claim the classifier makes; the control
+    /// beside it then reads zero on every run and proves nothing, because
+    /// `cause()` is total. A *declaration name* is the worked example — it spans
+    /// only itself, so `gapped_below` cannot fire for it, and it used to land in
+    /// `Terminal` whatever it actually depended on. One row so labelled, 2,618
+    /// lines, measured **68.6% propagated** when someone finally walked it.
+    /// See `bd tsr-eyn` and the correction header on
+    /// `docs/architecture/checker-notes-rank.md`.
+    Unmatched,
 }
 
 impl Cause {
@@ -120,19 +150,43 @@ impl Cause {
             Self::PropagatedSpan => "propagated/span",
             Self::PropagatedNamed => "propagated/named",
             Self::Unknown => "DEPENDENT-UNKNOWN",
+            Self::Unmatched => "UNMATCHED",
         }
     }
 }
 
-fn cause(reason: &str, gapped_below: bool) -> Cause {
+/// Which of four kinds of evidence a gap line carries — and **`Terminal` has to
+/// earn it**.
+///
+/// `has_inner` is the arm that makes the difference. `Terminal` is the claim
+/// *"everything this node is built from was typed, so the node's own rule is the
+/// whole of the missing work"*, and that claim is only available if the node **is**
+/// built from something this probe looked at. A leaf has nothing inside its span,
+/// so `inner_gapped` is vacuously `false` for it, and reading that as *"nothing
+/// below gapped"* is reading the absence of a test as a passing test.
+///
+/// So a leaf falls to [`Cause::Unmatched`], which is the control, and the control
+/// can now be reached — the property `docs/conventions.md` demands of every
+/// control and the previous `else` arm made impossible.
+fn cause(reason: &str, inner_gapped: bool, has_inner: bool) -> Cause {
     if reason.contains("the receiver is a gap") {
         Cause::PropagatedNamed
-    } else if gapped_below {
+    } else if inner_gapped {
         Cause::PropagatedSpan
-    } else if reason.contains("/ initialiser ") || reason.contains("/ annotation ") {
+    } else if reason.contains("/ initialiser ")
+        || reason.contains("/ annotation ")
+        // Both name a dependency that is not inside this node's span: the symbol
+        // is declared somewhere this probe did not look, or no declaration was
+        // found at all. Neither is evidence that the work is local to this row,
+        // and both used to fall through to `Terminal`.
+        || reason.contains("no value declaration")
+        || reason.contains("the name does not resolve")
+    {
         Cause::Unknown
-    } else {
+    } else if has_inner {
         Cause::Terminal
+    } else {
+        Cause::Unmatched
     }
 }
 
@@ -242,22 +296,54 @@ fn check_classifier() {
     // its sibling. `member name, the receiver is a gap` has no line inside it
     // by construction, so a span-only classifier calls 6,749 lines TERMINAL.
     assert_eq!(
-        cause("member name, the receiver is a gap: Identifier", false),
+        cause("member name, the receiver is a gap: Identifier", false, false),
         Cause::PropagatedNamed,
         "a named gapped dependency outranks the span test"
     );
     assert_eq!(
         cause(
             "declaration name, symbol has no type: SymbolFlags(X) / initialiser CallExpression",
+            false,
             false
         ),
         Cause::Unknown,
         "a sibling initialiser is not evidence of TERMINAL"
     );
     assert_eq!(
-        cause("expression answered error: ElementAccessExpression", false),
+        cause("expression answered error: ElementAccessExpression", false, true),
         Cause::Terminal,
-        "an expression with nothing gapped inside it is TERMINAL"
+        "an expression with something inside it, none of it gapped, is TERMINAL"
+    );
+    // **The regression this classifier was corrected for.** A declaration name
+    // spans only itself, so it reaches `cause` with `has_inner == false`, and the
+    // old `else` arm answered TERMINAL — the strongest claim on the page — on no
+    // evidence at all. One row so labelled measured 68.6% propagated.
+    assert_eq!(
+        cause("declaration name, symbol has no type: SymbolFlags(X) / neither", false, false),
+        Cause::Unmatched,
+        "a leaf has nothing inside it, so `false` is the absence of a test and not a passing one"
+    );
+    assert_eq!(
+        cause(
+            "reference, symbol has no type: SymbolFlags(ALIAS) / no value declaration",
+            false,
+            true
+        ),
+        Cause::Unknown,
+        "a symbol declared somewhere this probe did not look is not evidence of TERMINAL"
+    );
+    assert_eq!(
+        cause("reference, the name does not resolve", false, true),
+        Cause::Unknown,
+        "an unresolved name depends on resolution, not on this node"
+    );
+    // The control has to be reachable, and it has to be the ONLY thing an
+    // unmatched line can reach. `cause` is still total, but `Terminal` is no
+    // longer what totality falls through to.
+    assert_eq!(
+        cause("something no arm has ever seen", false, false),
+        Cause::Unmatched,
+        "an unrecognised reason on a leaf reaches the control, not TERMINAL"
     );
 }
 
@@ -324,19 +410,34 @@ fn main() {
                 //
                 // The runs are short, so one forward scan per line is cheap
                 // enough to pay on every line of the corpus.
-                let below: Vec<bool> = match (our_file, our_ids) {
+                //
+                // **Two facts per line, not one**, and the second is what stops
+                // a leaf from being read as a passing test. `inner_gapped` says
+                // a rendered line strictly inside this node's span answered
+                // `error`; `has_inner` says there was any such line to ask about
+                // at all. A declaration name has none, so `inner_gapped` is
+                // `false` for it for the same reason `false` is the answer for a
+                // node whose every child typed — and only `has_inner`
+                // distinguishes those.
+                let below: Vec<Below> = match (our_file, our_ids) {
                     (Some(file), Some(line_ids)) if file.len() == line_ids.len() => (0..file.len())
                         .map(|i| {
                             if file[i].type_string != "error" {
-                                return true;
+                                return Below { inner_gapped: false, has_inner: false };
                             }
                             let outer = nodes.span(line_ids[i]);
-                            !(i + 1..file.len())
+                            let inside: Vec<usize> = (i + 1..file.len())
                                 .take_while(|&j| {
                                     let inner = nodes.span(line_ids[j]);
                                     inner.start >= outer.start && inner.end <= outer.end
                                 })
-                                .any(|j| file[j].type_string == "error")
+                                .collect();
+                            Below {
+                                inner_gapped: inside
+                                    .iter()
+                                    .any(|&j| file[j].type_string == "error"),
+                                has_inner: !inside.is_empty(),
+                            }
                         })
                         .collect(),
                     _ => Vec::new(),
@@ -398,13 +499,13 @@ fn main() {
                         types_producer::gap_reason(&mut checker, bound, nodes, node_map, id);
                     // A line with no span data is UNATTRIBUTED rather than
                     // silently TERMINAL; the control below counts it.
-                    let Some(&gapped_below) = below.get(position) else {
+                    let Some(&Below { inner_gapped, has_inner }) = below.get(position) else {
                         report.unattributed += 1;
                         continue;
                     };
                     *report
                         .gaps
-                        .entry((row_key(&reason), cause(&reason, !gapped_below)))
+                        .entry((row_key(&reason), cause(&reason, inner_gapped, has_inner)))
                         .or_default() += 1;
                 }
             }
@@ -520,7 +621,29 @@ fn report(reports: &[CaseReport]) {
     }
     // CONTROL 3. The per-case residual is the corpus residual.
     let unattributed: usize = reports.iter().map(|r| r.unattributed).sum();
-    println!("CONTROL UNATTRIBUTED by the TERMINAL/PROPAGATED split = {unattributed} (must be 0)");
+    println!(
+        "CONTROL lines with no span data at all = {unattributed} (must be 0; a line the \
+         span test could not be run on)"
+    );
+    // **This one is a measurement, not a must-be-zero, and that is the fix.**
+    // It used to read `CONTROL UNATTRIBUTED by the TERMINAL/PROPAGATED split =
+    // 0 (must be 0)` over a classifier whose last arm was `else`. Since `cause`
+    // was total, nothing could ever be unattributed: the bucket was structurally
+    // incapable of reading non-zero, read zero on every run, and proved nothing
+    // on any of them — while the `else` it was supposed to be watching quietly
+    // absorbed every unmatched line into TERMINAL, the strongest claim the page
+    // makes. `Terminal` now needs a positive test (`has_inner`) and this is
+    // where the genuinely unmatched land.
+    let unmatched: usize = reports
+        .iter()
+        .flat_map(|r| r.gaps.iter())
+        .filter(|((_, cause), _)| *cause == Cause::Unmatched)
+        .map(|(_, lines)| *lines)
+        .sum();
+    println!(
+        "CONTROL UNMATCHED by the TERMINAL/PROPAGATED split = {unmatched} \
+         (a measurement, not a zero: these are lines no arm claimed)"
+    );
     println!(
         "CONTROL residual sum - (upstream - right) = {} (must be 0)",
         delta(residual_total, expected - matched)
