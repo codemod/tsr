@@ -1674,3 +1674,110 @@ commits** from `getMergedSymbol` (`a05bf94`) and from each other: `a05bf94`
 changed *which* symbol a lookup receives, step 4 changes *what* its type carries,
 and step 3 changes nothing observable. Only step 4 moves a line, which is what
 makes the pair attributable.
+
+---
+
+# Cycle 19 — the alias search is the mechanism, and it clears the bar
+
+Measured at `e3b5de9`. Anchors re-taken with `grep -n` on the declarations:
+`getSymbolChain` **`nodebuilderimpl.go:1087`** (briefed as `:1086`),
+`getContainersOfSymbol` **`symbolaccessibility.go:280`**,
+`getAliasForSymbolInContainer` **`:342`**.
+
+## 44. The 31% was a refusal of the cheap version, and the lead was right
+
+§33 refused `tsr-awa` at 31.0% on a **container walk**: take the symbol, prepend
+`Symbol::parent`'s name, repeat. §34 said the misses proved that was a different
+mechanism rather than a failing one. The lead's reading — *that is not a
+mechanism failing at 31%, that is a different mechanism scoring 31% by
+coincidence* — is now measured, and it is right.
+
+`getSymbolChain` (`nodebuilderimpl.go:1087`) applies
+`getAccessibleSymbolChain`'s **alias search at every level of the chain**, not
+just at the leaf. The dominant miss said so verbatim, and the fixture confirms
+it in one line — `compiler/privacyImport.ts:52`:
+
+```ts
+import m1_im2_private = m1_M2_private;
+```
+
+A bare-identifier `ImportEqualsDeclaration`. The container of `c1` is
+`m1_M2_private`; upstream does not print the container, it prints **an alias in
+scope that resolves to the container**.
+
+### Measured, with only that one step added
+
+The probe's `predicted_chain` now asks, at **every** level, whether some alias in
+scope resolves to this symbol, and uses that name if so. Nothing else changed.
+
+| | container walk | **+ alias search at every level** |
+|---|---:|---:|
+| chain matches the baseline | 409 (31.0%) | **514 (39.0%)** |
+| chain **differs** | 158 (12.0%) | **53 (4.0%)** |
+| no chain could be built | 751 (57.0%) | **751 (57.0%)** |
+
+**Wrong chains fell by 66%** — 158 → 53 — and the 84 `m1_im2_private` misses are
+gone entirely. The residue is now long-tailed: `globalThis.A` 2, `m1.m1` 2,
+`templa.mvc` vs `templa.dom.mvc` 2.
+
+### The number the bar is actually about
+
+§33 set the bar at **≥90% on the inferred leg** — *does the construction
+reproduce upstream's dotted name*. Read over the population where the
+construction can **run**:
+
+```
+  514 matches / (514 + 53 built) = 90.7%
+```
+
+**It clears the bar**, against 72.0% for the container walk over the same
+denominator. The mechanism is correct; §33's refusal was of the approximation,
+and it should be read that way from here.
+
+## 45. What now blocks it is coverage, not accuracy
+
+**751 lines (57.0%) build no chain at all, and that number did not move.** It is
+the second reason §34 gave and it is now the only one: `Symbol::parent` is
+populated by the binder for `ENUM_MEMBER | CLASS_MEMBER` only
+(`crates/tsr-binder/src/binder.rs`), so for every other symbol the walk has no
+container to climb to and stops immediately.
+
+That is binder work, it is mine, and it is the **prerequisite commit** — landing
+separately from the chain renderer so each pair is attributable, as the lead
+asked and as `a05bf94` did for the redirect.
+
+**Not built here: I ran out of budget, and the honest place to stop is with the
+measurement done and the build not started.** What is now known, and was not
+before this run:
+
+1. The mechanism is the alias search at every level, **90.7% accurate where it
+   runs** — a build-licensing number against the registered bar.
+2. Coverage, not accuracy, is the binding constraint: **57.0%**, entirely
+   `Symbol::parent`.
+3. The two are separable and must be separate commits.
+
+### The forecast this sets up, legs labelled
+
+- **Measured leg — accuracy, 90.7%**, over 567 lines where the construction runs.
+- **Inferred leg — how much of the 751 `Symbol::parent` recovers, and at what
+  accuracy.** All the uncertainty is here. It is one-sided upward on coverage
+  and *unknown* on accuracy: the 751 are a different population, and nothing
+  says a container recovered from the binder behaves like one that was already
+  there. **The bar belongs on that accuracy**, re-measured after the binder
+  change and before the renderer is touched.
+
+**Do not forecast the line count from 1,318 × 90.7%.** That multiplies a
+measured rate by an unmeasured population, which is the shape of the floor miss
+in §40 — the specific error this workstream has already paid for once.
+
+## 46. The invariant that must survive the build
+
+`type_to_string_at` returns `Option` and a chain that cannot be fully resolved
+**gaps**. That is not a style preference: a baked fallback is what produced the
+328 collateral lines (§26) and then blocked a 5,161-line item (§43). Whatever the
+chain renderer does to `type_reference_text`, it must not reintroduce one — and
+`type_reference_text` bakes at type creation today, so making it context-sensitive
+is itself part of the work rather than a follow-up.
+
+**Structural, not maintained:** the caller that has no reference node must remain
+unable to obtain a context-sensitive name.
