@@ -1267,3 +1267,174 @@ whether the property being looked up is declared in the same file as the
 reference. The asymmetry above says that split is the whole item.
 
 `bd tsr-9or.1` updated with this; the reproduction is the six lines above.
+
+---
+
+# Cycle 16 — `bd tsr-awa`, the qualified name: REFUSED at 30.7%
+
+Measured 2026-08-06 at `c592d0f`. The lead scoped this as *"328 collateral +
+331 `import a = b.c` ≈ 659 lines"*. Both halves of that are wrong, in opposite
+directions, and the item still refuses.
+
+## 31. My own rule, applied to my own build, before anything else
+
+§27's rule asks: *what will render what this unblocks, and is it the same
+mechanism I am half-porting?* Asked of a chain renderer, upstream answers in one
+line. `symbolToTypeNode` (`internal/checker/nodebuilderimpl.go:644`):
+
+```go
+if core.Some(chain[0].Declarations, hasNonGlobalAugmentationExternalModuleSymbol) {
+    // module is root, must use `ImportTypeNode`
+    ...
+    specifier = b.getSpecifierForModuleSymbol(chain[0], core.ResolutionModeNone)
+```
+
+**When the chain's root is a module with no accessible alias, upstream does not
+print a dotted name at all — it prints `import("<specifier>").Rest`,** and that
+specifier comes from `getSpecifierForModuleSymbol`
+(`nodebuilderimpl.go:1249`), which is module-specifier *generation*: resolution
+modes, `node_modules` rewriting, import attributes. **0% ported.** So a chain
+renderer that printed those would be wrong at essentially 100%, and the rule says
+to forecast that half at the unported mechanism's rate rather than the chain's.
+
+Measured, over the 328 collateral lines:
+
+| | lines | cases | top-1 |
+|---|---:|---:|---:|
+| a plain dotted name over accessible symbols — portable | **206** | 36 | 17.5% |
+| needs `import("…")` — `getSpecifierForModuleSymbol` unported | **122** | **4** | 45.9% |
+
+The 122 are four cases, all `privacy*`. They must gap, and the rule found them
+before a line was written.
+
+Of the 206, a further **74 are nested inside a larger baked form** —
+`() => Widgets.Widget1`, whose text was fixed when the signature type was
+created and which no reference-site entry point can reach without re-rendering
+the whole form. That leaves **132** of the lead's 328.
+
+## 32. The population is 1,318, not 659 — and 1,207 of it is not mine
+
+The 328 was the wrong population to start from: it is only what *my* naming arm
+broke. The right question is how many wrong lines **anywhere** differ from the
+baseline by exactly a missing qualifier. A purely textual test — the baseline is
+a bare dotted name whose last segment is exactly our answer, `typeof` agreeing on
+both sides — so it needs no checker state and cannot be biased by what this port
+models:
+
+| | lines | cases | top-1 | top-10 |
+|---|---:|---:|---:|---:|
+| missing qualifier, **pre-existing** | **1,207** | 208 | 13.8% | 38.8% |
+| missing qualifier, from the naming arm | 111 | 33 | 23.4% | 66.7% |
+| **total** | **1,318** | 241 | | |
+
+**1,207 lines were always wrong for this reason and nobody had measured them.**
+That is 3.7× the collateral the item was scoped on, it is genuinely distributed,
+and it survives the concentration check outright. The `331 import a = b.c` lines
+are *not* part of it: their baselines are `any` 70, `number` 23, `string` 7 — they
+need qualified-name **resolution**, a different item, and mostly no chain at all.
+
+**So the item is much larger than stated and still refuses**, which is the useful
+combination: the size was never the binding constraint.
+
+## 33. The forecast, legs labelled, and the bar on the inferred one
+
+Per `e6ab9c9`: say which leg is measured and which is inferred, and put the bar
+on the inferred one.
+
+- **Measured leg — the population.** 1,318 lines, 241 cases, top-1 13.8%.
+  Textual, direct, and it passes every size bar this workstream uses.
+- **Inferred leg — whether a portable chain construction reproduces upstream's
+  dotted name.** All the uncertainty is here and it is one-sided: the fix cannot
+  convert more than the population.
+
+**The bar: ≥90% on the inferred leg.** Justified by the only two data points
+this project has for a naming rule — cycle 14 *shipped* one measured at 99.4%
+and *rejected* one measured at 95.9% as "not the mechanism". A bar below 95.9%
+would license what was already rejected; 90% is the loosest defensible line.
+
+**Measured: 30.7%.**
+
+| verdict | lines | share |
+|---|---:|---:|
+| chain matches the baseline | **405** | **30.7%** |
+| chain differs from the baseline | 157 | 11.9% |
+| no chain could be built at all | **756** | **57.4%** |
+
+**REFUSED**, by a factor of three.
+
+## 34. Why — and it is the same shape as cycle 14, one level up
+
+The construction measured is the obvious one: walk `Symbol::parent` upward,
+prepending each container's name, stopping when the leading name resolves to that
+same symbol from the reference site (upstream's `needsQualification`, reduced).
+Two independent things kill it.
+
+**1. The mechanism is not a container walk.** The misses say so verbatim:
+
+```
+  56  baseline `m1_im2_private.c1`   chain `m1_M2_private.c1`
+  28  baseline `m1_im2_private.c1`   chain `m2_M2_private.c1`
+  12  baseline `provide.Provide`     chain `foo.Provide`
+   6  baseline `privateModule.publicClass`  chain `publicModuleInGlobal.publicClass`
+   4  baseline `a.Point`             chain `A.Point`
+```
+
+Upstream prints `im2` — an **import alias** — where the walk prints `M2`, the
+**declaration's container**. `getAccessibleSymbolChain` searches the symbol
+tables in scope for an *alias* at **every** level of the chain. That is exactly
+the mechanism cycle 14 ported for the last hop, and a container path is a
+different thing that coincides 30.7% of the time. **This is §15's finding
+repeated one level up, and the same 95.9%-looking coincidence.**
+
+**2. `Symbol::parent` is not populated.** The binder sets it only for enum and
+class members (`crates/tsr-binder/src/binder.rs`, the
+`ENUM_MEMBER | CLASS_MEMBER` guard). For everything else there is no container
+recorded at all, which is why **57.4% produce no chain**. Populating it is a
+binder change with its own blast radius, and it would only supply the input to a
+mechanism just shown to be the wrong one.
+
+## 35. What is not the argument, and the risk that decides it anyway
+
+It is tempting to note that all 1,318 lines are **already wrong**, so converting
+405 and leaving 157 differently-wrong costs nothing, and gapping the 756 would
+even improve the gap/wrong split. On the target row that is true.
+
+**It is not the risk.** A change to how a named type is rendered touches **every
+named type in the corpus**, and the 30.7% was measured only over the 1,318
+already-wrong lines. What it does to the ~299,000 **right** lines is
+**unmeasured**. A mechanism that is 30.7% accurate where we can see it, applied
+to a population 200× larger where we cannot, is the exact shape of a build that
+looks positive on its row and is negative everywhere else — and §27's rule is
+about precisely this asymmetry, pointed at my own work.
+
+Measuring that would mean running the whole gradient with the change in, which is
+building it. So the honest order is: **fix the mechanism first, then measure.**
+
+## 36. What would make this build win
+
+1. **Port `getAccessibleSymbolChain` properly** — the alias search at every
+   level, not a container walk. Cycle 14 ported its last hop and that half is
+   live; the recursion is `getSymbolChain` (`nodebuilderimpl.go:1086`) and
+   `getContainersOfSymbol`.
+2. **Gap on any chain whose root is a module symbol**, so the 122 `import("…")`
+   lines never print. That is `type_to_string_at`'s `Option` doing the same job
+   it already does for ambiguity, and the lead is right that it must stay an
+   `Option`.
+3. **Then** the 1,318 is available, and the nested 74 plus whatever else lives
+   inside baked text needs the node builder rather than a name.
+
+`bd tsr-awa` updated with all of it. The population, the split, the 30.7% and the
+verbatim misses are the expensive half of the next attempt and they are now done.
+
+## 37. How you would know this section is wrong
+
+- **The 1,318 is a textual artefact.** The test requires the baseline to be a
+  bare dotted name whose last segment is *exactly* our answer, with `typeof`
+  agreeing. A false positive would need us to answer the correct final segment
+  of a name we never computed. The falsifier is a sample; none was taken, and
+  that is the weakest claim on this page (`open`).
+- **The 30.7% is an artefact of an unpopulated `Symbol::parent`.** It is not:
+  the 157 *built* chains are wrong for a stated, verbatim reason, and 405/562 =
+  72.0% even among lines where a chain existed — still far below the bar.
+- **`import("…")` is rarer than 122/328.** The falsifier is the split, printed
+  per line, concentrated in four named cases.
