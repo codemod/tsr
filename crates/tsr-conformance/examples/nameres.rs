@@ -301,6 +301,31 @@ struct Report {
     /// Cycle 15: (cause) -> wrong lines, and what upstream wanted for them.
     wrong_cause: BTreeMap<WrongCause, Tally>,
     wrong_cause_rhs: BTreeMap<(WrongCause, String), usize>,
+    /// Cycle 16: of the module-object collateral, the split that decides
+    /// `bd tsr-awa`. `true` = upstream's baseline uses `import(`, meaning the
+    /// chain's ROOT is a module with no accessible alias and upstream reached
+    /// for `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`) — an
+    /// unported subsystem. `false` = a plain dotted name over symbols that are
+    /// accessible by name, which is what a chain renderer can actually produce.
+    collateral_needs_import_syntax: BTreeMap<bool, Tally>,
+    /// Cycle 16, the leg that decides feasibility. `true` = the whole answer IS
+    /// the qualified name, so `type_to_string_at` could return it. `false` = the
+    /// name is **nested inside** a larger rendered form (`() => Widgets.Widget1`),
+    /// whose text was baked when the signature type was created and which no
+    /// reference-site entry point can reach without re-rendering the whole form.
+    collateral_name_is_whole_answer: BTreeMap<bool, Tally>,
+    /// Cycle 16, the population question: over **every** wrong line in the
+    /// corpus, not just the naming arm's collateral, how many differ from the
+    /// baseline by exactly a missing qualifier? That is `bd tsr-awa`'s true
+    /// population and nothing had measured it.
+    missing_qualifier: BTreeMap<&'static str, Tally>,
+    /// Cycle 16's INFERRED leg, measured rather than assumed: for each
+    /// missing-qualifier line, does walking `Symbol::parent` upward until the
+    /// name resolves at the reference site reproduce upstream's dotted name?
+    /// Cycle 14 registered a rule at 95.9% that was still the wrong mechanism,
+    /// so this leg is measured before anything is built.
+    chain_verdict: BTreeMap<&'static str, Tally>,
+    chain_misses: BTreeMap<(String, String), usize>,
     /// Cycle 14: (form, naming verdict) -> lines, over every line whose answer
     /// is a module object's name.
     naming: BTreeMap<(Form, Naming), Tally>,
@@ -378,6 +403,21 @@ impl Report {
         }
         for (k, v) in &o.wrong_cause {
             self.wrong_cause.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.collateral_needs_import_syntax {
+            self.collateral_needs_import_syntax.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.collateral_name_is_whole_answer {
+            self.collateral_name_is_whole_answer.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.missing_qualifier {
+            self.missing_qualifier.entry(k).or_default().merge(v);
+        }
+        for (k, v) in &o.chain_verdict {
+            self.chain_verdict.entry(k).or_default().merge(v);
+        }
+        for (k, v) in &o.chain_misses {
+            *self.chain_misses.entry(k.clone()).or_default() += v;
         }
         for (k, v) in &o.wrong_cause_rhs {
             *self.wrong_cause_rhs.entry(k.clone()).or_default() += v;
@@ -681,6 +721,67 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                         .then_some(receiver);
                 }
                 report.wrong_cause.entry(why).or_default().add(name, 1);
+                // The population question, asked of EVERY wrong line: does the
+                // baseline differ from our answer by exactly a dotted prefix?
+                // A purely textual test on purpose — it needs no checker state
+                // and so cannot be biased by what this port happens to model.
+                if let Some(line) = baseline
+                    && let Some(rhs) = line.text.strip_prefix(&format!("{} : ", assertion.text))
+                {
+                    let want = rhs.strip_prefix("typeof ").unwrap_or(rhs);
+                    let got = assertion
+                        .type_string
+                        .strip_prefix("typeof ")
+                        .unwrap_or(&assertion.type_string);
+                    let same_typeof =
+                        rhs.starts_with("typeof ") == assertion.type_string.starts_with("typeof ");
+                    let bucket = if same_typeof
+                        && want.len() > got.len()
+                        && want.ends_with(&format!(".{got}"))
+                        && is_a_bare_qualified_name(rhs)
+                    {
+                        Some(if why == WrongCause::ThroughAModuleObject {
+                            "missing qualifier, from the naming arm"
+                        } else {
+                            "missing qualifier, pre-existing"
+                        })
+                    } else {
+                        None
+                    };
+                    if let Some(bucket) = bucket {
+                        report.missing_qualifier.entry(bucket).or_default().add(name, 1);
+                        // The inferred leg. Take the line's own type, take its
+                        // symbol, and build the chain the way a port would.
+                        let predicted = map
+                            .get(node_id)
+                            .and_then(|node| tsr_ast::Expression::try_from(node).ok())
+                            .map(|expression| checker.check_expression(expression))
+                            .and_then(|ty| {
+                                let symbol = match &checker.type_of(ty).data {
+                                    tsr_checker::types::TypeData::Named { members, .. } => *members,
+                                    tsr_checker::types::TypeData::Anonymous { symbol, .. } => {
+                                        Some(*symbol)
+                                    }
+                                    _ => None,
+                                }?;
+                                predicted_chain(bound, nodes, map, node_id, symbol)
+                            });
+                        let verdict = match predicted {
+                            None => "no chain could be built",
+                            Some(ref chain) if chain == want => "chain matches the baseline",
+                            Some(_) => "chain differs from the baseline",
+                        };
+                        if let Some(ref chain) = predicted
+                            && verdict == "chain differs from the baseline"
+                        {
+                            *report
+                                .chain_misses
+                                .entry((want.to_string(), chain.clone()))
+                                .or_default() += 1;
+                        }
+                        report.chain_verdict.entry(verdict).or_default().add(name, 1);
+                    }
+                }
                 if why != WrongCause::Unrelated
                     && let Some(line) = baseline
                     && let Some(rhs) = line.text.strip_prefix(&format!("{} : ", assertion.text))
@@ -689,6 +790,20 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                         .wrong_cause_rhs
                         .entry((why, format!("{rhs}   [ours: {}]", assertion.type_string)))
                         .or_default() += 1;
+                    if why == WrongCause::ThroughAModuleObject {
+                        report
+                            .collateral_needs_import_syntax
+                            .entry(rhs.contains("import("))
+                            .or_default()
+                            .add(name, 1);
+                        if !rhs.contains("import(") {
+                            report
+                                .collateral_name_is_whole_answer
+                                .entry(is_a_bare_qualified_name(rhs))
+                                .or_default()
+                                .add(name, 1);
+                        }
+                    }
                 }
                 continue;
             }
@@ -2079,6 +2194,69 @@ fn print_wrong_cause(t: &Report) {
             println!("          {n:>5}  {case}");
         }
     }
+    println!("\n-- THE tsr-awa SPLIT: can a chain renderer produce the answer? --");
+    for needs_import in [false, true] {
+        let Some(tally) = t.collateral_needs_import_syntax.get(&needs_import) else { continue };
+        let (cases, top1, top10) = tally.concentration();
+        println!(
+            "{:>7}  {cases:>4} cases  top-1 {top1:>5.1}%  top-10 {top10:>5.1}%  {}",
+            tally.lines,
+            if needs_import {
+                "needs `import(\"...\")` — root is a module, getSpecifierForModuleSymbol UNPORTED"
+            } else {
+                "a plain dotted name over accessible symbols — PORTABLE"
+            }
+        );
+        for (case, n) in tally.top_cases(5) {
+            println!("          {n:>5}  {case}");
+        }
+    }
+
+    println!("\n-- THE POPULATION: every wrong line differing by exactly a qualifier --");
+    for (bucket, tally) in &t.missing_qualifier {
+        let (cases, top1, top10) = tally.concentration();
+        println!(
+            "{:>7}  {cases:>4} cases  top-1 {top1:>5.1}%  top-10 {top10:>5.1}%  {bucket}",
+            tally.lines
+        );
+        for (case, n) in tally.top_cases(5) {
+            println!("          {n:>5}  {case}");
+        }
+    }
+
+    println!("\n-- THE INFERRED LEG: does a parent-walk chain reproduce the baseline? --");
+    let chain_total: usize = t.chain_verdict.values().map(|v| v.lines).sum();
+    for (verdict, tally) in &t.chain_verdict {
+        let (cases, top1, _) = tally.concentration();
+        println!(
+            "{:>7}  {:>5.1}%  {cases:>4} cases  top-1 {top1:>5.1}%  {verdict}",
+            tally.lines,
+            tally.lines as f64 / chain_total.max(1) as f64 * 100.0
+        );
+    }
+    println!("   -- where it differs (top 12) --");
+    for ((want, got), n) in top(&t.chain_misses, 12) {
+        println!("{n:>7}  baseline `{want}`  chain `{got}`");
+    }
+
+    println!("\n-- AND: is the qualified name the WHOLE answer, or nested in baked text? --");
+    for whole in [true, false] {
+        let Some(tally) = t.collateral_name_is_whole_answer.get(&whole) else { continue };
+        let (cases, top1, top10) = tally.concentration();
+        println!(
+            "{:>7}  {cases:>4} cases  top-1 {top1:>5.1}%  top-10 {top10:>5.1}%  {}",
+            tally.lines,
+            if whole {
+                "the whole answer IS the name — reachable from type_to_string_at"
+            } else {
+                "nested inside a larger baked form — needs the node builder"
+            }
+        );
+        for (case, n) in tally.top_cases(4) {
+            println!("          {n:>5}  {case}");
+        }
+    }
+
     println!("\n-- upstream wanted / we said, for the attributed ones (top 20) --");
     let mut rhs = BTreeMap::<String, usize>::new();
     for ((cause, text), n) in &t.wrong_cause_rhs {
@@ -2089,4 +2267,53 @@ fn print_wrong_cause(t: &Report) {
     for (text, n) in top(&rhs, 20) {
         println!("{n:>7}  {text}");
     }
+}
+
+/// Whether the whole answer is a dotted name — optionally `typeof`-prefixed and
+/// optionally with type arguments — and therefore something a reference-site
+/// entry point could return outright.
+///
+/// Anything containing a parenthesis or an arrow is a *rendered form* with the
+/// name nested inside it, and that text was baked when the type was created.
+fn is_a_bare_qualified_name(rhs: &str) -> bool {
+    let body = rhs.strip_prefix("typeof ").unwrap_or(rhs);
+    // Type arguments are allowed; everything inside them is another name that
+    // the same mechanism would have to qualify, so this is an upper bound.
+    let head = body.split_once('<').map_or(body, |(head, _)| head);
+    !head.is_empty()
+        && head.contains('.')
+        && head.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '.')
+}
+
+/// The dotted name a port would build: walk `Symbol::parent` upward, prepending
+/// each container's name, and stop as soon as the leading name **resolves to
+/// that same symbol** from the reference site.
+///
+/// That stopping rule is upstream's `needsQualification`
+/// (`symbolaccessibility.go`), reduced to the one table this port can consult.
+/// It is what keeps a fix from qualifying names that are already correct: where
+/// the plain name resolves, the chain is one element and nothing changes.
+fn predicted_chain(
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    reference: NodeId,
+    symbol: tsr_binder::SymbolId,
+) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    let mut current = Some(symbol);
+    for _ in 0..8 {
+        let id = current?;
+        let entry = bound.symbols().get(id);
+        parts.push(entry.name);
+        // Resolvable by this name, to this symbol, from here? Then stop.
+        let resolved =
+            bound.resolve_name(nodes, map, reference, entry.name, SymbolFlags::all()) == Some(id);
+        if resolved {
+            parts.reverse();
+            return Some(parts.join("."));
+        }
+        current = entry.parent;
+    }
+    None
 }
