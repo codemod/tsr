@@ -777,3 +777,18 @@ Two things also survive the revert:
 2. **`0 regressed` and `+9 wrong` together** say the 9 came out of the gap column,
    not the right column — the same structural reading as §9.5, and it held here
    too.
+
+### §10 re-measured, 2026-08-06 (fourth session, at `0d56467`)
+
+STATUS.md §5 marked this refusal WITHDRAWN on the grounds that member
+instantiation, signature instantiation and call-through-members all landed
+after §10.2's table was taken and might have cut the entanglement it measured.
+Re-run at `0d56467`: **it reproduces exactly** — |G| = 2,082, CALL 897
+(43.1%), object-literal 374 (18.0%), NONE 158, WRITTEN 95, IIFE 77, the
+roll-up unchanged at 86.0% entangled / 48.8% behind call resolution. The only
+movement is inside the CALL row's parameter split (right 208 → 222, wrong
+829 → 815 — fourteen lines). The three landed builds changed *what a member's
+type is*, not *whether an argument position can be typed without resolving
+its call*, and the instrument now says so directly. The refusal stands
+re-armed on a fresh number, and contextual typing goes back behind call
+resolution on the board.
