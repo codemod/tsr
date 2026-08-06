@@ -250,6 +250,136 @@ impl<'a> Checker<'a, '_> {
         Some(result)
     }
 
+    /// The single call or construct signature a type that prints as a **name**
+    /// declares, or `None`.
+    ///
+    /// Ported from `Checker.getSignaturesOfType` (`checker.go:18959`) over the
+    /// interface arm of `resolveStructuredTypeMembers` (`checker.go:18410`),
+    /// reduced to the sets that need no selection to answer.
+    ///
+    /// # Why this exists beside [`Checker::get_signatures_of_symbol`]
+    ///
+    /// That one reads a **symbol's declarations**, which is right for a
+    /// function and empty for an interface: `interface DateConstructor` is not
+    /// a signature-shaped declaration. Its signatures live in its *members*,
+    /// and reaching them is the whole of `bd tsr-4sa`. The natural citation for
+    /// the item — `bd tsr-qk9`, "`signature_parts_of` has no arm for
+    /// `CallSignatureDeclaration`" — has been false since that arm landed;
+    /// `docs/architecture/checker-notes-namedcallee.md` §1 records the
+    /// correction.
+    ///
+    /// # What it declines, and why each refusal is cheaper than the answer
+    ///
+    /// Every branch below is a **gap** where upstream has an answer this port
+    /// cannot reproduce. Each was measured with its cost *and* its benefit by
+    /// `examples/namedcallee.rs`; the numbers are in
+    /// `docs/architecture/checker-notes-namedcallee.md` §4.
+    ///
+    /// - **A heritage clause** (27 lines refused, 20 of them convertible).
+    ///   Upstream folds the base types' signatures in, so the direct members
+    ///   are only part of the candidate set and a lone survivor here may be one
+    ///   arm of an inherited overload. Answering off a knowingly incomplete set
+    ///   is a wrong rule rather than a bad trade, which is why this refusal is
+    ///   kept at a net cost of thirteen lines.
+    /// - **A generic candidate** (926 lines). That is `inferTypes`, the largest
+    ///   gate in `callgate.rs`'s own split.
+    /// - **Candidates that disagree about the return type** (48 lines). That is
+    ///   overload selection by assignability, which this port has over
+    ///   primitives only. Candidates that *agree* need no selection —
+    ///   `DateConstructor`'s four construct signatures all return `Date` — so
+    ///   they answer.
+    /// - **A return that is a type parameter** (3 lines). On an instantiated
+    ///   callee it would have to be substituted, and `bd tsr-4qx`'s seam
+    ///   instantiates properties rather than signatures.
+    /// - **A return whose name would need a namespace qualifier** (75 lines) —
+    ///   `Intl.NumberFormat` where this prints `NumberFormat`. `STATUS.md` §5's
+    ///   standing refusal (`bd tsr-93f`, 2.7 wrong per right) reached through a
+    ///   new door.
+    pub(crate) fn get_signature_of_named_type(
+        &mut self,
+        callee: TypeId,
+        kind: SignatureKind,
+    ) -> Option<Signature> {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(callee).data
+        else {
+            return None;
+        };
+        let declarations: Vec<NodeId> =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+        let mut elements: Vec<NodeId> = Vec::new();
+        for declaration in declarations {
+            let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            if !interface.heritage_clauses.is_empty() {
+                return None;
+            }
+            for member in interface.members {
+                let wanted = match member {
+                    tsr_ast::TypeElement::CallSignatureDeclaration(_) => SignatureKind::Call,
+                    tsr_ast::TypeElement::ConstructSignatureDeclaration(_) => {
+                        SignatureKind::Construct
+                    }
+                    _ => continue,
+                };
+                if wanted == kind {
+                    elements.extend(member.node_id());
+                }
+            }
+        }
+        let mut candidates: Vec<Signature> = Vec::new();
+        for element in elements {
+            let signature = self.get_signature_from_declaration(element)?;
+            if !signature.type_parameters.is_empty() {
+                return None;
+            }
+            candidates.push(signature);
+        }
+        let first = candidates.first()?.clone();
+        if candidates.iter().any(|candidate| candidate.r#type != first.r#type) {
+            return None;
+        }
+        if self.store.get(first.r#type).flags.intersects(crate::TypeFlags::TYPE_PARAMETER) {
+            return None;
+        }
+        if self.needs_namespace_qualifier(first.r#type) {
+            return None;
+        }
+        Some(first)
+    }
+
+    /// Whether a type's printed name would need a namespace qualifier.
+    ///
+    /// `TypeData::Named` bakes the symbol's own name, so a type declared inside
+    /// `declare namespace Intl` prints as `NumberFormat` where upstream's
+    /// `lookupSymbolChain` (`nodebuilderimpl.go:1061`) prints
+    /// `Intl.NumberFormat`. That family stands refused at 2.7 wrong per right
+    /// (`STATUS.md` §5, `bd tsr-93f`), so a caller that would otherwise print
+    /// the bare name gaps instead.
+    ///
+    /// The test is syntactic — a `ModuleDeclaration` anywhere above a
+    /// declaration — rather than a scope computation, because the refusal only
+    /// has to be *sound*: a false positive costs a gap, and this port's
+    /// measured cost for it is zero conversions
+    /// (`docs/architecture/checker-notes-namedcallee.md` §4.2).
+    fn needs_namespace_qualifier(&self, id: TypeId) -> bool {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } = self.store.get(id).data
+        else {
+            return false;
+        };
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let mut current = self.nodes.parent(declaration);
+            while let Some(node) = current {
+                if self.nodes.kind(node) == SyntaxKind::ModuleDeclaration {
+                    return true;
+                }
+                current = self.nodes.parent(node);
+            }
+            false
+        })
+    }
+
     /// The second half of `getSignaturesOfSymbol`'s loop (`checker.go:19814`):
     /// *"a node is considered an implementation node if it has a body and the
     /// previous node is of the same kind and immediately precedes it"*.

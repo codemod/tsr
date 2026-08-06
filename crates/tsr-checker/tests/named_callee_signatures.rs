@@ -1,0 +1,193 @@
+//! Calling a callee whose type prints as a **name** — `bd tsr-4sa`.
+//!
+//! An interface's call and construct signatures live in its *members*, not in
+//! its symbol's declarations, so `get_signatures_of_symbol` answers an empty
+//! list for one and `get_signature_of_named_type` is the route that finds them.
+//! See
+//! [`docs/architecture/checker-notes-namedcallee.md`](../../../docs/architecture/checker-notes-namedcallee.md).
+//!
+//! # Every expectation here comes from a baseline
+//!
+//! `docs/conventions.md` records a cycle in which three expectations in a file
+//! whose own header promised ground truth were written from intuition and all
+//! three were wrong. So, by line:
+//!
+//! - `conformance/parserRealSource12.types:105` records
+//!   `>this.pre(ast, parent, this) : AST` for `interface IAstWalkCallback { (…): AST }`
+//!   — a call through a call-signature interface answers the signature's return
+//!   type. That case converted 13 lines in the measured build.
+//! - `compiler/inheritedOverloadedSpecializedSignatures` is the case the
+//!   heritage refusal is *for*: seven of its lines want `void`, `boolean`,
+//!   `boolean[]`, `number`, `number[]` and `string[]` off a callee whose direct
+//!   call signature returns `string`, because the rest of the overload set is on
+//!   a base interface this port does not fold in.
+//!
+//! # The refusals are asserted as pairs, deliberately
+//!
+//! `docs/architecture/checker-notes-tuple.md`'s standing prophylactic: a test
+//! that only asserts a gap flips to green the day the gap is filled and stops
+//! discriminating. Each refusal below sits beside the form that *does* answer,
+//! so the pair keeps testing the boundary rather than the state.
+
+use tsr_ast::Statement;
+use tsr_checker::Checker;
+use tsr_core::Arena;
+
+/// Type the initialiser of the last statement, after any set-up declarations.
+fn type_of_last(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "fixture must parse: {:?}",
+        parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+    );
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+
+    let index = parsed.source_file.statements.len() - 1;
+    let Statement::VariableStatement(statement) = parsed.source_file.statements[index] else {
+        panic!("the last statement must be a variable statement");
+    };
+    let declaration = statement
+        .declaration_list
+        .and_then(|list| list.declarations.first().copied())
+        .expect("one declaration");
+    let initialiser = declaration.initializer.expect("an initialiser");
+    let id = checker.check_expression(initialiser);
+    checker.type_to_string(id)
+}
+
+#[test]
+fn a_call_signature_member_answers_its_return_type() {
+    // `conformance/parserRealSource12.types:105`, reduced to one file:
+    // `>this.pre(ast, parent, this) : AST`.
+    assert_eq!(
+        type_of_last(
+            "interface AST { kind: string; }\n\
+             interface IAstWalkCallback { (ast: AST): AST; }\n\
+             declare const pre: IAstWalkCallback;\n\
+             const walked = pre(null as unknown as AST);"
+        ),
+        "AST"
+    );
+}
+
+#[test]
+fn a_construct_signature_member_answers_its_return_type() {
+    assert_eq!(
+        type_of_last(
+            "interface Made { m: string; }\n\
+             interface MadeConstructor { new (): Made; }\n\
+             declare const C: MadeConstructor;\n\
+             const made = new C();"
+        ),
+        "Made"
+    );
+}
+
+#[test]
+fn an_overload_set_that_agrees_needs_no_selection() {
+    // `DateConstructor`'s four construct signatures all return `Date`, which is
+    // 128 of the measured build's converted lines. Agreement is what makes the
+    // answer available without assignability.
+    assert_eq!(
+        type_of_last(
+            "interface Made { m: string; }\n\
+             interface MadeConstructor { new (): Made; new (a: string): Made; }\n\
+             declare const C: MadeConstructor;\n\
+             const made = new C(\"a\");"
+        ),
+        "Made"
+    );
+}
+
+#[test]
+fn an_overload_set_that_disagrees_is_still_a_gap() {
+    // The pair of the test above. Choosing between these is `resolveCall`'s
+    // assignability, which this port has over primitives only.
+    assert_eq!(
+        type_of_last(
+            "interface A { a: string; }\n\
+             interface B { b: string; }\n\
+             interface MadeConstructor { new (): A; new (a: string): B; }\n\
+             declare const C: MadeConstructor;\n\
+             const made = new C(\"a\");"
+        ),
+        "error"
+    );
+}
+
+#[test]
+fn a_generic_signature_member_is_still_a_gap() {
+    // The pair of `a_construct_signature_member_answers_its_return_type`. 926 of
+    // the classified lines stop here — `new Set()` wanting `Set<number>` — and
+    // it is `inferTypes`, not this arm.
+    assert_eq!(
+        type_of_last(
+            "interface Box<T> { value: T; }\n\
+             interface BoxConstructor { new <T>(value: T): Box<T>; }\n\
+             declare const C: BoxConstructor;\n\
+             const made = new C(1);"
+        ),
+        "error"
+    );
+}
+
+#[test]
+fn an_interface_with_a_heritage_clause_is_refused() {
+    // The pair of `a_call_signature_member_answers_its_return_type`. The direct
+    // members are only part of the candidate set — upstream's
+    // `resolveDeclaredMembers` folds the base's signatures in — so answering
+    // from them is answering off data known to be incomplete. That is what
+    // `compiler/inheritedOverloadedSpecializedSignatures` demonstrates, and the
+    // refusal costs 20 convertible lines to prevent 7 wrong ones.
+    assert_eq!(
+        type_of_last(
+            "interface AST { kind: string; }\n\
+             interface Base { (): AST; }\n\
+             interface Derived extends Base { (a: string): AST; }\n\
+             declare const pre: Derived;\n\
+             const walked = pre(\"a\");"
+        ),
+        "error"
+    );
+}
+
+#[test]
+fn a_symbol_call_in_a_const_position_gaps_rather_than_printing_symbol() {
+    // `resolveCallExpression` (`checker.go:8348`) answers a *fresh unique
+    // symbol* here, and this port has no type carrying
+    // `TypeFlags::UNIQUE_ES_SYMBOL`. 291 corpus lines want `unique symbol` in
+    // this position; printing `symbol` would make every one of them a wrong
+    // line rather than a gap.
+    assert_eq!(
+        type_of_last(
+            "interface SymbolConstructor { (description?: string): symbol; }\n\
+             declare const Symbol: SymbolConstructor;\n\
+             const s = Symbol();"
+        ),
+        "error"
+    );
+}
+
+#[test]
+fn a_symbol_call_outside_a_const_position_answers_symbol() {
+    // The pair, and the reason the refusal above is on the *position* rather
+    // than on the return type: `getESSymbolLikeTypeForNode` (`checker.go:22982`)
+    // falls through to `esSymbolType` when the declaration is not a valid ES
+    // symbol declaration, so `let` answers `symbol` upstream too. 150 of the
+    // measured build's converted lines are this form.
+    assert_eq!(
+        type_of_last(
+            "interface SymbolConstructor { (description?: string): symbol; }\n\
+             declare const Symbol: SymbolConstructor;\n\
+             let s = Symbol();"
+        ),
+        "symbol"
+    );
+}

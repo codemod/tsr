@@ -50,7 +50,7 @@ use crate::calls::counters::{COUNTERS, bump};
 use crate::{
     checker::Checker,
     flags::TypeFlags,
-    signatures::Signature,
+    signatures::{Signature, SignatureKind},
     types::{TypeData, TypeId},
 };
 
@@ -423,6 +423,24 @@ impl Checker<'_, '_> {
             bump(&COUNTERS.single_candidate_type_arguments);
             return error;
         }
+        // `resolveCallExpression` (`checker.go:8348`): *"treat any call to the
+        // global `Symbol` function that is part of a const variable or readonly
+        // property as a fresh unique symbol literal type"*. This port has
+        // `TypeFlags::UNIQUE_ES_SYMBOL` and no type that carries it, so the
+        // position **gaps** rather than answering `symbol` — which is what
+        // upstream prints only *outside* those positions
+        // (`getESSymbolLikeTypeForNode`, `checker.go:22982`, falls through to
+        // `esSymbolType`). 291 corpus lines want `unique symbol` here and this
+        // is the difference between them being gaps and being wrong answers;
+        // the 150 lines in other positions still answer, which is why the test
+        // is on the *position* and not on the return type
+        // (`docs/architecture/checker-notes-namedcallee.md` §4.1).
+        if self.store.get(signature.r#type).flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
+            && Self::is_symbol_or_symbol_for_call(node)
+            && self.is_valid_es_symbol_declaration(node.node_id)
+        {
+            return error;
+        }
         if counters::counting() {
             if signature.r#type == error {
                 bump(&COUNTERS.single_candidate_return_error);
@@ -431,6 +449,65 @@ impl Checker<'_, '_> {
             }
         }
         signature.r#type
+    }
+
+    /// Upstream's `isSymbolOrSymbolForCall` (`checker.go:8381`), without the
+    /// global-symbol identity check.
+    ///
+    /// Upstream compares the resolved symbol against
+    /// `getGlobalESSymbolConstructorSymbolOrNil`. This port has no global-type
+    /// table, so the name test stands alone. It is sound in the direction that
+    /// matters: a locally shadowed `Symbol` would be **refused** where upstream
+    /// answers, which costs a gap rather than a wrong line, and no corpus case
+    /// in the measured population shadows it.
+    fn is_symbol_or_symbol_for_call(node: &CallExpression<'_>) -> bool {
+        let Some(mut left) = node.expression else { return false };
+        if let Expression::PropertyAccessExpression(access) = left {
+            let is_for = access.name.is_some_and(|name| {
+                matches!(tsr_ast::Node::from(name), tsr_ast::Node::Identifier(id) if id.text == "for")
+            });
+            if is_for {
+                let Some(inner) = access.expression else { return false };
+                left = inner;
+            }
+        }
+        matches!(left, Expression::Identifier(id) if id.text == "Symbol")
+    }
+
+    /// Upstream's `isValidESSymbolDeclaration` (`utilities.go:961`) asked of the
+    /// position a call sits in, after `WalkUpParenthesizedExpressions`
+    /// (`checker.go:8351`).
+    fn is_valid_es_symbol_declaration(&self, call: Option<tsr_ast::NodeId>) -> bool {
+        let Some(call) = call else { return false };
+        let mut parent = self.nodes.parent(call);
+        while let Some(node) = parent {
+            if self.nodes.kind(node) != tsr_ast::SyntaxKind::ParenthesizedExpression {
+                break;
+            }
+            parent = self.nodes.parent(node);
+        }
+        let Some(parent) = parent else { return false };
+        let has = |modifiers: &[tsr_ast::ModifierLike<'_>], kind: tsr_ast::SyntaxKind| {
+            modifiers.iter().any(
+                |modifier| matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == kind),
+            )
+        };
+        match self.node_map.get(parent) {
+            Some(tsr_ast::Node::VariableDeclaration(declaration)) => {
+                matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(_)))
+                    && self.nodes.parent(parent).is_some_and(|list| {
+                        self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
+                    })
+            }
+            Some(tsr_ast::Node::PropertyDeclaration(property)) => {
+                has(property.modifiers, tsr_ast::SyntaxKind::ReadonlyKeyword)
+                    && has(property.modifiers, tsr_ast::SyntaxKind::StaticKeyword)
+            }
+            Some(tsr_ast::Node::PropertySignatureDeclaration(property)) => {
+                has(property.modifiers, tsr_ast::SyntaxKind::ReadonlyKeyword)
+            }
+            _ => false,
+        }
     }
 
     /// Attribute one `callee type is not an object type` to the shape of the
@@ -642,10 +719,18 @@ impl Checker<'_, '_> {
         // would leave the funnel's denominator counting two different questions.
         let counted = arguments.is_some();
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee).data else {
-            if counted {
+            // A callee that prints as a **name** — an interface with a call
+            // signature member, which is where every lib constructor lives.
+            // `getSignaturesOfType` (`checker.go:18959`) reads the *type's*
+            // resolved members; `get_signatures_of_symbol` reads a symbol's
+            // declarations and an interface declaration is not signature-shaped,
+            // so this needs its own route (`bd tsr-4sa`,
+            // `docs/architecture/checker-notes-namedcallee.md`).
+            let named = self.get_signature_of_named_type(callee, SignatureKind::Call);
+            if named.is_none() && counted {
                 bump(&COUNTERS.callee_not_anonymous);
             }
-            return None;
+            return named;
         };
         // An **instantiated** signature type carries the *uninstantiated*
         // symbol (`Checker::instantiate_signature_type`, `bd tsr-0hc`), so
