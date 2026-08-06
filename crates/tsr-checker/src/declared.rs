@@ -478,14 +478,10 @@ impl<'a> Checker<'a, '_> {
     /// Upstream instantiates by *substituting* the arguments through the target's
     /// members, and guards that with an instantiation depth of 100 and a count of
     /// 5,000,000 (`checker.go:22111`) because self-referential generics generate
-    /// new type identities forever. This port has no members to substitute into
-    /// (see `getDeclaredTypeOfClassOrInterface`), so the recursion those limits
-    /// exist to stop does not happen yet: the only recursion is over the *source*
-    /// nesting of the argument type nodes, which is finite in a parsed file.
-    ///
-    /// **The limits are therefore not ported here, deliberately, and they are not
-    /// optional later.** `bd tsr-el3.2` records that they belong with
-    /// `instantiateType` — the code that actually recurses — and porting them now
+    /// new type identities forever. This function only *interns* the pair; the
+    /// recursion those limits exist to stop lives in
+    /// [`Checker::instantiate_type`](crate::Checker::instantiate_type), which is
+    /// where they are now ported (`bd tsr-el3.2`). Putting a second copy here
     /// would be a guard around a loop that does not exist, which reads as
     /// coverage and provides none.
     ///

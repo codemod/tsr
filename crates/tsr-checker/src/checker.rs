@@ -169,6 +169,25 @@ pub struct Checker<'a, 'n> {
     /// wrong answer, which is why it is part of the port and not an
     /// optimisation.
     pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
+    /// How many frames of [`Checker::instantiate_type`] are on the stack.
+    ///
+    /// Upstream's `c.instantiationDepth` (`checker.go:592`), consumed by the
+    /// guard at `checker.go:22111`. These are **not** stack-safety devices —
+    /// they exist because an infinite generic type perpetually mints new type
+    /// identities (`interface List<T> { next: List<List<T>> }`), and the cap of
+    /// 100 is what makes ADR-0029's modest stack budget safe. `bd tsr-el3.2`.
+    pub(crate) instantiation_depth: u32,
+    /// How many instantiations this checker has performed in total.
+    ///
+    /// Upstream's `c.instantiationCount` (`checker.go:591`), the other half of
+    /// the `checker.go:22111` guard. **A recorded divergence:** upstream resets
+    /// it to zero per checked statement (`checker.go:2246`, `:2509`, `:7563`);
+    /// this port has no check traversal to reset from (ADR-0040), so the budget
+    /// of 5,000,000 is per checker — per file, as the conformance harness
+    /// constructs one checker per case. Stricter than upstream on a file whose
+    /// statements would legitimately instantiate more than 5M types in
+    /// aggregate, which no corpus case does.
+    pub(crate) instantiation_count: u32,
 }
 
 impl<'a, 'n> Checker<'a, 'n> {
@@ -285,6 +304,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
             shared_flows: Vec::new(),
+            instantiation_depth: 0,
+            instantiation_count: 0,
         }
     }
 

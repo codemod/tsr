@@ -253,12 +253,27 @@ impl Checker<'_, '_> {
     /// here too — they are a `TypeData::Named` or `TypeData::Anonymous` holding
     /// text, built without an intern key, so there is no pair to reverse.
     ///
-    /// **No recursion limit.** Upstream's `instantiateType` carries
-    /// `instantiationDepth` and `instantiationCount` because a mapper can build
-    /// unboundedly deep types from a bounded source. Nothing here can: every
-    /// argument reached is one that a *written* type node already produced, so
-    /// the recursion is bounded by the source nesting. That stops being true the
-    /// moment a generic's members are instantiated, which is `bd tsr-4qx`.
+    /// # The recursion limit is upstream's, and it is not a stack guard
+    ///
+    /// `instantiateTypeWithAlias` (`checker.go:22111`) stops at an
+    /// `instantiationDepth` of 100 or an `instantiationCount` of 5,000,000 and
+    /// answers `errorType`, because an infinite generic type — `interface
+    /// List<T> { next: List<List<T>> }` — perpetually mints new type identities
+    /// and no cache can terminate it. Until member instantiation existed
+    /// (`bd tsr-4qx`) every argument reached here was one a *written* type node
+    /// already produced, so the recursion was bounded by the source nesting and
+    /// this function carried no limit, deliberately (`bd tsr-el3.2`). Member
+    /// instantiation is what breaks that bound, and the guard is a **hard
+    /// prerequisite** for it: the failure mode of landing members first is a
+    /// hung corpus run, not a wrong number.
+    ///
+    /// Upstream's guard sits after its `couldContainTypeVariables` early-out
+    /// and before the worker; the guard here sits after arm 2, which is the
+    /// same position. The count divergence — per checker rather than per
+    /// statement — is recorded on the field
+    /// ([`Checker::instantiation_count`](crate::checker)). Upstream reports
+    /// `Type_instantiation_is_excessively_deep_and_possibly_infinite`; this
+    /// port has no diagnostics, so the `errorType` is the whole observable.
     pub(crate) fn instantiate_type(
         &mut self,
         id: TypeId,
@@ -272,6 +287,27 @@ impl Checker<'_, '_> {
         if !self.mentions_type_parameter(id, parameters, names) {
             return id;
         }
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
+            return self.intrinsics.error;
+        }
+        self.instantiation_count += 1;
+        self.instantiation_depth += 1;
+        let result = self.instantiate_type_worker(id, map, parameters, names);
+        self.instantiation_depth -= 1;
+        result
+    }
+
+    /// The recursive body of [`Checker::instantiate_type`] — arms 3 and 4 and
+    /// the fallback — split out so the depth counter cannot be unbalanced by an
+    /// early return. `instantiateTypeWorker` (`checker.go:22220`), for the
+    /// shapes this port can rebuild.
+    fn instantiate_type_worker(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
         let error = self.intrinsics.error;
         if let Some((symbol, arguments)) = self.type_reference_targets.get(&id).cloned() {
             let mut substituted = Vec::with_capacity(arguments.len());
@@ -644,6 +680,31 @@ mod tests {
             ),
             "error"
         );
+    }
+
+    #[test]
+    fn instantiation_past_depth_100_is_refused_as_upstream_refuses_it() {
+        // `checker.go:22111`: at an `instantiationDepth` of 100 upstream reports
+        // `Type_instantiation_is_excessively_deep_and_possibly_infinite` and
+        // answers `errorType`. A written return type nested 150 deep —
+        // `C<C<…<T>…>>` — drives the substitution one frame per level, so it
+        // crosses the limit with no infinite type involved, which is what makes
+        // it writable as a fixture. Upstream refuses the same program, so the
+        // `error` here is upstream's answer and not a port-side gap.
+        //
+        // Without the guard this fixture still terminates (the nesting is
+        // finite) and prints the 150-deep instantiation, so the assertion
+        // separates guard-present from guard-absent. The existing nested test
+        // above is the control on the other side: depth 2 must keep answering.
+        // The count leg (5,000,000) has no writable fixture and is untested.
+        let mut nested = String::from("T");
+        for _ in 0..150 {
+            nested = format!("C<{nested}>");
+        }
+        let source = format!(
+            "interface C<T> {{ }}\ndeclare function g<T>(x: T): {nested};\nconst a = g<number>(1);"
+        );
+        assert_eq!(generic_call(&source, "g"), "error");
     }
 
     #[test]
