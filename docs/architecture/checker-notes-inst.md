@@ -659,3 +659,68 @@ movement has measured noise.
 - If the 557's receiver-carries-type-arguments counter comes back near 97, the
   slice is worth 17% of a 557-node row and the ranking that put it first should
   be revisited before step 4 is built.
+
+## The registration for steps 3+4, written before the build — `bd tsr-4qx`
+
+Registered at `40970d7`, which is the commit that landed the prerequisite
+(`instantiate_type`'s depth/count guard, `checker.go:22111`). Nothing below had
+been measured when this section was written.
+
+### What will be built, as one change
+
+`create_type_reference` flips `members: None` → `Some(symbol)` (`declared.rs`),
+and `get_type_of_property_of_type` (`members.rs`) instantiates the found
+property's type through `type_reference_targets` + `instantiate_type` whenever
+the receiver is an instantiated reference. One change, because the two steps
+cannot be separated: the flip without the seam converts 5,161 gap lines into
+**wrong** lines (`C<number>.a` answers `T`), which is the recorded reason
+`members: None` exists.
+
+The `calls.rs:416` counter the issue's first plan asked for is superseded by
+`examples/depend.rs`'s sizing at `d356450`: the receivers *are* instantiated
+generics — 2,357 lines in the top ten alone — which is what the counter existed
+to establish.
+
+### Predictions
+
+1. The conversion concentrates in members whose declared type is
+   **parameter-free** (`length: number`) or **rebuildable** (a reference or a
+   union of references). A member whose type is baked signature text —
+   `Promise.then`, `Array.map` — mentions a type parameter, has no intern key,
+   and stays an honest gap through `instantiate_type`'s fallback. So the
+   conversion is a fraction of the 12,742 reachable, predicted low thousands.
+2. The dangerous edge is not the target row (all gap today, can only gain
+   there); it is (a) **gap→wrong** — an instantiated member whose printed form
+   differs from upstream's, the `tsr-awa` qualification mechanism among others —
+   and (b) **right→wrong through the relater**, which now sees members on
+   instantiated references it previously found opaque, changing assignability
+   answers and therefore overload selection.
+
+### The bar
+
+**KEEP** only if all four legs hold on the corpus counterfactual:
+
+1. **Net matched ≥ +1,500 lines.** Against a 12,742-line reachable pool, a
+   floor of 1,500 says the mechanism converted, not one case.
+2. **gained ÷ lost ≥ 3.0** on per-case matched lines (`casedelta`) — the bar
+   the `tsr-6ph` designs (2.1, 2.5) and qualified naming (2.7) each failed. If
+   lost is zero this leg is vacuous, not passed; the net floor and leg 4 then
+   carry the decision (the `&&` build's lesson).
+3. **Fewer cases regress than finish.**
+4. **Gap→wrong control, the leg `casedelta` cannot see:** with Δright from
+   `casedelta` and Δgap from `depend.rs` run before/after,
+   Δwrong = −Δgap − Δright must satisfy **Δwrong ≤ Δright ÷ 3**. A dissolved
+   gap that did not become right became wrong, and a mechanism that mostly
+   mints wrong answers fails here whatever the gradient says.
+
+**REVERT otherwise.** If a leg fires, the first hypothesis is the build is
+wrong and the second is the leg's premise is wrong; there is no third. A
+partial port of a resolver loses more than it gains on its first run — if the
+first counterfactual is negative, the move is to name the missing arm and
+iterate, not to revert on sight; the bar judges the *final* state.
+
+### How this registration would be shown wrong
+
+If the gain concentrates in one or two cases (`casedelta` top-1 ≥ 50% of the
+gain), the population was never the ~2,400 diffuse cases `depend.rs` measured,
+and prediction 1's mechanism is not what converted it.
