@@ -873,3 +873,37 @@ an upstream shape is resolving signatures **from the type** (the recorded
 `Vec<Signature>`) rather than from the symbol — one arm in
 `resolve_call_signature` reading `signature_types`, plus overload selection
 where there are several. That is the follow-on lever this build exposes.
+
+## The registration for calls through instantiated members (`bd tsr-1uz`)
+
+Registered before the build, immediately after the `856972a` scoring; nothing
+below measured.
+
+### The mechanism
+
+`resolve_call_signature`'s guard on a minted instantiated signature type stops
+refusing outright and instead reads the recorded `Vec<Signature>` off the
+type — upstream's shape, since `getSignaturesOfType` (`checker.go:18959`)
+always reads the *type's* resolved signatures and never the symbol's
+declarations. One recorded signature is the sole candidate, exactly as the
+symbol path treats one; several stay a gap (overload selection is the call
+item). A generic instantiated member routes into `check_generic_call` like
+any other generic candidate and gaps where inference is unported —
+`p.then(f)` needs the default-type-argument fallback
+(`fillMissingTypeArguments`), so the conversion here is the **non-generic**
+members (`push`, `pop`, `charAt`) plus generic ones with bare-position
+inference.
+
+### The bar
+
+**KEEP** only if: **net ≥ +300**; **gained ÷ lost ≥ 3.0** (vacuous-if-zero as
+before); **fewer cases regress than finish**; **Δwrong = −Δgap − Δright ≤
+Δright ÷ 3** (`depend.rs` + `casedelta`, same commit pair; `wrongdelta.rs` to
+attribute if the leg fires).
+
+### Prediction
+
+Low hundreds to ~1,500: the call row's `promiseType`-headed growth is mostly
+generic members blocked on default fallback, and the non-generic slice is the
+remainder. If the net comes in under 300, the missing arm to name is
+`fillMissingTypeArguments`, not this one.
