@@ -193,4 +193,109 @@ gap→wrong that a ratio had hidden.
 
 ## 5. Scored against the bar
 
-Filled in after the run — see §6.
+Corpus pair over a `git stash`, `casedelta` and `wrongdelta` at both ends.
+
+```
+net            +372
+gained lines    375
+lost lines        3
+cases gained     40
+cases lost        2
+cases finished    6
+cases regressed   0
+wrongdelta     42,417 -> 42,423   (Δ +6: 33 new wrong, 27 fixed)
+```
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 — net floor | ≥ +120 | **+372** | **pass** — 2.8× the own-node forecast, the cascade `newgen.rs` predicted |
+| 2 — lost | ≤ 5 | **3** | **pass**, and see §5.1: it fired twice at 15 and 9 before it passed |
+| 3 — cases | regressed < finished | **0 < 6** | **pass** |
+| 4 — gap→wrong | gained ≥ 6 × new wrong | **375 ≥ 198** (11.4:1) | **pass** |
+
+**+372 against a forecast of 131** is 2.8× — inside the same band as
+`newgen.rs`'s 166 forecast to 686 measured (4.1×), and for the same reason: the
+own-node cut excludes every cascade line, and a call whose type is now known
+types the variable it initialises and every read of it.
+
+### 5.1 Leg 2 fired twice, and both times the build was wrong
+
+`docs/conventions.md`: *when a registered bar fires, the first hypothesis is
+that the build is wrong, the second that the bar's premise is wrong, and there
+is no third.* It was the first hypothesis both times, and the leg is the only
+reason either defect was found — neither shows up in the net, which was already
++311 on the first run.
+
+**Run 1 — 15 lost.** The `null`/`undefined` candidate refusal had **no
+strictness test**. `getWidenedType` widens `null` to `any` only with
+`strictNullChecks` *off*; under strict mode upstream keeps `null`, so the
+refusal turned right lines into gaps in `conformance/strictNullChecksNoWidening`
+(4) and `compiler/undefinedInferentialTyping` (2). The counterfactual could not
+see this: it measures gap lines only, and a right line turning into a gap is
+invisible to it by construction. Gating on `strict_null_checks`: **net +365,
+lost 9.**
+
+**Run 2 — 9 lost.** Two separate defects, both in candidate *resolution*:
+
+- `f([], 3)` against `<T>(arr: T[], elemnt: T) => T` produced `never` from the
+  array position and `3` from the bare one, and the disagreement rule gapped
+  the call. Upstream unions the candidates and **`never` is the union's
+  identity** — `add_type_to_union` already drops it — so a `never` candidate
+  beside any other can be struck without deciding anything a subtype relation
+  would have to decide. **net +369, lost 5.**
+- `f1(1, "hello")` against `<T>(x: T, y: string | T) => T` poured `"hello"`
+  into the naked `T` of `string | T`. `inferToMultipleTypes` strikes the
+  constituents the source already matches *before* anything reaches the naked
+  variable. Adding that strike through `is_type_assignable_to` — over exactly
+  the primitive/literal/union domain that relation is proved on — fixed it.
+
+The strike's first form cost **84 converted lines** for the 2 it fixed, because
+`never` and `any` are assignable to everything and struck every union position.
+Excluding them as sources: **net +372, lost 3.** That number is why the
+exclusion is in the code with its measurement beside it, and it is the second
+time in this build that a rule which looked obviously right was wrong in one
+direction only.
+
+### 5.2 The three residual lost lines, and who owns them
+
+`compiler/strictFunctionTypes1` 2, `conformance/genericCallWithFunctionTypedArguments` 1.
+All three are one mechanism: `f2("abc", fo, fs)` against
+`<T>(obj: T, f1: (x: T) => void, f2: (x: T) => void) => T` infers `"abc"` from
+the bare position and `Object` from a *parameter* position of a function
+argument, and they disagree. Upstream keeps contravariant candidates in a
+**separate, lower-priority bucket** and consults them only when no covariant
+candidate exists — the priority lattice this slice explicitly refuses (§3).
+They are the cheapest remaining extension and they are not built here:
+`bd tsr-g30h` stays open with that leg named.
+
+### 5.3 The residual wrong lines, read even though leg 4 passed
+
+33 new wrong, and every one is a *named* unported inference mechanism rather
+than a printer or a resolution defect. Grouped by owner:
+
+| lines | shape | owner |
+|---:|---|---|
+| 5 | `want "foo"`, got `"bar" \| "foo"` (`stringLiteralTypesAsTypeParameterConstraint02`) | candidate selection under a type-parameter constraint |
+| 4 | `want number \| undefined`, got `number` (`contravariantOnlyInferenceWithAnnotatedOptionalParameter`) | the contravariant bucket — same mechanism as §5.2 |
+| 4 | `want (x: Date) => Date`, got `(x: T) => T` (`genericCallWithGenericSignatureArguments2`) | `getErasedSignature` |
+| 4 | tuple shapes (`inferTupleFromBindingPattern`) | `bd tsr-84iz`, pattern-implied tuple inference |
+| 3 | `Apply<TTypeLambda, A>` (`inferenceAndHKTs`) | conditional and indexed-access types |
+| 3 | `{ __typename: string; }[]` (`inferFromGenericFunctionReturnTypes3`) | literal widening inside an object member |
+| 3 | `never` winning inside a reference (`subtypeRelationForNever`, `neverInference`) | §5.1's `never` strike is **per type parameter**; a `never` *inside* a reference argument still wins, and striking that needs the union `getCovariantInference` builds |
+| 2 | `Box<42>` vs `Box<number>` (`isomorphicMappedTypeInference`) | mapped types |
+| 2 | `{ bar(x: any): void; }` (`contextualTypingOfOptionalMembers`) | contextual typing, refused with a number in `STATUS.md` §5 |
+| 3 | one each: `SetupImages<string>`, `Maybe<string>`, `number` for `1` | object-rest binding, base-type matching, widening |
+
+Nothing here is a defect in code that already worked, and the largest group is
+the same contravariant bucket §5.2 names — which is the argument for building
+that leg next rather than any of the others.
+
+### 5.4 What was not built, so it is not re-derived
+
+From §2.3, in size order: **tuple return types** (`[T, U]` 32 lines, `[T, U, V]`
+10) are an `instantiate_type` limit, not an inference one; **object-type
+members** (`{ keys: T[] }` against `{ keys: string[] }`) need a members reverse
+index that does not exist; **intersections** (`T & U` 8) need the same;
+`getErasedSignature`; and the **contravariant bucket**, which §5.2 and §5.3
+both point at and which is the one leg with measured demand on both sides of
+the ledger.
