@@ -306,6 +306,121 @@ impl<'a, 'n> Checker<'a, 'n> {
         printing::type_to_string(self.store.get(id))
     }
 
+    /// Render a type **as seen from a particular reference site**.
+    ///
+    /// The second entry point beside [`Checker::type_to_string`], which is left
+    /// exactly as it was. `type_to_string` has 110 call sites across five
+    /// checker modules and a dozen test files; changing its signature would put
+    /// a cross-cutting refactor in the same commit as a behaviour change, and
+    /// would collide with two agents editing those files. More importantly the
+    /// split makes the property **structural rather than maintained**: a caller
+    /// with no reference node cannot get a context-sensitive name, so no call
+    /// site can regress by omission.
+    ///
+    /// # Why a name can depend on the reference site at all
+    ///
+    /// Upstream does not read the name off the declaration. `symbolToTypeNode`
+    /// goes through `NodeBuilderImpl.lookupSymbolChain`
+    /// (`internal/checker/nodebuilderimpl.go:1061`) to
+    /// `Checker.getAccessibleSymbolChain`
+    /// (`internal/checker/symbolaccessibility.go:373`), whose `trySymbolTable`
+    /// iterates **the alias symbols of every table in scope from the reference**
+    /// and returns the name of one that resolves to the target. A module
+    /// symbol's own name is its file path, so the printed form is always some
+    /// alias's name and never the symbol's.
+    ///
+    /// # Returns `None` rather than guessing
+    ///
+    /// `None` means *this port cannot name this type here*, and the caller
+    /// renders a gap. That is the whole safety property of this function, and it
+    /// is why the answer is an `Option` rather than a fallback string: the baked
+    /// text for a module object is the stripped file path, so falling back to it
+    /// would turn every unnameable case into a confidently wrong line — the
+    /// exact outcome that got `bd tsr-6ph` refused twice, at 2.1 and 2.5 wrong
+    /// per right.
+    ///
+    /// Ambiguity is the case that forces it. When two aliases in scope name one
+    /// module the corpus contradicts itself:
+    /// `compiler/es6ImportNameSpaceImport` prints the *earlier* alias for a
+    /// later one, while `compiler/unusedImports_entireImportDeclaration` prints
+    /// each of `ns`, `ns2`, `ns3` under its *own* name. Upstream distinguishes
+    /// them through `cloneTypeAsModuleType`, which this port does not have — so
+    /// no tie-break reproduces both, and both are answered `None`. Measured over
+    /// the corpus: 706 lines print a module object's name, **634 have exactly
+    /// one alias in scope and 630 of those name correctly (99.4%)**, and the 72
+    /// ambiguous ones gap. See
+    /// [`docs/architecture/checker-notes-nameres.md`](../../../docs/architecture/checker-notes-nameres.md)
+    /// §14.
+    #[must_use]
+    pub fn type_to_string_at(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
+        let module = match &self.store.get(id).data {
+            crate::types::TypeData::Anonymous { symbol, .. } => {
+                let symbol = *symbol;
+                self.is_module_symbol(symbol).then_some(symbol)
+            }
+            _ => None,
+        };
+        let Some(module) = module else { return Some(self.type_to_string(id)) };
+        self.module_name_at(module, reference).map(|name| format!("typeof {name}"))
+    }
+
+    /// Whether a symbol is a **file's** module symbol.
+    ///
+    /// The positive test is that one of its declarations is a `SourceFile`,
+    /// which is how the binder creates it (`bindSourceFile`) and is not true of
+    /// any other symbol. A flag test would not do: `SymbolFlags::VALUE_MODULE`
+    /// is carried by every `namespace N {}` as well, and those have real names
+    /// that print correctly through the baked text.
+    fn is_module_symbol(&self, symbol: SymbolId) -> bool {
+        self.binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
+    }
+
+    /// The single alias in scope at `reference` that resolves to `module`.
+    ///
+    /// `None` when there is none, or when there is more than one — see
+    /// [`Checker::type_to_string_at`] for why more-than-one is not a tie-break.
+    fn module_name_at(&mut self, module: SymbolId, reference: NodeId) -> Option<&'a str> {
+        let mut candidates: Vec<SymbolId> = Vec::new();
+        let mut current = Some(reference);
+        while let Some(node) = current {
+            if let Some(locals) = self.binder.locals(node) {
+                candidates.extend(locals.values().copied());
+            }
+            current = self.nodes.parent(node);
+        }
+        candidates.extend(self.binder.globals().values().copied());
+
+        let mut found: Option<&'a str> = None;
+        for candidate in candidates {
+            if !self
+                .binder
+                .symbols()
+                .get(candidate)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::ALIAS)
+            {
+                continue;
+            }
+            if self.resolve_alias(candidate) != Some(module) {
+                continue;
+            }
+            let name = self.binder.symbols().get(candidate).name;
+            match found {
+                // The same alias reached twice through two scopes is one alias,
+                // and a name colliding with itself is not ambiguity.
+                Some(existing) if existing == name => {}
+                Some(_) => return None,
+                None => found = Some(name),
+            }
+        }
+        found
+    }
+
     /// Whether a type is `errorType` itself, by identity.
     ///
     /// Not a flag test: `errorType` and `anyType` share `TypeFlagsAny` and are

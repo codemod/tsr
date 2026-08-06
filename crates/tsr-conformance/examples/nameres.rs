@@ -298,6 +298,18 @@ struct Report {
     /// syntax for a symbol with no accessible name, which this port cannot
     /// produce.
     alias_unblocks_import_syntax: BTreeMap<(Form, bool), usize>,
+    /// Cycle 14: (form, naming verdict) -> lines, over every line whose answer
+    /// is a module object's name.
+    naming: BTreeMap<(Form, Naming), Tally>,
+    /// The mismatches, verbatim: (baseline RHS, what the rule predicts).
+    naming_misses: BTreeMap<(String, String), usize>,
+    /// The unambiguous design: (candidates == 1, verdict) -> lines.
+    naming_unambiguous: BTreeMap<(bool, Naming), Tally>,
+    /// C10: lines where the rule predicts a name AND the baseline is
+    /// `typeof <that name>` AND the name equals the referencing alias's own
+    /// name — the naive "print the local alias" rule. The gap between this and
+    /// `Naming::Matches` is exactly what the earliest-declared tie-break buys.
+    c10_naive_rule_agrees: usize,
     /// C8: a `NamespaceImport` with no module specifier. 0 by the grammar.
     c8_ns_import_without_specifier: usize,
     c8_ns_import_with_specifier: usize,
@@ -361,6 +373,16 @@ impl Report {
         for (k, v) in &o.alias_unblocks_import_syntax {
             *self.alias_unblocks_import_syntax.entry(*k).or_default() += v;
         }
+        for (k, v) in &o.naming {
+            self.naming.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.naming_misses {
+            *self.naming_misses.entry(k.clone()).or_default() += v;
+        }
+        for (k, v) in &o.naming_unambiguous {
+            self.naming_unambiguous.entry(*k).or_default().merge(v);
+        }
+        self.c10_naive_rule_agrees += o.c10_naive_rule_agrees;
         self.c8_ns_import_without_specifier += o.c8_ns_import_without_specifier;
         self.c8_ns_import_with_specifier += o.c8_ns_import_with_specifier;
         self.file_has_no_symbol += o.file_has_no_symbol;
@@ -639,6 +661,41 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                         report
                             .alias_export_equals_conv
                             .entry((form, export_equals))
+                            .or_default()
+                            .add(name, 1);
+                    }
+                    // Cycle 14: what would the naming rule print here, and is
+                    // it what upstream printed? Only asked for the forms whose
+                    // target IS the module object.
+                    if let Some(module) = module_target_of(&program, bound, nodes, map, symbol)
+                        && let Some(line) = baseline
+                        && let Some(rhs) = line.text.strip_prefix(&format!("{} : ", assertion.text))
+                    {
+                        let predicted = predicted_name(&program, bound, nodes, map, id, module);
+                        let verdict = match (predicted, rhs.strip_prefix("typeof ")) {
+                            (None, _) => Naming::NoAliasInScope,
+                            (Some(_), None) => Naming::NotATypeofName,
+                            (Some(p), Some(want)) if p == want => Naming::Matches,
+                            (Some(p), Some(want)) => {
+                                *report
+                                    .naming_misses
+                                    .entry((rhs.to_string(), format!("typeof {p}")))
+                                    .or_default() += 1;
+                                let _ = want;
+                                Naming::WrongName
+                            }
+                        };
+                        if verdict == Naming::Matches
+                            && bound.symbols().get(symbol).name == predicted.unwrap_or("")
+                        {
+                            report.c10_naive_rule_agrees += 1;
+                        }
+                        report.naming.entry((form, verdict)).or_default().add(name, 1);
+                        let unambiguous =
+                            alias_candidate_count(&program, bound, nodes, map, id, module) == 1;
+                        report
+                            .naming_unambiguous
+                            .entry((unambiguous, verdict))
                             .or_default()
                             .add(name, 1);
                     }
@@ -971,6 +1028,7 @@ fn print(t: &Report) {
         }
     }
     print_alias(t);
+    print_naming(t);
     println!("\n================ EXPORT_VALUE MARKERS, split by container");
     for row in [Row::Direct, Row::Cascade] {
         for container in [Container::InNamespace, Container::AtFileTop, Container::NoDeclaration] {
@@ -1584,4 +1642,306 @@ fn print_alias(t: &Report) {
         "\nC8 NamespaceImport with no module specifier = {} (must be 0), mirror {}",
         t.c8_ns_import_without_specifier, t.c8_ns_import_with_specifier
     );
+}
+
+// ===========================================================================
+// Cycle 14: can a module-symbol-typed reference be given the name the corpus
+// asks for?
+//
+// Every refusal in this workstream bottoms out in one sentence — this port
+// cannot spell a module symbol's name, because `TypeData::Anonymous`'s `text`
+// is baked at type creation and a module symbol's name here is the stripped
+// file path. `bd tsr-6j2`.
+//
+// Upstream picks the name at the REFERENCE site, not from the declaration.
+// `NodeBuilderImpl.lookupSymbolChain` (`internal/checker/nodebuilderimpl.go:1061`)
+// -> `getSymbolChain` -> `Checker.getAccessibleSymbolChain`
+// (`internal/checker/symbolaccessibility.go:373`) -> `trySymbolTable`, which
+// iterates the **alias symbols of every table in scope**, keeps each one that
+// resolves to the target, and then:
+//
+//     slices.SortStableFunc(candidateChains, c.compareSymbolChains)
+//     return candidateChains[0]                       // "pick first, shortest"
+//
+// `compareSymbolsWorker` (`internal/checker/utilities.go:366`) breaks the tie on
+// `compareNodes(s1.Declarations[0], s2.Declarations[0])`, which is **file index
+// in the program, then source position**. So:
+//
+//   **among the aliases in scope that resolve to this module, the
+//   EARLIEST-DECLARED one supplies the name.**
+//
+// That single rule explains both counter-examples `tsr-6j2` records, which are
+// the same mechanism twice:
+//
+//   compiler/es6ImportNameSpaceImport  — `nameSpaceBinding` and
+//     `nameSpaceBinding2` both alias `./es6ImportNameSpaceImport_0`;
+//     `nameSpaceBinding2`'s own declaration line prints `typeof nameSpaceBinding`.
+//   compiler/modulePreserve4 — `import g1 from "./g"` at line 154 and
+//     `import g2 = require("./g")` at line 162; `g2` prints `typeof g1`.
+//
+// This section measures whether that rule reproduces the corpus, and how many
+// lines it releases. It builds nothing.
+// ===========================================================================
+
+/// Whether the rule's predicted name matches what upstream printed.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Naming {
+    /// The rule predicts exactly the baseline's right-hand side.
+    Matches,
+    /// The baseline is `typeof X` and the rule predicts a different `X`.
+    WrongName,
+    /// The baseline is not of the form `typeof <identifier>` at all.
+    NotATypeofName,
+    /// No alias in scope resolves to this module, so the rule predicts nothing.
+    NoAliasInScope,
+}
+
+impl Naming {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Matches => "rule predicts the baseline exactly",
+            Self::WrongName => "baseline is `typeof X`, rule predicts a different X",
+            Self::NotATypeofName => "baseline is not `typeof <identifier>`",
+            Self::NoAliasInScope => "no alias in scope resolves to this module",
+        }
+    }
+}
+
+/// Every alias symbol visible from `start`, in the scope order
+/// `Binder::resolve_name` walks, plus the globals.
+///
+/// This is `someSymbolTableInScope` (`symbolaccessibility.go`) reduced to the
+/// two tables this port has: a scope's `locals`, and the program's globals.
+/// Members tables are skipped, which upstream also does — `getSymbolTableAliases`
+/// returns nothing for them because "members tables never contain alias symbols".
+fn aliases_in_scope(
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    start: NodeId,
+) -> Vec<tsr_binder::SymbolId> {
+    let mut found = Vec::new();
+    let mut current = Some(start);
+    while let Some(node) = current {
+        if let Some(locals) = bound.locals(node) {
+            for symbol in locals.values() {
+                if bound.symbols().get(*symbol).flags.intersects(SymbolFlags::ALIAS) {
+                    found.push(*symbol);
+                }
+            }
+        }
+        current = nodes.parent(node);
+    }
+    for symbol in bound.globals().values() {
+        if bound.symbols().get(*symbol).flags.intersects(SymbolFlags::ALIAS) {
+            found.push(*symbol);
+        }
+    }
+    found
+}
+
+/// The module symbol an alias names, for the three forms whose target **is** the
+/// module object rather than one of its exports.
+///
+/// Restricted on purpose. `import d from "m"` resolves to `exports["default"]`,
+/// a declared symbol with its own name, and is not part of the naming problem;
+/// including it would inflate the release count with lines that were never
+/// blocked on this.
+fn module_target_of(
+    program: &tsr_compiler::Program<'_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    symbol: tsr_binder::SymbolId,
+) -> Option<tsr_binder::SymbolId> {
+    let declaration = alias_declaration(bound, nodes, symbol)?;
+    if !matches!(
+        form_of(nodes, map, declaration),
+        Form::NamespaceImport | Form::NamespaceExport | Form::ImportEqualsRequire
+    ) {
+        return None;
+    }
+    let Specifier::Text(specifier) = specifier_of(nodes, map, declaration) else { return None };
+    let mut file = declaration;
+    while nodes.kind(file) != SyntaxKind::SourceFile {
+        file = nodes.parent(file)?;
+    }
+    let target_file = program.resolved_module(file, specifier)?;
+    let module = bound.symbol_of(target_file)?;
+    // `resolveExternalModuleSymbol` (`checker.go:15556`): a module writing
+    // `export = X` **is** `X`, and `X` has a name of its own — so it is not part
+    // of the naming problem and is excluded here rather than counted as a win.
+    if bound.symbols().get(module).exports.contains_key("export=") {
+        return None;
+    }
+    Some(module)
+}
+
+/// The name upstream would print for `module` at `start`: the earliest-declared
+/// alias in scope that resolves to it.
+///
+/// The ordering is `compareNodes` (`internal/checker/utilities.go:366` ->
+/// `:392`): file index in the program, then source position. One shared
+/// `NodeTable` spans the program in parse order (ADR-0034), so a `NodeId`
+/// already orders files; the span start orders within one file. Both are used,
+/// in that order, rather than relying on `NodeId` alone — a node is registered
+/// after its children, so ids are creation order and not source order.
+fn predicted_name<'a>(
+    program: &tsr_compiler::Program<'_>,
+    bound: &tsr_binder::BindResult<'a>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'a>,
+    start: NodeId,
+    module: tsr_binder::SymbolId,
+) -> Option<&'a str> {
+    let mut best: Option<(usize, u32, &str)> = None;
+    for candidate in aliases_in_scope(bound, nodes, start) {
+        if module_target_of(program, bound, nodes, map, candidate) != Some(module) {
+            continue;
+        }
+        let Some(&declaration) = bound.symbols().get(candidate).declarations.first() else {
+            continue;
+        };
+        let file_index = program
+            .source_files()
+            .iter()
+            .position(|file| file.node_range().contains(&declaration.as_u32()))
+            .unwrap_or(usize::MAX);
+        let key = (file_index, nodes.span(declaration).start);
+        let name = bound.symbols().get(candidate).name;
+        if best.is_none_or(|(f, p, _)| (key.0, key.1) < (f, p)) {
+            best = Some((key.0, key.1, name));
+        }
+    }
+    best.map(|(_, _, name)| name)
+}
+
+/// How many distinct aliases in scope resolve to `module`.
+///
+/// The design knob. When it is **1** the name is forced — every rule anyone
+/// could write agrees — and printing it is safe. When it is **2 or more** the
+/// corpus contradicts itself: `compiler/es6ImportNameSpaceImport` prints the
+/// *earliest* alias for a later one, and
+/// `compiler/unusedImports_entireImportDeclaration` prints each of `ns`, `ns2`,
+/// `ns3` under its *own* name. Both are two-plus-alias scopes and they disagree,
+/// so no single tie-break reproduces both.
+///
+/// That is what makes a gap possible here at all: ambiguity is detectable at the
+/// reference site, before anything is printed.
+fn alias_candidate_count(
+    program: &tsr_compiler::Program<'_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    start: NodeId,
+    module: tsr_binder::SymbolId,
+) -> usize {
+    let mut names = std::collections::BTreeSet::<&str>::new();
+    for candidate in aliases_in_scope(bound, nodes, start) {
+        if module_target_of(program, bound, nodes, map, candidate) == Some(module) {
+            names.insert(bound.symbols().get(candidate).name);
+        }
+    }
+    names.len()
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn print_naming(t: &Report) {
+    println!("\n================ CYCLE 14: does the earliest-declared-alias rule work?");
+    let mut grand = Tally::default();
+    for tally in t.naming.values() {
+        grand.merge(tally);
+    }
+    let (cases, top1, top10) = grand.concentration();
+    println!(
+        "{} lines whose answer is a module object's name, {cases} cases, top-1 {top1:.1}%, top-10 {top10:.1}%",
+        grand.lines
+    );
+
+    let mut by_verdict = BTreeMap::<Naming, Tally>::new();
+    for ((_, verdict), tally) in &t.naming {
+        by_verdict.entry(*verdict).or_default().merge(tally);
+    }
+    for verdict in
+        [Naming::Matches, Naming::WrongName, Naming::NotATypeofName, Naming::NoAliasInScope]
+    {
+        let Some(tally) = by_verdict.get(&verdict) else { continue };
+        let (cases, top1, _) = tally.concentration();
+        println!(
+            "{:>7}  {:>5.1}%  {cases:>4} cases  top-1 {top1:>5.1}%  {}",
+            tally.lines,
+            tally.lines as f64 / grand.lines.max(1) as f64 * 100.0,
+            verdict.label()
+        );
+    }
+
+    println!("\n-- by form --");
+    for form in FORMS {
+        let mut row = BTreeMap::<Naming, usize>::new();
+        for ((f, verdict), tally) in &t.naming {
+            if *f == form {
+                *row.entry(*verdict).or_default() += tally.lines;
+            }
+        }
+        let total: usize = row.values().sum();
+        if total == 0 {
+            continue;
+        }
+        println!(
+            "{:<52} {:>7} total  {:>7} match ({:>5.1}%)  {:>5} wrong-name  {:>5} other",
+            form.label(),
+            total,
+            row.get(&Naming::Matches).copied().unwrap_or(0),
+            row.get(&Naming::Matches).copied().unwrap_or(0) as f64 / total as f64 * 100.0,
+            row.get(&Naming::WrongName).copied().unwrap_or(0),
+            row.get(&Naming::NotATypeofName).copied().unwrap_or(0)
+                + row.get(&Naming::NoAliasInScope).copied().unwrap_or(0)
+        );
+    }
+
+    println!(
+        "\nC10 lines the NAIVE `print the local alias` rule also gets right = {}",
+        t.c10_naive_rule_agrees
+    );
+    println!(
+        "    (the earliest-declared tie-break is worth {} lines on top; if this equals",
+        by_verdict
+            .get(&Naming::Matches)
+            .map_or(0, |v| v.lines)
+            .saturating_sub(t.c10_naive_rule_agrees)
+    );
+    println!("     the match count, the two known counter-examples are the whole residue)");
+
+    println!("\n-- THE DESIGN KNOB: print only when EXACTLY ONE alias in scope resolves --");
+    for unambiguous in [true, false] {
+        let mut row = BTreeMap::<Naming, usize>::new();
+        for ((u, verdict), tally) in &t.naming_unambiguous {
+            if *u == unambiguous {
+                *row.entry(*verdict).or_default() += tally.lines;
+            }
+        }
+        let total: usize = row.values().sum();
+        if total == 0 {
+            continue;
+        }
+        let matches = row.get(&Naming::Matches).copied().unwrap_or(0);
+        let wrong = row.get(&Naming::WrongName).copied().unwrap_or(0);
+        println!(
+            "  {:<28} {total:>5} lines  {matches:>5} match  {wrong:>4} wrong-name  {:>4} other",
+            if unambiguous { "exactly 1 alias  -> PRINT" } else { "2 or more        -> GAP" },
+            total - matches - wrong
+        );
+        let mut tally = Tally::default();
+        for ((u, _), t2) in &t.naming_unambiguous {
+            if *u == unambiguous {
+                tally.merge(t2);
+            }
+        }
+        let (cases, top1, top10) = tally.concentration();
+        println!("      {cases} cases, top-1 {top1:.1}%, top-10 {top10:.1}%");
+    }
+
+    println!("\n-- THE RESIDUE, verbatim: baseline vs what the rule predicts (top 20) --");
+    for ((want, got), n) in top(&t.naming_misses, 20) {
+        println!("{n:>7}  baseline `{want}`  rule `{got}`");
+    }
 }

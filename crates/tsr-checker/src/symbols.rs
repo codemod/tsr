@@ -531,7 +531,7 @@ impl<'a> Checker<'a, '_> {
     /// work on a chain, bounded because [`Checker::get_type_of_alias`] memoises
     /// the *type* in [`Checker::symbol_types`] and that is what every caller
     /// ultimately wants.
-    fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+    pub(crate) fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
         match self.nodes.kind(declaration) {
             // `getTargetOfExportSpecifier` (`checker.go:14951`) — both halves,
@@ -540,6 +540,35 @@ impl<'a> Checker<'a, '_> {
             // `getTargetOfImportSpecifier` (`checker.go:14647`).
             SyntaxKind::ImportSpecifier => return self.import_specifier_target(declaration),
             _ => {}
+        }
+        // `getTargetOfNamespaceImport` (`checker.go:14724`) and
+        // `getTargetOfNamespaceExport` (`checker.go:14742`), both of which are
+        // `resolveESModuleSymbol(resolveExternalModuleName(...))`.
+        //
+        // **Deliberately narrower than upstream in one respect**, and it is the
+        // respect this arm was refused for twice. `resolveESModuleSymbol`
+        // (`checker.go:15568`) has a `cloneTypeAsModuleType` branch for a
+        // namespace import, which is what lets upstream print `typeof ns3` for
+        // the third of three aliases to one module. That clone is not ported.
+        // Instead [`Checker::type_to_string_at`] refuses to name a module object
+        // when more than one alias is in scope, so the ambiguous cases stay gaps
+        // rather than becoming confidently wrong lines. Measured: 634 of 706
+        // such lines have exactly one alias in scope and 630 of those name
+        // correctly. See `docs/architecture/checker-notes-nameres.md` §14.
+        if matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::NamespaceImport | SyntaxKind::NamespaceExport
+        ) {
+            let parent = self.nodes.parent(declaration)?;
+            // A `NamespaceImport` hangs off an `ImportClause`, a
+            // `NamespaceExport` directly off the `ExportDeclaration`.
+            let owner = if self.nodes.kind(parent) == SyntaxKind::ImportClause {
+                self.nodes.parent(parent)?
+            } else {
+                parent
+            };
+            let specifier = self.external_module_name(owner)?;
+            return self.module_object_of(owner, specifier);
         }
         let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
             // Every other alias form — an import clause, a namespace import,
@@ -580,15 +609,21 @@ impl<'a> Checker<'a, '_> {
                     .intersects(SymbolFlags::NAMESPACE)
                     .then_some(found)
             }
-            // Resolvable, but not printable — see above.
-            // Two gaps that share an answer but not a reason, and the reasons
-            // are worth keeping apart even though the arms are merged here to
-            // satisfy `clippy::match_same_arms`. A qualified name RESOLVES
-            // fine and prints wrong, for want of symbol accessibility (see
-            // above). An external module reference does not resolve at all, for
-            // want of cross-file globals (`bd tsr-9or.1`, `checker.go:14441`).
-            // Closing one does nothing for the other.
-            ModuleReference::QualifiedName(_) | ModuleReference::ExternalModuleReference(_) => None,
+            // `getTargetOfImportEqualsDeclaration` (`checker.go:14441`) for the
+            // `require("m")` half: `resolveExternalModuleName` then
+            // `resolveExternalModuleSymbol`. The specifier is the argument of
+            // the `require(...)` on the declaration itself rather than a
+            // `module_specifier` on any ancestor — a distinction that cost one
+            // probe run to find (§10).
+            ModuleReference::ExternalModuleReference(reference) => {
+                let specifier = reference.expression?.node_id()?;
+                self.module_object_of(declaration, specifier)
+            }
+            // A qualified name RESOLVES fine and prints wrong, for want of
+            // symbol accessibility. Unchanged, and not the same problem as the
+            // arm above: the name it would print is a *declared* one this port
+            // cannot reach, not a module object it cannot spell.
+            ModuleReference::QualifiedName(_) => None,
         }
     }
 
@@ -919,6 +954,21 @@ impl<'a> Checker<'a, '_> {
         // resolving to a plain script is a successful resolution with no module
         // symbol at the end of it, and only the checker can tell those apart.
         self.binder.symbol_of(target)
+    }
+
+    /// The **module object** a specifier names: the module symbol itself, and
+    /// only when the module does not write `export =`.
+    ///
+    /// The `export =` case answers `None` on purpose rather than handing back
+    /// `resolve_external_module_symbol`'s target. That target has a declared
+    /// name of its own and would print through the baked text, so it is a
+    /// *different* population from the one measured in §14 — 218 lines the probe
+    /// deliberately excluded — and shipping it here would be adding unmeasured
+    /// surface to a slice whose whole argument is that the surface was measured.
+    /// `bd tsr-e2u` carries it.
+    fn module_object_of(&mut self, location: NodeId, specifier: NodeId) -> Option<SymbolId> {
+        let module = self.resolve_external_module_name(location, specifier)?;
+        if self.resolve_external_module_symbol(module) == module { Some(module) } else { None }
     }
 
     /// The module specifier of an `ImportDeclaration` or an `ExportDeclaration`.
@@ -1335,6 +1385,53 @@ impl<'a> Checker<'a, '_> {
             return Some(self.add_optionality_for_declaration(contextual, declaration));
         }
         let initializer = self.initializer_of(declaration)?;
+
+        // `const data = [];` — upstream types the **symbol** `any[]` and leaves
+        // the **literal** at `never[]`, on the same declaration:
+        //
+        // ```
+        // >data : any[]
+        // >[] : never[]
+        // ```
+        //
+        // `getTypeForVariableLikeDeclaration` (`checker.go:16652`) returns
+        // `c.autoArrayType` at `checker.go:16709`, *before* it ever consults the
+        // initialiser's type. `autoArrayType` is `createArrayType(autoType)`
+        // (`checker.go:1360`), which prints `any[]`.
+        //
+        // # The placement is the whole design, and the wrong one is invisible
+        //
+        // This must type the **symbol**, never the literal.
+        // `check_array_literal` (`array_literals.rs`) correctly answers
+        // `never[]` for `[]` (`checker.go:8098`) and **51 currently-right
+        // `>[] : never[]` lines depend on it staying that way**. A fix that
+        // reached into the literal instead would read identically and break all
+        // 51 — which is why the falsifier here is a count rather than a
+        // description: `ArrayLiteralExpression` must move by **exactly zero**.
+        // `nameres_evolving_array_declaration.rs` pins it, and `bd tsr-5h0`
+        // carries the sizing.
+        //
+        // # Which of upstream's guards are ported
+        //
+        // Upstream's condition (`checker.go:16696`) is `noImplicitAny &&
+        // IsVariableDeclaration && !IsBindingPattern(name) && no export modifier
+        // && not ambient`. The three syntactic guards are ported below.
+        // `noImplicitAny` is **not**: this port models no compiler options and
+        // assumes strict throughout, the same assumption `array_literals.rs`
+        // and `unions.rs` already state for `strictNullChecks`. A case compiled
+        // with `noImplicitAny` off would take upstream down a different path,
+        // and that is a known divergence rather than an oversight.
+        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && !self.has_binding_pattern_name(declaration)
+            && !self.is_exported_variable(declaration)
+            && !self.combined_node_flags(declaration).intersects(NodeFlags::AMBIENT)
+            && is_empty_array_literal(initializer)
+            && let Some(target) = self.global_type_symbol("Array")
+        {
+            let any = self.intrinsics.any;
+            return Some(self.create_type_reference(target, vec![any]));
+        }
+
         let initializer_type = self.check_expression(initializer);
         Some(self.get_widened_literal_type_for_initializer(declaration, initializer_type))
     }
@@ -1368,6 +1465,41 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// Whether a variable declaration carries `export`.
+    ///
+    /// Upstream's `getCombinedModifierFlagsCached(declaration) & ModifierFlagsExport`
+    /// (`checker.go:16698`). The modifier is not on the declaration: it is on
+    /// the enclosing `VariableStatement`, with the `VariableDeclarationList`
+    /// transparent between them — the same walk `combined_node_flags` makes for
+    /// `const`, and the same one `Binder::has_export_modifier`
+    /// (`crates/tsr-binder/src/binder.rs:2548`) makes on its ancestor stack.
+    fn is_exported_variable(&self, declaration: NodeId) -> bool {
+        let mut current = self.nodes.parent(declaration);
+        for _ in 0..2 {
+            let Some(node) = current else { return false };
+            if let Some(Node::VariableStatement(statement)) = self.node_map.get(node) {
+                return statement.modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::ExportKeyword)
+                });
+            }
+            current = self.nodes.parent(node);
+        }
+        false
+    }
+
+    /// Whether a declaration's name is a binding pattern rather than an
+    /// identifier — `const [a] = []`. Upstream's `!ast.IsBindingPattern(name)`
+    /// guard (`checker.go:16697`): a destructuring declaration takes its type
+    /// from the pattern, not from the initialiser.
+    fn has_binding_pattern_name(&self, declaration: NodeId) -> bool {
+        matches!(
+            self.node_map.get(declaration),
+            Some(Node::VariableDeclaration(node))
+                if !matches!(node.name, Some(tsr_ast::BindingName::Identifier(_)))
+        )
+    }
+
     /// The initialiser of a declaration, if it has one.
     fn initializer_of(&self, declaration: NodeId) -> Option<Expression<'a>> {
         match self.node_map.get(declaration)? {
@@ -1394,4 +1526,13 @@ fn is_identifier_text(text: &str) -> bool {
     let Some(first) = chars.next() else { return false };
     (first.is_ascii_alphabetic() || first == '_' || first == '$')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// Whether an expression is `[]` — an array literal with no elements.
+///
+/// Ported from `isEmptyArrayLiteral` (`internal/checker/utilities.go`). A
+/// separate function because the *emptiness* is the whole trigger: `[1]` takes
+/// the ordinary initialiser path and must keep doing so.
+fn is_empty_array_literal(expression: Expression<'_>) -> bool {
+    matches!(expression, Expression::ArrayLiteralExpression(literal) if literal.elements.is_empty())
 }
