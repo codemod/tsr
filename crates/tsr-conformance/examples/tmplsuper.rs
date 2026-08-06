@@ -95,11 +95,12 @@ enum Outcome {
 #[derive(Default)]
 struct Row {
     outcomes: BTreeMap<Outcome, usize>,
-    gap_rhs: BTreeMap<String, usize>,
+    gap_rhs: BTreeMap<(bool, String), usize>,
     gap_cases: BTreeMap<String, usize>,
     /// The syntactic split that separates the predicted leg from the excluded
     /// one. `true` is the predicted leg.
     split: BTreeMap<(bool, Outcome), usize>,
+    wrong_pairs: BTreeMap<(String, String), usize>,
 }
 
 impl Row {
@@ -115,6 +116,9 @@ impl Row {
         }
         for (key, n) in &other.split {
             *self.split.entry(*key).or_default() += n;
+        }
+        for (key, n) in &other.wrong_pairs {
+            *self.wrong_pairs.entry(key.clone()).or_default() += n;
         }
     }
 
@@ -246,12 +250,20 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             };
             *row.outcomes.entry(outcome).or_default() += 1;
             *row.split.entry((predicted, outcome)).or_default() += 1;
+            if outcome == Outcome::Wrong
+                && let Some(rhs) =
+                    baseline.and_then(|b| b.text.strip_prefix(&format!("{} : ", assertion.text)))
+            {
+                *row.wrong_pairs
+                    .entry((assertion.type_string.clone(), rhs.to_string()))
+                    .or_default() += 1;
+            }
             if outcome == Outcome::Gap {
                 *row.gap_cases.entry(name.clone()).or_default() += 1;
                 if let Some(rhs) =
                     baseline.and_then(|b| b.text.strip_prefix(&format!("{} : ", assertion.text)))
                 {
-                    *row.gap_rhs.entry(rhs.to_string()).or_default() += 1;
+                    *row.gap_rhs.entry((predicted, rhs.to_string())).or_default() += 1;
                 }
             }
         }
@@ -292,11 +304,29 @@ fn print(name: &str, split_label: &str, row: &Row) {
         );
     }
 
-    println!("\n  what the baseline wants for the gap lines (the MATCH-test evidence):");
-    let mut rhs: Vec<_> = row.gap_rhs.iter().collect();
-    rhs.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
-    let with_rhs: usize = rhs.iter().map(|(_, n)| **n).sum();
-    for (text, n) in rhs.iter().take(12) {
-        println!("      {:>5}  {:>5.1}%  {}", n, **n as f64 / with_rhs.max(1) as f64 * 100.0, text);
+    if !row.wrong_pairs.is_empty() {
+        println!("\n  WRONG: ours against upstream");
+        let mut pairs: Vec<_> = row.wrong_pairs.iter().collect();
+        pairs.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+        for ((ours, them), n) in pairs.iter().take(10) {
+            println!("      {n:>5}  ours {ours:<28} them {them}");
+        }
+    }
+    // The decisive cross-tab: what the baseline wants **inside the predicted
+    // leg**. The whole-row histogram cannot decide a build, because a line the
+    // predicted leg excludes contributes to it and would never have converted.
+    for predicted in [true, false] {
+        let mut rhs: Vec<_> = row.gap_rhs.iter().filter(|((p, _), _)| *p == predicted).collect();
+        rhs.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+        let with_rhs: usize = rhs.iter().map(|(_, n)| **n).sum();
+        if with_rhs == 0 {
+            continue;
+        }
+        println!(
+            "\n  baseline for the gap lines, predicted leg = {predicted} ({with_rhs} with a comparable RHS):"
+        );
+        for ((_, text), n) in rhs.iter().take(10) {
+            println!("      {:>5}  {:>5.1}%  {}", n, **n as f64 / with_rhs as f64 * 100.0, text);
+        }
     }
 }
