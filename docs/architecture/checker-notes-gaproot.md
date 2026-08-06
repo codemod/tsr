@@ -1157,6 +1157,166 @@ constituent*, which for a union means a synthesised union of member types, and
 the union item would have needed a printer check first and the base-type walk
 would not. Recorded because asking cost one paragraph.
 
+---
+
+# Part 6 — the `this` type: a specification hand-off, and the item is 399 lines
+
+Measured at **`f916b14`**. **Nothing was built and `expressions.rs` was not
+touched.** No rule is registered: this is a spec, and the decision it feeds
+belongs to the agent that owns the file.
+
+## The correction that has to come first: 1,165 is not the `this` item
+
+The hand-off sized this at **1,165 lines, 21.4% of the clean population**, from
+my own crossing. **My crossing was of *receivers*, not of `this` typing**, and
+splitting it shows none of it is a `this` item:
+
+| the 1,165 `this`-receiver lines in the `RIGHT` arm | lines | share | owner |
+|---|---:|---:|---|
+| member **found** by the lookup — its own **type** gaps | **816** | 70.04% | the `tsr-mcd` family, already **refused** as 96.8% symptom |
+| member name is not an identifier (private/computed) | 174 | 14.94% | a separate row |
+| inherited — the base-type walk | 115 | 9.87% | `members.rs` (mine) |
+| absent, and the class has no base | 60 | 5.15% | binder / static side |
+
+These lines reached `RIGHT`, which means **`this` was typed the way upstream
+types it**. The failure is downstream of `this` typing in every one of them.
+
+> **A label I nearly shipped, and the discriminator that caught it.** The first
+> version of this split read *"the member IS in the class's own table — lookup
+> rejected it"* for the 816. That is an **inference**, not a measurement, and it
+> is a false claim about `members.rs` in the direction that invents work for
+> this workstream. Asking the lookup itself — `get_property_of_type` on the real
+> receiver type — moves all 816 to *"found; its own type gaps"*. The binder's
+> table holding a name says nothing about why the line gapped.
+
+**`check_this_expression` already exists** (`expressions.rs:424`) and already
+types the class case, caching a `this` type per class symbol. So
+`checker-notes-recvgap.md` §4's *"`this` and `super` are positions this port
+does not type at all"* is **stale for `this`** — true when written, overtaken
+since. Recorded here rather than edited there, since that page is not mine.
+
+## The item, pinned syntactically: 399 lines
+
+`|P|` = gap lines whose **node kind** is `ThisKeyword`, an AST fact that cannot
+move under the checker. Container found by a measurement-only port of
+`getThisContainer` (`checker.go:12188`), in which **an arrow function is
+transparent**. Unit: **gap assertion lines**.
+
+| this-container | lines | share | what upstream would supply |
+|---|---:|---:|---|
+| **free FUNCTION — rebinds `this`** | **254** | 63.66% | the signature's `this` parameter, else contextual, else `any` |
+| SOURCE FILE | 64 | 16.04% | `globalThis` (script) or `undefined` (module) |
+| class/object METHOD | 57 | 14.29% | the class's `thisType`, or `typeof C` if static |
+| OBJECT LITERAL | 10 | 2.51% | the contextual `this` parameter type |
+| MODULE/NAMESPACE body | 9 | 2.26% | upstream **errors**; the type is incidental |
+| ACCESSOR | 5 | 1.25% | as the method arm |
+| **TOTAL** | **399** | | |
+
+## What upstream does, anchors taken with `grep -n` on the declarations
+
+| function | anchor |
+|---|---|
+| `checkThisExpression` | `checker.go:12077` |
+| `tryGetThisTypeAt` | `checker.go:12134` |
+| `tryGetThisTypeAtEx` | `checker.go:12146` |
+| `getThisContainer` | `checker.go:12188` |
+| `getThisType` | `checker.go:22908` |
+
+`checkThisExpression` finds the container **including** arrow functions, then
+loops skipping arrows to reach the real owner, then delegates to
+`tryGetThisTypeAtEx`, whose four arms are the whole specification and are tried
+**in this order**:
+
+1. **container is function-like** and either the `this` reference is not in a
+   parameter initialiser or the container has an explicit `this` parameter →
+   `getThisTypeOfSignature(sig)`, falling back to
+   `getContextualThisParameterType(container)`.
+2. **`container.Parent` is class-like** → static member ?
+   `getTypeOfSymbol(classSymbol)` — the `typeof C` static side — :
+   `getDeclaredTypeOfSymbol(classSymbol).thisType`, the polymorphic `this`.
+3. **container is a SourceFile** → an external module ? `undefinedType` :
+   `getTypeOfSymbol(globalThisSymbol)`.
+4. otherwise `nil`, and `checkThisExpression` returns **`anyType`**.
+
+Every arm ends in `getFlowTypeOfReference(node, thisType)`, so narrowing applies
+to `this` like any other reference.
+
+**Order matters and arm 1 shadows arm 2.** A method *is* function-like, so a
+method whose signature carries a `this` parameter takes arm 1 and never reaches
+the class arm. A port that tests class-ness first would answer the class's
+`thisType` where upstream answers the annotation.
+
+## Spellability, exact match, both legs labelled
+
+**The measured leg** — what upstream prints for these 399 lines, per container:
+
+| container | lines | upstream's answers |
+|---|---:|---|
+| free FUNCTION | 254 | **`any` 144**, `{ test: Test; }` 24, `T` 13, `C` 9 |
+| SOURCE FILE | 64 | **`typeof globalThis` 57**, `undefined` 3, `any` 3 |
+| class/object METHOD | 57 | `any` 5, then structural object types |
+| OBJECT LITERAL | 10 | `typeof globalThis` 6, `any` 2 |
+| MODULE/NAMESPACE | 9 | `any` 9 |
+
+Two exclusions fall straight out, and together they are **more than half the
+item**:
+
+- **163 lines (40.9%) want `any`.** `checker-notes-rank.md` §6 forbids closing a
+  row by widening an `any` answer. These are upstream's *implicit* `this` — arm
+  4 — and answering them means returning `anyType` where this port currently
+  returns `errorType`. **Not available work**, and the largest single block of
+  the largest sub-item.
+- **63 lines (15.8%) want `typeof globalThis`.** `members.rs` records that
+  **`globalThis` has no symbol in this port** (upstream reaches it through
+  `globalThisSymbol`, `checker.go:20674`). Printing `typeof globalThis` needs
+  that symbol to exist and to be *named* — and `docs/conventions.md` records
+  `typeof X` for a symbol with no accessible name printing the **file path**
+  instead. Not available until the symbol exists.
+
+**Available after both exclusions: ~173 lines (43.4%).**
+
+**The inferred leg, and the bar goes here.** My container walk does **not**
+reproduce upstream's computed-property-name and decorator cases, which upstream
+handles by re-entering `getThisContainer` with different flags. Those lines land
+in whichever arm my walk reaches next, so the per-container split carries an
+unmeasured migration between rows. The **total, 399, is exact** — it is a node-kind
+count — and the **rows are the inferred leg**. So the item is `399` firm, split
+`254 / 64 / 57 / 10 / 9 / 5` with an open bar on the rows and no bar on the sum.
+
+## `c592d0f` asked per sub-item, and the answers differ sharply again
+
+| sub-item | what renders what it unblocks | is that renderer complete? |
+|---|---|---|
+| class/object METHOD (57) | the class's `thisType` prints as the literal `this`; `check_this_expression` already builds and prints it | **yes — already exercised**, this is the arm that has landed |
+| free FUNCTION, annotated `this` parameter (~110 after the `any` exclusion) | the annotation's own type node, printed by the renderer already printing it at the declaration | **yes** |
+| SOURCE FILE (64) | `typeof globalThis` | **no** — the symbol does not exist, and `typeof` of an unnamed symbol prints a file path here |
+| static member (inside the 57) | `typeof C` | **unverified** — `typeof` of a *class* is nameable, unlike a module, but no measurement covers it |
+| free FUNCTION, implicit (144) | `any` | **forbidden**, not a renderer question |
+
+**So the first slice is arm 1 restricted to an explicit `this` parameter**: its
+answers are written annotations, its renderer is the one already printing them,
+and it avoids both exclusions. That is roughly 110 lines — small, and stated as
+small.
+
+## What the owning agent needs that is not here
+
+- **`getThisTypeOfSignature` and `getContextualThisParameterType`** are
+  `signatures.rs` / `contextual.rs` — the same agent's files, which is why this
+  hand-off goes there whole rather than split.
+- **The static/instance split inside the 57** is not measured; it needs a
+  modifier read this probe does not do. `bd tsr-bfr`.
+- **`super`** is *not* in this population — the node kind is different — and
+  `checker-notes-recvgap.md` §4 pairs them. Sizing `super` is a separate pass
+  and nobody has run it.
+
+## Verdict, stated plainly
+
+**The item is 399 lines, of which ~173 are available and ~110 are a clean first
+slice.** It is the smallest of the three blockers named in Part 5, not the
+largest — the 1,165 that made it look largest was a receiver crossing, and 70%
+of that is a family already refused. It is a real item and it is small, and on
+this board that is worth saying before anyone plans a cycle around it.
+
 ## Everything filed from this page
 
 | id | what | sized as |
@@ -1169,6 +1329,8 @@ would not. Recorded because asking cost one paragraph.
 | `tsr-wii` | the primitive-receiver residue after the slice: 84 lines want `any` (must not be closed), 46 want a real type | 46 lines |
 | `tsr-iks` | the `PropertyAccessExpression` RIGHT arm — largest clean population, **not** the largest available work | 5,441 lines, **80.7% not mine**; the lookup itself is 104 |
 | `tsr-n22` | the 545-line ambiguous bucket: declared once, no heritage, member absent | 545 lines of **question**, not of work |
+| `tsr-tjz` | **SPEC** — the `this` type, handed to the contextual-typing agent | **399 lines**, ~173 available, ~110 a clean first slice |
+| `tsr-bfr` | the static/instance split inside the 57 method lines is unmeasured | 57 lines, two arms |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
