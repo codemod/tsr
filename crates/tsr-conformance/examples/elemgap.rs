@@ -18,7 +18,7 @@
 use std::collections::BTreeMap;
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use tsr_ast::{Expression, Node};
+use tsr_ast::Node;
 use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
 
 #[derive(Default)]
@@ -120,9 +120,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             let receiver_text = checker.type_to_string(receiver_type);
             let receiver_shape = if access.question_dot_token.is_some() {
                 "optional chain"
-            } else if receiver_text.starts_with('[')
-                || receiver_text.starts_with("readonly [")
-            {
+            } else if receiver_text.starts_with('[') || receiver_text.starts_with("readonly [") {
                 "tuple"
             } else if receiver_type == any {
                 "any receiver"
@@ -132,8 +130,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 "other receiver"
             };
             let form = format!("{receiver_shape} [{index_shape}]");
-            let wants_any =
-                want.text.rsplit_once(" : ").is_some_and(|(_, answer)| answer == "any");
+            let wants_any = want.text.rsplit_once(" : ").is_some_and(|(_, answer)| answer == "any");
             if wants_any {
                 *report.wants_any.entry(form.clone()).or_default() += 1;
             }

@@ -296,6 +296,24 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        // A tuple's numeric-literal property IS its element. Upstream reaches
+        // this through the synthesised tuple target's members
+        // (`createNormalizedTupleType`) and the reference's resolved type
+        // arguments; this port's tuple stores its element list in
+        // `tuple_element_lists` (`bd tsr-5ll`) and answers from it directly.
+        // Exact by construction — the modifier tuple forms refuse at the mint,
+        // so every recorded element is a plain one. Out of range answers
+        // `undefined`: §8's registration guessed a gap there and the baseline
+        // corrected it before the code ran — `indexerWithTuple.types` records
+        // `>strNumTuple[2] : undefined` (the TS2493 diagnostic lives beside
+        // it, not in the type). The round-trip test rejects `"01"`/`"-0"`,
+        // which name no element. `checker-notes-tuple.md` §8.
+        if let Some((elements, _)) = self.tuple_element_lists.get(&id)
+            && let Ok(index) = name.parse::<usize>()
+            && index.to_string() == name
+        {
+            return Some(elements.get(index).copied().unwrap_or(self.intrinsics.undefined));
+        }
         let property = self.get_property_of_type(id, name)?;
         let declared = self.get_type_of_symbol(property);
         Some(self.instantiate_for_reference(id, declared))

@@ -128,10 +128,14 @@ fn the_same_tuple_written_twice_is_one_type() {
 
 #[test]
 fn a_tuple_has_no_members_and_that_is_deliberate() {
-    // The safety property the arm rests on: nothing structural about a tuple
-    // is claimed, so every consumer that could answer wrongly stays a gap.
-    // If this ever passes with a real type, the arm has grown members and the
-    // no-loss argument in `checker-notes-tuple.md` §3 needs re-measuring.
+    // §3's "nothing structural is claimed" argument was deliberately SPENT by
+    // §8 (`t[0]` answers the element, with its own registered bar), so this
+    // fixture no longer guards the whole claim — what keeps it red is the
+    // *type-node* path alone: `typeof t[0]` is an `IndexedAccessTypeNode`,
+    // which `get_type_from_type_node` has no arm for. When indexed-access
+    // TYPE nodes land, this expectation flips to `string` per
+    // `declarationEmitTypeofIndexedAccessNoParens.types`-family baselines and
+    // must be updated with a bar, not silently.
     assert_eq!(
         type_of_declaration(
             "declare const t: [number, string];\ndeclare const u: typeof t[0];",
@@ -139,4 +143,25 @@ fn a_tuple_has_no_members_and_that_is_deliberate() {
         ),
         "error"
     );
+}
+
+/// `t[0]` answers the element — `checker-notes-tuple.md` §8, which spends
+/// §3's "no members" safety argument deliberately. Every expectation is a
+/// line of `conformance/indexerWithTuple.types`:
+///   var ele10 = strNumTuple[0];   >strNumTuple[0] : string
+///   var ele11 = strNumTuple[1];   >strNumTuple[1] : number
+///   var ele12 = strNumTuple[2];   >strNumTuple[2] : undefined
+///   var ele15 = strNumTuple[quoted "0"]; >ele15 : string
+///   var ele13 = strNumTuple[idx0] (idx0: number)  >ele13 : string | number — REFUSED, stays a gap
+#[test]
+fn a_tuple_element_access_answers_the_element() {
+    let source = "declare const t: [string, number];\nvar e0 = t[0];\nvar e1 = t[1];\nvar e2 = t[2];\nvar e5 = t[\"0\"];\nvar idx0 = 0;\nvar e3 = t[idx0];";
+    assert_eq!(type_of_declaration(source, "e0"), "string");
+    assert_eq!(type_of_declaration(source, "e1"), "number");
+    assert_eq!(type_of_declaration(source, "e2"), "undefined");
+    assert_eq!(type_of_declaration(source, "e5"), "string");
+    // The `tuple[number]` form needs the union of the element types and is
+    // refused in §8 — the PAIR rule: the unported case asserted beside the
+    // ported ones.
+    assert_eq!(type_of_declaration(source, "e3"), "error");
 }

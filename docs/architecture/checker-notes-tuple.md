@@ -333,3 +333,13 @@ section.
    type where upstream widens or narrows differently.
 
 Bar fires → build wrong first, premise wrong second, no third.
+
+**Correction to §8, before the code ran:** the registration said out-of-range
+answers a gap because upstream errors (TS2493). The baseline says otherwise —
+`conformance/indexerWithTuple.types` records `>strNumTuple[2] : undefined`:
+the diagnostic and the *type answer* are separate channels (the ADR-0040
+distinction), and the type answer is `undefined`. The arm follows the
+baseline. Also confirmed there: `strNumTuple["0"]` answers the element — a
+string-literal index that round-trips reaches the same arm — and
+`strNumTuple[idx0]` (`idx0: number`) wants `string | number`, the refused
+`tuple[number]` form, which stays a gap.
