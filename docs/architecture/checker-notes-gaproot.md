@@ -1626,6 +1626,158 @@ and one cycle, this one, of it being the opposite — I am not going to assert
 either way about 1,590 lines without the check that killed the last two
 element-access items.
 
+---
+
+# Part 9 — element access and object literals, over the right population
+
+## RULE-7, registered before the measurement
+
+**Populations, both pinned syntactically by node kind, both TS2563-excluded**,
+at `150b8ba`:
+
+- **`ElementAccessExpression`**, own root, TS2563 excluded — **1,590 lines**
+  (`bd tsr-1u9`);
+- **`ObjectLiteralExpression`**, own root, TS2563 excluded — **574 lines**.
+
+> **RULE-7.** Build a population only if **all three** hold.
+>
+> - **E1 — spellability, exact match on the baseline's right-hand side, both
+>   legs named.** Under **25%** of the lines want `any`, and under **25%** want
+>   a form this port has no route to naming. Exact string, not shape:
+>   `checker-notes-wrong.md` measured 29.19% of the wrong bucket failing on
+>   naming while the shape was right, so a shape test would pass a population
+>   that cannot be printed.
+> - **E2 — the mechanism is known and lives in `indexed.rs`,
+>   `index_signatures.rs`, `objects.rs` or `types.rs`.** If it needs
+>   `declared.rs`, the binder, `expressions.rs` or `calls.rs`, hand it back.
+> - **E3 — collateral.** `casedelta` pair, gains and losses read **separately**,
+>   wrong-per-right ≤ 0.5, **0 cases lost measured and not assumed**.
+>
+> **Prediction — and this one is arithmetic, not instinct.** Part 1 measured the
+> element-access root row at **13,163 lines, 88.4% wanting `any`** — 11,636
+> lines. `compiler/largeControlFlowGraph` supplies **10,000** TS2563 lines,
+> which are `any` by construction. If essentially all of them are the `any`,
+> the survivors carry `11,636 − 10,000 = 1,636` of `any` over roughly 3,163
+> lines — **about 52%**. So **I predict the `any` leg lands between 40% and 60%
+> and E1 FAILS for element access.**
+>
+> Two caveats stated with it, because a prediction that cannot be wrong is not
+> one. The 13,163 is the **root-blocked** count and the 1,590 is the **own-root**
+> subset; they are different populations and the arithmetic assumes the `any`
+> concentration carries across. And the assumption *"essentially all 10,000 are
+> `any`"* is itself unverified — the probe now measures it directly.
+>
+> **This prediction points at refusal, which is the direction I was wrong about
+> last cycle.** It gets no extra credence for that. Part 8 established that both
+> directions are biases and the only thing that worked was writing the number
+> down first, so this is written down first and will be read against the result.
+>
+> For object literals I register **no prediction**: nothing has measured them
+> and I would be guessing, which is worse than an honest blank.
+
+## RESULTS — Part 9
+
+*(Nothing above this line was edited after the run.)*
+
+Measured at **`150b8ba`** — `main` at **63.15%**. Controls green.
+
+### Element access: refused, and this time over the right population
+
+| | measured |
+|---|---|
+| TS2563 lines | **10,000, of which `any` 10,000 — 100.0%** |
+| own root, TS2563 excluded | **1,590 lines** |
+| `any` leg | **943 — 59.3%** (E1 bar: 25%) |
+| unnameable leg | 2 — 0.1% |
+| concentration | 250 cases, **top-1 38.2%** (`deeplyDependentLargeArrayMutation2` 608) |
+
+**E1 FAILS.** RULE-7 predicted the `any` leg at 40–60% from arithmetic;
+**measured 59.3% — inside the range.** The prediction held, and so did the
+assumption underneath it: *"essentially all 10,000 TS2563 lines are `any`"* is
+now **measured at exactly 100.0%** rather than assumed, which is what the whole
+88.4% figure rested on.
+
+So the 88.4% was not wrong — it was **right about the wrong population**, and
+the right population is still 59.3%. Element access has now been refused three
+times and the third refusal is the one that measured the survivors.
+**`bd tsr-1u9` closed.**
+
+> **A slice you cannot cut.** 647 of the 1,590 *are* spellable — `string` 121,
+> `number` 89, `boolean` 37, `T[K]` 29. It is tempting to call those the work
+> item. **They are not a buildable slice, because the implementation does not
+> get to see the baseline.** A checker arm cannot condition on what upstream
+> prints; it either computes element access or it does not, and on 59.3% of the
+> lines it would then answer `any`. Slicing a population by its expected answer
+> is the mirror of summing sub-items to clear a bar, and it is wrong for the
+> same reason.
+
+### Object literals: E1 passes, and the concentration is the best all session
+
+| | measured |
+|---|---|
+| TS2563 lines | **0** |
+| own root | **575 lines** |
+| `any` leg | **34 — 5.9%** |
+| unnameable leg | **0 — 0.0%** |
+| concentration | **322 cases, top-1 3.0%** |
+
+Upstream's answers are ordinary structural types: `{}` 19,
+`{ a: number; b: number; }` 10, `{ x: number; y: undefined; }` 9,
+`{ 1: number; }` 8. **E1 passes on both legs with room**, and top-1 3.0% over
+322 cases is the least concentrated population measured on this page.
+
+### E2 — which member form makes `check_object_literal` bail
+
+| member form | lines | share | owner |
+|---|---:|---:|---|
+| all members are plain assignments — **another cause** | 177 | 30.78% | unknown |
+| `METHOD { m() {} }` | 161 | 28.00% | `signatures.rs` — not mine |
+| **`SPREAD {...a}`** | **156** | **27.13%** | **`objects.rs` + `unions.rs` — mine** |
+| `ACCESSOR { get x() {} }` | 51 | 8.87% | return-type inference — not mine |
+| shorthand with an assignment initialiser | 30 | 5.22% | destructuring |
+
+**E1 and E2 both hold for the spread arm: 156 lines, a known mechanism
+(`getSpreadType`), wholly in files I own.** That is a licensed build under
+RULE-7 and the first one this workstream has had since `getApparentType`. It is
+**not built here** — E3 needs a before/after corpus pair — and it is filed with
+the split rather than started at the end of a cycle. `bd tsr-sps`.
+
+The 177 "another cause" lines are the honest unknown: every member is a plain
+assignment, so none of the documented bail arms fired, and something else in
+`check_object_literal` returned `error`. Not attributed. `bd tsr-sps` carries it.
+
+### C7b is a fixed set of lines, not a growing one
+
+Worth recording because I called it "growing" twice and corrected it once. The
+module-host divergence reads **−386 at `5eb252c`, `9f8bdba` and `150b8ba`** —
+three commits over which the gradient moved 62.29% → 63.15%. It was 54 at
+`b9a4f5c` and has not moved since. So it is **a fixed population of lines the
+module host answers and `Checker::new` does not**, not a quantity that tracks
+the seam's progress. C7a re-taken for the sixth time today and reads 0.
+
+### A defect I found in my own probe, and the hypothesis that was wrong
+
+The first run reported `ElementAccessExpression` propagated at **1,048** against
+Part 8's independently-derived **1,540**, while the own-root row matched to the
+line — and reported **1,048 for object literals too**, an identical number for
+two unrelated populations.
+
+**My first hypothesis was that a per-case cap on the type histogram was silently
+dropping increments.** I added an uncapped total beside it and printed the drop
+count. **The drop count is 0 and the numbers did not move**, so the hypothesis
+was wrong and the coincidence is real.
+
+**The actual cause is commit drift, and the mechanism confirms it.** Part 8 is
+`9f8bdba`; this is `150b8ba`, and `main` moved 62.49% → 63.15% in between. In
+this run's own by-kind table, `ElementAccessExpression` reads own **1,590**
+(unchanged) and propagated **1,048** (down 492); `BinaryExpression` reads own
+**1,418** (unchanged) and propagated **7,560 → 6,156**. **Terminal counts held
+and propagated counts fell**, which is exactly what other workstreams converting
+*operands* does, and it is two independent instances of the same signature.
+
+The uncapped counter is kept: it costs one map and the cap is one refactor away
+from binding.
+
 ## Everything filed from this page
 
 | id | what | sized as |
@@ -1641,7 +1793,8 @@ element-access items.
 | `tsr-tjz` | **SPEC** — the `this` type, handed to the contextual-typing agent | **399 lines**, ~173 available, ~110 a clean first slice |
 | `tsr-bfr` | the static/instance split inside the 57 method lines is unmeasured | 57 lines, two arms |
 | `tsr-ecz` | the 392 private-identifier accesses — an unported form, not a lookup defect | 392 lines, parser/binder |
-| `tsr-1u9` | spellability of the 1,590 own-root `ElementAccess` lines surviving TS2563 | 1,590 lines, **undecided** |
+| `tsr-1u9` | ~~spellability of the 1,590 own-root `ElementAccess` lines~~ — **answered and closed**: 59.3% want `any` | **refused**, 3rd time, right population |
+| `tsr-sps` | object-literal **SPREAD** — licensed under RULE-7, not built | **156 lines** + 177 unattributed |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
