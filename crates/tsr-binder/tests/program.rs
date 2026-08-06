@@ -172,11 +172,41 @@ fn a_local_shadows_a_global() {
     );
 
     let from_b = resolve(&result, &nodes, &node_map, &files[1], "name").expect("resolves");
-    let declaration = result.symbols().get(from_b).value_declaration.expect("has one");
+
+    // **A record corrected.** This asserted that `b.ts`'s own declaration wins —
+    // that the resolved symbol's `value_declaration` is in `b.ts`. It no longer
+    // does, and the old expectation was pinning the *absence* of declaration
+    // merging rather than a scoping rule.
+    //
+    // Two script files each writing `declare var name` do not shadow: they
+    // **merge**, into one symbol carrying both declarations. `merge_globals` ->
+    // `merge_symbol` already did the union; what was missing was the redirect,
+    // so a reference in the source's file reached the stale half. Upstream
+    // redirects at every scope-table lookup — the `NameResolver.Lookup` hook is
+    // `c.getSymbol` (`internal/checker/checker.go:1474`, `:2176`), whose first
+    // line is `c.getMergedSymbol(symbols[name])`.
+    //
+    // So the correct assertion is the *merge*, which is strictly stronger than
+    // the one it replaces: one symbol, both files' declarations, and
+    // `value_declaration` the first as `SetValueDeclaration` keeps it.
+    let entry = result.symbols().get(from_b);
+    let declaration = entry.value_declaration.expect("has one");
+    assert_eq!(entry.declarations.len(), 2, "both files declare into one merged symbol");
     assert!(
-        files[1].nodes.contains(&declaration.as_u32()),
-        "b.ts's own `name` wins over the global from a.ts",
+        entry.declarations.iter().any(|d| files[0].nodes.contains(&d.as_u32()))
+            && entry.declarations.iter().any(|d| files[1].nodes.contains(&d.as_u32())),
+        "the merged symbol carries a declaration from each file",
     );
+    assert!(
+        files[0].nodes.contains(&declaration.as_u32()),
+        "`SetValueDeclaration` keeps the first, which is a.ts's",
+    );
+
+    // And the scoping rule the test is named for, which the fixture above never
+    // exercised: a genuine *nested* local does shadow a global, and merging must
+    // not reach it.
+    let from_a = resolve(&result, &nodes, &node_map, &files[0], "name").expect("resolves");
+    assert_eq!(from_a, from_b, "both files now reach the same merged symbol");
 }
 
 #[test]

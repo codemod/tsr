@@ -171,31 +171,34 @@ fn the_lookup_depends_on_which_file_the_reference_is_in() {
         (true, true),
         "from file a — the merge TARGET's file — both members are reachable"
     );
-    // **This assertion records a defect and is expected to be inverted.**
+    // **Inverted, as the comment that stood here required.** It asserted
+    // `(false, true)` on purpose, recording *which half of the pipeline* was
+    // wrong rather than claiming the answer was right — the finding had been
+    // handed on as a `members.rs` lookup bug and it was not one.
     //
-    // `docs/conventions.md` warns against a test that cements the worse of two
-    // answers, and that warning is why this comment is longer than the
-    // assertion. What is pinned here is not that `(false, true)` is correct —
-    // it is wrong — but *which half of the pipeline is wrong*, because the
-    // finding was handed to this workstream as a `members.rs` lookup bug and
-    // it is not one. When `getMergedSymbol` lands — `bd tsr-9or.1`, queued for
-    // the binder's owner — this assertion must become `(true, true)`, and the
-    // test going red is the signal that the redirect works. Do not "fix" the
-    // test back; invert it, and delete this comment with it.
+    // `BindResult::merged_symbol` — the port of `getMergedSymbol`
+    // (`internal/checker/checker.go:14355`) — now redirects every scope-table
+    // hit in `resolve_name`, exactly as upstream's `NameResolver.Lookup` hook
+    // `c.getSymbol` (`:1474`, `:2176`) does. A reference in the merge source's
+    // file reaches the merged target, and both members are visible from both
+    // files.
     assert_eq!(
         from_b,
-        (false, true),
-        "from file b — the merge SOURCE's file — the member declared in file a is NOT \
-         reachable. `resolve_name` finds file b's own `I`, the merge source, whose members \
-         table legitimately holds only `b`. `get_property_of_type` answers correctly for \
-         the symbol it was handed. See the module docs for where the fix belongs."
+        (true, true),
+        "from file b — the merge SOURCE's file — the redirect reaches the merged target"
     );
 }
 
 /// **The reproduction.** Two files, one `interface I`, one property each.
 ///
-/// The binder holds both members on one symbol; the checker finds only the one
-/// declared in the file the *first* declaration is in.
+/// The binder holds both members on one symbol, and since `a05bf94` the checker
+/// finds both from either file.
+///
+/// **This doc comment described the defect until the redirect landed** — it read
+/// "the checker finds only the one declared in the file the *first* declaration
+/// is in", which was true when the test was written to record it and stopped
+/// being true in the commit that inverted the assertions below. A stale comment
+/// beside a passing test is how a fixed defect keeps being budgeted for.
 #[test]
 fn an_interface_declared_in_two_files_loses_the_second_file_s_members() {
     let arena = Arena::new();

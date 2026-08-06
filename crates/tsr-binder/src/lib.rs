@@ -118,6 +118,9 @@ pub struct BindResult<'a> {
     locals: FxHashMap<NodeId, SymbolTable<'a>>,
     global_exports: SymbolTable<'a>,
     globals: SymbolTable<'a>,
+    /// Source-to-target redirects from declaration merging; see
+    /// [`BindResult::merged_symbol`].
+    merged: FxHashMap<SymbolId, SymbolId>,
     /// The synthesised `undefined` global, if this bind created one.
     ///
     /// `None` when the program declared its own `undefined`, which must keep
@@ -150,6 +153,7 @@ impl<'a> BindResult<'a> {
             locals: FxHashMap::default(),
             global_exports: SymbolTable::default(),
             globals: SymbolTable::default(),
+            merged: FxHashMap::default(),
             undefined_symbol: None,
             computed_names: FxHashMap::default(),
             diagnostics: Vec::new(),
@@ -337,7 +341,7 @@ impl<'a> BindResult<'a> {
             // these two turns no test red. Stated rather than pinned by a test
             // that could not bite.
             if let Some(found) = self.lookup_local(node, name) {
-                return Some(found);
+                return Some(self.merged_symbol(found));
             }
             if matches!(
                 nodes.kind(node),
@@ -372,7 +376,7 @@ impl<'a> BindResult<'a> {
                     // Upstream returns nil here, not the symbol.
                     return None;
                 }
-                return Some(found);
+                return Some(self.merged_symbol(found));
             }
             last = Some(node);
             current = nodes.parent(node);
@@ -389,7 +393,7 @@ impl<'a> BindResult<'a> {
         //
         // Empty unless several files were bound into one result
         // ([`bind_into`]), so a file bound alone behaves exactly as before.
-        self.globals.get(name).copied()
+        self.globals.get(name).copied().map(|found| self.merged_symbol(found))
     }
 
     /// The synthesised `undefined` symbol, if this bind created one.
@@ -409,6 +413,46 @@ impl<'a> BindResult<'a> {
     #[must_use]
     pub fn globals(&self) -> &SymbolTable<'a> {
         &self.globals
+    }
+
+    /// The symbol a merged-away symbol redirects to.
+    ///
+    /// Ported from `Checker.getMergedSymbol` (`internal/checker/checker.go:14355`),
+    /// backed by `c.mergedSymbols` (`:666`) and recorded by `recordMergedSymbol`
+    /// (`:14372`).
+    ///
+    /// # Why this is not optional bookkeeping
+    ///
+    /// `Binder::merge_symbol` unions a **source** symbol into a **target** and
+    /// leaves the source in place, still reachable: it is still in its own
+    /// file's `locals`, and it still carries only its own file's members. So
+    /// `interface I { a }` in one script file and `interface I { b }` in another
+    /// produce a complete merged symbol *and* a stale partial one, and which of
+    /// the two a lookup reaches depends on **which file the reference is in**.
+    /// A reference in the target's file sees both members; one in the source's
+    /// file sees only its own.
+    ///
+    /// That is not a lookup bug — `get_property_of_type` answers correctly for
+    /// the symbol it was handed. It is a missing redirect, and the information
+    /// needed to build it exists only where the merge happened.
+    ///
+    /// **Idempotent and total**: a symbol that was never merged is its own
+    /// answer, so callers can apply this unconditionally. Chains are followed,
+    /// because `merge_symbol` recurses into members and exports and a member can
+    /// be merged into a symbol that is itself later merged.
+    #[must_use]
+    pub fn merged_symbol(&self, symbol: SymbolId) -> SymbolId {
+        let mut current = symbol;
+        // Bounded rather than trusting acyclicity: `merge_symbol` records
+        // `source -> target` and never `target -> source`, so a cycle needs a
+        // bug, and a hang is a worse way to find out than a wrong answer.
+        for _ in 0..32 {
+            match self.merged.get(&current) {
+                Some(&next) if next != current => current = next,
+                _ => return current,
+            }
+        }
+        current
     }
 
     /// `r.lookup(getSymbolOfDeclaration(location).Members, name, meaning & Type)`
