@@ -298,6 +298,9 @@ struct Report {
     /// syntax for a symbol with no accessible name, which this port cannot
     /// produce.
     alias_unblocks_import_syntax: BTreeMap<(Form, bool), usize>,
+    /// Cycle 15: (cause) -> wrong lines, and what upstream wanted for them.
+    wrong_cause: BTreeMap<WrongCause, Tally>,
+    wrong_cause_rhs: BTreeMap<(WrongCause, String), usize>,
     /// Cycle 14: (form, naming verdict) -> lines, over every line whose answer
     /// is a module object's name.
     naming: BTreeMap<(Form, Naming), Tally>,
@@ -372,6 +375,12 @@ impl Report {
         }
         for (k, v) in &o.alias_unblocks_import_syntax {
             *self.alias_unblocks_import_syntax.entry(*k).or_default() += v;
+        }
+        for (k, v) in &o.wrong_cause {
+            self.wrong_cause.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.wrong_cause_rhs {
+            *self.wrong_cause_rhs.entry(k.clone()).or_default() += v;
         }
         for (k, v) in &o.naming {
             self.naming.entry(*k).or_default().merge(v);
@@ -631,6 +640,56 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 report.gap += 1;
             } else {
                 report.wrong += 1;
+                let node_id = line_ids[position];
+                // The receiver chain, walked by AST rather than by reason string
+                // — a wrong line has no `gap_reason`.
+                let mut cursor = if nodes.kind(node_id) == SyntaxKind::PropertyAccessExpression {
+                    Some(node_id)
+                } else {
+                    nodes
+                        .parent(node_id)
+                        .filter(|&p| nodes.kind(p) == SyntaxKind::PropertyAccessExpression)
+                };
+                let mut why = WrongCause::Unrelated;
+                if let Some(node) = map.get(node_id)
+                    && let Ok(expression) = tsr_ast::Expression::try_from(node)
+                {
+                    let own = checker.check_expression(expression);
+                    if is_module_object_type(&mut checker, bound, nodes, own) {
+                        why = WrongCause::NamingItself;
+                    }
+                }
+                while why == WrongCause::Unrelated
+                    && let Some(access) = cursor
+                    && let Some(Node::PropertyAccessExpression(access_node)) = map.get(access)
+                {
+                    let Some(receiver) =
+                        access_node.expression.as_ref().and_then(tsr_ast::Expression::node_id)
+                    else {
+                        break;
+                    };
+                    let Some(receiver_node) = map.get(receiver) else { break };
+                    let Ok(recv_expr) = tsr_ast::Expression::try_from(receiver_node) else {
+                        break;
+                    };
+                    let receiver_type = checker.check_expression(recv_expr);
+                    if is_module_object_type(&mut checker, bound, nodes, receiver_type) {
+                        why = WrongCause::ThroughAModuleObject;
+                        break;
+                    }
+                    cursor = (nodes.kind(receiver) == SyntaxKind::PropertyAccessExpression)
+                        .then_some(receiver);
+                }
+                report.wrong_cause.entry(why).or_default().add(name, 1);
+                if why != WrongCause::Unrelated
+                    && let Some(line) = baseline
+                    && let Some(rhs) = line.text.strip_prefix(&format!("{} : ", assertion.text))
+                {
+                    *report
+                        .wrong_cause_rhs
+                        .entry((why, format!("{rhs}   [ours: {}]", assertion.type_string)))
+                        .or_default() += 1;
+                }
                 continue;
             }
             let id = line_ids[position];
@@ -1029,6 +1088,7 @@ fn print(t: &Report) {
     }
     print_alias(t);
     print_naming(t);
+    print_wrong_cause(t);
     println!("\n================ EXPORT_VALUE MARKERS, split by container");
     for row in [Row::Direct, Row::Cascade] {
         for container in [Container::InNamespace, Container::AtFileTop, Container::NoDeclaration] {
@@ -1943,5 +2003,90 @@ fn print_naming(t: &Report) {
     println!("\n-- THE RESIDUE, verbatim: baseline vs what the rule predicts (top 20) --");
     for ((want, got), n) in top(&t.naming_misses, 20) {
         println!("{n:>7}  baseline `{want}`  rule `{got}`");
+    }
+}
+
+// ===========================================================================
+// Cycle 15, item 2: separating the +499 wrong lines `c91314c` produced.
+//
+// The naming arm converted 1,753 gap lines: +1,254 right, +499 wrong. The
+// naming half was measured at 630/634 = 99.4%, so the +499 is not it. The
+// hypothesis on the page was "the cascade half — member accesses whose receiver
+// now has a type". That was an inference and it is now measured.
+//
+// The attribution is sound because it rests on a property of the *previous*
+// state: before `c91314c` a module object had no reachable type at all, so a
+// line whose receiver chain roots at one could not have been answered. Any such
+// line that is wrong today is therefore new.
+// ===========================================================================
+
+/// What a wrong line is downstream of.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum WrongCause {
+    /// The line *is* a module object's name and we printed the wrong one.
+    /// Bounded by the naming rule's own residue: 4 lines.
+    NamingItself,
+    /// A member access whose receiver chain roots at a module object.
+    ThroughAModuleObject,
+    /// Wrong for some other reason. Everything that was already wrong.
+    Unrelated,
+}
+
+impl WrongCause {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::NamingItself => "the line IS a module object name, named wrongly",
+            Self::ThroughAModuleObject => "a member access rooted at a module object",
+            Self::Unrelated => "unrelated to the naming arm",
+        }
+    }
+}
+
+/// Whether `id`'s type is an anonymous type over a **file's** module symbol —
+/// the same positive test `Checker::is_module_symbol` makes, replayed here.
+fn is_module_object_type(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    ty: tsr_checker::types::TypeId,
+) -> bool {
+    let tsr_checker::types::TypeData::Anonymous { symbol, .. } = &checker.type_of(ty).data else {
+        return false;
+    };
+    bound
+        .symbols()
+        .get(*symbol)
+        .declarations
+        .iter()
+        .any(|&declaration| nodes.kind(declaration) == SyntaxKind::SourceFile)
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn print_wrong_cause(t: &Report) {
+    println!("\n================ CYCLE 15: what the naming arm's WRONG lines are");
+    let total: usize = t.wrong_cause.values().map(|v| v.lines).sum();
+    for cause in [WrongCause::NamingItself, WrongCause::ThroughAModuleObject, WrongCause::Unrelated]
+    {
+        let Some(tally) = t.wrong_cause.get(&cause) else { continue };
+        let (cases, top1, top10) = tally.concentration();
+        println!(
+            "{:>7}  {:>5.1}%  {cases:>4} cases  top-1 {top1:>5.1}%  top-10 {top10:>5.1}%  {}",
+            tally.lines,
+            tally.lines as f64 / total.max(1) as f64 * 100.0,
+            cause.label()
+        );
+        for (case, n) in tally.top_cases(5) {
+            println!("          {n:>5}  {case}");
+        }
+    }
+    println!("\n-- upstream wanted / we said, for the attributed ones (top 20) --");
+    let mut rhs = BTreeMap::<String, usize>::new();
+    for ((cause, text), n) in &t.wrong_cause_rhs {
+        if *cause != WrongCause::Unrelated {
+            *rhs.entry(text.clone()).or_default() += n;
+        }
+    }
+    for (text, n) in top(&rhs, 20) {
+        println!("{n:>7}  {text}");
     }
 }
