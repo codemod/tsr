@@ -772,8 +772,16 @@ impl Checker<'_, '_> {
     ///   48 baseline lines of `>new StringHashTable() : any` are a reminder that
     ///   the non-class cases do not all answer the obvious thing.
     fn check_new_expression(&mut self, node: &tsr_ast::NewExpression<'_>) -> TypeId {
+        use crate::calls::counters::{COUNTERS, bump};
+
         let error = self.intrinsics.error;
+        // The `new` funnel (`bd tsr-klm`). Counting only; no answer below
+        // depends on it. This path had no counters at all, and `new` is the
+        // half of the call row whose callee is *most often* typed — so the
+        // uninstrumented half was also the most admitted one.
+        bump(&COUNTERS.new_expressions);
         if !node.type_arguments.is_empty() {
+            bump(&COUNTERS.new_type_arguments);
             return error;
         }
         let Some(callee) = node.expression else { return error };
@@ -784,21 +792,28 @@ impl Checker<'_, '_> {
         // the callee's syntax is what makes `new (C)()` and an aliased class
         // work the same way.
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data else {
+            bump(&COUNTERS.new_callee_not_anonymous);
             return error;
         };
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::CLASS) {
+            bump(&COUNTERS.new_callee_not_class);
             return error;
         }
         let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
         else {
+            bump(&COUNTERS.new_no_declaration);
             return error;
         };
         let (type_parameters, modifiers) = match self.node_map.get(declaration) {
             Some(Node::ClassDeclaration(class)) => (class.type_parameters, class.modifiers),
             Some(Node::ClassExpression(class)) => (class.type_parameters, class.modifiers),
-            _ => return error,
+            _ => {
+                bump(&COUNTERS.new_declaration_not_class_like);
+                return error;
+            }
         };
         if !type_parameters.is_empty() {
+            bump(&COUNTERS.new_type_parameters);
             return error;
         }
         // `ast.HasModifier(valueDecl, ast.ModifierFlagsAbstract)` — upstream
@@ -809,9 +824,15 @@ impl Checker<'_, '_> {
             matches!(modifier, tsr_ast::ModifierLike::Token(token)
                 if token.kind == SyntaxKind::AbstractKeyword)
         }) {
+            bump(&COUNTERS.new_abstract);
             return error;
         }
-        self.get_declared_type_of_symbol(symbol)
+        let declared = self.get_declared_type_of_symbol(symbol);
+        bump(&COUNTERS.new_resolved);
+        if declared == error {
+            bump(&COUNTERS.new_resolved_error);
+        }
+        declared
     }
 
     /// The type of a `yield` expression.

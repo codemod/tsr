@@ -618,3 +618,86 @@ no shard is an arm of `signatures.rs`; each belongs to an unported type-node
 or type-parameter subsystem. `bd tsr-cwz`'s 797-callee framing ("return-type
 inference is missing") is corrected: the inference *is* ported
 (`return_type_from_body`), and what keeps the row down is its inputs.
+
+## 13. `bd tsr-klm` answered — and it moves the item (fifth session)
+
+`examples/callgate.rs`, at `dd43a19`+. The registered prerequisite: §7 refused
+to size the licensed slice because "the 844 could be one change or five".
+It is **five**, and none of the five is the one the board named.
+
+### 13.1 The instrument had to be repaired first, and the repair is the finding
+
+The first run attributed **2,569 of 8,398 lines to control C3** — "the fresh
+checker never reached the call". Diagnosed rather than tuned:
+`check_new_expression` lives in `crate::expressions` and carried **no counters
+at all**, so the entire `new` half of the row was invisible. That half is the
+*more* admitted one — §4 measures a `new` callee as typed 66.2% of the time
+against a call's 21–29% — so the uninstrumented half was the one with the most
+lines in it. Six gates instrumented; **C3 now reads 0**.
+
+The same run's largest bucket was `single candidate (no selection needed)` at
+2,550, which is not an answer: it says resolution *succeeded*. Split into what
+happens next, it is almost entirely inference.
+
+> **A funnel counter that stops at "it worked" cannot answer why the line still
+> gaps.** Both defects have the same shape — the instrument partitioned the
+> code it was written for and was silent about the code beside it.
+
+### 13.2 Where the 8,398 admitted lines actually stop
+
+Unit: assertion lines. C1 = 0, C2 exact, C3 = 0.
+
+| gate | lines | want-any | mechanism |
+|---|---:|---:|---|
+| single candidate, generic, **inference gapped** | **2,324** | 28 | `inferTypes` — the structural walk |
+| `new`: callee is not an object type | 1,663 | 212 | `bd tsr-4sa` — lib constructor *interfaces* |
+| call: identifier types as a non-object | 1,128 | 208 | `bd tsr-4sa`, same mechanism |
+| `new`: **explicit type arguments** | 516 | 42 | *nothing* — see §13.4 |
+| overload set: a generic candidate | 490 | 23 | overload selection |
+| overload set: parameter outside `SELECTABLE` | 473 | 183 | overload selection |
+| callee symbol has no signature list | 353 | 7 | |
+| by receiver: no type arguments | 331 | 120 | |
+| `new`: **the class is generic** | 310 | 0 | *nothing* — §13.4 |
+| callee has zero call signatures | 273 | 8 | |
+| the remaining eleven gates | 537 | 106 | |
+
+### 13.3 The board's call-resolution row was measuring the row, not the mechanism
+
+STATUS.md §4.2 scored **call resolution — overload sets** at 869 on a
+`reachable` of **9,660**. Summed from the gates that overload selection
+actually owns — generic candidate 490, parameter 473, argument 28, ambiguous
+50, arity 9, nothing-assignable 39, this/rest 5, spread 1 — the mechanism's
+own population is **1,095 lines, want-any 215, ~880 net.**
+
+That is the fourth rule of `STATUS.md` catching its own board: a population is
+a ceiling *for the row it was measured on*, and 9,660 was the row. Overload
+selection is an **8× smaller** item than the board says, and it is third of
+three.
+
+**And the whole call row cannot reach 10% of the gradient at any conversion.**
+The admitted population is 8,398 lines = **1.75%** of 478,954; the widest
+call-shaped population ever measured here (§1's 18,294 carrying + 2,427
+cascade) is **4.3%**, at 100% conversion, against an observed band of 15–57%.
+Recorded because the figure was asked for out loud.
+
+### 13.4 The asymmetry that is worth building
+
+`f<string>(x)` **works** — `check_generic_call` takes written type arguments
+and substitutes (`inference.rs:153`, "there is nothing to infer and
+substitution is all that is left").
+
+`new C<string>()` **refuses at the first line of `check_new_expression`**:
+
+```rust
+if !node.type_arguments.is_empty() { return error; }   // 516 lines
+...
+if !type_parameters.is_empty() { return error; }       // 310 lines
+```
+
+Same mechanism, opposite answers, on the two halves of one construct. The
+instance type of `new C<string>()` is `C<string>` — `createTypeReference` on
+the class symbol with the written arguments — and this port has
+`create_type_reference`, plus `tsr-4qx`'s instantiated members hanging off it.
+
+**826 lines, want-any 42, ~784 net**, and it needs no relation, no inference
+and no new data. Sized and registered in §14.

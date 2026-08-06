@@ -258,6 +258,26 @@ pub mod counters {
         callee_zero_signatures = "  callee has zero call signatures",
         /// Exactly one candidate, so there was nothing to select.
         single_candidate = "  single candidate (no selection needed)",
+        /// A resolved single candidate is **not** the end of the call: the
+        /// return type still has to be produced. `bd tsr-klm` found this bucket
+        /// to be the largest single reason an admitted call line gaps, and
+        /// undivided it reads as "resolution succeeded" — which is true and is
+        /// not the question. These four split it by what happened next.
+        /// The candidate is generic, so the answer comes from inference.
+        single_candidate_generic = "    of which generic, to inference",
+        /// …and inference could not read a candidate off the arguments.
+        /// **The largest single reason an admitted call line gaps**
+        /// (`bd tsr-klm`): resolution succeeded and inference is what stops.
+        single_candidate_generic_error = "      of which inference gapped",
+        /// `checkNoTypeArguments` — type arguments on a signature with no
+        /// type parameters.
+        single_candidate_type_arguments = "    of which type arguments on a non-generic signature",
+        /// Resolution succeeded, the signature is not generic, and its return
+        /// type is itself a gap — the call bought nothing.
+        single_candidate_return_error = "    of which the return type is itself error",
+        /// Resolution succeeded and produced a real type. A gap line landing
+        /// here is blocked by something other than its call.
+        single_candidate_answered = "    of which ANSWERED (CONTROL: not a gap)",
         /// Entries to `choose_overload` — the denominator for the rows below.
         overload_sets = "overload sets reaching choose_overload",
         /// A generic candidate anywhere in the set. `bd tsr-4sc.8`.
@@ -284,6 +304,34 @@ pub mod counters {
         /// **Subset of `selected`.** The winner's return type is `error`, so
         /// the call still prints a gap: selection worked and bought nothing.
         selected_return_error = "    of which the return type is error",
+        /// The `new` funnel. `check_new_expression` lives in
+        /// [`crate::expressions`] and carried **no counters at all** until
+        /// `bd tsr-klm`, which is why that probe's C3 control fired on 2,569
+        /// lines: `new` is the *more* admitted half of the call row
+        /// (`checker-notes-callres.md` §4 measures its callee as typed 66.2%
+        /// of the time against a call's 21–29%) and it was the invisible half.
+        new_expressions = "new expressions checked",
+        /// `new C<T>()` — needs `inferTypeArguments`, same mechanism as a
+        /// generic call.
+        new_type_arguments = "  explicit type arguments (unported)",
+        /// The callee is not an anonymous object type: a lib constructor
+        /// *interface* (`DateConstructor`, `MapConstructor`) — `bd tsr-4sa`.
+        new_callee_not_anonymous = "  callee type is not an object type",
+        /// An anonymous callee whose symbol carries no `CLASS` flag.
+        new_callee_not_class = "  callee symbol is not a class",
+        /// A class symbol with no declaration recorded.
+        new_no_declaration = "  callee symbol has no declaration",
+        /// The first declaration is neither a class declaration nor a class
+        /// expression.
+        new_declaration_not_class_like = "  declaration is not class-like",
+        /// `class C<T>` — the uninstantiated instance type would print `C<T>`.
+        new_type_parameters = "  the class is generic",
+        /// Upstream reports and answers `errorType` for an abstract class.
+        new_abstract = "  the class is abstract",
+        /// The instance type was produced.
+        new_resolved = "  RESOLVED to the declared instance type",
+        /// …and it is itself a gap, so the `new` bought nothing.
+        new_resolved_error = "    of which the declared type is itself error",
     }
 
     static ENABLED: OnceLock<bool> = OnceLock::new();
@@ -355,13 +403,28 @@ impl Checker<'_, '_> {
             // the uninstantiated return type would print `T` where upstream prints
             // what `T` was inferred as, so [`crate::inference`] answers the shapes
             // it can read a candidate off directly and `errorType` for the rest.
-            return self.check_generic_call(&signature, node.node_id, node.arguments);
+            let answer = self.check_generic_call(&signature, node.node_id, node.arguments);
+            if counters::counting() {
+                bump(&COUNTERS.single_candidate_generic);
+                if answer == error {
+                    bump(&COUNTERS.single_candidate_generic_error);
+                }
+            }
+            return answer;
         }
         // `checkNoTypeArguments` (`checker.go:23157`): type arguments on a
         // signature that takes none is an error, and answering the return type
         // would quietly drop them.
         if !node.type_arguments.is_empty() {
+            bump(&COUNTERS.single_candidate_type_arguments);
             return error;
+        }
+        if counters::counting() {
+            if signature.r#type == error {
+                bump(&COUNTERS.single_candidate_return_error);
+            } else {
+                bump(&COUNTERS.single_candidate_answered);
+            }
         }
         signature.r#type
     }
