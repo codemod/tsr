@@ -30,7 +30,7 @@
 
 use tsr_ast::{
     ModifierLike, Node, NodeId, ParameterDeclaration, SyntaxKind, TypeNode,
-    TypeParameterDeclaration,
+    TypeParameterDeclaration, TypePredicateNode,
 };
 use tsr_binder::SymbolId;
 
@@ -115,6 +115,34 @@ pub enum SignatureKind {
     AbstractConstruct,
 }
 
+/// A signature's type predicate — the `x is T` a return annotation can carry
+/// instead of a type.
+///
+/// Ported from `TypePredicate` (`internal/checker/types.go`) and built by
+/// `createTypePredicateFromTypePredicateNode` (`relater.go:2084`). Upstream's
+/// four `TypePredicateKind` values are the two booleans here: `asserts` for the
+/// `Asserts*` pair and a `None` [`Self::parameter_name`] for the `This` pair.
+/// Upstream also carries `parameterIndex`, which only the narrowing path reads
+/// (`narrowTypeByTypePredicate`) and which this port has no use for — see
+/// `docs/architecture/checker-notes-typepred.md` §1 for why narrowing is a
+/// different item.
+///
+/// **The type is a [`TypeId`] and not rendered text**, so that
+/// `instantiate_signature` can substitute it the way `instantiateTypePredicate`
+/// (`relater.go:2101`) does. A rendered predicate would have to be discarded on
+/// every instantiation, which would gap `isFunction<T>`'s instantiated form
+/// rather than print it.
+#[derive(Debug, Clone)]
+pub struct TypePredicate {
+    /// The `asserts` modifier.
+    pub asserts: bool,
+    /// The parameter's written name; `None` is the `this is T` form.
+    pub parameter_name: Option<String>,
+    /// The predicate's type. `None` is bare `asserts x`, which upstream
+    /// records with a nil `t` and prints without an `is` clause.
+    pub r#type: Option<TypeId>,
+}
+
 /// A call signature.
 ///
 /// Ported from `Signature` (`internal/checker/types.go`), reduced to the fields
@@ -140,6 +168,19 @@ pub struct Signature {
     /// the written node too, and `typeof a` in return position is the corpus's
     /// most common carrier (`subtypingWithCallSignatures2` et al.).
     pub written_return: Option<String>,
+    /// The type predicate the return annotation carried, if it was one.
+    ///
+    /// `getTypePredicateOfSignature` (`relater.go:2016`) is lazy upstream and
+    /// consulted by the node builder at print time
+    /// (`nodebuilderimpl.go:1748`); here it is resolved with the rest of the
+    /// signature, for the same reason [`Signature::r#type`] is.
+    ///
+    /// Only the *written* half is populated. Upstream's other three sources —
+    /// an inferred predicate from a body (`getTypePredicateFromBody`,
+    /// `checker.go:20535`), a composite over union signatures
+    /// (`relater.go:2049`), and the instantiated target's — are not built; see
+    /// `docs/architecture/checker-notes-typepred.md` §1.
+    pub predicate: Option<TypePredicate>,
 }
 
 /// A function-like declaration's body.
@@ -346,6 +387,13 @@ impl<'a> Checker<'a, '_> {
 
         let written_return =
             return_annotation.and_then(|annotation| self.written_annotation_text(annotation));
+        // `getTypePredicateOfSignature`'s `typeNode != nil` arm
+        // (`relater.go:2029`): a return annotation that *is* a predicate node
+        // builds one, and nothing else does.
+        let predicate = match return_annotation {
+            Some(TypeNode::TypePredicateNode(node)) => Some(self.type_predicate_of(node)?),
+            _ => None,
+        };
         Some(Signature {
             declaration,
             kind: self.signature_kind_of(declaration),
@@ -354,7 +402,58 @@ impl<'a> Checker<'a, '_> {
             parameters,
             r#type,
             written_return,
+            predicate,
         })
+    }
+
+    /// Ported from `createTypePredicateFromTypePredicateNode`
+    /// (`relater.go:2084`).
+    ///
+    /// `None` for the two forms that would otherwise be guessed at: a node with
+    /// no parameter name at all (parser error recovery), and a predicate whose
+    /// own type node this port cannot resolve. The second is the rule that
+    /// keeps `x is SomeUnportedThing` a gap rather than `x is error` — a
+    /// predicate is not exempt from the whole-construct refusal just because
+    /// the rest of the signature resolves.
+    fn type_predicate_of(&mut self, node: &'a TypePredicateNode<'a>) -> Option<TypePredicate> {
+        let parameter_name = match node.parameter_name? {
+            tsr_ast::TypePredicateParameterName::Identifier(name) => Some(name.text.to_string()),
+            tsr_ast::TypePredicateParameterName::ThisTypeNode(_) => None,
+        };
+        let r#type = match node.r#type {
+            Some(annotation) => {
+                let id = self.get_type_from_type_node(annotation);
+                if id == self.intrinsics.error {
+                    return None;
+                }
+                Some(id)
+            }
+            None => None,
+        };
+        Some(TypePredicate { asserts: node.asserts_modifier.is_some(), parameter_name, r#type })
+    }
+
+    /// The text a predicate contributes in a signature's return position.
+    ///
+    /// Ported from `typePredicateToTypePredicateNodeHelper`
+    /// (`nodebuilderimpl.go:1765`) and the printer's `emitTypePredicate`
+    /// (`printer.go:1869`). The type is rendered from the **computed** type,
+    /// which is upstream's own choice at this site — `typeToTypeNode` and not
+    /// the written node.
+    pub(crate) fn type_predicate_to_string(&self, predicate: &TypePredicate) -> String {
+        let mut out = String::new();
+        if predicate.asserts {
+            out.push_str("asserts ");
+        }
+        match &predicate.parameter_name {
+            Some(name) => out.push_str(name),
+            None => out.push_str("this"),
+        }
+        if let Some(id) = predicate.r#type {
+            out.push_str(" is ");
+            out.push_str(&self.type_to_string(id));
+        }
+        out
     }
 
     /// `getReturnTypeOfSignature`'s `default` arm (`checker.go:20013`) and the
@@ -1273,9 +1372,17 @@ impl<'a> Checker<'a, '_> {
             }
         }
         out.push_str(") => ");
-        match &signature.written_return {
-            Some(written) => out.push_str(written),
-            None => out.push_str(&self.type_to_string(signature.r#type)),
+        // `serializeReturnTypeForSignature` consults
+        // `getTypePredicateOfSignature` **before** it renders the return type
+        // (`nodebuilderimpl.go:1748`), and emits the predicate node in the slot
+        // `typeToTypeNode(returnType)` would have filled. So the predicate wins
+        // over both the written text and the computed type, and
+        // `(x: unknown) => boolean` is never printed for a declaration that
+        // wrote `x is string`.
+        match (&signature.predicate, &signature.written_return) {
+            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
+            (None, Some(written)) => out.push_str(written),
+            (None, None) => out.push_str(&self.type_to_string(signature.r#type)),
         }
         out
     }

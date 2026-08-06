@@ -105,7 +105,31 @@ impl<'a> Parser<'a> {
     }
 
     fn next_is_is_keyword(&mut self) -> bool {
-        self.peek_kind(|kind| kind == SyntaxKind::IsKeyword)
+        // `p.token == ast.KindIsKeyword && !p.hasPrecedingLineBreak()`
+        // (`parser.go:3408`). **The line-break half is not decoration.** A
+        // return type on its own line followed by a member named `is` is the
+        // shape `conformance/typePredicateASI` records:
+        //
+        // ```text
+        // interface I {
+        //     foo(callback: (a: any, b: any) => void): I
+        //     is(): boolean;
+        // }
+        // ```
+        //
+        // Without the guard, `I` and the *next member's* name parse as one
+        // predicate: the corpus line reads `(callback: (a: any, b: any) =>
+        // void) => I is any` where the baseline says `=> I`, and the `is()`
+        // member disappears from the interface. Found by reading the residual
+        // wrong lines of the type-predicate build rather than by a parser test
+        // — `docs/architecture/checker-notes-typepred.md` §3.
+        let mut matched = false;
+        self.try_parse(|p| {
+            p.next_token();
+            matched = p.token.kind == SyntaxKind::IsKeyword && !p.token.has_preceding_line_break();
+            None::<()>
+        });
+        matched
     }
 
     /// Parse a type.

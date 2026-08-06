@@ -64,6 +64,24 @@ impl<'a> Checker<'a, '_> {
             TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
             TypeNode::ConstructorTypeNode(node) => self.get_type_from_constructor_type_node(node),
             TypeNode::TypeQueryNode(node) => self.get_type_from_type_query_node(node),
+            // `getTypeFromTypeNodeWorker`'s `ast.KindTypePredicate` case
+            // (`checker.go:22858`). A predicate's *type* is `void` under an
+            // `asserts` modifier and `boolean` otherwise; the predicate itself
+            // is not a type and appears only in a signature's return position,
+            // where [`Checker::signature_to_string`] prints it instead of this.
+            //
+            // The pair is visible in one corpus case
+            // (`conformance/typeGuardOfFormIsType`): `>isFunction : (x: any) =>
+            // x is Function` for the declaration and `>isFunction(x) : boolean`
+            // for a call to it. `docs/architecture/checker-notes-typepred.md`
+            // §1 is why those are two halves of one arm and not two items.
+            TypeNode::TypePredicateNode(node) => {
+                if node.asserts_modifier.is_some() {
+                    self.intrinsics.void
+                } else {
+                    self.intrinsics.boolean
+                }
+            }
             // `getTypeFromTypeOperatorNode` (`checker.go:22960`). Only the
             // `readonly` arm: it is transparent — the readonly-ness is carried by
             // the *target* the array node picks, not by a wrapper type — and it

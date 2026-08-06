@@ -232,9 +232,15 @@ pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signa
         }
     }
     out.push_str("): ");
-    match &signature.written_return {
-        Some(written) => out.push_str(written),
-        None => out.push_str(&checker.type_to_string(signature.r#type)),
+    // The member spelling of the same rule `Checker::signature_to_string`
+    // carries: `serializeReturnTypeForSignature` consults the predicate before
+    // the return type (`nodebuilderimpl.go:1748`), whichever signature-shaped
+    // node the builder is filling. `interface I { m(): this is S[]; }` is the
+    // form that needs it, and the corpus records it on lib's `every`.
+    match (&signature.predicate, &signature.written_return) {
+        (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(predicate)),
+        (None, Some(written)) => out.push_str(written),
+        (None, None) => out.push_str(&checker.type_to_string(signature.r#type)),
     }
     out
 }
