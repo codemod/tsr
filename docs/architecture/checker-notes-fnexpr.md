@@ -49,7 +49,14 @@ defensible populations. No checker code was written.
    whole-gradient it is **360 gained against 214 destroyed**, and the 214 are
    `strictNullChecks` cases. Not built; §6 says why and what it is waiting on.
 5. **A control fired and its premise was mine.** §7.
-6. **The other half of the row was split, and part of it was built.** `bd tsr-4e1`
+6. **Contextual typing is 86.0% entangled, and is refused.** 48.8% of the
+   contextual-guard bucket needs the call resolution this workstream measured and
+   refused; 29.2% needs a *different* contextual type first. The self-contained
+   slice is **14.0%**, split across two builds of 158 and 95 lines. §10.
+7. **1,809 parameter lines are answered `any` and wrong, in no gap histogram**,
+   and they are in `symbols.rs` rather than here — so contextual typing is worth
+   roughly twice what its gap row says and spans two workstreams. §10.4.
+8. **The other half of the row was split, and part of it was built.** `bd tsr-4e1`
    is 2,000 lines; 44.2% of it is kind 2, `bd tsr-4sc.9` inside it turned out to
    be **9 lines**, and the 693-line widening gate converted **565 against 98**
    — 85.2% match, +1,188 corpus-wide, 29 cases newly finished, **0 regressed**.
@@ -340,6 +347,129 @@ two were proven red under named mutations:
 |---|---|
 | `Form::of` maps `ArrowFunction` to `Form::FunctionExpression` | `assert_eq!(Form::of(SyntaxKind::ArrowFunction), Some(Form::Arrow))` — `left: Some(FunctionExpression)` |
 | drop `carries_a_bare_nullish`'s `contains("=>")` early return | `assert!(!carries_a_bare_nullish("undefined"), "not a function type; the rule cannot reach it")` |
+
+## 10. Step 1 of contextual typing: the sources, ranked — and a refusal
+
+Measured at **`5eb252c`** (`main`, 62.49%). **No code was written for this
+section.** It is the ranking the build was to be chosen from, and the ranking
+says not to build.
+
+### 10.1 The population
+
+> **G is every rendered `.types` line whose node kind is `ArrowFunction` or
+> `FunctionExpression` and whose gate is the contextual guard** — some parameter
+> is unannotated and the node is not the initialiser of an un-annotated
+> `var`/`let`/`const`.
+
+Syntactic, so `|G|` is invariant under any checker change — **control C0″**. It
+reads **2,082**, which is the same number §3 measured at `d612291`, **across a
+week in which four agents landed on `main` and the gradient moved 61.09% →
+62.49%.** That is the strongest form the control can take: not a bucket reading
+zero, but a number that could have drifted and did not.
+
+**No rule is registered in this section.** A ranking is not a licence; the rule
+for whichever source won was to be registered after this table existed. The table
+is why none was.
+
+### 10.2 Where a contextual type would have to come from
+
+Unit: assertion lines. `param right` / `param wrong` are the `>x : T` lines of the
+unannotated parameters — a **different** population, reached through
+`get_type_of_symbol` in `symbols.rs`, which is another workstream's file.
+
+| source | lines | share | cases | top-10 | param right | param wrong |
+|---|---:|---:|---:|---:|---:|---:|
+| **CALL** an argument of a call | **897** | **43.1%** | 325 | 21.4% | 208 | 829 |
+| chained — an object-literal property value | 374 | 18.0% | 133 | 40.6% | 77 | 323 |
+| OTHER (residual) | 167 | 8.0% | 53 | 56.9% | 55 | 151 |
+| **NONE** — no contextual type exists here | **158** | 7.6% | 35 | 77.2% | 96 | 76 |
+| **WRITTEN** `const f: T = …` | **95** | 4.6% | 42 | 51.6% | 55 | 54 |
+| chained — the right-hand side of an assignment | 82 | 3.9% | 40 | 62.2% | 38 | 66 |
+| chained — a JSX attribute value | 79 | 3.8% | 29 | 64.6% | 4 | 71 |
+| **IIFE** — the callee of its own call | 77 | 3.7% | 12 | 97.4% | 17 | 94 |
+| **CALL** an argument of `new` | 42 | 2.0% | 19 | 78.6% | 1 | 48 |
+| chained — a `return`, no return type written | 37 | 1.8% | 24 | 62.2% | 22 | 21 |
+| chained — an array-literal element | 36 | 1.7% | 18 | 77.8% | 3 | 36 |
+| WRITTEN — a `return` in a function with a return type | 13 | 0.6% | 9 | 100.0% | 0 | 14 |
+| WRITTEN — `class { f: T = … }` | 11 | 0.5% | 6 | 100.0% | 0 | 11 |
+| WRITTEN — `… as T` | 9 | 0.4% | 5 | 100.0% | 1 | 10 |
+| WRITTEN — a parameter default | 5 | 0.2% | 2 | 100.0% | 0 | 5 |
+| **total** | **2,082** | | | | | |
+
+Rolled up:
+
+| | lines | share |
+|---|---:|---:|
+| **needs call resolution** (call argument, `new` argument, IIFE) | **1,016** | **48.8%** |
+| **needs another contextual type first** (object literal, assignment, JSX, `return`, array) | **608** | **29.2%** |
+| residual — decorators, conditionals, `yield`, binding elements | 167 | 8.0% |
+| **stands alone** (a type node written at the position, or none exists) | **291** | **14.0%** |
+
+**86.0% of the item is entangled**, and the largest single entanglement is the row
+this workstream measured and refused: call resolution, 18,294 lines, R2 at 37.7%.
+An IIFE is a call too — upstream contextually types its parameters from the
+*arguments* — so it belongs on that side rather than with the self-contained
+positions.
+
+### 10.3 So: refused, and the brief's own candidate is 95 lines
+
+The brief proposed *"a written annotation on the declaration looks
+self-contained — it needs no call resolution, and your own shipped guard already
+identifies exactly that position."* That is right about the mechanism and the
+size is **95 lines, 4.6% of G**, over 42 cases. All five WRITTEN sources together
+are **133**.
+
+The largest source that stands alone is not that one; it is **NONE at 158**, and
+it is not a contextual-typing build at all — it is a widening of
+`has_no_contextual_type` (`signatures.rs:782`) to positions where
+`getContextualType` has no arm: a parenthesised initialiser (`const f = (x => x)`,
+where the existing test compares the initialiser **by node identity** and a
+parenthesis breaks it), an expression statement, a template-literal span, an
+un-annotated property declaration.
+
+**And NONE's premise is contradicted by its own control.** 76 of its 172
+parameter lines are **wrong**, meaning upstream typed those parameters from
+something — so *some* of the 158 do have a contextual type and my classifier says
+they do not. 44% of the bucket is unexplained. Building on it would be building
+on a premise the instrument already disputes.
+
+That contradiction is how the **IIFE** row came to exist. On the first run, callee
+position was folded into NONE and the combined bucket read 235 lines with 170
+wrong parameter lines. Splitting the callee out put **94 of those 170** into a row
+of 77 lines at 97.4% top-10 concentration — `conformance/contextuallyTypedIife`
+22, `contextuallyTypedIifeStrict` 22 — and upstream does contextually type an IIFE
+from its arguments. **The parameter-outcome column was carried purely as
+collateral accounting and it turned out to be a control on the classifier's
+premise.** The remaining 76 are the same signal, unresolved.
+
+So both self-contained candidates fail a different test:
+
+- **WRITTEN `const f: T = …` — 95 lines.** Sound, buildable, and 4.6% of the item.
+  A partial at that share is not what "build contextual typing" means, and
+  registering RC2-part on it after seeing the table is the retrofit this project
+  keeps catching.
+- **NONE — 158 lines.** Larger, and its premise is disputed by 44% of its own
+  parameter lines.
+
+**Refused.** `bd tsr-a5d` (WRITTEN, 95) and `bd tsr-w2g` (NONE, 158) carry the two, each with the one
+measurement it needs first.
+
+### 10.4 The part nobody has been counting: the parameter lines
+
+The right-hand columns are not decoration. Across G there are **2,386 parameter
+assertion lines**, of which **1,809 are already answered and wrong** — this port
+prints `>x : any` where upstream prints `>x : number`.
+
+They are **not** in G, they are not gaps, and they appear in no histogram on this
+page or in `checker-notes-rank.md`'s gap tables. They are also **not reachable
+from `signatures.rs`**: a parameter's own line goes through `get_type_of_symbol`
+(`symbols.rs`). So a contextual-typing build confined to this workstream's files
+would convert the *function's* line and leave the *parameter's* line wrong.
+
+**Contextual typing is worth roughly twice what G says — 2,082 gap lines plus
+1,809 wrong ones — and it spans two workstreams' files.** That is the strongest
+argument on this page for doing it properly later rather than in a slice now, and
+it is the number to plan against. `bd tsr-n23`.
 
 ## 8. How you would know this page is wrong
 
