@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`3299f53`**, 2026-08-06.
+Measured at **`5290e1a`**, 2026-08-06.
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`3299f53`**, 2026-08-06.
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,270/9,538** | **23.80%** | **gradient 63.34%** — the target |
+| **`checker_types`** | **2,275/9,538** | **23.85%** | **gradient 63.54%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-303,366 / 478,954 assertion lines = 63.34%
-  right 303,366 | gap ~128,694 | wrong ~37,678
+304,324 / 478,954 assertion lines = 63.54%
+  right 304,324 | gap ~127,736 | wrong ~37,678
 ```
 
 **The gate is whole-baseline and positional; the gradient is per-line. They are
@@ -86,9 +86,9 @@ analysis. The decision is unaffected and strengthened.
 
 ```
 reachable denominator   ~452,954 of 478,954
-today                    303,366 / 452,954 = ~67.0% of reachable
+today                    304,324 / 452,954 = ~67.2% of reachable
 80% of the full          383,163 lines  =  ~84.6% of reachable
-gap to 80%               +79,797 lines
+gap to 80%               +78,839 lines
 ```
 
 ---
@@ -115,7 +115,8 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 Landed and measured this cycle: cross-file alias resolution, export-marker symbol
 link, `getApparentType` for primitives, `autoArrayType` for `const x = []`,
 unit-return widening, `this` with a written `this` parameter, `super` (both
-disjuncts), object-literal spread, `getMergedSymbol`.
+disjuncts), object-literal spread, `getMergedSymbol`, and **the `&&` arm of
+`checkBinaryLikeExpression`** (`5290e1a`, +958 lines, 0 lost).
 
 Deliberately **not** ported, each with a reason on record: the evolving-array
 `x.push(e)` widening (53 lines, all already wrong); `hadErrorBaseline`
@@ -126,33 +127,77 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the ranked board
 
-**Unmeasured items are ranked above measured refusals on purpose: the cheapest
-thing available is a row nobody has spent a cycle refusing yet.**
+**Rewritten 2026-08-06 from `docs/architecture/checker-notes-armsplit.md`.
+Three of the previous board's top four rows were not what their numbers said,
+and the previous ordering rule — *"unmeasured items rank above measured
+refusals, because the cheapest thing available is a row nobody has refused
+yet"* — is **withdrawn**. It is sound about cost and silent about value, and it
+put an item worth ~1,004 diffuse lines in position 4 on a figure of 11,008.
+The replacement rule: **rank by the conversion, and where the conversion is
+unknown, rank by how cheap it is to find out.**
 
-| # | item | own-root lines | file | state |
-|---|---|---:|---|---|
-| 1 | `BinaryExpression` | **1,418** | `binary.rs` | **never measured, unowned** |
-| 2 | `NewExpression` | **1,049** | `calls.rs` | **never sized alone** — only ever folded into the call row |
-| 3 | `ArrayLiteralExpression` | **637** | `array_literals.rs` | **never measured, unowned** |
-| 4 | `tsr-jle` — wrong lines failing on **naming**, not typing | 11,008 (upper bound) | printer | never split |
-| 5 | `tsr-n23` — parameter lines answered `any` **and wrong** | 1,809 | `symbols.rs` | in no gap histogram |
-| 6 | `ArrowFunction` | 1,341 | `expressions.rs` | 51.7% own root |
-| 7 | `ConditionalExpression` | 295 | `expressions.rs` | |
-| 8 | JSX | 417 | jsx | |
+### The ranking
 
-**`ParenthesizedExpression` is 0.0% own root — there is no work item there.**
-Confirmed twice by independent instruments.
+| # | item | converts | file | the rule that would license it | what would falsify the estimate |
+|---|---|---:|---|---|---|
+| 1 | **`new C()` — the lib `*Constructor` arm** | **~300–500** of 1,052 | `calls.rs` | exact-match spellability ≥ 70% on the `*Constructor` subset **scored on its own**, not folded into the call row | the construct signature's declared return type is not what upstream prints for `new Error()` — check `Error` against `ErrorConstructor`'s `new (…): Error` before building |
+| 2 | **Re-take the call row's bar with `new` scored separately** | 0 directly; **decides 18,294** | probe only | none — this is a measurement, and it is one probe | the combined figure stays under 70%, in which case the call row is refused on firmer ground than an 85-line margin |
+| 3 | `tsr-n23` + contextual typing, as **one** cross-file item | 2,082 gap **+ 1,809 wrong** | `symbols.rs` **and** `signatures.rs` | 48.8% of it sits behind call resolution — item 2 gates this | a build confined to either file converts half of each function's lines, which is the measured reason it is one item |
+| 4 | `ArrowFunction` | ≤ 1,341, and **17.8%** of the lines that stop gapping matched last time | `expressions.rs` | needs a *new* rule: the shape test read 99.6% and the counterfactual 4.6 wrong per right | the failure is parameter types, i.e. item 3 — this row may be item 3 wearing a different node kind |
+| 5 | `undefined \| null` sorts backwards (`tsr-iiu`) | unsized, **two-line repro** | `unions.rs` | count `null \| undefined` against `undefined \| null` in the baselines first | it is one pair and not a class, in which case it is small and still free |
+| 6 | `ConditionalExpression` | ≤ 295 | `expressions.rs` | unmeasured | |
+| 7 | JSX | ≤ 417 | jsx | unmeasured | |
+
+**Item 2 is ranked above every build on purpose.** It is a probe, it costs one
+run, and it decides an 18,294-line item that currently stands refused by 85
+lines. Nothing else on this board has that ratio.
+
+### Off the board, with the number that took it off
+
+| was | ranked | now | why |
+|---|---|---|---|
+| `BinaryExpression` | 1 (1,418) | **partly done, rest blocked** | 659 `&&` lines **landed** (`5290e1a`, +958). Of the remainder: 340 want `any`, 252 need tuples *and* destructuring patterns, 454 (`\|\|`, `??`) need assignability |
+| `tsr-jle` naming | 4 (11,008) | **gone** | **10,000 of 11,004 are `compiler/largeControlFlowGraph`** — ADR-0038's ceiling. Real size 1,004 over 362 cases in 566 pairs, head 21 lines. `bd tsr-q54` |
+| `ArrayLiteralExpression` | 3 (637) | **blocked** | 602 of 604 own-root lines are the object-reduction guard; **355 are one case**. Needs assignability. `bd tsr-rn4` |
+| `ParenthesizedExpression` | — | **not work** | 0.0% own root, confirmed twice |
 
 ### The three blockers that gate everything downstream
 
+Unchanged, and now joined by a fourth that this cycle's measurements kept
+arriving at.
+
 | blocker | blocks | state |
 |---|---|---|
+| **assignability / `UnionReductionSubtype`** | `\|\|` 358, `??` 96, `ArrayLiteral` 355, and every subtype reduction | **newly identified as a shared blocker.** Three separate refusals this cycle bottom out in it |
 | qualified naming (`tsr-awa`) | `tsr-4qx` (~5,161), 1,318 of its own | mechanism **measured at 90.7%**, build refused — see §5 |
 | `tsr-4qx` instantiated generics | ~5,161 | blocked on `tsr-awa`; `type_reference_text` bakes an unqualified name at type *creation* |
-| call resolution | 48.8% of contextual typing, the IIFE rows | refused at **68.3% against a 70% bar — by 85 lines** |
+| call resolution | 48.8% of contextual typing, the IIFE rows, and `new` | refused at **68.3% against a 70% bar — by 85 lines**. Board item 2 is the cheapest thing that could move it |
 
 **`members.rs` is done** until those land. Its own lookup is **104 lines**. That
 was registered as a prediction before measurement and confirmed.
+
+### Is 80% reachable at the implied rate?
+
+**Not at this session's rate, and the previous session's rate should not be
+carried forward either.** The arithmetic, stated plainly:
+
+- Distance to 80%: **+78,839 lines**.
+- Last session: +10,761 lines. This session: **+958**.
+- Everything now ranked and unblocked on this board sums to **under 3,000 lines.**
+
+The gap is not a list of missing expression arms. **22,596 lines were measured
+as `ROOT/own-rule` and this cycle took the three largest of those rows apart:
+one landed at 958, one is one case, one is the call item.** What is left is
+concentrated behind four capabilities — assignability, call resolution,
+qualified naming, and contextual typing — and every one of them is a subsystem
+rather than a row.
+
+So the honest statement is: **80% is reachable and it is not reachable by
+ranking rows.** What would have to change is that a session takes on one of the
+four blockers as its whole deliverable, accepting that it converts nothing until
+it is finished. `casedelta` and the pre-registered-rule discipline make that
+safe to attempt; the row-by-row board does not make it *unnecessary*, which is
+what four cycles of ranking have now established.
 
 ---
 
@@ -172,6 +217,13 @@ was registered as a prediction before measurement and confirmed.
 | `ArrayLiteral` wrong bucket | 1,773 | 36.7% one case; 42.3% is tuple inference in `contextual.rs` |
 | wrong bucket case-flips | 37,709 | **81% symptom**; best actionable row flips 37 cases |
 | `hadErrorBaseline` | 40,759 | ADR-0039 |
+| **`tsr-jle` naming** | 11,008 | **10,000 of 11,004 are one case** — `largeControlFlowGraph`, ADR-0038's ceiling. Real size 1,004 in 566 pairs, head **21 lines** |
+| **`BinaryExpression` addition fallthrough** | 297 | **277 (93.3%) want `any`** — ADR-0038/0039 forbid it |
+| **`BinaryExpression` arithmetic (bigint mixing)** | 43 | 42 of 43 want `any`, and **97.7% is one case** |
+| **`BinaryExpression` destructuring assignment** | 252 | needs destructuring patterns **and** tuples — two unported subsystems |
+| **`ArrayLiteral` own-root row** | 604 | 602 are the object-reduction guard; **355 are one case**; needs assignability |
+| **`new C()`, the cheap design** | 1,052 | *strip `typeof` from the callee* exact-matches **23 of 1,052 — 2.2%**, and on 712 the callee is not `typeof X` at all |
+| **`\|\|` and `??`** | 358 + 96 | both need `UnionReductionSubtype`, i.e. assignability. `&&` does not, which is why only `&&` landed |
 
 ---
 
@@ -208,7 +260,17 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `5290e1a` | **63.54%** | **2,275** | **+0.20 pts, +958 lines, +5 cases** | the `&&` arm of `checkBinaryLikeExpression` — the only unblocked arm in the board's top three rows. The session's main product is the **board rewrite**: `tsr-jle` fell 11,008 → 1,004, `ArrayLiteral` and `\|\|`/`??` were shown blocked on assignability, and `new` was sized alone for the first time |
 | 2026-08-06 | `3299f53` | **63.34%** | **2,270** | **+2.25 pts, +10,761 lines** | export-marker link (+2,265), `this` parameter (+2,733), `super` (+838), `@lib`/`@noLib` harness fidelity (+431), unit-return widening (+1,188), `getApparentType` (+973), `getMergedSymbol` (+430), `autoArrayType` (+1,005), object spread (+74) |
+
+**2026-08-06, second session:** two new instruments (`armsplit.rs`,
+`namesample.rs`), one correction to a **doc comment that was acting as a
+prerequisite** — `binary.rs` claimed `extractDefinitelyFalsyTypes` reaches
+`getTypeFacts`; grepped on the declarations it does not, and that is what
+separated `&&` from `||` and `??`. One pre-existing defect found by a unit test
+and invisible to every gap histogram: `undefined | null` prints as
+`null | undefined` (`bd tsr-iiu`). Three of seven test expectations in the new
+file were written from intuition and were wrong; the port was right each time.
 
 **2026-08-06 also corrected three instruments and one ADR**, which changed what
 the project believes is worth building: `TERMINAL` was a default arm and is

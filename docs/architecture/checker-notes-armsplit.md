@@ -337,3 +337,60 @@ premise of §3.1 is wrong, not the arithmetic.**
 **How this would be shown wrong:** if `casedelta` shows the gain concentrated in
 one or two cases, the row was never the diffuse 95-case population measured here
 and the `&&` rule is not what converted it.
+
+### And the result, scored against that rule at `5290e1a`
+
+```
+  87 cases moved | gained 87 cases +958 lines | lost 0 cases -0 lines
+  top gainer 212 lines = 22.1% of the gain
+  gradient 63.34% -> 63.54%   cases 2,270 -> 2,275
+```
+
+Every other suite byte-identical. The falsifier did not fire: 22.1% top-1 over
+87 cases is the diffuse population §3 measured, not one case.
+
+Three things to say honestly about the number rather than around it:
+
+1. **The ratio leg is vacuous, not passed.** Nothing was lost, so
+   *gained ÷ lost* has no denominator. That was foreseeable and should have
+   been foreseen when the rule was written: the row can only gain, because the
+   arm returned `errorType` unconditionally, and the only way to lose was a
+   cascade that turned someone else's right line wrong. It did not, and the
+   evidence for that is the 0, not the ratio. **A bar whose denominator the
+   change cannot produce is not a bar** — the net floor and the case-regression
+   count are what actually did the work here.
+2. **The row was 659 and the conversion is 958 — a 1.45× cascade**, against a
+   registered floor of +400 that was set as a floor and not a point estimate.
+   Say which ratio: 1.45× is against the *predicted row*, which is the planner's
+   number (`docs/conventions.md`, *"two ratios, both true"*).
+3. Re-running `armsplit` afterwards is the control that says the rule is what
+   converted them: the `logical &&` own-root bucket is **gone entirely**, and
+   `logical ||` rose **358 → 366** as lines it had been blocking became their
+   own root. Total `BinaryExpression` aligned gap fell 7,559 → 6,812, i.e. 747,
+   against a gradient gain of 958 — so **211 lines of the gain are outside the
+   `BinaryExpression` row altogether.**
+
+### What the tests found and the corpus could not
+
+The corpus says a change is good on net. It cannot say a fixture is wrong,
+and two things came out of writing `crates/tsr-checker/tests/logical_and.rs`
+that no corpus run would have surfaced:
+
+- **Three of seven expectations were written from intuition and were wrong**,
+  in a file whose own header says every expected string must come from a real
+  baseline first. The port was right in each case: `"a" | 0` not `0 | "a"`,
+  `number | ""` not `"" | number`. `CompareTypes` (`utilities.go:415`) sorts by
+  *increasing flag value*, and the baselines say so outright —
+  `>x && y : 0 | false`, `>-a.x && b.y() : void | ""`,
+  `>authToken && { authToken } : "" | { authToken: string; }`. The rule the
+  header states is the one that caught it, applied late. **A convention you
+  quote in a file header and then do not follow inside it is worth exactly
+  nothing**, and the tell was that the failing assertions all disagreed about
+  *order* rather than about *content* — a shape a type error does not have.
+- **`undefined | null` prints as `null | undefined`**, and does so for the bare
+  declared type with no `&&` anywhere, while `string | number` comes out right.
+  Two-line repro in `bd tsr-iiu`. It is pre-existing and it is **invisible to
+  every gap histogram on this project**, because it produces a *wrong* line
+  rather than a missing one, in a family `strictNullChecks` makes common. That
+  is the second time this cycle a real defect was found sitting in the wrong
+  bucket, and both times the bucket was the one nobody ranks.
