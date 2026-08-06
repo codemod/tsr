@@ -2144,3 +2144,143 @@ accidentally for a small fixture — an ordering that coincides, a length that
 matches, a symbol that happens to be unique — makes the mutation invisible while
 leaving every other signal green. The only detector is running the mutation and
 *looking at what it produced*, rather than at whether the test went red.
+
+### A histogram bucket is named for the question the classifier asked
+
+Three of the four items on `STATUS.md`'s ranked board were ranked out of a
+histogram, and three of the four were not what the histogram said.
+
+`gaproot.rs`'s `ROOT/own-rule` bucket means *"the form's own rule did not
+fire"*. The board read it as *"the form has no rule"*, which is a different
+claim, and **a form with eleven arms lands its entire population in that one
+cell whether ten of them are ported or none are.** `binary.rs` ports assignment,
+the arithmetic/bitwise/shift family, `+`, the relational and equality families,
+`in`, `instanceof` and comma, and withholds the logical operators with a written
+reason and a `bd` id. `array_literals.rs` ports the whole non-tuple tail. Both
+rows were on the board as **"never measured, unowned"**.
+
+The correction cost one `Read` each and it happened *before* any probe ran:
+
+> **Before ranking a row out of a histogram, open the file that owns it.** A row
+> labelled "no rule" that turns out to be "one arm of eleven, withheld on
+> record" is a different item at a different price — and the histogram cannot
+> tell you which, because the question it asked does not distinguish them.
+
+The same reading is what separated the item that then shipped. Splitting
+`BinaryExpression` by *arm* rather than by *node kind* turned one 1,708-line row
+into seven, of which 340 want `any` (forbidden), 252 need two unported
+subsystems, 454 need assignability, and **659 needed nothing** and landed at
++958 lines with zero lost.
+
+#### And the ordering rule that produced the old board is withdrawn
+
+*"Unmeasured items rank above measured refusals, because the cheapest thing
+available is a row nobody has spent a cycle refusing yet."* That is sound about
+**cost** and silent about **value**, and it put `tsr-jle` — worth ~1,004 diffuse
+lines in 566 pieces — at position 4 on a figure of 11,008.
+
+The replacement is one line: **rank by the conversion, and where the conversion
+is unknown, rank by how cheap it is to find out.** Applied to the current board
+it puts a *probe* above every build, because re-scoring one row's spellability
+costs a single run and decides an 18,294-line item that stands refused by 85
+lines.
+
+### A prerequisite in your own doc comment is checked the way a handover's is
+
+This document already records that *"a prerequisite quoted three times is not
+thereby established"* — `Symbol::parent`, recorded by three parties as populated
+for two symbol kinds, populated for all of them, and the binder item did not
+exist. That was about a claim travelling between agents.
+
+`binary.rs:126` carried this, in this repo, in a committed doc comment:
+
+> `extractDefinitelyFalsyTypes` reaches `getTypeFacts` (`checker.go:30982`), a
+> large table this port does not have.
+
+It is false, and that one sentence is why all three logical operators sat in one
+gap for two cycles. Grepped on the declarations:
+
+```
+func (c *Checker) extractDefinitelyFalsyTypes   checker.go:29110   mapType(t, getDefinitelyFalsyPartOfType)
+func getDefinitelyFalsyPartOfType               checker.go:29114   a pure TypeFlags switch
+func (c *Checker) removeDefinitelyFalsyTypes    checker.go:29106   filterType(hasTypeFacts(Truthy))
+```
+
+It is `removeDefinitelyFalsyTypes` — the **`||`** arm — that reaches the table.
+`&&` needs one facts bit as a gate, and `get_type_facts` had carried it since
+narrowing landed. The three operators were never one item.
+
+> **A doc comment asserting what upstream requires is a hypothesis about
+> upstream, and it does not become established by being committed.** The
+> `anchors` gate cannot see it — the citation `checker.go:30982` *resolves*, it
+> is simply about a different function. Check it the same way: `grep -n` on the
+> declaration you mean.
+
+The tell is available without any upstream reading: **a comment that explains
+why three things cannot be separated is doing load-bearing work and has never
+been tested.** The cheapest test is to ask what each of the three actually
+calls.
+
+### A bar whose denominator the change cannot produce is not a bar
+
+The `&&` build registered, before the code existed: *keep if gained ÷ lost ≥
+3.0, and net ≥ +400, and fewer cases regress than finish.* It measured 87 cases
+gained, +958 lines, **0 cases and 0 lines lost**.
+
+The first leg did not pass. It has **no denominator**, and that was foreseeable
+when the rule was written: `check_binary_expression` returned `errorType` for
+`&&` unconditionally, so every line in the row was already a gap and the row
+could not lose. The only way to lose anything was a cascade turning someone
+else's right line wrong — which is a real risk, and is what the *other* two legs
+measured.
+
+The ratio was copied from the refusals it was meant to be comparable with —
+`tsr-6ph` at 2.1 and 2.5 wrong-per-right, qualified naming at 2.7 — where the
+mechanism fired on lines that were already **right** and could therefore lose.
+Reusing a bar without re-asking what its denominator is made the strongest-
+looking leg the empty one.
+
+> **For each leg of a pre-registered rule, ask what input would make it
+> non-zero.** It is the same question this document asks of a control, and a
+> registered bar is a control on a decision. A leg that cannot be non-zero
+> should be replaced before the run, not explained after it.
+
+The evidence that the build was safe is the **0**, not the ratio. Say so.
+
+### A convention quoted in a file's own header and not followed inside it
+
+`crates/tsr-checker/tests/logical_and.rs` opens by stating that every expected
+string in it was taken from a real `.types` baseline before it was written down,
+because the naive designs for `&&` score 401 and 377 of 659 corpus lines and a
+fixture chosen by intuition agrees with both.
+
+**Three of its seven expectations were then written from intuition**, and all
+three were wrong. The port was right every time: `"a" | 0` and not `0 | "a"`;
+`number | ""` and not `"" | number`. `CompareTypes` (`utilities.go:415`) sorts by
+*increasing flag value*, and the baselines say so without any reasoning
+required — `>x && y : 0 | false`, `>-a.x && b.y() : void | ""`,
+`>authToken && { authToken } : "" | { authToken: string; }`.
+
+The failure is not the wrong guesses; it is that the rule which catches them was
+written at the top of the same file and applied only after three tests went red.
+The recoverable signal was in the *shape* of the failures: all three disagreed
+about **order** and none about **content**, which is not what a type error looks
+like.
+
+> **A convention stated in a header is not applied by being stated.** If a file
+> declares that its expectations come from ground truth, the expectations are
+> written by fetching ground truth — one `grep` over the baselines — and not by
+> writing them and checking afterwards.
+
+#### And the defect a unit test found that no corpus run could
+
+The same file surfaced `bd tsr-iiu`: `let x: undefined | null` prints
+`null | undefined`, with no `&&` involved, while `let x: string | number` is
+right. It is pre-existing, it is a two-line repro, and it is **invisible to
+every gap histogram on this project** because it produces a *wrong* line rather
+than a missing one — in a family `strictNullChecks` makes common.
+
+That is twice in one cycle that a real defect was sitting in the bucket nobody
+ranks, the other being `tsr-n23`'s 1,809 parameter lines. The corpus tells you a
+change is good on net. **It cannot tell you a fixture is wrong, and it does not
+rank the column you are not steering by.**
