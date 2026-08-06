@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured through the `tsr-rppd` build, 2026-08-07 (fifth session).
+Measured through the `tsr-jril` merge, 2026-08-07 (fifth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured through the `tsr-rppd` build, 2026-08-07 (fifth session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,591/9,538** | **27.17%** | **gradient 70.30%** — the target |
+| **`checker_types`** | **2,608/9,538** | **27.34%** | **gradient 70.59%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-336,690 / 478,954 assertion lines = 70.30%
-  right 336,690 | gap ~90,510 | wrong ~41,311   (41,189 at b00738d; …, −47, +55, +14 by same-probe pairs through tsr-rppd)
+338,082 / 478,954 assertion lines = 70.59%
+  right 338,082 | gap ~89,180 | wrong ~41,415   (41,189 at b00738d; …, −47, +55, +14, +104 by same-probe pairs through tsr-jril)
 ```
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
@@ -120,7 +120,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **70.30% of lines** | the mountain; §4 and §5 |
+| **checker** | **70.59% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -131,6 +131,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `tsr-jril` | **constructor type nodes** — `new (x: T) => U` and `abstract new`; a `SignatureKind` on `Signature` so one renderer serves both spellings (`checker-notes-ctortype.md`) | +1,358 |
 | `tsr-rppd` | **`getApparentType` reads a type parameter through its `extends` constraint** — its bar fired at net 0 first and the diagnosis was a missing symbol route (`checker-notes-apparent.md`) | +156 |
 | `tsr-0opd` | **private names** — `this.#x`; the binder already filed `#x` members, only the access-side name extraction was missing (`checker-notes-privname.md`) | +590 |
 | `tsr-tgov` | **`new C<T>()` instantiates from written type arguments** — the call side already substituted them and `check_new_expression` refused at its first line; plus upstream's one name-independent quoting rule, a **method** named `new` (`checker-notes-callres.md` §14–15) | +686 |
