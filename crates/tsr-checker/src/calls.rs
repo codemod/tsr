@@ -50,41 +50,44 @@ use crate::calls::counters::{COUNTERS, bump};
 use crate::{
     checker::Checker,
     flags::TypeFlags,
+    relater::{Relation, Ternary},
     signatures::{Signature, SignatureKind},
     types::{TypeData, TypeId},
 };
 
-/// The type domains over which this port's [`Checker::is_type_assignable_to`]
-/// answers `false` only when the relation genuinely does not hold.
 ///
 /// Overload selection is the first caller that depends on a **negative** answer
 /// from the relater: skipping a candidate is what makes the next one win. Every
-/// other caller so far only depends on a positive one. The relater's module docs
-/// record that two distinct object types answer `false` because structural
-/// comparison is narrow, not because they are unrelated — a false negative there
-/// would silently promote the *next* overload, which is precisely the plausible
-/// wrong answer this port refuses to produce.
+/// other caller so far only depends on a positive one.
 ///
-/// So selection runs only where a `false` is trustworthy: the domains
-/// `isSimpleTypeRelatedTo` decides on flags alone. This is deliberately
-/// *narrower* than upstream's `TypeFlagsPrimitive` — `ENUM_LIKE`,
-/// `ES_SYMBOL_LIKE`, `TEMPLATE_LITERAL` and `STRING_MAPPING` are left out,
-/// because an enum literal's relation runs through its declared type, a unique
-/// symbol's through its declaration, and the other two are unported. A candidate
-/// or argument outside this set makes the whole call a gap rather than a guess.
-const SELECTABLE: TypeFlags = TypeFlags::STRING
-    .union(TypeFlags::STRING_LITERAL)
-    .union(TypeFlags::NUMBER)
-    .union(TypeFlags::NUMBER_LITERAL)
-    .union(TypeFlags::BIG_INT)
-    .union(TypeFlags::BIG_INT_LITERAL)
-    .union(TypeFlags::BOOLEAN)
-    .union(TypeFlags::BOOLEAN_LITERAL)
-    .union(TypeFlags::VOID)
-    .union(TypeFlags::UNDEFINED)
-    .union(TypeFlags::NULL)
-    .union(TypeFlags::NEVER);
-
+/// # `SELECTABLE` is gone, and the number that removed it
+///
+/// Until `bd tsr-kmzf` this was a **flag set** — the domains
+/// `isSimpleTypeRelatedTo` decides on flags alone — because the relater had no
+/// way to say *"I could not tell"* and a false negative here silently promotes
+/// the next overload. `examples/ternary.rs` measured what that cost and what
+/// replacing it buys (`docs/architecture/checker-notes-assign.md` §5–§6):
+///
+/// - the flag set is the thing that binds, not the relation. 33 of the 492
+///   classified gap lines are decided **correctly by the relation as it already
+///   was**; `SELECTABLE` simply never asked, because it contains
+///   `STRING_LITERAL` but not `UNION`;
+/// - decidability is a property of the **pair**, not of either type, so no
+///   widening of a flag set could ever have been the fix. That is now
+///   [`Checker::relate_ternary`]'s [`Ternary::Unknown`], and this module asks it
+///   about the pair instead of asking a flag set about each side.
+///
+/// # The one positional refusal that survives, and why it is not a ratio
+///
+/// An `any` **parameter** refuses the whole set. `any` relates to everything in
+/// both directions (`isSimpleTypeRelatedTo`, `internal/checker/relater.go`), so
+/// a candidate carrying one is *trivially* applicable and the declaration-order
+/// scan always stops on the first such candidate. Upstream selects correctly
+/// there because it has the argument-order and inference machinery this port
+/// does not — so stopping on the first is a **wrong rule, not a bad trade**, and
+/// `docs/conventions.md` says a rule is not priced. Measured, the refusal costs
+/// 7 conversions and removes 24 would-be-wrong lines: 40/26 becomes **33/2**.
+///
 /// Where a call stops, counted rather than reasoned about.
 ///
 /// # Why this exists
@@ -284,17 +287,20 @@ pub mod counters {
         generic_candidate = "  a generic candidate in the set",
         /// A `this` or rest parameter on any candidate.
         this_or_rest_parameter = "  a this or rest parameter",
-        /// The gate `bd tsr-6v7` proposes widening.
-        parameter_not_selectable = "  a parameter type outside SELECTABLE",
+        /// An `any` parameter on any candidate — the positional refusal that
+        /// replaced the `SELECTABLE` parameter gate. `bd tsr-kmzf`.
+        parameter_any = "  an `any` parameter (refused positionally)",
         /// `f(...xs)`.
         spread_argument = "  a spread argument",
-        /// The same gate on the argument side, shadowed by the parameter one.
-        argument_not_selectable = "  an argument type outside SELECTABLE",
+        /// A pair [`Checker::relate_ternary`] cannot decide, anywhere in the
+        /// scan. This is the row `SELECTABLE`'s two gates became, and unlike
+        /// them it is a property of the **pair**. `bd tsr-kmzf`.
+        undecidable_pair = "  a pair the relation cannot decide",
         /// No candidate accepts this many arguments.
         arity_no_match = "  no candidate with matching arity",
-        /// Arity matched somewhere and no candidate's parameters accepted the
-        /// arguments. Inside `SELECTABLE` this is a real negative from the
-        /// relater, so it is the row that would *not* move on a widening.
+        /// Arity matched somewhere and every candidate was **decidably**
+        /// rejected — no `Unknown` anywhere in the scan, so this is a real
+        /// negative from the relater rather than an absence.
         no_assignable_candidate = "  arity matched, nothing assignable",
         /// Several matches with different return types; upstream's subtype
         /// pass would decide, and this port will not guess.
@@ -852,11 +858,13 @@ impl Checker<'_, '_> {
             bump(&COUNTERS.this_or_rest_parameter);
             return None;
         }
-        if candidates
-            .iter()
-            .any(|candidate| !candidate.parameters.iter().all(|p| self.is_selectable(p.r#type)))
-        {
-            bump(&COUNTERS.parameter_not_selectable);
+        if candidates.iter().any(|candidate| {
+            candidate
+                .parameters
+                .iter()
+                .any(|p| self.type_of(p.r#type).flags.intersects(TypeFlags::ANY))
+        }) {
+            bump(&COUNTERS.parameter_any);
             return None;
         }
         let mut argument_types = Vec::with_capacity(arguments.len());
@@ -865,30 +873,46 @@ impl Checker<'_, '_> {
                 bump(&COUNTERS.spread_argument);
                 return None;
             }
-            let argument_type = self.check_expression(argument);
-            if !self.is_selectable(argument_type) {
-                bump(&COUNTERS.argument_not_selectable);
-                return None;
-            }
-            argument_types.push(argument_type);
+            argument_types.push(self.check_expression(argument));
         }
         let mut chosen: Option<&Signature> = None;
-        // Splits the empty-handed case in two: no candidate takes this many
-        // arguments at all, against arity matching and the relater rejecting
-        // every one of them. Only the second is a real negative from inside
-        // `SELECTABLE`, and it is the row a widening would *not* move.
+        // Splits the empty-handed case in three: no candidate takes this many
+        // arguments at all; arity matched and every candidate was *decidably*
+        // rejected; and arity matched but the relation could not decide. Only
+        // the second is a real negative.
         let mut arity_matched = false;
         for candidate in candidates {
             if !has_correct_arity(candidate, argument_types.len()) {
                 continue;
             }
             arity_matched = true;
-            let applicable =
-                argument_types.iter().zip(&candidate.parameters).all(|(&argument, parameter)| {
-                    self.is_type_assignable_to(argument, parameter.r#type)
-                });
-            if !applicable {
-                continue;
+            // Kleene conjunction over the pairs, evaluated in full rather than
+            // short-circuiting on the first `Unknown`: a definite `NotRelated`
+            // later in the list is a strictly better answer than "could not
+            // tell", and short-circuiting would refuse calls this port can
+            // decide.
+            let mut verdict = Ternary::Related;
+            for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
+                match self.relate_ternary(argument, parameter.r#type, Relation::Assignable) {
+                    Ternary::NotRelated => {
+                        verdict = Ternary::NotRelated;
+                        break;
+                    }
+                    Ternary::Unknown => verdict = Ternary::Unknown,
+                    Ternary::Related => {}
+                }
+            }
+            match verdict {
+                // The scan cannot step over this candidate: it does not know
+                // whether this one would have won, so no later candidate may be
+                // selected and no earlier selection may be trusted against it.
+                // The whole call gaps — a gap beats a wrong answer.
+                Ternary::Unknown => {
+                    bump(&COUNTERS.undecidable_pair);
+                    return None;
+                }
+                Ternary::NotRelated => continue,
+                Ternary::Related => {}
             }
             match chosen {
                 // Upstream's subtype pass would decide this; see the doc
@@ -915,21 +939,6 @@ impl Checker<'_, '_> {
             None => bump(&COUNTERS.arity_no_match),
         }
         chosen.cloned()
-    }
-
-    /// Whether a `false` from [`Checker::is_type_assignable_to`] about this type
-    /// means the relation does not hold. See [`SELECTABLE`].
-    fn is_selectable(&self, id: TypeId) -> bool {
-        // A union is selectable when every constituent is: the relation
-        // distributes over it, so a `false` is as trustworthy as the worst
-        // constituent's. A union carrying a symbol is an enum or a named alias,
-        // and falls through to the flag test, which rejects it: a union's own
-        // flags are `UNION`, not the union of its constituents' flags.
-        if let TypeData::Union { types, symbol: None, .. } = &self.store.get(id).data {
-            return types.iter().all(|&t| self.is_selectable(t));
-        }
-        let flags = self.store.get(id).flags;
-        !flags.is_empty() && SELECTABLE.contains(flags)
     }
 }
 

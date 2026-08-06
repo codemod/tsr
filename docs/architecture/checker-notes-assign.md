@@ -339,3 +339,60 @@ that needs refusing and the next one is named from the dump rather than guessed.
 because it is an arm on machinery that now exists, it is measured end-to-end, and
 it retires a capability question that has sat at the top of §4.4 for four
 cycles — not because it moves the number.
+
+### 6.2 Built, and scored against §6.1
+
+`calls.rs` at `7f6b4ff`+1. `SELECTABLE` is deleted; `choose_overload` asks
+[`Checker::relate_ternary`] about the **pair** and gaps the whole call on any
+`Unknown`, plus the `any`-parameter positional refusal. The two counters the
+flag set owned are replaced by `parameter_any` and `undecidable_pair`.
+
+```
+checker_types   2,657 -> 2,663 cases    gradient 71.14% -> 71.16%
+
+  net             +94 lines   (32 cases gaining, 0 losing)
+  lost              0
+  finished          6
+  regressed         0
+  Δwrong           +3         (5 added, 2 left the bucket)
+```
+
+| leg | bar | measured | |
+|---|---|---:|---|
+| 1 net | ≥ +25 | **+94** | PASS, 285% of forecast |
+| 2 new wrong | ≤ 5 absolute | **+3** | PASS |
+| 3 regressed | `== 0` | **0** | PASS |
+| 4 controls | C1 = 0, C2 sums | 0, 469/469 | PASS |
+
+**The registered falsifier fired and its instruction was followed.** §6.1 says
+*"if the measured net exceeds ~60, the mechanism reached lines the counterfactual
+did not model and the residual must be read before banking it"*. 94 > 60. Read:
+
+- the two largest gaining cases are `compiler/objectCreate` (+10) and
+  `objectCreate2` (+8), and their calls are **`Object.create(...)`** — a
+  *property-access* callee. `ternary.rs` classifies only a bare `Identifier`
+  callee, so the whole `ObjectConstructor` family was outside the counterfactual
+  by construction. The gate it removed was never identifier-shaped;
+- this is `STATUS.md` §4.1's rule arriving again: a population is a ceiling **for
+  the row it was measured on**, and a mechanism can turn out wider. The `typeof`
+  build converted 122% of its row for the same structural reason.
+
+**And the residual, which the passing ratio is not permission to skip.** Of the
+5 lines that entered the wrong bucket, **2 are `compiler/temporal` wanting
+`Temporal.Instant` and printing `Instant`** — the namespace-qualified naming
+family already refused with its number in `STATUS.md` §5 (1,318 lines, a
+counterfactual that lost 3,202). Not this build's to fix. A further 2 in
+`genericIndexedAccessMethodIntersectionCanBeAccessed` moved from
+`want string got any` to `want string got T`: **already wrong before, still
+wrong, differently** — which is why the arithmetic is +3 and not +5. One line
+is genuinely new, `classVarianceResolveCircularity1` wanting `number`.
+
+**One number that is not a residual and should not be read as one.**
+`ternary.rs` re-run after the build still reports 19 `CONVERTS`. That is the
+counterfactual's optimism, not a queue: the probe models neither `calls.rs`'s
+`ambiguous_return` guard (several arity-and-assignability matches with different
+return types gap the call rather than guess) nor `has_correct_arity`'s handling
+of optional parameters, which the probe refuses outright. The probe was built to
+size a decision, and it is retained at that fidelity rather than grown into a
+second implementation of `choose_overload` — a model that tracked the code
+exactly would forecast nothing the code could not already tell you.

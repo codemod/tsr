@@ -205,9 +205,9 @@ fn main() {
     );
     let selection = counters.generic_candidate
         + counters.this_or_rest_parameter
-        + counters.parameter_not_selectable
+        + counters.parameter_any
         + counters.spread_argument
-        + counters.argument_not_selectable
+        + counters.undecidable_pair
         + counters.arity_no_match
         + counters.no_assignable_candidate
         + counters.ambiguous_return
