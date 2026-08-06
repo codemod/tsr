@@ -1045,6 +1045,118 @@ for the receiver and cannot look the member up. Two parts are unsplit:
 > that reading in advance so that reporting it cannot be mistaken for a
 > rationalisation of a null result.
 
+## RESULTS — Part 5
+
+*(Nothing above this line was edited after the run.)*
+
+Measured at **`5eb252c`**. Controls unchanged and green: C1–C4 = 0, C7a = 0,
+A1 = A4 = 0, C7b = −386 (the module-host measurement).
+
+### The prediction held, and so the finding is the one registered in advance
+
+**80.7% of the largest clean population on the board is not this workstream's**,
+and the part that is splits into three sub-items each below the size bar.
+
+Why the member was not found, over all **5,441** `RIGHT`-arm lines. Unit: **gap
+assertion lines**.
+
+| verdict | lines | share | owner |
+|---|---:|---:|---|
+| the receiver's type name does not resolve in TYPE meaning | 2,829 | 51.99% | see the caveat below |
+| `typeof` query — resolution, not members | 1,146 | 21.06% | resolution |
+| **MERGED ACROSS FILES — `getMergedSymbol`** | 698 | 12.83% | **binder** |
+| declared once, no heritage clause — the member is genuinely absent | 545 | 10.02% | **ambiguous** |
+| structural type — an object/type literal | 106 | 1.95% | `objects.rs` (mine) |
+| **declared once, HAS a heritage clause — the base-type walk** | **104** | 1.91% | **`members.rs` (mine)** |
+| qualified name — a namespace member | 13 | 0.24% | resolution |
+
+**The merge item reads 698 here and 702 in Part 4, and the four lines are
+explained rather than rounded.** Part 4's test asked `globals()` only; this one
+resolves from the access site in TYPE meaning first and falls back to
+`globals()`. Four lines whose receiver name resolves locally to a *different*
+symbol than the global of the same name therefore move out of the merge bucket
+— which is the resolve-from-site test being **more** correct, not less. 702 was
+the floor of an interval and 698 is inside it.
+
+**The caveat, because the largest row is partly an artifact of my own test.**
+"Does not resolve in TYPE meaning" is only a *finding* for a receiver whose
+printed type is a **name**. Crossed with the receiver kind, the 2,829 is
+`this` 1,165, instantiated generic 954, array 350, union 229, primitive
+residue 61, and only **66** genuinely-named receivers. For the first four the
+printed type is not a name at all, so the resolve test is **vacuous** for them
+and their owner is their family's, not "resolution". Stated here rather than
+left for a reader to notice, because reading 51.99% as a resolution item would
+overstate that item by 40×.
+
+Re-attributed by owner, which is what RULE-4's Q1 asks:
+
+| owner | lines | share of 5,441 |
+|---|---:|---:|
+| resolution / binder (`getMergedSymbol` 698, `typeof` 1,146, qualified 13, named-unresolved 66) | **1,923** | **35.3%** |
+| `declared.rs` / `tsr-4qx` (instantiated generic 954, array 350) | **1,304** | **24.0%** |
+| the `this` type — not ported, and not in my files | **1,165** | **21.4%** |
+| **ambiguous** — declared once, no heritage, member absent | 545 | 10.0% |
+| **mine** (union/intersection 295, base-type walk 104, structural 106) | **505** | **9.3%** |
+
+**Not mine: 4,392 lines, 80.7%.**
+
+### RULE-4 against the run
+
+| | registered | measured | verdict |
+|---|---|---|---|
+| **prediction A** — ≥ 60% of the 1,403 is symbol resolution | ≥ 60% | **81.7%** is `typeof` queries alone (1,146 of 1,403) | **HELD** |
+| **prediction B** — the only part that is mine is union/intersection plus a minority, together under 1,000 | < 1,000 | **505** | **HELD** |
+| **Q1** — is it mine? | — | three sub-items are; they total 505 | — |
+| **Q2** — size ≥ 500 per sub-item | ≥ 500 | 295 / 106 / 104 — **each fails** | **FAIL** |
+| **Q3** — `c592d0f` per sub-item | — | not reached; Q2 failed first | — |
+
+**No build is licensed and none was made.** The three sub-items that are mine
+are 295, 106 and 104 lines. Summing them to 505 to clear a 500 bar would be
+exactly the move `checker-notes-rank.md` warns about — they are three unrelated
+fixes in three files, and a case needing two of them is finished by neither.
+
+### So the finding is the planning fact, as registered
+
+**The property-access surface is downstream of symbol resolution and type
+instantiation almost everywhere.** Of the 14,689 gap lines whose node is a
+property access: 8,241 have a receiver that is itself a gap, 999 a receiver that
+is confidently wrong, and of the 5,441 where we hold upstream's own type,
+**80.7% still fail for a reason owned by symbol resolution, instantiation, or an
+unported `this`**. The lookup itself — the thing `members.rs` does — accounts
+for **104 lines**, the base-type walk.
+
+That reading was registered before the run precisely so that reporting it now is
+not a rationalisation. It is also the fourth item in a row to relocate out of
+this workstream, and the coordinator's standing instruction was that a fourth
+relocation is itself the finding. It is.
+
+**What it implies for planning, stated as an implication and not a
+recommendation:** work aimed at the property-access gap by way of `members.rs`
+is capped at a few hundred lines until `getMergedSymbol`, `tsr-4qx` and the
+`this` type land. The three of them together bound 4,392 lines of this
+population, and they are held by two other workstreams.
+
+### The one bucket worth another probe, and why it is not sized here
+
+**545 lines: the receiver is declared once, has no heritage clause, and the
+member is simply not in its members table** while upstream finds it. That is the
+only bucket whose owner this measurement could not determine. The candidates are
+an index signature (`index_signatures.rs`, **mine**), a static-side member
+reached through `typeof`, and a members table the binder does not populate.
+**It is not quoted as a size for anything**, because attributing it before it is
+split is the mistake this page has now recorded twice. `bd tsr-n22`.
+
+### Q3 asked anyway, for the record
+
+Cheap, and Part 4 showed the answers differ sharply. For the base-type walk
+(104) what gets printed are the base interface's own members — written
+annotations, printed by the renderer already printing them at their declaration.
+For union/intersection (295) the answer is the *apparent type of each
+constituent*, which for a union means a synthesised union of member types, and
+**this port has no measurement of that printer at all**. So even had Q2 passed,
+the union item would have needed a printer check first and the base-type walk
+would not. Recorded because asking cost one paragraph.
+
 ## Everything filed from this page
 
 | id | what | sized as |
@@ -1055,7 +1167,8 @@ for the receiver and cannot look the member up. Two parts are unsplit:
 | `tsr-qgk` | only the first gapped operand is credited | 34.4% of 176,593 span steps had a choice |
 | `tsr-phd` | the `any` leg disqualifies apparent work, and may be too strict | 34,180 lines held out |
 | `tsr-wii` | the primitive-receiver residue after the slice: 84 lines want `any` (must not be closed), 46 want a real type | 46 lines |
-| `tsr-iks` | the `PropertyAccessExpression` RIGHT arm — the largest clean population on the board | **5,441 gap lines**, of which the largest sub-item is 2,599 |
+| `tsr-iks` | the `PropertyAccessExpression` RIGHT arm — largest clean population, **not** the largest available work | 5,441 lines, **80.7% not mine**; the lookup itself is 104 |
+| `tsr-n22` | the 545-line ambiguous bucket: declared once, no heritage, member absent | 545 lines of **question**, not of work |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
