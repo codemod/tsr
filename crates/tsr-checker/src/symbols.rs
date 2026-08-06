@@ -1150,7 +1150,10 @@ impl<'a> Checker<'a, '_> {
         // nothing; what matters is that the function case comes last.
         if flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS) {
             let printed = format!("typeof {name}");
-            return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol);
+            // A `TypeQueryNode`. Upstream gives it `TypePrecedenceTypeOperator`
+            // so that it parenthesises in *postfix* position — `(typeof C)[]` —
+            // and not as a union constituent.
+            return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, false);
         }
         let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
             return self.intrinsics.error;
@@ -1182,9 +1185,15 @@ impl<'a> Checker<'a, '_> {
         // vector both for a symbol that genuinely has no call signature and for
         // one whose every declaration was skipped, and those two must not print
         // the same thing.
+        // `[signature]` renders a bare `FunctionTypeNode`; the many-signature
+        // arm renders a `TypeLiteralNode`, which is never parenthesised.
+        let mut signature_node = false;
         let printed = match signatures.as_slice() {
             [] => return self.intrinsics.error,
-            [signature] => self.signature_to_string(signature),
+            [signature] => {
+                signature_node = true;
+                self.signature_to_string(signature)
+            }
             many => {
                 let mut out = String::from("{ ");
                 for signature in many {
@@ -1195,7 +1204,7 @@ impl<'a> Checker<'a, '_> {
                 out
             }
         };
-        self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol)
+        self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, signature_node)
     }
 
     /// Whether `symbolToTypeNode` would spell this symbol as something other than

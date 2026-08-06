@@ -559,13 +559,26 @@ impl<'a> Checker<'a, '_> {
     /// ```
     ///
     /// So a union, a `typeof`, and a signature are wrapped; an object type and a
-    /// nested array are not. Intersections are wrapped on the same precedence
-    /// grounds and **no baseline exercises one**, which is stated rather than
-    /// presented as verified.
+    /// nested array are not.
+    ///
+    /// # The intersection clause was wrong, and its own comment said how
+    ///
+    /// This function used to wrap **every** union and intersection, with the
+    /// note *"intersections are wrapped on the same precedence grounds and no
+    /// baseline exercises one, which is stated rather than presented as
+    /// verified."* One does: `compiler/inferTypePredicates` wants `Bar[]` where
+    /// `Bar` is `type Bar = …&…`, and this printed `(Bar)[]`.
+    ///
+    /// A union or intersection that a type alias names prints as **that name**,
+    /// and so does `boolean` — see
+    /// [`crate::printing::prints_as_a_single_token`]. Neither is a
+    /// `Union`/`IntersectionTypeNode` to upstream's builder, so neither is
+    /// parenthesised anywhere.
     fn array_element_text(&self, element: TypeId) -> String {
         let ty = self.store.get(element);
         let text = crate::printing::type_to_string(ty);
-        let wrap = ty.flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+        let wrap = (ty.flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            && !crate::printing::prints_as_a_single_token(ty))
             || text.starts_with("typeof ")
             || has_top_level_arrow(&text);
         if wrap { format!("({text})") } else { text }

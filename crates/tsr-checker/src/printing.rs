@@ -12,7 +12,10 @@
 //! places a port drifts here are string escaping and number formatting, and both
 //! are handled explicitly below rather than left to `Display`.
 
-use crate::types::{Type, TypeData};
+use crate::{
+    flags::TypeFlags,
+    types::{Type, TypeData},
+};
 
 /// Render a type.
 ///
@@ -45,6 +48,39 @@ pub fn type_to_string(ty: &Type) -> String {
         | TypeData::Union { text, .. }
         | TypeData::Intersection { text, .. }
         | TypeData::Anonymous { text, .. } => text.clone(),
+    }
+}
+
+/// Whether a type prints as a **single token** rather than as its own
+/// structure — a name, or a keyword.
+///
+/// The question every parenthesiser here is really asking. Upstream never asks
+/// it, because it decides on the *node kind* the builder emitted
+/// (`GetTypeNodePrecedence`, `ast/precedence.go:655`) and a named union is a
+/// `TypeReferenceNode` while an anonymous one is a `UnionTypeNode` — two kinds,
+/// two precedences, no predicate needed. This port computes text at creation and
+/// has only the type, so the same distinction has to be recovered from what the
+/// type carries.
+///
+/// Two ways a `Union` or `Intersection` prints as one token:
+///
+/// - **A type alias names it.** `type Tagged = A & B` prints `Tagged`, which the
+///   node builder emits as a `TypeReferenceNode` — `NonArray`, the highest
+///   precedence, never parenthesised.
+/// - **It is `boolean`.** `booleanType` is the union `false | true`
+///   ([`crate::unions::create_boolean_type`]) and prints as the keyword, which
+///   the builder emits as `KindBooleanKeyword`.
+///
+/// Both were found by parenthesising without them: the first cost 19 lines
+/// across three cases (`(TaggedString1) | (TaggedString2)` for
+/// `TaggedString1 | TaggedString2`), the second is pinned by a test rather than
+/// by the corpus.
+pub(crate) fn prints_as_a_single_token(ty: &Type) -> bool {
+    match &ty.data {
+        TypeData::Union { symbol, .. } | TypeData::Intersection { symbol, .. } => {
+            symbol.is_some() || ty.flags.contains(TypeFlags::BOOLEAN)
+        }
+        _ => false,
     }
 }
 

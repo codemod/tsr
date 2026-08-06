@@ -110,6 +110,21 @@ pub enum TypeData {
         text: String,
         /// The symbol whose declarations carry this type's call signatures.
         symbol: SymbolId,
+        /// Whether the node builder would emit a bare **`FunctionTypeNode`**
+        /// for this type rather than a `TypeQueryNode` or a `TypeLiteralNode`.
+        ///
+        /// This is upstream's *node kind*, recorded where the text is built
+        /// because that is the only place that still knows it. It exists for
+        /// one caller — [`crate::unions`]'s union formatter, which must
+        /// parenthesise a function-typed constituent (`(() => void) | undefined`)
+        /// and must not parenthesise `typeof C` or `{ a: string; }`. Upstream
+        /// gets the same answer from `GetTypeNodePrecedence`
+        /// (`ast/precedence.go:655`) because it still has the node.
+        ///
+        /// A flag rather than a test on `text`: `{ f: () => void; }` contains
+        /// `=>` and is a type literal, so a string test would parenthesise it,
+        /// and the three creation sites each know the answer for free.
+        signature: bool,
     },
     /// An intersection type: `A & B`.
     ///
@@ -264,8 +279,18 @@ impl TypeStore {
     /// (`checker.go:16925`). **Never interned**, for the same reason
     /// [`TypeStore::new_named`] is not: identity is one type per symbol, and the
     /// memo that provides it lives in the checker.
-    pub fn new_anonymous(&mut self, flags: TypeFlags, text: String, symbol: SymbolId) -> TypeId {
-        self.push(Type { flags, data: TypeData::Anonymous { text, symbol }, fresh: false })
+    pub fn new_anonymous(
+        &mut self,
+        flags: TypeFlags,
+        text: String,
+        symbol: SymbolId,
+        signature: bool,
+    ) -> TypeId {
+        self.push(Type {
+            flags,
+            data: TypeData::Anonymous { text, symbol, signature },
+            fresh: false,
+        })
     }
 
     /// Create or reuse a literal type.

@@ -94,6 +94,7 @@ impl<'a> Checker<'a, '_> {
         // that somehow has none is a gap rather than a type with a synthetic
         // identity — see the note above.
         let Some(symbol) = self.binder.symbol_of(id) else { return error };
-        self.store.new_anonymous(TypeFlags::OBJECT, text, symbol)
+        // A `FunctionTypeNode`, which is what this module is for.
+        self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true)
     }
 }

@@ -207,7 +207,7 @@ fn format_union_types(store: &TypeStore, types: &[TypeId]) -> Vec<String> {
             index += 2;
             continue;
         }
-        printed.push(printing::type_to_string(store.get(id)));
+        printed.push(parenthesised(store, id));
         index += 1;
     }
     // `null` first, then `undefined` — upstream's order (`printer.go:407`), and
@@ -219,6 +219,49 @@ fn format_union_types(store: &TypeStore, types: &[TypeId]) -> Vec<String> {
         printed.push("undefined".to_string());
     }
     printed
+}
+
+/// A union constituent as it is printed, parenthesised where upstream would.
+///
+/// `emitUnionTypeConstituent` (`printer.go:2038`) is
+/// `emitTypeNode(node, TypePrecedenceTypeOperator)`, and `emitTypeNode`
+/// (`printer.go:2274`) writes a `(` when
+/// `GetTypeNodePrecedence(node) < precedence`. Reading the ladder
+/// (`ast/precedence.go:425`–`:480`, ascending: `Conditional` = `Lowest`,
+/// `JSDoc`, `Function`, `Union`, `Intersection`, `TypeOperator`, `Postfix`,
+/// `NonArray` = `Highest`), the constituents that sort below `TypeOperator` are
+/// **conditional, JSDoc optional/variadic, function, constructor, nested union
+/// and intersection** types.
+///
+/// # What this port can produce from that list, and what it deliberately cannot
+///
+/// - **Intersection** — `A & B | C & D` must print `(A & B) | (C & D)`.
+/// - **A function type** — `(() => boolean) | undefined`. Recorded as
+///   [`TypeData::Anonymous::signature`] at creation, because the text is built
+///   there and that is the last point at which the node kind is known.
+/// - **Nested unions cannot occur**: [`Checker::add_types_to_union`] flattens
+///   them, so the arm is omitted rather than written and left unreachable.
+/// - **Conditional and JSDoc types are unported.**
+///
+/// The two near misses are the reason this is a node-kind test and not a
+/// text test: `typeof C` is a `TypeQueryNode`, which upstream gives
+/// `TypePrecedenceTypeOperator` **so that it parenthesises in postfix position**
+/// (`(typeof C)[]`) and not here; and `{ f: () => void; }` is a
+/// `TypeLiteralNode` at `NonArray`, the highest precedence, despite containing
+/// `=>`.
+fn parenthesised(store: &TypeStore, id: TypeId) -> String {
+    let ty = store.get(id);
+    let needs = match &ty.data {
+        // An intersection **that prints as `A & B`**. One that a type alias
+        // names prints as that name, which the node builder emits as a
+        // `TypeReferenceNode` at the highest precedence — the distinction this
+        // rule got wrong on its first run, at 19 lines.
+        TypeData::Intersection { .. } => !printing::prints_as_a_single_token(ty),
+        TypeData::Anonymous { signature, .. } => *signature,
+        _ => false,
+    };
+    let text = printing::type_to_string(ty);
+    if needs { format!("({text})") } else { text }
 }
 
 /// `booleanType` — the union `false | true` (`checker.go:1002`).
