@@ -1927,3 +1927,121 @@ partition.
   deep is still `R1`. It can only over-count `R1`, which is the direction that
   would have *saved* the binder commit, and it read 13.
 - **The 631 are one case.** They are not: 200 cases, top-1 13.2%.
+
+---
+
+# Cycle 20b — the renderer, built and REFUSED by its own counterfactual
+
+`docs/conventions.md`: *prefer the counterfactual to the estimate when the change
+is cheap to make.* It was cheap. It was built, measured with
+`examples/casedelta.rs` per case, and **reverted**.
+
+## 49. Two variants, both negative, and neither is close
+
+`Checker::type_to_string_at` gained the chain: `symbol_chain_at`, the port of
+`getSymbolChain` (`internal/checker/nodebuilderimpl.go:1087`) with
+`getAccessibleSymbolChain`'s alias search **at every level**, terminating on
+`needsQualification` reduced to `Binder::resolve_name`. Gated so that it applies
+only where the printed form *is* the symbol's name — the same textual test that
+defined the 1,318-line population — because without that gate it climbs from an
+anonymous `__function` symbol to no parent and gaps every function and object
+type in the corpus. `a_lowercase_tag_name_that_resolves_keeps_its_own_type`
+caught that in the first test run.
+
+Baseline `1970f35`: **302,454 matched of 478,954.**
+
+| variant | matched | net | gained | **lost** | **cases regressed** | lost per gained |
+|---|---:|---:|---:|---:|---:|---:|
+| chain failure **gaps** (§46's rule as written) | 299,777 | **−2,677** | 525 in 96 cases | **3,202** | **753** | 6.1 |
+| chain failure keeps the baked text (additive only) | 301,419 | **−1,035** | 614 in 112 cases | **1,649** | **293** | 2.7 |
+
+**Both refused.** For scale: `bd tsr-6ph`'s two refused designs measured **2.1**
+and **2.5** wrong per right, and cycle 14's shipped arm lost **zero** lines across
+150 moved cases. The better of these two variants is worse than anything this
+workstream has ever refused.
+
+## 50. The 90.7% was true and it was not the number that decides
+
+§44 measured the construction at **514/567 = 90.7%** and read it against a bar of
+≥90%. That measurement is not withdrawn: it is accurate, it is reproducible, and
+`R1`/`R2` (§48) confirm its denominator.
+
+**It was taken over the 1,318 lines that were already wrong.** §35 said in advance
+what that leaves unmeasured — *"a change to how a named type is rendered touches
+every named type in the corpus, and what it does to the ~299,000 right lines is
+unmeasured"* — and named it "the risk that decides it". The counterfactual has now
+measured that population, and the answer is that the change **costs 2.7 right
+lines for every one it buys**, entirely outside the row it was scoped on.
+
+So the accuracy bar was met and the item still refuses, which is worth stating
+plainly: **≥90% on the target row is not a licence when the mechanism also fires
+on lines that are already right.** The bar was registered in §33 against the only
+two data points available, and it is a bar on the wrong quantity. The quantity
+that decides is the counterfactual, and no threshold over the already-wrong
+population is a substitute for it.
+
+## 51. The named cause: `resolve_name` cannot see a namespace's exports
+
+The losses are not spread. The largest is
+`conformance/parserRealSource10` at **−481**, and its baseline says what happened
+in one line:
+
+```
+namespace TypeScript {
+    export enum TokenID {
+>TokenID : TokenID
+```
+
+Upstream prints `TokenID` **unqualified**, because the reference is inside the
+namespace and `needsQualification` answers *no*. This port now prints
+`TypeScript.TokenID`, because its stop test — `Binder::resolve_name` — **fails to
+resolve `TokenID` from inside the namespace body**, so the walk concludes a
+qualifier is needed.
+
+The defect is upstream-anchored and exact. `resolveNameHelper`'s loop has a
+`KindModuleDeclaration` arm (`internal/binder/nameresolver.go:104`) that pulls the
+module symbol's **`Exports`** table into scope. `BindResult::resolve_name`
+(`crates/tsr-binder/src/lib.rs`) consults `locals` and a class/interface `members`
+table and **has no such arm**, so `export enum TokenID` — which the binder files
+into the namespace symbol's `exports`, correctly — is invisible to every name
+lookup from inside its own namespace.
+
+That is why the same shape appears again and again down the loss list:
+`parserRealSource*`, `privacy*`, `recursiveBaseCheck*`, `statics`, `enumMerging`,
+`constEnums` are all namespace-scoped declarations referenced from inside their
+own namespace.
+
+**This is the prerequisite the item actually has**, in place of the binder change
+§45 named. It is a `resolve_name` change, its blast radius is name resolution
+rather than rendering, and it is independently useful: a lookup that cannot see a
+namespace's exports is wrong everywhere, not only here. Filed on `bd tsr-awa`.
+
+### What this does not say
+
+It does **not** say the chain is right and only the stop test is wrong. With the
+stop test fixed, the qualifier would stop firing on the `parserRealSource10`
+family, and the remaining 1,168 lost lines are unattributed. Two candidates,
+unseparated:
+
+1. more of the same defect, in shapes the `namespace` arm does not cover
+   (`SourceFile` of an external module falls through to the same upstream arm);
+2. genuine over-qualification, where the name really does not resolve here and
+   upstream prints it bare anyway.
+
+**Nobody should build the chain again until (1) is fixed and the counterfactual
+re-run.** That is the order: fix `resolve_name`, measure the corpus, *then* re-run
+this variant. The measurement costs two `casedelta` runs and settles it.
+
+## 52. How you would know this section is wrong
+
+- **The revert is the wrong variant.** Both are recorded with their numbers; a
+  third — gap only when the chain root is a module, keep baked text otherwise —
+  was **not** measured, and is the obvious next thing to try after `resolve_name`
+  (`open`).
+- **`parserRealSource10` is one pathological file and the rest is different.** It
+  is 481 of 1,649, so 29%; the other 71% is 292 cases and the shape argument above
+  is drawn from their names, not from their lines. That inference is the weakest
+  claim here (`open`).
+- **The gate is doing the damage rather than the chain.** It cannot be: with the
+  gate removed the loss is strictly larger — that was the first test failure, and
+  it gaps types the gate never lets the chain see.
