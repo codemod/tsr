@@ -1781,3 +1781,267 @@ is itself part of the work rather than a follow-up.
 
 **Structural, not maintained:** the caller that has no reference node must remain
 unable to obtain a context-sensitive name.
+
+---
+
+# Cycle 20 — the prerequisite named in the handover is a claim about the code
+
+Anchors re-taken with `grep -n` on the declarations, every one of them:
+`getSymbolChain` **`internal/checker/nodebuilderimpl.go:1087`**,
+`getContainersOfSymbol` **`internal/checker/symbolaccessibility.go:280`**,
+`getAliasForSymbolInContainer` **`internal/checker/symbolaccessibility.go:342`**,
+`getParentOfSymbol` **`internal/checker/checker.go:14365`**,
+`declareSymbolEx` **`internal/binder/binder.go:152`**,
+`bindAnonymousDeclaration` **`internal/binder/binder.go:1230`**,
+`declareModuleMember` **`internal/binder/binder.go:373`**.
+
+## 47. The rule, registered before the measurement, with a prediction attached
+
+§45 gave the blocker as coverage and named its cause in one line: *"`Symbol::parent`
+is populated by the binder for `ENUM_MEMBER | CLASS_MEMBER` only"*, which makes a
+binder change the prerequisite commit and 57.0% of the population its payoff.
+
+That sentence is a **claim about this port's code**, and it was reached by reading
+a guard rather than by asking which line assigns the field. `docs/conventions.md`
+already records the general form twice — *"read the values a `switch` assigns, not
+the shape of the `switch`"* and *"the number comes from `grep -n` on the
+declaration you mean, including when you are correcting someone else's"*. So:
+
+> **A prerequisite inherited in a handover is a hypothesis about the code, and it
+> is checked by grepping every assignment to the field, not by reading the one
+> guard that mentions it.** A guard that names the field tells you about that
+> guard. Only the full set of assignments tells you about the field.
+
+### The prediction, so this is not settled after the fact
+
+`grep -n "parent = " crates/tsr-binder/src/binder.rs` returns eight lines. Three
+of them are `declare_into` — the port of `declareSymbolEx` (`binder.go:152`,
+assignment at `:292`) — and they set `parent` on **every** symbol filed into a
+`Members`, `Exports` or `GlobalExports` table. The `ENUM_MEMBER | CLASS_MEMBER`
+guard cited as the general rule is `crates/tsr-binder/src/binder.rs:3091`, and it
+sits inside the **computed-name** branch of `declare`: it is the port of
+`bindAnonymousDeclaration` (`binder.go:1230`), whose upstream body is the same two
+flags. It governs `__computed` symbols and nothing else.
+
+Upstream leaves `Symbol.Parent` nil for locals as well — `declareModuleMember`
+(`binder.go:373`) passes `nil /*parent*/` for the non-exported case — and covers
+that in the **checker**, not the binder: `getContainersOfSymbol`
+(`symbolaccessibility.go:280`) falls back to a *declaration* walk when
+`getParentOfSymbol` (`checker.go:14365`) returns nil, taking the module symbol of
+each declaration's parent.
+
+**So the prediction is that the briefed prerequisite is a non-item.**
+
+### The bucket the bar goes on, chosen before the numbers exist
+
+Per *"pre-register on the most direct bucket your instrument produces"*: the
+question is *"how many of the 751 does a binder `Symbol::parent` change recover?"*,
+so the bucket **is** the reason the walk stopped. `predicted_chain` returns `None`
+in exactly one way — it climbs to a symbol whose `parent` is `None` and whose own
+name does not resolve from the reference site. Classify that **stop symbol**:
+
+| | the stop symbol is declared… | what upstream does there |
+|---|---|---|
+| **R1** | inside a namespace, class or interface body | `Symbol.Parent` is set upstream **and here**; if this fires, the binder is genuinely missing an assignment |
+| **R2** | at the top level of an **external module** file | `Symbol.Parent` is the file's module symbol — and a chain rooted at a module prints `import("…")` (§31), which is `getSpecifierForModuleSymbol`, **0% ported**, so these must GAP |
+| **R3** | at the top level of a **script** file | upstream's `Symbol.Parent` is nil *and* `getContainersOfSymbol` finds no candidate, so **upstream builds no chain either** — these lines are dotted for some other reason and are not this item |
+| **R4** | anywhere else, or has no declaration | unclassified; this is the control |
+
+**The decision rule, registered now: build the binder `Symbol::parent` commit only
+if R1 ≥ 40% of the 751 (≥ 300 lines).** Below that the briefed diagnosis is wrong,
+`Symbol::parent` is not the prerequisite, and the honest output is the measurement
+rather than the build.
+
+**My prediction: R1 < 5%; R2 + R3 ≥ 80%.**
+
+**R4 is a control pinned by construction, not by arithmetic** (`docs/conventions.md`):
+every symbol reached by the walk was reached *through* a declaration, so a stop
+symbol with no declaration cannot occur, and R4 counts only the syntactic shapes
+this classification failed to name. It is printed whatever it reads.
+
+## 48. Measured: R1 is 13 lines. The binder commit is REFUSED
+
+`examples/nameres.rs`, the `§47` bucket, over the same 751:
+
+| | lines | share of 751 | cases |
+|---|---:|---:|---:|
+| **R0** — no symbol on the line; the chain construction **never ran** | **631** | **84.0%** | 200 |
+| **R2** — top level of an external module; chain root is a module, must GAP | 104 | 13.8% | 32 |
+| **R1** — inside a namespace body | 9 | 1.2% | 6 |
+| **R1** — inside a class/interface/enum body | 4 | 0.5% | 3 |
+| **R3** — top level of a script file; upstream builds no chain either | 3 | 0.4% | 1 |
+| **R4** — control | **0** | 0.0% | 0 |
+
+**R1 = 13 lines = 1.7%, against a bar of ≥40% registered in §47 before the
+instrument was written. Predicted <5%. The binder `Symbol::parent` commit is
+refused and is not built.**
+
+`Symbol::parent` *is* populated, by `declare_into`
+(`crates/tsr-binder/src/binder.rs`, three assignments), for every symbol filed
+into a `Members`, `Exports` or `GlobalExports` table — the port of
+`declareSymbolEx` (`internal/binder/binder.go:152`, assignment at `:292`). The
+`ENUM_MEMBER | CLASS_MEMBER` guard §45 quoted is `binder.rs`'s **computed-name**
+branch, the port of `bindAnonymousDeclaration` (`internal/binder/binder.go:1230`),
+and it governs `__computed` symbols only. Upstream leaves `Symbol.Parent` nil for
+locals as well (`declareModuleMember`, `internal/binder/binder.go:373`, passes
+`nil /*parent*/`) and recovers containers in the **checker** instead —
+`getContainersOfSymbol` (`internal/checker/symbolaccessibility.go:280`) walks
+*declarations* when `getParentOfSymbol` (`internal/checker/checker.go:14365`)
+returns nil. There was never a missing binder assignment to make.
+
+### What the 57% actually is, and it is not a naming defect
+
+**631 of the 751 — 84.0%, and 47.9% of the whole 1,318 — carry no symbol on the
+line at all**, so the chain construction never started. The type this port
+computes there is not a `Named { members }` or an `Anonymous { symbol }`; it is
+something with no symbol to climb from. That is a **type-level** coverage
+failure, not a binder one and not a renderer one, and no amount of chain work
+touches it.
+
+The next 104 are `R2`, and §31 already decided them: a chain rooted at a module
+symbol prints `import("<specifier>")`, which is `getSpecifierForModuleSymbol`
+(`internal/checker/nodebuilderimpl.go:1249`), **0% ported**. They must gap.
+
+So the item's reachable population is **567 lines, not 1,318** — the 514 + 53 on
+which the construction runs — and it was 567 before this cycle and will be 567
+after any binder change.
+
+### The control, and how much it proves
+
+`R4` reads **0**, and `docs/conventions.md` says that means nothing until a line
+can reach it. Half of it can: `R4`'s depth-limit arm fires on any chain deeper
+than eight, and none exists in this corpus. The other half — *a stop symbol with
+no declaration* — **cannot fire**, because every symbol the walk reaches was
+reached through one. It is recorded as half-vacuous rather than quoted as a clean
+partition.
+
+### How you would know this section is wrong
+
+- **`R0` is an artefact of the probe reading the wrong type.** It takes the
+  line's own expression type and looks for `Named { members }` / `Anonymous
+  { symbol }`. If a third `TypeData` variant carried a symbol, `R0` would be
+  inflated and the renderer's population understated. Not checked (`open`).
+- **`R1` is understated because the classifier stops at the first enclosing
+  container kind.** It walks outward from the declaration and returns on the
+  first `ModuleDeclaration` / class / interface / enum, so a symbol nested two
+  deep is still `R1`. It can only over-count `R1`, which is the direction that
+  would have *saved* the binder commit, and it read 13.
+- **The 631 are one case.** They are not: 200 cases, top-1 13.2%.
+
+---
+
+# Cycle 20b — the renderer, built and REFUSED by its own counterfactual
+
+`docs/conventions.md`: *prefer the counterfactual to the estimate when the change
+is cheap to make.* It was cheap. It was built, measured with
+`examples/casedelta.rs` per case, and **reverted**.
+
+## 49. Two variants, both negative, and neither is close
+
+`Checker::type_to_string_at` gained the chain: `symbol_chain_at`, the port of
+`getSymbolChain` (`internal/checker/nodebuilderimpl.go:1087`) with
+`getAccessibleSymbolChain`'s alias search **at every level**, terminating on
+`needsQualification` reduced to `Binder::resolve_name`. Gated so that it applies
+only where the printed form *is* the symbol's name — the same textual test that
+defined the 1,318-line population — because without that gate it climbs from an
+anonymous `__function` symbol to no parent and gaps every function and object
+type in the corpus. `a_lowercase_tag_name_that_resolves_keeps_its_own_type`
+caught that in the first test run.
+
+Baseline `1970f35`: **302,454 matched of 478,954.**
+
+| variant | matched | net | gained | **lost** | **cases regressed** | lost per gained |
+|---|---:|---:|---:|---:|---:|---:|
+| chain failure **gaps** (§46's rule as written) | 299,777 | **−2,677** | 525 in 96 cases | **3,202** | **753** | 6.1 |
+| chain failure keeps the baked text (additive only) | 301,419 | **−1,035** | 614 in 112 cases | **1,649** | **293** | 2.7 |
+
+**Both refused.** For scale: `bd tsr-6ph`'s two refused designs measured **2.1**
+and **2.5** wrong per right, and cycle 14's shipped arm lost **zero** lines across
+150 moved cases. The better of these two variants is worse than anything this
+workstream has ever refused.
+
+## 50. The 90.7% was true and it was not the number that decides
+
+§44 measured the construction at **514/567 = 90.7%** and read it against a bar of
+≥90%. That measurement is not withdrawn: it is accurate, it is reproducible, and
+`R1`/`R2` (§48) confirm its denominator.
+
+**It was taken over the 1,318 lines that were already wrong.** §35 said in advance
+what that leaves unmeasured — *"a change to how a named type is rendered touches
+every named type in the corpus, and what it does to the ~299,000 right lines is
+unmeasured"* — and named it "the risk that decides it". The counterfactual has now
+measured that population, and the answer is that the change **costs 2.7 right
+lines for every one it buys**, entirely outside the row it was scoped on.
+
+So the accuracy bar was met and the item still refuses, which is worth stating
+plainly: **≥90% on the target row is not a licence when the mechanism also fires
+on lines that are already right.** The bar was registered in §33 against the only
+two data points available, and it is a bar on the wrong quantity. The quantity
+that decides is the counterfactual, and no threshold over the already-wrong
+population is a substitute for it.
+
+## 51. The named cause: `resolve_name` cannot see a namespace's exports
+
+The losses are not spread. The largest is
+`conformance/parserRealSource10` at **−481**, and its baseline says what happened
+in one line:
+
+```
+namespace TypeScript {
+    export enum TokenID {
+>TokenID : TokenID
+```
+
+Upstream prints `TokenID` **unqualified**, because the reference is inside the
+namespace and `needsQualification` answers *no*. This port now prints
+`TypeScript.TokenID`, because its stop test — `Binder::resolve_name` — **fails to
+resolve `TokenID` from inside the namespace body**, so the walk concludes a
+qualifier is needed.
+
+The defect is upstream-anchored and exact. `resolveNameHelper`'s loop has a
+`KindModuleDeclaration` arm (`internal/binder/nameresolver.go:104`) that pulls the
+module symbol's **`Exports`** table into scope. `BindResult::resolve_name`
+(`crates/tsr-binder/src/lib.rs`) consults `locals` and a class/interface `members`
+table and **has no such arm**, so `export enum TokenID` — which the binder files
+into the namespace symbol's `exports`, correctly — is invisible to every name
+lookup from inside its own namespace.
+
+That is why the same shape appears again and again down the loss list:
+`parserRealSource*`, `privacy*`, `recursiveBaseCheck*`, `statics`, `enumMerging`,
+`constEnums` are all namespace-scoped declarations referenced from inside their
+own namespace.
+
+**This is the prerequisite the item actually has**, in place of the binder change
+§45 named. It is a `resolve_name` change, its blast radius is name resolution
+rather than rendering, and it is independently useful: a lookup that cannot see a
+namespace's exports is wrong everywhere, not only here. Filed on `bd tsr-awa`.
+
+### What this does not say
+
+It does **not** say the chain is right and only the stop test is wrong. With the
+stop test fixed, the qualifier would stop firing on the `parserRealSource10`
+family, and the remaining 1,168 lost lines are unattributed. Two candidates,
+unseparated:
+
+1. more of the same defect, in shapes the `namespace` arm does not cover
+   (`SourceFile` of an external module falls through to the same upstream arm);
+2. genuine over-qualification, where the name really does not resolve here and
+   upstream prints it bare anyway.
+
+**Nobody should build the chain again until (1) is fixed and the counterfactual
+re-run.** That is the order: fix `resolve_name`, measure the corpus, *then* re-run
+this variant. The measurement costs two `casedelta` runs and settles it.
+
+## 52. How you would know this section is wrong
+
+- **The revert is the wrong variant.** Both are recorded with their numbers; a
+  third — gap only when the chain root is a module, keep baked text otherwise —
+  was **not** measured, and is the obvious next thing to try after `resolve_name`
+  (`open`).
+- **`parserRealSource10` is one pathological file and the rest is different.** It
+  is 481 of 1,649, so 29%; the other 71% is 292 cases and the shape argument above
+  is drawn from their names, not from their lines. That inference is the weakest
+  claim here (`open`).
+- **The gate is doing the damage rather than the chain.** It cannot be: with the
+  gate removed the loss is strictly larger — that was the first test failure, and
+  it gaps types the gate never lets the chain see.

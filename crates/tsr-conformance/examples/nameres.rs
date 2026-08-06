@@ -326,6 +326,11 @@ struct Report {
     /// so this leg is measured before anything is built.
     chain_verdict: BTreeMap<&'static str, Tally>,
     chain_misses: BTreeMap<(String, String), usize>,
+    /// Cycle 20's registered bucket (§47). When the walk builds no chain it
+    /// stops at exactly one place — a symbol whose `parent` is `None` and whose
+    /// own name does not resolve from the reference site. This is *where*, and
+    /// the bar to build the binder commit sits on `R1`.
+    chain_stop: BTreeMap<&'static str, Tally>,
     /// Cycle 14: (form, naming verdict) -> lines, over every line whose answer
     /// is a module object's name.
     naming: BTreeMap<(Form, Naming), Tally>,
@@ -415,6 +420,9 @@ impl Report {
         }
         for (k, v) in &o.chain_verdict {
             self.chain_verdict.entry(k).or_default().merge(v);
+        }
+        for (k, v) in &o.chain_stop {
+            self.chain_stop.entry(k).or_default().merge(v);
         }
         for (k, v) in &o.chain_misses {
             *self.chain_misses.entry(k.clone()).or_default() += v;
@@ -752,6 +760,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                         report.missing_qualifier.entry(bucket).or_default().add(name, 1);
                         // The inferred leg. Take the line's own type, take its
                         // symbol, and build the chain the way a port would.
+                        let mut stop = ChainStop::NeverRan;
                         let predicted = map
                             .get(node_id)
                             .and_then(|node| tsr_ast::Expression::try_from(node).ok())
@@ -764,8 +773,12 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                                     }
                                     _ => None,
                                 }?;
-                                predicted_chain(bound, nodes, map, node_id, symbol)
+                                predicted_chain(bound, nodes, map, node_id, symbol, &mut stop)
                             });
+                        if predicted.is_none() {
+                            let reason = chain_stop_reason(bound, nodes, stop);
+                            report.chain_stop.entry(reason).or_default().add(name, 1);
+                        }
                         let verdict = match predicted {
                             None => "no chain could be built",
                             Some(ref chain) if chain == want => "chain matches the baseline",
@@ -2234,6 +2247,16 @@ fn print_wrong_cause(t: &Report) {
             tally.lines as f64 / chain_total.max(1) as f64 * 100.0
         );
     }
+    println!("   -- §47: WHERE the walk stopped, for the lines that built no chain --");
+    let stop_total: usize = t.chain_stop.values().map(|v| v.lines).sum();
+    for (reason, tally) in &t.chain_stop {
+        let (cases, top1, _) = tally.concentration();
+        println!(
+            "{:>7}  {:>5.1}%  {cases:>4} cases  top-1 {top1:>5.1}%  {reason}",
+            tally.lines,
+            tally.lines as f64 / stop_total.max(1) as f64 * 100.0
+        );
+    }
     println!("   -- where it differs (top 12) --");
     for ((want, got), n) in top(&t.chain_misses, 12) {
         println!("{n:>7}  baseline `{want}`  chain `{got}`");
@@ -2349,12 +2372,83 @@ fn alias_name_for<'a>(
     best.map(|(_, name)| name)
 }
 
+/// Why `predicted_chain` produced nothing, classified on the symbol the walk
+/// stopped at. §47 registers the bar on `R1` **before** these numbers existed,
+/// because `R1` is the only bucket a binder `Symbol::parent` change can move.
+///
+/// The four are mutually exclusive and total over stop symbols, which makes
+/// `R4` a control: every symbol the walk reaches was reached *through* a
+/// declaration, so a stop symbol with no declaration cannot occur, and `R4`
+/// counts only the syntactic shapes this classification failed to name.
+#[derive(Clone, Copy)]
+enum ChainStop {
+    /// The line carries no symbol, so the chain construction never ran. Not a
+    /// missing container; it is a different defect and gets its own bucket.
+    NeverRan,
+    /// Eight levels climbed with a parent still to go.
+    DepthLimit,
+    /// The walk reached this symbol and its `parent` was `None`.
+    At(tsr_binder::SymbolId),
+}
+
+fn chain_stop_reason(
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    stop: ChainStop,
+) -> &'static str {
+    let stop = match stop {
+        ChainStop::NeverRan => {
+            return "R0  no symbol on the line — the chain construction never ran";
+        }
+        ChainStop::DepthLimit => {
+            return "R4  the walk hit the depth limit with a parent still to climb";
+        }
+        ChainStop::At(symbol) => symbol,
+    };
+    let Some(&declaration) = bound.symbols().get(stop).declarations.first() else {
+        return "R4  CONTROL: the stop symbol has no declaration (must be 0)";
+    };
+    // The nearest enclosing declaration that OWNS a symbol table. `SourceFile`
+    // terminates the walk; a namespace, class, interface or enum body is a
+    // container upstream would have recorded as `Symbol.Parent`.
+    let mut current = declaration;
+    loop {
+        match nodes.kind(current) {
+            SyntaxKind::ModuleDeclaration => {
+                return "R1  inside a namespace body — a container the binder did not record";
+            }
+            SyntaxKind::ClassDeclaration
+            | SyntaxKind::ClassExpression
+            | SyntaxKind::InterfaceDeclaration
+            | SyntaxKind::EnumDeclaration => {
+                return "R1  inside a class/interface/enum body — a container the binder did not record";
+            }
+            SyntaxKind::SourceFile => break,
+            _ => {}
+        }
+        match nodes.parent(current) {
+            Some(parent) => current = parent,
+            None => return "R4  the declaration is not under a SourceFile",
+        }
+    }
+    // At a file's top level. Upstream's `Symbol.Parent` is the file's module
+    // symbol for an external module (`declareModuleMember`, `binder.go:373`)
+    // and nil for a script — and `getContainersOfSymbol`
+    // (`symbolaccessibility.go:280`) supplies a container only in the first
+    // case, where that container is a module and §31 requires the chain to GAP.
+    match bound.symbol_of(current) {
+        Some(_) => "R2  top level of an EXTERNAL MODULE — the chain root is a module, must GAP",
+        None => "R3  top level of a SCRIPT file — upstream builds no chain either",
+    }
+}
+
 fn predicted_chain(
     bound: &tsr_binder::BindResult<'_>,
     nodes: &tsr_ast::NodeTable,
     map: &tsr_ast::NodeMap<'_>,
     reference: NodeId,
     symbol: tsr_binder::SymbolId,
+    stop: &mut ChainStop,
 ) -> Option<String> {
     let mut parts: Vec<&str> = Vec::new();
     let mut current = Some(symbol);
@@ -2389,7 +2483,14 @@ fn predicted_chain(
             parts.reverse();
             return Some(parts.join("."));
         }
+        // The last symbol reached. If `entry.parent` is `None` the next
+        // iteration's `current?` ends the walk here, and this is the symbol
+        // §47's classification is taken on.
+        *stop = ChainStop::At(id);
         current = entry.parent;
     }
+    // Fell out of the loop with a parent still to climb: not a missing
+    // container, a depth limit. `chain_stop_reason` files that under `R4`.
+    *stop = ChainStop::DepthLimit;
     None
 }
