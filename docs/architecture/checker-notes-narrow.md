@@ -425,3 +425,19 @@ mechanism this session to overshoot its row (the narrowed reference feeds
 every consumer downstream of it). The three unported forms — `in`,
 `instanceof`, comparability — stay with `bd tsr-q9g`, re-sized per the
 refmatch split.
+
+### §6.1 — the `in` guard, registered before code
+
+Sized by the same two probes: **9 access lines**; the identifier population
+was not separately counted, and the floor is set from the access lines alone.
+Mechanism: `narrowTypeByInKeyword` (`flow.go:1001`), **known-property half
+only** — `filterType` by `isTypePresencePossible` (`:1024`: a non-optional
+property is present iff the guard holds, an optional one is possible either
+way, an index signature makes both possible, absence is possible only on the
+false branch). The unknown-property half intersects with `Record<X, unknown>`
+via the global `Record` alias — alias instantiation is unported and upstream
+itself returns `t` unchanged when the symbol is missing, so that half is a
+no-op here by upstream's own fallback.
+
+Bar: **net ≥ 5**; gained ≥ 3 × lost; 0 case regressions; Δwrong ≤ 0. Small
+population, same legs, same instruments, one pair.
