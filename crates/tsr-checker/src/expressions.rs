@@ -424,6 +424,22 @@ impl Checker<'_, '_> {
     fn check_this_expression(&mut self, node: NodeId) -> TypeId {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
+            // **Arm 1 shadows arm 2, and the order is upstream's.**
+            // `tryGetThisTypeAtEx` (`checker.go:12146`) asks
+            // `ast.IsFunctionLike(container)` *before* it asks
+            // `ast.IsClassLike(container.Parent)`, so a **method** carrying a
+            // `this` parameter answers the annotation and never reaches the
+            // class's `thisType`. Testing class-ness first is the natural port
+            // and it is backwards: it would print `this` where upstream prints
+            // the written annotation. A method is function-like.
+            //
+            // Falling through when there is no `this` parameter is also
+            // upstream's: `getThisTypeOfSignature` answers `nil`,
+            // `getContextualThisParameterType` is unported and answers nothing
+            // here, and the class arm below is what runs next.
+            if let Some(this_type) = self.this_parameter_type(id) {
+                return this_type;
+            }
             match self.nodes.kind(id) {
                 // An arrow function is transparent — it keeps the enclosing
                 // `this` — which is the same as walking past any other node, so
@@ -455,6 +471,64 @@ impl Checker<'_, '_> {
             current = self.nodes.parent(id);
         }
         self.intrinsics.error
+    }
+
+    /// The written annotation on a container's `this` parameter, if it has one.
+    ///
+    /// `ast.GetThisParameter` (`tryGetThisTypeAtEx`'s test, `checker.go:12146`)
+    /// reads the container's **first** parameter and asks whether it is named
+    /// `this`; the grammar allows it nowhere else.
+    ///
+    /// # An unannotated `this` parameter is deliberately not answered
+    ///
+    /// `function f(this) {}` would take its type from `getTypeOfSymbol`, which
+    /// answers the implicit `any` — and `docs/architecture/checker-notes-rank.md`
+    /// §6 records 21,685 gradient lines already banked on `any` with the computed
+    /// and the defaulted not yet separated. Adding to that column for a parameter
+    /// the source did not annotate is a claim, not a computation, so this returns
+    /// `None` and the line stays a gap. Three such parameters exist in the corpus
+    /// and `crates/tsr-conformance/examples/thisparam.rs` prints the count as a
+    /// control on the exclusion.
+    ///
+    /// An **arrow function is not a `this` container** —
+    /// `getThisContainer(node, includeArrowFunctions: false, …)`
+    /// (`checker.go:12188`) — so it is absent from this match and stays
+    /// transparent, which is the rule the caller's own comment already records.
+    fn this_parameter_type(&mut self, container: NodeId) -> Option<TypeId> {
+        // The map is a shared reference on the checker, so copying it out first
+        // ends the borrow of `self` before `get_type_from_type_node` needs
+        // `&mut self`.
+        let map = self.node_map;
+        let parameters = match map.get(container)? {
+            Node::FunctionDeclaration(node) => node.parameters,
+            Node::FunctionExpression(node) => node.parameters,
+            Node::MethodDeclaration(node) => node.parameters,
+            Node::GetAccessorDeclaration(node) => node.parameters,
+            Node::SetAccessorDeclaration(node) => node.parameters,
+            Node::ConstructorDeclaration(node) => node.parameters,
+            _ => return None,
+        };
+        let first = parameters.first()?;
+        if !matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        {
+            return None;
+        }
+        let annotation = first.r#type?;
+        // **An annotation this port cannot resolve falls through rather than
+        // answering `errorType`.** `explicitThis(this: this, m: number)` in
+        // `conformance/looseThisTypeInFunctions` is the case: the annotation is a
+        // `ThisTypeNode`, which `getTypeFromTypeNode` has an arm for and this
+        // port does not, and the class arm below answers `this` — **correctly**.
+        // Returning the gap here instead turned 4 right lines into gaps and one
+        // more in `compiler/unusedParametersThis`, measured, before this line
+        // existed.
+        //
+        // Falling through is also upstream's own shape: `getThisTypeOfSignature`
+        // answering `nil` is what sends `tryGetThisTypeAtEx` (`checker.go:12146`)
+        // on to `ast.IsClassLike(container.Parent)`. "We could not read the
+        // annotation" is this port's `nil`.
+        let resolved = self.get_type_from_type_node(annotation);
+        (resolved != self.intrinsics.error).then_some(resolved)
     }
 
     /// Ported from `Checker.checkConditionalExpression` (`checker.go:10934`).
