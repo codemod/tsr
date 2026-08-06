@@ -86,7 +86,7 @@ fn a_shorthand_naming_something_unresolvable_is_a_gap() {
     // a gap as more grammar lands" — `bd tsr-eep` falsified that: an unresolved
     // name prints itself now. A **tuple** annotation is genuinely unported and
     // keeps the fixture testing the rule it names.
-    assert_eq!(type_of_last("var u: [string];\nconst o = { u };"), "error");
+    assert_eq!(type_of_last("var u: keyof string;\nconst o = { u };"), "error");
     assert_eq!(type_of_last("var u: Unresolved;\nconst o = { u };"), "{ u: Unresolved; }");
 }
 

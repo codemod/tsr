@@ -117,7 +117,7 @@ fn a_constituent_this_port_cannot_type_makes_the_whole_intersection_a_gap() {
     // unresolved reference is no longer an example of "a type this port cannot
     // compute"; a **tuple** still is, and is used instead. The rule under test
     // is unchanged.
-    assert_eq!(with_two_interfaces("A & [string]"), "error");
+    assert_eq!(with_two_interfaces("A & keyof string"), "error");
     // These still gap, and that is the `bd tsr-eep` design rather than an
     // oversight: the minted type answers `Checker::is_error`, so every
     // *consumer* keeps propagating and only the line rendering the reference

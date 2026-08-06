@@ -58,8 +58,13 @@ fn an_assertion_resolves_its_target_through_the_full_type_node_machinery() {
     assert_eq!(type_of_initialiser(r#"const x = 1 as "a";"#), r#""a""#);
     // An asserted type this port cannot *compute* is a gap, not the operand
     // type — answering `1` here would be a wrong line dressed as a right one.
-    // A tuple is the example, being genuinely unported.
-    assert_eq!(type_of_initialiser("const x = 1 as [string];"), "error");
+    // A tuple was the example until the plain form was ported
+    // (`docs/architecture/checker-notes-tuple.md`); it now computes and the
+    // assertion answers it, which is upstream's line. `keyof` is the example
+    // that still exercises the rule, and the property under test — that the
+    // answer is never the *operand* type — is what both assertions pin.
+    assert_eq!(type_of_initialiser("const x = 1 as [string];"), "[string]");
+    assert_eq!(type_of_initialiser("const x = 1 as keyof string;"), "error");
     // An **unresolved** name is a different case since `bd tsr-eep`: upstream
     // reports `Cannot find name` and prints the name, so the assertion answers
     // `Unresolvable`. The thing this line guards — that the answer is never the

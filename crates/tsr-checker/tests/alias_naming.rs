@@ -114,7 +114,22 @@ fn naming_pays_only_where_the_body_computes() {
     // Alias naming has nothing to name when the body gaps, so these are
     // unchanged by this slice. They are the frontier behind it, and the reason
     // the population number is not the payoff number.
-    assert_eq!(type_of_last_annotation("type X = { a: [string] };\nvar v: X[];"), "error");
+    // `type X = { a: [string] }` was the last inhabitant of this test and it
+    // has now moved for the *same reason* the note below records: the body no
+    // longer gaps, because a plain tuple computes
+    // (`docs/architecture/checker-notes-tuple.md`). Upstream prints `X[]`
+    // here — the alias body is a perfectly good type and always was.
+    //
+    // **Twice now this test's frontier has advanced rather than the test being
+    // wrong**, which is what it was written to detect, so the assertions are
+    // flipped and kept rather than deleted. What is left behind it is a body
+    // that gaps for a reason still unported — a mapped or conditional type.
+    assert_eq!(type_of_last_annotation("type X = { a: [string] };\nvar v: X[];"), "X[]");
+    assert_eq!(
+        type_of_last_annotation("type X = { a: keyof string };\nvar v: X[];"),
+        "error",
+        "`keyof` is unported, so this body still gaps and the alias has nothing to name"
+    );
     // `type X = { a: Nope }` used to be here asserting `error`, and it now
     // computes: an **unresolved** type reference prints the name that was
     // written (`bd tsr-eep`, `Checker::unresolved_type_reference`), so the body

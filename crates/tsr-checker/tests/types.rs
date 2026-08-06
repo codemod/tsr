@@ -316,7 +316,10 @@ fn an_unported_type_node_is_an_error_type_not_an_any() {
     // first `interface I {}`, then `{ a: string }`. The *assertion* has never
     // changed, because what it tests is the discipline and not the form.
     let arena = Arena::new();
-    let source = "declare const x: [string, number];";
+    // `keyof` rather than a tuple: the plain tuple form is ported
+    // (`docs/architecture/checker-notes-tuple.md`) and computes a real type,
+    // so it no longer demonstrates the property this test is named for.
+    let source = "declare const x: keyof string;";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
         parsed.source_file,
@@ -763,7 +766,7 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     );
     assert_eq!(type_of_declaration("declare const x: { [k: symbol]: string };", "x"), "error");
     // A member whose own type is a gap takes the whole literal with it.
-    assert_eq!(type_of_declaration("declare const x: { a: [string] };", "x"), "error");
+    assert_eq!(type_of_declaration("declare const x: { a: keyof string };", "x"), "error");
 }
 
 /// Generic references (`bd tsr-4sc.7`, third slice).
@@ -804,7 +807,10 @@ fn the_arity_of_a_generic_reference_is_checked() {
 fn a_gap_in_a_type_argument_is_a_gap_in_the_reference() {
     // `C<Unported>` is not `C<any>`. Printing the reference with a guessed
     // argument would turn a missing line into a wrong one.
-    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C<[string]>;", "x"), "error");
+    assert_eq!(
+        type_of_declaration("class C<T> {}\ndeclare const x: C<keyof string>;", "x"),
+        "error"
+    );
 }
 
 #[test]

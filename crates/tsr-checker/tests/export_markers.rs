@@ -80,8 +80,12 @@ fn the_marker_answers_the_same_as_the_unexported_declaration() {
 #[test]
 fn an_exported_declaration_whose_own_type_is_unported_is_still_a_gap() {
     // The marker inherits the export symbol's answer, gap included — it must not
-    // manufacture one. A tuple annotation is unported, so this stays `error`.
-    assert_eq!(type_of_last("export var t: [number, string];\nvar q = t;"), "error");
+    // manufacture one. The example was a tuple annotation until the plain form
+    // was ported (`docs/architecture/checker-notes-tuple.md`); `keyof` is
+    // unported and carries the test now. The positive control sits beside it,
+    // so this measures *inheritance* rather than "everything exported gaps".
+    assert_eq!(type_of_last("export var t: keyof string;\nvar q = t;"), "error");
+    assert_eq!(type_of_last("export var t: [number, string];\nvar q = t;"), "[number, string]");
 }
 
 #[test]

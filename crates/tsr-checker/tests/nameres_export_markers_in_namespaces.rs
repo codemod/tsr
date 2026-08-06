@@ -108,11 +108,18 @@ fn exporting_from_a_namespace_does_not_change_the_type_of_a_reference() {
 
 #[test]
 fn a_namespace_marker_whose_own_type_is_unported_is_still_a_gap() {
-    // The link must inherit the export symbol's answer, gap included. A tuple
-    // annotation is unported, so this stays `error` rather than becoming
-    // something manufactured on the way through.
+    // The link must inherit the export symbol's answer, gap included, rather
+    // than manufacturing one on the way through. The example was a tuple
+    // annotation until the plain form was ported
+    // (`docs/architecture/checker-notes-tuple.md`); `keyof` is unported and
+    // carries the test now, with the tuple kept beside it as the positive
+    // control so this measures inheritance in *both* directions.
+    assert_eq!(
+        type_inside_namespace("namespace N { export var t: keyof string; export var q = t; }"),
+        "error"
+    );
     assert_eq!(
         type_inside_namespace("namespace N { export var t: [number, string]; export var q = t; }"),
-        "error"
+        "[number, string]"
     );
 }

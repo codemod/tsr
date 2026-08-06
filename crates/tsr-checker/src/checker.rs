@@ -186,6 +186,18 @@ pub struct Checker<'a, 'n> {
     /// **on**; each is a separately measurable change and `bd tsr-e10` names
     /// the optionality one.
     pub(crate) strict_null_checks: bool,
+    /// `(element types, readonly) -> the tuple type`.
+    ///
+    /// Upstream interns a tuple through `createTypeReference` on a target
+    /// synthesised by `getTupleTargetType` (`checker.go:24148`), so identity
+    /// falls out of the reference machinery. There is no target symbol here —
+    /// the plain tuple arm builds a `TypeData::Named` directly — so the intern
+    /// key is the element list itself. Identity matters for the same reason it
+    /// did for `C<number>`: a union of two spellings of `[number, string]`
+    /// must collapse to one constituent. `readonly` is part of the key because
+    /// `readonly [A]` and `[A]` are distinct types upstream, built from
+    /// different targets.
+    pub(crate) tuple_types: FxHashMap<(Vec<TypeId>, bool), TypeId>,
     /// `the baked signature type -> the signatures its text was rendered from`.
     ///
     /// The sibling of [`Checker::type_reference_targets`] for function-shaped
@@ -349,6 +361,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,
+            tuple_types: FxHashMap::default(),
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),

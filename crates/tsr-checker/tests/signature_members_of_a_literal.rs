@@ -130,8 +130,8 @@ fn a_literal_with_a_member_this_port_cannot_render_still_gaps() {
     // `unknownThing` was the gap here until `bd tsr-eep` made an unresolved
     // name print itself. A **tuple** return is genuinely unported and keeps the
     // all-or-nothing rule under test.
-    assert_eq!(type_of_last_annotation("var x: { new (): [string] };"), "error");
-    assert_eq!(type_of_last_annotation("var x: { (): [string] };"), "error");
+    assert_eq!(type_of_last_annotation("var x: { new (): keyof string };"), "error");
+    assert_eq!(type_of_last_annotation("var x: { (): keyof string };"), "error");
     assert_eq!(
         type_of_last_annotation("var x: { new (): unknownThing };"),
         "{ new (): unknownThing; }"

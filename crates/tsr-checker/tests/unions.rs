@@ -209,7 +209,10 @@ fn a_constituent_this_port_cannot_type_makes_the_whole_union_a_gap() {
     // `A | Unported` is not `A | any`. This is upstream's own reduction rather
     // than a deviation: `errorType` carries `TypeFlagsAny`, and a union that
     // includes an error answers `errorType` (`checker.go:25659`).
-    with_checker("var x: string | [number, number];", |checker, _bound, statements| {
+    // `keyof` rather than a tuple: plain tuples are ported and compute
+    // (`docs/architecture/checker-notes-tuple.md`), so one no longer stands in
+    // for "a constituent this port cannot type".
+    with_checker("var x: string | keyof string;", |checker, _bound, statements| {
         let id = annotation_type(checker, statements, 0);
         assert_eq!(id, checker.intrinsics().error, "an unported constituent must gap the union");
         assert_ne!(id, checker.intrinsics().any, "and must not be anyType");

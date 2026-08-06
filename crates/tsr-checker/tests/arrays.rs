@@ -149,16 +149,33 @@ fn an_element_this_port_cannot_type_makes_the_array_a_gap() {
     // element types, and `Unresolvable[]` is the right answer. A *tuple* is
     // still genuinely unported and still gaps, which is what this test is
     // about.
-    assert_eq!(type_of_annotation("var x: [string][];"), "error");
+    // `[string][]` moved for the same reason a second time: a plain tuple now
+    // computes (`checker-notes-tuple.md`), so the element types and the array
+    // is `[string][]` — which is upstream's line. `keyof` is the element that
+    // still exercises the rule.
+    assert_eq!(type_of_annotation("var x: (keyof string)[];"), "error");
+    assert_eq!(type_of_annotation("var x: [string][];"), "[string][]");
     assert_eq!(type_of_annotation("var x: Unresolvable[];"), "Unresolvable[]");
 }
 
 #[test]
-fn a_tuple_is_a_gap_rather_than_a_plausible_array() {
-    // Upstream reaches tuples through the same function with `globalTupleType`
-    // and a per-element flags model. Answering `string[]` for `[string, number]`
-    // would be a wrong line dressed as a right one. `bd tsr-cqi`.
-    assert_eq!(type_of_annotation("var x: [string, number];"), "error");
+fn a_tuple_is_not_answered_as_a_plausible_array() {
+    // This test was `a_tuple_is_a_gap_rather_than_a_plausible_array` and
+    // asserted `error`, on the reasoning that answering `string[]` for
+    // `[string, number]` would be a wrong line dressed as a right one. **That
+    // reasoning is intact and is exactly why the tuple arm prints the tuple
+    // rather than an array** — what changed is that the plain form is now
+    // ported (`docs/architecture/checker-notes-tuple.md`), so the honest
+    // answer moved from a gap to the real type.
+    //
+    // The property the test is named for is unchanged and is what these
+    // assertions pin: a tuple must never render as an array.
+    assert_eq!(type_of_annotation("var x: [string, number];"), "[string, number]");
+    assert_eq!(type_of_annotation("var x: [string, string];"), "[string, string]");
+    // The per-element flags model is still unported, and refuses whole rather
+    // than approximating — `[string, ...number[]]` as `[string, number[]]`
+    // would be the wrong line this test was written about.
+    assert_eq!(type_of_annotation("var x: [string, ...number[]];"), "error");
 }
 
 #[test]

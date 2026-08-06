@@ -92,6 +92,6 @@ fn a_member_whose_initialiser_this_port_cannot_type_is_still_a_gap() {
     // lands" — which `bd tsr-eep` falsified: an unresolved name now prints
     // itself, and the value flows through. A **tuple** annotation is genuinely
     // unported and keeps the fixture doing what it was written to do.
-    assert_eq!(type_of_last("var u: [string];\nvar o = { a: u };\nvar x = o.a;"), "error");
+    assert_eq!(type_of_last("var u: keyof string;\nvar o = { a: u };\nvar x = o.a;"), "error");
     assert_eq!(type_of_last("var u: Unresolved;\nvar o = { a: u };\nvar x = o.a;"), "Unresolved");
 }

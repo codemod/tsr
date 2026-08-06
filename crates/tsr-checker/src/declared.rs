@@ -60,6 +60,7 @@ impl<'a> Checker<'a, '_> {
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
             TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
+            TypeNode::TupleTypeNode(node) => self.get_type_from_tuple_type_node(node),
             TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
             // `getTypeFromTypeOperatorNode` (`checker.go:22960`). Only the
             // `readonly` arm: it is transparent — the readonly-ness is carried by
@@ -393,12 +394,17 @@ impl<'a> Checker<'a, '_> {
     /// distinct types that happen to share an element, and the operator node
     /// itself is transparent.
     ///
-    /// # Tuples are a gap, deliberately
+    /// # Tuples are the sibling arm
     ///
     /// Upstream reaches them through this same function, with `globalTupleType`
-    /// and a per-element flags model (`optional`, `rest`, `variadic`) that has no
-    /// counterpart here. `bd tsr-p3o`. The array half is where the 11,784 lines
-    /// are; a half-ported tuple would answer plausible wrong lines for the rest.
+    /// and a per-element flags model (`optional`, `rest`, `variadic`). That
+    /// model is still unported and still refuses — see
+    /// [`Checker::get_type_from_tuple_type_node`], which gaps on every element
+    /// carrying one. This comment used to say tuples were a gap outright, on
+    /// the grounds that *"a half-ported tuple would answer plausible wrong
+    /// lines for the rest"*; that argument is against porting the modifiers and
+    /// not against the plain form, which is **74.9%** of every tuple the
+    /// baselines print (`docs/architecture/checker-notes-tuple.md` §2).
     fn get_type_from_array_type_node(&mut self, node: &tsr_ast::ArrayTypeNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
         let Some(element_node) = node.element_type else { return error };
@@ -415,6 +421,85 @@ impl<'a> Checker<'a, '_> {
         let target = if readonly { "ReadonlyArray" } else { "Array" };
         let Some(target) = self.global_type_symbol(target) else { return error };
         self.create_type_reference(target, vec![element])
+    }
+
+    /// `Checker.getTypeFromArrayOrTupleTypeNode` (`checker.go:24115`), **tuple
+    /// half, plain elements only**.
+    ///
+    /// # What "plain" means, and why the rest refuses
+    ///
+    /// Upstream builds a tuple as a reference to a target synthesised from a
+    /// per-element flags model — `optional`, `rest`, `variadic`
+    /// (`getArrayOrTupleTargetType`, `checker.go:24148`). None of that model
+    /// exists here, so an element written `a?: T`, `...T` or `name: T` gaps the
+    /// **whole tuple** rather than being approximated: `[string, ...number[]]`
+    /// rendered as `[string, number[]]` would be a wrong line where there is a
+    /// missing one today.
+    ///
+    /// The plain form is separable and is most of the population — 966 of the
+    /// 1,289 tuples the baselines print, 74.9%
+    /// (`docs/architecture/checker-notes-tuple.md`). Same shape as `&&`
+    /// separating from `||`: the machinery this refuses is real and it guards a
+    /// minority.
+    ///
+    /// # It carries no members, and that is the safety property
+    ///
+    /// Upstream's tuple has numeric properties, a `length`, and the `Array`
+    /// interface behind it. This type has none, so `t[0]`, `t.length` and
+    /// destructuring stay exactly the gaps they are today. Only the line that
+    /// *renders* the tuple can move, which is what makes the change able to
+    /// gain and almost unable to lose — the same argument
+    /// [`Checker::unresolved_type_reference`] makes for its own row.
+    ///
+    /// # Interned on the element list
+    ///
+    /// `[number, string]` written twice must be one type, or a union of the two
+    /// spellings prints both. Upstream gets that from `createTypeReference` on
+    /// the tuple target; there is no target symbol here, so the key is the
+    /// element list itself — see [`Checker::tuple_types`](crate::checker).
+    fn get_type_from_tuple_type_node(&mut self, node: &tsr_ast::TupleTypeNode<'a>) -> TypeId {
+        let error = self.intrinsics.error;
+        let mut elements = Vec::with_capacity(node.elements.len());
+        for element in node.elements {
+            // The modifier forms, refused whole. `NamedTupleMember` carries the
+            // label *and* may carry `?`/`...` itself, so it is refused here
+            // rather than unwrapped to its type — the label is part of what
+            // upstream prints (`[first: number, second: string]`).
+            if matches!(
+                element,
+                TypeNode::NamedTupleMember(_)
+                    | TypeNode::OptionalTypeNode(_)
+                    | TypeNode::RestTypeNode(_)
+            ) {
+                return error;
+            }
+            let resolved = self.get_type_from_type_node(*element);
+            // A gap in an element is a gap in the tuple, the rule the array arm
+            // and `get_instantiated_type_reference` both use.
+            if resolved == error {
+                return error;
+            }
+            elements.push(resolved);
+        }
+        let readonly = node
+            .node_id
+            .and_then(|id| self.nodes.parent(id))
+            .is_some_and(|parent| self.is_readonly_type_operator(parent));
+        if let Some(&cached) = self.tuple_types.get(&(elements.clone(), readonly)) {
+            return cached;
+        }
+        let printed = elements
+            .iter()
+            .map(|&element| self.type_to_string(element))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // `[]` for the empty tuple, which is what the baselines record — 90
+        // instances, the second most common tuple text in the corpus.
+        let printed =
+            if readonly { format!("readonly [{printed}]") } else { format!("[{printed}]") };
+        let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
+        self.tuple_types.insert((elements, readonly), id);
+        id
     }
 
     /// `isReadonlyTypeOperator` (`checker.go:24160`).

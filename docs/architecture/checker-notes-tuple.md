@@ -99,3 +99,70 @@ has no type" lines a resolved tuple annotation unblocks.
 **How this would be shown wrong:** if the gain is concentrated in
 `compiler/genericDefaults` (the 23.4% top case), the row was never the
 173-case population measured here.
+
+---
+
+## 5. The result, scored against §4's bar
+
+```
+  net +1,227 | 328,965 -> 330,192 | 68.68% -> 68.94%
+  gained 1,227 in 147 cases | lost 0 | 12 finished, 0 regressed
+  gap 99,182 -> 97,665  =>  Δwrong = +290, bound 409
+```
+
+All four legs pass, and one of them **vacuously**, which is worth saying rather
+than banking: *lost ≤ 30* had nothing to test, because zero lines were lost.
+That was foreseeable from §3's safety property — today the tuple node answers
+`errorType` and every consumer of it gaps, so the only lines that could move
+were the ones rendering the tuple. The net floor and the Δwrong leg are what
+actually did the work, the same reading the `&&` build had to make.
+
+**The falsifier did not fire.** It named `compiler/genericDefaults`, the row's
+23.4% top case; it took **263 of 1,227, or 21.4%** — slightly *less* than its
+share of the row, over 147 gaining cases. The gain is distributed as the
+population was.
+
+**KEEP.**
+
+### The population was under-counted, and by a factor worth recording
+
+§4 predicted +800 to +2,000 from a row of 2,141 gap lines rooted at a tuple
+node, of which ~75% were expected to be plain — about 1,600 as a point
+estimate. The gap fell by **1,517** and the gradient rose by **1,227**, so the
+row itself came in roughly where predicted; what the prediction did not carry
+is that a resolved tuple *annotation* unblocks lines elsewhere. 12 whole cases
+finished, which a 1,600-line row of renderings alone would not do.
+
+### Ten tests changed, and none of them was wrong
+
+Ten fixtures across nine files used a tuple as their stand-in for *"a type node
+this port cannot compute"* — `export var t: [number, string]` for export
+markers, `A & [string]` for intersections, `string | [number, number]` for
+unions, and so on. Every one of them was testing a real property that is still
+true; the tuple was merely the cheapest unported thing to hand when they were
+written. They now use `keyof`, and where the flipped answer is itself
+interesting (`export markers`, the namespace marker, `arrays.rs`) the tuple
+assertion is **kept beside it as the positive control**, so the test measures
+inheritance in both directions rather than only the gap.
+
+> **A test that reaches for "something unported" as a fixture acquires a
+> dependency on that thing staying unported.** Ten did, and they all came due
+> in one commit. The cheap prophylactic is the one applied here on the way
+> out: assert the *pair* — the unported case and the ported one — so the test
+> keeps discriminating when the frontier moves instead of merely going red.
+
+`tests/alias_naming.rs` had already recorded this happening once before, when
+`bd tsr-eep` made unresolved names print; it is now the second entry in the
+same file. That is what makes the pattern worth a rule rather than a note.
+
+### And one expectation written from intuition was wrong, again
+
+`a_gap_in_an_element_gaps_the_tuple` was first written asserting
+`[Unresolved, string]` is `error`. It is not: `bd tsr-eep` mints a type that
+prints the written name, because upstream reports `TS2304` **and renders the
+name**, so `[Unresolved, string]` is upstream's line too. The array arm has
+behaved this way since `tsr-eep` landed and its own test says so.
+
+That is the fifth expectation this project has written from intuition and had
+corrected by the code — and the third that was wrong in the *pessimistic*
+direction, expecting a gap where the port already answers.

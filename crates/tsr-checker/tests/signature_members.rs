@@ -82,7 +82,7 @@ fn a_member_this_port_still_cannot_render_gaps_the_whole_literal() {
     // unresolved reference is no longer an example of "a type this port cannot
     // compute"; a **tuple** still is, and is used instead. The rule under test
     // is unchanged.
-    assert_eq!(type_of_annotation("var x: { m(a: [string]): void };"), "error");
+    assert_eq!(type_of_annotation("var x: { m(a: keyof string): void };"), "error");
 }
 
 #[test]

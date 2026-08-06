@@ -129,7 +129,7 @@ fn a_parameter_whose_type_is_a_gap_makes_the_function_type_a_gap() {
     // unresolved reference is no longer an example of "a type this port cannot
     // compute"; a **tuple** still is, and is used instead. The rule under test
     // is unchanged.
-    assert_eq!(type_of_function_annotation("let f: (x: [string]) => void;"), "error");
+    assert_eq!(type_of_function_annotation("let f: (x: keyof string) => void;"), "error");
     assert_eq!(type_of_function_annotation("let f: (x: Nope) => void;"), "(x: Nope) => void");
 }
 
@@ -141,7 +141,7 @@ fn a_return_type_that_is_a_gap_makes_the_function_type_a_gap() {
     // unresolved reference is no longer an example of "a type this port cannot
     // compute"; a **tuple** still is, and is used instead. The rule under test
     // is unchanged.
-    assert_eq!(type_of_function_annotation("let f: (x: number) => [string];"), "error");
+    assert_eq!(type_of_function_annotation("let f: (x: number) => keyof string;"), "error");
     assert_eq!(type_of_function_annotation("let f: (x: number) => Nope;"), "(x: number) => Nope");
 }
 
