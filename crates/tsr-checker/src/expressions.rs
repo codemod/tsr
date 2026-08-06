@@ -788,6 +788,22 @@ impl Checker<'_, '_> {
         // the callee's syntax is what makes `new (C)()` and an aliased class
         // work the same way.
         let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data else {
+            // A constructor **interface** — `DateConstructor`, `ErrorConstructor`
+            // — whose construct signatures live in its members rather than in
+            // its symbol's declarations (`bd tsr-4sa`,
+            // `docs/architecture/checker-notes-namedcallee.md`). Written type
+            // arguments are not handled here: an interface's construct
+            // signature that takes them is generic, and
+            // `get_signature_of_named_type` declines a generic candidate.
+            if node.type_arguments.is_empty() {
+                if let Some(signature) = self.get_signature_of_named_type(
+                    callee_type,
+                    crate::signatures::SignatureKind::Construct,
+                ) {
+                    bump(&COUNTERS.new_resolved);
+                    return signature.r#type;
+                }
+            }
             bump(&COUNTERS.new_callee_not_anonymous);
             return error;
         };

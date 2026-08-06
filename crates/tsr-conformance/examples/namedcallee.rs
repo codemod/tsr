@@ -222,7 +222,7 @@ struct Candidate<'a> {
     r#type: Option<tsr_ast::TypeNode<'a>>,
 }
 
-fn candidates_of<'a>(element: TypeElement<'a>, construct: bool) -> Option<Candidate<'a>> {
+fn candidates_of(element: TypeElement<'_>, construct: bool) -> Option<Candidate<'_>> {
     match (element, construct) {
         (TypeElement::ConstructSignatureDeclaration(node), true) => {
             Some(Candidate { generic: !node.type_parameters.is_empty(), r#type: node.r#type })

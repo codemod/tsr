@@ -98,14 +98,30 @@ fn an_abstract_class_is_a_gap_which_is_also_upstreams_answer() {
 
 #[test]
 fn new_on_a_non_class_callee_is_a_gap() {
-    // A function callee has a construct signature upstream and this port has no
-    // construct signatures at all, so it must not guess. `new f()` upstream is
-    // the function's instance type, which is emphatically not `f`'s return type.
+    // A function callee has a construct signature upstream and this port does
+    // not build one for a function symbol, so it must not guess. `new f()`
+    // upstream is the function's instance type, which is emphatically not `f`'s
+    // return type.
     assert_eq!(type_of_last("function f() {}\nconst x = new f();"), "error");
-    // An interface with a construct signature member is the shape `new Date()`
-    // really takes, and it needs real construct signatures.
+    // **A twelfth-and-then-some stand-in fixture came due.** The second half of
+    // this test used to assert that `interface Ctor { new (): string; }` was a
+    // gap "because it needs real construct signatures". It has them now
+    // (`bd tsr-4sa`,
+    // `docs/architecture/checker-notes-namedcallee.md`), so the assertion is
+    // rewritten as the **pair** rather than flipped: the plain construct
+    // signature answers, and the generic one beside it still gaps because that
+    // is inference.
     assert_eq!(
         type_of_last("interface Ctor { new (): string; }\nvar C: Ctor;\nconst x = new C();"),
+        "string"
+    );
+    assert_eq!(
+        type_of_last(
+            "interface Box<T> { v: T; }\n\
+             interface Ctor { new <T>(v: T): Box<T>; }\n\
+             var C: Ctor;\n\
+             const x = new C(1);"
+        ),
         "error"
     );
 }

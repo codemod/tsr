@@ -319,3 +319,85 @@ the call sites where the position is known.
 Each refusal keeps its `bd` reference so the lines come back when the blocking
 subsystem lands: inference (`bd tsr-4sa`'s largest gap column, 926 lines),
 qualified naming (`bd tsr-93f`), base-type members, and unique symbols.
+
+---
+
+## 8. §6 scored — all four legs pass, and the falsifier does not fire
+
+Measured over the pair (`casedelta` / `wrongdelta`, before = the state at
+`fad7029`, the bar's own commit, by `git stash` over the three checker files).
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +450 | **+1,018** over 238 cases | pass |
+| 2 | lost ≤ 10, every loss diagnosed | **0 lines, 0 cases** | pass |
+| 3 | regressions < finished | **0 < 34** | pass |
+| 4 | new wrong ≤ 40 **absolute** | **8** (and 7 pre-existing wrong lines fixed; TOTAL 42,417 → 42,418, **Δ +1**) | pass |
+
+**Falsifier did not fire.** Top gaining case `conformance/uniqueSymbolsDeclarations`
+at 54 of 1,018 = **5.3%**, against the 40% line; the top two are 108 = 10.6%.
+
+Conversion is **163% of the forecast 625**, and §3 named why in advance: the
+forecast covers own-node and direct-initialiser lines, and everything read off a
+variable those lines declare is cascade. That is the sixth build in three
+sessions to exceed its sized row for this reason.
+
+**KEEP.**
+
+### 8.1 The residual, read even though leg 4 passed by 5×
+
+`docs/conventions.md`: *"a residual that passes the ratio leg is still
+evidence"*. All eight, verbatim, with their owners:
+
+```
+  1  compiler/classUpdateTests                                 want void                 got any
+  1  compiler/exportAssignValueAndType                         want server               got Date
+  1  compiler/objectFromEntries                                want [symbol, string]     got (string | symbol)[]
+  1  compiler/objectFromEntries                                want [symbol, string][]   got (string | symbol)[][]
+  1  conformance/dependentDestructuredVariablesFromNestedPatterns  want [undefined, Error]  got (Error | undefined)[]
+  1  conformance/for-of44                                      want [number, symbol]     got (number | symbol)[]
+  2  conformance/functionConstraintSatisfaction2               want (x: string) => string  got Function
+```
+
+- **The first two were named in §5 before the build ran**, and they arrived
+  exactly as written. Nothing else in the forecast's own population appeared.
+- **The four tuple lines belong to tuple inference** (`bd tsr-84iz`). They are
+  array literals and destructured sources whose *elements* now type, so the line
+  moved from `error` to an element **union** where upstream infers a tuple. This
+  arm exposed them; it did not mint the rule that widens them. The same family
+  is `STATUS.md` §5's *"destructuring an array literal without the pattern's
+  contextual type"* refusal, arriving through a new door.
+- **The two `functionConstraintSatisfaction2` lines belong to inference.**
+  `foo2(new Function())` now has a typed argument, so `T` infers as `Function`
+  where upstream infers from the type parameter's **constraint**
+  (`>foo2(new Function()) : (x: string) => string`, baseline line 58).
+  Constraint-directed inference is `inferTypes`, `callgate.rs`'s largest gate.
+
+None of the eight is in the two families this page was written to refuse: no
+line prints `symbol` for `unique symbol`, and no line prints an uninstantiated
+generic. The refusals held.
+
+### 8.2 Seven pre-existing wrong lines were fixed, six of them by a refusal
+
+```
+  3  compiler/doYouNeedToChangeYourTargetLibraryES2015   want unique symbol  was symbol
+  3  compiler/objectLiteralPropertyImplicitlyAny        want unique symbol  was symbol
+  1  compiler/getterSetterSubtypeAssignment             want Number(this._x) : number  was : error
+```
+
+The six `unique symbol` lines were **already wrong before this build** — some
+other path was answering `symbol` in a valid ES symbol declaration — and the
+positional refusal in `check_call_expression` catches them too, because it is
+written at the call's return rather than inside the `Named` arm. That is worth
+recording as a design consequence: a refusal placed where upstream places its
+*answer* fixes lines the item was not aimed at, while one placed inside the new
+arm would not have.
+
+### 8.3 A stand-in fixture came due, and was rewritten as a pair
+
+`tests/new_expression.rs`'s `new_on_a_non_class_callee_is_a_gap` asserted that
+`interface Ctor { new (): string; }` gaps, "because it needs real construct
+signatures". It has them now. Rewritten as the pair — the plain construct
+signature answers `string`, the generic one beside it still gaps — so it keeps
+discriminating rather than merely flipping. That is the standing prophylactic
+from `checker-notes-tuple.md`.
