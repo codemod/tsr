@@ -2036,3 +2036,66 @@ number changed. Here it did not change the verdict at all — and the only way t
 know that was to re-take it. **A denominator that contains an unreachable
 population makes a rate uninterpretable even when the decision it drove was
 correct.**
+
+### An accuracy bar on the target row is not a licence when the mechanism fires wider
+
+The strongest single result of the cycle, and it cost two reverted builds to get.
+
+`tsr-awa` was measured, refused, re-measured and finally **licensed** on a bar
+registered in advance: the qualified-name chain reproduces upstream's answer on
+**90.7%** of the population where it can run (514 of 567), against a **≥90%**
+bar. Every prior variant had scored 31% or 72%. The mechanism was right.
+
+Built and counterfactual-measured with `casedelta`, per case:
+
+| variant | net | gained | **lost** | **cases regressed** |
+|---|---:|---:|---:|---:|
+| chain failure **gaps** | **−2,677** | 525 | 3,202 | **753** |
+| chain failure keeps the baked text | **−1,035** | 614 | 1,649 | **293** |
+
+Both reverted. The better of the two is **2.7 lost per gained** — worse than the
+2.1 and 2.5 that got two earlier designs refused.
+
+**The 90.7% is not withdrawn and was never wrong.** It was measured over the
+1,318 lines that are *already wrong*, where the row cannot lose. The mechanism
+does not confine itself to that row: **rendering touches every named type**, and
+the ~299,000 lines that are already **right** were named as the deciding risk
+before the build and had never been measured.
+
+> **A rate measured on the target row licenses nothing unless the mechanism only
+> fires on the target row.** Where it fires wider, the bar belongs on the wider
+> population — and if that population is mostly correct answers, the arithmetic is
+> brutal: 3% collateral damage across 299,000 right lines outweighs a 90% hit rate
+> across 1,318 wrong ones by an order of magnitude.
+
+#### Why the usual checks did not catch it
+
+- *Spellability as an exact match* passed — the chain's output is a dotted name
+  this port renders fine.
+- *Half a mechanism renders the collateral of the half you built* was applied,
+  correctly, and pointed at the module-specifier generator. It found a real
+  hazard and not this one.
+- *Size the conversion, not the population* was honoured: 1,318 → 567 → 514.
+
+All three reason about **what the change is trying to fix**. None asks *what else
+the changed code runs on*. The check that catches it is one question — **which
+call sites does this code path serve, and how many of those are currently
+right?** — and the answer is available from a `grep` before any build.
+
+#### And the prerequisite everyone inherited was false
+
+The same agent registered, before instrumenting:
+
+> A prerequisite inherited in a handover is a hypothesis about the code, and it is
+> checked by grepping **every assignment** to the field, not the one guard that
+> mentions it.
+
+Two prior agents and this document had recorded that `Symbol::parent` was
+populated for `ENUM_MEMBER | CLASS_MEMBER` only, making 57% of failures a binder
+item. **It is populated for every Members/Exports/GlobalExports symbol**; the
+guard everyone read is the *computed-name* branch. The binder item did not exist,
+and 631 of the 751 "no chain" lines carry no symbol at all — a type-level
+coverage failure.
+
+**A prerequisite that has been quoted three times is not thereby established.**
+The grep costs one command; the handover cost two agents a planning cycle each.
