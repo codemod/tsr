@@ -2099,3 +2099,48 @@ coverage failure.
 
 **A prerequisite that has been quoted three times is not thereby established.**
 The grep costs one command; the handover cost two agents a planning cycle each.
+
+### A mutation that passes may be passing for a reason your fixture chose
+
+`docs/conventions.md` already says a guard no mutation can make observable is
+decoration. This is the case where the mutation exists, the guard is real, and
+the test still proves nothing.
+
+Object spread must emit members in **declaration** order. The natural mutation —
+*drop the sort* — **passed on the first attempt.**
+
+The reason is that `SymbolTable` is an `FxHashMap`, `FxHash` is **unseeded**, and
+the fixture `{ z, m, a }` happens to hash *into* declaration order. So the
+mutation produced the correct output, and a hash-order bug of this shape is
+**deterministically right for some key sets and wrong for others**.
+
+That is worse than flaky. A flaky test announces itself; this one is green on
+every run, on every machine, forever — for the fixture it was given.
+
+#### The repair is empirical, not analytical
+
+The agent did not reason about which fixture would discriminate. It **ran the
+mutation over candidate fixtures and printed each result**, and picked one that
+separates all three orderings at once — declaration, alphabetical, and hash:
+
+```
+alpha, beta, gamma, delta, epsilon
+```
+
+> **When a mutation passes, the first hypothesis is that the fixture is wrong,
+> not that the guard is unnecessary.** And the way to fix it is to run the
+> mutation against candidate inputs and read the outputs — choosing a
+> discriminating fixture by reasoning about a hash function is how the
+> undiscriminating one got chosen in the first place.
+
+#### And why this is not the rule it looks like
+
+It would be easy to file this as *"beware hash iteration order"*. That is true
+and much too narrow. The general form is:
+
+**A test discriminates a mutation only over the inputs it contains, and the
+inputs were chosen before the mutation existed.** Any property that holds
+accidentally for a small fixture — an ordering that coincides, a length that
+matches, a symbol that happens to be unique — makes the mutation invisible while
+leaving every other signal green. The only detector is running the mutation and
+*looking at what it produced*, rather than at whether the test went red.
