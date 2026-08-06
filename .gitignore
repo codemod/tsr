@@ -12,6 +12,3 @@
 perf-results.json
 perf-summary.md
 
-# Local, per-machine loop configuration. Committed once by accident in 8b2eef9
-# via `git add -A`; ignored so the same slip cannot repeat.
-.claude/ralph-loop.local.md

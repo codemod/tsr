@@ -7,10 +7,11 @@ import type { Reading } from './measure.ts';
  *
  * # Why this is generated rather than stored
  *
- * The repo already contains a hand-written loop prompt at
- * `.claude/ralph-loop.local.md`. It opens with *"State at HEAD 78cfcba"* and a
- * table reading `checker_types 596/9,538, gradient 36.17%` — true when it was
- * written and wrong by more than thirty points now. A stored prompt goes stale
+ * The repo used to carry a hand-written loop prompt at
+ * `.claude/ralph-loop.local.md`, deleted when this loop replaced it. It opened
+ * with *"State at HEAD 78cfcba"* and a table reading
+ * `checker_types 596/9,538, gradient 36.17%` — true when written and wrong by
+ * more than thirty points by the time it went. A stored prompt goes stale
  * silently, and a loop that feeds a stale prompt to a fresh agent spends its
  * first turns re-deriving numbers that the prompt asserted.
  *

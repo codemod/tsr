@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
@@ -76,12 +76,50 @@ export async function measure(repo: string, live = true): Promise<Reading> {
     const text = await readFile(`${repo}/${SNAPSHOT}`, 'utf8');
     return { ...parse(text), commit, source: 'snapshot' };
   }
-  const { stdout } = await run(
-    'cargo',
-    ['run', '--release', '-p', 'tsr-conformance', '--bin', 'coverage'],
-    { cwd: repo, maxBuffer: 64 * 1024 * 1024 },
-  );
+  const stdout = await runCoverage(repo);
   return { ...parse(stdout), commit, source: 'coverage' };
+}
+
+/**
+ * Run the conformance binary, echoing cargo's progress as it goes.
+ *
+ * `execFile` would be three lines shorter and would print nothing for the
+ * minutes this takes — the same silence problem the agent stream has, in a
+ * place where "is it compiling or is it wedged?" is the only question a
+ * watcher has. Cargo writes its progress to stderr, so stderr is echoed live
+ * and stdout is captured for the parser.
+ */
+function runCoverage(repo: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      'cargo',
+      ['run', '--release', '-p', 'tsr-conformance', '--bin', 'coverage'],
+      { cwd: repo },
+    );
+    let stdout = '';
+    let lastProgress = '';
+
+    child.stdout.on('data', (buffer: Buffer) => {
+      stdout += buffer.toString();
+    });
+    child.stderr.on('data', (buffer: Buffer) => {
+      for (const line of buffer.toString().split('\n')) {
+        const trimmed = line.trim();
+        // Cargo is chatty about crates it did not rebuild; only the phase
+        // headings are worth a watcher's attention.
+        if (!/^(Compiling|Building|Finished|Running|error|warning)/.test(trimmed)) continue;
+        if (trimmed === lastProgress) continue;
+        lastProgress = trimmed;
+        process.stdout.write(`    [2m${trimmed.slice(0, 100)}[0m\n`);
+      }
+    });
+
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`coverage exited ${code}`));
+    });
+  });
 }
 
 /** Whether the tree is clean and every commit is on the remote. */

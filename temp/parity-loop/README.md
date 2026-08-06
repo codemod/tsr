@@ -33,7 +33,28 @@ Configuration is by environment variable, all optional:
 | `PARITY_LIVE_MEASURE` | `1` | `0` reads the committed snapshot instead of running the suite |
 | `TSR_REPO` | the repo above this directory | |
 
-## The three decisions that matter
+## What it prints
+
+```
+── iteration 1/10 measuring…
+  69.03% 330,612/478,954 lines · 2,452/9,538 cases · 7c80512 · coverage
+  prompt 6,875 chars · model claude-fable-5 · max 400 turns
+  session cacc96df-5720-4c42-b005-aa8ea67de348
+  transcript /home/…/cacc96df-….jsonl
+  ▸ Read  /home/langport/codemod/tsr/STATUS.md
+  ▸ Bash  cargo run --release -p tsr-conformance --example depend
+  │ The board's largest reachable row is property access…
+  ▸ Edit  crates/tsr-checker/src/flow.rs
+  247 tool calls · 12 steps · 18 files · 1,204,551 in / 96,332 out · $14.20 · 1h 08m
+  Bash×160 Edit×41 Read×33 Grep×9
+  → 69.41%  +1,832 lines · a91c3f2
+```
+
+Tool calls stream as they happen, agent prose is gutter-marked with `│`, and
+the transcript path is printed so a run can be replayed with
+`claude --resume <session>`.
+
+## The four decisions that matter
 
 Everything else is plumbing; these are the parts worth disagreeing with.
 
@@ -55,12 +76,13 @@ The cost is a few minutes per iteration against an iteration measured in hours.
 
 ### 2. The prompt is generated fresh every iteration, from `STATUS.md`
 
-This repo already contains a hand-written loop prompt at
-`.claude/ralph-loop.local.md`. It opens with *"State at HEAD 78cfcba"* and a
-table reading `gradient 36.17%`. Both were true when it was written and the
-gradient is now above 69%. A stored prompt rots silently, and a stale prompt
-fed to a fresh agent burns its first turns re-deriving numbers the prompt
-asserted.
+This repo used to carry a hand-written loop prompt at
+`.claude/ralph-loop.local.md` — removed in the same commit that added this
+paragraph. It opened with *"State at HEAD 78cfcba"* and a table reading
+`gradient 36.17%`. Both were true when it was written and the gradient was
+above 69% by the time it was deleted. A stored prompt rots silently, and a
+stale prompt fed to a fresh agent burns its first turns re-deriving numbers the
+prompt asserted.
 
 So the loop asserts **only what it measured itself this iteration** and points
 at `STATUS.md` for everything else — which the project's conventions already
@@ -68,7 +90,36 @@ require to be current, and which every session here is written to consume as
 the handoff. The board section is spliced into the prompt so the agent starts
 from the ranking rather than rediscovering it.
 
-### 3. A fresh session per iteration, not `resume`
+### 3. Tool visibility comes from SDK hooks, because the chunk stream has none
+
+The obvious way to report progress is to stream the agent and print
+`tool-call` chunks. **That does not work here, and the reason was measured
+rather than assumed.** Probing a real run and printing every distinct chunk
+type the Mastra adapter emits gives exactly eight:
+
+```
+start  step-start  response-metadata  text-start
+text-delta  text-end  step-finish  finish
+```
+
+No tool events at all — the vendor SDK runs the tool loop internally and the
+adapter surfaces only prose and lifecycle. A reporter built on the chunk
+stream alone prints a wall of text and cheerfully claims *zero tool calls* for
+an iteration that ran hundreds, which is precisely what the first version of
+this did.
+
+So tool calls, the session id and the transcript path come from the Claude
+Agent SDK's own `hooks` (`PreToolUse` above all), passed through `sdkOptions`;
+prose, token usage and cost come from the chunk stream, where
+`providerMetadata.claude` carries `totalCostUsd`. The hooks observe and never
+decide — every one returns `{ continue: true }`, because a hook that can block
+is a hook that can wedge an unattended run.
+
+One consequence worth knowing: `SessionStart` was observed **not** to fire
+through the adapter, so the session id is read from `BaseHookInput`, which
+carries it on every event.
+
+### 4. A fresh session per iteration, not `resume`
 
 The SDK offers `resume`/`continue`, and this does not use them. Continuity in
 this project lives in the repo — `STATUS.md`, the findings pages under
@@ -101,8 +152,9 @@ restarting it.
   each iteration, because the next iteration starts from a fresh context and
   will not know about uncommitted work, but it does not block on it.
 - **It has no budget accounting.** `PARITY_MAX_ITERATIONS` and
-  `PARITY_MAX_TURNS` are the only cost bounds, and they are blunt. Set them
-  deliberately before an unattended run.
+  `PARITY_MAX_TURNS` are the only cost bounds, and they are blunt. It *reports*
+  spend per iteration from `totalCostUsd`, but nothing stops on it. Set the
+  bounds deliberately before an unattended run.
 - **It pushes to the remote**, because the agent does, under this repo's
   session-completion rule. Point `TSR_REPO` at a checkout whose remote you are
   happy to have written to.
