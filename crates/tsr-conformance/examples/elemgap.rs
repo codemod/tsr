@@ -114,6 +114,13 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 "number"
             } else if index_text == "string" {
                 "string"
+            } else if index_text.contains(" | ") {
+                "union index"
+            } else if index_text.starts_with(|c: char| c.is_ascii_uppercase()) {
+                // A named type — an enum, a type parameter, an alias. The
+                // capital-letter test is a probe-only heuristic; the split it
+                // feeds decides only what to size next.
+                "named index"
             } else {
                 "other index"
             };
