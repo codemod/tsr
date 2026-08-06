@@ -1435,6 +1435,52 @@ workstream is to wait on the three rather than to find something to do.
 S2 and S3 were never reached: S1 failed for all three sub-items, and RULE-5 is
 conjunctive.
 
+---
+
+# Part 8 — root-splitting the largest family: "an expression we do not compute"
+
+## RULE-6, registered before the measurement
+
+**Measure only. Nothing is built and no build is licensed by this section**, so
+RULE-6 is not a build rule — it is a set of predictions, registered because the
+last four cycles have shown that writing them down is what makes a null result
+reportable.
+
+**Population.** Gap lines whose `rank_board` family is *"an expression we do not
+compute (unported form, or an error operand)"* — **51,784 lines, 37.37%** of the
+138,585 gap, nearly three times the property-access population just finished.
+
+> **Stated up front: `|P|` here is NOT syntactically pinned.** The family is
+> derived from `gap_reason`'s output, which is checker behaviour, so unlike
+> Part 3's node-kind population this one **can move under the thing being
+> measured**. Every previous population on this page carried a syntactic pin and
+> this one cannot, because the family is defined by the reason string.
+> The TS2563 exclusion below *is* pinned — it is a property of the case's
+> `.errors.txt`.
+
+> **RULE-6 — predictions, to be falsified.**
+>
+> The tempting answer is that 51,784 lines are a long list of unported
+> expression forms, i.e. a large pile of arms to write. That answer would give
+> this workstream years of work, and **three times this session the tempting
+> answer has been the one that invents work for me**. So:
+>
+> - **P-a.** **≥ 55% of the family roots OUTSIDE the family** — the line is
+>   propagated, and the root is somebody else's row.
+> - **P-b.** The largest destination is one of *"a type node we cannot resolve"*
+>   or *"an initialiser expression we do not compute"* — rows two and four of
+>   the roll-up.
+> - **P-c.** `ROOT/own-rule` — a form with genuinely no arm, where the size *is*
+>   the worth — is **under 30%** of the family.
+> - **P-d.** The TS2563 exclusion is **≈10,000 lines** and concentrated in
+>   `compiler/largeControlFlowGraph`.
+>
+> If P-a and P-c hold, the finding is that **the gap has one or two real roots
+> and the rest is downstream**, which is a different project plan from
+> "finish a list of expression forms". If they fail — if the family really is
+> mostly terminal — then the list *is* the plan and I was wrong four times
+> running about which direction flatters me.
+
 ## Everything filed from this page
 
 | id | what | sized as |
