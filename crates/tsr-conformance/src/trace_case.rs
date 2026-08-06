@@ -410,12 +410,58 @@ pub fn apply_test_directives(
         max_node_module_js_depth: get("maxnodemodulejsdepth")
             .and_then(|value| value.parse().ok())
             .or(base.max_node_module_js_depth),
+        // **`lib` and `noLib` are settable by a directive, and this file used to
+        // say they were not.** Upstream's harness applies *every* directive whose
+        // name matches a compiler-option declaration — `SetOptionsFromTestConfig`
+        // (`internal/testutil/harnessutil/harnessutil.go:266`) looks the name up
+        // with `getCommandLineOption` (`:1151`) against
+        // `tsoptions.OptionsDeclarations` and calls `ParseCompilerOptions`. `lib`
+        // and `noLib` are both in that table, so both are honoured upstream.
+        //
+        // 925 corpus cases carry `@lib` and 92 carry `@noLib`, so this is not a
+        // long-tail fidelity point. The machinery to honour them already existed:
+        // `tsr_tsoptions::libs::lib_file_names` reads exactly these two fields.
+        //
+        // **Measured on the corpus, `26efa2a` against this commit, per case with
+        // `examples/casedelta.rs`: +431 lines and +2 cases, over 24 cases that
+        // moved at all — 22 gained 433, two lost one line each.** Both halves of
+        // that are worth keeping, because both contradict something that was
+        // asserted before it was measured:
+        //
+        // - **`bd tsr-cug` sized `compiler/temporal` at 1,784 lines. It gained
+        //   362** — the row was a ceiling and the real conversion is 4.9× smaller,
+        //   because a name resolving is necessary and not sufficient for the line
+        //   to match. This is the rule `docs/conventions.md` states as *a row
+        //   population is a ceiling on the row, never a conversion*, and it is
+        //   the fifth row here to collapse on contact with a measurement.
+        // - **The both-directions risk is real in principle and negligible in
+        //   fact.** `@lib: es5` and `@noLib` ask for *fewer* libs than the target
+        //   default, so this port had been resolving names upstream cannot and
+        //   answering a confident type where upstream answers `any` — **wrong**
+        //   lines, not gaps, and invisible in any histogram of what we failed to
+        //   compute. That was the argument for expecting a large negative
+        //   component. It costs **2 lines, in 2 cases**. The reasoning was sound
+        //   and the magnitude was guesswork; only the split run settled it.
+        //
+        // Splitting the two directives across separate corpus runs: **`lib`
+        // carries the whole +431 and `noLib` moves one line** (a `-1` in
+        // `compiler/decoratorMetadataNoLibIsolatedModulesTypes`). `noLib` is kept
+        // anyway — it is upstream's behaviour and it is the direction that
+        // prevents *wrong* answers rather than the one that converts gaps — but
+        // it must not be cited as having converted anything.
+        //
+        // An unknown lib entry is skipped rather than substituted, which is
+        // `get_lib_file_name`'s documented behaviour and upstream's.
+        lib: list("lib").unwrap_or(base.lib),
+        no_lib: tristate("nolib", base.no_lib),
         // Not settable by a directive: these come from the config or nowhere.
         paths: base.paths,
         paths_base_path: base.paths_base_path,
         config_file_path: base.config_file_path,
-        lib: base.lib,
-        no_lib: base.no_lib,
+        // `isolatedModules` IS a directive upstream (80 corpus cases) and is
+        // dropped here for the same reason `lib` was. It belongs to the
+        // declaration-emit suites rather than to `checker_types`, so it is filed
+        // rather than changed in this commit: `bd tsr-e7a`.
         isolated_modules: base.isolated_modules,
     }
 }
@@ -429,4 +475,95 @@ fn parse_module_resolution(value: &str) -> Option<ModuleResolutionKind> {
         "bundler" => ModuleResolutionKind::Bundler,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use tsr_core::{CompilerOptions, ScriptTarget, Tristate};
+
+    use super::*;
+    use crate::TestCase;
+
+    /// A case carrying nothing but the directives under test.
+    ///
+    /// `options` is what the case parser produces: names already lowercased and
+    /// values already trimmed (`case.rs`), which is why these keys are lowercase
+    /// and the assertions do not re-test that normalisation.
+    fn case_with(options: &[(&str, &str)]) -> TestCase {
+        TestCase {
+            name: "test/directives".to_string(),
+            files: Vec::new(),
+            options: options
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect::<BTreeMap<_, _>>(),
+            symlinks: BTreeMap::new(),
+            current_directory: None,
+            error: None,
+        }
+    }
+
+    fn applied(options: &[(&str, &str)]) -> CompilerOptions {
+        apply_test_directives(CompilerOptions::default(), &case_with(options), "/")
+    }
+
+    /// `@lib` reaches the loader, and reaches it as *files*.
+    ///
+    /// Asserting on `lib_file_names` rather than on the `lib` field is the point:
+    /// carrying the strings through and having them select nothing would satisfy
+    /// a field-equality test and still load no `lib.esnext.temporal.d.ts`, which
+    /// is the failure that was actually happening.
+    ///
+    /// Red under **M1** — restore `lib: base.lib`. Then `lib` is empty, the
+    /// default-for-target file is loaded instead, and neither `contains` holds.
+    #[test]
+    fn a_lib_directive_selects_the_files_it_names() {
+        let options = applied(&[("lib", "esnext,esnext.temporal,dom")]);
+        assert_eq!(options.lib, ["esnext", "esnext.temporal", "dom"], "the list reaches options");
+
+        let files = tsr_tsoptions::libs::lib_file_names(&options);
+        assert!(
+            files.contains(&"lib.esnext.temporal.d.ts"),
+            "the lib compiler/temporal asks for must be selected, got {files:?}"
+        );
+        assert!(files.contains(&"lib.dom.d.ts"), "got {files:?}");
+        assert!(
+            !files.contains(&CompilerOptions::default().default_lib_file_name()),
+            "an explicit lib list replaces the target default rather than adding to it: {files:?}"
+        );
+    }
+
+    /// The direction that produces **wrong** lines rather than gaps.
+    ///
+    /// `@noLib` asks for fewer libs than the default, so dropping it makes this
+    /// port resolve names upstream cannot and answer a confident type where
+    /// upstream answers `any`.
+    ///
+    /// Red under **M2** — restore `no_lib: base.no_lib`. `no_lib` stays
+    /// `Unknown`, `lib_file_names` returns the target default, and the vector is
+    /// not empty.
+    #[test]
+    fn a_nolib_directive_loads_no_lib_at_all() {
+        let options = applied(&[("nolib", "true")]);
+        assert_eq!(options.no_lib, Tristate::True);
+        assert!(
+            tsr_tsoptions::libs::lib_file_names(&options).is_empty(),
+            "noLib must load nothing"
+        );
+
+        // Pinned by construction rather than by arithmetic: with no directive at
+        // all there is nothing for either arm to read, so this case cannot depend
+        // on the change under test and must keep loading the target default.
+        let untouched = applied(&[("target", "es5")]);
+        assert_eq!(untouched.target, ScriptTarget::ES5);
+        assert!(untouched.lib.is_empty());
+        assert_eq!(untouched.no_lib, Tristate::Unknown);
+        assert_eq!(
+            tsr_tsoptions::libs::lib_file_names(&untouched),
+            vec![untouched.default_lib_file_name()],
+            "a case with no lib directive is unaffected"
+        );
+    }
 }
