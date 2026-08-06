@@ -280,6 +280,138 @@ control saw it. Same family as the polarity inversion in
   machinery beyond `autoArrayType` at 0.011 points. It is not worth building.
   This is a firm result, not an open question.
 
+## ADDENDUM 2026-08-06 — the build was authorised and is blocked on a file this workstream does not own
+
+`tsr-5h0` was authorised by the coordinator on the strength of the measured
+`AT RISK = 0`, explicitly overriding the post-hoc-rule objection above and
+taking the judgement as their own. **It was not built, for a different reason,
+and the reason is checkable in two greps.**
+
+### Where the type actually comes from
+
+The design constraint says the fix must type the **symbol** and leave the array
+literal at `never[]`. That rules out `array_literals.rs`
+(`check_array_literal`, which this workstream owns and which correctly returns
+`never[]` for an empty literal — `checker.go:8098`, `implicitNeverType`).
+
+It also rules out `flow.rs`, which this workstream owns. `flow.rs` **takes**
+`declared_type` as a parameter and never computes it:
+
+```rust
+// crates/tsr-checker/src/flow.rs:145-149
+&mut self,
+reference: NodeId,
+symbol: SymbolId,
+declared_type: TypeId,
+```
+
+and its own comment at `flow.rs:243` is explicit that the declared type arrives
+already formed:
+
+> *"an automatic declaration's `declared_type` in this port already **is**
+> `anyType` — the two are one intrinsic here rather than two."*
+
+`is_auto_typed_declaration` (`flow.rs:383`) has exactly one call site,
+`flow.rs:159`, and it selects the *initial* type for the flow walk, not the
+declared type.
+
+The declared type of `const data = []` is computed at
+
+```rust
+// crates/tsr-checker/src/symbols.rs:1337-1339
+let initializer = self.initializer_of(declaration)?;
+let initializer_type = self.check_expression(initializer);
+Some(self.get_widened_literal_type_for_initializer(declaration, initializer_type))
+```
+
+and `get_widened_literal_type_for_initializer` exists in **`symbols.rs` and
+nowhere else** (`grep -rln`). `symbols.rs` belongs to another workstream.
+
+**So the fix is one arm in `symbols.rs`** — return `any[]` when the declaration
+has no annotation and its initialiser is an empty array literal, before
+consulting the initialiser's own type. That single change gives the symbol
+`any[]`, leaves `check_array_literal` untouched so the 51 `>[] : never[]` lines
+stay right, and lets `flow.rs` propagate it to the references unchanged.
+
+Stopped and reported rather than edited, per the standing instruction.
+
+### The prediction, for scoring against the corpus run
+
+If the arm lands as described:
+
+| column | central | range | reasoning |
+|---|---:|---|---|
+| `right` | **+1,775** | +1,420 … +2,130 | the reachable set. The downside is narrowing intervening at a reference and giving something other than `any[]`; the upside is forward cascade beyond P |
+| `gap` | **−787** | −650 … −850 | the `x[i]` lines answering `error` today |
+| `wrong` | **−988** | −850 … −1,050 | the `any[]`-expected lines answering `never[]` today |
+| `ArrayLiteralExpression` right/gap/wrong | **0 / 0 / 0** | exact | the fix types the symbol, never the literal |
+
+`right = −gap − wrong` by construction: `787 + 988 = 1,775`.
+
+**The last row is the falsifier.** If `ArrayLiteralExpression`'s columns move at
+all, the fix typed the literal instead of the symbol and the 51 lines are going
+red. That is condition 2 of the authorisation and it is what the named mutation
+must make observable.
+
+### On spellability: what was measured and what was not
+
+The rule changed under this item mid-flight (`3f140c2`): spellability must be an
+**exact match against the baseline**, not a shape check. Restating honestly what
+this page's 1,775 is:
+
+- **Upstream's side is exact.** Every line was classified on the baseline's
+  literal right-hand side — `upstream == "any[]"`, `upstream == "any"` — never
+  on a shape. That half of the test already met the new rule.
+- **Our side is predicted, not measured.** The claim *"`autoArrayType` alone
+  would answer this"* is an inference from the design, not a counterfactual run.
+  It is exactly the half the new rule is about, and it is the half that
+  measured 4.6 wrong per right on another row.
+
+So **1,775 is an upper bound with one measured leg and one predicted leg**, and
+it should not be quoted as a counterfactual result. The counterfactual is the
+`symbols.rs` arm, applied and reverted, and it cannot be run from this
+workstream. The prediction table above is the substitute and is offered to be
+scored, not believed.
+
+---
+
+## `ArrayLiteralExpression` is more wrong than right, and this item does not touch it
+
+Measured here over **P, a population pinned syntactically by node kind** — a
+checker change cannot alter which nodes exist, so `|P|` is fixed across a
+before/after pair, which a population defined as *"the lines that gap"* would
+not be. Shape copied from `examples/fnexpr.rs`.
+
+| node kind | \|P\| | right | gap | wrong | unaligned | |
+|---|---:|---:|---:|---:|---:|---|
+| `ArrayLiteralExpression` | 4,307 | 1,324 | 1,149 | **1,773** | 61 | **more wrong than right** |
+| `ObjectLiteralExpression` | 7,252 | 4,585 | 1,691 | 725 | 251 | the opposite shape |
+| `ElementAccessExpression` | 13,773 | 431 | 13,141 | 90 | 111 | almost all gap |
+
+The `right` column reproduces the coordinator's independently tallied 1,324
+**exactly**; `gap` and `wrong` differ by 15 and 46 because this probe counts
+`unaligned` as its own arm rather than folding it into one of the others. Two
+instruments, same conclusion.
+
+### The overlap with this item is 78 lines, and the predicted movement is zero
+
+| | lines |
+|---|---:|
+| `ArrayLiteralExpression` lines that are an auto-array initialiser | **78** |
+| of those, currently **right** | **51** |
+| currently wrong | 26 |
+| unaligned | 1 |
+
+Those 51 are the entire intersection of *"currently right"* and *"this item's
+collected set"*, and they are the ones the design constraint protects. **The
+item's predicted effect on all three `ArrayLiteralExpression` columns is 0**,
+and that prediction is now on the record to be scored rather than asserted
+afterwards.
+
+**The other 1,747 wrong `ArrayLiteralExpression` lines are untouched by this
+item and unranked by anything.** They are not the evolving-array machinery: only
+53 lines corpus-wide need a concrete element type. `bd tsr-ejp`.
+
 ## Superseded numbers
 
 None yet. When one on this page is corrected it gets a dated header here rather
