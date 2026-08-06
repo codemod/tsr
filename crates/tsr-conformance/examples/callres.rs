@@ -100,6 +100,66 @@
 //!   [`Blocked`] carries a positive test; there is no `else` holding a
 //!   semantically loaded label.
 //!
+//! # R2 was a shape test, and this page's refusal rested on it
+//!
+//! Added 2026-08-06, after `3f140c2` made *"spellability is a match test, not a
+//! shape test"* a convention — a correction that came out of this workstream's
+//! own `ArrowFunction` measurement, where the shape test read **99.6%** and the
+//! match test read **17.8%**.
+//!
+//! **R2 above is the shape test.** The question is whether its 37.7% still bounds
+//! the truth. It does **not**, and the answer is a property of the predicate
+//! rather than of the corpus, so it is settled by reading
+//! [`spell_of`] rather than by measuring:
+//!
+//! `Spell::Structural` rejects every right-hand side containing `<`, `{`, `[`,
+//! `|`, `&`, `(` or `=>`. **Those are exactly the shapes
+//! `printing::type_to_string` exists to print**: it renders `TypeData::Union`,
+//! `TypeData::Anonymous` and `TypeData::Named` from a stored `text`
+//! (`crates/tsr-checker/src/printing.rs:45`), so `string | number`,
+//! `{ a: string; }`, `() => void`, `string[]` and `Promise<number>` are all
+//! rendered by construction. `Promise<boolean>` appears in this probe's own
+//! callee-reason histogram as a type this port **built and printed**.
+//!
+//! So `spell_of` is a *"is this a bare name"* test wearing a spellability label.
+//! It errs in **both** directions:
+//!
+//! - it rejects `string[]`, `A | B`, `Promise<number>` — which this port prints;
+//! - it accepts `unique symbol` (276 admitted lines) — which this port cannot
+//!   produce, as §5 already recorded.
+//!
+//! **Therefore 37.7% is not an upper bound, not a lower bound, and not a bound.
+//! The refusal's second leg has to be re-derived.**
+//!
+//! ## R2′, pre-registered before it was computed
+//!
+//! An exact match against the baseline needs the build, and the build is call
+//! resolution. What is affordable without it is the **necessary** condition, by
+//! exact string equality and no heuristic:
+//!
+//! > **R2′ — the vocabulary test.** For each admitted line, is the baseline's
+//! > right-hand side a string this port **demonstrably renders elsewhere in the
+//! > same case**? If the port never produces that exact string anywhere in the
+//! > program, it cannot produce it here.
+//!
+//! That is a strict **upper bound** on the achievable match rate, and it replaces
+//! a proxy with a string comparison.
+//!
+//! - **R2′ < 70%** → the refusal is confirmed on the corrected instrument, and
+//!   this page's verdict stands for the reason it claimed rather than by luck.
+//! - **R2′ ≥ 70%** → the shape test materially misled, the refusal does not stand
+//!   on its stated grounds, and the row has to be re-derived with a
+//!   counterfactual.
+//!
+//! 70% is the threshold R2 was registered at, kept deliberately so the two are
+//! comparable.
+//!
+//! **Registered with it, and independent of the number:** R2′ is *necessary and
+//! not sufficient* — a line can be in the vocabulary and still be computed
+//! wrongly — so **no value of R2′ licenses a build this round.** A build needs a
+//! counterfactual, and under `c592d0f` it also needs the collateral of whatever
+//! half of the mechanism stays unported.
+//!
 //! Run: `cargo run --release -p tsr-conformance --example callres`
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -359,6 +419,26 @@ struct Report {
     admitted_rhs: BTreeMap<String, usize>,
     /// The baseline's RHS verbatim for every line of the three assigned rows.
     row_rhs: BTreeMap<(Row, String), usize>,
+    /// R2′: for each admitted line, whether the baseline's exact right-hand side
+    /// is a string this port renders **somewhere in the same case**. Keyed by the
+    /// shape bucket too, so the shape test's error can be read in both
+    /// directions rather than asserted.
+    vocabulary: BTreeMap<(Spell, bool), usize>,
+    /// The stricter variant: rendered on a line we get **right**, so the string is
+    /// not merely producible but produced correctly at least once.
+    vocabulary_strict: BTreeMap<(Spell, bool), usize>,
+    /// Admitted right-hand sides the port never renders in the case, verbatim.
+    unrenderable: BTreeMap<String, usize>,
+    /// Every type string this port renders **anywhere in the corpus**.
+    ///
+    /// The per-case vocabulary is too tight to be a clean upper bound: a case
+    /// with no line answering `string` does not put `string` in its vocabulary,
+    /// though the port obviously builds it. **Registered before it was computed:
+    /// if this looser variant reads ≥70%, R2′ was measured on too tight an
+    /// instrument and the refusal is NOT confirmed.** It is the weaker claim —
+    /// the string is producible somewhere, not necessarily in this program — and
+    /// so the honest upper bound.
+    corpus_vocabulary: BTreeSet<String>,
     /// Cascade: gap lines whose receiver chain bottoms out at a symbol one of
     /// the `initialiser` rows blocks.
     downstream: BTreeMap<Row, Tally>,
@@ -413,6 +493,16 @@ impl Report {
         for (key, n) in &other.row_rhs {
             *self.row_rhs.entry(key.clone()).or_default() += n;
         }
+        for (key, n) in &other.vocabulary {
+            *self.vocabulary.entry(*key).or_default() += n;
+        }
+        for (key, n) in &other.vocabulary_strict {
+            *self.vocabulary_strict.entry(*key).or_default() += n;
+        }
+        for (key, n) in &other.unrenderable {
+            *self.unrenderable.entry(key.clone()).or_default() += n;
+        }
+        self.corpus_vocabulary.extend(other.corpus_vocabulary.iter().cloned());
         for (key, tally) in &other.downstream {
             self.downstream.entry(*key).or_default().merge(tally);
         }
@@ -508,6 +598,26 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
 
     let mut report = Report::default();
     let name = &case.name;
+
+    // R2′'s vocabulary: every type string this port renders anywhere in the case,
+    // and the subset it renders on a line it gets right. Built before the walk so
+    // a line's own answer cannot be excluded — a type that only ever appears at
+    // the line under test is still a type this port can build.
+    let mut vocabulary: BTreeSet<String> = BTreeSet::new();
+    let mut vocabulary_strict: BTreeSet<String> = BTreeSet::new();
+    for (index, expected_file) in expected.iter().enumerate() {
+        let Some(our_file) = ours.get(index) else { continue };
+        for (position, assertion) in our_file.iter().enumerate() {
+            if assertion.type_string == "error" {
+                continue;
+            }
+            if expected_file.assertions.get(position).is_some_and(|b| b.text == assertion.line()) {
+                vocabulary_strict.insert(assertion.type_string.clone());
+            }
+            vocabulary.insert(assertion.type_string.clone());
+        }
+    }
+    report.corpus_vocabulary.clone_from(&vocabulary);
 
     for (index, expected_file) in expected.iter().enumerate() {
         let (Some(our_file), Some(line_ids)) = (ours.get(index), ids.get(index)) else { continue };
@@ -625,6 +735,18 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 *report.spelling.entry((row, bucket, spell_of(&rhs))).or_default() += 1;
                 if bucket == Blocked::CalleeTyped && row.assigned() {
                     *report.admitted_rhs.entry(rhs.clone()).or_default() += 1;
+                    // R2′. Exact string equality against what this port renders,
+                    // with no shape heuristic anywhere in the test.
+                    let shape = spell_of(&rhs);
+                    let renders = vocabulary.contains(&rhs);
+                    *report.vocabulary.entry((shape, renders)).or_default() += 1;
+                    *report
+                        .vocabulary_strict
+                        .entry((shape, vocabulary_strict.contains(&rhs)))
+                        .or_default() += 1;
+                    if !renders {
+                        *report.unrenderable.entry(rhs.clone()).or_default() += 1;
+                    }
                 }
                 if let Some(shape) = shape.filter(|_| row.assigned()) {
                     *report.shape_spelling.entry((shape, spell_of(&rhs))).or_default() += 1;
@@ -1001,6 +1123,70 @@ fn print(report: &Report) {
         for ((_, text), n) in rhs.iter().take(8) {
             println!("        {n:>5}  {text}");
         }
+    }
+    println!();
+
+    println!("## 6e. R2′ — the vocabulary test, by exact string equality\n");
+    let renders: usize = report.vocabulary.iter().filter(|((_, r), _)| *r).map(|(_, n)| *n).sum();
+    let total: usize = report.vocabulary.values().sum();
+    let strict: usize =
+        report.vocabulary_strict.iter().filter(|((_, r), _)| *r).map(|(_, n)| *n).sum();
+    #[allow(clippy::cast_precision_loss)]
+    let rate = renders as f64 / total.max(1) as f64 * 100.0;
+    println!(
+        "  the port renders this exact string somewhere in the case: {renders} of {total} = {rate:.1}%"
+    );
+    println!(
+        "  the stricter variant (rendered on a line we get right):     {strict} of {total} = {:.1}%",
+        strict as f64 / total.max(1) as f64 * 100.0
+    );
+    println!(
+        "\n  R2′ (rule: refusal confirmed at < 70.0%) -> {}\n",
+        if rate >= 70.0 {
+            "the refusal does NOT stand on its stated grounds"
+        } else {
+            "REFUSAL CONFIRMED"
+        }
+    );
+    println!("  cross-tab against the shape test, which is what says whether it misled:\n");
+    println!("    {:<14} {:>10} {:>12} {:>8}", "shape", "renderable", "unrenderable", "total");
+    for shape in [Spell::Plain, Spell::Any, Spell::Structural] {
+        let yes = report.vocabulary.get(&(shape, true)).copied().unwrap_or(0);
+        let no = report.vocabulary.get(&(shape, false)).copied().unwrap_or(0);
+        if yes + no == 0 {
+            continue;
+        }
+        println!("    {:<14} {:>10} {:>12} {:>8}", format!("{shape:?}"), yes, no, yes + no);
+    }
+    println!(
+        "\n    the shape test called {} lines unspellable that this port renders,",
+        report.vocabulary.get(&(Spell::Structural, true)).copied().unwrap_or(0)
+    );
+    println!(
+        "    and {} lines spellable that it does not.",
+        report.vocabulary.get(&(Spell::Plain, false)).copied().unwrap_or(0)
+    );
+    let corpus_hits: usize = report
+        .admitted_rhs
+        .iter()
+        .filter(|(text, _)| report.corpus_vocabulary.contains(*text))
+        .map(|(_, n)| *n)
+        .sum();
+    let admitted_total: usize = report.admitted_rhs.values().sum();
+    #[allow(clippy::cast_precision_loss)]
+    let corpus_rate = corpus_hits as f64 / admitted_total.max(1) as f64 * 100.0;
+    println!(
+        "  the looser variant — rendered ANYWHERE in the corpus: {corpus_hits} of {admitted_total} = {corpus_rate:.1}%"
+    );
+    println!(
+        "    (registered in advance: >= 70.0% here means R2′ was measured on too tight an\n     instrument and the refusal is NOT confirmed) -> {}",
+        if corpus_rate >= 70.0 { "NOT CONFIRMED" } else { "still confirmed" }
+    );
+    println!("\n  admitted right-hand sides the port never renders in the case:");
+    let mut unrenderable: Vec<_> = report.unrenderable.iter().collect();
+    unrenderable.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+    for (text, n) in unrenderable.iter().take(12) {
+        println!("      {n:>5}  {text}");
     }
     println!();
 
