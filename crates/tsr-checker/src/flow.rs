@@ -172,6 +172,15 @@ bitflags::bitflags! {
         const TRUTHY = 1 << 22;
         /// The type can be falsy.
         const FALSY = 1 << 23;
+        /// The type *is* (or contains) `undefined` — upstream's
+        /// `TypeFactsIsUndefined` (`checker.go:425`), carried by
+        /// `TypeFactsUndefinedFacts` and **not** by `VoidFacts`, which is
+        /// otherwise the same set. Deliberately absent from the
+        /// undecidable-default aggregate below: upstream sets it only for
+        /// `undefined`-bearing types, and a default that claimed it would
+        /// stop `getNonUndefinedType` callers stripping where upstream
+        /// strips.
+        const IS_UNDEFINED = 1 << 24;
     }
 }
 
@@ -1391,8 +1400,15 @@ impl Checker<'_, '_> {
         // allowed — would make `x !== null` fail to narrow `void` away.
         if flags.intersects(TypeFlags::UNDEFINED | TypeFlags::VOID) {
             // `TypeFactsUndefinedFacts`/`VoidFacts`: `typeof undefined` is none
-            // of the eight strings' EQ side — all eight NE bits, no EQ.
-            return TypeFacts::FALSY | undefined_facts | typeof_ne_all;
+            // of the eight strings' EQ side — all eight NE bits, no EQ. The
+            // two sets differ by exactly `IsUndefined`, which `undefined`
+            // carries and `void` does not (`checker.go:470`–`:471`).
+            let is_undefined = if flags.contains(TypeFlags::UNDEFINED) {
+                TypeFacts::IS_UNDEFINED
+            } else {
+                TypeFacts::empty()
+            };
+            return TypeFacts::FALSY | undefined_facts | typeof_ne_all | is_undefined;
         }
         if flags.contains(TypeFlags::NULL) {
             // `TypeFactsNullFacts`: `typeof null === "object"`, so EQ_OBJECT

@@ -244,7 +244,25 @@ the sizing did not describe).
 
 Bar fires → build wrong first, premise wrong second, no third.
 
-### §6 scored — see the row appended after the run.
+### §6 scored
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +20 | **+66** (24 cases) | pass |
+| 2 | lost ≤ 5 diagnosed | **0** | pass |
+| 3 | 0 regressions | **0** | pass |
+| 4 | gained ≥ 3 × new wrong | **66 vs 0** | pass |
+
+**Falsifier:** top case `controlFlowDestructuringDeclaration` at 10/66 =
+15%, under the 50% line. **KEEP.** Conversion 112% of the sized 59 — the
+strip reaches lines whose `bindgap` bucket was not the default rows
+(a stripped element's *consumers* match too), the §4.1 pattern again.
+
+Zero cases finished: the leg's lines sit in cases with other gaps still
+open. The gradient lands at **335,256 / 478,954 = 69.998%** — the
+coverage table's two-decimal display rounds this to 70.00%, and the exact
+70% threshold (335,268) is still **12 lines away**; said here so the
+display's rounding does not get quoted as the milestone.
 
 ## 7. Test discipline
 

@@ -75,10 +75,24 @@ impl Checker<'_, '_> {
         let Some(Node::BindingElement(element)) = self.node_map.get(declaration) else {
             return error;
         };
-        // The refused element forms — rest, default, computed name. The whole
-        // element refuses, because `[Unported, string]` is not `[any, string]`
-        // (the tuple arm's rule, applied to a name's slice of its parent).
-        if element.dot_dot_dot_token.is_some() || element.initializer.is_some() {
+        // The refused element forms — rest, computed name, and every default
+        // outside the annotated-root leg. The whole element refuses, because
+        // `[Unported, string]` is not `[any, string]` (the tuple arm's rule,
+        // applied to a name's slice of its parent).
+        if element.dot_dot_dot_token.is_some() {
+            return error;
+        }
+        // A default is admitted only on the leg `checker.go:17781` separates:
+        // the root declaration carries an annotation — so the default never
+        // unions into the element (that is the refused `UnionReductionSubtype`
+        // path, which runs annotation-less) — and the element's name is an
+        // identifier, because a pattern-named default takes upstream through
+        // `padObjectLiteralType`/`padTupleType` (`checker.go:16808`),
+        // unported. `checker-notes-destructure.md` §6.
+        if element.initializer.is_some()
+            && (!self.binding_root_has_annotation(declaration)
+                || !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_))))
+        {
             return error;
         }
         if matches!(element.property_name, Some(PropertyName::ComputedPropertyName(_))) {
@@ -131,6 +145,27 @@ impl Checker<'_, '_> {
         if element_type == error {
             return error;
         }
+        // The annotated-root default strip (`checker.go:17782`–`:17786`),
+        // under the standing strict-throughout assumption: a default of a
+        // non-`undefined` type removes `undefined` from the element. The
+        // facts test is upstream's `hasTypeFacts(.., TypeFactsIsUndefined)`;
+        // the strip is `getNonUndefinedType` minus its generic-constraint
+        // mapping (§6 of the notes page — an instantiable constituent passes
+        // through `get_type_with_facts` untouched where upstream may consult
+        // its constraint, stated rather than verified).
+        let element_type = if let Some(default_expression) = element.initializer {
+            let default_type = self.check_expression(default_expression);
+            if default_type == error {
+                return error;
+            }
+            if self.get_type_facts(default_type).contains(TypeFacts::IS_UNDEFINED) {
+                element_type
+            } else {
+                self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED)
+            }
+        } else {
+            element_type
+        };
         // `getWidenedTypeForVariableLikeDeclaration` wraps every binding
         // element in `widenTypeForVariableLikeDeclaration` →
         // `getWidenedType` (`checker.go:16647`, `:18258`). **No measured
@@ -264,6 +299,24 @@ impl Checker<'_, '_> {
             }
             tsr_ast::BindingName::Identifier(_) => None,
         }
+    }
+
+    /// Upstream's `ast.WalkUpBindingElementsAndPatterns(declaration).Type()
+    /// != nil` (`checker.go:17781`): whether the **root** declaration of the
+    /// binding chain — the variable declaration or parameter the outermost
+    /// pattern names — carries a type annotation. This is what separates the
+    /// strip-`undefined` default leg from the refused union leg.
+    fn binding_root_has_annotation(&self, declaration: NodeId) -> bool {
+        let mut current = self.nodes.parent(declaration);
+        while let Some(node) = current {
+            match self.nodes.kind(node) {
+                SyntaxKind::ObjectBindingPattern
+                | SyntaxKind::ArrayBindingPattern
+                | SyntaxKind::BindingElement => current = self.nodes.parent(node),
+                _ => return self.type_annotation_of(node).is_some(),
+            }
+        }
+        false
     }
 
     /// Upstream's `ast.IsPartOfParameterDeclaration` — the walked-up root of

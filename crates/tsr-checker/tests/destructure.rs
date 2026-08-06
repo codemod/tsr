@@ -137,6 +137,19 @@ fn a_hole_shifts_the_positions_after_it() {
     assert_eq!(type_of_binding(source, "h"), "string");
 }
 
+/// `compiler/defaultValueInFunctionTypes.types`:
+/// `({ first = 0 }: { first?: number })` records `>first : number` — under
+/// an **annotated root**, a default of a non-`undefined` type strips
+/// `undefined` from the optional property's `number | undefined`
+/// (`checker.go:17782`–`:17786`, the `IS_UNDEFINED` facts test). The same
+/// element with an *initializer-typed* root stays refused —
+/// `the_refused_legs_stay_gaps` pins that side of the pair.
+#[test]
+fn an_annotated_default_strips_undefined() {
+    let source = "function f({ first = 0 }: { first?: number }) { }";
+    assert_eq!(type_of_binding(source, "first"), "number");
+}
+
 /// The refused legs, each beside a ported positive control
 /// (`checker-notes-destructure.md` §3). If one of these starts answering,
 /// the leg has been built and its pair here must move to the ported side.

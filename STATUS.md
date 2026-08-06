@@ -22,7 +22,8 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`4b81458`**, 2026-08-06 (fifth session).
+Measured at **`4b81458`** and the defaults iteration after it, 2026-08-06
+(fifth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +41,14 @@ Measured at **`4b81458`**, 2026-08-06 (fifth session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,537/9,538** | **26.60%** | **gradient 69.98%** — the target |
+| **`checker_types`** | **2,537/9,538** | **26.60%** | **gradient 69.998%** — the display rounds to 70.00%; the exact threshold is 12 lines away |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-335,190 / 478,954 assertion lines = 69.98%
-  right 335,190 | gap ~91,903 | wrong ~41,326   (41,189 at b00738d; +423, −58, +3, +127, −448, −19, +109 by same-probe pairs through 4b81458)
+335,256 / 478,954 assertion lines = 69.998%   (the two-decimal display says 70.00%; +12 lines to the exact threshold)
+  right 335,256 | gap ~91,837 | wrong ~41,326   (41,189 at b00738d; +423, −58, +3, +127, −448, −19, +109, +0 by same-probe pairs through the defaults iteration)
 ```
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
@@ -102,8 +103,8 @@ reachable denominator   476,752 of 478,954
 today                    333,651 / 476,752 = 69.98% of reachable   (carries the 1,539
                          right-lines-in-the-unreachable-set offset the 332,570 figure carried)
 80% of the full          383,163 lines  =  80.37% of the reachable
-gap to 80%               +47,973 lines (full-denominator terms: 383,163 − 335,190)
-gap to 70%               +78 lines     (70% of the full = 335,268)
+gap to 80%               +47,907 lines (full-denominator terms: 383,163 − 335,256)
+gap to 70%               +12 lines     (70% of the full = 335,268)
 ```
 
 ---
@@ -216,8 +217,8 @@ populations as work would break this file's fourth rule.**
 
 ### 4.4 What the scores say about 80%
 
-- Distance to **80%** is **+47,973 lines**; to **70%**, **+78** — one small
-  build away (measured at `4b81458`).
+- Distance to **80%** is **+47,907 lines**; to **70%**, **+12** (after the
+  defaults iteration; measured on the coverage instrument).
 - The scored list's *reachable* column sums to ~22,000. At the observed 15–57%
   conversion that is **+3,300 to +12,500** — so 70% is reachable from this
   board, and **80% is not**, even if every item on it lands.
@@ -301,6 +302,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | defaults | **69.998%** | **2,537** | **+66, 0 lost, 0 finished, 0 regressed, Δwrong 0** | **defaults under a typed annotation** (`tsr-o00` §6) — the `IS_UNDEFINED` facts bit (the port's facts comment had already drawn the `UndefinedFacts`/`VoidFacts` line it splits), the `checker.go:17782` strip, sized 69/net 59, converted 112%, every bar leg passed with zero downside. The coverage display now reads 70.00% **by rounding**: the exact threshold is 12 lines away, said so it is not quoted as crossed |
 | 2026-08-06 | `4b81458` | **69.98%** | **2,537** | **+1,081, 1 lost, +16 cases, 0 regressed, Δwrong +109 (9.9×)** | **binding elements** (`tsr-o00`, fifth session) — sized by the new `bindgap.rs` (1,228 buildable of 2,632, six refused legs each with a number), bar registered and committed before code (`982bfe4`). The first run read +1,239 at 6.0× and **passed every leg while minting ~80 wrong lines** from approximating pattern-contextual tuple inference — refused whole on the faithfulness rule, not the ratio (`tsr-84iz`). The parser now records array-binding holes as all-nil `BindingElement`s (upstream `parser.go:1663`); skipping them renumbered every element after a hole. The eleventh unported-stand-in fixture came due (`types.rs`). Residuals filed: `tsr-pqnh` (flow-of-destructuring, the family the bar named in advance), `tsr-xs0` (assignment narrowing drops freshness — pre-existing, exposed). 70% now sits **+78 lines** away |
 | 2026-08-06 | `acdeed5` | **69.76%** | **2,521** | **+43, 0 lost, 0 regressed, Δwrong −19** | **the `in` guard** (`tsr-q9g` §6.1). The first run measured +45/−13 — numerically passing every leg — and **the 13 losses in one case were a bug the ratio would have priced as a trade**: the presence test read `SymbolFlags::OPTIONAL`, which this binder never writes, collapsing optional-property else-branches to `never`. Fixed to read the declaration's question token; the pair is pinned |
 | 2026-08-06 | `e7a65fb` | **69.75%** | **2,521** | **+745 net (767/22, 34.9×), 0 regressed, +12 cases, Δwrong −448** | **`typeof` guard narrowing** (`tsr-q9g`'s typeof form) — `Relation::Subtype`/`StrictSubtype` in the relater, the sixteen typeof facts bits with per-kind aggregates, and the `narrowTypeByTypeof` arm family. Sized twice by probes before building (access lines 27, identifiers **440 with 417 wrong**); the bar's primary leg was `wrongdelta` for the first time, and it read **−448**. Conversion **169%** of the sized row. A third "unported stand-in" fixture came due (`narrowing.rs`'s typeof guard) and was replaced with a comparability pair. Residual 260 new wrong in three owned families: loop fixpoints (unported incomplete-types iteration), further narrows (`tsr-97d`), want-`any` ceiling |
