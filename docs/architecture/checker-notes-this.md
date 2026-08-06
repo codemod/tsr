@@ -168,3 +168,105 @@ what surfaced it; a net figure would have shown +2,695 and hidden it.
   now silently defers to the class arm, so a *wrong* class answer would look like
   arm 2 working. The falsifier is a `.types` line under a `this`-parameter
   container whose baseline is neither the annotation nor `this`.
+
+---
+
+# `TemplateExpression` and `SuperKeyword`: both rules fail, neither ships
+
+Measured at **`150b8ba`**. `RM` and `RS` were registered in their own commit
+(`14174b3`) before the probe ran once; the instrument is
+`crates/tsr-conformance/examples/tmplsuper.rs`. Anchors re-taken with `grep -n`:
+`checkTemplateExpression` **`checker.go:7976`**, `checkSuperExpression`
+**`checker.go:7854`**. **No checker code is in this commit.**
+
+## Both rows are perfectly terminal, and that is confirmed
+
+| row | lines | right | gap | wrong |
+|---|---:|---:|---:|---:|
+| `TemplateExpression` | 1,067 | 0 | **1,067** | 0 |
+| `SuperKeyword` | 643 | 0 | **643** | 0 |
+
+Every line of both rows is a gap — no right answers to protect and no wrong ones
+to fix. The root-split's 92.3% and 100% own-root shares are corroborated by a
+second instrument that shares no code with it.
+
+## `TemplateExpression`: the premise I registered was false
+
+**RM's forecast rested on a claim, and the probe falsified it before any code was
+written.** I registered:
+
+> A span that is not constant makes leg 1 unreachable **by construction**, so a
+> conservative port answers `string` only when at least one span's type is *not*
+> a unit type.
+
+Cross-tabbing that test against the baseline:
+
+| predicted leg (some span is not a unit) | lines with a comparable RHS | want `string` |
+|---|---:|---:|
+| yes | 557 | **262 — 47.0%** |
+
+The other 295 want a folded literal: `"-1"`, `"05"`, `"2-1"`, `"125"`. They come
+from `conformance/templateStringBinaryOperations*`, where the span is
+`` `${1-2}` `` — this port types `1 - 2` as `number`, not a unit, so my test calls
+it non-constant, and **upstream's `evaluate` folds the arithmetic anyway**.
+
+**`evaluate` is a syntactic constant folder and consults no types at all.** So:
+
+- **RM-1: 262 of 1,067 = 24.6%**, against a 25% bar — short by **4 lines**.
+- **RM-2: 262 of 557 = 47.0%**, against 70%.
+
+**Both fail. Refused.** And the useful part is stronger than the refusal: **the
+`string` leg cannot be separated from the folding leg by any type-level test**,
+because upstream's discriminator is syntactic constant-evaluability. Separating
+them *is* building the evaluator. A row that looks like "the easy leg of three"
+is one leg that cannot be reached without one of the others.
+
+## `SuperKeyword`: built, measured, reverted
+
+The arm was written — `getSuperContainer(node, stopOnFunctions: true)`, the
+static/instance split on `ast.IsStatic(container)`, the base through
+`base_symbols_of` (`crate::members`) — and all checker tests stayed green.
+
+| | before | after |
+|---|---:|---:|
+| S right | 0 | **198** |
+| S gap | 643 | 188 |
+| S wrong | 0 | **257** |
+
+- **RS-1: 198 converted of 643 = 30.8% ≥ 25%. Fires.**
+- **RS-2: 198 of the 455 that stopped gapping = 43.5%**, against 70%. **Fails.**
+
+**Reverted.** 1.3 wrong per converted is worse than three items this workstream
+has already refused.
+
+### The diagnosis, which is one bug and is not fixed here
+
+```
+   51  ours Base    them typeof Base
+   43  ours A       them typeof A
+   26  ours C       them typeof C
+    9  ours B       them typeof B
+    9  ours Base    them any
+```
+
+**~151 of the 257 are the instance answer given where upstream gives the static
+one** — one classification error, not a diffuse problem. The static/instance
+split is `ast.IsStatic(container)` and this port's version of it is reading
+something wrong; the modifier test itself is character-for-character the binder's
+(`crates/tsr-binder/src/lib.rs:509`), so the fault is more likely in *which node*
+the walk calls the container.
+
+**I did not fix it, and so I am not claiming it.** RS-2 is what it measured, the
+arm is reverted, and `bd tsr-h1s` carries the diagnosis. On the evidence the row
+is worth more than 198 — if the static split is corrected, ~151 wrong lines
+become right and RS-2 would read roughly 349 of 455, **76.7%** — but that is an
+arithmetic projection from a histogram, not a measurement, and this page has
+refused three items for less.
+
+## What this cost and what it bought
+
+Two rows described as the purest terminal population on the board produced **zero
+shipped lines**. That is the correct outcome for both: one had a false premise
+and the other manufactured 1.3 wrong per right. The registration in `14174b3`
+is what makes that legible — the forecast, the legs and the bars were on the
+record before either number existed, so neither refusal is a rationalisation.
