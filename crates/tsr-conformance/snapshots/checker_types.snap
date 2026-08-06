@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 2184/9538 (22.90%)
-Assertion lines: 295302/478954 (61.66%)  — a gradient, not a pass rate
-Failed         : 7354
+Passed         : 2217/9538 (23.24%)
+Assertion lines: 297130/478954 (62.04%)  — a gradient, not a pass rate
+Failed         : 7321
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 7354 failures:
+First 100 of 7321 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -61,8 +61,6 @@ compiler/addMoreCallSignaturesToBaseSignature
   addMoreCallSignaturesToBaseSignature.ts: >kitty : error — expected >kitty : string
 compiler/addMoreCallSignaturesToBaseSignature2
   addMoreCallSignaturesToBaseSignature2.ts: >kitty : error — expected >kitty : string
-compiler/aliasAssignments
-  aliasAssignments_1.ts: >moduleA : error — expected >moduleA : typeof moduleA
 compiler/aliasBug
   aliasBug.ts: >booz : error — expected >booz : typeof booz
 compiler/aliasDoesNotDuplicateSignatures
@@ -82,23 +80,23 @@ compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
 compiler/aliasOnMergedModuleInterface
   aliasOnMergedModuleInterface_1.ts: >foo : error — expected >foo : any
 compiler/aliasUsageInArray
-  aliasUsageInArray_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInArray_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsageInFunctionExpression
-  aliasUsageInFunctionExpression_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInFunctionExpression_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsageInGenericFunction
-  aliasUsageInGenericFunction_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInGenericFunction_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsageInIndexerOfClass
-  aliasUsageInIndexerOfClass_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInIndexerOfClass_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsageInObjectLiteral
-  aliasUsageInObjectLiteral_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInObjectLiteral_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsageInOrExpression
-  aliasUsageInOrExpression_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInOrExpression_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsageInTypeArgumentOfExtendsClause
-  aliasUsageInTypeArgumentOfExtendsClause_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInTypeArgumentOfExtendsClause_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsageInVarAssignment
-  aliasUsageInVarAssignment_main.ts: >Backbone : error — expected >Backbone : typeof Backbone
+  aliasUsageInVarAssignment_main.ts: >VisualizationModel : error — expected >VisualizationModel : typeof Backbone.Model
 compiler/aliasUsedAsNameValue
-  aliasUsedAsNameValue_2.ts: >mod : error — expected >mod : typeof mod
+  aliasUsedAsNameValue_2.ts: >a : error — expected >a : () => void
 compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
   aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts: >moduleA : error — expected >moduleA : any
 compiler/allowImportClausesToMergeWithTypes
@@ -112,21 +110,13 @@ compiler/allowJscheckJsTypeParameterNoCrash
 compiler/allowSyntheticDefaultImports1
   a.ts: >Namespace : error — expected >Namespace : typeof Namespace
 compiler/allowSyntheticDefaultImports10
-  a.ts: >Foo : error — expected >Foo : typeof Foo
+  a.ts: >Foo.default.bar() : error — expected >Foo.default.bar() : any
 compiler/allowSyntheticDefaultImports4
   b.d.ts: >Foo : typeof Foo — expected >Foo : Foo
 compiler/allowSyntheticDefaultImports9
   a.ts: >default : error — expected >default : typeof Foo
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
   color.ts: >Color : error — expected >Color : Color
-compiler/alwaysStrict
-  alwaysStrict.ts: >arguments : never[] — expected >arguments : any[]
-compiler/alwaysStrictAlreadyUseStrict
-  alwaysStrictAlreadyUseStrict.ts: >a : never[] — expected >a : any[]
-compiler/alwaysStrictES6
-  alwaysStrictES6.ts: >arguments : never[] — expected >arguments : any[]
-compiler/alwaysStrictModule
-  alwaysStrictModule.ts: >arguments : never[] — expected >arguments : any[]
 compiler/ambientClassDeclarationWithExtends
   ambientClassDeclarationExtends_singleFile.ts: >new D() : error — expected >new D() : D
 compiler/ambientClassDeclaredBeforeBase
@@ -213,3 +203,13 @@ compiler/argumentsPropertyNameInJsMode1
   a.js: >foo : error — expected >foo : { f1: (params: any) => void; }
 compiler/argumentsPropertyNameInJsMode2
   a.js: >arguments : error — expected >arguments : IArguments
+compiler/argumentsReferenceInConstructor1_Js
+  /a.js: >foo : {} — expected >foo : object | undefined
+compiler/argumentsReferenceInConstructor2_Js
+  /a.js: >foo : {} — expected >foo : object | undefined
+compiler/argumentsReferenceInConstructor3_Js
+  /a.js: >foo : {} — expected >foo : object | undefined
+compiler/argumentsReferenceInConstructor4_Js
+  /a.js: >foo : {} — expected >foo : object | undefined
+compiler/argumentsReferenceInConstructor5_Js
+  /a.js: >foo : {} — expected >foo : object | undefined
