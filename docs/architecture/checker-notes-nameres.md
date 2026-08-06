@@ -1858,3 +1858,72 @@ rather than the build.
 every symbol reached by the walk was reached *through* a declaration, so a stop
 symbol with no declaration cannot occur, and R4 counts only the syntactic shapes
 this classification failed to name. It is printed whatever it reads.
+
+## 48. Measured: R1 is 13 lines. The binder commit is REFUSED
+
+`examples/nameres.rs`, the `§47` bucket, over the same 751:
+
+| | lines | share of 751 | cases |
+|---|---:|---:|---:|
+| **R0** — no symbol on the line; the chain construction **never ran** | **631** | **84.0%** | 200 |
+| **R2** — top level of an external module; chain root is a module, must GAP | 104 | 13.8% | 32 |
+| **R1** — inside a namespace body | 9 | 1.2% | 6 |
+| **R1** — inside a class/interface/enum body | 4 | 0.5% | 3 |
+| **R3** — top level of a script file; upstream builds no chain either | 3 | 0.4% | 1 |
+| **R4** — control | **0** | 0.0% | 0 |
+
+**R1 = 13 lines = 1.7%, against a bar of ≥40% registered in §47 before the
+instrument was written. Predicted <5%. The binder `Symbol::parent` commit is
+refused and is not built.**
+
+`Symbol::parent` *is* populated, by `declare_into`
+(`crates/tsr-binder/src/binder.rs`, three assignments), for every symbol filed
+into a `Members`, `Exports` or `GlobalExports` table — the port of
+`declareSymbolEx` (`internal/binder/binder.go:152`, assignment at `:292`). The
+`ENUM_MEMBER | CLASS_MEMBER` guard §45 quoted is `binder.rs`'s **computed-name**
+branch, the port of `bindAnonymousDeclaration` (`internal/binder/binder.go:1230`),
+and it governs `__computed` symbols only. Upstream leaves `Symbol.Parent` nil for
+locals as well (`declareModuleMember`, `internal/binder/binder.go:373`, passes
+`nil /*parent*/`) and recovers containers in the **checker** instead —
+`getContainersOfSymbol` (`internal/checker/symbolaccessibility.go:280`) walks
+*declarations* when `getParentOfSymbol` (`internal/checker/checker.go:14365`)
+returns nil. There was never a missing binder assignment to make.
+
+### What the 57% actually is, and it is not a naming defect
+
+**631 of the 751 — 84.0%, and 47.9% of the whole 1,318 — carry no symbol on the
+line at all**, so the chain construction never started. The type this port
+computes there is not a `Named { members }` or an `Anonymous { symbol }`; it is
+something with no symbol to climb from. That is a **type-level** coverage
+failure, not a binder one and not a renderer one, and no amount of chain work
+touches it.
+
+The next 104 are `R2`, and §31 already decided them: a chain rooted at a module
+symbol prints `import("<specifier>")`, which is `getSpecifierForModuleSymbol`
+(`internal/checker/nodebuilderimpl.go:1249`), **0% ported**. They must gap.
+
+So the item's reachable population is **567 lines, not 1,318** — the 514 + 53 on
+which the construction runs — and it was 567 before this cycle and will be 567
+after any binder change.
+
+### The control, and how much it proves
+
+`R4` reads **0**, and `docs/conventions.md` says that means nothing until a line
+can reach it. Half of it can: `R4`'s depth-limit arm fires on any chain deeper
+than eight, and none exists in this corpus. The other half — *a stop symbol with
+no declaration* — **cannot fire**, because every symbol the walk reaches was
+reached through one. It is recorded as half-vacuous rather than quoted as a clean
+partition.
+
+### How you would know this section is wrong
+
+- **`R0` is an artefact of the probe reading the wrong type.** It takes the
+  line's own expression type and looks for `Named { members }` / `Anonymous
+  { symbol }`. If a third `TypeData` variant carried a symbol, `R0` would be
+  inflated and the renderer's population understated. Not checked (`open`).
+- **`R1` is understated because the classifier stops at the first enclosing
+  container kind.** It walks outward from the declaration and returns on the
+  first `ModuleDeclaration` / class / interface / enum, so a symbol nested two
+  deep is still `R1`. It can only over-count `R1`, which is the direction that
+  would have *saved* the binder commit, and it read 13.
+- **The 631 are one case.** They are not: 200 cases, top-1 13.2%.
