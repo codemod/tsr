@@ -115,7 +115,15 @@ fn naming_pays_only_where_the_body_computes() {
     // unchanged by this slice. They are the frontier behind it, and the reason
     // the population number is not the payoff number.
     assert_eq!(type_of_last_annotation("type X = { a: [string] };\nvar v: X[];"), "error");
-    assert_eq!(type_of_last_annotation("type X = { a: Nope };\nvar v: X[];"), "error");
+    // `type X = { a: Nope }` used to be here asserting `error`, and it now
+    // computes: an **unresolved** type reference prints the name that was
+    // written (`bd tsr-eep`, `Checker::unresolved_type_reference`), so the body
+    // no longer gaps and the alias has something to name. Upstream prints
+    // `X[]` here too — it reports `Cannot find name 'Nope'` *and* renders the
+    // name. The line moved rather than being deleted, because the frontier this
+    // test describes is real and just no longer runs through an unresolved
+    // name.
+    assert_eq!(type_of_last_annotation("type X = { a: Nope };\nvar v: X[];"), "X[]");
     assert_eq!(
         type_of_last_annotation(
             "type K = \"a\" | \"b\";\ntype X = { a: { [P in K]: string } };\nvar v: X[];"

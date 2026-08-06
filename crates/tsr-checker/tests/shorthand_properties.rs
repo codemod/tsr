@@ -82,9 +82,12 @@ fn shorthand_and_longhand_members_mix_in_source_order() {
 #[test]
 fn a_shorthand_naming_something_unresolvable_is_a_gap() {
     // A gap in a member is a gap in the literal, the rule the longhand path
-    // already follows. The fixture uses an unresolvable annotation rather than
-    // an unported expression form, so it stays a gap as more grammar lands.
-    assert_eq!(type_of_last("var u: Unresolved;\nconst o = { u };"), "error");
+    // already follows. The fixture used an unresolvable annotation "so it stays
+    // a gap as more grammar lands" — `bd tsr-eep` falsified that: an unresolved
+    // name prints itself now. A **tuple** annotation is genuinely unported and
+    // keeps the fixture testing the rule it names.
+    assert_eq!(type_of_last("var u: [string];\nconst o = { u };"), "error");
+    assert_eq!(type_of_last("var u: Unresolved;\nconst o = { u };"), "{ u: Unresolved; }");
 }
 
 // `{ a = 1 }` — the destructuring shorthand — is deliberately NOT tested here.

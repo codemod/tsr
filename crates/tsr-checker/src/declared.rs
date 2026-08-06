@@ -91,8 +91,50 @@ impl<'a> Checker<'a, '_> {
     ///   corpus and hangs on a real program.
     fn get_type_from_type_reference(&mut self, node: &tsr_ast::TypeReferenceNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
-        let Some(tsr_ast::EntityName::Identifier(name)) = node.type_name else {
-            return error;
+        // **A qualified name is minted only when its root does not resolve.**
+        //
+        // `resolveEntityName` is unported, so this port cannot type `M.I` where
+        // `M` is a real namespace — upstream resolves that and prints `I`, not
+        // `M.I`. Minting the written text unconditionally would turn every
+        // *resolvable* qualified reference into a confident wrong line, and a
+        // `matched`-count bar cannot see it: those lines gap today, so gap→wrong
+        // moves nothing the bar watches. That is how this arm shipped and was
+        // caught by a unit test rather than by the corpus.
+        //
+        // The discriminator is upstream's own control flow:
+        // `getUnresolvedSymbolForEntityName` is reached *only* when
+        // `resolveEntityName` failed, and `resolveEntityName` begins by
+        // resolving the **leftmost** name as a namespace. So if the root
+        // resolves, upstream had a real symbol and this port must keep gapping
+        // until `resolveEntityName` lands; if the root does not resolve,
+        // nothing downstream can, and the whole dotted path is unresolvable for
+        // upstream too.
+        let name = match node.type_name {
+            Some(tsr_ast::EntityName::Identifier(name)) => name,
+            Some(qualified @ tsr_ast::EntityName::QualifiedName(_)) => {
+                let mut root = qualified;
+                while let tsr_ast::EntityName::QualifiedName(inner) = root {
+                    let Some(left) = inner.left else { return error };
+                    root = left;
+                }
+                let tsr_ast::EntityName::Identifier(root) = root else { return error };
+                let Some(root_id) = root.node_id else { return error };
+                if self
+                    .binder
+                    .resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        root_id,
+                        root.text,
+                        SymbolFlags::NAMESPACE,
+                    )
+                    .is_some()
+                {
+                    return error;
+                }
+                return self.unresolved_type_reference(node);
+            }
+            None => return error,
         };
         let Some(id) = name.node_id else { return error };
         // `SymbolFlags::TYPE` is upstream's meaning for a type reference
@@ -102,7 +144,7 @@ impl<'a> Checker<'a, '_> {
         let Some(symbol) =
             self.binder.resolve_name(self.nodes, self.node_map, id, name.text, SymbolFlags::TYPE)
         else {
-            return error;
+            return self.unresolved_type_reference(node);
         };
         let parameters = self.local_type_parameters_of(symbol).len();
         if parameters == 0 {
@@ -477,6 +519,77 @@ impl<'a> Checker<'a, '_> {
             arguments.push(resolved);
         }
         self.create_type_reference(symbol, arguments)
+    }
+
+    /// A type reference whose name **does not resolve**, printed as the name
+    /// that was written.
+    ///
+    /// Ported from `getUnresolvedSymbolForEntityName` (`checker.go:23102`) and
+    /// the `CheckFlagsUnresolved` branch of `getTypeFromTypeAliasReference`
+    /// (`checker.go:23580`). Upstream mints a synthetic `TypeAlias` symbol
+    /// named after the entity and one `errorType` per alias key carrying it, so
+    /// the node builder writes a `TypeReference` to that name.
+    ///
+    /// # Why this is not "inventing an answer"
+    ///
+    /// It looks like the thing this port refuses everywhere else — answering
+    /// something for a name it could not resolve. It is the opposite: upstream
+    /// reports `TS2304 Cannot find name` **and prints the name anyway**.
+    /// `conformance/parserRealSource11` carries 1,006 of those errors, records
+    /// `>nodeType : NodeType` throughout, and contains **zero** ` : any` lines.
+    /// Answering `errorType` there is the divergence.
+    ///
+    /// # The type still answers `is_error`, and that is the whole design
+    ///
+    /// [`Checker::is_error`] is identity-based throughout this crate so that
+    /// `errorType` and `anyType` stay apart. The type minted here is added to
+    /// [`Checker::unresolved_types`] and `is_error` consults that set, so every
+    /// consumer — the arithmetic arm, `+`, the union worker, array elements —
+    /// keeps treating it as a gap and keeps propagating. **Only the line that
+    /// renders this node changes**, which is why the change can gain and cannot
+    /// lose.
+    ///
+    /// Type arguments are rendered into the text, as upstream puts them on the
+    /// alias, so `Foo<string>` prints `Foo<string>` rather than `Foo`.
+    fn unresolved_type_reference(&mut self, node: &tsr_ast::TypeReferenceNode<'a>) -> TypeId {
+        let Some(text) = Self::entity_name_text(node.type_name) else {
+            return self.intrinsics.error;
+        };
+        let mut printed = text;
+        if !node.type_arguments.is_empty() {
+            let arguments: Vec<String> = node
+                .type_arguments
+                .iter()
+                .map(|argument| {
+                    let id = self.get_type_from_type_node(*argument);
+                    self.type_to_string(id)
+                })
+                .collect();
+            // A gap inside an argument is a gap in the whole reference:
+            // printing `Foo<error>` would be a wrong line rather than a missing
+            // one, and upstream's alias key is built from resolved arguments.
+            if arguments.iter().any(|argument| argument == "error") {
+                return self.intrinsics.error;
+            }
+            printed = format!("{printed}<{}>", arguments.join(", "));
+        }
+        let id = self.store.new_named(TypeFlags::ANY, printed, None);
+        self.unresolved_types.insert(id);
+        id
+    }
+
+    /// The source spelling of an entity name — `A`, or `A.B.C`.
+    ///
+    /// Upstream builds the same string with `getSymbolPath` over the chain of
+    /// unresolved parent symbols (`checker.go:23139`).
+    fn entity_name_text(name: Option<tsr_ast::EntityName<'a>>) -> Option<String> {
+        match name? {
+            tsr_ast::EntityName::Identifier(identifier) => Some(identifier.text.to_owned()),
+            tsr_ast::EntityName::QualifiedName(qualified) => {
+                let left = Self::entity_name_text(qualified.left)?;
+                Some(format!("{left}.{}", qualified.right?.text))
+            }
+        }
     }
 
     /// `createTypeReference(target, typeArguments)` (`checker.go`).

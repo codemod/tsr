@@ -77,7 +77,12 @@ fn a_member_this_port_still_cannot_render_gaps_the_whole_literal() {
     assert_eq!(type_of_annotation("var x: { get a(): string };"), "error");
     assert_eq!(type_of_annotation("var x: { a: string; get b(): string };"), "error");
     // A method whose parameter type is a gap takes the literal with it.
-    assert_eq!(type_of_annotation("var x: { m(a: Unresolvable): void };"), "error");
+    // `bd tsr-eep`: an **unresolved** name now prints itself, because
+    // upstream reports `Cannot find name` and renders the name anyway. So an
+    // unresolved reference is no longer an example of "a type this port cannot
+    // compute"; a **tuple** still is, and is used instead. The rule under test
+    // is unchanged.
+    assert_eq!(type_of_annotation("var x: { m(a: [string]): void };"), "error");
 }
 
 #[test]

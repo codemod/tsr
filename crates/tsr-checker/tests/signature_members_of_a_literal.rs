@@ -127,8 +127,15 @@ fn a_literal_with_a_member_this_port_cannot_render_still_gaps() {
     // The arms remove *one* reason for a literal to gap, not all of them. A
     // construct signature whose return type is a gap takes the whole literal
     // with it, on `get_type_from_type_literal`'s all-or-nothing rule.
-    assert_eq!(type_of_last_annotation("var x: { new (): unknownThing };"), "error");
-    assert_eq!(type_of_last_annotation("var x: { (): unknownThing };"), "error");
+    // `unknownThing` was the gap here until `bd tsr-eep` made an unresolved
+    // name print itself. A **tuple** return is genuinely unported and keeps the
+    // all-or-nothing rule under test.
+    assert_eq!(type_of_last_annotation("var x: { new (): [string] };"), "error");
+    assert_eq!(type_of_last_annotation("var x: { (): [string] };"), "error");
+    assert_eq!(
+        type_of_last_annotation("var x: { new (): unknownThing };"),
+        "{ new (): unknownThing; }"
+    );
 }
 
 // DELIBERATELY NOT TESTED HERE: the alias-mediated chain, `p: X[]` where

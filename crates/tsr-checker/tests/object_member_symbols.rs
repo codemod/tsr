@@ -87,7 +87,11 @@ fn the_member_symbol_agrees_with_the_literals_printed_text() {
 
 #[test]
 fn a_member_whose_initialiser_this_port_cannot_type_is_still_a_gap() {
-    // The arm inherits the initialiser's answer, gap included. The fixture uses
-    // an unresolvable annotation so it stays a gap however much grammar lands.
-    assert_eq!(type_of_last("var u: Unresolved;\nvar o = { a: u };\nvar x = o.a;"), "error");
+    // The arm inherits the initialiser's answer, gap included. The fixture used
+    // an unresolvable annotation "so it stays a gap however much grammar
+    // lands" — which `bd tsr-eep` falsified: an unresolved name now prints
+    // itself, and the value flows through. A **tuple** annotation is genuinely
+    // unported and keeps the fixture doing what it was written to do.
+    assert_eq!(type_of_last("var u: [string];\nvar o = { a: u };\nvar x = o.a;"), "error");
+    assert_eq!(type_of_last("var u: Unresolved;\nvar o = { a: u };\nvar x = o.a;"), "Unresolved");
 }

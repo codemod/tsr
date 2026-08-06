@@ -142,7 +142,15 @@ fn an_element_is_parenthesised_only_where_the_baselines_parenthesise_it() {
 fn an_element_this_port_cannot_type_makes_the_array_a_gap() {
     // `Unported[]` is not `any[]` — the same call made for union constituents
     // and for a generic reference's type arguments.
-    assert_eq!(type_of_annotation("var x: Unresolvable[];"), "error");
+    //
+    // The fixture was `Unresolvable[]` until `bd tsr-eep`, which is no longer
+    // an example of the rule: an **unresolved** name now prints itself, because
+    // upstream reports `Cannot find name` and renders the name anyway. So the
+    // element types, and `Unresolvable[]` is the right answer. A *tuple* is
+    // still genuinely unported and still gaps, which is what this test is
+    // about.
+    assert_eq!(type_of_annotation("var x: [string][];"), "error");
+    assert_eq!(type_of_annotation("var x: Unresolvable[];"), "Unresolvable[]");
 }
 
 #[test]

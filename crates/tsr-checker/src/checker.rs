@@ -123,6 +123,21 @@ pub struct Checker<'a, 'n> {
     /// it has no entry and no rebuild — see
     /// [`Checker::instantiate_type`](crate::Checker::instantiate_type).
     pub(crate) type_reference_targets: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
+    /// Types minted for a type reference whose **name does not resolve**.
+    ///
+    /// Upstream mints one `errorType` per unresolved alias key, carrying an
+    /// alias symbol named after the entity, so the printer writes `NodeType`
+    /// rather than `any` (`checker.go:23580`, `bd tsr-eep`). This port's
+    /// equivalent is a [`crate::types::TypeData::Named`] carrying the written
+    /// text — but it must still answer [`Checker::is_error`], or the
+    /// arithmetic and `+` arms would stop propagating and start claiming `any`
+    /// for an operand nobody could resolve.
+    ///
+    /// A set rather than a flag on the type because `is_error` is *identity*
+    /// throughout this crate, deliberately: `errorType` and `anyType` both
+    /// carry `TypeFlags::ANY` and every guard here tests the identity so the
+    /// two stay apart.
+    pub(crate) unresolved_types: rustc_hash::FxHashSet<TypeId>,
     /// A class symbol to its `this` type, upstream's `d.thisType`
     /// (`checker.go:17334`). One per class, so `this` has a stable identity
     /// inside one.
@@ -266,6 +281,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),
             type_reference_targets: FxHashMap::default(),
+            unresolved_types: rustc_hash::FxHashSet::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
             shared_flows: Vec::new(),
@@ -427,7 +443,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// distinguished only by identity, which is the whole point of them being
     /// separate types (`checker.go:979`).
     pub(crate) fn is_error(&self, id: TypeId) -> bool {
-        id == self.intrinsics.error
+        id == self.intrinsics.error || self.unresolved_types.contains(&id)
     }
 
     /// Ported from `ast.GetCombinedNodeFlags` / `getCombinedFlags`

@@ -124,13 +124,25 @@ fn a_nested_function_type_resolves_through_the_same_arm() {
 /// already makes, and the reason this arm cannot be written as a fallback.
 #[test]
 fn a_parameter_whose_type_is_a_gap_makes_the_function_type_a_gap() {
-    assert_eq!(type_of_function_annotation("let f: (x: Nope) => void;"), "error");
+    // `bd tsr-eep`: an **unresolved** name now prints itself, because
+    // upstream reports `Cannot find name` and renders the name anyway. So an
+    // unresolved reference is no longer an example of "a type this port cannot
+    // compute"; a **tuple** still is, and is used instead. The rule under test
+    // is unchanged.
+    assert_eq!(type_of_function_annotation("let f: (x: [string]) => void;"), "error");
+    assert_eq!(type_of_function_annotation("let f: (x: Nope) => void;"), "(x: Nope) => void");
 }
 
 /// And likewise the return annotation.
 #[test]
 fn a_return_type_that_is_a_gap_makes_the_function_type_a_gap() {
-    assert_eq!(type_of_function_annotation("let f: (x: number) => Nope;"), "error");
+    // `bd tsr-eep`: an **unresolved** name now prints itself, because
+    // upstream reports `Cannot find name` and renders the name anyway. So an
+    // unresolved reference is no longer an example of "a type this port cannot
+    // compute"; a **tuple** still is, and is used instead. The rule under test
+    // is unchanged.
+    assert_eq!(type_of_function_annotation("let f: (x: number) => [string];"), "error");
+    assert_eq!(type_of_function_annotation("let f: (x: number) => Nope;"), "(x: number) => Nope");
 }
 
 /// A destructuring parameter is one of the forms `get_signature_from_declaration`
