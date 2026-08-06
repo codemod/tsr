@@ -308,6 +308,17 @@ struct CaseReport {
     /// The same verdict crossed with the receiver kind, so a reader can see
     /// which sub-item each verdict belongs to rather than inferring it.
     merge_by_family: HashMap<(&'static str, &'static str), usize>,
+    /// **The `this` spec, population A.** Gap lines whose node kind is
+    /// `ThisKeyword`, keyed by the **this-container** upstream would find.
+    /// Pinned syntactically: the kind is an AST fact.
+    this_population: HashMap<&'static str, usize>,
+    /// What upstream prints for those lines, per container — the spellability
+    /// leg, kept per container because the answers differ completely between
+    /// them (`this` vs `typeof C` vs `typeof globalThis`).
+    this_rhs: HashMap<(&'static str, String), usize>,
+    /// **The `this` spec, population B.** The 1,165 `RIGHT`-arm lines whose
+    /// *receiver* is `this` and whose member lookup failed, keyed by why.
+    this_receiver: HashMap<&'static str, usize>,
     roots: HashMap<(Root, String), Tally>,
     depth_hist: BTreeMap<usize, usize>,
     /// How many *distinct top-level* gapped children a span step chose from. 1
@@ -716,6 +727,15 @@ fn walk(
         }
     }
     *report.depth_hist.entry(depth).or_default() += 1;
+    // **The `this` spec, population A.** Same shape as P1: pinned by node kind,
+    // so `|P|` is an AST fact.
+    if nodes.kind(line_ids[start]) == SyntaxKind::ThisKeyword {
+        let container = this_container_label(nodes, line_ids[start]);
+        *report.this_population.entry(container).or_default() += 1;
+        if report.this_rhs.len() < 4096 {
+            *report.this_rhs.entry((container, want_type.to_string())).or_default() += 1;
+        }
+    }
     // **RULE-3's P1**, read at the LINE and keyed on the line's own node kind,
     // not at the root and not on the reason. A gap line whose node is a
     // `PropertyAccessExpression` is in the population whatever it roots as, so
@@ -741,6 +761,15 @@ fn walk(
                 .merge_by_family
                 .entry((family, merge_verdict(checker, bound, nodes, map, line_ids[start])))
                 .or_default() += 1;
+            // **The `this` spec, population B.** A `this` receiver that reached
+            // `RIGHT` was typed correctly, so the failure is downstream of
+            // `this` typing — this asks what it actually is.
+            if family.starts_with("this") {
+                *report
+                    .this_receiver
+                    .entry(this_receiver_verdict(checker, bound, nodes, map, line_ids[start]))
+                    .or_default() += 1;
+            }
         }
     }
     // **RULE-2's B1**, read at the root rather than at the line: is the access
@@ -885,6 +914,114 @@ fn receiver_fidelity(
         ("receiver typed as upstream types it", Some(checker.type_to_string(receiver_type)))
     } else {
         ("receiver typed DIFFERENTLY", None)
+    }
+}
+
+/// The **this-container**, as upstream's `getThisContainer` finds it.
+///
+/// Ported for measurement only from `getThisContainer`
+/// (`checker.go:12188`, from `grep -n` on the declaration) as it is used by
+/// `checkThisExpression` (`checker.go:12077`): walk parents, and an
+/// `ArrowFunction` is **transparent** — it does not own `this`, so the walk
+/// continues through it. Every other function-like form is opaque.
+///
+/// The computed-property-name and decorator cases upstream handles are **not**
+/// reproduced; they would land in the arm below them and are rare enough that
+/// mixing them in is the smaller error than a partial port pretending to be a
+/// whole one. Named so a reader does not assume they were handled.
+// The `ArrowFunction` arm is deliberately identical to the wildcard: an arrow
+// is transparent to `this`, which is upstream's **rule**
+// (`checkThisExpression` skips arrows explicitly) and not an omission. Deleting
+// the arm to satisfy the lint would delete the statement that it was
+// considered — `docs/conventions.md`, "a limitation naming no owner is how
+// stale comments outlive their truth".
+#[allow(clippy::match_same_arms)]
+fn this_container_label(nodes: &tsr_ast::NodeTable, node: NodeId) -> &'static str {
+    let mut current = nodes.parent(node);
+    while let Some(id) = current {
+        match nodes.kind(id) {
+            // Transparent, and this is a rule rather than an omission.
+            SyntaxKind::ArrowFunction => {}
+            SyntaxKind::MethodDeclaration => return "class/object METHOD",
+            SyntaxKind::Constructor => return "CONSTRUCTOR",
+            SyntaxKind::GetAccessor | SyntaxKind::SetAccessor => return "ACCESSOR",
+            SyntaxKind::PropertyDeclaration => return "PROPERTY INITIALISER",
+            SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => {
+                return "free FUNCTION — rebinds `this`";
+            }
+            SyntaxKind::ObjectLiteralExpression => return "OBJECT LITERAL",
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
+                return "class body, no nearer container";
+            }
+            SyntaxKind::ModuleDeclaration => return "MODULE/NAMESPACE body — upstream errors",
+            SyntaxKind::SourceFile => return "SOURCE FILE — globalThis or undefined",
+            _ => {}
+        }
+        current = nodes.parent(id);
+    }
+    "no container found"
+}
+
+/// Why a member lookup on a **correctly typed `this`** still failed.
+///
+/// These lines reached the `RIGHT` arm, so `this` itself was typed the way
+/// upstream types it. The failure is therefore **downstream of `this` typing**,
+/// and this asks which of the already-named items it is — which is the
+/// difference between an `expressions.rs` spec and work in files this
+/// workstream already owns.
+fn this_receiver_verdict(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    access: NodeId,
+) -> &'static str {
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return "not an access";
+    };
+    let Some(tsr_ast::MemberName::Identifier(name)) = node.name else {
+        return "member name is not an identifier";
+    };
+    // The enclosing class, which is what `this` is typed as.
+    let mut current = nodes.parent(access);
+    let mut class = None;
+    while let Some(id) = current {
+        if matches!(nodes.kind(id), SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression) {
+            class = Some(id);
+            break;
+        }
+        current = nodes.parent(id);
+    }
+    let Some(class) = class else {
+        return "no enclosing class — the `this` TYPING item (expressions.rs)";
+    };
+    let Some(symbol) = bound.symbol_of(class) else { return "the class has no symbol" };
+    let entry = bound.symbols().get(symbol);
+    if entry.members.contains_key(name.text) {
+        // **The discriminator, and the first draft of this function did not
+        // have it.** "The member is in the binder's table" does NOT mean the
+        // lookup rejected it — the `RIGHT` arm holds every gap line whose
+        // receiver is correctly typed, including lines where the member was
+        // found and its own TYPE gapped. Labelling those "lookup rejected it"
+        // would have been a false claim about `members.rs`, in the direction
+        // that invents work for this workstream. So ask the lookup itself.
+        let Some(receiver) = node.expression else { return "no receiver" };
+        let receiver_type = checker.check_expression(receiver);
+        return if checker.get_property_of_type(receiver_type, name.text).is_some() {
+            "member FOUND by the lookup — its own TYPE gaps (the tsr-mcd family)"
+        } else {
+            "member in the binder's table, lookup MISSES it — members.rs, MINE"
+        };
+    }
+    let has_base = entry.declarations.iter().any(|&declaration| match map.get(declaration) {
+        Some(Node::ClassDeclaration(node)) => !node.heritage_clauses.is_empty(),
+        Some(Node::ClassExpression(node)) => !node.heritage_clauses.is_empty(),
+        _ => false,
+    });
+    if has_base {
+        "inherited — the base-type walk (members.rs, MINE)"
+    } else {
+        "absent from the class and it has no base — a binder table or the static side"
     }
 }
 
@@ -1630,6 +1767,57 @@ fn report(reports: &[CaseReport]) {
     crossed_rows.sort_unstable_by(|a, b| b.cmp(a));
     for (n, family, verdict) in crossed_rows.iter().take(14) {
         println!("      {n:>7}  {:<38}  {}", truncate(family, 36), truncate(verdict, 58));
+    }
+
+    println!(
+        "\n## THE `this` SPEC — population A: gap lines whose NODE is `this` (unit: gap lines)\n"
+    );
+    println!("  |P| pinned by node kind. Container found by a measurement-only port of");
+    println!("  upstream's getThisContainer (checker.go:12188): arrows are transparent.");
+    let mut this_pop: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (container, n) in &case.this_population {
+            *this_pop.entry(container).or_default() += n;
+        }
+    }
+    let this_total: usize = this_pop.values().sum();
+    let mut this_rows: Vec<_> = this_pop.iter().map(|(c, n)| (*n, *c)).collect();
+    this_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, container) in &this_rows {
+        println!("  {n:>7} {:>7.2}%  {container}", pct(*n, this_total));
+    }
+    println!("  {this_total:>7}           TOTAL");
+    println!("\n  SPELLABILITY, per container — what upstream prints (the exact-match leg):");
+    let mut rhs: HashMap<(&str, &str), usize> = HashMap::new();
+    for case in reports {
+        for ((container, text), n) in &case.this_rhs {
+            *rhs.entry((container, text.as_str())).or_default() += n;
+        }
+    }
+    for (_, container) in this_rows.iter().take(5) {
+        let mut per: Vec<_> =
+            rhs.iter().filter(|((c, _), _)| c == container).map(|((_, t), n)| (*n, *t)).collect();
+        per.sort_unstable_by(|a, b| b.cmp(a));
+        let total: usize = per.iter().map(|(n, _)| n).sum();
+        let sample: Vec<String> =
+            per.iter().take(4).map(|(n, t)| format!("{} {n}", truncate(t, 24))).collect();
+        println!("    {:<44} {total:>6}  [{}]", truncate(container, 42), sample.join(" | "));
+    }
+
+    println!("\n## THE `this` SPEC — population B: `this` RECEIVERS in the RIGHT arm\n");
+    println!("  These were typed the way upstream types them, so the failure is DOWNSTREAM");
+    println!("  of `this` typing. This is what it actually is:");
+    let mut this_recv: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (verdict, n) in &case.this_receiver {
+            *this_recv.entry(verdict).or_default() += n;
+        }
+    }
+    let recv_total: usize = this_recv.values().sum();
+    let mut recv_rows: Vec<_> = this_recv.iter().map(|(v, n)| (*n, *v)).collect();
+    recv_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, verdict) in recv_rows {
+        println!("  {n:>7} {:>7.2}%  {verdict}", pct(n, recv_total));
     }
 
     println!("\n## CONTROLS — what pins each\n");
