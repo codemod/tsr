@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`2642e7b`**, 2026-08-06 (third session).
+Measured at **`c72ebf2`**, 2026-08-06 (third session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`2642e7b`**, 2026-08-06 (third session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,425/9,538** | **25.42%** | **gradient 68.67%** — the target |
+| **`checker_types`** | **2,427/9,538** | **25.45%** | **gradient 68.68%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-328,907 / 478,954 assertion lines = 68.67%
-  right 328,907 | gap 99,203 | wrong ~40,790   (41,391 at 0fe102a, then −600 +17 −18)
+328,965 / 478,954 assertion lines = 68.68%
+  right 328,965 | gap 99,182 | wrong ~40,753   (41,391 at 0fe102a, then −600 +17 −18 −37)
 ```
 
 **The previous “wrong ~37,252” was stale and is corrected, and it was worth a
@@ -102,9 +102,9 @@ attributed count as the only firm figure and expect it to move.
 
 ```
 reachable denominator   476,752 of 478,954
-today                    328,907 / 476,752 = 69.00% of reachable
+today                    328,965 / 476,752 = 69.02% of reachable
 80% of the full          383,163 lines  =  80.37% of the reachable
-gap to 80%               +54,256 lines
+gap to 80%               +54,198 lines
 ```
 
 ---
@@ -121,7 +121,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **68.67% of lines** | the mountain; §4 and §5 |
+| **checker** | **68.68% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -141,7 +141,10 @@ element access, index signatures and the relater all substitute through the
 `strictNullChecks`** (`856972a`, `tsr-0hc`: +2,266), **calls through
 instantiated members and default type arguments** (`385fb60`, `tsr-1uz`:
 +405), and **equality narrowing against `null`/`undefined`** (`2642e7b`: +30,
-bar overridden — §7).
+bar overridden — §7), and **narrowing for property/element references**
+(`c72ebf2`, `tsr-6ka`: +58 — `isMatchingReference` is structural, both access
+forms reach the flow walk, and `containsMatchingReference` resets narrowing on
+assignment to a receiver).
 
 Deliberately **not** ported, each with a reason on record: the evolving-array
 `x.push(e)` widening (53 lines, all already wrong); `hadErrorBaseline`
@@ -193,7 +196,7 @@ says exactly where the arm goes.
 
 | # | item | reachable | file |
 |---|---|---:|---|
-| 1 | **flow narrowing for property references** (`bd tsr-6ka`) — `is_matching_reference` is identifier-only, so `a.b !== undefined` and `o?.foo != null` narrow nothing and **every guard already ported is waiting on it**. Measured as the binding constraint, not guessed: the equality build converted 33 lines against a predicted 150 for exactly this reason. **Size it through the matcher, not through the guards** | unmeasured; `tsr-e10`'s 256-line symptom row sits downstream | `flow.rs` |
+| 1 | **the unported narrowing guard forms** (`bd tsr-q9g`) — `typeof`, `in`, `instanceof`, comparability. Measured at **296 in-range lines** by `refmatch.rs`, and unblocked twice over as of `c72ebf2`: they needed both the structural matcher (now built) and an arm. `typeof` is the largest and needs eight facts bits as mechanical as the six that landed; `in` needs only `get_type_of_property_of_type`. **Register a bar — `tsr-6ka` shipped without one** | **296** measured, but see the bracket caveat in `checker-notes-narrow.md` §5 | `flow.rs` |
 | 2 | **call resolution** — the largest reachable mass, ceiling 11.4%, and the sole owner of what `tsr-1uz` left behind: **overload sets**, including every multi-signature instantiated member. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | ~**6,000** | `calls.rs` |
 | 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,295 | measurement |
 | 4 | `tsr-y9x` — 16 lines printing `undefined`/`error` where upstream prints `any` | 16 | resolver |
@@ -216,15 +219,15 @@ ever was. `docs/architecture/checker-notes-armsplit.md` §9.
 
 The arithmetic, restated at `2642e7b`:
 
-- Distance to 80%: **+54,256 lines** (was +69,314 at the session's start).
-- This session: **+15,058** over four kept builds, of which 10,000 is the
-  one-case windfall §2 records. Excluding it, the four read
-  **+2,357 / +2,266 / +405 / +30** — the rate is falling, and the last two say
-  why: the cheap arms are done, and what remains is gated behind
-  **capabilities** (call resolution; flow references for property accesses)
-  rather than behind arms. An arm landed against a capability boundary
-  converts what the boundary lets through, which is what the equality build
-  measured at 33 lines.
+- Distance to 80%: **+54,198 lines** (was +69,314 at the session's start).
+- This session: **+15,116** over five kept builds, of which 10,000 is the
+  one-case windfall §2 records. Excluding it, the five read
+  **+2,357 / +2,266 / +405 / +30 / +58** — the rate is falling, and the tail
+  says why: the cheap arms are done, and what remains is gated behind
+  **capabilities** rather than behind arms. The last two builds are the
+  clearest case — an equality arm converted 33 lines because no property
+  reference could match, and building that matcher then converted 58. Neither
+  number is the arm's worth; both are what the boundary let through.
 - Both board items 1 and 2 are capability items with **unmeasured
   conversion**. That is the honest shape of the remaining distance, and §4's
   standing conclusion — 80% is reachable and not reachable by ranking rows —
@@ -289,6 +292,7 @@ Built and maintained; **use them, do not rebuild them.**
 | `examples/ceiling.rs` | the ADR-0038 unreachable bound |
 | `examples/rank_board.rs` | the gradient board, `TERMINAL`/propagated split |
 | `examples/wrongflip.rs` | the only cause split for **wrong** lines |
+| `examples/refmatch.rs` | what a narrowing **matcher** can reach — in-range lines split by guard form and by current verdict, with a strict and a loose bound reported together |
 | `examples/wrongdelta.rs` | **`casedelta`'s sibling for the wrong bucket** — raw joinable `want`/`got` dump; two runs over a `git stash` attribute every gap→wrong line, which `casedelta` cannot see by construction |
 | `fnexpr` · `nameres` · `evolvearray` · `thisparam` · `receiver_gap` | per-workstream |
 
@@ -311,6 +315,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `c72ebf2` | **68.68%** | **2,427** | **+58 lines, 6 lost, +2 cases, 0 regressed** | **narrowing reaches property and element references** (`tsr-6ka`) — `isMatchingReference` made structural, both access forms wired to the flow walk (the binder had recorded their flow nodes all along), and `containsMatchingReference` added after the corpus named it: five over-narrowed lines in `destructuringControlFlow`, the one direction this module can produce a wrong line rather than a gap. **Sized through the matcher first** with the new `refmatch.rs` — 181 strict, 2,172 loose, delivered 64 gained. **No bar was registered before the build**, recorded as a process miss in `checker-notes-narrow.md` §5 |
 | 2026-08-06 | `2642e7b` | **68.67%** | **2,425** | **+30 lines, 3 lost, +1 case, 0 regressed** | **equality narrowing against `null`/`undefined`** (`narrowTypeByEquality`'s nullable half; the other half needs `areTypesComparable`). **Its registered bar fired on the floor — 33 gained against 150 — and is overridden, loudly**, in the commit, the issue, here and `checker-notes-narrow.md` §4: the build is right (six fixtures from two baselines, Δwrong **−18**) and the floor was derived from what upstream's *users* write rather than from what this port can *reach* — `is_matching_reference` is identifier-only, so no property-access guard narrows anything. That constraint is now the board's item 1 (`tsr-6ka`). The session's other product is a **refusal with its number**: strict-gating the optionality arm converts zero |
 | 2026-08-06 | `385fb60` | **68.67%** | **2,424** | **+0.09 pts, +405 lines, 0 lost, +15 cases** | **calls through instantiated members** (`tsr-1uz`): signatures resolve from the type's recorded `Vec<Signature>`, plus `fillMissingTypeArguments`' no-candidate default fallback — built as one registered iteration after the first arm read +280 against a 300 floor and the registration's own branch sentence named the missing arm. `p.then(f)` / `p.catch()` / `arr.push(x)` resolve; overload sets stay with call resolution |
 | 2026-08-06 | `856972a` | **68.58%** | **2,409** | **+0.47 pts, +2,266 lines, 46 lost, +19 cases, 0 regressed** | **signature-typed members instantiate** (`tsr-0hc`): `Signature` side-table + `instantiateSignature` arm + **`strictNullChecks` plumbed** (union constructor only). First run **failed its leg 4** (+538 wrong vs 381) and the new `wrongdelta.rs` attributed it: instantiated lib signatures rendered under the wrong strict mode; the harness default was then measured off the baselines (strict-ON) after a wrong first guess lost 1,221 lines. Δwrong finished at **−600**. Residual: 264 annotation-reuse lines (`tsr-a2c` note). Calls through instantiated members filed as `tsr-1uz` |
