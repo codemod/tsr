@@ -897,14 +897,19 @@ fn a_property_that_is_not_there_is_a_gap_and_not_a_free_name() {
     // Inherited members *were* a gap here and are no longer: base types are now
     // walked (`tests/members.rs`). The assertion is removed rather than inverted,
     // because the positive case belongs with the code that answers it.
-    // An instantiated generic would find its target's *uninstantiated* members,
-    // which would answer `T` where upstream answers `number`.
+    // An instantiated generic used to be asserted `error` here: the lookup
+    // would have found the target's *uninstantiated* members and answered `T`,
+    // so `create_type_reference` carried no members table at all. `bd tsr-4qx`
+    // added substitution at the `get_type_of_property_of_type` seam, and the
+    // assertion flips to upstream's answer. The hazard this test is named for
+    // is unchanged — the wrong answer to guard against is now `T`, not a free
+    // name, and `number` is the only string that proves the substitution ran.
     assert_eq!(
         type_of_declaration(
             "class C<T> { a: T; }\ndeclare const c: C<number>;\nconst x = c.a;",
             "x"
         ),
-        "error"
+        "number"
     );
 }
 

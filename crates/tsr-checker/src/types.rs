@@ -77,10 +77,13 @@ pub enum TypeData {
         /// The symbol whose `members` table this type's properties live in, for
         /// the types that have one: a class, an interface, a type literal.
         ///
-        /// `None` where a lookup would be **wrong rather than empty** — an
-        /// instantiated `C<number>` would find `C`'s uninstantiated members and
-        /// answer `T` for `x` where upstream answers `number`, because nothing
-        /// substitutes yet. A gap is the honest answer there.
+        /// `None` where a lookup would be **wrong rather than empty**. An
+        /// instantiated `C<number>` used to be the standing example — it would
+        /// find `C`'s uninstantiated members and answer `T` where upstream
+        /// answers `number` — until `bd tsr-4qx` made every type-yielding
+        /// consumer substitute through the seam in `crate::members`
+        /// (`get_type_of_property_of_type`), at which point the reference
+        /// started carrying its target symbol here.
         members: Option<SymbolId>,
     },
     /// An **anonymous object type**, carrying the symbol whose declarations are

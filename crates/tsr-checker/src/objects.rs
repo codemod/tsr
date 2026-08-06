@@ -437,6 +437,18 @@ impl Checker<'_, '_> {
         if source == error {
             return None;
         }
+        // An instantiated reference is deliberately a gap here, not a spread of
+        // the target's members: those members' declared types are the
+        // uninstantiated ones (`a: T`), and this walk reads them through
+        // `get_type_of_symbol` directly rather than through the instantiating
+        // seam in `crate::members`. Until it is routed through
+        // `get_type_of_property_of_type`, spreading a `C<number>` would print
+        // `T` where upstream prints `number` — a wrong line where today there
+        // is a missing one. `bd tsr-4qx` flipped `create_type_reference` to
+        // carry `Some(symbol)`, which is what made this reachable at all.
+        if self.type_reference_targets.contains_key(&source) {
+            return None;
+        }
         let owner = match &self.store.get(source).data {
             TypeData::Named { members: Some(owner), .. } => *owner,
             _ => return None,

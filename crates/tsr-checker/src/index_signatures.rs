@@ -92,7 +92,23 @@ impl<'a> Checker<'a, '_> {
             return Some(Vec::new());
         };
         let mut visiting = Vec::new();
-        self.index_infos_of_symbol(owner, &mut visiting)
+        let infos = self.index_infos_of_symbol(owner, &mut visiting)?;
+        // On an instantiated reference the declared value types are the
+        // target's uninstantiated ones — `Array<string>`'s `[n: number]: T`
+        // must answer `string`, not `T`. Same seam rule as
+        // `get_type_of_property_of_type` (`crate::members`), for the same
+        // reason, and a value that cannot be rebuilt becomes `errorType` — the
+        // access stays a gap rather than answering the type parameter.
+        // `bd tsr-4qx`.
+        Some(
+            infos
+                .into_iter()
+                .map(|info| IndexInfo {
+                    key: info.key,
+                    value: self.instantiate_for_reference(id, info.value),
+                })
+                .collect(),
+        )
     }
 
     /// A symbol's own index signatures, then its base types', in that order.

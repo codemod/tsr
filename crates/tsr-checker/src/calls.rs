@@ -862,31 +862,32 @@ mod tests {
     /// **The load-bearing fact of `bd tsr-fua`**, and the reason the counter
     /// this commit adds is not quite the one the item was written to ask for.
     ///
-    /// `create_type_reference` builds `P<number>` with `members: None`
-    /// (`crate::declared`), and `get_property_of_type` (`crate::members`)
-    /// returns `None` for a `Named` with no member table **before it reads the
-    /// name**. So a call whose receiver carries type arguments lands in
-    /// `no such member`, never in `member types as error` — the 557 cannot
-    /// contain this shape at all, and splitting *the 557* by this discriminator
-    /// is asking a question whose answer is zero by construction. The
-    /// population is inside the 1,985.
-    ///
-    /// Mutation that reddens this: pass `Some(symbol)` instead of `None` to
-    /// `new_named` in `create_type_reference` — which is step 4 of
-    /// `bd tsr-4qx`, so this test is both the falsifier for the finding and
-    /// the tripwire for the change that ends it. It reddens neither sibling
-    /// above: `receiver_carries_type_arguments` reads the reverse index, which
-    /// that mutation does not touch.
+    /// This test was written as the tripwire for `bd tsr-4qx` step 4, and the
+    /// tripwire fired: until then `create_type_reference` built `P<number>`
+    /// with `members: None` and the lookup never ran, which was the load-bearing
+    /// fact of `bd tsr-fua` ("the 557 cannot contain this shape"). The flip
+    /// ended that fact on schedule — `receiver_generic_member_found` stopped
+    /// being a control and became the measurement, as its own doc predicted —
+    /// and this test now pins the replacement behaviour: the lookup runs, and
+    /// the member's type is the **instantiated** one, never the type parameter.
     #[test]
-    fn a_generic_receiver_has_no_member_table_so_the_lookup_never_runs() {
+    fn a_generic_receiver_finds_members_and_their_types_are_instantiated() {
         with_declared_variable(
-            "interface P<T> { get(): string; }\ndeclare var p: P<number>;",
+            "interface P<T> { value: T; }\ndeclare var p: P<number>;",
             "p",
-            |checker, id| assert_eq!(checker.get_property_of_type(id, "get"), None),
+            |checker, id| {
+                assert!(checker.get_property_of_type(id, "value").is_some());
+                // The seam substitutes: `T` with `T := number` is `number`. An
+                // implementation that reads the symbol's type directly prints
+                // `T`, which is the wrong answer `members: None` existed to
+                // prevent.
+                let value = checker.get_type_of_property_of_type(id, "value").expect("found");
+                assert_eq!(checker.type_to_string(value), "number");
+            },
         );
-        // The same declaration without the type parameter *does* find it, so
-        // the `None` above is about the type arguments and not about interface
-        // members in general. This is the A/A' discrimination.
+        // The non-generic sibling keeps finding its member, so the assertion
+        // above is about instantiation and not about interface members in
+        // general. This is the A/A' discrimination.
         with_declared_variable(
             "interface P { get(): string; }\ndeclare var p: P;",
             "p",

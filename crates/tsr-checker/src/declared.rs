@@ -607,20 +607,19 @@ impl<'a> Checker<'a, '_> {
         // `Alias<number>` is string- or number-like would be worse than claiming
         // it is an object: `object` is the one answer those arms treat as
         // neither.
-        // No members: see `TypeData::Named`. `C<number>`'s properties would be
-        // `C`'s uninstantiated ones, so `c.a` would answer `T` where upstream
-        // answers `number`.
-        //
-        // **This is blunter than upstream and it costs answers.** A member whose
-        // type does not mention a type parameter — `class C<T> { a: string }` —
-        // is the same before and after instantiation, and upstream answers it;
-        // this gaps it. The correct rule is `couldContainTypeVariables`, which
-        // arrives with real instantiation. There is deliberately **no test
-        // pinning the current answer**, because the current answer is the worse
-        // of the two and a test would cement it — and the obvious test cannot
-        // tell the two apart anyway while `bd tsr-y4u.21` keeps a class's type
-        // parameters out of every scope.
-        let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
+        // `Some(symbol)`: the reference's properties are looked up in the
+        // target's members table. **This is only safe because every consumer
+        // that turns a found property into a type goes through
+        // `get_type_of_property_of_type`** (`crate::members`), which
+        // instantiates the property's declared type through
+        // `type_reference_targets` — otherwise `c.a` on a `C<number>` whose
+        // member is declared `a: T` would answer `T` where upstream answers
+        // `number`, which is why this field was `None` from this type's
+        // creation until `bd tsr-4qx` step 4 flipped it. The routing of the
+        // three consumers (property access, element access, the relater) landed
+        // first and separately (`8fa6a3e`) so that this flip and the seam's
+        // instantiation could be one commit.
+        let id = self.store.new_named(TypeFlags::OBJECT, printed, Some(symbol));
         self.instantiations.insert((symbol, arguments.clone()), id);
         // The same pair, the other way round. Substitution starts from a
         // `TypeId` and needs the pair, which only exists here as a key — see
@@ -933,6 +932,38 @@ impl<'a> Checker<'a, '_> {
                 parameter.name.map_or_else(|| "?".to_string(), |name| name.text.to_string())
             })
             .collect()
+    }
+
+    /// The **declared types** of a symbol's own type parameters, with their
+    /// names, in order — the substitution domain for instantiating a member of
+    /// `C<number>`.
+    ///
+    /// The class/interface/alias sibling of `inference.rs`'s
+    /// `type_parameter_types`, and built the same way: through each parameter's
+    /// **declaration symbol**, because two type parameters can print `T` and be
+    /// different types. Upstream reads the same list off
+    /// `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias` results as `*Type`s
+    /// directly (`checker.go:23168`).
+    ///
+    /// `None` when any parameter has no symbol or no declared type, which keeps
+    /// a partial list from producing a partial substitution — the same rule
+    /// `type_parameter_types` states.
+    pub(crate) fn local_type_parameter_types_of(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<Vec<(TypeId, String)>> {
+        let declarations = self.local_type_parameters_of(symbol);
+        let mut parameters = Vec::with_capacity(declarations.len());
+        for declaration in declarations {
+            let name = declaration.name?.text.to_string();
+            let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            let declared = self.get_declared_type_of_symbol(parameter);
+            if declared == self.intrinsics.error {
+                return None;
+            }
+            parameters.push((declared, name));
+        }
+        Some(parameters)
     }
 }
 

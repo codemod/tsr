@@ -221,10 +221,13 @@ impl Checker<'_, '_> {
     /// the other"* in `docs/conventions.md`.
     ///
     /// So this is the single place instantiation can be added once and be true
-    /// everywhere, which is `bd tsr-4qx`. **Today it adds no instantiation and
-    /// changes no answer** — that is deliberate, and it is what makes the
-    /// change that does add it a one-function change rather than a three-site
-    /// one.
+    /// everywhere, which is `bd tsr-4qx` — and it is now added: on a receiver
+    /// that came out of `create_type_reference`, the found property's declared
+    /// type is substituted through [`Checker::instantiate_type`] with the
+    /// target's own type parameters mapped to the reference's arguments. A
+    /// member whose declared type this port cannot rebuild — baked signature
+    /// text, a tuple — falls through `instantiate_type`'s arms to `errorType`,
+    /// an honest gap rather than the uninstantiated `T`.
     ///
     /// `None` means *no such property*, exactly as upstream's `nil` does. A
     /// property that exists and whose type this port cannot compute answers
@@ -233,7 +236,42 @@ impl Checker<'_, '_> {
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
         let property = self.get_property_of_type(id, name)?;
-        Some(self.get_type_of_symbol(property))
+        let declared = self.get_type_of_symbol(property);
+        Some(self.instantiate_for_reference(id, declared))
+    }
+
+    /// A member's type as seen through an instantiated reference: `declared`
+    /// with the receiver's type arguments substituted in, or `declared`
+    /// unchanged when the receiver is not an instantiated reference.
+    ///
+    /// The instantiation half of `getTypeOfPropertyOfType` reached through
+    /// upstream's `instantiateSymbol` (`checker.go:19676`) — upstream
+    /// instantiates the *symbol* when members are resolved and the type falls
+    /// out; this port has no instantiated symbols, so the same substitution is
+    /// applied to the type at the one seam every consumer shares.
+    ///
+    /// An arity mismatch between the target's parameters and the reference's
+    /// arguments — or a parameter list this port cannot resolve — answers
+    /// `errorType` rather than substituting partially.
+    pub(crate) fn instantiate_for_reference(
+        &mut self,
+        receiver: TypeId,
+        declared: TypeId,
+    ) -> TypeId {
+        let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver).cloned() else {
+            return declared;
+        };
+        let error = self.intrinsics.error;
+        let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
+            return error;
+        };
+        if parameters.len() != arguments.len() {
+            return error;
+        }
+        let names = parameters.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>();
+        let types = parameters.iter().map(|&(id, _)| id).collect::<Vec<_>>();
+        let map = types.iter().copied().zip(arguments).collect::<Vec<_>>();
+        self.instantiate_type(declared, &map, &types, &names)
     }
 
     /// Ported from `Checker.getPropertyOfTypeEx` (`checker.go:18899`) through
