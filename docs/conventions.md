@@ -2662,3 +2662,116 @@ name.
 > here"*. Open it. The cost is one `grep`, and the failure mode is silent — a
 > wrong reading of a gate makes a real mechanism look impossible, which is the
 > one error that ends an investigation instead of prolonging it.
+
+### A catch-all's population is not its arm's population
+
+`STATUS.md` §4.3 carried the object-literal remainder at **2,223 lines** with
+the probe *"split the catch-all by member kind"* and a warning that accessors
+and computed names sat in it "in unknown proportion". Split
+(`examples/objgap.rs`):
+
+```
+  1,003 (77%)  every member kind HAS an arm — a member VALUE gaps
+    219        computed name
+     78        accessors  <- bd tsr-32y, the item the row was quoted for
+```
+
+`objects.rs` gaps the **whole literal** when any member's value gaps, so the
+row counts every line the construct prints — including lines that will convert
+for free when something else lands. The accessor item is **6%** of what the row
+implied.
+
+> **When a construct gaps whole on any unhandled part, its row is not its
+> arm's size.** Split by *which part is unhandled*, and put the "every part is
+> handled, something downstream gapped" bucket **first**, so it cannot inflate
+> the rest. It was 77% here.
+
+This is the third row in one session to dissolve rather than convert — with
+`FunctionDeclaration` (whose mass turned out to be unported *type-node inputs*,
+not the missing return inference its issue described) and the element-access
+remainder before it. Three is enough to state the general form: **a `depend.rs`
+heading names where a line was rendered, not what would fix it.**
+
+### A bar that fires with a *zero* is the cheapest kind to diagnose
+
+`getApparentType`'s instantiable head (`bd tsr-rppd`) registered a +60 floor
+and measured **net 0**. Not 40, not 12 — zero.
+
+The build was wrong, and the zero said so immediately: the arm reached the type
+parameter's symbol through `TypeData::Named`'s `members` field, which
+`new_named_type` sets to `None` for a type parameter **deliberately**, with a
+comment saying why (a type parameter owns no members table). The mechanism
+never ran.
+
+> **A net of exactly 0 answers "did the code I wrote execute?" before any
+> question about whether it was worth writing.** There is no ratio to argue
+> over and no trade to price. Check that first; a partial number invites
+> re-reading the premise when the answer is that nothing ran.
+
+The fix is also a rule already in this document, arriving for the third time:
+record the edge in a side table (`type_parameter_symbols`, after
+`type_reference_targets` and `tuple_element_lists`) rather than widening a
+field to mean two things — which would have undone the safety property the
+`None` was there to provide.
+
+### A leg that reads `0 < 0` is vacuous, and saying so costs one paragraph
+
+`bd tsr-84iz` registered *"fewer cases regress than finish"* and measured
+**0 regressed, 0 finished**. As written the leg is **false**, and the honest
+report is neither "pass" nor "revert".
+
+This document already demands the check that would have caught it before the
+run — *"for each leg, ask what input would make it non-zero"*. The leg was
+inherited from builds whose gains crossed whole-baseline thresholds; this arm's
+206 lines spread over 30 cases and finished none, so the *finished* side had no
+way to be positive.
+
+> **A leg whose two sides can both be zero is not a comparison, it is a
+> coincidence.** Write `regressed == 0` when the protection you want is "do not
+> break cases"; keep `regressed < finished` only when the build is expected to
+> finish some. The evidence of safety is the **0**, not the inequality — the
+> same reading the `&&` build had to make about its empty denominator.
+
+### A residual that passes the ratio leg is still evidence
+
+`bd tsr-tgov` measured **+572 with 68 new wrong** — leg 4 wanted 3× and got
+8.4×, a pass with 2.8× of margin. Reading the 68 anyway found that **40 of
+them** were one rule: upstream's `classifyPropertyName`
+(`nodebuilderimpl.go:2384`) quotes a **method** named `new`, because
+`{ new<T>(x: T): C<T>; }` unquoted re-parses as a *construct signature*. One
+line in `objects.rs` took the build to **+686** and fixed **84 pre-existing
+wrong lines** the arm had never touched.
+
+> **A passing ratio is permission to ship, not permission to stop reading.**
+> The residual is the only place a build hands you a list of defects sorted by
+> frequency, and the ones that are not yours are often cheaper than the one you
+> just finished.
+
+The same discipline on the next two builds found ADR-0039's ceiling accounting
+for 26 of 55 "new wrong" (`bd tsr-0opd`) and a genuine gap→wrong the ratio had
+hidden (the type-predicate build's six inferred-predicate lines).
+
+### Computing the at-risk column in the same pass, confirmed at scale
+
+This document already requires it — *"when a mechanism fires on a position
+rather than on a defect, compute the at-risk population in the same pass"*.
+`bd tsr-4sa` is the instance that shows what it is worth.
+
+Its first design measured **646 converts against 377 wrong**: 291 `unique
+symbol` lines that would print `symbol`, and 75 that would print an
+unqualified name. Both families were *predicted in writing* by
+`checker-notes-callres.md` §5 before anyone built anything, and the
+counterfactual found them before a line of checker code existed. Four
+positional refusals took the build to **625 forecast converts and 2 would-be
+wrong**, landing at +1,018 with **8 new wrong against 7 fixed**.
+
+Two of those refusals — the two largest — cost **zero conversions**. The third
+cost 20 conversions to remove 27 wrong lines and was kept anyway, on the
+grounds this document already states: answering off a knowingly incomplete
+candidate set is a **wrong rule**, not a bad trade, and a rule is not priced.
+
+> A ratio bar would have **passed the bad design**: 646/23 is 28×. The bar that
+> caught it was an **absolute** — "new wrong ≤ 40 lines" — chosen because the
+> failure mode was manufacturing a specific wrong answer rather than trading
+> badly. Pick the bar's *shape* from how the mechanism can fail, not from what
+> the last build used.
