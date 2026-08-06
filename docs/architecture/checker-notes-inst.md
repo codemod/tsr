@@ -907,3 +907,29 @@ Low hundreds to ~1,500: the call row's `promiseType`-headed growth is mostly
 generic members blocked on default fallback, and the non-generic slice is the
 remainder. If the net comes in under 300, the missing arm to name is
 `fillMissingTypeArguments`, not this one.
+
+## The result for `tsr-1uz`, scored at `385fb60`
+
+```
+  net +405 | 328,472 -> 328,877 | 68.58% -> 68.67%
+  gained 405 in 114 cases | lost 0 | 15 finished, 0 regressed
+  gap 99,637 -> 99,215  =>  Δwrong = +17, bound 135
+```
+
+**The floor fired on the first arm and the registration's own prediction named
+the fix.** The type-side resolution alone read **+280 against the 300 floor**
+— under it by 20 — and the registered sentence for that branch was *"the
+missing arm to name is `fillMissingTypeArguments`, not this one."* Built as
+the same iteration: an uninferred type parameter takes its **default**
+(`getInferredType`'s no-candidate fallback), instantiated left-to-right with
+the map so far, and guarded to fire only when **no supplied argument could
+have been an inference source** — otherwise upstream infers structurally
+(`inferFromTypes`, unported) and a default there is a confident wrong answer.
+`p.then(f)`, `p.catch()` and `arr.push(x)` all resolve; the combined state
+passes every leg. **KEEP.**
+
+The relaxation this needed — an unsupplied bare position no longer fails the
+whole call — surrendered an accidental arity check, restored explicitly as
+the required-parameter count (`hasCorrectArity`'s fillable half). The test
+that would have caught its absence (`pick(1)` answering `1`) did not exist
+until the rewrite forced the question; it does now.

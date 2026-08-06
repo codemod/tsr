@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`856972a`**, 2026-08-06 (third session).
+Measured at **`385fb60`**, 2026-08-06 (third session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`856972a`**, 2026-08-06 (third session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,409/9,538** | **25.26%** | **gradient 68.58%** — the target |
+| **`checker_types`** | **2,424/9,538** | **25.41%** | **gradient 68.67%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-328,472 / 478,954 assertion lines = 68.58%
-  right 328,472 | gap 99,637 | wrong ~40,791   (wrong = 41,391 at 0fe102a − 600 measured Δ)
+328,877 / 478,954 assertion lines = 68.67%
+  right 328,877 | gap 99,215 | wrong ~40,808   (41,391 at 0fe102a − 600 + 17, measured Δs)
 ```
 
 **The previous “wrong ~37,252” was stale and is corrected, and it was worth a
@@ -189,17 +189,16 @@ says exactly where the arm goes.
 
 | # | item | reachable | file |
 |---|---|---:|---|
-| 1 | **calls through instantiated members** (`bd tsr-1uz`): one arm in `resolve_call_signature` reading `Checker::signature_types` off the callee type before falling back to the symbol — upstream's `getSignaturesOfType` shape. Single-signature members are the cheap half; overload sets fold into item 2 | inside the 6,084 call row; unmeasured — register a rule first | `calls.rs` |
-| 2 | **call resolution** — grew to the second-largest reachable row and its ceiling *dropped* to 11.4%. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | **6,084** | `calls.rs` |
-| 3 | **strict-flag gating of the remaining strict-only arms** — optionality's added `undefined` (`bd tsr-e10`, whose hidden variable is now named and plumbed), the `&&` arm's non-strict widening, `unknown` narrowing. Each is now a small measurable change where before the flag did not exist | `tsr-e10` alone ≤483 | `optionality.rs` |
-| 4 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,295 | measurement |
-| 5 | `tsr-y9x` — 16 lines printing `undefined`/`error` where upstream prints `any` | 16 | resolver |
+| 1 | **call resolution** — the largest reachable mass, ceiling 11.4%, and now the sole owner of what `tsr-1uz` left behind: **overload sets**, including every multi-signature instantiated member. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | ~**6,000** | `calls.rs` |
+| 2 | **strict-flag gating of the remaining strict-only arms** — optionality's added `undefined` (`bd tsr-e10`, whose hidden variable is now named and plumbed), the `&&` arm's non-strict widening, `unknown` narrowing. Each is now a small measurable change where before the flag did not exist | `tsr-e10` alone ≤483 | `optionality.rs` |
+| 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,295 | measurement |
+| 4 | `tsr-y9x` — 16 lines printing `undefined`/`error` where upstream prints `any` | 16 | resolver |
 
 **Landed or closed 2026-08-06 (third session):** the depth/count guard
 (`40970d7`, corpus-neutral alone), member instantiation (`0fe102a`, +12,357),
 signature instantiation plus `strictNullChecks` plumbing (`856972a`, +2,266),
-`tsr-4qx`/`tsr-0hc` closed with scores, `tsr-mcd` closed earlier as a symptom
-count.
+calls through instantiated members plus the default-type-argument fallback
+(`385fb60`, +405), `tsr-4qx`/`tsr-0hc`/`tsr-1uz` closed with scores.
 
 **Item 0 was added after the board was written and then refused the same day.**
 Sized at `0a1fbdd` by `examples/subtypes.rs`: the mechanism would break **255
@@ -211,13 +210,16 @@ ever was. `docs/architecture/checker-notes-armsplit.md` §9.
 
 ### Is 80% reachable at the implied rate?
 
-The arithmetic, restated at `856972a`:
+The arithmetic, restated at `385fb60`:
 
-- Distance to 80%: **+54,691 lines** (was +69,314 at the session's start).
-- This session: **+14,623**, of which 10,000 is the one-case windfall §2
-  records — the repeatable rate is nearer **+2,300 per build**.
-- The board's measured items sum to ~6,800; items 1 and 2 (the call rows) are
-  the unmeasured mass, and this session moved their prerequisite into place.
+- Distance to 80%: **+54,286 lines** (was +69,314 at the session's start).
+- This session: **+15,028** over three kept builds, of which 10,000 is the
+  one-case windfall §2 records — the repeatable rate is nearer **+2,500 per
+  build**.
+- The board's measured items sum to ~800; item 1 (call resolution proper,
+  overloads and all) is the unmeasured mass, and this session cleared its
+  approaches: instantiated members type, single-candidate calls through them
+  resolve, and defaults fill.
 
 The gap is not a list of missing expression arms. **22,596 lines were measured
 as `ROOT/own-rule` and this cycle took the three largest of those rows apart:
@@ -299,6 +301,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `385fb60` | **68.67%** | **2,424** | **+0.09 pts, +405 lines, 0 lost, +15 cases** | **calls through instantiated members** (`tsr-1uz`): signatures resolve from the type's recorded `Vec<Signature>`, plus `fillMissingTypeArguments`' no-candidate default fallback — built as one registered iteration after the first arm read +280 against a 300 floor and the registration's own branch sentence named the missing arm. `p.then(f)` / `p.catch()` / `arr.push(x)` resolve; overload sets stay with call resolution |
 | 2026-08-06 | `856972a` | **68.58%** | **2,409** | **+0.47 pts, +2,266 lines, 46 lost, +19 cases, 0 regressed** | **signature-typed members instantiate** (`tsr-0hc`): `Signature` side-table + `instantiateSignature` arm + **`strictNullChecks` plumbed** (union constructor only). First run **failed its leg 4** (+538 wrong vs 381) and the new `wrongdelta.rs` attributed it: instantiated lib signatures rendered under the wrong strict mode; the harness default was then measured off the baselines (strict-ON) after a wrong first guess lost 1,221 lines. Δwrong finished at **−600**. Residual: 264 annotation-reuse lines (`tsr-a2c` note). Calls through instantiated members filed as `tsr-1uz` |
 | 2026-08-06 | `0fe102a` | **68.11%** | **2,390** | **+2.58 pts, +12,357 lines, 0 lost, +26 cases** | **instantiated generic members** (`tsr-4qx` steps 3+4, one change) behind the **instantiation depth/count guard** (`40970d7`, corpus-neutral alone, `tsr-el3.2` half). Scored against a bar registered at `2d490b8`; all legs passed, the concentration falsifier fired and is decomposed in `checker-notes-inst.md` — 10,000 of the gain is `largeControlFlowGraph` via `Array<any>` index signatures, which **collapsed ADR-0038's ceiling estimate to 2,202 firm** (§2). Ex that case: +2,357 diffuse over 147 cases. Also corrected §1's stale wrong-bucket figure by re-running `wrongflip` at the pre-build commit in a worktree: 41,286 → 41,391, Δ+105, confirming the registered leg-4 expression exactly |
 | 2026-08-06 | `d356450` | **65.53%** | **2,364** | **+0.97 pts, +4,645 lines, 0 lost** | **an unresolved type reference prints the name that was written** (`tsr-eep`) — upstream reports `TS2304 Cannot find name` *and renders the name*; answering `errorType` was the divergence |
