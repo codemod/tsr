@@ -316,6 +316,11 @@ struct CaseReport {
     /// leg, kept per container because the answers differ completely between
     /// them (`this` vs `typeof C` vs `typeof globalThis`).
     this_rhs: HashMap<(&'static str, String), usize>,
+    /// **RULE-5.** The three remaining `members.rs` questions, each keyed by
+    /// what the sub-item actually turns out to be.
+    left_n22: HashMap<&'static str, usize>,
+    left_base: HashMap<&'static str, usize>,
+    left_name: HashMap<&'static str, usize>,
     /// **The `this` spec, population B.** The 1,165 `RIGHT`-arm lines whose
     /// *receiver* is `this` and whose member lookup failed, keyed by why.
     this_receiver: HashMap<&'static str, usize>,
@@ -761,9 +766,37 @@ fn walk(
                 .merge_by_family
                 .entry((family, merge_verdict(checker, bound, nodes, map, line_ids[start])))
                 .or_default() += 1;
+            // RULE-5's three splits, taken over the same RIGHT arm.
+            let verdict = merge_verdict(checker, bound, nodes, map, line_ids[start]);
+            if verdict.starts_with("declared once, no heritage") {
+                *report
+                    .left_n22
+                    .entry(n22_verdict(bound, nodes, map, line_ids[start]))
+                    .or_default() += 1;
+            }
+            if verdict.starts_with("declared once, HAS") {
+                *report
+                    .left_base
+                    .entry(base_walk_verdict(bound, nodes, map, line_ids[start]))
+                    .or_default() += 1;
+            }
             // **The `this` spec, population B.** A `this` receiver that reached
             // `RIGHT` was typed correctly, so the failure is downstream of
             // `this` typing — this asks what it actually is.
+            if let Some(Node::PropertyAccessExpression(access)) = map.get(line_ids[start])
+                && !matches!(access.name, Some(tsr_ast::MemberName::Identifier(_)))
+            {
+                *report
+                    .left_name
+                    .entry(match access.name {
+                        Some(tsr_ast::MemberName::PrivateIdentifier(_)) => {
+                            "PRIVATE identifier `#x` — parser/binder surface, not the lookup"
+                        }
+                        None => "no name node at all",
+                        Some(_) => "another member-name form",
+                    })
+                    .or_default() += 1;
+            }
             if family.starts_with("this") {
                 *report
                     .this_receiver
@@ -915,6 +948,175 @@ fn receiver_fidelity(
     } else {
         ("receiver typed DIFFERENTLY", None)
     }
+}
+
+/// **`bd tsr-n22`, split.** The receiver's type is declared once, has no
+/// heritage clause, and the member is absent. Which of the three candidates is
+/// it?
+///
+/// The index-signature arm is the one that decides ownership: upstream's
+/// `getPropertyOfType` misses too, and the answer comes from the **index
+/// signature** instead (`crate::index_signatures`, which this workstream owns).
+/// The others are the binder's table or the static side.
+fn n22_verdict(
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    access: NodeId,
+) -> &'static str {
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return "not an access";
+    };
+    let Some(receiver) = node.expression.as_ref().and_then(tsr_ast::Expression::node_id) else {
+        return "no receiver";
+    };
+    let Some(Node::Identifier(name)) = map.get(receiver) else {
+        return "receiver is not a bare name — unclassified";
+    };
+    let symbol = name
+        .node_id
+        .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE))
+        .or_else(|| {
+            name.node_id
+                .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
+        });
+    let Some(symbol) = symbol else { return "receiver name does not resolve" };
+    // Does the declaration carry an index signature? That is the arm this
+    // workstream owns, and it is the only one of the three candidates that is
+    // decidable from the AST alone.
+    let has_index_signature = bound.symbols().get(symbol).members.values().any(|&member| {
+        bound
+            .symbols()
+            .get(member)
+            .declarations
+            .iter()
+            .any(|&d| nodes.kind(d) == SyntaxKind::IndexSignature)
+    });
+    if has_index_signature {
+        return "INDEX SIGNATURE on the receiver — index_signatures.rs, MINE";
+    }
+    if bound.symbols().get(symbol).exports.contains_key("") {
+        return "static side";
+    }
+    "no index signature and no base — the binder's table"
+}
+
+/// **The base-type walk, split by why `base_symbols_of` gave up.**
+///
+/// `crate::members` documents exactly three reasons and they have three
+/// different owners, so the row is only a work item to the extent the first two
+/// dominate: a base with **type arguments** is `bd tsr-4qx`, a base that is
+/// **not a plain identifier** is `resolveEntityName`/construct signatures, and a
+/// base that **resolves to something with no members** is the alias surface.
+fn base_walk_verdict(
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    access: NodeId,
+) -> &'static str {
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return "not an access";
+    };
+    let Some(receiver) = node.expression.as_ref().and_then(tsr_ast::Expression::node_id) else {
+        return "no receiver";
+    };
+    let Some(Node::Identifier(name)) = map.get(receiver) else {
+        return "receiver is not a bare name — unclassified";
+    };
+    let symbol = name
+        .node_id
+        .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE))
+        .or_else(|| {
+            name.node_id
+                .and_then(|id| bound.resolve_name(nodes, map, id, name.text, SymbolFlags::VALUE))
+        });
+    let Some(symbol) = symbol else { return "receiver name does not resolve" };
+    let declarations = bound.symbols().get(symbol).declarations.clone();
+    for declaration in declarations {
+        let clauses = match map.get(declaration) {
+            Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+            Some(Node::ClassExpression(node)) => node.heritage_clauses,
+            Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+            _ => continue,
+        };
+        for clause in clauses {
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for base in clause.types {
+                if !base.type_arguments.is_empty() {
+                    return "base has TYPE ARGUMENTS — bd tsr-4qx, not members.rs";
+                }
+                let Some(tsr_ast::Expression::Identifier(base_name)) = base.expression else {
+                    return "base is not a plain identifier — resolveEntityName / construct sigs";
+                };
+                // **"A plain identifier" is not the same as "walkable", and the
+                // first draft of this stopped here.** `base_symbol_of_heritage_entry`
+                // resolves the name in `SymbolFlags::TYPE` and then requires
+                // `CLASS | INTERFACE`; a base naming a type alias or an import
+                // alias fails that test and makes the whole lookup a miss, and
+                // the owner of *that* is the alias surface, not this file.
+                let base_symbol = base_name.node_id.and_then(|id| {
+                    bound.resolve_name(nodes, map, id, base_name.text, SymbolFlags::TYPE)
+                });
+                let Some(base_symbol) = base_symbol else {
+                    return "base name does NOT RESOLVE in type meaning — resolution";
+                };
+                let flags = bound.symbols().get(base_symbol).flags;
+                if flags.intersects(SymbolFlags::ALIAS) {
+                    return "base resolves to an ALIAS — the alias surface, not members.rs";
+                }
+                if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
+                    return "base is neither class nor interface (type alias?) — declared.rs";
+                }
+            }
+        }
+    }
+    // **The decisive test, and "walkable" alone is not it.**
+    // `get_property_of_declared_symbol` already recurses into bases, so a
+    // member sitting in a walkable base WOULD be found. Claiming these lines
+    // for `members.rs` on the strength of the base being well-formed is the
+    // same inference that produced "lookup rejected it" — an inference in the
+    // direction that invents work for this workstream. So ask whether the
+    // member is anywhere in the transitive base chain's binder tables at all.
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return "not an access";
+    };
+    let Some(tsr_ast::MemberName::Identifier(member)) = node.name else {
+        return "member name is not an identifier";
+    };
+    let mut queue = vec![symbol];
+    let mut seen = Vec::new();
+    while let Some(current) = queue.pop() {
+        if seen.contains(&current) {
+            continue;
+        }
+        seen.push(current);
+        if bound.symbols().get(current).members.contains_key(member.text) {
+            return "member IS in the base chain — the WALK is what fails (members.rs, MINE)";
+        }
+        let declarations = bound.symbols().get(current).declarations.clone();
+        for declaration in declarations {
+            let clauses = match map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+                _ => continue,
+            };
+            for clause in clauses {
+                for base in clause.types {
+                    if let Some(tsr_ast::Expression::Identifier(name)) = base.expression
+                        && let Some(next) = name.node_id.and_then(|id| {
+                            bound.resolve_name(nodes, map, id, name.text, SymbolFlags::TYPE)
+                        })
+                    {
+                        queue.push(next);
+                    }
+                }
+            }
+        }
+    }
+    "member is NOWHERE in the base chain — not the walk; merge, alias or index signature"
 }
 
 /// The **this-container**, as upstream's `getThisContainer` finds it.
@@ -1818,6 +2020,32 @@ fn report(reports: &[CaseReport]) {
     recv_rows.sort_unstable_by(|a, b| b.cmp(a));
     for (n, verdict) in recv_rows {
         println!("  {n:>7} {:>7.2}%  {verdict}", pct(n, recv_total));
+    }
+
+    println!("\n## RULE-5 — WHAT IS LEFT IN `members.rs` (unit: gap assertion lines)\n");
+    for (label, map_of) in [
+        ("tsr-n22, the 545: declared once, no heritage, member absent", 0usize),
+        ("the base-type walk: declared once, HAS a heritage clause", 1),
+        ("the 174: the member name is not an identifier", 2),
+    ] {
+        let mut rolled: BTreeMap<&str, usize> = BTreeMap::new();
+        for case in reports {
+            let source = match map_of {
+                0 => &case.left_n22,
+                1 => &case.left_base,
+                _ => &case.left_name,
+            };
+            for (verdict, n) in source {
+                *rolled.entry(verdict).or_default() += n;
+            }
+        }
+        let total: usize = rolled.values().sum();
+        println!("\n  {label} — {total} lines");
+        let mut rows: Vec<_> = rolled.iter().map(|(v, n)| (*n, *v)).collect();
+        rows.sort_unstable_by(|a, b| b.cmp(a));
+        for (n, verdict) in rows {
+            println!("      {n:>7} {:>7.2}%  {verdict}", pct(n, total));
+        }
     }
 
     println!("\n## CONTROLS — what pins each\n");

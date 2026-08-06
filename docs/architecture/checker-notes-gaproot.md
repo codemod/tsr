@@ -1367,6 +1367,74 @@ that manufactures wrong lines is not.
 > **"`members.rs` is done until the three blockers land"**, which Part 5 already
 > predicted — and a confirmed prediction is worth more than a forced build.
 
+## RESULTS — Part 7
+
+*(Nothing above this line was edited after the run.)*
+
+Measured at **`8229b58`**. Controls unchanged and green.
+
+### The verdict: 1 line
+
+| sub-item | lines | what it is | S1 |
+|---|---:|---|---|
+| `tsr-n22` | 543 | **457 (84.2%)** the binder's table, 85 unclassified, **1** an index signature | **FAIL** |
+| the base-type walk | 102 | **0** are the walk. 86 the member is **nowhere in the base chain**; 16 unclassified | **FAIL — no mechanism** |
+| the private-name row | 392 | **392 (100%)** are `#x` private identifiers — parser/binder surface | **FAIL** |
+
+**Buildable in `members.rs` today: one line.** Not "small" — one.
+
+### My own prediction was wrong, in my own favour
+
+RULE-5 predicted the base-type walk *"clears S1 and is ~100–220 lines, the only
+buildable thing left"*. **It is zero**, and the way I nearly got there is the
+same error twice in two cycles:
+
+- The split first said *"base is a plain identifier — the walk itself (MINE)"*
+  for 94 lines. A plain identifier is a **well-formed entry**, not a walkable
+  base, so that was refined to check what the base resolves to.
+- It then said *"base is a **walkable class/interface** — the walk itself
+  (MINE)"* for the same 94. That is still an inference:
+  `get_property_of_declared_symbol` **already recurses into bases**, so a member
+  sitting in a walkable base *would be found*.
+- The decisive test is whether the member is anywhere in the transitive base
+  chain's binder tables. **It is not, for every one of them.** The
+  "walk is what fails" bucket reads **0**.
+
+Both refinements moved lines *out* of my files, and both times the tempting
+claim was the one that gave this workstream work. That is the third instance
+this session of an error in the flattering direction — after `lookup rejected
+it` (816 lines) and the 19,818 → 976 sizing — and it is the direction that is
+hardest to catch because nothing external contradicts it.
+
+### The two numbers that changed on contact
+
+- **`tsr-n22` was filed as 545 "lines of question".** It is **543**, and the
+  question is answered: 84.2% is the binder's table. The index-signature
+  candidate I named as the reason it might be mine is **1 line**. Filing it as a
+  question rather than as work was right; the answer is that it is not mine.
+- **The private-name row is 392, not 174.** The 174 I reported in Part 6 was the
+  `this`-receiver **subset**; over the whole `RIGHT` arm it is 392. Correcting
+  upward, and the owner is unchanged either way.
+
+### `members.rs` is done until the three blockers land
+
+Part 5 predicted this and registered the reading in advance. It is now
+**confirmed rather than guessed**:
+
+| the three blockers | lines of the property-access population | owner |
+|---|---:|---|
+| `getMergedSymbol` (`bd tsr-9or.1`) | 698 measured, interval [702, 2,105] corpus-wide | binder |
+| instantiated members (`bd tsr-4qx`) | 1,304 | `declared.rs` |
+| the `this` type (`bd tsr-tjz`) | 399, ~173 available | `expressions.rs` |
+
+Every remaining sub-item this workstream has measured resolves into one of
+those three, into the parser/binder surface, or into nothing at all. **There is
+no next `members.rs` slice to plan**, and the correct next action for this
+workstream is to wait on the three rather than to find something to do.
+
+S2 and S3 were never reached: S1 failed for all three sub-items, and RULE-5 is
+conjunctive.
+
 ## Everything filed from this page
 
 | id | what | sized as |
@@ -1378,9 +1446,10 @@ that manufactures wrong lines is not.
 | `tsr-phd` | the `any` leg disqualifies apparent work, and may be too strict | 34,180 lines held out |
 | `tsr-wii` | the primitive-receiver residue after the slice: 84 lines want `any` (must not be closed), 46 want a real type | 46 lines |
 | `tsr-iks` | the `PropertyAccessExpression` RIGHT arm — largest clean population, **not** the largest available work | 5,441 lines, **80.7% not mine**; the lookup itself is 104 |
-| `tsr-n22` | the 545-line ambiguous bucket: declared once, no heritage, member absent | 545 lines of **question**, not of work |
+| `tsr-n22` | ~~the 545-line ambiguous bucket~~ — **answered and closed**: 84.2% the binder’s table, 1 line mine | 543 lines, **not mine** |
 | `tsr-tjz` | **SPEC** — the `this` type, handed to the contextual-typing agent | **399 lines**, ~173 available, ~110 a clean first slice |
 | `tsr-bfr` | the static/instance split inside the 57 method lines is unmeasured | 57 lines, two arms |
+| `tsr-ecz` | the 392 private-identifier accesses — an unported form, not a lookup defect | 392 lines, parser/binder |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
