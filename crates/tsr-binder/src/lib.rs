@@ -271,6 +271,56 @@ impl<'a> BindResult<'a> {
         self.locals.get(&container)?.get(name).copied()
     }
 
+    /// One symbol table, filtered by **meaning** — `(*NameResolver).lookup`
+    /// (`nameresolver.go:418`), whose whole body is
+    /// `if symbol.Flags&meaning != 0 { return symbol }`.
+    ///
+    /// # This filter is not an optimisation, it is what makes `export` work
+    ///
+    /// An exported namespace member gets **two** symbols
+    /// (`declareModuleMember`, `binder.go:397`–`:409`): an *export* symbol in
+    /// the container symbol's `exports` carrying the real flags, and a *local*
+    /// carrying only `SymbolFlagsExportValue` — or **no flags at all** for a
+    /// type-only declaration. This port reproduces that exactly; the local for
+    /// `export class C {}` has flags `EXPORT_VALUE` and nothing else.
+    ///
+    /// So an unfiltered locals lookup finds that flagless local, stops, and the
+    /// exports table is never consulted. `namespace N { export class C {} let
+    /// x: C; }` answered `error` while the same namespace **without** `export`
+    /// answered `C`. `bd tsr-56r`.
+    ///
+    /// [`Self::lookup_local`] stays unfiltered for its other callers, which ask
+    /// a different question — *is this name declared in this scope* — rather
+    /// than *does this name resolve here for this meaning*.
+    fn lookup_scoped(
+        &self,
+        table: Option<&SymbolTable<'a>>,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        if meaning.is_empty() {
+            return None;
+        }
+        let found = self.merged_symbol(*table?.get(name)?);
+        let flags = self.symbols.get(found).flags;
+        if flags.intersects(meaning) {
+            return Some(found);
+        }
+        // **An alias is accepted whatever its own flags say.** Upstream's
+        // checker-side override (`Checker.getSymbol`, `checker.go:2183`) accepts
+        // an `Alias` when the flags of its *target* carry the meaning:
+        // `import { C } from "m"` is a symbol with `ALIAS` and nothing else, and
+        // a lookup for `TYPE` has to see through it.
+        //
+        // Resolving the target needs the checker, which a `BindResult` does not
+        // have, so the target's flags are not tested here. That is **weaker than
+        // upstream and stronger than what this port did before**, which tested
+        // nothing at all — so it cannot reject anything the unfiltered lookup
+        // accepted. The first run without this clause lost 2,627 lines across
+        // 399 cases, every one an imported name.
+        flags.intersects(SymbolFlags::ALIAS).then_some(found)
+    }
+
     /// Resolve `name` from `start` for a particular *meaning*, walking outward
     /// through enclosing scopes.
     ///
@@ -340,8 +390,8 @@ impl<'a> BindResult<'a> {
             // `GetContainerFlags`), so no node ever owns both tables and swapping
             // these two turns no test red. Stated rather than pinned by a test
             // that could not bite.
-            if let Some(found) = self.lookup_local(node, name) {
-                return Some(self.merged_symbol(found));
+            if let Some(found) = self.lookup_scoped(self.locals.get(&node), name, meaning) {
+                return Some(found);
             }
             if matches!(
                 nodes.kind(node),
@@ -378,6 +428,51 @@ impl<'a> BindResult<'a> {
                 }
                 return Some(self.merged_symbol(found));
             }
+            // A **namespace's exports** (`nameresolver.go:104`–`:146`).
+            //
+            // `namespace N { export class C {} }` puts `C` in `N`'s *symbol's*
+            // `exports` table, not in the body's `locals` — so before this arm
+            // existed, **exporting a declaration made it unresolvable**:
+            // `namespace N { class C {} let x: C; }` answered `C` and
+            // `namespace N { export class C {} export let x: C; }` answered
+            // `error`. `bd tsr-56r`.
+            //
+            // Upstream's mask is what stops an exported `const` answering a
+            // lookup for a type, and it is *not* the same mask for an enum:
+            // `EnumDeclaration` gets its own arm at `:146` with
+            // `SymbolFlagsEnumMember`, because an enum's members are values of
+            // the enum rather than module members.
+            //
+            // **After locals, not before.** Upstream reaches this in the same
+            // `switch` that locals are tested before, so a non-exported local
+            // shadows an export of the same name — which is also why removing
+            // the `lookup_local` call above cannot be compensated for here.
+            let exported = match nodes.kind(node) {
+                // `case KindSourceFile:` **falls through** to
+                // `KindModuleDeclaration` upstream (`nameresolver.go:100`–`:104`)
+                // when the file is an external or CommonJS module — a module's
+                // own top-level `export`s are in scope inside it, by the same
+                // two-symbol construction.
+                //
+                // Included unconditionally rather than gated on "is a module":
+                // for a *script* file nothing is ever routed to exports
+                // (`is_export_context` requires `self.is_module`), so the table
+                // is empty and the arm cannot fire. Omitting it cost 1,621 lines
+                // across 219 cases on the first measured run.
+                SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration => {
+                    Some(SymbolFlags::MODULE_MEMBER)
+                }
+                SyntaxKind::EnumDeclaration => Some(SymbolFlags::ENUM_MEMBER),
+                _ => None,
+            };
+            if let Some(mask) = exported
+                && let Some(symbol) = self.symbol_of(node)
+                && let Some(&found) = self.symbols.get(symbol).exports.get(name)
+                && self.symbols.get(found).flags.intersects(meaning & mask)
+            {
+                return Some(self.merged_symbol(found));
+            }
+
             last = Some(node);
             current = nodes.parent(node);
         }

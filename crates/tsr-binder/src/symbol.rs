@@ -122,6 +122,23 @@ bitflags::bitflags! {
             | Self::TYPE_LITERAL.bits()
             | Self::TYPE_PARAMETER.bits()
             | Self::TYPE_ALIAS.bits();
+        /// What a `namespace`'s **exports** table may contribute to a name
+        /// resolution — `SymbolFlagsModuleMember` (`ast/symbolflags.go:75`).
+        ///
+        /// Upstream masks the requested meaning with this before looking in a
+        /// module symbol's exports, so a lookup for a *type* cannot be answered
+        /// by an exported `const` and vice versa. `ENUM_MEMBER` is absent
+        /// deliberately: upstream's list does not carry it, and an enum's
+        /// members are reached through the `EnumDeclaration` arm with its own
+        /// mask.
+        const MODULE_MEMBER = Self::VARIABLE.bits()
+            | Self::FUNCTION.bits()
+            | Self::CLASS.bits()
+            | Self::INTERFACE.bits()
+            | Self::ENUM.bits()
+            | Self::MODULE.bits()
+            | Self::TYPE_ALIAS.bits()
+            | Self::ALIAS.bits();
         /// A namespace in either form.
         const NAMESPACE = Self::VALUE_MODULE.bits()
             | Self::NAMESPACE_MODULE.bits()
