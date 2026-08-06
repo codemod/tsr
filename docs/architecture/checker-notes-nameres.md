@@ -348,6 +348,28 @@ per-program link could not live on it. ADR-0034 established the opposite (a
   their container would silently take the last. No such shape is known and none
   is tested for.
 
+### The tests, and the mutations that make each red
+
+Four tests over two files, each proven red under a **named** mutation before the
+change landed, with `grep -c` = 1 on every string keyed on.
+
+| mutation | reddens |
+|---|---|
+| **M1** — drop the `export_symbol` assignment in `declare_module_member` | `nameres_export_symbol::a_namespace_member_marker_links_…` only; the mirror test stays green |
+| **M2** — set `export_symbol` on every local rather than only on markers | both binder tests |
+| **M3** — restore the file-level reconstruction verbatim | `a_reference_inside_a_namespace_…` and `exporting_from_a_namespace_…`; the **gap** test stays green, because a tuple annotation is unported either way and that is exactly what that test is for |
+| **M4** — answer `anyType` for a marker with a link, instead of re-entering `get_type_of_symbol` | all three checker tests, the gap test included |
+
+M3 is the one worth reading: it is the exact code this commit replaces, so its
+red is the measurement's unit-level counterpart. M4 exists because the arm's
+whole risk is manufacturing an answer rather than finding one, and
+`docs/conventions.md` requires the loaded label to earn a positive test.
+
+Note the fixtures are all **script** files — no top-level `import` or `export` —
+which is deliberate: 988 of the 2,175 corpus lines are in script files, where the
+old lookup failed at `binder.symbol_of(file)` before reaching any table. A
+fixture that was a module would have exercised only half the defect.
+
 ### How this would be shown wrong
 
 - **A marker whose `export_symbol` is not the symbol a qualified reference

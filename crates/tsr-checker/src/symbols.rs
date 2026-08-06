@@ -142,29 +142,35 @@ impl<'a> Checker<'a, '_> {
         computed
     }
 
-    /// Reconstruct upstream's `Symbol.ExportSymbol` link for an export marker.
+    /// The export symbol an export marker shadows.
     ///
-    /// `getExportSymbolOfValueSymbolIfExported` (`checker.go:14383`) reads the
-    /// field directly. [`tsr_binder::Symbol`] has no such field, so the link is
-    /// rebuilt from what the binder does record: the marker sits in a source
-    /// file's `locals`, and the real symbol sits in that file's module symbol's
-    /// `exports` under the same name.
+    /// `getExportSymbolOfValueSymbolIfExported` (`checker.go:14383`) reads
+    /// `symbol.ExportSymbol`, and [`tsr_binder::Symbol`] now carries the same
+    /// link. This is that read.
     ///
-    /// Walking to the enclosing `SourceFile` is what makes this exact rather than
-    /// a name search — the file's own symbol is the module symbol
-    /// (`binder.rs:2578`), so the lookup is scoped to the module that declared
-    /// the marker and cannot collide with a same-named export elsewhere in the
-    /// program.
+    /// # The reconstruction this replaces, and why it was wrong
     ///
-    /// **Adding the field to the binder would be the faithful port** and is the
-    /// better fix when someone owns that crate; this reaches the same symbol
-    /// without reshaping a type every consumer of the binder shares.
+    /// Until `033277f` the binder had no such field, so this walked to the
+    /// marker's enclosing `SourceFile` and read *that file's* module symbol's
+    /// `exports`. The reasoning was that the file's own symbol is the module
+    /// symbol, so the lookup is scoped to the module that declared the marker.
+    ///
+    /// That is true, and it is the wrong module. A marker's container is
+    /// whatever `declare_module_member` declared it into, and for
+    /// `namespace N { export enum E {} }` it is **`N`**. Worse, a *script* file
+    /// has no module symbol at all, so `self.binder.symbol_of(file)` returned
+    /// `None` and the walk stopped at its first step.
+    ///
+    /// Measured at `058b4a9`: **2,175 assertion lines** are markers declared
+    /// inside a namespace, **988** of them in a script file. See
+    /// [`docs/architecture/checker-notes-nameres.md`](../../../docs/architecture/checker-notes-nameres.md)
+    /// §5, which also records that the reconstruction was rejected in favour of
+    /// the field rather than repaired: deciding *which* ancestor owns the
+    /// exports table is exactly the decision the binder already made, and a
+    /// second copy of it is a second thing to keep in step. This is the first
+    /// copy having been wrong.
     fn export_symbol_of(&self, marker: SymbolId) -> Option<SymbolId> {
-        let entry = self.binder.symbols().get(marker);
-        let name = entry.name;
-        let file = self.source_file_of(*entry.declarations.first()?)?;
-        let module = self.binder.symbol_of(file)?;
-        self.binder.symbols().get(module).exports.get(name).copied()
+        self.binder.symbols().get(marker).export_symbol
     }
 
     /// The type of a `get`/`set` accessor symbol.
