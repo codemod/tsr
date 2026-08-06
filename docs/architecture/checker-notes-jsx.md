@@ -160,3 +160,36 @@ JSX is 13,078 assertion lines, 2.2% of the 594,122-line corpus, spread across 39
 baselines — the largest single file is 2–4% of the JSX population, so unlike some
 rows measured this cycle the line count does not overstate the value. It also
 does not make JSX large.
+
+## The element row's feasibility, measured (fifth session)
+
+`examples/jsxfeas.rs`, over every JSX element/fragment gap line (1,199
+classified), walks `getJsxElementTypeAt`'s path one hop at a time:
+
+| | lines |
+|---|---:|
+| want `JSX.Element`, **`JSX` does not resolve as a namespace** | 548 |
+| want `JSX.Element`, resolves — but the declared type **prints bare `Element`** | 343 |
+| want `any`, `JSX` does not resolve | 256 |
+| want `any`, resolves, no `Element` export | 28 |
+| other | 24 |
+
+Two findings, both unfavourable to the board's 0.70 feasibility:
+
+1. **46% of the row cannot see the namespace.** The corpus's `JSX`
+   namespaces overwhelmingly live inside `declare global` blocks in module
+   files — global augmentation, which this binder does not merge. That is
+   binder work with its own hazard rail (`binder_symbols` 98.03%).
+2. **The resolvable 29% lands in a refused family.** Upstream prints
+   `JSX.Element`; the declared type here prints `Element`, so every
+   converted line needs the enclosing-namespace qualification — the
+   qualified-naming build STATUS.md §5 refused at **2.7 wrong per right**.
+   Building the JSX arm without it converts nothing (`Element` ≠
+   `JSX.Element` on every line); building it *with* it re-opens a refusal.
+
+**Re-scored: feasibility ~0.25, not 0.70** — the item is blocked on global
+augmentation (binder) and namespace-qualified naming, in that order, and
+should not be picked until one of those moves. The want-`any` 284 are a
+trap besides: upstream's `any` is the *no-namespace-in-scope* fallback, and
+this port cannot distinguish "absent upstream" from "invisible to us"
+until the same augmentation machinery exists.
