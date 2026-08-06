@@ -41,7 +41,12 @@ bd close <id>         # Complete work
    ```
 5. **Clean up** - Clear stashes, prune remote branches
 6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+7. **Update `STATUS.md`** - MANDATORY. Numbers in §1 with the commit they were
+   measured at, §4 for what moved on or off the board, §5 for anything newly
+   refused *with the number that refused it*, and one appended row in §7. A
+   refused item deleted rather than recorded costs the next session a cycle
+   rediscovering the same negative.
+8. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
 - Work is NOT complete until `git push` succeeds
@@ -72,10 +77,11 @@ discovering something non-obvious about upstream.
 
 | Location | Contents |
 |---|---|
+| `STATUS.md` | **The live dashboard.** Where the port stands, what is ported, the ranked next items, and what has already been refused with the number that refused it. **Updated at the end of every session.** Read it first. |
 | `docs/adr/` | **Decision records.** One file per decision, numbered, immutable once merged. Superseded by writing a new one that references it. |
 | `docs/architecture/` | **How a subsystem works and why it is shaped that way.** Living documents; edit in place. |
 | `docs/conventions.md` | Cross-cutting rules every crate follows. |
-| `PLAN.md` | The roadmap: scope, phases, gates. Links into `docs/`; does not duplicate it. |
+| `PLAN.md` | The roadmap: scope, phases, gates. Links into `docs/`; does not duplicate it. Changes rarely — **current state belongs in `STATUS.md`, not here**, and if the two disagree `STATUS.md` wins. |
 | Rustdoc | Behaviour of *this* item. Links to `docs/` for the wider rationale. |
 
 ### Write from first principles
