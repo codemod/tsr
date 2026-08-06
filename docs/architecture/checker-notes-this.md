@@ -270,3 +270,108 @@ shipped lines**. That is the correct outcome for both: one had a false premise
 and the other manufactured 1.3 wrong per right. The registration in `14174b3`
 is what makes that legible — the forecast, the legs and the bars were on the
 record before either number existed, so neither refusal is a rationalisation.
+
+---
+
+# `super`, second round: both bars cleared, +838 lines, 0 regressed
+
+Measured at **`4fb6fe6`** and built in the same commit. Same bars as the round
+that refused it — **RS-1 ≥25%, RS-2 ≥70%, neither softened.**
+
+## The defect was the rule, not the walk
+
+Last round's diagnosis was *"the fault is likelier in **which node** the walk
+calls the container, because the modifier test was character-for-character the
+binder's"*. **That hypothesis was wrong**, and checking it cost one command: the
+`SyntaxKind` variants for `Constructor`, `GetAccessor` and `SetAccessor` all
+exist and the walk was finding them.
+
+Reading upstream's tail is what found it. `checker.go:7946`:
+
+```go
+if ast.IsStatic(container) || isCallExpression {
+    …
+    return c.getBaseConstructorTypeOfClass(classType)
+}
+```
+
+`isCallExpression` is *"this `super` is the callee of its own call"*
+(`checker.go:7855`). **A `super(...)` call answers the base constructor type —
+`typeof Base` — even inside an ordinary instance constructor**, because what it
+calls is the base constructor. The walk was right; the rule had a second
+disjunct.
+
+That is the corrective three agents have now hit: **ask the code, not the data
+structure.** The data structure had nothing to confess — every node kind, every
+modifier test and every container was correct. Only upstream's own condition
+said the split had two inputs and this port was reading one.
+
+## Measured
+
+| | before | after |
+|---|---:|---:|
+| S right | 0 | **374** |
+| S gap | 643 | 218 |
+| S wrong | 0 | **51** |
+
+- **RS-1: 374 of 643 = 58.2% ≥ 25%. Fires.**
+- **RS-2: 374 of the 425 that stopped gapping = 88.0% ≥ 70%. Fires.**
+
+Against the first round's **198 right / 257 wrong**: the one disjunct moves 176
+lines from wrong to right and converts 176 more that had stayed gaps.
+
+### The projection was low, and it was right not to be built against
+
+Last round's arithmetic-from-a-histogram said a corrected split would read
+**~76.7%**. It reads **88.0%**. The projection assumed the 151 misclassified
+lines would flip and nothing else would move; in fact fixing the disjunct also
+un-gapped 176 lines the wrong classification had been suppressing. **A histogram
+can say which lines are wrong and cannot say what a fix does to the lines that
+are not in it** — which is the same blind spot as sizing a row without its
+cascade, arriving from the error side.
+
+## Corpus, `examples/casedelta.rs`
+
+```
+  matched  302,454 -> 303,292     +838 lines
+  cases moved                     153
+  cases that REGRESSED            0
+  cases that newly finish         6
+```
+
+**Distributed**, unlike the `this` row above: the largest case is
+`conformance/asyncMethodWithSuper_es6` at 183 lines — **21.8%**, against 91.9%
+for `this`. Then `asyncMethodWithSuper_es2017` 37,
+`asyncMethodWithSuperConflict_es6` 37, `superCallInNonStaticMethod` 30. 153 cases
+moved and 6 finished outright.
+
+## The forecast leg that missed, named
+
+The registration in `14174b3` said the **`any` leg is excluded by construction,
+forecast 0.** It is not, and it did not.
+
+```
+    4  ours P              them any
+    4  ours typeof Base    them any
+    4  ours typeof OtherBase them any
+    3  ours C              them any
+    3  ours typeof C       them any
+```
+
+**50 of the remaining 51 wrong lines are `them any`** — positions where upstream
+answers `any` because the base is unresolvable or the `super` is in an error
+position, and this arm resolved the base anyway. The exclusion was written as
+*"where the base does not resolve, this must gap"*, which is true and
+insufficient: upstream also answers `any` where the base **does** resolve but the
+reference is illegal. RS-2 clears its bar with all 51 counted, so nothing here is
+load-bearing for the decision — but a leg forecast at 0 that delivered 50 is a
+miss and is recorded as one. `bd tsr-h1s`.
+
+## How you would know this is wrong
+
+- **`|S|` differing between runs.** It reads 643 both times.
+- **The `any` leak growing.** 50 lines today; if a later change resolves more
+  bases it grows, and RS-2 falls. The probe prints the ours-against-upstream
+  table on every run.
+- **`parserRealSource11` still holds 51 of the 218 remaining gaps** — 23.4%,
+  one file. The residual is more concentrated than the gain was.
