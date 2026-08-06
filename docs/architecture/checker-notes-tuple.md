@@ -222,3 +222,41 @@ synthesised target* and sorts as a reference. Same family as the union-order
 build at `a371ec8`, and it carries that build's caution: a change to union
 ordering fires on all ~26,000 union lines, most of which are right today, so
 the at-risk population is the bar. `bd tsr-5ll`.
+
+## 7. `tsr-5ll` — the tuple arm of `compare_types`, sized and registered
+
+Fourth session, at `ff49871`. Sized from the live `wrongdelta` dump rather
+than the row: **34 wrong lines** are unions whose constituents match as a set,
+differ as a sequence, and contain a tuple — 8 cases, head 11
+(`destructuringControlFlow`'s `null[] | [number, string]`). Every one of the
+nine distinct pairs follows upstream's comparator once the tuple stops
+pretending its printed text is a *name*:
+
+- `null[] | [number, string]` — `compareTypeNames` (`utilities.go:614`) puts a
+  **named** type (`Array`) before an **unnamed** one; upstream's tuple has no
+  symbol and therefore no name, while this port's carries its text as one.
+- tuple vs tuple — `compareTupleTypes` (`utilities.go`): non-readonly first,
+  then **ascending arity** (`[string]` before `[number, boolean]` — the
+  `bd tsr-5ll` issue text had this pair backwards, corrected here), element
+  flags and labels equal by construction while the modifier forms refuse, then
+  elementwise `CompareTypes` over the element lists
+  (`[string, string]` before `[string, number]`: string's flag < number's).
+
+The build: a reverse index `TypeId → (elements, readonly)` recorded where
+`get_type_from_tuple_type_node` already caches the forward pair — the
+`type_reference_targets` precedent, data before reshape — a namelessness test
+in `compare_type_names`, and a tuple arm in `compare_types`.
+
+**The bar, registered before the code.** An ordering change can only permute;
+per the parenthesisation precedent the honest legs are absolute:
+
+1. **gained ≥ 25** of the 34 (the mechanism is exactly their diagnosis);
+2. **lost == 0** — a right line that moves is proof the comparator is wrong,
+   not a price;
+3. **0 case regressions**;
+4. **new wrong == 0** by `wrongdelta` — this change fires inside the wrong
+   bucket and cannot mint a gap, so any new wrong line is a wrong rule.
+
+If a leg fires: build wrong first, premise wrong second, no third. The
+comparator's premise — that these 34 are ordering and nothing else — is
+falsified by any pair whose *set* stops matching after the fix.
