@@ -1568,3 +1568,49 @@ neither: **24 cases moved, 22 gained 433 and two lost one line each.** A net is
 the one statistic guaranteed to hide a fix that is simultaneously helping and
 harming, which is the exact shape of any change to what the compiler *knows*
 rather than to what it *computes*.
+
+### A control whose two sides share the code under test cannot see a defect in it
+
+Found by an agent against its own instrument, on a mutation it wrote to try to
+break it, and reported rather than fixed quietly.
+
+`gaproot.rs` carried four controls. **M1 inverted the span-test polarity — the
+exact defect class this document already records passing every sum — moved
+46,269 lines, and C1 through C4 all still read zero.** The arithmetic ones were
+blind for the reason already written down here. C4 was supposed to be the
+construction-pinned one, and it was blind for a new reason: **C4 is fed by the
+same span function the descent uses.** Invert the function and both sides of the
+comparison move together, so the difference stays zero while the classification
+underneath it is wrong.
+
+This is a level past *"prefer a control pinned by construction over one pinned by
+arithmetic"*. A construction-pinned control is only independent if the property
+it is pinned to is computed **somewhere the mutation cannot reach**. C4's
+property was *"this bucket should equal `rank_board`'s TERMINAL"*, which sounds
+external and is not, because both numbers came from the same span predicate.
+
+The repair was C7, comparing against `rank_board`'s **published** figures rather
+than against a recomputation — a number frozen in a document, which no mutation
+can move. It fires at −17,329.
+
+So the question to ask of every control is one step longer than this document
+previously said:
+
+1. What input would make it non-zero? *(catches a vacuous control — a default arm)*
+2. Is its value fixed by the subject rather than by the code under test? *(catches an inversion)*
+3. **Would the mutation you are worried about move *both* sides of it?** *(catches a control that shares its subject's machinery)*
+
+A frozen number from a previous run, or from another author's document, is the
+strongest form available, because it cannot move at all.
+
+#### And two mutations that no control caught, recorded as such
+
+The same agent ran M4 (truncate the descent at depth 2), which moved a bucket
+from 492 to 37,079, and **no control fired** — the depth *histogram*, not a
+control, is the only evidence the descent descends. M5 dropped a clause, moved
+~450 lines, and nothing saw it.
+
+Both are written up as gaps in the instrument's defences rather than left for a
+reader to assume were covered. **An instrument's mutation table should list the
+mutations that moved nothing and the ones nothing caught**, because a table
+showing only successful catches reads as coverage.
