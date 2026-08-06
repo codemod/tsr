@@ -243,6 +243,14 @@ pub(crate) struct Binder<'a, 'n> {
     /// Upstream's `c.globals` (`internal/checker/checker.go:930`), filled by
     /// `initializeChecker` (`:1296`). See [`Binder::merge_globals`] for why it
     /// is filled here rather than in the checker.
+    /// Source-to-target redirects recorded by [`Binder::merge_symbol`].
+    ///
+    /// The port of `c.mergedSymbols` (`internal/checker/checker.go:666`). It
+    /// lives on the binder rather than the checker because **this port merges in
+    /// the binder** — `BindResult` is one program (ADR-0034), so `merge_symbol`
+    /// mutates in place where upstream clones, and the redirect has to be
+    /// recorded where the merge happens.
+    merged: rustc_hash::FxHashMap<SymbolId, SymbolId>,
     globals: SymbolTable<'a>,
     /// The synthesised `undefined` symbol, if this bind created one.
     undefined_symbol: Option<SymbolId>,
@@ -326,6 +334,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             locals,
             global_exports,
             globals,
+            merged,
             undefined_symbol,
             computed_names,
             diagnostics,
@@ -384,6 +393,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             is_module: false,
             global_exports,
             globals,
+            merged,
             flow,
             node_flow,
             current_flow: unreachable,
@@ -464,6 +474,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             computed_names: self.computed_names,
             global_exports: self.global_exports,
             globals: self.globals,
+            merged: self.merged,
             undefined_symbol: self.undefined_symbol,
             symbols: self.symbols,
             node_symbols: self.node_symbols,
@@ -632,6 +643,13 @@ impl<'a, 'n> Binder<'a, 'n> {
         if target == source || depth > MAX_MERGE_DEPTH {
             return;
         }
+        // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
+        // which upstream calls from `mergeSymbol` for exactly this reason: after
+        // the union, `source` is a symbol nothing should ever be answered from
+        // again, and every read of it has to be redirected. Recorded **before**
+        // the early-outs below have any chance to skip it and before the
+        // recursion, so the map covers every level the union touches.
+        self.merged.insert(source, target);
         let (source_flags, target_flags) =
             (self.symbols.get(source).flags, self.symbols.get(target).flags);
         if (source_flags | target_flags).intersects(SymbolFlags::ALIAS)

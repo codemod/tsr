@@ -1438,3 +1438,136 @@ verbatim misses are the expensive half of the next attempt and they are now done
   72.0% even among lines where a chain existed — still far below the bar.
 - **`import("…")` is rarer than 122/328.** The falsifier is the split, printed
   per line, concentrated in four named cases.
+
+---
+
+# Cycle 17 — `getMergedSymbol`: the redirect the binder never recorded
+
+`bd tsr-9or.1`. Anchors re-taken with `grep -n` on the declarations:
+`getMergedSymbol` **`internal/checker/checker.go:14355`**, `recordMergedSymbol`
+**`:14372`**, the `mergedSymbols` field **`:666`**. All three as briefed — the
+first prose line numbers this session to survive checking.
+
+## 38. The forecast, registered before the measurement was run
+
+- **Measured leg — the floor, 702 lines.** Another agent's, over the
+  named-receiver arm: 702 merged across files, 494 declared in one file and not
+  the item, 1,403 whose receiver is not a bare global name. **I have not
+  re-derived it**, so I carry it as theirs and quote the floor as instructed.
+- **Inferred leg — the 1,403 unmeasured receivers.** The test undercounts by
+  construction and cannot overcount, so the interval is `[702, 2,105]`,
+  asymmetric and open upward, not a ± around 702.
+- **A second inferred leg, downward, which is mine and is not in that
+  interval.** My redirect is applied at `BindResult::symbol_of` as well as at
+  `resolve_name`, because upstream's `getSymbolOfDeclaration` is
+  `getMergedSymbol(node.Symbol())`. That is **broader than the reproduction
+  needs**, and it can move lines that are currently *right*: a declaration name
+  in the source's file now reports the target's symbol. Nothing bounds that from
+  the reproduction.
+
+**Forecast: ≥ +702, central +900, upside open to ~+2,100, and a downward risk
+on the `symbol_of` leg that I cannot bound in advance.** The bar sits on the
+inferred legs, per `e6ab9c9`; the floor is the only part I would defend.
+
+## 39. The renderer question, verified rather than inherited
+
+`c592d0f` asks what renders what this unblocks. The answer here is the
+favourable one and it is checkable: what becomes reachable is **ordinary
+interface members** — `a: string`, `b: number` — whose types come from written
+annotations through `get_type_from_type_node`, the same path that already prints
+them for a reference in their own file. There is no second mechanism involved
+and no half-ported one: the member was always renderable, it was simply not
+reachable from the other file.
+
+That is the opposite of `tsr-4qx`, whose collateral is *instantiated* types
+going to a printer nobody has checked — the shape that produced the 328.
+
+## 40. Built, and scored against the forecast — which it misses low
+
+`Binder::merge_symbol` now records `merged[source] = target`
+(`recordMergedSymbol`, `checker.go:14372`), `BindResult::merged_symbol` is the
+port of `getMergedSymbol` (`:14355`), and **`resolve_name` applies it at every
+scope-table hit** — which is exactly where upstream applies it: the
+`NameResolver.Lookup` hook is `c.getSymbol` (`checker.go:1474`), whose first
+line is `c.getMergedSymbol(symbols[name])` (`:2176`).
+
+### The `symbol_of` leg was forecast as a risk, measured, and dropped
+
+§38 registered a second inferred leg, downward and unbounded: applying the
+redirect at `BindResult::symbol_of` too, because upstream's
+`getSymbolOfDeclaration` is `getMergedSymbol(node.Symbol())`. Both variants were
+measured against the same baseline:
+
+| | matched | cases moved | gained | **lost** |
+|---|---:|---:|---:|---:|
+| `resolve_name` + `symbol_of` | 299,695 | 83 | 484 | **80** |
+| **`resolve_name` only** | **299,721** | 55 | 459 | **29** |
+
+**The broader variant is worse on both columns**, so it is not shipped. That leg
+existed in the forecast precisely so that this comparison would be made rather
+than assumed, and it is the only reason the shipped version is the narrow one.
+
+### Scored
+
+```
+  matched   299,291 -> 299,721   +430
+  cases moved 55, gained 459, LOST 29
+  cases at 100%  2,277 -> 2,277     +0
+```
+
+| | forecast | measured |
+|---|---:|---:|
+| lines | floor **702**, central +900, open to ~2,105 | **+430** |
+| case gate | not forecast | **0** |
+
+**It misses the floor by 39%**, and the floor was supposed to be the part that
+could be defended. §38 recorded that I had not re-derived the 702 myself and was
+carrying another agent's measurement; that caveat is the only thing that makes
+this a *known* risk rather than a surprise, and `docs/conventions.md` is explicit
+that flagging a number and then quoting it is worse than not flagging it. I
+quoted it. **The floor was not a floor.**
+
+Two candidate reasons, unseparated: the 702 was measured over the named-receiver
+arm with a test that undercounts, so its population and this change's population
+are not the same set; and this change reaches only `resolve_name`, while the 702
+may include lines reached through paths that still hand out a stale symbol.
+
+### 29 lines lost, and they are not zero
+
+Every other build this session lost **nothing**. This one loses 29 —
+`compiler/underscoreTest1` 11, `compiler/thisBinding2` 4,
+`conformance/nonPrimitiveInGeneric` 4, `conformance/nonPrimitiveStrictNull` 4.
+They are not investigated (`open`, `bd tsr-9or.1`). A merge that redirects a
+reference to a symbol carrying *more* declarations can change an answer that was
+right for the narrower symbol, and `nonPrimitive*` and `thisBinding2` are the
+shape to look at first.
+
+The trade is +459 for −29, 15.8 : 1, and the case gate does not move at all.
+
+### The waiting test, inverted
+
+`crates/tsr-checker/tests/members_cross_file_merge.rs` asserted `(false, true)`
+on purpose, with a comment saying to invert rather than "fix" it when the
+redirect landed. It is inverted to `(true, true)` in this commit and the comment
+replaced. It failed loudly first, which is what it was written to do.
+
+### A record corrected in the binder's own tests
+
+`tests/program.rs::a_local_shadows_a_global` asserted that `b.ts`'s `declare var
+name` wins over `a.ts`'s. **It no longer does, and the old expectation was
+pinning the absence of declaration merging rather than a scoping rule.** Two
+script files writing the same global do not shadow — they merge, into one symbol
+carrying both declarations, and `SetValueDeclaration` keeps the first. The
+assertion is replaced with the merge itself, which is strictly stronger.
+
+## 41. `tsr-4qx` — not started, and the reason is budget not judgement
+
+Queued behind this deliberately: the two change different things — this changes
+**which** symbol a lookup receives, `tsr-4qx` changes **what** that symbol's type
+carries — so a shared before/after pair could not attribute a gradient move. The
+pair for this one is `<this commit>^..<this commit>`.
+
+The renderer question is **already answered against it and unfavourably**: what
+`tsr-4qx` unblocks is *instantiated* types going to a printer nobody has checked,
+which is the shape that produced the 328 (§26). That is not a refusal — it is the
+first thing the next agent should measure, before the line count.
