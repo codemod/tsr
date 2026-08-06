@@ -985,6 +985,66 @@ fn an_annotated_this_parameter_is_what_this_types_as() {
     );
 }
 
+/// The printed type of the first `super` in `source`.
+///
+/// Direct rather than through a declaration, because the rule under test is
+/// about `super` **itself** — `super(...)` answers a different type from
+/// `super.x` in the same constructor, and only a helper that types the keyword
+/// can tell them apart.
+fn type_of_super(source: &str) -> String {
+    let arena = tsr_core::Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut checker = tsr_checker::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    for index in 0..parsed.nodes.len() {
+        #[allow(clippy::cast_possible_truncation)]
+        let id = tsr_ast::NodeId::new(index as u32);
+        if parsed.nodes.kind(id) != tsr_ast::SyntaxKind::SuperKeyword {
+            continue;
+        }
+        let Some(node) = parsed.node_map.get(id) else { continue };
+        let Ok(expression) = tsr_ast::Expression::try_from(node) else { continue };
+        let type_id = checker.check_expression(expression);
+        return checker.type_to_string(type_id);
+    }
+    "<no super>".to_string()
+}
+
+/// `bd tsr-h1s`. **A `super(...)` call is the base *constructor* type, and that
+/// is not about `static`.**
+///
+/// Both mutations were run and seen red before the fix landed.
+///
+/// - **M1** — split on `is_static` alone, dropping `|| is_call`. Red on the
+///   first fixture at **`left: "B"`, `right: "typeof B"`**, which is exactly the
+///   `ours Base / them typeof Base` cluster the corpus produced 151 times.
+/// - **M2** — delete the `SuperKeyword` arm from the keyword dispatch. Red on
+///   every fixture at `"error"`.
+#[test]
+fn a_super_call_is_the_base_constructor_and_a_super_property_is_the_instance() {
+    // `checker.go:7946` — `ast.IsStatic(container) || isCallExpression`. The
+    // container here is an ordinary instance constructor and the answer is still
+    // the static side, because what `super(...)` calls is the base constructor.
+    assert_eq!(
+        type_of_super("class B {} class C extends B { constructor() { super(); } }"),
+        "typeof B"
+    );
+    // The same constructor, the same container, a different `super`.
+    assert_eq!(type_of_super("class B { x: number; } class C extends B { m() { super.x; } }"), "B");
+    // And `static` on its own still selects the static side.
+    assert_eq!(
+        type_of_super(
+            "class B { static x: number; } class C extends B { static m() { super.x; } }"
+        ),
+        "typeof B"
+    );
+}
+
 #[test]
 fn this_inside_a_class_is_the_class_this_type() {
     // Printed `this`, not `C` — upstream models it as a type parameter

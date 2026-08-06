@@ -72,6 +72,10 @@ impl Checker<'_, '_> {
                 SyntaxKind::ThisKeyword => {
                     node.node_id.map_or(self.intrinsics.error, |id| self.check_this_expression(id))
                 }
+                // `checkSuperExpression` (`checker.go:7854`).
+                SyntaxKind::SuperKeyword => {
+                    node.node_id.map_or(self.intrinsics.error, |id| self.check_super_expression(id))
+                }
                 SyntaxKind::TrueKeyword => self.intrinsics.true_type,
                 SyntaxKind::FalseKeyword => self.intrinsics.false_type,
                 SyntaxKind::NullKeyword => self.intrinsics.null,
@@ -529,6 +533,113 @@ impl Checker<'_, '_> {
         // annotation" is this port's `nil`.
         let resolved = self.get_type_from_type_node(annotation);
         (resolved != self.intrinsics.error).then_some(resolved)
+    }
+
+    /// Ported from `Checker.checkSuperExpression` (`checker.go:7854`), reduced
+    /// to the type it answers.
+    ///
+    /// # `super(...)` is the **static** side, and that is not about `static`
+    ///
+    /// Upstream's tail is `if ast.IsStatic(container) || isCallExpression`
+    /// (`checker.go:7946`), where `isCallExpression` is *"this `super` is the
+    /// callee of its own call"* (`:7855`). **A `super(...)` call answers the base
+    /// **constructor** type — `typeof Base` — even inside an ordinary instance
+    /// constructor**, because what it calls is the base constructor.
+    ///
+    /// This is measured, not reasoned. A first version of this arm split on
+    /// `ast.IsStatic` alone, shipped nothing, and manufactured **257 wrong lines
+    /// against 198 right** — of which ~151 were exactly this: `Base` where
+    /// upstream prints `typeof Base`, `A` for `typeof A`, `C` for `typeof C`.
+    /// The hypothesis at the time was that the container walk picked the wrong
+    /// node; it did not. **The walk was right and the rule was wrong**, and only
+    /// reading upstream's tail said so — the data structure had nothing to
+    /// confess. See `docs/architecture/checker-notes-this.md` and `bd tsr-h1s`.
+    ///
+    /// # What is deliberately not answered
+    ///
+    /// - **An object-literal container.** Upstream assumes `any` there
+    ///   (`checker.go:7917`), and `checker-notes-rank.md` §6 forbids banking on
+    ///   `any`.
+    /// - **A base this port cannot resolve.** `base_symbols_of`
+    ///   (`crate::members`) resolves the heritage name in `SymbolFlags::TYPE`
+    ///   meaning and answers `None` for `class C extends someExpression()` and
+    ///   for a generic instantiation. Upstream prints `any` for many of those and
+    ///   this gaps instead.
+    /// - **`extends null`**, whose answer is the null-widening type
+    ///   (`checker.go:7930`).
+    fn check_super_expression(&mut self, node: NodeId) -> TypeId {
+        let error = self.intrinsics.error;
+        // `isCallExpression` (`checker.go:7855`): this `super` is its own call's
+        // callee. Read before the walk, because it overrides the container's
+        // static-ness rather than depending on it.
+        let is_call = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(self.node_map.get(parent), Some(Node::CallExpression(call))
+                if call.expression.and_then(|callee| callee.node_id()) == Some(node))
+        });
+        // `getSuperContainer(node, stopOnFunctions: true)` (`checker.go:7856`):
+        // the nearest **member**, not the nearest class. An arrow is transparent,
+        // so it is absent from this match for the same reason it is absent from
+        // [`Checker::check_this_expression`]'s.
+        let mut current = self.nodes.parent(node);
+        let mut is_static = None;
+        let mut class = None;
+        while let Some(id) = current {
+            match self.nodes.kind(id) {
+                // Two different reasons, one answer. A plain function is where
+                // `getSuperContainer(node, stopOnFunctions: true)` stops, so an
+                // outer class is not reached; an object-literal container is
+                // upstream's `any` (`checker.go:7917`), which
+                // `checker-notes-rank.md` §6 forbids banking on. They are one arm
+                // because clippy will not keep two that return the same thing,
+                // and the distinction lives here rather than in the shape.
+                SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ObjectLiteralExpression => return error,
+                SyntaxKind::MethodDeclaration
+                | SyntaxKind::Constructor
+                | SyntaxKind::PropertyDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor => {
+                    if is_static.is_none() {
+                        is_static = Some(self.has_static_modifier(id));
+                    }
+                }
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
+                    class = Some(id);
+                    break;
+                }
+                _ => {}
+            }
+            current = self.nodes.parent(id);
+        }
+        let (Some(class), Some(is_static)) = (class, is_static) else { return error };
+        let Some(symbol) = self.binder.symbol_of(class) else { return error };
+        let Some(bases) = self.base_symbols_of(symbol) else { return error };
+        // Exactly one `extends` entry, which is the grammar for a class. Zero is
+        // a base-less class — upstream's own error — and more than one cannot
+        // arise; both gap rather than guessing which base `super` means.
+        let [base] = bases[..] else { return error };
+        if is_static || is_call {
+            self.get_type_of_symbol(base)
+        } else {
+            self.get_declared_type_of_symbol(base)
+        }
+    }
+
+    /// Whether a class member carries `static`. `ast.IsStatic` (`checker.go:7946`).
+    fn has_static_modifier(&self, member: NodeId) -> bool {
+        let modifiers = match self.node_map.get(member) {
+            Some(Node::MethodDeclaration(node)) => node.modifiers,
+            Some(Node::PropertyDeclaration(node)) => node.modifiers,
+            Some(Node::GetAccessorDeclaration(node)) => node.modifiers,
+            Some(Node::SetAccessorDeclaration(node)) => node.modifiers,
+            // A constructor cannot be static.
+            _ => return false,
+        };
+        modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::StaticKeyword)
+        })
     }
 
     /// Ported from `Checker.checkConditionalExpression` (`checker.go:10934`).
