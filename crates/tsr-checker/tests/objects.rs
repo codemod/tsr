@@ -92,17 +92,22 @@ fn a_member_this_port_cannot_type_makes_the_whole_literal_a_gap() {
     // The same rule the type-node path already follows: a partial object type is
     // a wrong answer that looks like a right one.
     assert_eq!(type_of_initialiser("const o = { a: unknownThing };"), "error");
-    // A method needs a signature; spread needs `getSpreadType`. Both gaps,
-    // neither faked.
+    // A method needs a signature. A gap, not faked.
     //
-    // The shorthand `{ a }` used to be asserted here as a third gap. It is now
+    // The shorthand `{ a }` used to be asserted here as a second gap. It is now
     // ported (see `tests/shorthand_properties.rs`) and answers `{ a: number; }`,
     // so the line was removed rather than updated: this test is about members
     // that CANNOT be typed, and a member that can no longer belongs in it. That
     // is the gap-fixture hazard — a fixture standing in for "unported" must be a
     // failure, not a form, or it silently asserts the opposite of its name.
+    //
+    // **`{ ...{ a: 1 } }` was removed for the same reason and by the same rule**
+    // when object spread landed (`bd tsr-sps`); it now answers
+    // `{ a: number; }` and is covered by `tests/members_object_spread.rs`. The
+    // precedent set two lines above is what said to delete rather than update,
+    // and this is the second time this fixture file has paid for having it
+    // written down.
     assert_eq!(type_of_initialiser("const o = { m() { return 1; } };"), "error");
-    assert_eq!(type_of_initialiser("const o = { ...{ a: 1 } };"), "error");
     assert_eq!(type_of_initialiser("const o = { [1]: 1 };"), "error");
 }
 

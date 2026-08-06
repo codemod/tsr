@@ -1778,6 +1778,127 @@ and propagated counts fell**, which is exactly what other workstreams converting
 The uncapped counter is kept: it costs one map and the cap is one refactor away
 from binding.
 
+---
+
+# Part 10 — object spread, built
+
+Measured at **`aa3cfe6`**. `bd tsr-sps`. **Built**, after both preconditions were
+met and all three RULE-7 legs passed.
+
+## Precondition 1 — E1 re-measured over the spread subset alone
+
+I registered that the whole-575 figures might not carry, and **they do not**:
+
+| | all 575 | **the 156 spread lines** |
+|---|---:|---:|
+| `any` | 34 — **5.9%** | 34 — **21.8%** |
+| unnameable | 0 — 0.0% | 0 — **0.0%** |
+| concentration | 322 cases, top-1 3.0% | 61 cases, top-1 9.6% |
+
+**All 34 `any` lines in the whole population are spread lines.** E1 passes —
+21.8% against a 25% bar — but with **3.2 points of margin**, not the 19 points
+the aggregate implied. Quoting the aggregate would have been quoting a number
+that was true of a population I was not going to build.
+
+## Precondition 2 — `c592d0f`: what renders what this unblocks
+
+A spread produces an **anonymous object type**, printed by `render_object_type`
+— the *same* function that already prints every plain object literal
+(`{ 0: number; }`, `{ a: number; }` are in the corpus today). So the renderer is
+not merely checked, it is **already exercised on this exact shape**, which is a
+better answer than the generics seam got and is why this item was safe to build
+where that one was not.
+
+## What was built, and what it deliberately gaps
+
+`Checker::spread_members_of`, ported from `getSpreadType` (`checker.go:13387`,
+from `grep -n` on the declaration), reduced to a **named object type with a
+members table**. Four things return `None` and gap the whole literal rather than
+guess: a non-object source (primitive, union, `any`, `errorType`), a member whose
+own type gaps or is nullable, a **method** member, and a member with no
+declaration.
+
+**Two details that would have been silently wrong:**
+
+- **Order comes from the declaration, never from the table.** `SymbolTable` is
+  an `FxHashMap`, so iterating it yields hash order and the printed type would
+  have been deterministically wrong for some member sets and right for others.
+  Members are sorted by declaration source position.
+- **`upsert`, not `push`.** A later member of the same name replaces an earlier
+  one **in place**: `{ ...{ a: 1, b: 2 }, a: "x" }` is `{ a: string; b: number; }`
+  with `a` still first. A `push` prints `a` twice, which is not a type upstream
+  can produce. This also fixes a latent duplicate-key bug on plain literals.
+
+## E3 — the corpus pair, gains and losses read separately
+
+```
+  right   302,454 -> 302,528    +74
+  gap     128,789 -> 128,694    -95
+  wrong    37,657 ->  37,678    +21
+
+  95 gap lines closed: 74 right, 21 wrong = 0.284 wrong per right   (bar 0.5)
+  22 cases GAINED, 0 cases REGRESSED
+```
+
+**E3 passes, and the number deserves its context: 0.284 is 1.8× inside the bar
+and 46× worse than the `getApparentType` slice's 0.0062.** The 21 wrong lines
+are real and unattributed — spread results where this port's member set or
+ordering differs from upstream's in a way the three gapping rules did not catch.
+Reported rather than absorbed into the +74. `bd tsr-r9e`.
+
+Predicted 156 lines; **95 closed, 0.61 of the ceiling** — the same direction and
+roughly the same magnitude as `getApparentType`'s 0.84, and again the ceiling
+over-predicted.
+
+## The mutation that failed, and what it cost to fix
+
+**M2 passed on the first attempt and the sort was unguarded.** The fixture was
+`{ z, m, a }`, and those three names happen to hash into declaration order —
+`FxHash` is unseeded, so a hash-order bug is *deterministically* right for some
+key sets and wrong for others, which is worse than flaky because it looks
+settled.
+
+Found by running the mutation over candidate fixtures and printing what each
+produced. `alpha, beta, gamma, delta, epsilon` distinguishes all three
+orderings at once:
+
+| ordering | result |
+|---|---|
+| declaration (correct) | `alpha, beta, gamma, delta, epsilon` |
+| alphabetical | `alpha, beta, delta, epsilon, gamma` |
+| `FxHashMap` iteration | `epsilon, delta, alpha, gamma, beta` |
+
+| mutation | reddens |
+|---|---|
+| **M1** `upsert_member` → `push` | the in-place-replacement test |
+| **M2** drop the sort | the order test — **only after the fixture was fixed** |
+| **M3** a non-object source contributes `Some(vec![])` instead of `None` | the gapping test |
+
+`docs/conventions.md` says a guard no mutation can make observable is
+decoration. Here the guard was real and the **test** was decoration, which is
+the same failure one level out.
+
+## A test that went red, and why deleting the assertion was right
+
+`tests/objects.rs::a_member_this_port_cannot_type_makes_the_whole_literal_a_gap`
+asserted `{ ...{ a: 1 } }` answers `error`. It now answers `{ a: number; }`, so
+the gate went red — **correctly**, and the fix is to *delete* the assertion, not
+to update it to the new answer.
+
+That test's own comment, written when shorthand properties landed, says why:
+
+> *"a fixture standing in for 'unported' must be a failure, not a form, or it
+> silently asserts the opposite of its name."*
+
+The test is about members that **cannot** be typed. A spread now can be, so it
+does not belong there; updating it to assert `{ a: number; }` would have left a
+test named *"cannot type"* asserting that this port types it. The precedent for
+deleting rather than updating was already in the file, and this is the second
+time that comment has paid for itself.
+
+The behaviour is not lost — `tests/members_object_spread.rs` covers it, with
+three assertions each red under a named mutation.
+
 ## Everything filed from this page
 
 | id | what | sized as |
@@ -1794,7 +1915,8 @@ from binding.
 | `tsr-bfr` | the static/instance split inside the 57 method lines is unmeasured | 57 lines, two arms |
 | `tsr-ecz` | the 392 private-identifier accesses — an unported form, not a lookup defect | 392 lines, parser/binder |
 | `tsr-1u9` | ~~spellability of the 1,590 own-root `ElementAccess` lines~~ — **answered and closed**: 59.3% want `any` | **refused**, 3rd time, right population |
-| `tsr-sps` | object-literal **SPREAD** — licensed under RULE-7, not built | **156 lines** + 177 unattributed |
+| `tsr-sps` | object-literal **SPREAD** — **BUILT**, 95 gap lines closed | 74 right, 21 wrong, 0 cases lost |
+| `tsr-r9e` | the 21 wrong lines spread manufactured — unattributed | 21 lines |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
