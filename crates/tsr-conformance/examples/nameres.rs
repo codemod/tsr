@@ -2307,8 +2307,18 @@ fn predicted_chain(
         let entry = bound.symbols().get(id);
         parts.push(entry.name);
         // Resolvable by this name, to this symbol, from here? Then stop.
-        let resolved =
-            bound.resolve_name(nodes, map, reference, entry.name, SymbolFlags::all()) == Some(id);
+        // **Compare merged representatives, not raw ids.** Before `a05bf94` one
+        // logical symbol had several `SymbolId`s — `merge_symbol` unioned a
+        // source into a target and recorded no link — so this identity test
+        // failed spuriously wherever a name was declared in more than one file,
+        // and the walk ran on to a parent that was not the answer. The 30.7%
+        // this probe first reported was taken on that binder and is a lower
+        // bound. `BindResult::merged_symbol` is idempotent and total, so
+        // applying it to both sides is correct whether or not anything merged.
+        let resolved = bound
+            .resolve_name(nodes, map, reference, entry.name, SymbolFlags::all())
+            .map(|found| bound.merged_symbol(found))
+            == Some(bound.merged_symbol(id));
         if resolved {
             parts.reverse();
             return Some(parts.join("."));
