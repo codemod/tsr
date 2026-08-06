@@ -971,3 +971,108 @@ is closed by this for the three module forms and stays open for `export =`.
 - `open` — `cloneTypeAsModuleType` (`checker.go:15568`) is the mechanism that
   would let the 72 ambiguous lines be named instead of gapped. Not ported, and
   it is a type-identity change rather than a printing one.
+
+---
+
+# Cycle 14b — `const data = []` types the symbol, not the literal
+
+`bd tsr-5h0`, authorised by the lead without a pre-registered threshold on the
+strength of a **measured zero** damage column. Sized by another agent in
+`docs/architecture/checker-notes-evolvearray.md`; built here because the fix is
+in `symbols.rs` and that agent correctly declined to reach into a file it does
+not own (`git diff --cached --stat -- crates/tsr-checker/` = 0).
+
+## 21. The anchor in the handover was wrong, and the file was right
+
+The message located the fix at **`symbols.rs:1337-1339`**, "beside
+`get_widened_literal_type_for_initializer`". Verified with `grep -n` on the
+declaration:
+
+```
+crates/tsr-checker/src/symbols.rs:1399:    fn get_widened_literal_type_for_initializer(
+```
+
+`1337` is inside `report_circularity_error`, an unrelated function. The **file**
+was right and the **line** was not — which is the third time this cycle a line
+number handed over in prose has been wrong, and the reason `docs/conventions.md`
+says the number comes from `grep -n` on the declaration every time.
+
+The actual insertion point is `get_type_for_variable_like_declaration`
+(`symbols.rs:1367`), between the annotation branch and the initialiser path.
+That ordering is upstream's: `getTypeForVariableLikeDeclaration`
+(`checker.go:16652`) returns `c.autoArrayType` at **`checker.go:16709`**, after
+`declaredType != nil` has already returned at `:16694` and *before* the
+initialiser's type is consulted. `autoArrayType` is `createArrayType(autoType)`
+(`checker.go:1360`), which prints `any[]`.
+
+## 22. What was built, and which guards are ported
+
+Upstream's condition (`checker.go:16696`-`:16698`) is
+`noImplicitAny && IsVariableDeclaration && !IsBindingPattern(name) && no export
+modifier && not ambient`, then `isEmptyArrayLiteral(initializer)`.
+
+The **three syntactic guards are ported** and each has a test.
+**`noImplicitAny` is not**: this port models no compiler options and assumes
+strict throughout, the same assumption `array_literals.rs` and `unions.rs`
+already state for `strictNullChecks`. A case compiled with `noImplicitAny` off
+takes a different upstream path; that is a known divergence, recorded rather than
+discovered later.
+
+### The falsifier, which is the whole design
+
+`check_array_literal` (`array_literals.rs`, `checker.go:8098`) correctly answers
+`never[]` for `[]`, and **51 currently-right `>[] : never[]` lines depend on it.**
+A fix that typed the *literal* instead of the symbol would read identically and
+break all 51 while the gradient still appeared to rise.
+
+`the_literal_is_still_never` pins it over `const`/`let`/`var`, and the named
+mutation is **M5 — make `check_array_literal` answer `any` for an empty
+literal**. It reddens that test and **only** that test; the other five stay
+green. `array_literals.rs` belongs to another agent and was restored unmodified.
+
+## 23. Scored, and it misses the inherited prediction low
+
+`examples/casedelta.rs`, joined per case against the naming commit `c91314c`:
+
+```
+  matched      296,125 -> 297,130   +1,005
+  cases at 100%  2,229 ->   2,235       +6
+  46 cases moved, gained 1,005, LOST 0
+```
+
+**No case lost a line**, which is the falsifier holding at corpus scale as well
+as at unit scale.
+
+| | inherited estimate | measured |
+|---|---:|---:|
+| `right` | **+1,775** (range 1,420–2,130) | **+1,005** |
+
+**The measurement is 43% below the central estimate and below the bottom of the
+stated range.** `checker-notes-evolvearray.md` already flagged 1,775 as having
+one measured leg and one *predicted* leg and asked for it to be treated as an
+upper bound; it was, and the upper bound was not tight. I did **not** register my
+own prediction before building — the lead authorised this without a threshold and
+I took that as licence to build directly, which means this cycle produced a
+scored number and no scored *forecast*. That is the weaker of the two outcomes
+and it is mine.
+
+**Concentration, quoted with the number as required:**
+`compiler/deeplyDependentLargeArrayMutation2` alone is **+614 of the 1,005
+(61.1%)**, then `typedArrays` +132, `deeplyDependentLargeArrayMutation` +51,
+`controlFlowArrays` +46. Top-5 is **91.3%**. This is a concentrated fix in a
+handful of large control-flow files, not broad capability — the same shape the
+handover warned of (top-1 68.6%, top-5 90.9%), reproduced independently at 61.1%
+and 91.3%.
+
+`x.push(e)` widening was **not** built: 53 lines corpus-wide, all already wrong.
+
+## 24. Open, cycle 14b
+
+- `open` — `noImplicitAny` is assumed on. Unmeasured how many corpus cases turn
+  it off and therefore take upstream's other path.
+- `open` — the +1,005 is `matched` only. The `wrong` column for this arm was not
+  separated, for the same reason as `bd tsr-441`: one probe run per column and
+  the budget went on the falsifier instead. The arm can only replace a gap or a
+  wrong answer with `any[]`, so it cannot un-match a matching line — which the
+  zero-loss column confirms — but "how many wrong lines did it *create*" is
+  genuinely unanswered.

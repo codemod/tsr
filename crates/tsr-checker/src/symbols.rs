@@ -1385,6 +1385,53 @@ impl<'a> Checker<'a, '_> {
             return Some(self.add_optionality_for_declaration(contextual, declaration));
         }
         let initializer = self.initializer_of(declaration)?;
+
+        // `const data = [];` — upstream types the **symbol** `any[]` and leaves
+        // the **literal** at `never[]`, on the same declaration:
+        //
+        // ```
+        // >data : any[]
+        // >[] : never[]
+        // ```
+        //
+        // `getTypeForVariableLikeDeclaration` (`checker.go:16652`) returns
+        // `c.autoArrayType` at `checker.go:16709`, *before* it ever consults the
+        // initialiser's type. `autoArrayType` is `createArrayType(autoType)`
+        // (`checker.go:1360`), which prints `any[]`.
+        //
+        // # The placement is the whole design, and the wrong one is invisible
+        //
+        // This must type the **symbol**, never the literal.
+        // `check_array_literal` (`array_literals.rs`) correctly answers
+        // `never[]` for `[]` (`checker.go:8098`) and **51 currently-right
+        // `>[] : never[]` lines depend on it staying that way**. A fix that
+        // reached into the literal instead would read identically and break all
+        // 51 — which is why the falsifier here is a count rather than a
+        // description: `ArrayLiteralExpression` must move by **exactly zero**.
+        // `nameres_evolving_array_declaration.rs` pins it, and `bd tsr-5h0`
+        // carries the sizing.
+        //
+        // # Which of upstream's guards are ported
+        //
+        // Upstream's condition (`checker.go:16696`) is `noImplicitAny &&
+        // IsVariableDeclaration && !IsBindingPattern(name) && no export modifier
+        // && not ambient`. The three syntactic guards are ported below.
+        // `noImplicitAny` is **not**: this port models no compiler options and
+        // assumes strict throughout, the same assumption `array_literals.rs`
+        // and `unions.rs` already state for `strictNullChecks`. A case compiled
+        // with `noImplicitAny` off would take upstream down a different path,
+        // and that is a known divergence rather than an oversight.
+        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && !self.has_binding_pattern_name(declaration)
+            && !self.is_exported_variable(declaration)
+            && !self.combined_node_flags(declaration).intersects(NodeFlags::AMBIENT)
+            && is_empty_array_literal(initializer)
+            && let Some(target) = self.global_type_symbol("Array")
+        {
+            let any = self.intrinsics.any;
+            return Some(self.create_type_reference(target, vec![any]));
+        }
+
         let initializer_type = self.check_expression(initializer);
         Some(self.get_widened_literal_type_for_initializer(declaration, initializer_type))
     }
@@ -1418,6 +1465,41 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// Whether a variable declaration carries `export`.
+    ///
+    /// Upstream's `getCombinedModifierFlagsCached(declaration) & ModifierFlagsExport`
+    /// (`checker.go:16698`). The modifier is not on the declaration: it is on
+    /// the enclosing `VariableStatement`, with the `VariableDeclarationList`
+    /// transparent between them — the same walk `combined_node_flags` makes for
+    /// `const`, and the same one `Binder::has_export_modifier`
+    /// (`crates/tsr-binder/src/binder.rs:2548`) makes on its ancestor stack.
+    fn is_exported_variable(&self, declaration: NodeId) -> bool {
+        let mut current = self.nodes.parent(declaration);
+        for _ in 0..2 {
+            let Some(node) = current else { return false };
+            if let Some(Node::VariableStatement(statement)) = self.node_map.get(node) {
+                return statement.modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::ExportKeyword)
+                });
+            }
+            current = self.nodes.parent(node);
+        }
+        false
+    }
+
+    /// Whether a declaration's name is a binding pattern rather than an
+    /// identifier — `const [a] = []`. Upstream's `!ast.IsBindingPattern(name)`
+    /// guard (`checker.go:16697`): a destructuring declaration takes its type
+    /// from the pattern, not from the initialiser.
+    fn has_binding_pattern_name(&self, declaration: NodeId) -> bool {
+        matches!(
+            self.node_map.get(declaration),
+            Some(Node::VariableDeclaration(node))
+                if !matches!(node.name, Some(tsr_ast::BindingName::Identifier(_)))
+        )
+    }
+
     /// The initialiser of a declaration, if it has one.
     fn initializer_of(&self, declaration: NodeId) -> Option<Expression<'a>> {
         match self.node_map.get(declaration)? {
@@ -1444,4 +1526,13 @@ fn is_identifier_text(text: &str) -> bool {
     let Some(first) = chars.next() else { return false };
     (first.is_ascii_alphabetic() || first == '_' || first == '$')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// Whether an expression is `[]` — an array literal with no elements.
+///
+/// Ported from `isEmptyArrayLiteral` (`internal/checker/utilities.go`). A
+/// separate function because the *emptiness* is the whole trigger: `[1]` takes
+/// the ordinary initialiser path and must keep doing so.
+fn is_empty_array_literal(expression: Expression<'_>) -> bool {
+    matches!(expression, Expression::ArrayLiteralExpression(literal) if literal.elements.is_empty())
 }
