@@ -925,6 +925,66 @@ fn type_of_nested_declaration(source: &str, name: &str) -> String {
     panic!("`{name}` is declared nowhere");
 }
 
+/// `bd tsr-tjz`, arm 1. A written `this` parameter is what `this` types as.
+///
+/// Both mutations were run and seen red, and the second one is the reason the
+/// third fixture exists.
+///
+/// - **M1** — delete the `this_parameter_type` test from
+///   `check_this_expression`'s walk. Red at `left: "error"`, `right: "I"`.
+/// - **M2** — make `this_parameter_type` return `None` for a
+///   `MethodDeclaration`, which is what "test class-ness first" amounts to,
+///   since a method is the only container both arms can claim. Red at
+///   **`left: "this"`, `right: "I"`** — the exact wrong answer the spec warned a
+///   naive port would give.
+///
+/// A third rearrangement was tried first — moving the test below the whole match
+/// — and it went red on the *first* fixture at `"error"` rather than on the
+/// third. That proves the arm must precede the **function** arm and says nothing
+/// about the class one, so it is recorded here as insufficient rather than
+/// quoted as evidence.
+#[test]
+fn an_annotated_this_parameter_is_what_this_types_as() {
+    // A plain function has no `this` until the source annotates one; then it
+    // does. `tryGetThisTypeAtEx` (`checker.go:12146`) asks the container's
+    // signature before anything else.
+    assert_eq!(
+        type_of_nested_declaration(
+            "interface I { a: number; } function f(this: I) { const x = this; return x; }",
+            "x"
+        ),
+        "I"
+    );
+    assert_eq!(
+        type_of_nested_declaration("function f() { const x = this; return x; }", "x"),
+        "error"
+    );
+    // **Arm 1 shadows arm 2.** A method *is* function-like, so upstream reaches
+    // the signature's `this` type before `ast.IsClassLike(container.Parent)` and
+    // never consults the class. A port that tests class-ness first prints
+    // `this` here — a wrong line, not a missing one.
+    assert_eq!(
+        type_of_nested_declaration(
+            "interface I { a: number; } class C { m(this: I) { const x = this; return x; } }",
+            "x"
+        ),
+        "I"
+    );
+    // And with no `this` parameter the method still falls through to the class,
+    // which is also upstream's order: `getThisTypeOfSignature` answers nothing
+    // and the class arm runs next.
+    assert_eq!(
+        type_of_nested_declaration("class C { m() { const x = this; return x; } }", "x"),
+        "this"
+    );
+    // An **unannotated** `this` parameter is deliberately not answered: its type
+    // would be the implicit `any`, which is a claim rather than a computation.
+    assert_eq!(
+        type_of_nested_declaration("function f(this) { const x = this; return x; }", "x"),
+        "error"
+    );
+}
+
 #[test]
 fn this_inside_a_class_is_the_class_this_type() {
     // Printed `this`, not `C` — upstream models it as a type parameter
