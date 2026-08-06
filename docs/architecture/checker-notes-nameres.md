@@ -1781,3 +1781,80 @@ is itself part of the work rather than a follow-up.
 
 **Structural, not maintained:** the caller that has no reference node must remain
 unable to obtain a context-sensitive name.
+
+---
+
+# Cycle 20 — the prerequisite named in the handover is a claim about the code
+
+Anchors re-taken with `grep -n` on the declarations, every one of them:
+`getSymbolChain` **`internal/checker/nodebuilderimpl.go:1087`**,
+`getContainersOfSymbol` **`internal/checker/symbolaccessibility.go:280`**,
+`getAliasForSymbolInContainer` **`internal/checker/symbolaccessibility.go:342`**,
+`getParentOfSymbol` **`internal/checker/checker.go:14365`**,
+`declareSymbolEx` **`internal/binder/binder.go:152`**,
+`bindAnonymousDeclaration` **`internal/binder/binder.go:1230`**,
+`declareModuleMember` **`internal/binder/binder.go:373`**.
+
+## 47. The rule, registered before the measurement, with a prediction attached
+
+§45 gave the blocker as coverage and named its cause in one line: *"`Symbol::parent`
+is populated by the binder for `ENUM_MEMBER | CLASS_MEMBER` only"*, which makes a
+binder change the prerequisite commit and 57.0% of the population its payoff.
+
+That sentence is a **claim about this port's code**, and it was reached by reading
+a guard rather than by asking which line assigns the field. `docs/conventions.md`
+already records the general form twice — *"read the values a `switch` assigns, not
+the shape of the `switch`"* and *"the number comes from `grep -n` on the
+declaration you mean, including when you are correcting someone else's"*. So:
+
+> **A prerequisite inherited in a handover is a hypothesis about the code, and it
+> is checked by grepping every assignment to the field, not by reading the one
+> guard that mentions it.** A guard that names the field tells you about that
+> guard. Only the full set of assignments tells you about the field.
+
+### The prediction, so this is not settled after the fact
+
+`grep -n "parent = " crates/tsr-binder/src/binder.rs` returns eight lines. Three
+of them are `declare_into` — the port of `declareSymbolEx` (`binder.go:152`,
+assignment at `:292`) — and they set `parent` on **every** symbol filed into a
+`Members`, `Exports` or `GlobalExports` table. The `ENUM_MEMBER | CLASS_MEMBER`
+guard cited as the general rule is `crates/tsr-binder/src/binder.rs:3091`, and it
+sits inside the **computed-name** branch of `declare`: it is the port of
+`bindAnonymousDeclaration` (`binder.go:1230`), whose upstream body is the same two
+flags. It governs `__computed` symbols and nothing else.
+
+Upstream leaves `Symbol.Parent` nil for locals as well — `declareModuleMember`
+(`binder.go:373`) passes `nil /*parent*/` for the non-exported case — and covers
+that in the **checker**, not the binder: `getContainersOfSymbol`
+(`symbolaccessibility.go:280`) falls back to a *declaration* walk when
+`getParentOfSymbol` (`checker.go:14365`) returns nil, taking the module symbol of
+each declaration's parent.
+
+**So the prediction is that the briefed prerequisite is a non-item.**
+
+### The bucket the bar goes on, chosen before the numbers exist
+
+Per *"pre-register on the most direct bucket your instrument produces"*: the
+question is *"how many of the 751 does a binder `Symbol::parent` change recover?"*,
+so the bucket **is** the reason the walk stopped. `predicted_chain` returns `None`
+in exactly one way — it climbs to a symbol whose `parent` is `None` and whose own
+name does not resolve from the reference site. Classify that **stop symbol**:
+
+| | the stop symbol is declared… | what upstream does there |
+|---|---|---|
+| **R1** | inside a namespace, class or interface body | `Symbol.Parent` is set upstream **and here**; if this fires, the binder is genuinely missing an assignment |
+| **R2** | at the top level of an **external module** file | `Symbol.Parent` is the file's module symbol — and a chain rooted at a module prints `import("…")` (§31), which is `getSpecifierForModuleSymbol`, **0% ported**, so these must GAP |
+| **R3** | at the top level of a **script** file | upstream's `Symbol.Parent` is nil *and* `getContainersOfSymbol` finds no candidate, so **upstream builds no chain either** — these lines are dotted for some other reason and are not this item |
+| **R4** | anywhere else, or has no declaration | unclassified; this is the control |
+
+**The decision rule, registered now: build the binder `Symbol::parent` commit only
+if R1 ≥ 40% of the 751 (≥ 300 lines).** Below that the briefed diagnosis is wrong,
+`Symbol::parent` is not the prerequisite, and the honest output is the measurement
+rather than the build.
+
+**My prediction: R1 < 5%; R2 + R3 ≥ 80%.**
+
+**R4 is a control pinned by construction, not by arithmetic** (`docs/conventions.md`):
+every symbol reached by the walk was reached *through* a declaration, so a stop
+symbol with no declaration cannot occur, and R4 counts only the syntactic shapes
+this classification failed to name. It is printed whatever it reads.
