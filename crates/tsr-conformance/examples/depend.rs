@@ -161,6 +161,23 @@ fn step<'a>(
             let declaration = binder.symbols().get(symbol).value_declaration?;
             map.get(declaration)?.name_id()
         }
+        // `checkBinaryLikeExpression`'s answer depends on both operands; the
+        // step follows the first one that gaps (left before right, which is
+        // evaluation order). Neither gapping means the *arm* refused — the
+        // root is here — which is exactly the decomposition STATUS.md §4.3
+        // asked for on a 6,233-line row nobody had split.
+        Node::BinaryExpression(binary) => {
+            let left = binary.left.and_then(|e| e.node_id());
+            let right = binary.right.and_then(|e| e.node_id());
+            for operand in [left, right].into_iter().flatten() {
+                if types_producer::type_id_at_location(checker, binder, nodes, map, operand)
+                    == checker.intrinsics().error
+                {
+                    return Some(operand);
+                }
+            }
+            None
+        }
         _ => None,
     }
 }
@@ -186,6 +203,7 @@ fn has_step_arm(node: Node<'_>, is_declaration_name: bool) -> bool {
                 | Node::NonNullExpression(_)
                 | Node::TypeReferenceNode(_)
                 | Node::Identifier(_)
+                | Node::BinaryExpression(_)
         )
 }
 

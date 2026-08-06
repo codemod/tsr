@@ -206,7 +206,7 @@ populations as work would break this file's fourth rule.**
 
 | population | why it cannot be scored | the probe |
 |---:|---|---|
-| 6,233 | **`BinaryExpression` roots** — `depend.rs` has no step arm for the kind, so the row has never been decomposed at all | add the step arm, as was done for property access |
+| ~~6,233~~ | **`BinaryExpression` roots — DECOMPOSED at `edaf0e4`** by the new step arm in `depend.rs`: own-root is **1,712 lines at 37.6% want-any (~1,068 net)**, top case `logicalOrOperatorWithEveryType` — i.e. mostly the `\|\|`/`??` family §5 already refused on `UnionReductionSubtype`; 738 more are one pathological depth-cap case; the remaining ~5,000 of the old row propagate to operand roots and were never this row's | measured — nothing left to probe |
 | 3,855 | **`TypeReference`, no further dependency** — but **top-1 is 51.1%** (`resolvingClassDeclarationWhenInBaseTypeResolution`), so ~1,988 is one case and the real row is ~1,867 of unknown cause | split by case, then by why the reference resolves to nothing |
 | 3,739 | **property access, "the property has no type"** — a *downstream symptom*: the property's own declaration gaps elsewhere. `bd tsr-mcd` established this and it is not an item | follow to the type-node roots, which is how tuples were found |
 | 2,223 | **object-literal remainder** — accessors (`bd tsr-32y`) and computed names both fall into the catch-all, in unknown proportion. Accessors are **not** a copy of the method arm: upstream prints an accessor as a *property* | split the catch-all by member kind |
