@@ -1,8 +1,12 @@
-//! Function type nodes: `(x: number) => string` in annotation position.
+//! Function and constructor type nodes: `(x: number) => string` and
+//! `new (x: number) => C` in annotation position.
 //!
 //! Ported from `Checker.getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`
-//! (`checker.go`), for the **function-type half** — the half
-//! [`crate::declared`] left to `errorType` when it ported the type-literal half.
+//! (`checker.go`), for the **function-type and constructor-type halves** — the
+//! halves [`crate::declared`] left to `errorType` when it ported the
+//! type-literal one. The constructor half arrived a cycle later, with
+//! [`crate::signatures::SignatureKind`]; `docs/architecture/checker-notes-ctortype.md`
+//! records why it could not arrive alone and what it was worth.
 //!
 //! # A function type is an object type carrying one call signature
 //!
@@ -72,29 +76,68 @@ impl<'a> Checker<'a, '_> {
     /// the invented symbol collided with. It would also have put the fix in the
     /// layer that cannot see the problem.
     ///
-    /// # `ConstructorTypeNode` is not handled here
+    /// # `ConstructorTypeNode` is its sibling, not this arm
     ///
-    /// `new (x: number) => C` reaches the same upstream function and prints with
-    /// a leading `new `, which [`Checker::signature_to_string`] does not emit —
-    /// it renders the `KindFunctionType` form only. Answering a constructor type
-    /// through this path would print it as though the `new` were absent, which
-    /// is a wrong line rather than a missing one. `bd tsr-4sc.8`.
+    /// See [`Checker::get_type_from_constructor_type_node`]. The two are
+    /// deliberately separate functions over one shared tail even though every
+    /// line of the tail is identical: the *type node kinds* are distinct in the
+    /// AST, `getTypeFromTypeNode`'s dispatch is by kind, and a single arm taking
+    /// an enum of the two would put a match inside a function whose whole body
+    /// is already dispatched on that match.
     pub(crate) fn get_type_from_function_type_node(
         &mut self,
         node: &'a FunctionTypeNode<'a>,
     ) -> TypeId {
+        let Some(id) = node.node_id else { return self.intrinsics.error };
+        self.signature_bearing_type_node(id)
+    }
+
+    /// The type a **constructor** type node denotes: `new (x: number) => C`.
+    ///
+    /// Ported from `Checker.getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`
+    /// (`checker.go`), constructor-type half — upstream's own function covers
+    /// all three kinds and this port splits it by kind, as
+    /// `getTypeFromTypeNode`'s dispatch does.
+    ///
+    /// # Nothing here distinguishes it from a function type, and that is the
+    /// finding
+    ///
+    /// The `new ` is not written by this function. It is
+    /// [`crate::signatures::SignatureKind`], set by `signature_kind_of` off the
+    /// declaration exactly as `getSignatureFromDeclaration` sets
+    /// `SignatureFlagsConstruct` (`checker.go:19902`), and read by
+    /// `signature_to_string` exactly as the node builder reads it
+    /// (`nodebuilderimpl.go:2712`). Putting the prefix here instead would have
+    /// worked for this one caller and left every *other* renderer of a signature
+    /// — the object-member form, `symbols.rs`, `inference.rs` — printing a
+    /// construct signature as a call one.
+    ///
+    /// The binder symbol is the same construction too:
+    /// `bindFunctionOrConstructorType` (`binder.go:985`) is named for both kinds
+    /// and `crate::binder`'s port has always given a constructor type node its
+    /// `__type` symbol (`binder.rs:3495`). That was checked rather than assumed
+    /// — the function-type arm's own history is a case of `IS_CONTAINER` being
+    /// mistaken for a symbol.
+    pub(crate) fn get_type_from_constructor_type_node(
+        &mut self,
+        node: &'a tsr_ast::ConstructorTypeNode<'a>,
+    ) -> TypeId {
+        let Some(id) = node.node_id else { return self.intrinsics.error };
+        self.signature_bearing_type_node(id)
+    }
+
+    /// The shared tail of the two arms above.
+    fn signature_bearing_type_node(&mut self, id: tsr_ast::NodeId) -> TypeId {
         let error = self.intrinsics.error;
-        let Some(id) = node.node_id else { return error };
         let Some(signature) = self.get_signature_from_declaration(id) else {
             return error;
         };
         let text = self.signature_to_string(&signature);
         // The symbol is `bindFunctionOrConstructorType`'s `__type` symbol, whose
-        // members table holds the `__call` signature symbol. A function type node
-        // that somehow has none is a gap rather than a type with a synthetic
-        // identity — see the note above.
+        // members table holds the `__call` signature symbol. A node that somehow
+        // has none is a gap rather than a type with a synthetic identity — see
+        // the note above.
         let Some(symbol) = self.binder.symbol_of(id) else { return error };
-        // A `FunctionTypeNode`, which is what this module is for.
         let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
         // The structure the text was rendered from, kept reachable from the id
         // so `instantiate_type` can rebuild this type with substituted parts —

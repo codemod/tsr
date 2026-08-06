@@ -1,7 +1,7 @@
 //! Call and construct signatures as **members** of a type literal:
 //! `{ (): string }` and `{ new (): C }`.
 //!
-//! `get_type_from_type_literal` has always known how to print these — it writes
+//! `get_type_from_type_literal` has always known how to print these — it wrote
 //! the `new ` prefix itself — but `signature_parts_of` had no arm for either
 //! declaration, so `get_signature_from_declaration` answered `None` and the
 //! literal's all-or-nothing rule gapped the **whole** type. The prefix was
@@ -9,12 +9,13 @@
 //!
 //! # The distinction these tests exist to pin
 //!
-//! A construct **type node** (`new () => T`) is still a gap, deliberately:
-//! [`Signature`] carries no construct flag, so printing one would emit
-//! `() => T` where upstream emits `new () => T`. The **member** form has no such
-//! problem because the caller supplies the prefix. Those two live one word
-//! apart in the source and are easy to conflate later, which is why the pair is
-//! asserted together rather than in separate tests.
+//! A construct **type node** (`new () => T`) was a deliberate gap when this file
+//! was written, because `Signature` carried no construct flag. `bd tsr-jril`
+//! added one (`crate::signatures::SignatureKind`) and moved the member's prefix
+//! onto it, so the two forms now differ only in their **renderer**: a member
+//! ends `): T`, a type node `) => T`. Those two live one word apart in the
+//! source and are easy to conflate later, which is why the pair is asserted
+//! together rather than in separate tests.
 //!
 //! Spellings are taken from the baselines, not reasoned about:
 //! `{ new (): c1; }` appears 18 times in
@@ -109,17 +110,35 @@ fn a_call_signature_member_prints_without_one() {
     );
 }
 
+/// The construct **type node** beside the construct **member**, which is what
+/// this assertion has always been about.
+///
+/// It read `"error"` for the type node until `bd tsr-jril`, on the grounds that
+/// *"`Signature` has no construct flag, so a construct type node would print
+/// `() => c1` where upstream prints `new () => c1`"*, and it named its own
+/// falsifier: *"if someone ever unifies the two, this assertion is what fails"*.
+/// The two **are** now unified — `crate::signatures::SignatureKind` is the one
+/// source of both prefixes and `declared.rs` no longer writes a literal
+/// `"new "` — so the assertion is rewritten to the answer rather than deleted.
+///
+/// It still discriminates, and on a sharper question than before: the member
+/// form ends in `): c1` and the type-node form in `) => c1`, from **two
+/// different renderers** (`signature_member_text` and `signature_to_string`)
+/// that now share a prefix. A change that unified them one step too far — by
+/// routing the member through `signature_to_string` — passes the `new` half and
+/// fails on the arrow.
 #[test]
-fn the_construct_type_node_is_still_a_gap_and_that_is_the_distinction() {
-    // `Signature` has no construct flag, so a construct *type node* would print
-    // `() => c1` where upstream prints `new () => c1` — a wrong answer rather
-    // than a gap. The member form above is answerable only because its caller
-    // supplies the `new `. If someone ever "unifies" the two, this assertion is
-    // what fails.
-    assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: new () => c1;"), "error");
-    // The function type node remains answered, so the gap above is specific to
-    // the construct form and not to type nodes generally.
+fn the_construct_type_node_and_the_construct_member_share_a_prefix_not_a_renderer() {
+    assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: new () => c1;"), "new () => c1");
+    // The member: same `new `, colon not arrow.
+    assert_eq!(
+        type_of_last_annotation("interface c1 {}\nvar x: { new (): c1 };"),
+        "{ new (): c1; }"
+    );
+    // The function type node, so the `new` above is asserted to come from the
+    // construct-ness and not from the position.
     assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: () => c1;"), "() => c1");
+    assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: { (): c1 };"), "{ (): c1; }");
 }
 
 #[test]

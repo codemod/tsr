@@ -197,4 +197,110 @@ measurement unattributable.
 
 ## 4. The measurement, scored against the bar
 
-*(§4 is filled in after the build, at the same commit as the code.)*
+Measured over a `git stash` pair at `be2f37e` (the bar's own commit) and the
+build, with `casedelta.rs` and `wrongdelta.rs`.
+
+```
+before  TOTAL cases 9538 matched 335979 total 478954   |  wrong 42163
+after   TOTAL cases 9538 matched 337337 total 478954   |  wrong 42267
+
+gained    1358 lines in 65 cases
+lost         0 lines in  0 cases
+net      +1358
+regressed    0
+finished    17
+Δwrong    +104   (105 new wrong, 1 fixed)
+```
+
+| leg | bar | measured | |
+|---|---|---|---|
+| 1 net floor | `net ≥ +700` | **+1,358** | PASS — 165% of the forecast |
+| 2 lost | `lost == 0` | **0** | PASS |
+| 3 case regression | `regressed < finished` | **0 < 17** | PASS |
+| 4 gap→wrong | `gained ≥ 8 × new wrong` | **1,358 ≥ 840** (12.9:1) | PASS |
+| falsifier | `> 50% of the gain in one case` | top-1 **172 / 1,358 = 12.7%** | not triggered |
+
+**KEEP.** Four legs, four passes, and the falsifier did not fire.
+
+### What the 165% is, and what it is not
+
+The counterfactual forecast **821** exact matches and the build measured
+**1,358**. That is not the counterfactual being wrong; it is the part it declined
+to claim arriving anyway. The probe forecast only lines reached by
+type-preserving steps and reported 35 more as "downstream — claimed as nothing",
+and the whole cascade beyond a `MAX_DEPTH`-capped walk was outside its
+population by construction: a constructor type that stops gapping unblocks the
+*type literal* containing it, the *alias* naming it, the array of that alias, and
+the overload set whose parameter it is. Nine of the top-twelve gaining cases are
+`…ConstructSignatures…` files where a single `new (…) => …` annotation is
+referenced from twenty assertion lines.
+
+This is the same shape as `tsr-tgov`, which converted 413% of its forecast, and
+it is the standing reading of a counterfactual on this project: **an exact-match
+forecast is a floor on the mechanism and says nothing about its reach.** The
+15%-discounted floor was the right bar precisely because it prices the *only*
+thing the probe could get wrong — its reimplementation of `signature_to_string`
+— and prices nothing else.
+
+### The residual wrong lines, read
+
+Read even though leg 4 passed by 1.6×, on the rule that the last build's 68
+residual lines passed by 2.8× and reading them anyway was worth +114.
+
+| n | family | owner | was it named in advance? |
+|---:|---|---|---|
+| 76 | `Array<Base>` written, `Base[]` printed — including 9 inside rendered overload sets, and 2 in a written `extends` constraint | `bd tsr-5o2` | **yes**, §3 forecast 61 |
+| 11 | the node is under a **type alias** and the baseline prints its name — `Constructor`, `Constructable`, `Foo`, `G1`, `T4`, `IFace` | `bd tsr-e08p`, filed | **yes**, §3 forecast 7 |
+| 7 | a constructor type inside an **unported utility type** — `ConstructorParameters<new (x: number) => void>`, `X4<new () => { a: "a"; }>`. The type node now resolves, so the enclosing `TypeReferenceNode` renders as `Name<Args>` instead of gapping, where upstream *evaluates* it | conditional types, unported | **no** |
+| 4 | type-parameter renaming (`T_1` for `T`) and namespace-qualified naming (`Bacon.Bus<T>` for `Bus<T>`) in a rendered signature | the qualified-naming refusal, §5 of `STATUS.md` | **no** |
+| 1 | `want new () => boolean & null`, got `new () => (boolean) & null` | `bd tsr-8l0h`, filed | **yes** |
+| 6 | one-off cascades — `want Base` got `typeof Base`, `want any` got `Date` | assorted | no |
+
+**The two families that were not predicted are both "the gap moved outward"**,
+which is the characteristic residual of any arm that stops answering `error`:
+whatever was waiting on it now runs, and the next unported thing prints instead
+of gapping. Neither is a defect in this arm, and neither is large. The 7
+utility-type lines are the more interesting of the two, because they are a
+*measured* argument that `ConstructorParameters` and friends are now reachable
+work rather than blocked work.
+
+The single **fixed** line is `conformance/thisTypeInTaggedTemplateCall`, which
+wanted `this` and printed `new () => T` — i.e. it was already wrong, differently.
+
+### What did not change, and was checked rather than assumed
+
+`declared.rs` stopped writing the literal `"new "` in front of a construct
+signature member and `signature_member_text` writes it from
+`SignatureKind` instead. That is a refactor inside a measured build, which this
+project would normally refuse; it is here because leaving both in place is a
+double-prefix waiting for the day the member arm is reused, and because it is
+covered by an assertion that was already red-then-green in this session —
+`tests/signature_members_of_a_literal.rs` pins `{ new (): c1; }` beside
+`new () => c1`, so a double prefix fails on the member and a missing one fails on
+the type node. `lost == 0` is the corpus's agreement.
+
+### The thirteenth stand-in fixture came due
+
+Three assertions existed whose entire purpose was to pin this absence, and all
+three named this build as their falsifier:
+
+- `signatures.rs`'s `a_constructor_type_node_is_not_reached_by_this_arm`
+- `tests/function_types.rs`'s `a_constructor_type_is_still_a_gap`
+- `tests/signature_members_of_a_literal.rs`'s
+  `the_construct_type_node_is_still_a_gap_and_that_is_the_distinction`
+
+Each is rewritten as a **pair** rather than deleted — the ported spelling
+asserting its answer beside a still-refused one asserting `error` — so it keeps
+discriminating. The third pair is the sharpest of them: a member ends `): c1` and
+a type node ends `) => c1`, from two different renderers that now share one
+prefix, so a change that unified them *one step too far* passes the `new` half
+and fails on the arrow.
+
+Every expected string in those tests was fetched from a baseline first. One was
+then changed after being run: `new (x: number, y: number, ...z: string[]) => any`
+is the corpus's most common rest spelling (39 instances) and it asserts `error`
+in a bare `Checker::new`, because `string[]` needs the `Array` symbol and the
+harness has no lib. `new (...args: any) => any` (20 instances) exercises the same
+field without the dependency. **Found by running it, not by predicting it** —
+which is the fourth session in a row that a fixture chosen for realism turned out
+to depend on something the harness does not have.

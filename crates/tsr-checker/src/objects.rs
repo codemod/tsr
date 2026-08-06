@@ -174,8 +174,22 @@ pub(crate) fn render_object_type(members: &[Member]) -> String {
 /// So this deliberately does **not** reuse `signature_to_string`, which renders
 /// the arrow form. Turning one into the other by string surgery would have to
 /// find the top-level `) => ` and a parameter type can contain one.
+///
+/// # The `new ` of a construct signature member comes from here
+///
+/// `{ new (): T; }` was rendered until `bd tsr-jril` by
+/// `get_type_from_type_literal` writing the literal `"new "` in front of this
+/// function's result, because [`crate::signatures::Signature`] had no flag to
+/// read. It has one now, and leaving both in place would be a double prefix
+/// waiting for the day the caller's arm is reused. `abstract` is deliberately
+/// **not** emitted: the grammar admits it on a constructor *type node* only, so
+/// an abstract construct signature member is a state upstream cannot produce.
 pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signature) -> String {
-    let mut out = String::new();
+    let mut out = match signature.kind {
+        crate::signatures::SignatureKind::Call => String::new(),
+        crate::signatures::SignatureKind::Construct
+        | crate::signatures::SignatureKind::AbstractConstruct => "new ".to_string(),
+    };
     if !signature.type_parameters.is_empty() {
         out.push('<');
         for (index, parameter) in signature.type_parameters.iter().enumerate() {

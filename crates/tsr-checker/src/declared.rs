@@ -62,6 +62,7 @@ impl<'a> Checker<'a, '_> {
             TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
             TypeNode::TupleTypeNode(node) => self.get_type_from_tuple_type_node(node),
             TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
+            TypeNode::ConstructorTypeNode(node) => self.get_type_from_constructor_type_node(node),
             TypeNode::TypeQueryNode(node) => self.get_type_from_type_query_node(node),
             // `getTypeFromTypeOperatorNode` (`checker.go:22960`). Only the
             // `readonly` arm: it is transparent — the readonly-ness is carried by
@@ -273,8 +274,12 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::TypeElement::CallSignatureDeclaration(call) => {
                     Some((call.node_id, None, "", false))
                 }
+                // No `"new "` here: it comes from the signature's
+                // [`crate::signatures::SignatureKind`] inside
+                // `signature_member_text`, so a construct signature member and
+                // a `new () => T` type node take their prefix from one place.
                 tsr_ast::TypeElement::ConstructSignatureDeclaration(construct) => {
-                    Some((construct.node_id, None, "new ", false))
+                    Some((construct.node_id, None, "", false))
                 }
                 _ => None,
             };

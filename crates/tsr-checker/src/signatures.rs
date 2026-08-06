@@ -87,6 +87,34 @@ pub struct TypeParameter {
     pub default: Option<TypeId>,
 }
 
+/// Whether a signature is a **call** signature or a **construct** one, and if
+/// the latter, whether it is `abstract`.
+///
+/// Ported from the two `SignatureFlags` bits `getSignatureFromDeclaration` sets
+/// off the declaration itself: `SignatureFlagsConstruct` (`checker.go:19902`,
+/// for a constructor type node, a constructor, or a construct signature member)
+/// and `SignatureFlagsAbstract` (`checker.go:19905`, for a constructor type node
+/// carrying `ModifierFlagsAbstract`).
+///
+/// **An enum rather than two booleans**, because `abstract && !construct` is a
+/// state upstream cannot be in — `SignatureFlagsAbstract` is only ever set on a
+/// branch that has already set `SignatureFlagsConstruct` — and a pair of `bool`s
+/// would put that invariant in every reader instead of in the type.
+///
+/// This is what the printer reads: `signatureToSignatureDeclarationHelper`
+/// selects `ast.KindConstructorType` for a construct signature
+/// (`nodebuilderimpl.go:2712`) and puts the `abstract` modifier on the node it
+/// builds when the flag is set (`nodebuilderimpl.go:1834`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureKind {
+    /// `(x: T) => U`.
+    Call,
+    /// `new (x: T) => U`.
+    Construct,
+    /// `abstract new (x: T) => U`.
+    AbstractConstruct,
+}
+
 /// A call signature.
 ///
 /// Ported from `Signature` (`internal/checker/types.go`), reduced to the fields
@@ -96,6 +124,8 @@ pub struct TypeParameter {
 pub struct Signature {
     /// The declaration this signature came from.
     pub declaration: NodeId,
+    /// Call, construct, or abstract construct — see [`SignatureKind`].
+    pub kind: SignatureKind,
     /// Type parameters, in source order.
     pub type_parameters: Vec<TypeParameter>,
     /// The `this` parameter, which upstream keeps out of `parameters` and the
@@ -318,6 +348,7 @@ impl<'a> Checker<'a, '_> {
             return_annotation.and_then(|annotation| self.written_annotation_text(annotation));
         Some(Signature {
             declaration,
+            kind: self.signature_kind_of(declaration),
             type_parameters,
             this_parameter,
             parameters,
@@ -934,6 +965,44 @@ impl<'a> Checker<'a, '_> {
         Some(TypeParameter { name, constraint, written_constraint, default })
     }
 
+    /// Call, construct, or abstract construct, read off the declaration.
+    ///
+    /// Ported from the two flag tests inside `getSignatureFromDeclaration`
+    /// (`checker.go:19902` and `checker.go:19905`). They are **not** part of
+    /// [`SignatureParts`] on purpose: upstream computes them from
+    /// `declaration` directly rather than from the accessors it read the
+    /// parameters and return annotation through, and keeping that seam means a
+    /// new function-like kind cannot silently arrive as a call signature by
+    /// omitting a field.
+    ///
+    /// A constructor **declaration** (`constructor(x) {}` inside a class) and a
+    /// class carrying `abstract` are upstream's other two sources of these bits.
+    /// Neither reaches here: [`Self::signature_parts_of`] has no arm for a
+    /// constructor declaration, because a constructor's type comes from the
+    /// class rather than from the symbol's type.
+    fn signature_kind_of(&self, declaration: NodeId) -> SignatureKind {
+        match self.node_map.get(declaration) {
+            Some(Node::ConstructorTypeNode(node)) => {
+                // `ast.HasSyntacticModifier(declaration, ast.ModifierFlagsAbstract)`.
+                // The grammar allows no other modifier on a constructor type, so
+                // this reads the one that decides rather than the list's length —
+                // a length test would answer `AbstractConstruct` for whatever a
+                // future parser recovery put there.
+                let is_abstract = node.modifiers.iter().any(|modifier| {
+                    matches!(modifier, ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::AbstractKeyword)
+                });
+                if is_abstract {
+                    SignatureKind::AbstractConstruct
+                } else {
+                    SignatureKind::Construct
+                }
+            }
+            Some(Node::ConstructSignatureDeclaration(_)) => SignatureKind::Construct,
+            _ => SignatureKind::Call,
+        }
+    }
+
     /// The signature-shaped parts of a node, or `None` if it is not one of the
     /// function-like kinds this slice reaches.
     ///
@@ -972,22 +1041,39 @@ impl<'a> Checker<'a, '_> {
             // mirrors `MethodSignatureDeclaration`: no modifiers, no asterisk,
             // no body, and therefore a return type of `any` when the annotation
             // is absent.
-            //
-            // **`ConstructorTypeNode` is deliberately not folded in here**, even
-            // though upstream builds its signature through the same function and
-            // the parts would line up. The two diverge in the *printer*: a
-            // construct signature emits `ast.KindConstructorType`
-            // (`nodebuilderimpl.go:2712`), which prints `new (x: T) => U`, and
-            // `abstract new (x: T) => U` when the declaration carries the
-            // `abstract` modifier that `FunctionTypeNode` cannot have.
-            // [`Signature`] has no construct flag and
-            // [`Checker::signature_to_string`] always emits the call form, so
-            // adding the arm alone would print every one of the corpus's 523
-            // constructor-type lines without its `new` — a wrong answer on all
-            // of them rather than a gap. It needs a `construct` flag on
-            // `Signature`, the `new `/`abstract new ` prefix, and a test per
-            // spelling; that is a slice, not an arm.
             Node::FunctionTypeNode(node) => Some(SignatureParts {
+                modifiers: &[],
+                asterisk: false,
+                type_parameters: node.type_parameters,
+                parameters: node.parameters,
+                return_annotation: node.r#type,
+                body: None,
+                may_return_never: false,
+            }),
+            // `new (x: T) => U`. **The parts are the function type's**, and that
+            // is upstream's own claim rather than an inference from their
+            // shapes: `getSignatureFromDeclaration` reaches both through the
+            // same accessors and differs only in the two flag tests
+            // [`Checker::signature_kind_of`] ports (`checker.go:19902`,
+            // `:19905`).
+            //
+            // The modifier list is **not** passed through. A constructor type
+            // node can only carry `abstract`, which is a property of the
+            // *signature* here — [`SignatureKind::AbstractConstruct`] — and not
+            // of the declaration's parts; `modifiers` in [`SignatureParts`] is
+            // read by [`Checker::return_type_of`] to spot `async`, which a type
+            // node cannot be. Forwarding `node.modifiers` would put `abstract`
+            // in front of a reader looking for `async`.
+            //
+            // This arm stood refused until `bd tsr-jril` because
+            // [`Checker::signature_to_string`] had no way to print the `new`:
+            // the refusal was that the arm *alone* would answer every
+            // constructor-type line without its prefix — a wrong answer on all
+            // of them rather than a gap. It arrives here with
+            // [`SignatureKind`] and the prefix, which is what made it a slice.
+            // Sized by a counterfactual rather than by its row:
+            // `docs/architecture/checker-notes-ctortype.md`.
+            Node::ConstructorTypeNode(node) => Some(SignatureParts {
                 modifiers: &[],
                 asterisk: false,
                 type_parameters: node.type_parameters,
@@ -1000,24 +1086,20 @@ impl<'a> Checker<'a, '_> {
             // interface. Both reach `getSignatureFromDeclaration` upstream by
             // the same route every other function-like kind does.
             //
-            // # Why this is not the `ConstructorTypeNode` refusal above
+            // # These two arms landed a cycle before the constructor type node
             //
-            // That refusal is real and stands: a *type node* `new () => T` has
-            // to print its own `new `, and [`Signature`] carries no construct
-            // flag to print it from. **The member form does not have that
-            // problem**, because the `new ` is supplied by the caller —
-            // `get_type_from_type_literal` (`crate::declared`) already writes
+            // They were reachable earlier because a member's `new ` was supplied
+            // by the caller — `get_type_from_type_literal` (`crate::declared`)
+            // wrote the prefix as a literal string — where a *type node*
+            // `new () => T` has to print its own, and [`Signature`] carried no
+            // flag to print it from. The prefix was correct and unreachable:
+            // without these two arms `signature_parts_of` answered `None`,
+            // `get_signature_from_declaration` answered `None`, and that
+            // function's all-or-nothing rule gapped the **whole** literal.
             //
-            // ```text
-            // TypeElement::ConstructSignatureDeclaration(construct) => {
-            //     Some((construct.node_id, None, "new ", false))
-            // }
-            // ```
-            //
-            // and has done since it was written. The prefix was correct and
-            // unreachable: without these two arms `signature_parts_of` answered
-            // `None`, `get_signature_from_declaration` answered `None`, and
-            // that function's all-or-nothing rule gapped the **whole** literal.
+            // [`SignatureKind`] has since replaced that literal, so the member's
+            // `new ` and the type node's now come from one place — see
+            // `crate::objects::signature_member_text`.
             //
             // That one omission was measured at ~3,500 corpus lines: ~1,200 on
             // a literal containing a construct signature, ~305 on one
@@ -1129,14 +1211,29 @@ impl<'a> Checker<'a, '_> {
         self.get_type_of_symbol(symbol)
     }
 
-    /// Render a signature as a `FunctionTypeNode` is printed: `<T>(x?: A, ...r: B[]) => C`.
+    /// Render a signature as a `FunctionTypeNode` is printed: `<T>(x?: A, ...r: B[]) => C`,
+    /// or as a `ConstructorTypeNode`: `new (x: A) => C`, `abstract new () => C`.
     ///
-    /// Ported from `NodeBuilderImpl.signatureToSignatureDeclarationHelper` with
-    /// `kind == ast.KindFunctionType` (`nodebuilderimpl.go:1792`) and the printer
-    /// that emits the resulting node. The spacing is not a style choice — the
-    /// whole line is compared verbatim.
+    /// Ported from `NodeBuilderImpl.signatureToSignatureDeclarationHelper`
+    /// (`nodebuilderimpl.go:1792`) and the printer that emits the resulting
+    /// node. The spacing is not a style choice — the whole line is compared
+    /// verbatim.
+    ///
+    /// # The prefix is the whole difference
+    ///
+    /// Upstream picks `kind` at the call site and the two kinds build different
+    /// nodes (`nodebuilderimpl.go:1886`), but everything between the `<` of the
+    /// type parameters and the return type is one shared body there and here.
+    /// The `abstract` comes from the signature's flag rather than from the
+    /// declaration's modifier list — `nodebuilderimpl.go:1834` synthesises the
+    /// modifier onto the built node from `SignatureFlagsAbstract` — which is why
+    /// [`SignatureKind`] and not `SignatureParts::modifiers` carries it.
     pub(crate) fn signature_to_string(&self, signature: &Signature) -> String {
-        let mut out = String::new();
+        let mut out = match signature.kind {
+            SignatureKind::Call => String::new(),
+            SignatureKind::Construct => "new ".to_string(),
+            SignatureKind::AbstractConstruct => "abstract new ".to_string(),
+        };
         if !signature.type_parameters.is_empty() {
             out.push('<');
             for (index, parameter) in signature.type_parameters.iter().enumerate() {
@@ -1317,14 +1414,34 @@ mod tests {
         );
     }
 
+    /// The constructor type node reaches this arm, and its `new` comes from
+    /// [`super::SignatureKind`] rather than from the caller.
+    ///
+    /// This assertion read `"error"` until `bd tsr-jril` and its comment said
+    /// *"this pins the absence so the next person adds the flag and the prefix
+    /// together"*. Both landed; the assertion is rewritten to the answer rather
+    /// than deleted, and the helper it runs through already accepts both kinds —
+    /// which is why it asks *"does this arm claim it?"* and not the vacuous
+    /// *"is there a constructor type node in this fixture?"*.
+    ///
+    /// The strings are baselines': `new (x: number) => void` is recorded 132
+    /// times, `new <T>(x: T) => T` 37.
     #[test]
-    fn a_constructor_type_node_is_not_reached_by_this_arm() {
-        // Deliberate: the parts line up but the *printer* does not. A construct
-        // signature emits `ast.KindConstructorType` and prints `new (x: T) => U`;
-        // [`super::Signature`] has no construct flag, so folding it in here would
-        // print 523 corpus lines without their `new` — a wrong answer on every
-        // one rather than a gap. This pins the absence so the next person adds
-        // the flag and the prefix together.
-        assert_eq!(signature_of("declare const c: new (x: number) => void;"), "error");
+    fn a_constructor_type_node_is_reached_by_this_arm() {
+        assert_eq!(
+            signature_of("declare const c: new (x: number) => void;"),
+            "new (x: number) => void"
+        );
+        assert_eq!(signature_of("declare const c: new <T>(x: T) => T;"), "new <T>(x: T) => T");
+        // The `abstract` spelling comes from `signature_kind_of`'s modifier
+        // test, which is the one line of this slice that reads the declaration's
+        // modifiers at all.
+        assert_eq!(
+            signature_of("declare const c: abstract new (a: string) => string;"),
+            "abstract new (a: string) => string"
+        );
+        // And the call form is untouched — without this, a prefix written
+        // unconditionally would pass every assertion above.
+        assert_eq!(signature_of("declare const f: (x: number) => void;"), "(x: number) => void");
     }
 }

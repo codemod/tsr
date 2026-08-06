@@ -200,27 +200,80 @@ fn a_call_through_a_function_typed_value_resolves() {
     assert_eq!(checker.type_to_string(id), "string");
 }
 
-/// `new (x: number) => C` reaches the same function upstream and prints with a
-/// leading `new `, which `signature_to_string` does not emit. It stays a gap
-/// rather than printing as though the `new` were absent.
+/// `new (x: number) => C` — the arm this file used to pin the *absence* of.
 ///
-/// **This is a regression guard, not a test of code that exists**, and it is
-/// recorded as one rather than counted among the rest: no mutation of
-/// `function_types.rs` or of the dispatch arm can turn it red, because it pins
-/// the *absence* of an arm. Its falsifier is someone adding
-/// `ConstructorTypeNode` to `signature_parts_of` or to `get_type_from_type_node`
-/// without also giving [`Signature`] a construct flag and
-/// `signature_to_string` the `new ` / `abstract new ` prefix — the slice
-/// `signatures.rs:646` declines by name. What *is* verified here is that it
-/// cannot pass vacuously: the fixture is asserted to parse as a constructor type
-/// node, so the test fails loudly rather than silently if the grammar moves.
+/// It was a regression guard reading `"error"`, whose stated falsifier was
+/// *"someone adding `ConstructorTypeNode` to `signature_parts_of` or to
+/// `get_type_from_type_node` without also giving `Signature` a construct flag
+/// and `signature_to_string` the `new ` / `abstract new ` prefix"*. `bd
+/// tsr-jril` did exactly that **with** the flag and the prefix, so the guard
+/// came due and is rewritten as a **pair**: the now-ported spelling asserting
+/// its answer, beside a still-refused one asserting `error`, so it keeps
+/// discriminating instead of becoming a tautology.
+///
+/// # Every string here was fetched from a baseline before it was written down
+///
+/// Not one is an intuition about what the printer *should* emit — this project
+/// has five recorded cases of an expectation written from intuition and the port
+/// being right every time. Counts are instances across
+/// `testdata/baselines/reference/submodule/{compiler,conformance}/*.types` at
+/// the pinned commit:
+///
+/// ```text
+///     : new (x: number) => void        132
+///     : new (...args: any) => any       20
+/// >a2 : new <T>(x: T) => T              37
+/// >a3 : new <T>(x?: T) => T             18
+/// >b4 : new (x?: string) => string      17
+/// ```
+///
+/// The corpus's most common rest spelling is
+/// `new (x: number, y: number, ...z: string[]) => any` (39 instances), and it is
+/// **not** used: `string[]` needs the `Array` symbol, which a bare
+/// `Checker::new` has no lib to supply, so the fixture would have asserted a
+/// pre-existing unrelated gap. `new (...args: any) => any` exercises the same
+/// `Parameter::rest` field without that dependency. Found by running it, not by
+/// predicting it.
+///
+/// The `abstract` spelling has **no bare assertion line in the corpus** — it
+/// appears only nested, as in `>unionWithAbstractSignature : (abstract new (a:
+/// string) => string) | (new (a: string) => string)` — so the constituent is
+/// lifted from that line rather than composed. That is stated because it is the
+/// weakest expectation in the file.
 #[test]
-fn a_constructor_type_is_still_a_gap() {
-    let source = "let f: new (x: number) => any;";
-    assert_eq!(
-        annotation_kind(source),
-        SyntaxKind::ConstructorType,
-        "the fixture must be a constructor type node for this guard to mean anything"
-    );
+fn a_constructor_type_prints_its_new() {
+    for (source, want) in [
+        ("let f: new (x: number) => void;", "new (x: number) => void"),
+        ("let f: new (...args: any) => any;", "new (...args: any) => any"),
+        ("let f: new <T>(x: T) => T;", "new <T>(x: T) => T"),
+        ("let f: new <T>(x?: T) => T;", "new <T>(x?: T) => T"),
+        ("let f: new (x?: string) => string;", "new (x?: string) => string"),
+        ("let f: abstract new (a: string) => string;", "abstract new (a: string) => string"),
+    ] {
+        assert_eq!(
+            annotation_kind(source),
+            SyntaxKind::ConstructorType,
+            "the fixture must parse as a constructor type node: {source:?}"
+        );
+        assert_eq!(type_of_annotation(source), want, "{source:?}");
+    }
+}
+
+/// The other half of the pair: a constructor type node still gaps for every
+/// reason a function type node gaps, and for no new one.
+///
+/// `get_signature_from_declaration` owns that list and the constructor arm adds
+/// nothing to it — which is the claim being tested, not a restatement of the
+/// arm. A destructuring parameter is chosen because `parameterToParameterDeclarationName`
+/// is genuinely unported, so this expectation cannot be satisfied by any change
+/// short of building it.
+#[test]
+fn a_constructor_type_inherits_the_function_types_gaps_and_adds_none() {
+    let source = "let f: new ({ a }: any) => void;";
+    assert_eq!(annotation_kind(source), SyntaxKind::ConstructorType);
     assert_eq!(type_of_annotation(source), "error");
+    // The same refusal, one spelling over — so a change that made the
+    // constructor arm laxer than the function arm shows up as a disagreement
+    // between these two lines rather than as a silent divergence.
+    assert_eq!(type_of_function_annotation("let f: ({ a }: any) => void;"), "error");
 }
