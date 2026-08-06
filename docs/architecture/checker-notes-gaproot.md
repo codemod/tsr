@@ -463,23 +463,224 @@ cases, not `.errors.txt` diagnostics.
 > already assumes the row is closed completely in every case it touches, and B1
 > is the measurement of how much of that assumption survives contact.
 
+## RESULTS — Part 2
+
+*(Nothing above this line was edited after the run.)*
+
+**Re-baselined at `b9a4f5c`.** Part 1's figures are at `8a38b2c` and stand as a
+dated measurement. Between the two, other workstreams moved the checker: the
+gradient is **295,302 right / 135,635 gap / 37,963 wrong** here, against Part 1's
+292,606 / 138,585 / 37,709. Every Part 2 number is at `b9a4f5c` or later and
+says so. `rank_board` re-run in the same worktree reproduces this probe's
+one-step split to the digit (TERMINAL 22,764, DEPENDENT-UNKNOWN 44,342), with
+the known 54-line `propagated/named` difference from the module host unchanged.
+
+### The verdict, first
+
+| row | RULE-2 | outcome |
+|---|---|---|
+| `property access, the property has no type` | **B2 FAIL** | **refused** — 96.8% of it dissolves |
+| `property access, the receiver has no such property` | B1 PASS, B2 PASS, B3 PASS | **built, in part** — 976 lines converted |
+
+**And the headline correction is against my own Part 1 numbers: the 19,818 lines
+I filed as two build items are 976 lines of work in the file I own — a 20×
+overstatement.** Both `bd` issues have been updated in place rather than left
+to be read as sized.
+
+### B2 — one of the two rows was a symptom, and I predicted which
+
+`gaproot` gained a **property-declaration edge**: for `property access, the
+property has no type`, `get_property_of_type` *found* the member and
+`get_type_of_symbol` answered `error` for it, so the thing that gapped is the
+property's own declaration — somewhere else in the program entirely, which is
+why nothing inside the access's span gapped and the probe called the access its
+own root. Measured both ways at `b9a4f5c`, unit **gap assertion lines**:
+
+| row | edge off | edge on | dissolved |
+|---|---:|---:|---:|
+| `property access, the property has no type` | **10,012** | **319** | **96.8%** |
+| `property access, the receiver has no such property` | 13,156 | 13,156 | **0.0%** |
+
+RULE-2's B2 allows ≤25%. The first row fails by a factor of four and is
+**refused**. The second is unchanged by the edge, which is the same fact from the
+other side: a property that was never found has no declaration to be downstream
+of.
+
+**The prediction registered before the run was that B2 would fail for the first
+and hold for the second.** It did. That is the one thing on this page a
+post-hoc rule could not have delivered, and it is why RULE-2 was written with a
+prediction in it.
+
+The 319 survivors are all `BROKEN-DESCENT` — a property whose symbol has no
+named value declaration — not roots. The whole row is gone from the ranking.
+
+### B1 — the prerequisite is met for 78.31%, and that is not the binding number
+
+For every line rooted at `property access, the receiver has no such property`,
+is the receiver typed the way upstream types it? Unit: **gap assertion lines**,
+13,156 of them.
+
+| verdict | lines | share |
+|---|---:|---:|
+| receiver typed as upstream types it | **10,303** | **78.31%** |
+| receiver typed DIFFERENTLY | 2,845 | 21.63% |
+| receiver not rendered / line unaligned | 8 | 0.06% |
+
+B1's threshold is ≥60%: **PASS**. 2,845 lines fail a lookup on a type
+`members.rs` was never given a chance to search; they are not this row's work at
+any size.
+
+**But RULE-2 has no leg for *which file the work is in*, and that is what binds.**
+Splitting the 10,303 by receiver kind:
+
+| receiver kind | lines | share | owner |
+|---|---:|---:|---|
+| instantiated generic (`Promise<boolean>`, `Record<string, number>`) | 3,896 | 36.70% | `bd tsr-4qx` — **not** `members.rs` |
+| named / other (`SymbolConstructor` 906) | 3,026 | 28.50% | cross-file global merging, `bd tsr-9or.1` |
+| array (`string[]`, `T[]`) | 1,024 | 9.64% | `Array<T>` instantiation, `bd tsr-4qx` |
+| **primitive + string/number literal** | **1,165** | **11.31%** | **`members.rs` — mine** |
+| union / intersection | 779 | 7.34% | `intersections.rs` |
+| `this` | 727 | 6.85% | the `this` type |
+
+Unit: gap assertion lines. **13,156 → 10,303 → 1,165.** The row is not one work
+item and never was; the part in the file this workstream owns is 8.9% of the
+headline. That is a larger haircut than the 4.9× the coordinator cited as the
+week's cautionary case, and it is the direct answer to *"size the conversion, not
+the population"*.
+
+### What was built: `getApparentType`, primitive arms only
+
+`members.rs`'s own doc comment said *"there are no lib files (`bd tsr-9or.1`), so
+a primitive receiver has no members here"* and attributed the gap to lib. **That
+has been false since the program started loading `internal/bundled/libs`**, and
+the gap was this function's. Corrected in place, with the correction marked —
+`docs/conventions.md` records four stale comments outliving their truth in one
+session and this was a fifth.
+
+`Checker::apparent_type` ports the five primitive arms of upstream's
+`getApparentType` (`checker.go:21729`, from `grep -n` on the declaration) in
+upstream's own order, and is called at the access site, where upstream calls it
+(`checker.go:11265`) — **not** inside `get_property_of_type`, which would change
+what `relater.rs` sees. Eight upstream arms are deliberately not ported and each
+is named with its owner in the rustdoc.
+
+Two details that are load-bearing and were nearly wrong:
+
+- **A missing global is a gap, never `any`.** `globals()` may not hold `String`.
+  Returning `anyType` there would convert every primitive member access in a
+  lib-less configuration into a confident wrong answer *and would look like a
+  large win*. Test `a_missing_global_is_a_gap_and_not_an_answer` pins it, with
+  the mirror beside it.
+- **`declared::global_type_symbol` could not be reused.** It gates on the symbol
+  having exactly one type parameter — right for `Array<T>`, and wrong for every
+  interface here, all of which have none. Reusing it would have made the arm
+  silently dead.
+
+I also deleted the `any`-receiver identity guard by accident while editing and
+restored it in the same sitting. Mutation **MA3** now pins it from the outside.
+
+### B3 — the corpus, gains and losses read separately
+
+`examples/casedelta.rs`, `b9a4f5c` against the slice. Unit: **assertion lines**,
+and `cases` where it says cases.
+
+```
+  matched   before 295,302   after 296,272   delta +970
+  total     before 478,954   after 478,954   (equal, as it must be)
+  cases that moved  133      gained 133 (+970 lines)      LOST 0 (-0 lines)
+```
+
+And the gap/wrong split, which is what B3 actually gates on:
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| right | 295,302 | 296,272 | **+970** |
+| gap | 135,635 | 134,659 | **−976** |
+| wrong | 37,963 | 37,969 | **+6** |
+
+**976 gap lines closed: 970 right and 6 wrong. 0.0062 wrong per right.** B3
+allows 0.5; this is 80× inside it, and better than the 0.14 of the best build
+this week. **No case regressed** — the `LOST 0` column is the one that matters,
+because a net figure of +970 is consistent with 133 cases gaining and none
+losing *or* with 200 gaining and 67 losing, and those license different next
+moves.
+
+### The prediction against the outcome
+
+| | lines |
+|---|---:|
+| predicted ceiling for the primitive slice (before building) | **1,165** |
+| gap lines actually closed | **976** |
+| ratio | **0.84** |
+
+The ceiling over-predicted by 16%, in the conservative direction. For contrast,
+`checker-notes-rank.md` §8 records the one prior analogue landing at **6.9% of
+prediction**. The difference is not skill: it is that this ceiling was taken
+*after* B1 removed the lines whose receiver was typed wrongly and *after* the
+work-item split removed the lines belonging to other files. **A ceiling taken
+before those two filters was 13,206 and would have missed by 13.5×.**
+
+The residue is visible in the same bucket: of the primitive-receiver lines still
+gapping, 84 want `any` — which this port must not answer — and 46 want `string`.
+
+### Controls and mutations for Part 2
+
+| control | reads | pinned by |
+|---|---:|---|
+| C1–C4, A1, A2, A3 | 0 | as Part 1 |
+| **C7** re-measured board split − `rank_board`'s | **0 / 0** | **another instrument** |
+| casedelta `total` before == after | equal | arithmetic — a change to the skip set would show as an unmatched key |
+| casedelta cases LOST | **0** | — a **measurement**, and the one a net figure hides |
+
+**C7 went stale twice in one session and both times read as a defect in this
+probe.** Its constants are the *compiler's*, not the probe's: 22,739 / 45,814 at
+`b5decc5`, 22,764 / 44,342 at `b9a4f5c`, 22,793 / 44,254 after this slice landed
+— the last move caused by this workstream's own change. That is the standing cost
+of the only control here that can see a span-test inversion, and it is now
+written into the printed line so the next reader checks the commit before
+checking the walk.
+
+| mutation | what it does | result |
+|---|---|---|
+| **MA1** | `apparent_type` returns its argument unchanged | **both** new tests red (`error` where `number` is expected) |
+| **MA2** | a missing global answers `anyType` instead of the original type | `a_missing_global_is_a_gap_and_not_an_answer` red — `any` where `error` is expected; the other test **stays green**, which is what makes the pair a partition |
+| **MA3** | the `any`-receiver guard tests `TypeFlags::ANY` instead of identity | the file's **existing** `a_property_access_on_an_untypeable_receiver_is_still_a_gap` red — the standing warning holds, and my edit did not weaken it |
+| **B2-off** | `PROPERTY_DECLARATION_EDGE = false` | the refused row reappears at 10,012 lines; this is the measurement, not a defect |
+
+MA2 is the one worth keeping: it is the only mutation whose two assertions
+disagree, and *that* is the evidence the arm distinguishes "the global is
+missing" from "the global is there and the member is not".
+
 ## Everything filed from this page
 
 | id | what | sized as |
 |---|---|---|
-| `tsr-pnf` | `property access, the receiver has no such property` — the row the rule fires for | **13,206 gap lines unblocked** (4,030 of them its own) |
-| `tsr-mcd` | `property access, the property has no type` — the second | **6,612 gap lines unblocked** (1,861 its own) |
+| `tsr-pnf` | `property access, the receiver has no such property` | ~~13,206~~ — **976 converted** by the primitive slice; the rest is `bd tsr-4qx` and `bd tsr-9or.1`, not `members.rs` |
+| `tsr-mcd` | `property access, the property has no type` | ~~6,612~~ — **refused**, 96.8% dissolves under the property-declaration edge |
 | `tsr-4gq` | type-node roots are ceilings, not proofs | 34,440 lines of the ranking are affected |
 | `tsr-qgk` | only the first gapped operand is credited | 34.4% of 176,593 span steps had a choice |
 | `tsr-phd` | the `any` leg disqualifies apparent work, and may be too strict | 34,180 lines held out |
+| `tsr-wii` | the primitive-receiver residue after the slice: 84 lines want `any` (must not be closed), 46 want a real type | 46 lines |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
 
 ## Superseded numbers
 
-None yet. When one on this page is corrected, it gets a dated header here rather
-than a silent edit (`CLAUDE.md`).
+**2026-08-06, corrected by Part 2 of this same page.**
+
+| number | as published in Part 1 | corrected | why |
+|---|---:|---:|---|
+| `property access, the property has no type` blocks | 6,612 | **319** | Part 1 had no property-declaration edge, so the access claimed to be its own root. 96.8% of the row is downstream of the property's declaration. |
+| the two rows together are work worth | 19,818 | **976 converted** | 78.31% have a correct receiver (B1), and of those only 11.31% have a receiver kind `members.rs` can act on. |
+| `ROOT/own-rule` share of the gap | 43.49% | **39.73%** at `b9a4f5c` with the edge on | the edge moves 9,693 lines out of `own-rule` and into type-node and other roots. |
+
+Part 1's figures are **not wrong at `8a38b2c`**; they are what that instrument
+measured. What was wrong was reading them as sizes for work in one file, and
+that reading was mine, in the two `bd` issues and in the report I sent. The
+`ROOT/type-node` ceiling declared in Part 1's "limit" section is where most of
+the dissolved 9,693 lines went, which is the limit doing exactly what it was
+declared to do.
 
 ## Reproducing this
 
