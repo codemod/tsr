@@ -1729,3 +1729,59 @@ a reasonable record for hard estimates, and a completely different claim from
 **Say which kind of number you are quoting.** The distinction costs one word and
 it is the difference between "our probes are calibrated" and "we can predict what
 a slice will convert".
+
+### Half a mechanism renders the collateral of the half you built
+
+The sharpest rule of the cycle, found by the agent that had just shipped the
+build it indicts.
+
+`c91314c` made a module object nameable at its reference site: **630 of 634
+correct, 99.4%**. It also produced **+499 wrong lines nobody forecast**. Those
+were not a type error. The types were right and the **names were missing their
+qualifier**:
+
+```
+  32   upstream `() => import("./…_Widgets").Widget1`   ours `() => Widget1`
+  10   upstream `typeof Backbone.Model`                 ours `typeof Model`
+   8   upstream `PropTypes.Requireable<boolean>`        ours `Requireable<boolean>`
+```
+
+Upstream's `getAccessibleSymbolChain` returns a **chain**, and `symbolToEntityName`
+prints it dotted. The port implemented the **last hop only**. So every line the
+fix newly made *reachable* was then rendered by the half that was never ported,
+and fell back to the baked declared name.
+
+> **A fix that makes X computable hands X's *contents* to a renderer that was
+> never asked to render them. If those contents are rendered by the same
+> mechanism you have just ported *partially*, the collateral is wrong by
+> construction — every line of it.**
+>
+> Ask before building: *what will render what this unblocks, and is it the same
+> mechanism I am half-porting?* If so, forecast the collateral at the **unported**
+> half's failure rate, not the ported half's.
+
+Applied here it predicts the cycle exactly: naming 99.4% ported, qualification
+**0%** ported, collateral wrong at ~100%.
+
+#### It retrodicts the failure this document could not explain
+
+The reverse-cascade section records `tsr-6ph`'s two designs — one that printed
+the module object, one that only looked it up — measuring **2.1** and **2.5**
+wrong per right, and concludes: *"two designs that agree within 20% on what they
+break are not two designs."* True, and it never said **why** they agreed.
+
+This is why. **Both left the same renderer half-ported.** The two designs differed
+in what they *printed* and were identical in what they handed to a printer that
+could not name it, so their damage was drawn from one pool and had to come out
+the same size. That is a mechanism, where the earlier note had only a
+coincidence.
+
+#### And it is a sharper form of a rule already here
+
+*"The cascade runs both ways"* says to ask what else becomes computable and
+whether **those** answers can be spelled. This says where to look for the answer:
+**not at the new lines' shapes, but at the completeness of the mechanism that will
+render them.** A shape survey of the collateral would have reported function
+types and qualified names — all things this port renders — and passed. The
+question that catches it is not *"can we spell this?"* but *"is the thing that
+spells it finished?"*
