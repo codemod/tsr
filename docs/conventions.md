@@ -1670,3 +1670,62 @@ estimate is for when the change is expensive; it is not the default. **Report th
 delta, not the projection, whenever you can afford to produce one** — and note
 that this one also caught the 833 lines that moved *outside* the target
 population, which no estimate over the row would have seen.
+
+### Put the error bar on the *predicted* leg, and do not call a replayed measurement a forecast
+
+Two failures, one of them mine, and they compound.
+
+#### The bar was set on the wrong leg
+
+`bd tsr-5h0` was forecast at **+1,775 lines, range +1,420…+2,130**. It landed at
+**+1,005** — outside its own bar on the low side, 43% below the central estimate.
+
+The author had *already identified* which half was weak. Its spellability check
+had two legs, and it said so in writing: upstream's leg was exact (every line
+classified on the baseline's literal right-hand side), and **our leg was an
+inference from the design, not a counterfactual run**. Then it set a ±20% bar
+around the whole number.
+
+**The uncertainty was entirely in one leg and was much larger than ±20% and
+one-sided**, because the predicted leg assumed *every* collected line converts
+once the symbol is typed — and roughly 770 did not, most likely references where
+narrowing or a contextual type intervenes so the flow walk never hands back a
+bare `any[]`.
+
+> **When only one leg of a conversion estimate is measured, the error bar belongs
+> on the predicted leg's plausible range, not symmetrically around the product.**
+> A measured leg contributes almost no variance; putting a tidy ± around the
+> total hides that all of it lives in one place, and hides its direction.
+
+The author found and reported this against itself after the number had already
+been used. It also named the deeper failure correctly: **it labelled the caveat
+and then quoted the number anyway**, which this document already records under
+*"the part worth internalising is not the arithmetic"* — a caveat is only doing
+work if something downstream is *blocked* on it.
+
+#### And a replayed measurement is not a prediction — I got this wrong in public
+
+I reported "five scored forecasts, four inside a rounding error". That conflates
+two different things and overstates what was demonstrated.
+
+| what it was | example | what it proves |
+|---|---|---|
+| **Ex-ante forecast** — a number produced before the code exists | `+1,775` → **+1,005** | forecasting skill |
+| **Replayed measurement** — the change is built, scored on the agent's own instrument, then re-scored by the suite | `+1,188` → `+1,188` | the probe and the suite measure the same population |
+
+Three of my "hits" were the second kind, and one of their authors said so
+explicitly — *"no error bars; this is the suite's own instrument on the same
+pinned tree, not a projection."* That agreement is genuinely valuable: it is what
+`reconcile.rs` exists to establish, and a probe disagreeing with the suite has
+happened here repeatedly. **But it is an instrument-agreement check, not a
+forecast, and calling it one inflates the track record of a method this project
+uses to decide what to build.**
+
+Scored honestly, the ex-ante record for this cycle is **one miss (43% over,
+outside its bar) and one ceiling delivered at 0.84 of its estimate** — which is
+a reasonable record for hard estimates, and a completely different claim from
+"four of five inside a rounding error".
+
+**Say which kind of number you are quoting.** The distinction costs one word and
+it is the difference between "our probes are calibrated" and "we can predict what
+a slice will convert".
