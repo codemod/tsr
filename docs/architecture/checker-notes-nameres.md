@@ -383,6 +383,54 @@ fixture that was a module would have exercised only half the defect.
   does not move a symbol between tables, so the symbol baseline must not move at
   all. That is the rail to watch on the corpus run.
 
+### The result, measured, and it is not clean
+
+Re-run of the same probe at `c23b4cc` against `058b4a9`, same binary path, same
+corpus pin. **This is `examples/nameres.rs`'s own gradient, not the
+`checker_types` suite's** — the two agree on the base (§0) but only the suite's
+number is the gradient.
+
+```
+                 058b4a9    c23b4cc    delta
+  right          292,217    294,484   +2,267
+  gap            143,509    140,933   -2,576
+  wrong           43,334     43,643     +309
+```
+
+And on the rows this targeted:
+
+| row | before | after |
+|---|---:|---:|
+| `SymbolFlags(EXPORT_VALUE) / no value declaration` | 1,346 | **371** |
+| markers inside a namespace (direct + cascade) | 2,175 | **160** |
+| markers at file top level (direct + cascade) | 291 | 283 |
+| precondition: source file has no module symbol | 988 | 131 |
+
+**2,015 lines left the targeted rows; 2,576 gap lines converted.** The cascade
+multiplier against the predicted rows is **1.28×** — smaller than the 1.66×
+`docs/conventions.md` measured for cross-file aliases, and for the reason that
+page gives: the multiplier is a property of the form, and an exported enum is
+referenced through `E.A` far less often than an imported name is called.
+
+**The +309 wrong is the part to argue with.** It is 12% of the conversion, or
+0.14 wrong per right — against the module-object item's 2.5, which is why that
+one was refused and this one was not. But it is not the **zero** the arm's shape
+suggested: `get_type_of_export_value` can only replace `errorType` with whatever
+`get_type_of_symbol` says about the export symbol, so every one of those 309 is
+either (a) an export symbol whose own type this port computes incorrectly —
+which was already wrong and merely invisible behind a gap — or (b) the export
+symbol this port reaches is not the one upstream reaches, which is §5's
+falsifier firing. **Those two are not separated here, and separating them is the
+first thing to do before this arm is quoted as settled** (`bd tsr-d7c`).
+
+The honest prediction to carry forward, with the error bar the measurement
+gives: **+2,267 right, +309 wrong on `checker_types`**, ±10% on the right column
+for the 0.09pp instrument disagreement recorded above, and no bar at all on the
+wrong column because its composition is unknown.
+
+Gradient pair to measure: `033277f^..c23b4cc` — two commits, the declaration and
+its consumer.
+
 ---
 
 ## 6. What was deliberately not built, with numbers for whoever takes it
