@@ -299,3 +299,134 @@ index that does not exist; **intersections** (`T & U` 8) need the same;
 `getErasedSignature`; and the **contravariant bucket**, which §5.2 and §5.3
 both point at and which is the one leg with measured demand on both sides of
 the ledger.
+
+## 6. The contravariant bucket, sized and REFUSED — 6 own-node lines
+
+Sixth session, continued, at the merge of `origin/main` (`tsr-4sa` and
+`tsr-84iz` both landed under this worktree, so everything below is measured
+against the current compiler, not the one §5 was measured on).
+
+§5.2 and §5.3 both pointed here: the contravariant bucket owned all 3 residual
+lost lines *and* the largest single group of the 33 residual wrong lines. The
+same mechanism on both sides of the ledger is the strongest next-item signal
+this project recognises, and it is exactly the signal that has to be **sized
+before it is believed** — `STATUS.md`'s fourth rule does not stop applying
+because the evidence is elegant.
+
+### 6.1 What upstream actually does
+
+`inferFromContravariantTypes` (`inference.go:308`) flips a `contravariant` flag
+and re-enters `inferFromTypes`; candidates then land in `contraCandidates`
+rather than `candidates`. `getInferredType` (`inference.go:1317`) prefers the
+covariant inference when it is not `never` or `any`, **some** contravariant
+candidate is a supertype of it, and no other type parameter constrained to this
+one would conflict; otherwise the contravariant inference wins.
+`getContravariantInference` (`inference.go:1463`) is `getCommonSubtype` — or an
+intersection under one priority flag.
+
+**And the flip is conditional.** `inferFromContravariantTypesIfStrictFunctionTypes`
+(`inference.go:314`) only flips when `strictFunctionTypes` is on. That option
+is **not modelled anywhere in this port**, so building this leg means inventing
+a default for it — the same guess that cost 1,221 lines when it was tried the
+wrong way round for `strictNullChecks` (`types_producer.rs:828`).
+
+### 6.2 The counterfactual, extended
+
+`infergen.rs` now threads a `contravariant` flag through the walk, keeps two
+candidate buckets, and resolves them with the preference rule above. It was
+also brought to **parity with the shipped arm** first — the `never` strike, the
+matched-constituent strike, and per-case `strictNullChecks` read from the same
+two directives `types_producer` reads — so the CONVERTS column measures the
+*delta* and nothing else.
+
+Over 1,228 classified own-node lines at the merge commit:
+
+| | lines |
+|---|---:|
+| REFUSED — no candidate, the type parameter stays unmapped | 494 |
+| an argument's own type is a gap | 456 |
+| REFUSED — the return type is not rebuildable | 87 |
+| a rest parameter | 56 |
+| REFUSED — two **covariant** candidates disagree | 52 |
+| a spread argument | 39 |
+| REFUSED — a `null`/`undefined` candidate | 32 |
+| **CONVERTS — the contravariant bucket's whole gain** | **6** |
+| REFUSED — contravariant candidates disagree (`getCommonSubtype`) | 5 |
+| MISS | 1 |
+
+```
+C1 classified-but-not-gap : 0    (expect 0)
+C2 buckets sum 1228 vs classified 1228
+C3 bare-only rule converts: 4    (expect 0)  <-- FIRED
+```
+
+**C3 fired and is printed rather than tuned**, as `docs/conventions.md`
+requires. Four classified lines are answered by the *already-shipped* rule when
+run through this harness, which means the harness and `check_generic_call`
+disagree on four lines — the probe does not model the `hasCorrectArity` guard
+(`checker.go:8710`) that gaps a call missing a required argument. It does not
+change the verdict; it makes it **stronger**, because up to four of the six
+conversions could be that same artefact. The honest reading of the gain is
+**between 2 and 6 own-node lines.**
+
+### 6.3 The other two sides of the ledger, measured rather than quoted
+
+The leg's case was never only the gaps. Re-measured at the merge commit:
+
+- **Wrong lines it would fix: 4.** The four contravariant-named cases carry 120
+  wrong lines between them, and reading them is the whole finding — they are
+  mostly *not* this mechanism. `contravariantOnlyInferenceWithAnnotatedOptionalParameterJs`
+  (10) and `contravariantOnlyInferenceFromAnnotatedFunctionJs` (4) are JS-file
+  inference; `strictFunctionTypes1`'s head is `(x: A | number) => void` against
+  `(x: number | A) => void` (union constituent order, 3) and
+  `ReadonlyArray<T>` against `readonly T[]` (a printer form, 2). Exactly **4**
+  — `number | undefined` where we print `number` — are the contravariant
+  bucket.
+- **Lost lines it would recover: 3**, §5.2's, unchanged.
+
+### 6.4 The number that refuses it
+
+```
+own-node conversions            6   (2–6 after C3)
+wrong lines fixed               4
+lost lines recovered            3
+                               --
+own-node reach                 13   x 2.8 cascade  ~=  36 lines
+```
+
+Against that: a variance flag threaded through every arm of the walk, a second
+candidate bucket, `getInferredType`'s preference rule, `getCommonSubtype` for
+the disagreeing case, **and a new `strictFunctionTypes` compiler option whose
+default this port would be guessing.**
+
+**~36 lines is smaller than anything this project has yet refused.**
+`removeSubtypes` was refused at 1.03 gained per lost across ~1,100 quoted
+lines; the multi-distinct return aggregate at 81 lines for 12–46 converted;
+`TemplateExpression` at 0.76 gained per wrong on 1,036. This is a tenth of the
+smallest of those, and it carries a modelling guess none of them carried.
+
+**Refused.** `bd tsr-g30h` records it. The signal in §5.2/§5.3 was real and it
+was still a **ceiling on a row**, not a forecast of a mechanism: 4 of the 33
+wrong lines were the mechanism and the other 116 lines in those same cases were
+five other people's items. That is the fourth rule of `STATUS.md` catching this
+page's own recommendation, one section after it was written.
+
+### 6.5 What the same run says to look at instead
+
+The refusal splits, re-measured at the merge commit, are unchanged in shape and
+name their owners:
+
+```
+  494  no candidate   — head: 47 no parameter mentions it, 23 two unrelated type
+                        parameters, ~70 `then` shapes under `@strict: false`,
+                        ~11 object-type members ({ keys: T[] } vs { keys: string[] })
+  456  the argument's own type is a gap        — downstream, not this module's
+   87  return not rebuildable — [T, U] 32, [T, U, V] 10, T & U 8, { value: V } 6
+```
+
+The largest *buildable* family remains **tuple return types (42 lines)**, and it
+is an `instantiate_type` limit — a tuple has no `(symbol, arguments)` intern key
+to reverse — not an inference limit. It becomes answerable when a tuple gains a
+structured `TypeData`, which is the same prerequisite `inference.rs`'s module
+doc has named since `bd tsr-0hc`. Nothing in the inference walk itself is worth
+more than that.

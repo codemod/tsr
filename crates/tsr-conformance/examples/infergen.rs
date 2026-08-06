@@ -123,19 +123,20 @@ impl Report {
 /// Pushes `(type parameter, candidate)` for every match found. Contributes
 /// nothing — deliberately — for every shape outside the three arms.
 fn infer_from_types(
-    checker: &Checker<'_, '_>,
+    checker: &mut Checker<'_, '_>,
     source: TypeId,
     target: TypeId,
     parameters: &[TypeId],
-    out: &mut Vec<(TypeId, TypeId)>,
+    out: &mut Vec<(TypeId, TypeId, bool)>,
     depth: usize,
+    contravariant: bool,
 ) {
     if depth > 16 {
         return;
     }
     // Arm 1, `inference.go:1236`: the target *is* a type parameter.
     if parameters.contains(&target) {
-        out.push((target, source));
+        out.push((target, source, contravariant));
         return;
     }
     // Arm 2, `inferFromTypeArguments` (`inference.go:1046`): two references to
@@ -148,7 +149,7 @@ fn infer_from_types(
     if let (Some((ts, ta)), Some((ss, sa))) = (target_reference, source_reference) {
         if ts == ss && ta.len() == sa.len() {
             for (t, s) in ta.iter().zip(sa.iter()) {
-                infer_from_types(checker, *s, *t, parameters, out, depth + 1);
+                infer_from_types(checker, *s, *t, parameters, out, depth + 1, contravariant);
             }
         }
         return;
@@ -191,8 +192,29 @@ fn infer_from_types(
         {
             return;
         }
+        // Parity with the shipped arm (`inference.rs`): strike the
+        // constituents the source already matches before anything reaches the
+        // naked type variable, excluding `never`/`any` sources which are
+        // assignable to everything.
+        let source_is_wildcard =
+            source == checker.intrinsics().never || source == checker.intrinsics().any;
+        if !source_is_wildcard
+            && constituents
+                .iter()
+                .any(|&c| !parameters.contains(&c) && checker.is_type_assignable_to(source, c))
+        {
+            return;
+        }
         for constituent in constituents {
-            infer_from_types(checker, source, constituent, parameters, out, depth + 1);
+            infer_from_types(
+                checker,
+                source,
+                constituent,
+                parameters,
+                out,
+                depth + 1,
+                contravariant,
+            );
         }
         return;
     }
@@ -215,9 +237,17 @@ fn infer_from_types(
         // target accepts is legal TypeScript and is the common shape —
         // `p.then(() => 1)` against `(value: T) => …`.
         for (tp, sp) in t.parameters.iter().zip(s.parameters.iter()) {
-            infer_from_types(checker, sp.r#type, tp.r#type, parameters, out, depth + 1);
+            infer_from_types(
+                checker,
+                sp.r#type,
+                tp.r#type,
+                parameters,
+                out,
+                depth + 1,
+                !contravariant,
+            );
         }
-        infer_from_types(checker, s.r#type, t.r#type, parameters, out, depth + 1);
+        infer_from_types(checker, s.r#type, t.r#type, parameters, out, depth + 1, contravariant);
     }
 }
 
@@ -248,10 +278,10 @@ fn infer_bare_only(
     source: TypeId,
     target: TypeId,
     parameters: &[TypeId],
-    out: &mut Vec<(TypeId, TypeId)>,
+    out: &mut Vec<(TypeId, TypeId, bool)>,
 ) {
     if parameters.contains(&target) {
-        out.push((target, source));
+        out.push((target, source, false));
     }
 }
 
@@ -290,37 +320,96 @@ fn forecast(
     names: &[&str],
     argument_types: &[TypeId],
     structural: bool,
+    strict_null_checks: bool,
 ) -> Result<String, String> {
     let error = checker.intrinsics().error;
-    let mut candidates: Vec<(TypeId, TypeId)> = Vec::new();
+    let mut candidates: Vec<(TypeId, TypeId, bool)> = Vec::new();
     for (index, parameter) in signature.parameters.iter().enumerate() {
         let Some(&argument) = argument_types.get(index) else { continue };
         if structural {
-            infer_from_types(checker, argument, parameter.r#type, parameters, &mut candidates, 0);
+            infer_from_types(
+                checker,
+                argument,
+                parameter.r#type,
+                parameters,
+                &mut candidates,
+                0,
+                false,
+            );
         } else {
             infer_bare_only(argument, parameter.r#type, parameters, &mut candidates);
         }
     }
+    let never = checker.intrinsics().never;
+    let any = checker.intrinsics().any;
     let mut map: Vec<(TypeId, TypeId)> = Vec::new();
     for &type_parameter in parameters {
-        let mut found: Option<TypeId> = None;
-        for &(from, image) in &candidates {
-            if from != type_parameter {
-                continue;
-            }
-            match found {
-                Some(previous) if previous != image => {
-                    return Err("two candidates disagree for one type parameter".to_string());
+        // One bucket each, `inferFromContravariantTypes` (`inference.go:308`).
+        // `contravariant` is only *collected* here; whether it is consulted is
+        // the whole question this probe sizes.
+        let agreed = |contra: bool| -> Result<Option<TypeId>, ()> {
+            let mine: Vec<TypeId> = candidates
+                .iter()
+                .filter(|&&(from, _, c)| from == type_parameter && c == contra)
+                .map(|&(_, image, _)| image)
+                .collect();
+            let has_other = mine.iter().any(|&image| image != never);
+            let mut found = None;
+            for image in mine {
+                if has_other && image == never {
+                    continue;
                 }
-                _ => found = Some(image),
+                match found {
+                    Some(previous) if previous != image => return Err(()),
+                    _ => found = Some(image),
+                }
             }
-        }
-        // A `null` or `undefined` candidate is where `getWidenedType`
-        // (`checker.go:16090`) decides the answer: with `strictNullChecks` off
-        // upstream widens it to `any`, and nothing on this port's inference
-        // path widens. Refuse rather than print `Promise<null>` where upstream
-        // prints `Promise<any>`.
+            Ok(found)
+        };
+        let Ok(covariant) = agreed(false) else {
+            return Err("two covariant candidates disagree".to_string());
+        };
+        let contra: Vec<TypeId> = candidates
+            .iter()
+            .filter(|&&(from, _, c)| from == type_parameter && c)
+            .map(|&(_, image, _)| image)
+            .collect();
+        // `getInferredType` (`inference.go:1317`): prefer the covariant
+        // inference when it is not `never`/`any` and **some** contravariant
+        // candidate is a supertype of it; otherwise prefer the contravariant
+        // one. With no contravariant candidates the covariant one wins
+        // outright, which is what ships today.
+        let found = match (covariant, contra.is_empty()) {
+            (Some(c), true) => Some(c),
+            (Some(c), false) => {
+                let prefer = c != never
+                    && c != any
+                    && contra.iter().any(|&t| checker.is_type_assignable_to(c, t));
+                if prefer {
+                    Some(c)
+                } else {
+                    let Ok(v) = agreed(true) else {
+                        return Err("contravariant candidates disagree — needs `getCommonSubtype`"
+                            .to_string());
+                    };
+                    v
+                }
+            }
+            (None, false) => {
+                let Ok(v) = agreed(true) else {
+                    return Err(
+                        "contravariant candidates disagree — needs `getCommonSubtype`".to_string()
+                    );
+                };
+                v
+            }
+            (None, true) => None,
+        };
+        // `getWidenedType` (`checker.go:16090`) widens a `null`/`undefined`
+        // inference to `any` only with `strictNullChecks` off; nothing here
+        // widens, so that case is refused.
         if let Some(image) = found
+            && !strict_null_checks
             && matches!(checker.type_to_string(image).as_str(), "null" | "undefined")
         {
             return Err("a `null` or `undefined` candidate — needs `getWidenedType`".to_string());
@@ -343,6 +432,7 @@ fn forecast(
                         &[type_parameter],
                         &mut probe,
                         0,
+                        false,
                     );
                     if !probe.is_empty() {
                         continue;
@@ -383,6 +473,13 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
     let map = program.node_map();
     let bound = program.binder();
     let mut checker = Checker::with_module_host(bound, nodes, map, Some(&program));
+    // The same two directives `types_producer` reads, with the same `true`
+    // default: a probe checking under different strictness than the gradient
+    // would forecast a different compiler.
+    let explicit = |name: &str| parsed.options.get(name).map(|v| v.eq_ignore_ascii_case("true"));
+    let strict_null_checks =
+        explicit("strictnullchecks").or_else(|| explicit("strict")).unwrap_or(true);
+    checker.set_strict_null_checks(strict_null_checks);
     let error = checker.intrinsics().error;
 
     let mut report = Report::default();
@@ -454,8 +551,15 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
 
             // C3: the shipped rule, through this same harness.
             if !spread
-                && let Ok(bare) =
-                    forecast(&mut checker, &signature, &parameters, &names, &argument_types, false)
+                && let Ok(bare) = forecast(
+                    &mut checker,
+                    &signature,
+                    &parameters,
+                    &names,
+                    &argument_types,
+                    false,
+                    strict_null_checks,
+                )
                 && bare == wanted
             {
                 report.c3_bare_converts += 1;
@@ -470,8 +574,15 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             } else if signature.r#type == error {
                 "the signature's return type is a gap".to_string()
             } else {
-                match forecast(&mut checker, &signature, &parameters, &names, &argument_types, true)
-                {
+                match forecast(
+                    &mut checker,
+                    &signature,
+                    &parameters,
+                    &names,
+                    &argument_types,
+                    true,
+                    strict_null_checks,
+                ) {
                     Err(reason) => {
                         if let Some(rest) = reason.strip_prefix("no candidate — ") {
                             *report.unmapped.entry(rest.to_string()).or_default() += 1;
