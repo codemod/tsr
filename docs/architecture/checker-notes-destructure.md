@@ -196,7 +196,57 @@ indexes by slice position (`checker.go:17750`). The printer emits nothing
 for an all-`None` element and the binder binds nothing, so the change is
 shape-only; `tests/destructure.rs` pins the numbering.
 
-## 6. Test discipline
+## 6. Second iteration — defaults under a typed annotation, registered
+
+At `ce3caa8`, before code. Re-sized by a fresh `bindgap.rs` run after the
+main build: **69 lines, want-any 10, ~59 net** — identical to the §1
+sizing, because defaults refused whole in the first cut. The mechanism is
+`checker.go:17781`–`:17787` exactly: when
+`WalkUpBindingElementsAndPatterns(declaration).Type() != nil`, a default
+does **not** union into the element (that is the refused
+`UnionReductionSubtype` path, which only runs annotation-less); under
+`strictNullChecks` it strips `undefined` —
+`getNonUndefinedType(t)` — unless the default itself can be `undefined`
+(`hasTypeFacts(checkDeclarationInitializer(..), TypeFactsIsUndefined)`).
+
+What it needs that exists: `get_type_with_facts`/`NE_UNDEFINED` (the
+`typeof` build), `check_expression`. What it adds: the **`IS_UNDEFINED`
+facts bit** (upstream bit 24), set in the `UNDEFINED` arm only — the
+port's facts table already documents that `VoidFacts` is "`UndefinedFacts`
+minus `IsUndefined`", so the arm splits along a line the comment drew.
+Deliberately **not** in the undecidable-default aggregate: upstream sets
+it only for `undefined`-bearing types, and putting it in `both` would skip
+the strip exactly where upstream strips.
+
+Restrictions that stay refused: an element whose *name* is a pattern with
+a default (upstream pads object/tuple literal defaults,
+`padObjectLiteralType`/`padTupleType`, `checker.go:16808` — unported);
+`getNonUndefinedType`'s generic-constraint mapping
+(`isGenericTypeWithUndefinedConstraint`) is not ported — an instantiable
+constituent passes through `get_type_with_facts` untouched, which keeps
+`T` where upstream may consult its constraint; stated, not verified, and
+priced by leg 4. `hasDefaultValue`'s `AccessFlagsAllowMissing` is
+unported — a lookup miss with a default stays a gap where upstream may
+answer the stripped missing type.
+
+**The bar:**
+
+1. **net ≥ +20** (34% of the 59-line net — mid-band);
+2. **lost ≤ 5, each diagnosed as a cascade** — the leg fires only on
+   elements answering `errorType` today, so its own lines cannot lose;
+3. **0 case regressions**;
+4. **gained ≥ 3 × new wrong** by `wrongdelta` — the live leg: the strip
+   answering `T` where upstream keeps `T | undefined`, or the reverse.
+
+**Falsifier:** >50% of the gain in one case (the head row is 18/69 =
+26%, so concentration above half means the mechanism reached something
+the sizing did not describe).
+
+Bar fires → build wrong first, premise wrong second, no third.
+
+### §6 scored — see the row appended after the run.
+
+## 7. Test discipline
 
 Expectations come from baselines, never intuition — five intuition
 expectations have been wrong across four sessions. The fixtures to draw
