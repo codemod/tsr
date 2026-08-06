@@ -46,17 +46,35 @@ impl Checker<'_, '_> {
     /// > `docs/conventions.md` records four stale comments outliving their truth
     /// > in one session and this was a fifth.
     ///
-    /// Not ported: optional chains, private identifiers, `super`, and index
-    /// signatures. All answer `errorType`.
+    /// Not ported: `super` and index signatures. Both answer `errorType`.
+    ///
+    /// **A private name is not a special lookup** (`bd tsr-0opd`). Upstream
+    /// reaches `this.#x` through the same `getPropertyOfType`
+    /// (`checker.go:11258`) as any other member, because a private field's
+    /// symbol is filed under its own text — and `PrivateIdentifier.text`
+    /// carries the leading `#`, so `#x` is simply a member name that cannot be
+    /// written as a dotted identifier. This port's binder already files it
+    /// that way (`crates/tsr-binder/src/binder.rs:3995`), so the arm is the
+    /// name extraction below and nothing else.
+    ///
+    /// The *scope* rule upstream enforces separately —
+    /// `lookupSymbolForPrivateIdentifierDeclaration`, which reports when a
+    /// private name is used outside its declaring class — is a **diagnostic**
+    /// and does not change the type answer (ADR-0040's distinction). What it
+    /// would reject, the lookup here misses anyway: a `#x` that is not a
+    /// member of the receiver's type answers `errorType`, which is upstream's
+    /// type answer too.
     pub fn check_property_access_expression(
         &mut self,
         node: &tsr_ast::PropertyAccessExpression<'_>,
     ) -> TypeId {
         let error = self.intrinsics.error;
-        let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
-            (node.expression, node.name)
-        else {
+        let (Some(receiver), Some(member)) = (node.expression, node.name) else {
             return error;
+        };
+        let name = match member {
+            tsr_ast::MemberName::Identifier(name) => name.text,
+            tsr_ast::MemberName::PrivateIdentifier(name) => name.text,
         };
         let receiver_type = self.check_expression(receiver);
         if receiver_type == error {
@@ -80,7 +98,7 @@ impl Checker<'_, '_> {
         if stripped == error {
             return error;
         }
-        let result = self.access_member_lookup(stripped, name.text, node.node_id);
+        let result = self.access_member_lookup(stripped, name, node.node_id);
         if result == error {
             return error;
         }

@@ -72,3 +72,43 @@ is spread across many cases with no dominant head, so heavy concentration
 means the mechanism found something else.
 
 If a leg fires: build wrong first, premise wrong second, no third.
+
+## 5. Scored against §4's bar — all four legs pass
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +200 | **+590** (71 cases) | pass |
+| 2 | lost ≤ 10, diagnosed | **0** | pass |
+| 3 | regressions < finished | **0 < 21** | pass |
+| 4 | gained ≥ 3 × new wrong | **590 vs 55 = 10.7×** | pass |
+
+**Falsifier did not fire**: top case `privateNameFieldUnaryMutation` at 132 of
+590 = **22.4%**, against the 35% line.
+
+**KEEP.** Gradient 70.15% → **70.27%**, cases 2,564 → **2,585**. Conversion is
+**200% of the forecast 295**, the cascade again — a typed `this.#x` un-gaps the
+expressions built on it.
+
+### 5.1 The 55 new wrong were forecast, and mostly are not defects
+
+The registration said *"new wrong beyond ~11 means the arm reaches lines the
+forecast did not describe"*. It read 55, so they were read:
+
+```
+  26   want `any`, got a real type   <- the counterfactual's own want-any bucket
+  11   the forecast's named misses (want number/got any, and friends)
+  18   misc, same families
+```
+
+The **26** are ADR-0039's `hadErrorBaseline`, arriving exactly where it must:
+using a private name outside its declaring class is an *error* upstream, so
+those cases carry an `.errors.txt`, which disables the writer's fast path and
+prints every type in the file through the node builder as `any`. The arm
+computes the correct type and the baseline is unmatchable — the same ceiling
+ADR-0038/0039 record, and **the counterfactual had already counted them**
+(29 lines in its `want any (ceiling)` bucket, which necessarily become wrong
+lines the moment the arm stops gapping them).
+
+So the honest reading of leg 4 is better than 10.7×: of 55 new wrong, ~26 are
+a ceiling nobody can convert and were sized in advance. This is why the
+registration named the bound rather than only the ratio.
