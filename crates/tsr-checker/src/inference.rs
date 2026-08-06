@@ -191,18 +191,34 @@ impl Checker<'_, '_> {
         // position contributes nothing — which leaves its type parameter
         // unmapped, and an unmapped mention is what makes the answer below
         // `errorType` rather than a guess.
+        // `hasCorrectArity` (`checker.go:8710`), the half a default can meet: a
+        // call missing an argument for a *required* parameter is an error
+        // upstream before inference starts. Without this, `pick(1)` against
+        // `<T, U>(a: T, b: U): T` would answer `1` — the loop below no longer
+        // fails on an unsupplied bare position, because an unsupplied
+        // *optional* position (`p.then()`) is exactly what the default fill
+        // exists for.
+        let required =
+            signature.parameters.iter().filter(|parameter| !parameter.optional && !parameter.rest);
+        if argument_types.len() < required.count() {
+            return error;
+        }
         let mut map = Vec::with_capacity(parameters.len());
-        for &type_parameter in &parameters {
+        for (position, &type_parameter) in parameters.iter().enumerate() {
             let mut candidate = None;
+            let mut bare_position_supplied = false;
             for (index, parameter) in signature.parameters.iter().enumerate() {
                 if parameter.r#type != type_parameter {
                     continue;
                 }
                 let Some(&inferred) = argument_types.get(index) else {
-                    // The position was not supplied. Upstream would fall back to
-                    // the constraint or the default; neither is ported.
-                    return error;
+                    // The position was not supplied. Bare positions with no
+                    // argument contribute no candidate; whether the parameter
+                    // then takes its default is decided below, on the same
+                    // no-inference-source test every position gets.
+                    continue;
                 };
+                bare_position_supplied = true;
                 match candidate {
                     // Two bare positions for one type parameter: upstream unions
                     // the candidates (`getCovariantInference`), which needs a
@@ -215,7 +231,56 @@ impl Checker<'_, '_> {
             match candidate {
                 Some(inferred) if inferred != error => map.push((type_parameter, inferred)),
                 Some(_) => return error,
-                None => {}
+                None => {
+                    // `fillMissingTypeArguments` (`checker.go:19458`), reduced
+                    // to the fallback leg of `getInferredType`
+                    // (`inference.go:1406`): with **no candidates**, an
+                    // uninferred type parameter takes its default, instantiated
+                    // with the substitutions resolved so far — `then`'s
+                    // `TResult2 = never` is the head case, reached by
+                    // `p.then(f)` and `p.catch()`.
+                    //
+                    // The guard is what keeps this from guessing: the default
+                    // applies only when **no supplied argument could have been
+                    // an inference source** for this parameter — no supplied
+                    // bare position, and no supplied argument whose parameter's
+                    // type *mentions* it. Upstream would run `inferFromTypes`
+                    // structurally over such an argument (unported), so
+                    // substituting the default there would answer
+                    // `Promise<boolean>` where upstream infers
+                    // `Promise<number>` — a confident wrong line. Those calls
+                    // stay gaps.
+                    let name = names[position];
+                    let structural_source_supplied = bare_position_supplied
+                        || signature.parameters.iter().enumerate().any(|(index, parameter)| {
+                            argument_types.get(index).is_some()
+                                && parameter.r#type != type_parameter
+                                && self.mentions_type_parameter(
+                                    parameter.r#type,
+                                    &[type_parameter],
+                                    &[name],
+                                )
+                        });
+                    if structural_source_supplied {
+                        return error;
+                    }
+                    let Some(default) = signature
+                        .type_parameters
+                        .get(position)
+                        .and_then(|parameter| parameter.default)
+                    else {
+                        continue;
+                    };
+                    // A default may reference an earlier parameter
+                    // (`T = U`), which is why it is instantiated with the
+                    // map built so far — upstream fills left to right for
+                    // the same reason.
+                    let image = self.instantiate_type(default, &map, &parameters, &names);
+                    if image == error {
+                        return error;
+                    }
+                    map.push((type_parameter, image));
+                }
             }
         }
         self.instantiate_type(returned, &map, &parameters, &names)

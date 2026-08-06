@@ -891,15 +891,18 @@ fn a_signature_typed_member_of_a_generic_is_instantiated() {
         ),
         "(cb: (value: number) => string) => number[]"
     );
-    // A *call* through the instantiated member stays a gap: the minted type
-    // carries the uninstantiated symbol, and resolving its declarations would
-    // answer `T[]` — the wrong line the resolver guard exists to prevent.
+    // A *call* through the instantiated member resolves from the signatures
+    // recorded ON the type (`bd tsr-1uz`), never from the minted type's
+    // symbol — whose declarations are uninstantiated and would answer `T[]`,
+    // the wrong line the resolver's guard was born to prevent. This asserted
+    // `error` between `tsr-0hc` and `tsr-1uz`, when the guard refused
+    // outright.
     assert_eq!(
         type_of_declaration(
             "interface Array<T> { }\ninterface P<T> { m(cb: (value: T) => string): T[]; }\ndeclare const p: P<number>;\nconst y = p.m(0 as any);",
             "y"
         ),
-        "error"
+        "number[]"
     );
     // A member whose signature mentions only the method's OWN type parameter
     // survives unrenamed and un-substituted, upstream's behaviour for

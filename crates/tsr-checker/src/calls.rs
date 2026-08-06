@@ -584,11 +584,21 @@ impl Checker<'_, '_> {
         // symbol (`Checker::instantiate_signature_type`, `bd tsr-0hc`), so
         // reading the symbol's declarations back here would resolve the
         // uninstantiated signature and answer `Promise<TResult1 | TResult2>`
-        // where upstream substitutes — a wrong line rather than a gap. Calls
-        // through an instantiated member gap until signatures are resolved
-        // from the type rather than its symbol. Counted with the no-signature
-        // bucket: signatures exist, and none of them is usable here.
+        // where upstream substitutes — a wrong line rather than a gap. The
+        // signatures are read **off the type** instead (`bd tsr-1uz`), which
+        // is upstream's shape everywhere: `getSignaturesOfType`
+        // (`checker.go:18959`) resolves the type's signatures and never the
+        // symbol's declarations. One candidate resolves exactly as the
+        // symbol path's one candidate does; an overload set stays a gap for
+        // the same reason the symbol path's does.
         if self.is_instantiated_signature_type(callee) {
+            let signatures = self.signature_types.get(&callee).cloned().unwrap_or_default();
+            if let [signature] = signatures.as_slice() {
+                if counted {
+                    bump(&COUNTERS.single_candidate);
+                }
+                return Some(signature.clone());
+            }
             if counted {
                 bump(&COUNTERS.callee_no_signatures);
             }
