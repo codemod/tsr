@@ -362,6 +362,28 @@ struct CaseReport {
     /// TS2563 lines in the family, by case, so the concentration claim is
     /// measured rather than asserted.
     expr_ts2563_by_case: HashMap<String, usize>,
+    /// **RULE-7.** For the two node kinds under test, the baseline's exact
+    /// right-hand side, keyed by `(kind, own root?, TS2563?)`. Bounded per case.
+    e7_rhs: HashMap<(&'static str, bool, bool, String), usize>,
+    /// **Uncapped totals for the same populations.**
+    ///
+    /// `e7_rhs` is capped per case, and on the first run that cap silently
+    /// dropped increments once a case had many distinct type texts: the
+    /// propagated `ElementAccessExpression` row read **1,048** against Part 8's
+    /// independently-derived **1,540**, while the own-root row matched to the
+    /// line. A cap that drops counts reads as *"we counted everything"*, which
+    /// is the failure `docs/conventions.md` records for silent truncation. The
+    /// histogram stays capped — distinct type texts are unbounded — and the
+    /// **totals are counted here where nothing can drop them**.
+    e7_totals: HashMap<(&'static str, bool, bool), usize>,
+    /// How many histogram increments the cap dropped, so the truncation is a
+    /// printed number rather than an absence.
+    e7_dropped: usize,
+    /// **E2 for object literals.** Which member form makes
+    /// `check_object_literal` bail, which is what names the owner.
+    e7_object_member: HashMap<&'static str, usize>,
+    /// The same lines by case, for the concentration leg.
+    e7_by_case: HashMap<(&'static str, String), usize>,
     /// **RULE-5.** The three remaining `members.rs` questions, each keyed by
     /// what the sub-item actually turns out to be.
     left_n22: HashMap<&'static str, usize>,
@@ -789,6 +811,73 @@ fn walk(
             report.c4_board_terminal_depth0 += 1;
         } else {
             report.c4_board_terminal_deep += 1;
+        }
+    }
+    // **RULE-7.** The two node kinds under test. Keyed on the line's own node
+    // kind (an AST fact), on whether it is its own root, and on TS2563 — so the
+    // survivors can be read apart from the excluded lines rather than inferred
+    // by subtraction, which is what the 88.4% figure was.
+    let e7_kind = match nodes.kind(line_ids[start]) {
+        SyntaxKind::ElementAccessExpression => Some("ElementAccessExpression"),
+        SyntaxKind::ObjectLiteralExpression => Some("ObjectLiteralExpression"),
+        _ => None,
+    };
+    if let Some(e7_kind) = e7_kind {
+        *report.e7_totals.entry((e7_kind, depth == 0, ts2563)).or_default() += 1;
+        if report.e7_rhs.len() < 8192 {
+            *report
+                .e7_rhs
+                .entry((e7_kind, depth == 0, ts2563, want_type.to_string()))
+                .or_default() += 1;
+        } else {
+            report.e7_dropped += 1;
+        }
+        if depth == 0 && !ts2563 {
+            *report.e7_by_case.entry((e7_kind, case_name.to_string())).or_default() += 1;
+            if e7_kind == "ObjectLiteralExpression"
+                && let Some(Node::ObjectLiteralExpression(literal)) = map.get(line_ids[start])
+            {
+                // Mirrors `check_object_literal`'s dispatch order exactly, so
+                // the bucket names the arm that actually returned `error`
+                // rather than a shape that resembles it.
+                let mut verdict = "all members are plain assignments — another cause";
+                for property in literal.properties {
+                    verdict = match property {
+                        tsr_ast::ObjectLiteralElementLike::PropertyAssignment(a)
+                            if a.initializer.is_none() =>
+                        {
+                            "a property assignment with no initialiser"
+                        }
+                        tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_) => continue,
+                        tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(sh)
+                            if sh.object_assignment_initializer.is_some() =>
+                        {
+                            "shorthand with an assignment initialiser (destructuring)"
+                        }
+                        tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_) => {
+                            continue;
+                        }
+                        tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => {
+                            "SPREAD `{...a}` — objects.rs + unions.rs, MINE"
+                        }
+                        tsr_ast::ObjectLiteralElementLike::MethodDeclaration(_) => {
+                            "METHOD `{ m() {} }` — needs signatures.rs"
+                        }
+                        tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(_)
+                        | tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(_) => {
+                            "ACCESSOR `{ get x() {} }` — needs return-type inference"
+                        } // No `_` arm: clippy proved one unreachable, which
+                          // means this match covers every
+                          // `ObjectLiteralElementLike` variant. **Exhaustiveness
+                          // is now compiler-enforced** — a new member form added
+                          // to the AST breaks this build instead of silently
+                          // joining a catch-all, which is the construction-pinned
+                          // version of a control bucket.
+                    };
+                    break;
+                }
+                *report.e7_object_member.entry(verdict).or_default() += 1;
+            }
         }
     }
     // **RULE-6.** The family under test, crossed with where its lines root.
@@ -1709,15 +1798,15 @@ fn report(reports: &[CaseReport]) {
     let board_terminal = board.get("TERMINAL").copied().unwrap_or_default();
     let board_named = board.get("propagated/named").copied().unwrap_or_default();
     println!(
-        "  C7a TERMINAL - rank_board@9f8bdba's 22,536 = {} (0 AT THAT COMMIT ONLY. The \
+        "  C7a TERMINAL - rank_board@150b8ba's 22,538 = {} (0 AT THAT COMMIT ONLY. The \
          invariant is that the module host cannot move TERMINAL; the CONSTANT is the \
-         compiler's and has taken five values today. Re-take it, do not debug the walk.)",
-        delta(board_terminal, 22_536)
+         compiler's and has taken six values today. Re-take it, do not debug the walk.)",
+        delta(board_terminal, 22_538)
     );
     println!(
-        "  C7b propagated/named - rank_board@9f8bdba's 16,804 = {} (a MEASUREMENT: the \
-         module-host divergence: 54 at b9a4f5c, -386 at 5eb252c, UNCHANGED at 9f8bdba)",
-        delta(board_named, 16_804)
+        "  C7b propagated/named - rank_board@150b8ba's 16,590 = {} (a MEASUREMENT: the \
+         module-host divergence: 54 at b9a4f5c, then -386 at 5eb252c, 9f8bdba and 150b8ba - FIXED, not growing)",
+        delta(board_named, 16_590)
     );
     println!(
         "  A4  this probe's five buckets - gap total = {} (arithmetic; the divergence \
@@ -2207,6 +2296,119 @@ fn report(reports: &[CaseReport]) {
             truncate(kind, 32),
             pct(*own, *total)
         );
+    }
+
+    println!("\n## RULE-7 — SPELLABILITY OVER THE SURVIVORS (unit: gap assertion lines)\n");
+    println!("  Exact match on the baseline's right-hand side, not shape.");
+    let mut e7: HashMap<(&str, bool, bool, &str), usize> = HashMap::new();
+    for case in reports {
+        for ((kind, own, ts, text), n) in &case.e7_rhs {
+            *e7.entry((kind, *own, *ts, text.as_str())).or_default() += n;
+        }
+    }
+    // A raw roll-up printed first, because two populations reported an
+    // identical propagated count on the first run and an unexplained
+    // coincidence is exactly the thing this project says to chase rather than
+    // publish. This table is keyed straight off the map with no filtering.
+    let mut raw: BTreeMap<(&str, bool, bool), usize> = BTreeMap::new();
+    for case in reports {
+        for ((kind, own, ts), n) in &case.e7_totals {
+            *raw.entry((*kind, *own, *ts)).or_default() += n;
+        }
+    }
+    let dropped: usize = reports.iter().map(|r| r.e7_dropped).sum();
+    println!("  RAW ROLL-UP (UNCAPPED)  (kind, own-root, ts2563) -> lines");
+    for ((kind, own, ts), n) in &raw {
+        println!("    {:<26} own={own:<5} ts2563={ts:<5} {n:>7}", truncate(kind, 24));
+    }
+    println!(
+        "    histogram increments dropped by the per-case cap: {dropped} \
+         (the TOTALS above are uncapped; only the type histograms below are)"
+    );
+    for kind in ["ElementAccessExpression", "ObjectLiteralExpression"] {
+        println!("\n  === {kind}");
+        // The assumption the 88.4% rested on, measured rather than assumed.
+        let ts_total: usize = raw.get(&(kind, true, true)).copied().unwrap_or_default()
+            + raw.get(&(kind, false, true)).copied().unwrap_or_default();
+        let ts_any: usize = e7
+            .iter()
+            .filter(|((k, _, t, text), _)| *k == kind && *t && *text == "any")
+            .map(|(_, n)| *n)
+            .sum();
+        println!(
+            "    TS2563 lines: {ts_total}, of which `any` {ts_any} ({:.1}%) — the assumption \
+             the 88.4% rested on, measured",
+            pct(ts_any, ts_total)
+        );
+        for (own, label) in [(true, "OWN ROOT (the candidate)"), (false, "propagated")] {
+            let rows: Vec<(usize, &str)> = e7
+                .iter()
+                .filter(|((k, o, t, _), _)| *k == kind && *o == own && !*t)
+                .map(|((_, _, _, text), n)| (*n, *text))
+                .collect();
+            // **From the uncapped map**, so a truncated histogram cannot
+            // understate the denominator the percentages are taken over.
+            let total = raw.get(&(kind, own, false)).copied().unwrap_or_default();
+            let any: usize = rows.iter().filter(|(_, t)| *t == "any").map(|(n, _)| n).sum();
+            let unnameable: usize = rows
+                .iter()
+                .filter(|(_, t)| t.starts_with("typeof ") || t.contains("import("))
+                .map(|(n, _)| n)
+                .sum();
+            println!(
+                "    {label}, TS2563 excluded: {total} lines | `any` {any} ({:.1}%) | \
+                 unnameable {unnameable} ({:.1}%)",
+                pct(any, total),
+                pct(unnameable, total)
+            );
+            if own {
+                let mut ranked = rows;
+                ranked.sort_unstable_by(|a, b| b.cmp(a));
+                let sample: Vec<String> = ranked
+                    .iter()
+                    .take(8)
+                    .map(|(n, t)| format!("{} {n}", truncate(t, 20)))
+                    .collect();
+                println!("        {}", sample.join(" | "));
+                let mut cases: HashMap<&str, usize> = HashMap::new();
+                for case in reports {
+                    for ((k, name), n) in &case.e7_by_case {
+                        if *k == kind {
+                            *cases.entry(name.as_str()).or_default() += n;
+                        }
+                    }
+                }
+                let case_total: usize = cases.values().sum();
+                let mut ranked_cases: Vec<_> = cases.into_iter().map(|(c, n)| (n, c)).collect();
+                ranked_cases.sort_unstable_by(|a, b| b.cmp(a));
+                let top1 = ranked_cases.first().map_or(0, |(n, _)| *n);
+                println!(
+                    "        concentration: {} cases, top-1 {:.1}%  [{}]",
+                    ranked_cases.len(),
+                    pct(top1, case_total),
+                    ranked_cases
+                        .iter()
+                        .take(3)
+                        .map(|(n, c)| format!("{c} {n}"))
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                );
+            }
+        }
+    }
+
+    println!("\n  E2 — WHICH MEMBER FORM MAKES `check_object_literal` BAIL (the 575):");
+    let mut om: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (verdict, n) in &case.e7_object_member {
+            *om.entry(verdict).or_default() += n;
+        }
+    }
+    let om_total: usize = om.values().sum();
+    let mut om_rows: Vec<_> = om.iter().map(|(v, n)| (*n, *v)).collect();
+    om_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, verdict) in om_rows {
+        println!("      {n:>6} {:>7.2}%  {verdict}", pct(n, om_total));
     }
 
     println!("\n## CONTROLS — what pins each\n");
