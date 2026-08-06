@@ -542,3 +542,33 @@ fn the_else_branch_removes_the_named_primitive() {
         "number"
     );
 }
+
+/// `'p' in x` — `bd tsr-q9g` §6.1, `narrowTypeByInKeyword`'s known-property
+/// half. The semantics are `conformance/controlFlowInOperator.types` (its
+/// fixtures use computed names; the members here are plain, the shape is
+/// identical):
+///   declare const c: A | B;
+///   if ('a' in c) { c; }   >c : A
+#[test]
+fn an_in_guard_filters_by_property_presence() {
+    let source = "interface A { x: number }\ninterface B { y: string }\ndeclare const c: A | B;\nif (\"x\" in c) { c; }";
+    assert_eq!(type_of_last_expression(source), "A");
+    let source = "interface A { x: number }\ninterface B { y: string }\ndeclare const c: A | B;\nif (\"x\" in c) {} else { c; }";
+    assert_eq!(type_of_last_expression(source), "B");
+    // An unknown name narrows nothing on the true branch (the Record-
+    // intersection half is upstream's own no-op when the global alias is
+    // missing, which a lib-less fixture guarantees).
+    let source = "interface A { x: number }\ninterface B { y: string }\ndeclare const c: A | B;\nif (\"z\" in c) { c; }";
+    assert_eq!(type_of_last_expression(source), "A | B");
+}
+
+/// The pair the first run of the `in` arm lost 13 corpus lines to
+/// (`compiler/strictOptionalProperties1.types`): the ELSE branch of a guard
+/// over an OPTIONAL property keeps the object — absence is possible — where a
+/// required property's else branch removes it.
+///   if ('a' in obj) {} else { obj; }   >obj : { a?: string; ... }
+#[test]
+fn an_in_guard_over_an_optional_property_keeps_the_else_branch() {
+    let source = "interface A { x?: number }\ndeclare const c: A;\nif (\"x\" in c) {} else { c; }";
+    assert_eq!(type_of_last_expression(source), "A");
+}

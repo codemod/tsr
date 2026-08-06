@@ -441,3 +441,16 @@ no-op here by upstream's own fallback.
 
 Bar: **net ≥ 5**; gained ≥ 3 × lost; 0 case regressions; Δwrong ≤ 0. Small
 population, same legs, same instruments, one pair.
+
+### §6.1 scored — leg 2 caught a real bug before it shipped
+
+First run: +45/−13, ratio 3.46 — numerically passing every leg, with all 13
+losses in one case. Diagnosed per the rule (build wrong first): the port read
+`SymbolFlags::OPTIONAL`, **which this binder never writes**, so every optional
+property tested as required and the else branch of `'a' in obj` collapsed to
+`never` (`strictOptionalProperties1`). The fix reads optionality where this
+port keeps it — the declaration's question token, via
+`is_optional_declaration` — and the pair is pinned by a unit test. Final:
+**+43, 0 lost, 0 regressions, Δwrong −19** (21 fixed, 2 new). A leg that
+passes numerically can still be naming a bug; 13 lines in one case was the
+tell, and pricing it as a trade would have shipped it.

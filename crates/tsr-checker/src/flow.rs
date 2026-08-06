@@ -873,6 +873,24 @@ impl Checker<'_, '_> {
                 else {
                     return t;
                 };
+                // `"p" in x` — `narrowTypeByInKeyword` (`flow.go:1001`),
+                // known-property half; `checker-notes-narrow.md` §6.1. The
+                // name must be a written string literal (upstream reads it
+                // from the operand's *type*; a literal is the only shape whose
+                // type this port can read without re-entering the flow walk,
+                // the same restriction `nullable_literal_type` states).
+                if operator.kind == SyntaxKind::InKeyword {
+                    let (Some(left_node), Some(right_node)) = (left.node_id(), right.node_id())
+                    else {
+                        return t;
+                    };
+                    if let Some(Node::StringLiteral(literal)) = self.node_map.get(left_node)
+                        && self.is_matching_reference(state, right_node)
+                    {
+                        return self.narrow_type_by_in_keyword(t, literal.text, assume_true);
+                    }
+                    return t;
+                }
                 if !matches!(
                     operator.kind,
                     SyntaxKind::EqualsEqualsToken
@@ -1019,6 +1037,83 @@ impl Checker<'_, '_> {
             TypeFacts::NE_UNDEFINED
         };
         self.get_type_with_facts(t, facts)
+    }
+
+    /// `narrowTypeByInKeyword` (`flow.go:1001`), the known-property half:
+    /// when some constituent declares the property, filter by
+    /// `isTypePresencePossible`. The unknown-property half intersects with
+    /// `Record<X, unknown>` through the global `Record` alias; alias
+    /// instantiation is unported, and upstream itself answers `t` unchanged
+    /// when that symbol is missing, so the same fallback is taken here by
+    /// construction rather than by approximation.
+    fn narrow_type_by_in_keyword(&mut self, t: TypeId, name: &str, assume_true: bool) -> TypeId {
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let mut known = false;
+        for &constituent in &constituents {
+            if self.is_type_presence_possible(constituent, name, true) {
+                known = true;
+                break;
+            }
+        }
+        if !known {
+            return t;
+        }
+        // `filterType`, unrolled: this port's `filter_type` takes a pure
+        // predicate and the presence test needs `&mut self` (the property
+        // lookup can instantiate), so the loop is written out with the same
+        // identity short-circuit.
+        let mut kept = Vec::with_capacity(constituents.len());
+        for &constituent in &constituents {
+            if self.is_type_presence_possible(constituent, name, assume_true) {
+                kept.push(constituent);
+            }
+        }
+        if kept.len() == constituents.len() {
+            return t;
+        }
+        if kept.is_empty() {
+            return self.intrinsics.never;
+        }
+        self.get_union_type(&kept)
+    }
+
+    /// `isTypePresencePossible` (`flow.go:1024`): a declared non-optional
+    /// property is present exactly when the guard holds; an optional one is
+    /// possible either way; an index signature makes both possible; absence
+    /// is possible only on the false branch.
+    fn is_type_presence_possible(&mut self, t: TypeId, name: &str, assume_true: bool) -> bool {
+        if let Some(property) = self.get_property_of_type(t, name) {
+            // Upstream reads `SymbolFlagsOptional`, which its binder stamps.
+            // This port's binder writes no OPTIONAL flag — the first run of
+            // this arm read one anyway, found `false` everywhere, and turned
+            // the else-branch of every optional-property guard into `never`
+            // (13 lines lost in `strictOptionalProperties1`, the bar's leg 2
+            // doing its job). Optionality here lives on the *declaration*, and
+            // `is_optional_declaration` is the one reader of it.
+            let optional = self
+                .binder
+                .symbols()
+                .get(property)
+                .declarations
+                .first()
+                .copied()
+                .is_some_and(|declaration| self.is_optional_declaration(declaration));
+            return optional || assume_true;
+        }
+        // `getStringLiteralType` yields the regular form, which is all the
+        // index-applicability test reads.
+        let name_type = self.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral(name.to_string()),
+            false,
+        );
+        if self.get_applicable_index_info(t, name_type).is_some() {
+            return true;
+        }
+        !assume_true
     }
 
     /// `narrowTypeByLiteralExpression` (`flow.go:646`): the true branch

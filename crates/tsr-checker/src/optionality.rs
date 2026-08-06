@@ -173,7 +173,7 @@ impl Checker<'_, '_> {
     /// `T | undefined`, because the initialiser supplies the value when the
     /// argument is absent. Conflating the two would append `| undefined` to
     /// every defaulted parameter in the corpus.
-    fn is_optional_declaration(&self, declaration: NodeId) -> bool {
+    pub(crate) fn is_optional_declaration(&self, declaration: NodeId) -> bool {
         let Some(node) = self.node_map.get(declaration) else { return false };
         let token = match node {
             Node::ParameterDeclaration(n) => n.question_token,
