@@ -240,6 +240,17 @@ struct CaseReport {
     c2_annotated_collected: usize,
     c2_annotated_rejected: usize,
     c3_unknown_symbol: usize,
+    /// **P — the syntactic population.** Every rendered assertion line keyed by
+    /// its node **kind**, with all four outcomes. A checker change cannot alter
+    /// which nodes exist, so `|P|` per kind is fixed across any two runs: that
+    /// is what makes a before/after pair comparable line for line, which a
+    /// population defined as "the lines that gap" would not be, because the gap
+    /// set moves under the very change being measured. Copied in shape from
+    /// `examples/fnexpr.rs`.
+    by_kind: HashMap<(SyntaxKind, Status), usize>,
+    /// The `ArrayLiteralExpression` lines that are an auto-array initialiser —
+    /// the overlap between this item and `array_literals.rs`'s wrong column.
+    array_literal_is_auto_initialiser: HashMap<Status, usize>,
 }
 
 fn check_classifier() {
@@ -344,22 +355,6 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
     if case.name == "compiler/largeControlFlowGraph" {
         report.c1_headline_declarations = auto.len();
     }
-    if auto.is_empty() {
-        // Still counted for the residual, so `finishes` has a denominator.
-        for expected_file in &expected {
-            report.expected += expected_file.assertions.len();
-        }
-        for (index, expected_file) in expected.iter().enumerate() {
-            let Some(our_file) = ours.get(index) else { continue };
-            for (position, want) in expected_file.assertions.iter().enumerate() {
-                if our_file.get(position).is_some_and(|got| got.line() == want.text) {
-                    report.matched += 1;
-                }
-            }
-        }
-        return Some(report);
-    }
-
     for (index, expected_file) in expected.iter().enumerate() {
         report.expected += expected_file.assertions.len();
         let (Some(our_file), Some(line_ids)) = (ours.get(index), ids.get(index)) else { continue };
@@ -372,7 +367,20 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
             if aligned.is_some_and(|w| w == got.type_string) {
                 report.matched += 1;
             }
+            // P, the syntactic population: recorded for every line of every
+            // case, including cases holding no auto-array declaration at all,
+            // so the denominator is the corpus and not this item's subset.
+            let status = match aligned {
+                None => Status::Unaligned,
+                Some(w) if w == got.type_string => Status::Right,
+                Some(_) if got.type_string == "error" => Status::Gap,
+                Some(_) => Status::Wrong,
+            };
+            *report.by_kind.entry((got.kind, status)).or_default() += 1;
             let id = line_ids[position];
+            if auto.is_empty() {
+                continue;
+            }
             let Some((site, symbol)) = site_of(bound, nodes, map, id, &auto, &auto_declaration)
             else {
                 continue;
@@ -388,6 +396,9 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                 report.c2_annotated_collected += 1;
             }
             report.collected += 1;
+            if got.kind == SyntaxKind::ArrayLiteralExpression {
+                *report.array_literal_is_auto_initialiser.entry(status).or_default() += 1;
+            }
             let Some(upstream) = aligned else {
                 *report.lines.entry((site, Needs::Other, Status::Unaligned)).or_default() += 1;
                 report.convertible += 1;
@@ -679,6 +690,58 @@ fn report(reports: &[CaseReport]) {
             println!("      {n:>7}  upstream `{want}`  ours `{got}`");
         }
     }
+
+    // P, the syntactic population, printed for the kinds this workstream owns.
+    println!("\n## P — the syntactic population by node kind (unit: assertion lines)\n");
+    let mut kinds: BTreeMap<SyntaxKind, BTreeMap<Status, usize>> = BTreeMap::new();
+    for case in reports {
+        for ((kind, status), n) in &case.by_kind {
+            *kinds.entry(*kind).or_default().entry(*status).or_default() += n;
+        }
+    }
+    println!(
+        "{:<26} {:>8} {:>8} {:>8} {:>10} {:>10}",
+        "node kind", "|P|", "right", "gap", "wrong", "unaligned"
+    );
+    for kind in [
+        SyntaxKind::ArrayLiteralExpression,
+        SyntaxKind::ObjectLiteralExpression,
+        SyntaxKind::ElementAccessExpression,
+    ] {
+        let Some(split) = kinds.get(&kind) else { continue };
+        let total: usize = split.values().sum();
+        let right = split.get(&Status::Right).copied().unwrap_or_default();
+        let wrong = split.get(&Status::Wrong).copied().unwrap_or_default();
+        println!(
+            "{:<26} {:>8} {:>8} {:>8} {:>10} {:>10}{}",
+            format!("{kind:?}"),
+            total,
+            right,
+            split.get(&Status::Gap).copied().unwrap_or_default(),
+            wrong,
+            split.get(&Status::Unaligned).copied().unwrap_or_default(),
+            if wrong > right { "   <- more WRONG than right" } else { "" }
+        );
+    }
+    let overlap: BTreeMap<Status, usize> = {
+        let mut m: BTreeMap<Status, usize> = BTreeMap::new();
+        for case in reports {
+            for (status, n) in &case.array_literal_is_auto_initialiser {
+                *m.entry(*status).or_default() += n;
+            }
+        }
+        m
+    };
+    let overlap_total: usize = overlap.values().sum();
+    println!(
+        "\n  of those ArrayLiteralExpression lines, {overlap_total} are an auto-array initialiser —"
+    );
+    for (status, n) in &overlap {
+        println!("      {n:>6}  {}", status.label());
+    }
+    println!(
+        "  This item types the SYMBOL and never the literal, so its predicted movement here is 0."
+    );
 
     println!("\n## CONTROLS\n");
     let c1: usize = reports.iter().map(|r| r.c1_headline_declarations).sum();
