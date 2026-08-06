@@ -147,6 +147,50 @@ impl Prop {
     }
 }
 
+/// The outcome of one assertion line, over a **syntactically pinned**
+/// population. `Unaligned` carries a positive test.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+enum Status {
+    Right,
+    Gap,
+    Wrong,
+    Unaligned,
+}
+
+/// For an `ElementAccessExpression` that gapped: what its **receiver** did.
+///
+/// This is the cause split for the largest gap kind in the corpus. Every arm is
+/// a positive test; `ReceiverNotRendered` is the default and is the least
+/// informative label, never `ReceiverRight`, which is the loaded one — it is the
+/// arm that says *"we have the receiver's type and still cannot index it"*, i.e.
+/// the row's size is its worth.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
+enum Recv {
+    /// We typed the receiver correctly and still gapped the access. **The only
+    /// arm that is this row's own work.**
+    Right,
+    /// The receiver gapped. This access is a symptom.
+    Gap,
+    /// The receiver is typed and wrong. Also a symptom, of a different item.
+    Wrong,
+    /// The receiver's line exists but its text did not align.
+    Unaligned,
+    /// No rendered line for the receiver. No evidence either way.
+    NotRendered,
+}
+
+impl Recv {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Right => "receiver RIGHT  — we have the type and cannot index it",
+            Self::Gap => "receiver gapped — symptom",
+            Self::Wrong => "receiver wrong  — symptom",
+            Self::Unaligned => "receiver unaligned",
+            Self::NotRendered => "receiver not rendered (no evidence)",
+        }
+    }
+}
+
 /// Wrong type, or right type we cannot name.
 ///
 /// **Total, therefore not a control.** Ordered; the order is load-bearing,
@@ -337,6 +381,36 @@ struct CaseReport {
     /// control rather than decoration.
     c2_violation: usize,
     c5_sibling: usize,
+    /// **P — the syntactic population.** Every rendered line keyed by node
+    /// **kind**. A checker change cannot alter which nodes exist, so `|P|` per
+    /// kind is fixed across any two runs of this probe. Shape from
+    /// `examples/fnexpr.rs`.
+    by_kind: HashMap<(SyntaxKind, Status), usize>,
+    /// The case's own `.errors.txt` carries TS2563, so upstream disabled control
+    /// flow analysis in it and its `any`s are `c.errorType` (`flow.go:81`),
+    /// unreachable per ADR-0038. Read from the baseline, never assumed.
+    flow_disabled: bool,
+    /// Lines excluded by that flag, **printed as a bucket**: a silent exclusion
+    /// reads as "we covered everything".
+    excluded: HashMap<SyntaxKind, usize>,
+    /// `ElementAccessExpression` gap lines, by what the receiver did, and by the
+    /// receiver's type where we have one.
+    ea_recv: HashMap<Recv, usize>,
+    ea_recv_type: HashMap<String, usize>,
+    /// The same, for cases where flow analysis is **not** disabled.
+    ea_recv_live: HashMap<Recv, usize>,
+    /// The cause split, per node kind, for wrong lines.
+    kind_prop: HashMap<(SyntaxKind, Prop), usize>,
+    /// C7: an `ElementAccess` whose receiver line comes *before* it. 0 by the
+    /// walker's preorder — `a[b]` emits `a[b]`, then `a`, then `b`.
+    c7_receiver_before: usize,
+    c7_receiver_after: usize,
+    /// ROOT-cause wrong `ArrayLiteralExpression` lines: exact substitutions,
+    /// per-case counts for concentration, and the naming split for the
+    /// exact-match spellability test.
+    al_root_pairs: HashMap<(String, String), usize>,
+    al_root: usize,
+    al_root_naming: HashMap<Naming, usize>,
 }
 
 impl CaseReport {
@@ -365,6 +439,18 @@ impl CaseReport {
             c2_other_declaration: 0,
             c2_violation: 0,
             c5_sibling: 0,
+            by_kind: HashMap::new(),
+            flow_disabled: false,
+            excluded: HashMap::new(),
+            ea_recv: HashMap::new(),
+            ea_recv_type: HashMap::new(),
+            ea_recv_live: HashMap::new(),
+            kind_prop: HashMap::new(),
+            c7_receiver_before: 0,
+            c7_receiver_after: 0,
+            al_root_pairs: HashMap::new(),
+            al_root: 0,
+            al_root_naming: HashMap::new(),
         }
     }
 }
@@ -446,6 +532,8 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
     let bound = program.binder();
 
     let mut report = CaseReport::new(case.name.clone());
+    report.flow_disabled =
+        case.expected_errors().ok().flatten().is_some_and(|e| e.contains("TS2563"));
 
     for (index, expected_file) in expected.iter().enumerate() {
         report.expected += expected_file.assertions.len();
@@ -498,7 +586,72 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
         for position in 0..len {
             let Some(want) = expected_file.assertions.get(position) else { continue };
             let got = &our_file[position];
-            let Some(want_type) = want.text.strip_prefix(&format!("{} : ", got.text)) else {
+            let aligned = want.text.strip_prefix(&format!("{} : ", got.text));
+            // P, recorded for every line before any of this probe's own
+            // filtering, so the denominator is the corpus.
+            let status = match aligned {
+                None => Status::Unaligned,
+                Some(w) if w == got.type_string => Status::Right,
+                Some(_) if got.type_string == "error" => Status::Gap,
+                Some(_) => Status::Wrong,
+            };
+            *report.by_kind.entry((got.kind, status)).or_default() += 1;
+            if report.flow_disabled {
+                *report.excluded.entry(got.kind).or_default() += 1;
+            }
+
+            // The `ElementAccessExpression` gap split. Done here rather than
+            // after the `continue` below, because a gap line never reaches the
+            // wrong-line machinery.
+            if status == Status::Gap && got.kind == SyntaxKind::ElementAccessExpression {
+                let id = line_ids[position];
+                let receiver = match node_map.get(id) {
+                    Some(tsr_ast::Node::ElementAccessExpression(node)) => {
+                        node.expression.as_ref().and_then(tsr_ast::Expression::node_id)
+                    }
+                    _ => None,
+                };
+                let at = receiver.and_then(|r| position_of.get(&r).copied());
+                // C7: the walker is preorder, so `a[b]` emits `a[b]` then `a`.
+                // A receiver line *before* the access is impossible.
+                if let Some(at) = at {
+                    if at < position {
+                        report.c7_receiver_before += 1;
+                    } else {
+                        report.c7_receiver_after += 1;
+                    }
+                }
+                let recv = match at {
+                    None => Recv::NotRendered,
+                    Some(at) => {
+                        let rgot = &our_file[at];
+                        match expected_file
+                            .assertions
+                            .get(at)
+                            .and_then(|w| w.text.strip_prefix(&format!("{} : ", rgot.text)))
+                        {
+                            None => Recv::Unaligned,
+                            Some(w) if w == rgot.type_string => Recv::Right,
+                            Some(_) if rgot.type_string == "error" => Recv::Gap,
+                            Some(_) => Recv::Wrong,
+                        }
+                    }
+                };
+                *report.ea_recv.entry(recv).or_default() += 1;
+                if !report.flow_disabled {
+                    *report.ea_recv_live.entry(recv).or_default() += 1;
+                    if recv == Recv::Right
+                        && let Some(at) = at
+                    {
+                        *report
+                            .ea_recv_type
+                            .entry(our_file[at].type_string.clone())
+                            .or_default() += 1;
+                    }
+                }
+            }
+
+            let Some(want_type) = aligned else {
                 report.unaligned += 1;
                 continue;
             };
@@ -547,6 +700,15 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                 &mut report,
             );
             *report.props.entry(prop).or_default() += 1;
+            *report.kind_prop.entry((kind, prop)).or_default() += 1;
+            if kind == SyntaxKind::ArrayLiteralExpression && prop == Prop::Root {
+                report.al_root += 1;
+                *report
+                    .al_root_pairs
+                    .entry((want_type.to_string(), got.type_string.clone()))
+                    .or_default() += 1;
+                *report.al_root_naming.entry(naming(want_type, &got.type_string)).or_default() += 1;
+            }
 
             let name = naming(want_type, &got.type_string);
             *report.naming_total.entry(name).or_default() += 1;
@@ -991,6 +1153,177 @@ fn report(reports: &[CaseReport]) {
         }
     }
 
+    // ---- P, the syntactic population -------------------------------------
+    println!("\n## P — the syntactic population by node kind (unit: assertion lines)\n");
+    let mut kinds: BTreeMap<SyntaxKind, BTreeMap<Status, usize>> = BTreeMap::new();
+    for case in reports {
+        for ((kind, status), n) in &case.by_kind {
+            *kinds.entry(*kind).or_default().entry(*status).or_default() += n;
+        }
+    }
+    let mut excluded: BTreeMap<SyntaxKind, usize> = BTreeMap::new();
+    for case in reports {
+        for (kind, n) in &case.excluded {
+            *excluded.entry(*kind).or_default() += n;
+        }
+    }
+    println!(
+        "{:<26} {:>7} {:>7} {:>7} {:>7} {:>9} {:>10}",
+        "node kind", "|P|", "right", "gap", "wrong", "unaligned", "TS2563-excl"
+    );
+    for kind in [
+        SyntaxKind::ElementAccessExpression,
+        SyntaxKind::ArrayLiteralExpression,
+        SyntaxKind::ObjectLiteralExpression,
+        SyntaxKind::PropertyAccessExpression,
+    ] {
+        let Some(split) = kinds.get(&kind) else { continue };
+        let total: usize = split.values().sum();
+        println!(
+            "{:<26} {:>7} {:>7} {:>7} {:>7} {:>9} {:>10}",
+            format!("{kind:?}"),
+            total,
+            split.get(&Status::Right).copied().unwrap_or_default(),
+            split.get(&Status::Gap).copied().unwrap_or_default(),
+            split.get(&Status::Wrong).copied().unwrap_or_default(),
+            split.get(&Status::Unaligned).copied().unwrap_or_default(),
+            excluded.get(&kind).copied().unwrap_or_default(),
+        );
+    }
+    println!(
+        "\n  `TS2563-excl` is printed as its own column and never netted away: those lines are"
+    );
+    println!(
+        "  upstream's errorType (`flow.go:81`) and are ADR-0038's ceiling. A silent exclusion"
+    );
+    println!("  would read as \"we covered everything\".");
+
+    // ---- item 1: ElementAccessExpression gap -----------------------------
+    println!("\n## ITEM 1 — `ElementAccessExpression` gap lines, by what the RECEIVER did\n");
+    let roll = |pick: fn(&CaseReport) -> &HashMap<Recv, usize>| {
+        let mut m: BTreeMap<Recv, usize> = BTreeMap::new();
+        for case in reports {
+            for (recv, n) in pick(case) {
+                *m.entry(*recv).or_default() += n;
+            }
+        }
+        m
+    };
+    let all = roll(|c| &c.ea_recv);
+    let live = roll(|c| &c.ea_recv_live);
+    let all_total: usize = all.values().sum();
+    let live_total: usize = live.values().sum();
+    println!("{:<56} {:>9} {:>18}", "receiver", "all", "TS2563 excluded");
+    for recv in [Recv::Right, Recv::Gap, Recv::Wrong, Recv::Unaligned, Recv::NotRendered] {
+        println!(
+            "{:<56} {:>9} {:>18}",
+            recv.label(),
+            all.get(&recv).copied().unwrap_or_default(),
+            live.get(&recv).copied().unwrap_or_default()
+        );
+    }
+    println!("{:<56} {:>9} {:>18}", "TOTAL", all_total, live_total);
+    println!(
+        "\n  excluded by TS2563: {} lines ({:.1}% of the kind's gap)",
+        all_total - live_total,
+        pct(all_total - live_total, all_total)
+    );
+    let actionable = live.get(&Recv::Right).copied().unwrap_or_default();
+    println!(
+        "  ACTIONABLE (receiver right, flow analysis live): {actionable} ({:.3} gradient points)",
+        pct(actionable, expected)
+    );
+    println!(
+        "\n  The receiver types behind those actionable lines — what `indexed.rs` must index:"
+    );
+    let mut rtypes: BTreeMap<String, usize> = BTreeMap::new();
+    for case in reports {
+        for (t, n) in &case.ea_recv_type {
+            *rtypes.entry(t.clone()).or_default() += n;
+        }
+    }
+    let mut rt: Vec<(&String, &usize)> = rtypes.iter().collect();
+    rt.sort_by_key(|(t, n)| (std::cmp::Reverse(**n), (*t).clone()));
+    for (t, n) in rt.iter().take(12) {
+        println!("      {n:>6}  {t}");
+    }
+
+    // ---- item 2: ArrayLiteralExpression wrong, cause split ---------------
+    println!("\n## ITEM 2 — the cause split for WRONG lines, per node kind\n");
+    let mut kp: BTreeMap<SyntaxKind, BTreeMap<Prop, usize>> = BTreeMap::new();
+    for case in reports {
+        for ((kind, prop), n) in &case.kind_prop {
+            *kp.entry(*kind).or_default().entry(*prop).or_default() += n;
+        }
+    }
+    for kind in [SyntaxKind::ArrayLiteralExpression, SyntaxKind::ObjectLiteralExpression] {
+        let Some(split) = kp.get(&kind) else { continue };
+        let total: usize = split.values().sum();
+        let root = split.get(&Prop::Root).copied().unwrap_or_default();
+        println!("  {kind:?} — {total} wrong lines");
+        for (prop, n) in split {
+            println!("      {:<24} {n:>6} ({:>5.1}%)", prop.label(), pct(*n, total));
+        }
+        println!(
+            "      ROOT share {:.1}%  <- the deciding number ({} lines, {:.3} points)",
+            pct(root, total),
+            root,
+            pct(root, expected)
+        );
+    }
+
+    // The 1,396: what are they, exactly?
+    println!("\n## ITEM 2 detail — the ROOT wrong `ArrayLiteralExpression` lines\n");
+    let mut alp: BTreeMap<(String, String), usize> = BTreeMap::new();
+    let mut al_naming: BTreeMap<Naming, usize> = BTreeMap::new();
+    let mut al_by_case: Vec<(&str, usize, usize)> = Vec::new();
+    let mut array_root_lines = 0usize;
+    for case in reports {
+        for (k, n) in &case.al_root_pairs {
+            *alp.entry(k.clone()).or_default() += n;
+        }
+        for (k, n) in &case.al_root_naming {
+            *al_naming.entry(*k).or_default() += n;
+        }
+        array_root_lines += case.al_root;
+        if case.al_root > 0 {
+            al_by_case.push((case.name.as_str(), case.al_root, case.expected - case.matched));
+        }
+    }
+    let mut pairs: Vec<(&(String, String), &usize)> = alp.iter().collect();
+    pairs.sort_by_key(|(k, n)| (std::cmp::Reverse(**n), (*k).clone()));
+    println!("  exact substitutions (unit: assertion lines):");
+    for ((want, got), n) in pairs.iter().take(14) {
+        println!("      {n:>6}  upstream `{want}`  ours `{got}`");
+    }
+    println!("\n  spellability, EXACT-MATCH legs — upstream's answer classified verbatim:");
+    let mut naming_fail = 0usize;
+    for (name, n) in &al_naming {
+        if name.is_naming() {
+            naming_fail += n;
+        }
+        println!("      {n:>6} ({:>5.1}%)  {}", pct(*n, array_root_lines), name.label());
+    }
+    println!(
+        "      naming failures {naming_fail} ({:.1}%) — R3 {}",
+        pct(naming_fail, array_root_lines),
+        if pct(naming_fail, array_root_lines) < 25.0 { "PASS" } else { "FAIL" }
+    );
+    al_by_case.sort_by_key(|(name, n, _)| (std::cmp::Reverse(*n), *name));
+    let top1 = al_by_case.first().map_or(0, |(_, n, _)| *n);
+    let top10: usize = al_by_case.iter().take(10).map(|(_, n, _)| n).sum();
+    println!(
+        "\n  concentration: {} cases, top-1 {:.1}%, top-10 {:.1}%",
+        al_by_case.len(),
+        pct(top1, array_root_lines),
+        pct(top10, array_root_lines)
+    );
+    for (name, n, residual) in al_by_case.iter().take(8) {
+        println!("      {n:>5}  (case residual {residual:>5})  {name}");
+    }
+    let finishes = al_by_case.iter().filter(|(_, n, r)| n == r).count();
+    println!("  cases this row would FINISH (upper bound): {finishes}");
+
     println!("\n## CONTROLS\n");
     let c1_leaf: usize = reports.iter().map(|r| r.c1_leaf_descendant).sum();
     let c1_nonleaf: usize = reports.iter().map(|r| r.c1_nonleaf_descendant).sum();
@@ -1015,6 +1348,12 @@ fn report(reports: &[CaseReport]) {
     println!(
         "  C5  declaration names blamed on a sibling        = {c5} (the sibling arm's population)"
     );
+    let c7b: usize = reports.iter().map(|r| r.c7_receiver_before).sum();
+    let c7a: usize = reports.iter().map(|r| r.c7_receiver_after).sum();
+    println!(
+        "  C7  an ElementAccess whose receiver line precedes it = {c7b} (must be 0: the walker is preorder, `a[b]` emits `a[b]` then `a`)"
+    );
+    println!("  C7' the receiver line follows it                 = {c7a} (the mirror)");
     // Pinned by another instrument rather than by arithmetic inside this one:
     // `coverage` reports 2,173 passing cases at `058b4a9`. `checker-notes-rank.md`
     // §7 records this residual metric reading +18 against the gate, because it

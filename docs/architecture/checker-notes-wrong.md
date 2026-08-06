@@ -394,6 +394,141 @@ C1 and C2, both pinned by construction, see it.
   declarations are fixed.** This page shows they are downstream; it does not
   show the multiplier. `open`.
 
+## ADDENDUM 2026-08-06 — two items measured in one probe, both refused
+
+Measured at `f67b8e5` by `examples/wrongflip.rs`, extended with **P, a
+population pinned syntactically by node kind** (`fnexpr.rs` shape), so `|P|`
+cannot move under the thing being measured.
+
+| node kind | \|P\| | right | gap | wrong | unaligned | TS2563-excl |
+|---|---:|---:|---:|---:|---:|---:|
+| `ElementAccessExpression` | 13,773 | 431 | **13,141** | 90 | 111 | **10,000** |
+| `ArrayLiteralExpression` | 4,307 | 1,324 | 1,149 | **1,773** | 61 | 1 |
+| `ObjectLiteralExpression` | 7,252 | 4,585 | 1,691 | 725 | 251 | 0 |
+| `PropertyAccessExpression` | 24,072 | 6,914 | 15,215 | 1,621 | 322 | 0 |
+
+`TS2563-excl` is **printed as its own column and never netted away**. Those
+lines are upstream's `errorType` (`flow.go:81`), ADR-0038's ceiling. A silent
+exclusion would read as *"we covered everything"*.
+
+### Item 1 — `ElementAccessExpression`: 13,141 gap, 786 actionable
+
+Split by what the **receiver** did. Every arm is a positive test;
+`NotRendered` is the default, and `Right` — the loaded arm, the one meaning
+*"we have the type and still cannot index it"* — is positive.
+
+| receiver | all | TS2563 excluded |
+|---|---:|---:|
+| **RIGHT — we have the type and cannot index it** | **786** | **786** |
+| gapped — symptom | 1,403 | 1,403 |
+| wrong — symptom | 10,928 | 928 |
+| unaligned | 24 | 24 |
+| not rendered | 0 | 0 |
+| TOTAL | 13,141 | 3,141 |
+
+**10,000 lines (76.1%) are the TS2563 ceiling.** The residual is 3,141 — which
+matches the coordinator's estimate — but **only 786 of it is this file's own
+work**; 2,331 is propagated from a receiver that gapped or is wrong.
+
+**786 lines = 0.164 gradient points**, and the receiver types behind them are a
+long tail with no head (`bd tsr-65p`):
+
+```
+  73 T        32 string[]   29 any[]    29 number[]   24 typeof N
+  20 Record<number, boolean>  19 U      19 string     18 T[]   18 this
+```
+
+The two largest are **generic type parameters**. This is not an indexing item;
+it is generic instantiation seen through an index, and it lives outside this
+workstream. **Refused.**
+
+### Item 2 — `ArrayLiteralExpression`: 78.7% ROOT, and it still refuses
+
+The cause split, run as I proposed in `tsr-ejp`. **The expectation was wrong and
+in the interesting direction.**
+
+| kind | wrong lines | ROOT | descendant | sibling | **ROOT share** |
+|---|---:|---:|---:|---:|---:|
+| `ArrayLiteralExpression` | 1,773 | **1,396** | 152 | 225 | **78.7%** |
+| `ObjectLiteralExpression` | 725 | 76 | 457 | 192 | **10.5%** |
+
+Corpus-wide the wrong bucket is **19.07% ROOT**; `ArrayLiteralExpression` is
+**78.7%**, and `ObjectLiteralExpression` is the mirror image at 10.5%. Both the
+coordinator and I predicted a small share. The **mechanism** is in
+`array_literals.rs` and explains it: `check_array_literal` returns `error` the
+moment any element is `error`, so a *gapping* element makes the literal a gap
+and never a wrong answer. What survives to be wrong therefore has all-right
+elements almost by construction. The split is not tautological — 152 lines do
+have a *wrong* descendant — but the high ROOT share is a property of the
+existing guard, not evidence of available work.
+
+**And the 1,396 does not survive its own detail.** Exact substitutions:
+
+```
+  512  upstream `E[]`               ours `error[]`
+  179  upstream `undefined[]`       ours `never[]`
+   72  upstream `[number, number]`  ours `number[]`
+   69  upstream `[]`                ours `never[]`
+   56  upstream `[number, string]`  ours `(string | number)[]`
+   45  upstream `[number]`          ours `number[]`
+   38  upstream `[string, number]`  ours `(string | number)[]`
+   34  upstream `[number, number, number]`  ours `number[]`
+```
+
+Three populations, none of them buildable here:
+
+1. **512 lines (36.7%) are one case.** `compiler/enumLiteralsSubtypeReduction`,
+   `E[]` against `error[]` — a gap that escaped into a printed type. Its case
+   residual is 513, so closing it flips **one** case. Top-1 36.7% and this is
+   the row evaporating on the concentration check, exactly as three gradient
+   rows did in `checker-notes-rank.md` §3.
+2. **591 lines (42.3%) are the tuple family.** Upstream infers a **tuple**
+   where we infer an array: `[number, number]` against `number[]`,
+   `[number, string]` against `(string | number)[]`. An array literal becomes a
+   tuple only from a contextual type, a `const` assertion, or rest-parameter
+   inference — `contextual.rs`, which this workstream does **not** own. Same
+   boundary finding as the `symbols.rs` arm, and reported rather than crossed.
+   `bd tsr-un1`.
+3. **~290 lines (20.8%) are same-shape, different-text** — scattered element-type
+   differences across 288 cases. **0.061 gradient points.**
+
+Concentration over the whole 1,396: 288 cases, top-1 **36.7%**, top-10 49.8%,
+and it would **finish 4 cases** at the optimistic bound.
+
+**Refused.** After removing the one-case leak and the tuple family that belongs
+to another workstream, what is left in `array_literals.rs` is ~290 lines across
+~288 cases — 0.061 points, roughly one line per case.
+
+### Spellability, both legs stated
+
+For item 2 the naming split was taken on the baseline's **verbatim** right-hand
+side, per the rule that landed in `3f140c2`: `error leaked` 515 (36.9%),
+`different shape` 591 (42.3%), `same shape different text` 290 (20.8%), and
+**naming failures 0 (0.0%)**. So R3 passes — but that measures only *upstream's*
+leg. **Our leg is again predicted, not measured**, because no counterfactual was
+run; the refusals do not rest on it, since both fail on size by 5–20×.
+
+### On pre-registration, for a refusal
+
+Both bars here were written after the numbers were visible, which would be
+disqualifying for a **build**. It is not for a **refusal**: pre-registration
+exists to stop a number being rationalised into a build, and the failure
+direction is asymmetric. Both items miss any plausible bar by 5–20×, so the
+post-hoc objection cannot change the verdict. Recorded so the asymmetry is
+argued rather than assumed.
+
+### Controls
+
+| control | reads | pinned by |
+|---|---:|---|
+| **C7** an `ElementAccess` whose receiver line **precedes** it | **0** | **construction** — the walker is preorder, `a[b]` emits `a[b]`, then `a`, then `b` |
+| C7′ the receiver line follows it | 13,141 | the mirror; the arm is fully reachable |
+| C1 leaf classified `propagated/descendant` | 0 (mirror 3,288) | construction |
+| C2 a line blaming its own declaration | 0 (mirrors 5,200 / 21,166) | construction |
+| C3 a `finishes` in a case with an unaligned line | 0 | construction |
+| C6 cases with residual 0 | 2,202 | another instrument (gate 2,173 + the known +18, now +29 after two merges) |
+| A1–A4 | 0 | arithmetic |
+
 ## Superseded numbers
 
 None yet. When one on this page is corrected, it gets a dated header here rather
