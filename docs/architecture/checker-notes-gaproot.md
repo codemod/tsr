@@ -996,6 +996,55 @@ whose unblocked members are instantiated types handed to a printer nobody has
 checked. Recorded here because the question is cheap and the answer differs
 sharply between two items that look adjacent.
 
+---
+
+# Part 5 — splitting the rest of `tsr-iks`
+
+## RULE-4, registered before the measurement
+
+Fourth cycle running, same handling, and this one carries a prediction that is
+uncomfortable to write down.
+
+**Population.** The **5,441** `RIGHT`-arm gap lines of the
+`PropertyAccessExpression` population at `5eb252c` — we hold upstream's own type
+for the receiver and cannot look the member up. Two parts are unsplit:
+
+- the **1,403** inside the 2,599 named-receiver lines whose receiver's printed
+  type is not a bare global name (Part 4 left these explicitly unmeasured);
+- the **2,842** outside the 2,599 entirely — `this` 1,165, instantiated generic
+  958, array 358, union/intersection 295, primitive residue 66.
+
+> **RULE-4.** For each sub-item the split produces, decide **build / hand back /
+> leave** on:
+> - **Q1 — is it mine?** Does the fix live wholly in `members.rs`,
+>   `index_signatures.rs`, `indexed.rs`, `relater.rs`, `objects.rs`, `types.rs`,
+>   `unions.rs` or `intersections.rs`? If it needs `declared.rs`, the binder,
+>   `expressions.rs` or `inference.rs`, **hand back and say so early**. This is
+>   first, not third, because three items in a row have relocated and the cost
+>   of finding out late is a wasted cycle.
+> - **Q2 — size ≥ 500 lines**, and quoted as an **interval with the bar on the
+>   inferred leg** (`e6ab9c9`), never a point estimate. 500 rather than Part 3's
+>   2,000 because these are sub-items of a split, and the slice that landed this
+>   session was 976.
+> - **Q3 — `c592d0f`, asked per sub-item.** What renders what this unblocks, and
+>   has that renderer been checked? Part 4 showed the answer differs sharply
+>   between items that look adjacent. A sub-item whose answers go to an
+>   unchecked printer is **not** a build however it scores on Q2.
+>
+> **Prediction, and I expect to dislike it.** Three items in a row have
+> relocated out of my files. I predict the fourth does too: that **≥ 60% of the
+> 1,403 turns out to be symbol resolution** — a receiver whose type is reached
+> through a namespace, a qualified name or a local alias — and therefore
+> `declared.rs`'s or the binder's. I predict the only part that is mine is
+> **union/intersection (295) plus a minority of the 1,403**, together under
+> 1,000 lines, which would fail Q2.
+>
+> **If that prediction holds, the finding is not the split.** It is that *the
+> property-access surface is downstream of symbol resolution almost everywhere*,
+> and that is a planning fact worth more than another sub-item. I am registering
+> that reading in advance so that reporting it cannot be mistaken for a
+> rationalisation of a null result.
+
 ## Everything filed from this page
 
 | id | what | sized as |

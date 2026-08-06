@@ -178,8 +178,10 @@ fn the_lookup_depends_on_which_file_the_reference_is_in() {
     // assertion. What is pinned here is not that `(false, true)` is correct —
     // it is wrong — but *which half of the pipeline is wrong*, because the
     // finding was handed to this workstream as a `members.rs` lookup bug and
-    // it is not one. When `getMergedSymbol` lands this must become
-    // `(true, true)`, and the test failing is the signal that it worked.
+    // it is not one. When `getMergedSymbol` lands — `bd tsr-9or.1`, queued for
+    // the binder's owner — this assertion must become `(true, true)`, and the
+    // test going red is the signal that the redirect works. Do not "fix" the
+    // test back; invert it, and delete this comment with it.
     assert_eq!(
         from_b,
         (false, true),
