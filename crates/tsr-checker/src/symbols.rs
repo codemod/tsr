@@ -1330,6 +1330,14 @@ impl<'a> Checker<'a, '_> {
                     _ => self.intrinsics.error,
                 }
             }
+            // A destructured name — `const {a} = o`, `function f([x]: T)`.
+            // Upstream sends `KindBindingElement` through the same
+            // `getWidenedTypeForVariableLikeDeclaration` as the four kinds
+            // above (`checker.go:16603`); this port dispatches it to
+            // `crate::destructure` directly, because its refusals are
+            // `errorType` and must not take the widened path's None→`any`
+            // mapping — an unported leg is a gap, not an implicit any.
+            SyntaxKind::BindingElement => self.get_type_for_binding_element(declaration),
             // Unported: methods, export assignments, binary/call assignment
             // declarations, JSX attributes and enum members.
             _ => self.intrinsics.error,
@@ -1458,7 +1466,7 @@ impl<'a> Checker<'a, '_> {
     /// baseline: `const x = "a"` is `"a"` and `let x = "a"` is `string`, from the
     /// same initialiser expression. A `const` keeps the literal; anything else
     /// widens it.
-    fn get_widened_literal_type_for_initializer(
+    pub(crate) fn get_widened_literal_type_for_initializer(
         &mut self,
         declaration: NodeId,
         id: TypeId,
@@ -1516,7 +1524,7 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// The initialiser of a declaration, if it has one.
-    fn initializer_of(&self, declaration: NodeId) -> Option<Expression<'a>> {
+    pub(crate) fn initializer_of(&self, declaration: NodeId) -> Option<Expression<'a>> {
         match self.node_map.get(declaration)? {
             Node::VariableDeclaration(node) => node.initializer,
             Node::ParameterDeclaration(node) => node.initializer,

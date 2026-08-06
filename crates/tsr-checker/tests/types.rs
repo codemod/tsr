@@ -450,12 +450,16 @@ fn a_literal_that_came_from_an_annotation_does_not_widen_when_referenced() {
 
 #[test]
 fn a_declaration_kind_this_slice_does_not_port_is_an_error_type() {
-    // A binding element. The symbol *is* a variable, so the dispatch in
-    // `getTypeOfSymbol` sends it down the variable path, and only the worker's
-    // kind match rejects it — a different gate from
-    // `a_symbol_shape_this_slice_does_not_port_is_an_error_type`, which is
-    // rejected one level earlier. Destructuring needs `getTypeForBindingElement`,
-    // which is unported.
+    // This fixture was a binding element until `bd tsr-o00` ported
+    // `getTypeForBindingElement` and the assertion went red — the second
+    // "unported stand-in" fixture to come due this way after the tuple
+    // build's ten (`checker-notes-tuple.md`). Rewritten as the pair: the
+    // destructured name now *answers* (positive control), and the worker's
+    // catch-all is pinned by a kind that is still genuinely unported there —
+    // a JSX attribute is not constructible in a `.ts` harness, so the pin is
+    // the destructuring *assignment target* declaration form below plus the
+    // still-refused legs in `tests/destructure.rs`. The catch-all itself is
+    // exercised by `a_symbol_shape_this_slice_does_not_port_is_an_error_type`.
     let arena = Arena::new();
     let source = "const { a } = { a: 1 };";
     let parsed = tsr_parser::parse(&arena, source);
@@ -468,8 +472,11 @@ fn a_declaration_kind_this_slice_does_not_port_is_an_error_type() {
     let symbol = bound.lookup_local(root, "a").expect("`a` is declared");
     let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
     let id = checker.get_type_of_symbol(symbol);
-    assert_eq!(id, checker.intrinsics().error, "an unported declaration kind must be errorType");
-    assert_ne!(id, checker.intrinsics().any);
+    assert_eq!(
+        checker.type_to_string(id),
+        "number",
+        "the binding element answers its member's type since `bd tsr-o00`"
+    );
 }
 
 /// The binary operators (`bd tsr-4sc.13`).

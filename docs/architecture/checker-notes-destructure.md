@@ -136,7 +136,67 @@ If a leg fires: first hypothesis is the build is wrong, second is the
 bar's premise is wrong, there is no third. Overriding needs evidence
 independent of this page's author, recorded loudly.
 
-## 5. Test discipline
+## 5. The result, scored against §4's bar
+
+Two iterations, both measured over the same `git stash` before-state at
+`982bfe4`; the first is recorded because its numbers forced a design change.
+
+**First run** (no array-literal guard, no widening wrap):
+net **+1,239**, lost 1, 0 regressed, 16 finished, new wrong **+207** (6.0×,
+leg 4 passes). But the new-wrong families included ~80 lines this arm was
+*minting* rather than inheriting: `var [a, b] = [1, "x"]` elements printed
+`string | number` because upstream types the initializer under the
+pattern's implied contextual type (tuple inference,
+`checker.go:16748` → `:17904`) — a mechanism this port does not have. Leg 4
+passing does not license a family the faithfulness rule forbids: the
+construct now **refuses whole** (the array-literal guard in
+`get_type_for_binding_element_parent`), filed as `bd tsr-84iz`.
+
+**Final run**, scored:
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +400 | **+1,081** (1,082 gained / 1 lost, 154 cases) | pass |
+| 2 | lost ≤ 20, each a diagnosed cascade | **1** — `objectBindingPatternKeywordIdentifiers02`, `var { while: while }`: upstream's parse-error recovery answers `any` where the now-typed member answers `number`; error-recovery poisoning, not this arm's rule | pass |
+| 3 | regressions < finished | **0 < 16** | pass |
+| 4 | gained ≥ 3 × new wrong | **1,082 vs 109 = 9.9×** | pass |
+
+**Falsifier:** top gaining case `declarationEmitBindingPatternsUnused` at
+88/1,082 = **8.1%**, under the 25% line. The gain is distributed as the
+370-case population was.
+
+**KEEP.** Conversion is **97% of the sized 1,111 net** — above the 15–57%
+band again, because a typed destructured symbol unblocks its consumers
+(the tuple build's precedent; 16 whole cases finished).
+
+The 109 residual new wrong, attributed: **21 got-`any`** are faithful
+`IsTypeAny` propagation of parents whose own printed line was already
+wrong; **~35** are the flow families the bar named in advance
+(`destructuringTypeGuardFlow`, `controlFlowDestructuring*`,
+`noUncheckedIndexedAccessDestructuring` — `getFlowTypeOfDestructuring`
+unported, filed `bd tsr-pqnh`); **~10** are shorthand members inside
+newly-typed functions printing `true` for `boolean` — a **pre-existing
+flow divergence exposed, not minted**: assignment narrowing selects the
+*regular* `true` from `boolean`'s union, so mutable-location widening's
+fresh test skips it (filed `bd tsr-xs0`, it is `flow.rs` code); **10** are
+`declarationEmitBindingPatternsUnused`'s `typeof alias` annotation-reuse
+lines, `bd tsr-5o2`'s standing family; the remainder are singles in the
+same families.
+
+**A fixture came due**, the eleventh: `types.rs`'s
+`a_declaration_kind_this_slice_does_not_port_is_an_error_type` used a
+binding element as its "unported declaration kind" and went red when the
+kind ported. Rewritten as the positive control, with the worker's
+catch-all still pinned by its sibling test.
+
+**The parser change this carried:** array-binding holes. The old loop
+skipped `[, a]`'s hole entirely, silently renumbering every element after
+it; upstream records an all-nil `BindingElement` (`parser.go:1663`) and
+indexes by slice position (`checker.go:17750`). The printer emits nothing
+for an all-`None` element and the binder binds nothing, so the change is
+shape-only; `tests/destructure.rs` pins the numbering.
+
+## 6. Test discipline
 
 Expectations come from baselines, never intuition — five intuition
 expectations have been wrong across four sessions. The fixtures to draw

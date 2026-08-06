@@ -94,6 +94,7 @@ pub mod calls;
 pub mod checker;
 pub mod contextual;
 pub mod declared;
+pub mod destructure;
 pub mod expressions;
 pub mod flags;
 pub mod flow;

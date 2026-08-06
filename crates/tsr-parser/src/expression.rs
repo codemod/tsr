@@ -1529,6 +1529,21 @@ impl<'a> Parser<'a> {
         let mut elements = Vec::new();
         while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
             if self.at(SyntaxKind::CommaToken) {
+                // A hole, `[, a]`. Upstream's `parseArrayBindingElement`
+                // (`parser.go:1656`) represents it as a `BindingElement` whose
+                // fields are all nil — "These are all nil for a missing
+                // element" — and `getBindingElementTypeFromParentType` counts
+                // it in `slices.Index(pattern.Elements(), declaration)`
+                // (`checker.go:17750`). Skipping the hole, as this loop did
+                // before `bd tsr-o00`, silently renumbered every element after
+                // it.
+                let hole_start = self.pos();
+                let hole = self.finish_node(
+                    tsr_ast::BindingElement::new(None, None, None, None),
+                    SyntaxKind::BindingElement,
+                    hole_start,
+                );
+                elements.push(hole);
                 self.next_token();
                 continue;
             }

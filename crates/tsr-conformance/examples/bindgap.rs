@@ -1,5 +1,5 @@
 //! Sizing probe for destructuring / binding patterns — STATUS.md §4.2's
-//! 649-score row (`depend.rs`: "decl name, neither: BindingElement cycle",
+//! 649-score row (`depend.rs`: "decl name, neither: `BindingElement` cycle",
 //! 3,728 lines at `acdeed5`, 23.8% want-any).
 //!
 //! For every gap line whose node is an `Identifier` that is the *name* of a
