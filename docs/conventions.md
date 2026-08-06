@@ -2595,3 +2595,70 @@ prerequisites asserted and not checked; they all point at a claim being too
 optimistic. This one was too pessimistic, and it parked a 137-line item for a
 day. **Grep for the data before quoting the reshape** — the same command either
 way.
+
+### Measure what a rule would break before measuring what it would fix
+
+`bd tsr-a2c` was filed from **one** lost line and looked like a printer detail.
+Sized, the naive form of it — *print a declaration's written annotation instead
+of its computed type* — reads:
+
+```
+  RIGHT today, annotation already equals what we print (no-op)   36,878
+  RIGHT today, annotation DIFFERS — printing it breaks these      6,736
+  WRONG today, baseline == the written annotation (converts)         740
+  WRONG today, baseline differs from the annotation too              694
+  WRONG today, no annotation at all                                9,340
+```
+
+**9.1 lost per gained**, against the 2.1 / 2.5 / 2.7 that refused three earlier
+items. Refused on the first number computed, and the cheap thing about it is
+that the *breaking* column and the *fixing* column come from the same loop: one
+extra bucket on lines the probe was already visiting and skipping.
+
+> **When a mechanism fires on a position rather than on a defect — every
+> declaration, every union, every name — compute the at-risk population in the
+> same pass that computes the target one.** It is one bucket, and it is the
+> number that decides. This document already says a rate on the target row
+> licenses nothing when the mechanism fires wider; this is the cheap way to
+> stop that being a caveat and make it an input.
+
+#### And the target bucket was a string coincidence
+
+The 740 was defined as *"the baseline text equals the written annotation text"*,
+which is a **coincidence test**, not a mechanism test: it cannot distinguish
+*upstream reused the written node* from *our computed type is wrong for an
+unrelated reason and the annotation happens to be right*.
+
+Its head says the second — `string | undefined` → `string` (119),
+`number | undefined` → `number` (98), `T | undefined` → `T` (84). That is
+`bd tsr-e10`'s optionality population arriving through a different probe, and it
+is a checker item, not a printer one.
+
+Which is worth having: **two probes with different predicates landing on the
+same lines is corroboration**, and it is the good half of a bucket that was
+otherwise measuring the wrong thing. The bad half is that a `740` quoted without
+reading its head would have sized a printer item out of a checker one.
+
+### A predicate named for what it decides, not for what it tests
+
+`serializeTypeForDeclaration`'s node-reuse branch (`nodebuilderimpl.go:2229`) is
+gated on `ast.HasInferredType(declaration)`. Read at speed that says *"the
+declaration has no annotation"*, which makes the whole branch unreachable for an
+annotated parameter and the mechanism impossible.
+
+`HasInferredType` (`ast/utilities.go:4100`) is a **node-kind test**.
+`KindParameter`, `KindPropertySignature`, `KindPropertyDeclaration`,
+`KindVariableDeclaration` return `true` unconditionally. The branch *is* taken
+for an annotated parameter, and what actually decides reuse is
+`pseudoTypeEquivalentToType` two lines further down.
+
+I read it the wrong way, concluded the filed mechanism was refuted, and caught
+it before writing that down — by opening the function instead of trusting the
+name.
+
+> **A predicate named after the question its caller is asking is not named after
+> what it computes.** `HasInferredType` answers *"is this a kind of declaration
+> whose type may be inferred"*, and the caller uses it to mean *"try reuse
+> here"*. Open it. The cost is one `grep`, and the failure mode is silent — a
+> wrong reading of a gate makes a real mechanism look impossible, which is the
+> one error that ends an investigation instead of prolonging it.

@@ -142,7 +142,7 @@ unknown, rank by how cheap it is to find out.**
 |---|---|---:|---|---|---|
 | 0 | ~~`removeSubtypes` + a `Subtype` arm~~ (`tsr-eak`) | **REFUSED 2026-08-06** | — | — | 255 right lines broken against ≤263 changed — see §5 |
 | 0 | ~~Union parenthesisation~~ (`tsr-xm9`) | **DONE `39a3853`, +481, 0 lost** | — | — | — |
-| 0b | **Optionality in a declaration-name position** (`tsr-e10`, **rediagnosed**) | ≤483, of which **204 confirmed** | `optionality.rs` / `symbols.rs` | **none yet** — partition the 204 by declaration shape and by the case's `strictNullChecks`, then read the baselines per bucket | the baselines contradict a blanket rule: `classWithOptionalParameter` records `>x : string \| undefined`, other cases record `>opt : number` 19× |
+| 0b | **Optionality in a declaration-name position** (`tsr-e10`, **rediagnosed, now corroborated twice**) | ≤483, of which **204 confirmed** | `optionality.rs` / `symbols.rs` | **none yet** — partition the 204 by declaration shape and by the case's `strictNullChecks`, then read the baselines per bucket | the baselines contradict a blanket rule: `classWithOptionalParameter` records `>x : string \| undefined`, other cases record `>opt : number` 19× |
 | 0c | ~~Union **constituent order**~~ (`tsr-bgz`) | **DONE, +81/−1** | — | the reshape it required was **already stored** in `type_reference_targets` | — |
 | 1 | **`new C()` — the lib `*Constructor` arm** | unsized; **not 1,074** | `calls.rs` | **R2′ 75.9% on 1,074 lines, 229 cases, top-1 15.1%** — passed its registered test on 2026-08-06 | the typed arrays in it are generic instantiations (`tsr-4qx`, blocked). Size the `*Constructor` population **minus** those before quoting anything — one more bucket in `callres.rs` |
 | 2 | ~~Re-take the call row's bar with `new` scored separately~~ | **run 2026-08-06** | — | — | see §5 — R2′ has stopped discriminating and the answer is a counterfactual |
@@ -244,6 +244,7 @@ what four cycles of ranking have now established.
 | **`new C()`, the cheap design** | 1,052 | *strip `typeof` from the callee* exact-matches **23 of 1,052 — 2.2%**, and on 712 the callee is not `typeof X` at all |
 | **`\|\|` and `??`** | 358 + 96 | both need `UnionReductionSubtype`. `&&` does not, which is why only `&&` landed |
 | **`tsr-iiu` — `undefined \| null` prints backwards** | — | **NOT A DEFECT.** Upstream prints `null \| undefined` too — 6+3+2+2… baseline instances, the other order **zero**. I filed a defect against correct code from an expectation I never checked |
+| **annotation reuse, naive form (`tsr-a2c`)** | 740 | **6,736 right lines broken against 740 converted — 9.1 lost per gained**, worse than every refusal below. And the 740 is a string coincidence: its head is `string \| undefined` → `string`, i.e. `tsr-e10`'s optionality population, not reuse |
 | **`removeSubtypes` (`tsr-eak`)** | 5 rows, ~1,100 quoted | **255 right lines broken vs ≤263 changed — 1.03 gained per lost at the ceiling**, worse than the 2.1 / 2.5 / 2.7 that refused three earlier items. And only **500 of 2,146** structured wrong lines are its population; 21,093 of 26,140 union lines carry no structured constituent and are outside it by construction |
 
 ---
