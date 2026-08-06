@@ -1987,3 +1987,52 @@ rather than by upstream's. Where upstream's own function decides the same
 question by a different route, our predicate is a proxy for it, and
 `c0cf629` applies: a proxy agreeing with the thing it proxies is not evidence the
 proxy works, and here it disagreed on **53%** of the bucket.
+
+### A population cannot be sliced by the answer the baseline expects
+
+The mirror of *"do not sum unrelated sub-items to clear a bar"*, and it arrives
+at the same place from the opposite direction.
+
+Element access was refused for the third time. Over the corrected population —
+`largeControlFlowGraph`'s 10,000 TS2563 lines excluded — **1,590 lines are the
+form's own root, and 943 of them (59.3%) want `any`**, which this port must not
+answer. E1 fails by 2.4×.
+
+But **647 of the 1,590 are spellable**, and calling *those* the work item is the
+obvious move. It is not available:
+
+> **The implementation does not get to see the baseline.** A checker arm cannot
+> condition on what upstream prints. It either computes element access or it does
+> not, and on 59.3% of the population it would answer `any`.
+
+A probe may partition by the baseline's right-hand side — that is what
+spellability *is*. **A build may not.** The two look like the same partition and
+only one of them can be implemented.
+
+#### The two errors are the same error
+
+| | move | why it fails |
+|---|---|---|
+| summing sub-items | 295 + 106 + 104 ≥ 500 | three unrelated fixes in three files; a case needing two is finished by neither |
+| slicing by expected answer | "just the 647 that are spellable" | one fix, and it cannot tell the 647 from the 943 |
+
+Both construct a population that clears a bar and that **no single change
+delivers**. The first assembles it from pieces that do not ship together; the
+second carves it with a knife the implementation does not have.
+
+**The check is the same for both: name the one change, and ask what it does to
+every line in the population you just quoted** — not to the subset you selected.
+
+#### And the corollary about a number that was never wrong
+
+The 88.4%-want-`any` figure that refused element access twice was **not an
+error**. It was right about a population that included 10,000 lines where
+upstream answers `any` by construction. Re-measured over the survivors it reads
+59.3%, and the item still refuses.
+
+That is worth separating from the corrections elsewhere in this document. *"A
+number can be true and answer a different question"* usually surfaces because the
+number changed. Here it did not change the verdict at all — and the only way to
+know that was to re-take it. **A denominator that contains an unreachable
+population makes a rate uninterpretable even when the decision it drove was
+correct.**
