@@ -76,8 +76,16 @@ fn a_generic_class_is_a_gap_rather_than_the_uninstantiated_type() {
 }
 
 #[test]
-fn explicit_type_arguments_are_a_gap() {
-    assert_eq!(type_of_last("class C<T> {}\nconst x = new C<number>();"), "error");
+fn explicit_type_arguments_instantiate_the_class() {
+    // This asserted `error` until `bd tsr-tgov` built the arm, and going red is
+    // what it is for — the twelfth "unported stand-in" fixture in this project
+    // to come due when its frontier moved. Rewritten as the **pair**: the
+    // written-argument form answers, and the inferred form beside it still
+    // gaps, so the test keeps discriminating instead of merely flipping.
+    // `conformance/genericSetterInClassType.types` records
+    // `>new C<number>() : C<number>`. The wider suite is `tests/new_generic.rs`.
+    assert_eq!(type_of_last("class C<T> {}\nconst x = new C<number>();"), "C<number>");
+    assert_eq!(type_of_last("class C<T> {}\nconst x = new C();"), "error");
 }
 
 #[test]

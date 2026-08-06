@@ -20,7 +20,7 @@
 use std::collections::BTreeMap;
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
-use tsr_ast::{Node, SyntaxKind};
+use tsr_ast::Node;
 use tsr_binder::SymbolFlags;
 use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
 

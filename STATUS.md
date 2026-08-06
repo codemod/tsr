@@ -22,8 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured through the `tsr-xs0` build (after `4b81458` and the defaults
-iteration), 2026-08-06 (fifth session).
+Measured through the `tsr-tgov` build, 2026-08-06 (fifth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -41,14 +40,14 @@ iteration), 2026-08-06 (fifth session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,540/9,538** | **26.63%** | **gradient 70.01%** — the exact 70% threshold crossed at the `tsr-xs0` build |
+| **`checker_types`** | **2,564/9,538** | **26.88%** | **gradient 70.15%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-335,293 / 478,954 assertion lines = 70.003%   (the exact threshold, 335,268, is crossed)
-  right 335,293 | gap ~91,837 | wrong ~41,289   (41,189 at b00738d; +423, −58, +3, +127, −448, −19, +109, +0, −37 by same-probe pairs through tsr-xs0)
+335,979 / 478,954 assertion lines = 70.15%
+  right 335,979 | gap ~91,289 | wrong ~41,242   (41,189 at b00738d; +423, −58, +3, +127, −448, −19, +109, +0, −37, −47 by same-probe pairs through tsr-tgov)
 ```
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
@@ -103,7 +102,7 @@ reachable denominator   476,752 of 478,954
 today                    333,651 / 476,752 = 69.98% of reachable   (carries the 1,539
                          right-lines-in-the-unreachable-set offset the 332,570 figure carried)
 80% of the full          383,163 lines  =  80.37% of the reachable
-gap to 80%               +47,870 lines (full-denominator terms: 383,163 − 335,293)
+gap to 80%               +47,184 lines (full-denominator terms: 383,163 − 335,979)
 gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 ```
 
@@ -121,7 +120,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **70.00% of lines** | the mountain; §4 and §5 |
+| **checker** | **70.15% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -132,6 +131,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `tsr-tgov` | **`new C<T>()` instantiates from written type arguments** — the call side already substituted them and `check_new_expression` refused at its first line; plus upstream's one name-independent quoting rule, a **method** named `new` (`checker-notes-callres.md` §14–15) | +686 |
 | `4b81458` | **binding elements** — the plain destructuring leg (`tsr-o00`): object patterns via the `a["b"]` lookup pair, array patterns by position through the tuple reverse index; the parser records array-binding holes; six refused legs each with a number (`checker-notes-destructure.md`) | +1,081 |
 | `acdeed5` | the `in` guard narrows by property presence; its bar's leg 2 caught the OPTIONAL-flag bug pre-ship (`checker-notes-narrow.md` §6.1) | +43 |
 | `e7a65fb` | `typeof` guard narrowing — subtype relations, sixteen facts bits, three flow arms (`checker-notes-narrow.md` §6) | +745 |
@@ -196,7 +196,9 @@ score = (reachable / effort) x feasibility
 
 | score | item | reachable | eff | feas | file |
 |---:|---|---:|---:|---:|---|
-| **869** | **call resolution — overload sets.** The largest reachable mass and the sole owner of what `tsr-1uz` left behind, including every multi-signature instantiated member. Needs the relater's subtype relation, so it is genuinely a subsystem; the old R2′ refusal no longer stands (§5) but a **counterfactual** does. | 9,660 | 5 | 0.45 | `calls.rs`, `relater.rs` |
+| ~~869~~ **~78** | **call resolution — overload sets. RE-SCORED DOWN, fifth session.** `bd tsr-klm` is answered (`callgate.rs`, `checker-notes-callres.md` §13): the 9,660 was **the row, not the mechanism**. Summed from the gates overload selection actually owns — generic candidate 490, parameter 473, argument 28, ambiguous 50, arity 9, nothing-assignable 39, this/rest 5, spread 1 — its own population is **1,095 lines, ~880 net**, an **8× smaller** item, and third of the three the split found | 1,095 | 5 | 0.45 | `calls.rs`, `relater.rs` |
+| **~360** | **type-argument inference — `inferTypes`.** The largest gate in the corrected split: a single candidate resolves and *inference* is what stops, **2,324 lines, want-any 28**. `inference.rs`'s own doc measures the cliff — 53% of generic calls have no type parameter written bare, so the candidate must be dug out structurally. A subsystem (`inference.go:53`: priority lattice, contravariant tracking), which is why the effort is 5 and not 3 | 2,324 | 5 | 0.75 | `inference.rs` |
+| **~340** | **a `Named` callee never reaches signature lookup (`bd tsr-4sa`).** 2,791 lines across the call and `new` halves — lib constructor *interfaces* (`DateConstructor`, `MapConstructor`) and interface-typed callees. Needs `getSignaturesOfType` → `resolveStructuredTypeMembers`. **Carries a measured wrong-manufacturing risk**: §5 of `checker-notes-callres.md` records 264 `unique symbol` lines that would print `symbol`, and half the row wants a generic instantiation this port has no members for | 2,791 | 4 | 0.50 | `signatures.rs` |
 | ~~649~~ | **destructuring / binding patterns — LANDED at `4b81458`** (`tsr-o00`). Sized by the new `bindgap.rs` at 1,228 buildable of 2,632 classified (~1,111 net); converted **+1,081 = 97% of the sized net**, above the band again via downstream unblocks. The row's residue belongs to its owners: contextual pattern parameters 604 (the re-armed contextual refusal), pattern-implied tuple inference ~250+155 (`tsr-84iz`), flow-of-destructuring (`tsr-pqnh`), rest 172, computed 86, no-source 113 | — | — | — | `destructure.rs` |
 | ~~374~~ | **element access remainder — decomposed to shards, none an arm.** After the fourth session's builds the row is **634** (`elemgap.rs` at `935a221`): 177 string-literal misses (want-any 27%; head cases are `noImplicitAnyStringIndexerOnObject` — option modelling — and `mappedTypeRelationships` — mapped types, unported), 118 numeric-literal misses (lib-array receivers under literal indexes), 108 enum/named indexes (enum machinery), 86 other. Each shard belongs to an unported subsystem, not to `indexed.rs`; the row stops being a board item and its shards go to their owners. | — | — | — | split complete |
 | ~~230~~ | **JSX — re-scored DOWN at the fifth session's `jsxfeas.rs`** (`checker-notes-jsx.md`): of 1,199 element gap lines, **46% cannot resolve the `JSX` namespace at all** (it sits behind `declare global` augmentation, unported in the binder) and **29% resolve but print bare `Element`** — the refused qualified-naming family (2.7 wrong/right). Feasibility ~0.25; blocked on global augmentation, then namespace-qualified naming | 1,199 | 4 | 0.25 | blocked — prerequisites named |
@@ -216,10 +218,27 @@ populations as work would break this file's fourth rule.**
 | 1,425 | unresolved **value** names — 79.5% want `any`; the reachable remnant has never been characterised | split the 1,425 by what the baseline wants |
 | ~~4,088~~ | **`FunctionDeclaration` rows — DECOMPOSED fifth session** by `retgap.rs` (`checker-notes-callres.md` §12): 879 return-annotation gaps + 507 parameter-annotation gaps belong to unported type nodes (template literal types, variadic tuples, `const` type-parameter modifiers), 797 are downstream return-expression gaps, 466 async/generator, 257 annotated-everything-types unsplit, **81 multi-distinct aggregate refused with its number (§5)**. Return-type inference itself is ported; the row is its inputs | split complete — shards to their owners |
 
+### 4.3a The call row cannot reach 10% of the gradient, at any conversion
+
+Asked out loud this session and worth a line, because the figure has been
+carried informally. Measured, not estimated (`callgate.rs`, §13 of
+`checker-notes-callres.md`):
+
+```
+admitted call+new lines (callee already typed)   8,398  =  1.75% of 478,954
+the widest call-shaped population ever measured  20,721 =  4.33%   (18,294 carrying + 2,427 cascade)
+observed conversion band                         15–57%
+```
+
+So **every call-shaped line in the corpus, converted at 100%, is 4.3 points**,
+and the band puts a realistic ceiling for the whole family near **+0.6 to +2.5
+points**. Call resolution is the largest *family* on the board and it is not a
+double-digit item. The three mechanisms it decomposes into are scored above.
+
 ### 4.4 What the scores say about 80%
 
-- Distance to **80%** is **+47,870 lines**; **70% is crossed** (70.003%
-  at the `tsr-xs0` build, measured on the coverage instrument).
+- Distance to **80%** is **+47,184 lines**; **70% is crossed** (70.15% at
+  the `tsr-tgov` build, measured on the coverage instrument).
 - The scored list's *reachable* column sums to ~22,000. At the observed 15–57%
   conversion that is **+3,300 to +12,500** — so 70% is reachable from this
   board, and **80% is not**, even if every item on it lands.
@@ -304,6 +323,8 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `tsr-tgov` | **70.15%** | **2,564** | **+686, 0 lost, +24 cases, 0 regressed, Δwrong −47** | **`new C<T>()` instantiates** — the call side already substituted written type arguments (`inference.rs:153`) while `check_new_expression` refused at its first line; 826 lines sat in that asymmetry. Sized by a **counterfactual** (`newgen.rs` forecasts the printed string against the baseline: 166 exact, 1 miss named in advance) rather than by the row, bar committed first. Conversion **413% of the forecast** — the cascade, named as upside in the registration. Reading the 68 residual instead of banking an 8.4× ratio found upstream's one name-independent quoting rule (a **method** named `new` prints `"new"`, `nodebuilderimpl.go:2384`), worth **+114 and 84 pre-existing wrong lines**. Twelfth stand-in fixture came due |
+| 2026-08-06 | probe | — | — | 0 lines, by design | **`bd tsr-klm` answered — and it re-scored the board's top item down 8×** (`callgate.rs`, `checker-notes-callres.md` §13). Control C3 fired on 2,569 of 8,398 lines and the diagnosis was the *instrument*: `check_new_expression` had no counters at all, and it is the more admitted half of the row. Six gates added there, four splitting `single candidate`, `checker_types` unchanged across the change. The result: **overload selection owns 1,095 lines, not 9,660** — that figure was the row, not the mechanism — the largest gate is **inference at 2,324**, and the whole call family cannot reach 10% of the gradient at any conversion (§4.3a) |
 | 2026-08-06 | probes | — | — | 0 lines, by design | **two rows leave the board by measurement** (fifth session): `retgap.rs` decomposes the `FunctionDeclaration` row — return-type inference is already ported; the mass is unported type-node *inputs*, and the multi-distinct aggregate is refused at **81** (`checker-notes-callres.md` §12). `jsxfeas.rs` walks `getJsxElementTypeAt`'s path per line — **46% of the JSX row cannot resolve the namespace** (`declare global` augmentation, a binder prerequisite now blocking two items) and **29% is the refused qualified-naming family** (`checker-notes-jsx.md`). The cheap-probe-first ordering closed two items for two probes' cost |
 | 2026-08-06 | `tsr-xs0` | **70.003%** | **2,540** | **+37, 0 lost, +3 cases, 0 regressed, Δwrong −37** | **assignment narrowing keeps a fresh boolean literal fresh** (`flow.go:2421`, `checker-notes-narrow.md` §7) — found by `tsr-o00`'s wrongdelta, sized 73+47 from the live wrong dump, bar registered before the four-line fix; every leg passed with zero downside and the mechanism's named case (`literalFreshnessPropagationOnNarrowing`) converted. **This crossed the exact 70% threshold** |
 | 2026-08-06 | defaults | **69.998%** | **2,537** | **+66, 0 lost, 0 finished, 0 regressed, Δwrong 0** | **defaults under a typed annotation** (`tsr-o00` §6) — the `IS_UNDEFINED` facts bit (the port's facts comment had already drawn the `UndefinedFacts`/`VoidFacts` line it splits), the `checker.go:17782` strip, sized 69/net 59, converted 112%, every bar leg passed with zero downside. The coverage display now reads 70.00% **by rounding**: the exact threshold is 12 lines away, said so it is not quoted as crossed |

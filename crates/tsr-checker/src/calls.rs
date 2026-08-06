@@ -324,8 +324,12 @@ pub mod counters {
         /// The first declaration is neither a class declaration nor a class
         /// expression.
         new_declaration_not_class_like = "  declaration is not class-like",
-        /// `class C<T>` — the uninstantiated instance type would print `C<T>`.
-        new_type_parameters = "  the class is generic",
+        /// `class C<T>` with no written type arguments (inference, unported),
+        /// a written list whose arity differs, or an argument that itself gaps.
+        new_type_parameters = "  the class is generic, and not instantiable here",
+        /// `new C<string>()` — written type arguments, matching arity, every
+        /// argument typed. `bd tsr-tgov`.
+        new_instantiated = "  INSTANTIATED from written type arguments",
         /// Upstream reports and answers `errorType` for an abstract class.
         new_abstract = "  the class is abstract",
         /// The instance type was produced.

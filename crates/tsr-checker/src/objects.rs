@@ -359,8 +359,23 @@ impl Checker<'_, '_> {
                         // measured; a gap is one line, a guess is a wrong one.
                         return error;
                     };
-                    let printed =
-                        format!("{}{}", name.text, signature_member_text(self, &signature));
+                    // `classifyPropertyName` (`nodebuilderimpl.go:2384`) opens
+                    // with one special case and it is exactly this: a **method**
+                    // named `new` prints as a string literal. The reason is
+                    // round-tripping rather than escaping — `{ new<T>(x: T): C<T>; }`
+                    // re-parses as a *construct signature*, a different type, so
+                    // the quotes are load-bearing. It is upstream's only
+                    // name-independent quoting rule, and it is a method-only
+                    // rule: a *property* named `new` stays bare.
+                    //
+                    // Found by `bd tsr-tgov`'s residual — the arm made 40
+                    // `objectTypesIdentityWithGenericConstructSignatures*` lines
+                    // computable and they printed unquoted. Exposed, not minted.
+                    let printed = if name.text == "new" {
+                        format!("\"new\"{}", signature_member_text(self, &signature))
+                    } else {
+                        format!("{}{}", name.text, signature_member_text(self, &signature))
+                    };
                     upsert_member(&mut members, Member::Signature { printed });
                     continue;
                 }

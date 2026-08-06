@@ -788,3 +788,69 @@ concentration near half means the mechanism reached something the forecast did
 not describe.
 
 If a leg fires: build wrong first, premise wrong second, no third.
+
+## 15. §14 scored — all four legs pass, and Δwrong is negative
+
+Measured over the pair (`casedelta`/`wrongdelta`, before = the state at the
+bar's commit).
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +120 | **+686** (98 cases) | pass |
+| 2 | lost ≤ 10, diagnosed | **0** | pass |
+| 3 | regressions < finished | **0 < 24** | pass |
+| 4 | gained ≥ 3 × new wrong | **686 vs 38 = 18×**; Δwrong **−47** (85 fixed) | pass |
+
+**Falsifier did not fire**: top case `inferFromGenericFunctionReturnTypes2` at
+28 of 686 = **4.1%**, against the 40% line.
+
+**KEEP.** Gradient 70.01% → **70.15%**, cases 2,540 → **2,564**.
+
+Conversion is **413% of the forecast 166**, and §14.2 named why in advance:
+the forecast covered own-node lines and `callgate.rs` attributed 516 to the
+gate, the difference being the cascade. This is the fourth build in two
+sessions to exceed its sized row because the *mechanism* is wider than the
+row it was measured on — the pattern §4.1 of `STATUS.md` now has five
+instances of.
+
+### 15.1 The residual named a printer defect, and fixing it was most of the margin
+
+The arm's first measurement read **+572 with 68 new wrong**, already passing
+every leg at 8.4×. Reading the 68 rather than banking the ratio:
+
+```
+  40   want { "new"<T>(x: T, y?: T): C<T>; }   got { new<T>(x: T, y?: T): C<T>; }
+  14   want M.C<string> / N.D2<number> / __test2__.classWithOptional<number>
+   6   want string | undefined                 got string
+```
+
+The 40 are **upstream's only name-independent quoting rule**, verbatim at
+`classifyPropertyName` (`nodebuilderimpl.go:2384`):
+
+```go
+if isMethod && name == "new" { return propertyNameNodeKindStringLiteral }
+```
+
+and the reason is round-tripping, not escaping: `{ new<T>(x: T): C<T>; }`
+re-parses as a **construct signature**, a different type. One line in
+`objects.rs`, and it moved the build from +572 to **+686** — converting 30 of
+the arm's own residual *and* **84 pre-existing wrong lines** the arm never
+touched. Exposed, not minted.
+
+> **A residual that passes the ratio leg is still evidence.** The 68 cleared
+> leg 4 by 2.8× of margin, and reading them anyway was worth 114 lines and a
+> defect older than the build.
+
+The other 14 are the **qualified-naming** family — `M.C<string>` where this
+prints `C<string>` — which is `STATUS.md` §5's refusal (2.7 wrong per right)
+and `bd tsr-93f`. Attributed, not fixed: `type_reference_text` prints the
+symbol's own name, and the enclosing-namespace qualification is the refused
+build. The remaining ~24 are optionality (`tsr-e10`) and accessor families.
+
+### 15.2 A twelfth stand-in fixture came due
+
+`tests/new_expression.rs`'s `explicit_type_arguments_are_a_gap` asserted
+exactly what §14 built. Rewritten as the **pair** — the written-argument form
+answers, the inferred form beside it still gaps — so it keeps discriminating
+rather than merely flipping. That is the standing prophylactic from
+`checker-notes-tuple.md`, and this is its twelfth invocation.

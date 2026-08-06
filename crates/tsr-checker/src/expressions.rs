@@ -780,10 +780,6 @@ impl Checker<'_, '_> {
         // half of the call row whose callee is *most often* typed — so the
         // uninstrumented half was also the most admitted one.
         bump(&COUNTERS.new_expressions);
-        if !node.type_arguments.is_empty() {
-            bump(&COUNTERS.new_type_arguments);
-            return error;
-        }
         let Some(callee) = node.expression else { return error };
         let callee_type = self.check_expression(callee);
         // The callee's type is the class's *static* side, which
@@ -813,7 +809,56 @@ impl Checker<'_, '_> {
             }
         };
         if !type_parameters.is_empty() {
+            // `new C<string>()` — the caller wrote the type arguments, so the
+            // instance type is `createTypeReference(C, [string])` and there is
+            // nothing to infer. This is the *same* rule the call side already
+            // applies (`crate::inference`: "the caller wrote the type
+            // arguments, so there is nothing to infer and substitution is all
+            // that is left"); the two halves of one construct answered
+            // differently until `bd tsr-tgov`, and `checker-notes-callres.md`
+            // §13.4 has the 826 lines that cost.
+            //
+            // Reached through `create_type_reference`, which is what
+            // `crate::declared` calls for `C<string>` in *type* position, so
+            // the instance type is identical **by interning** to the
+            // annotation's — `let c: C<string> = new C<string>()` is one type,
+            // and `tsr-4qx`'s instantiated members hang off it unchanged.
+            // Re-read the written arguments from `self.node_map`, which carries
+            // the checker's `'a`; the `node` parameter's lifetime is
+            // independent of it and `get_type_from_type_node` needs `'a`. Same
+            // move as [`Self::this_parameter_type`], and its comment explains
+            // why the map is copied out first.
+            let map = self.node_map;
+            let written = match node.node_id.and_then(|id| map.get(id)) {
+                Some(Node::NewExpression(from_map)) => from_map.type_arguments,
+                _ => &[],
+            };
+            if written.len() == type_parameters.len() {
+                let mut arguments = Vec::with_capacity(written.len());
+                for argument in written {
+                    let id = self.get_type_from_type_node(*argument);
+                    // A gap in an argument gaps the whole `new`: `C<Unported>`
+                    // is not `C<any>`, the rule the tuple and array arms use.
+                    if id == error {
+                        bump(&COUNTERS.new_type_parameters);
+                        return error;
+                    }
+                    arguments.push(id);
+                }
+                bump(&COUNTERS.new_instantiated);
+                return self.create_type_reference(symbol, arguments);
+            }
+            // A count that does not match the class's type parameters.
+            // `checkTypeArguments` (`checker.go:9269`) fails the whole call,
+            // and `fillMissingTypeArguments`' defaults are ported only for the
+            // no-candidate case (`bd tsr-1uz`), so a shorter list that defaults
+            // would make legal stays a gap rather than a guess.
             bump(&COUNTERS.new_type_parameters);
+            return error;
+        }
+        // A non-generic class cannot take type arguments.
+        if !node.type_arguments.is_empty() {
+            bump(&COUNTERS.new_type_arguments);
             return error;
         }
         // `ast.HasModifier(valueDecl, ast.ModifierFlagsAbstract)` — upstream
