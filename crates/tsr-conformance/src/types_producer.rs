@@ -281,7 +281,7 @@ pub fn type_at_location(
     id: NodeId,
 ) -> String {
     let error = checker.intrinsics().error;
-    let Some(node) = map.get(id) else { return checker.type_to_string(error) };
+    let Some(node) = map.get(id) else { return render(checker, id, error) };
 
     // `IsTypeDeclarationName` (`ast/utilities.go:3598`): an identifier naming a
     // class, interface, type alias, enum or type parameter. Upstream tests this
@@ -293,7 +293,7 @@ pub fn type_at_location(
         && let Some(symbol) = binder.symbol_of(parent)
     {
         let declared = checker.get_declared_type_of_symbol(symbol);
-        return checker.type_to_string(declared);
+        return render(checker, id, declared);
     }
 
     // `IsRightSideOfPropertyAccess` (`ast/utilities.go:3604`). The `b` of `a.b`
@@ -310,8 +310,8 @@ pub fn type_at_location(
         && map.get(parent).and_then(|p| p.name_id()) == Some(id)
         && let Some(Node::PropertyAccessExpression(access)) = map.get(parent)
     {
-        let id = checker.check_property_access_expression(access);
-        return checker.type_to_string(id);
+        let computed = checker.check_property_access_expression(access);
+        return render(checker, id, computed);
     }
 
     // A declaration name resolves through its parent's symbol.
@@ -319,8 +319,8 @@ pub fn type_at_location(
         && map.get(parent).and_then(|p| p.name_id()) == Some(id)
         && let Some(symbol) = binder.symbol_of(parent)
     {
-        let id = checker.get_type_of_symbol(symbol);
-        return checker.type_to_string(id);
+        let computed = checker.get_type_of_symbol(symbol);
+        return render(checker, id, computed);
     }
 
     // **A base class expression prints the base's instance type, not `typeof`**,
@@ -373,7 +373,7 @@ pub fn type_at_location(
         // declared type is not available, the expression's own answer is used
         // rather than a gap being invented here.
         if declared != error {
-            return checker.type_to_string(declared);
+            return render(checker, id, declared);
         }
     }
 
@@ -457,14 +457,14 @@ pub fn type_at_location(
         {
             let declared = checker.get_declared_type_of_symbol(symbol);
             if declared != checker.intrinsics().error {
-                return checker.type_to_string(declared);
+                return render(checker, id, declared);
             }
             let value = checker.get_type_of_symbol(symbol);
-            return checker.type_to_string(value);
+            return render(checker, id, value);
         }
 
         if enclosing != Some(SyntaxKind::TypeQuery) {
-            return checker.type_to_string(checker.intrinsics().any);
+            return render(checker, id, checker.intrinsics().any);
         }
     }
 
@@ -529,7 +529,7 @@ pub fn type_at_location(
         let name = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if name == error {
-            return checker.type_to_string(checker.intrinsics().any);
+            return render(checker, id, checker.intrinsics().any);
         }
     }
 
@@ -563,7 +563,7 @@ pub fn type_at_location(
         let label = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if label == error {
-            return checker.type_to_string(checker.intrinsics().any);
+            return render(checker, id, checker.intrinsics().any);
         }
     }
 
@@ -626,15 +626,33 @@ pub fn type_at_location(
         let tag = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if tag == error || tag == checker.intrinsics().any {
-            return checker.type_to_string(checker.intrinsics().any);
+            return render(checker, id, checker.intrinsics().any);
         }
     }
 
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
-        let id = checker.check_expression(expression);
-        return checker.type_to_string(id);
+        let computed = checker.check_expression(expression);
+        return render(checker, id, computed);
     }
-    checker.type_to_string(error)
+    render(checker, id, error)
+}
+
+/// Render a type as the answer for the line at `reference`.
+///
+/// The whole of this file's part in `bd tsr-6j2`. `Checker::type_to_string_at`
+/// is a **second** entry point beside `type_to_string`, which is untouched and
+/// keeps its 110 call sites; only this rendering path passes a node, and only
+/// this path can therefore get a context-sensitive name. `None` means the
+/// checker cannot name the type at this position — a module object with no
+/// unambiguous alias in scope — and that is rendered as a gap, exactly as an
+/// uncomputed type is, rather than as the module symbol's file path.
+fn render(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    reference: NodeId,
+    id: tsr_checker::types::TypeId,
+) -> String {
+    let error = checker.intrinsics().error;
+    checker.type_to_string_at(id, reference).unwrap_or_else(|| checker.type_to_string(error))
 }
 
 /// Whether this identifier is a label name.

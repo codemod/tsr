@@ -531,7 +531,7 @@ impl<'a> Checker<'a, '_> {
     /// work on a chain, bounded because [`Checker::get_type_of_alias`] memoises
     /// the *type* in [`Checker::symbol_types`] and that is what every caller
     /// ultimately wants.
-    fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+    pub(crate) fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
         let declaration = self.declaration_of_alias_symbol(symbol)?;
         match self.nodes.kind(declaration) {
             // `getTargetOfExportSpecifier` (`checker.go:14951`) — both halves,
@@ -540,6 +540,35 @@ impl<'a> Checker<'a, '_> {
             // `getTargetOfImportSpecifier` (`checker.go:14647`).
             SyntaxKind::ImportSpecifier => return self.import_specifier_target(declaration),
             _ => {}
+        }
+        // `getTargetOfNamespaceImport` (`checker.go:14724`) and
+        // `getTargetOfNamespaceExport` (`checker.go:14742`), both of which are
+        // `resolveESModuleSymbol(resolveExternalModuleName(...))`.
+        //
+        // **Deliberately narrower than upstream in one respect**, and it is the
+        // respect this arm was refused for twice. `resolveESModuleSymbol`
+        // (`checker.go:15568`) has a `cloneTypeAsModuleType` branch for a
+        // namespace import, which is what lets upstream print `typeof ns3` for
+        // the third of three aliases to one module. That clone is not ported.
+        // Instead [`Checker::type_to_string_at`] refuses to name a module object
+        // when more than one alias is in scope, so the ambiguous cases stay gaps
+        // rather than becoming confidently wrong lines. Measured: 634 of 706
+        // such lines have exactly one alias in scope and 630 of those name
+        // correctly. See `docs/architecture/checker-notes-nameres.md` §14.
+        if matches!(
+            self.nodes.kind(declaration),
+            SyntaxKind::NamespaceImport | SyntaxKind::NamespaceExport
+        ) {
+            let parent = self.nodes.parent(declaration)?;
+            // A `NamespaceImport` hangs off an `ImportClause`, a
+            // `NamespaceExport` directly off the `ExportDeclaration`.
+            let owner = if self.nodes.kind(parent) == SyntaxKind::ImportClause {
+                self.nodes.parent(parent)?
+            } else {
+                parent
+            };
+            let specifier = self.external_module_name(owner)?;
+            return self.module_object_of(owner, specifier);
         }
         let Node::ImportEqualsDeclaration(node) = self.node_map.get(declaration)? else {
             // Every other alias form — an import clause, a namespace import,
@@ -580,15 +609,21 @@ impl<'a> Checker<'a, '_> {
                     .intersects(SymbolFlags::NAMESPACE)
                     .then_some(found)
             }
-            // Resolvable, but not printable — see above.
-            // Two gaps that share an answer but not a reason, and the reasons
-            // are worth keeping apart even though the arms are merged here to
-            // satisfy `clippy::match_same_arms`. A qualified name RESOLVES
-            // fine and prints wrong, for want of symbol accessibility (see
-            // above). An external module reference does not resolve at all, for
-            // want of cross-file globals (`bd tsr-9or.1`, `checker.go:14441`).
-            // Closing one does nothing for the other.
-            ModuleReference::QualifiedName(_) | ModuleReference::ExternalModuleReference(_) => None,
+            // `getTargetOfImportEqualsDeclaration` (`checker.go:14441`) for the
+            // `require("m")` half: `resolveExternalModuleName` then
+            // `resolveExternalModuleSymbol`. The specifier is the argument of
+            // the `require(...)` on the declaration itself rather than a
+            // `module_specifier` on any ancestor — a distinction that cost one
+            // probe run to find (§10).
+            ModuleReference::ExternalModuleReference(reference) => {
+                let specifier = reference.expression?.node_id()?;
+                self.module_object_of(declaration, specifier)
+            }
+            // A qualified name RESOLVES fine and prints wrong, for want of
+            // symbol accessibility. Unchanged, and not the same problem as the
+            // arm above: the name it would print is a *declared* one this port
+            // cannot reach, not a module object it cannot spell.
+            ModuleReference::QualifiedName(_) => None,
         }
     }
 
@@ -919,6 +954,21 @@ impl<'a> Checker<'a, '_> {
         // resolving to a plain script is a successful resolution with no module
         // symbol at the end of it, and only the checker can tell those apart.
         self.binder.symbol_of(target)
+    }
+
+    /// The **module object** a specifier names: the module symbol itself, and
+    /// only when the module does not write `export =`.
+    ///
+    /// The `export =` case answers `None` on purpose rather than handing back
+    /// `resolve_external_module_symbol`'s target. That target has a declared
+    /// name of its own and would print through the baked text, so it is a
+    /// *different* population from the one measured in §14 — 218 lines the probe
+    /// deliberately excluded — and shipping it here would be adding unmeasured
+    /// surface to a slice whose whole argument is that the surface was measured.
+    /// `bd tsr-e2u` carries it.
+    fn module_object_of(&mut self, location: NodeId, specifier: NodeId) -> Option<SymbolId> {
+        let module = self.resolve_external_module_name(location, specifier)?;
+        if self.resolve_external_module_symbol(module) == module { Some(module) } else { None }
     }
 
     /// The module specifier of an `ImportDeclaration` or an `ExportDeclaration`.

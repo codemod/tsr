@@ -755,3 +755,219 @@ otherwise compute 1,840 − 1,524 and think it was something.
   types become computable, they are the spellable half of this row, and the
   refusal in §10 would have to be re-taken against them rather than against the
   962.
+
+---
+
+# Cycle 14 — naming a module object at the reference site
+
+Measured 2026-08-06 at `c99006d` by the same probe, extended, and scored with
+`examples/casedelta.rs`. This is `bd tsr-6j2`, and it is the constraint every
+refusal in this workstream bottomed out on.
+
+## 14. The mechanism, anchored
+
+Upstream does **not** read the name off the declaration. `symbolToTypeNode`
+reaches `NodeBuilderImpl.lookupSymbolChain`
+(`internal/checker/nodebuilderimpl.go:1061`), which calls `getSymbolChain`, which
+calls `Checker.getAccessibleSymbolChain`
+(`internal/checker/symbolaccessibility.go:373`). Its `trySymbolTable` iterates
+**the alias symbols of every table in scope from `enclosingDeclaration`**, keeps
+each one that resolves to the target, and then:
+
+```go
+if len(candidateChains) > 0 {
+    // pick first, shortest
+    slices.SortStableFunc(candidateChains, c.compareSymbolChains)
+    return candidateChains[0]
+}
+```
+
+`compareSymbolsWorker` (`internal/checker/utilities.go:366`) breaks the tie on
+`compareNodes(s1.Declarations[0], s2.Declarations[0])`, and `compareNodes`
+(`:392`) is **file index in the program, then source position**. Every line
+number here is from `grep -n` on the declaration.
+
+So a module symbol's printed name is always *some alias's* name and never the
+symbol's own — which in this port is the stripped file path.
+
+## 15. The rule, and why the first rule was wrong
+
+The obvious rule falls straight out of §14: **among the aliases in scope that
+resolve to this module, the earliest-declared one supplies the name.** It
+explains both counter-examples `tsr-6j2` records —
+`compiler/es6ImportNameSpaceImport` (`nameSpaceBinding2` prints
+`typeof nameSpaceBinding`) and `compiler/modulePreserve4` (`g2` prints
+`typeof g1`) — which are the same mechanism twice.
+
+Measured over the corpus: **706 lines print a module object's name**, 168 cases,
+top-1 8.5%. The earliest-declared rule predicts **677 of them (95.9%)**.
+
+**And it is not the mechanism.** The residue contradicts itself in *both*
+directions, which a merely-incomplete rule cannot do:
+
+```
+  3  baseline `typeof g1`   rule `typeof g2`     <- upstream took the EARLIER
+  3  baseline `typeof r`    rule `typeof ns`     <- upstream took the LATER
+  2  baseline `typeof ns3`  rule `typeof ns`     <- upstream took the LATER
+```
+
+`compiler/unusedImports_entireImportDeclaration` is the decisive one: three
+namespace imports of `./a` in one file, and `ns`, `ns2`, `ns3` **each print their
+own name**. Upstream distinguishes that case from `es6ImportNameSpaceImport`
+through `cloneTypeAsModuleType` in `resolveESModuleSymbol`
+(`checker.go:15568`), which gives a namespace import a *cloned* type carrying the
+alias's own symbol. This port has no clone, so **no tie-break reproduces both**.
+
+A control says the same thing from the other side: the naive *"print the local
+alias"* rule gets **659** right against the earliest-declared rule's 677. The
+whole tie-break is worth **18 lines**, and it breaks cases the naive rule gets
+right. Neither rule is the mechanism; both are ~96% coincidences.
+
+### What was built instead: refuse to name when it is ambiguous
+
+Ambiguity is detectable **at the reference site, before anything is printed** —
+count the aliases in scope that resolve to this module. That turns the residue
+into a **gap** rather than a wrong line, which is the one thing this port could
+never do while the name was baked at type creation.
+
+| | lines | match | wrong-name | other |
+|---|---:|---:|---:|---:|
+| **exactly one alias in scope → PRINT** | **634** | **630** | **4** | 0 |
+| two or more → GAP | 72 | — | — | — |
+
+**630 right against 4 wrong — 99.4%**, 145 cases, top-1 9.5%. The 72 ambiguous
+lines gap, which is what they already did.
+
+## 16. What was built
+
+**Two entry points, and the split is the safety property.**
+`Checker::type_to_string` is untouched — 110 call sites across five checker
+modules and a dozen test files, two of them being edited by other agents this
+cycle. `Checker::type_to_string_at(id, reference) -> Option<String>` is new, and
+`types_producer` routes only the rendering path through it. A caller with no
+reference node **cannot** get a context-sensitive name, so nothing regresses by
+omission; the property is structural rather than maintained.
+
+`None` means *this port cannot name this type here*, and the caller renders a
+gap. It is an `Option` and not a fallback string for exactly one reason: the
+baked text for a module object is the file path, so a fallback would turn every
+unnameable case into a confidently wrong line — the outcome that got `tsr-6ph`
+refused twice.
+
+`Checker::resolve_alias` gained the three module forms that make it reachable —
+`getTargetOfNamespaceImport` (`checker.go:14724`),
+`getTargetOfNamespaceExport` (`checker.go:14742`) and the `require("m")` half of
+`getTargetOfImportEqualsDeclaration` (`checker.go:14441`) — each narrowed to
+**exclude `export =`**, which is a different, unmeasured population (218 lines,
+`bd tsr-e2u`).
+
+**`printing.rs` was transferred to this slice and did not need to change**, which
+is itself the finding: `printing::type_to_string` takes a `&Type` whose `text` is
+already a `String`, so a context-sensitive name cannot live there. The fix has to
+sit where the binder and the node table are, which is `Checker`.
+
+### The tests, and four mutations that each redden exactly one
+
+| mutation | reddens |
+|---|---|
+| **M1** — ambiguity picks the first candidate instead of gapping | `a_module_named_by_two_aliases_is_a_gap` |
+| **M2** — the module test is `SymbolFlags::VALUE_MODULE` instead of "a declaration is a `SourceFile`" | `a_namespace_declaration_keeps_its_declared_name` |
+| **M3** — drop the `export =` guard in `module_object_of` | `a_module_writing_export_equals_is_left_alone` |
+| **M4** — drop the `NamespaceImport`/`NamespaceExport` arm | `a_namespace_import_prints_its_own_name_and_not_the_file_path` |
+
+Each reddens **one** test and leaves the other five green. M2 is the one worth
+keeping: `SymbolFlags::VALUE_MODULE` is carried by every `namespace N {}` as well
+as by a file's module symbol, so a flag test would send every namespace through
+the alias lookup and gap all of them.
+
+## 17. Scored, per case, because a net hides a change that helps and harms
+
+`examples/casedelta.rs`, before and after, joined per case:
+
+```
+  matched      295,302 -> 296,125     +823
+  gradient      61.656% -> 61.827%    +0.17 points
+  cases at 100%   2,202 ->   2,229     +27
+  cases moved       150   (gained 823, LOST 0)
+```
+
+**Not one case lost a line.** That is the strongest per-case result available
+here and it is exactly what the net cannot show. 27 cases finished outright,
+including `compiler/aliasAssignments`, `conformance/moduleScoping` (31 lines),
+`compiler/collisionExportsRequireAndAlias` and six `nodeResolution*`.
+
+### The wrong column, which I did not predict and must not round away
+
+The probe's own gradient, before → after:
+
+```
+  right   294,871 -> 296,125   +1,254
+  gap     140,546 -> 138,793   -1,753
+  wrong    43,643 ->  44,142     +499
+```
+
+**1,753 gap lines converted: +499 of them wrong.** On the suite's basis that is
+**0.61 wrong per right**; on the probe's, 0.40. Against this workstream's other
+measurements: 2.1 and 2.5 (the two refused `tsr-6ph` designs), 1.0 (the ALIAS row
+as previously scoped), 0.14 (the export-marker arm).
+
+**The +499 is not the naming.** The naming half was measured at 630/634 = 99.4%.
+It is the **cascade** half — member accesses through a namespace object, which
+were gaps and are now answered incorrectly because the receiver has a type at
+last. Where exactly they come from is **unmeasured**; `TypeData::Anonymous`'s own
+docs say a module symbol's `exports` table is read by nothing, so `ns.foo` ought
+still to gap. `bd tsr-441` separates them, and the arm should not be widened to
+`export =` modules until it is.
+
+My prediction covered the row and not the collateral, which is the same error
+`docs/conventions.md` records for cross-file aliases at 1.66×, pointed the other
+way. The honest prediction, restated for whoever measures next: **the naming half
+is 99.4% accurate and the resolution half is 0.61 wrong per right.**
+
+## 18. Rule 3, re-derived rather than inherited
+
+§10 refused the ALIAS row on one leg: *"≥80% of convertible lines reach their
+target through an `export =`"*, measured 0.0%.
+
+**That leg was a proxy**, and saying so is the point. The question it stood in
+for was *"will the printed name be right?"*, and `export =` was the only way to
+answer it while a module object's name was its file path. `type_to_string_at`
+answers the real question directly: **630 of 634 unambiguous lines name
+correctly, and the ambiguous ones gap.**
+
+So the refusal **reverses, and it reverses because the constraint was removed,
+not because the numbers moved.** The row after the change:
+
+| form | before | after |
+|---|---:|---:|
+| `import a = require("m")` | 2,014 | **1,052** |
+| `import * as ns from "m"` | 816 | **304** |
+| `export * as ns from "m"` | 8 | **0** |
+| **the whole ALIAS row** | **5,207** | **3,671** |
+
+1,536 lines left the row, which is the 1,482 §10 predicted plus 54. `bd tsr-e2u`
+is closed by this for the three module forms and stays open for `export =`.
+
+## 19. How you would know this section is wrong
+
+- **The naming rule is a coincidence.** The falsifier is the ambiguous bucket:
+  if a single tie-break existed, the 72 two-alias lines would agree with it. They
+  do not, in both directions, and `unusedImports_entireImportDeclaration` and
+  `es6ImportNameSpaceImport` are the pair that cannot both be satisfied.
+- **The literal is being typed rather than the symbol** — the general form of the
+  M2 failure. `a_non_module_type_is_rendered_exactly_as_before` pins that
+  `type_to_string_at` is the identity off the module path.
+- **A case regressed.** `casedelta` joins per case and reads 0 lost over 150
+  moved. A net would have hidden it.
+- **The +499.** If `bd tsr-441` finds they are naming errors rather than cascade,
+  §15's 99.4% is wrong and this arm needs the ambiguity test widened.
+
+## 20. Open, cycle 14
+
+- `open` — `bd tsr-441`, the +499 wrong, unseparated.
+- `open` — `export =` modules, deliberately excluded (218 lines). Their target has
+  a declared name and would print through the baked text; whether that text is
+  right is unmeasured.
+- `open` — `cloneTypeAsModuleType` (`checker.go:15568`) is the mechanism that
+  would let the 72 ambiguous lines be named instead of gapped. Not ported, and
+  it is a type-identity change rather than a printing one.
