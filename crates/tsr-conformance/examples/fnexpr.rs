@@ -117,6 +117,32 @@
 //! match test read 17.8%. They agree when the defect is naming and diverge when
 //! the printer is present and the type flowing into it is wrong.
 //!
+//! # G — the third population: where a contextual type would come from
+//!
+//! Added 2026-08-06, step 1 of sizing contextual typing, and **written before
+//! the buckets it prints.** §4 priced the *absence* of contextual typing by
+//! deleting the guard; this asks the prior question — for the lines that guard
+//! holds, **what would supply the contextual type, and does that source stand on
+//! its own or need call resolution** (18,294 lines, refused, R2 37.7%)?
+//!
+//! > **G is every rendered `.types` line whose node kind is `ArrowFunction` or
+//! > `FunctionExpression` and whose gate is [`Gate::ContextualGuard`]** — some
+//! > parameter is unannotated and the node is not the initialiser of an
+//! > un-annotated `var`/`let`/`const`.
+//!
+//! Syntactic, so `|G|` is invariant under any checker change: **control C0″**.
+//!
+//! Beside each source G also counts the **parameter lines** — the `>x : number`
+//! assertion for each unannotated parameter — because those are a different
+//! population reached through `get_type_of_symbol` (`symbols.rs`, another
+//! workstream's file) and a build confined to `signatures.rs` would convert the
+//! function's line and not the parameter's. Sizing one as the other is the
+//! `1,784 → 362` error this project already paid for once.
+//!
+//! No rule is registered here. **Step 1 is a ranking, and a ranking is not a
+//! licence**; the rule for whichever source wins is registered separately, after
+//! this table exists and before anything is built.
+//!
 //! Run: `cargo run --release -p tsr-conformance --example fnexpr`
 
 use std::collections::BTreeMap;
@@ -310,6 +336,97 @@ const FUNCTION_LIKE: [SyntaxKind; 8] = [
     SyntaxKind::ArrowFunction,
 ];
 
+/// Where a contextual type for this function expression would have to come from.
+///
+/// Ordered by what upstream's `getContextualType` (`checker.go:29344`) consults,
+/// and split on the one axis that decides the build order: **is the type written
+/// down at this position, or does reaching it require resolving a call?**
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Source {
+    /// `const f: (x: number) => void = x => {}`. The type node is written on the
+    /// declaration and `signature_parts_of` already claims `FunctionTypeNode`.
+    WrittenVariableAnnotation,
+    /// `class C { f: (x: number) => void = x => {} }`.
+    WrittenPropertyAnnotation,
+    /// `function g(cb: (x: number) => void = x => {}) {}` — a parameter default.
+    WrittenParameterAnnotation,
+    /// `(x => {}) as (x: number) => void`, and the `<T>expr` spelling.
+    WrittenAssertion,
+    /// A `return` inside a function that **writes** its return type.
+    WrittenReturnAnnotation,
+    /// A `return` inside a function that does not. The contextual type is itself
+    /// contextual, so this is only reachable once the outer one is.
+    ReturnWithoutAnnotation,
+    /// An argument of a call. Needs the callee's signature — `bd tsr-4e1`'s
+    /// sibling problem and the row this workstream refused.
+    CallArgument,
+    /// An argument of `new`. Same prerequisite.
+    NewArgument,
+    /// An object-literal property value. The contextual type is the object
+    /// literal's, which is itself contextual.
+    ObjectLiteralProperty,
+    /// An array-literal element. Same.
+    ArrayLiteralElement,
+    /// The right-hand side of an assignment. Needs the left-hand side's type.
+    AssignmentRight,
+    /// A JSX attribute value.
+    JsxAttribute,
+    /// **No contextual type exists at all**, and it can be shown syntactically:
+    /// the position is an expression statement, a template-literal span, a
+    /// callee, or the parenthesised initialiser of an un-annotated declaration.
+    /// `getContextualType` (`checker.go:29344`) has no arm that supplies one
+    /// here, so the unannotated parameter is an implicit `any` and this port may
+    /// say so — which is exactly what `has_no_contextual_type`
+    /// (`signatures.rs:782`) already does for the un-parenthesised `const f = …`.
+    NoneAtAll,
+    /// The callee of its own call — an IIFE, `(x => x)(1)`. Grouped with
+    /// `NoneAtAll` on the first run, which was **wrong**: upstream contextually
+    /// types an IIFE's parameters from the *arguments*
+    /// (`getContextualTypeForParameter`'s IIFE arm), so a contextual type does
+    /// exist. Split out because the parameter-outcome column contradicted the
+    /// premise — see `docs/architecture/checker-notes-fnexpr.md` §10.
+    IifeCallee,
+    /// None of the above. A positive residual: the parent kind is printed beside
+    /// it so it can be audited rather than believed.
+    Other,
+}
+
+impl Source {
+    /// Whether the contextual type is **written in the source at this position**,
+    /// so reaching it needs no call resolution and no other contextual type.
+    const fn stands_alone(self) -> bool {
+        matches!(
+            self,
+            Self::WrittenVariableAnnotation
+                | Self::WrittenPropertyAnnotation
+                | Self::WrittenParameterAnnotation
+                | Self::WrittenAssertion
+                | Self::WrittenReturnAnnotation
+                | Self::NoneAtAll
+        )
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::WrittenVariableAnnotation => "WRITTEN  const f: T = …",
+            Self::WrittenPropertyAnnotation => "WRITTEN  class { f: T = … }",
+            Self::WrittenParameterAnnotation => "WRITTEN  (cb: T = …) parameter default",
+            Self::WrittenAssertion => "WRITTEN  … as T",
+            Self::WrittenReturnAnnotation => "WRITTEN  return, in a function with a return type",
+            Self::ReturnWithoutAnnotation => "chained  return, no return type written",
+            Self::CallArgument => "CALL     an argument of a call",
+            Self::NewArgument => "CALL     an argument of `new`",
+            Self::ObjectLiteralProperty => "chained  an object-literal property value",
+            Self::ArrayLiteralElement => "chained  an array-literal element",
+            Self::AssignmentRight => "chained  the right-hand side of an assignment",
+            Self::JsxAttribute => "chained  a JSX attribute value",
+            Self::NoneAtAll => "NONE     no contextual type exists at this position",
+            Self::IifeCallee => "IIFE     the callee of its own call",
+            Self::Other => "OTHER (residual; parent kinds printed below)",
+        }
+    }
+}
+
 /// A bucket's lines and the cases they came from, for concentration.
 #[derive(Default)]
 struct Tally {
@@ -396,6 +513,15 @@ struct Report {
     q_forms: BTreeMap<(Form, Outcome), Tally>,
     refusals: BTreeMap<Refusal, Tally>,
     refusal_rhs: BTreeMap<(Refusal, String), usize>,
+    /// G — where a contextual type would come from, and what it would unblock.
+    sources: BTreeMap<Source, Tally>,
+    /// Beside each source: the `>x : T` lines of the unannotated parameters, and
+    /// how many of them currently gap.
+    parameter_lines: BTreeMap<(Source, Outcome), usize>,
+    /// What the baseline prints for G's lines, per source.
+    source_rhs: BTreeMap<(Source, String), usize>,
+    /// The parent kinds behind `Source::Other`, so the residual is auditable.
+    other_parents: BTreeMap<String, usize>,
     c1_reason_kind_mismatch: usize,
     c1_reason_kind_match: usize,
     c2_arrow_this_parameter: usize,
@@ -431,6 +557,18 @@ impl Report {
         self.widen_risk.merge(&other.widen_risk);
         self.widen_gain_return.merge(&other.widen_gain_return);
         self.widen_risk_return.merge(&other.widen_risk_return);
+        for (key, tally) in &other.sources {
+            self.sources.entry(*key).or_default().merge(tally);
+        }
+        for (key, n) in &other.parameter_lines {
+            *self.parameter_lines.entry(*key).or_default() += n;
+        }
+        for (key, n) in &other.source_rhs {
+            *self.source_rhs.entry(key.clone()).or_default() += n;
+        }
+        for (key, n) in &other.other_parents {
+            *self.other_parents.entry(key.clone()).or_default() += n;
+        }
         for (key, tally) in &other.q_forms {
             self.q_forms.entry(*key).or_default().merge(tally);
         }
@@ -613,6 +751,11 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             continue;
         }
 
+        // Every rendered line's node, so a parameter's own assertion line can be
+        // found and its outcome read. Built once per file.
+        let position_of: BTreeMap<NodeId, usize> =
+            line_ids.iter().enumerate().map(|(position, id)| (*id, position)).collect();
+
         for (position, assertion) in our_file.iter().enumerate() {
             // The baseline is asked first. A line where we answer `error` and
             // upstream's baseline also says `error` is a **right** answer;
@@ -690,6 +833,40 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     .or_default() += 1;
             }
 
+            // G — the third population: what would supply a contextual type.
+            if form.in_p() && classify(nodes, map, id) == Gate::ContextualGuard {
+                let source = source_of(nodes, map, id, &mut report);
+                report.sources.entry(source).or_default().add(name, 1);
+                if let Some(rhs) = rhs.clone() {
+                    *report.source_rhs.entry((source, rhs)).or_default() += 1;
+                }
+                // The parameter lines this function would still not answer: they
+                // are reached through `get_type_of_symbol`, which is `symbols.rs`.
+                for parameter in parameters_of(map, id).unwrap_or(&[]) {
+                    if parameter.r#type.is_some() {
+                        continue;
+                    }
+                    let Some(tsr_ast::BindingName::Identifier(binding)) = parameter.name else {
+                        continue;
+                    };
+                    let Some(name_id) = binding.node_id else { continue };
+                    let Some(&at) = position_of.get(&name_id) else { continue };
+                    let Some(ours_line) = our_file.get(at) else { continue };
+                    let param_outcome = if expected_file
+                        .assertions
+                        .get(at)
+                        .is_some_and(|b| b.text == ours_line.line())
+                    {
+                        Outcome::Right
+                    } else if ours_line.type_string == "error" {
+                        Outcome::Gap
+                    } else {
+                        Outcome::Wrong
+                    };
+                    *report.parameter_lines.entry((source, param_outcome)).or_default() += 1;
+                }
+            }
+
             // Q — the second population. Syntactic, so `|Q|` is invariant under a
             // checker change exactly as `|P|` is (control C0′).
             if form.in_p() && classify(nodes, map, id) == Gate::SignatureBody {
@@ -749,6 +926,114 @@ fn type_parameters_of<'a>(
         Some(Node::FunctionExpression(node)) => Some(node.type_parameters),
         _ => None,
     }
+}
+
+/// Where a contextual type for this function expression would have to come from.
+///
+/// Walks out through parentheses first, because a parenthesis supplies no
+/// contextual type of its own — `getContextualType`'s `KindParenthesizedExpression`
+/// arm forwards to the parent (`checker.go:29344`), and stopping at the
+/// parenthesis would put every `(x => x)` in the residual.
+///
+/// `Source::Other` is a residual with its parent kinds recorded, never a bucket
+/// any conclusion is drawn from.
+fn source_of(
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    id: NodeId,
+    report: &mut Report,
+) -> Source {
+    let mut child = id;
+    let Some(mut parent) = nodes.parent(id) else { return Source::Other };
+    for _ in 0..8 {
+        if nodes.kind(parent) != SyntaxKind::ParenthesizedExpression {
+            break;
+        }
+        child = parent;
+        let Some(next) = nodes.parent(parent) else { return Source::Other };
+        parent = next;
+    }
+    match map.get(parent) {
+        Some(Node::VariableDeclaration(node)) => {
+            if node.r#type.is_some() {
+                Source::WrittenVariableAnnotation
+            } else {
+                // Un-annotated, yet the gate held it — so the initialiser is not
+                // this node, which after the parenthesis walk above means
+                // `const f = (x => x)`. `has_no_contextual_type` compares the
+                // initialiser by identity and a parenthesis breaks it.
+                Source::NoneAtAll
+            }
+        }
+        Some(Node::PropertyDeclaration(node)) => {
+            if node.r#type.is_some() {
+                Source::WrittenPropertyAnnotation
+            } else {
+                Source::NoneAtAll
+            }
+        }
+        Some(Node::ExpressionStatement(_) | Node::TemplateSpan(_)) => Source::NoneAtAll,
+        Some(Node::ParameterDeclaration(node)) if node.r#type.is_some() => {
+            Source::WrittenParameterAnnotation
+        }
+        Some(Node::AsExpression(_) | Node::TypeAssertion(_)) => Source::WrittenAssertion,
+        Some(Node::ReturnStatement(_)) => {
+            if enclosing_return_annotation(nodes, map, parent) {
+                Source::WrittenReturnAnnotation
+            } else {
+                Source::ReturnWithoutAnnotation
+            }
+        }
+        Some(Node::CallExpression(node)) => {
+            // The callee is not an argument; a call in callee position supplies
+            // no contextual type to itself.
+            if node.expression.and_then(|e| e.node_id()) == Some(child) {
+                Source::IifeCallee
+            } else {
+                Source::CallArgument
+            }
+        }
+        Some(Node::NewExpression(node)) => {
+            if node.expression.and_then(|e| e.node_id()) == Some(child) {
+                Source::IifeCallee
+            } else {
+                Source::NewArgument
+            }
+        }
+        Some(Node::PropertyAssignment(_) | Node::ShorthandPropertyAssignment(_)) => {
+            Source::ObjectLiteralProperty
+        }
+        Some(Node::ArrayLiteralExpression(_)) => Source::ArrayLiteralElement,
+        Some(Node::BinaryExpression(_)) => Source::AssignmentRight,
+        Some(Node::JsxExpression(_) | Node::JsxAttribute(_)) => Source::JsxAttribute,
+        _ => {
+            *report.other_parents.entry(format!("{:?}", nodes.kind(parent))).or_default() += 1;
+            Source::Other
+        }
+    }
+}
+
+/// Whether the function enclosing this `return` writes its return type.
+fn enclosing_return_annotation(
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    from: NodeId,
+) -> bool {
+    let mut current = nodes.parent(from);
+    for _ in 0..64 {
+        let Some(id) = current else { return false };
+        if FUNCTION_LIKE.contains(&nodes.kind(id)) {
+            return match map.get(id) {
+                Some(Node::ArrowFunction(node)) => node.r#type.is_some(),
+                Some(Node::FunctionExpression(node)) => node.r#type.is_some(),
+                Some(Node::FunctionDeclaration(node)) => node.r#type.is_some(),
+                Some(Node::MethodDeclaration(node)) => node.r#type.is_some(),
+                _ => false,
+            };
+        }
+        current = nodes.parent(id);
+    }
+    false
 }
 
 /// Which refusal inside the signature build holds this Q line.
@@ -1183,6 +1468,59 @@ fn print(report: &Report) {
         println!("      baseline wants: {}", shown.join(" | "));
     }
     println!("{:<56} {:>7}\n", "REFUSAL TOTAL", refusal_total);
+
+    println!("## 6d. G — where a contextual type would come from\n");
+    let g_total: usize = report.sources.values().map(|t| t.lines).sum();
+    println!(
+        "{:<52} {:>6} {:>7} {:>6} {:>7} {:>9} {:>8}",
+        "source", "lines", "share", "cases", "top-10", "param right", "param wrong"
+    );
+    let mut ordered: Vec<_> = report.sources.iter().collect();
+    ordered.sort_by_key(|(_, tally)| std::cmp::Reverse(tally.lines));
+    let mut stands_alone = 0usize;
+    for (source, tally) in &ordered {
+        let (cases, _, top10) = tally.concentration();
+        let pget = |outcome: Outcome| {
+            report.parameter_lines.get(&(**source, outcome)).copied().unwrap_or(0)
+        };
+        let (params, gapping) = (pget(Outcome::Right), pget(Outcome::Wrong));
+        if source.stands_alone() {
+            stands_alone += tally.lines;
+        }
+        println!(
+            "{:<52} {:>6} {:>6.1}% {:>6} {:>6.1}% {:>9} {:>8}",
+            source.label(),
+            tally.lines,
+            tally.lines as f64 / g_total.max(1) as f64 * 100.0,
+            cases,
+            top10,
+            params,
+            gapping
+        );
+        let named: Vec<String> =
+            tally.top_cases(3).into_iter().map(|(case, n)| format!("{case} {n}")).collect();
+        println!("      top: {}", named.join(" | "));
+        let mut rhs: Vec<_> =
+            report.source_rhs.iter().filter(|((src, _), _)| src == *source).collect();
+        rhs.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+        let shown: Vec<String> =
+            rhs.iter().take(4).map(|((_, text), n)| format!("{n}x {text}")).collect();
+        println!("      baseline wants: {}", shown.join(" | "));
+    }
+    println!("{:<52} {:>6}", "|G|", g_total);
+    println!(
+        "\n  stands alone (no call resolution, no other contextual type): {} of {} = {:.1}%",
+        stands_alone,
+        g_total,
+        stands_alone as f64 / g_total.max(1) as f64 * 100.0
+    );
+    println!("  residual `Other` parent kinds:");
+    let mut others: Vec<_> = report.other_parents.iter().collect();
+    others.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+    for (kind, n) in others.iter().take(10) {
+        println!("      {n:>5}  {kind}");
+    }
+    println!();
 
     println!("## 7. Controls\n");
     println!(

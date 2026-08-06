@@ -1670,3 +1670,118 @@ estimate is for when the change is expensive; it is not the default. **Report th
 delta, not the projection, whenever you can afford to produce one** — and note
 that this one also caught the 833 lines that moved *outside* the target
 population, which no estimate over the row would have seen.
+
+### Put the error bar on the *predicted* leg, and do not call a replayed measurement a forecast
+
+Two failures, one of them mine, and they compound.
+
+#### The bar was set on the wrong leg
+
+`bd tsr-5h0` was forecast at **+1,775 lines, range +1,420…+2,130**. It landed at
+**+1,005** — outside its own bar on the low side, 43% below the central estimate.
+
+The author had *already identified* which half was weak. Its spellability check
+had two legs, and it said so in writing: upstream's leg was exact (every line
+classified on the baseline's literal right-hand side), and **our leg was an
+inference from the design, not a counterfactual run**. Then it set a ±20% bar
+around the whole number.
+
+**The uncertainty was entirely in one leg and was much larger than ±20% and
+one-sided**, because the predicted leg assumed *every* collected line converts
+once the symbol is typed — and roughly 770 did not, most likely references where
+narrowing or a contextual type intervenes so the flow walk never hands back a
+bare `any[]`.
+
+> **When only one leg of a conversion estimate is measured, the error bar belongs
+> on the predicted leg's plausible range, not symmetrically around the product.**
+> A measured leg contributes almost no variance; putting a tidy ± around the
+> total hides that all of it lives in one place, and hides its direction.
+
+The author found and reported this against itself after the number had already
+been used. It also named the deeper failure correctly: **it labelled the caveat
+and then quoted the number anyway**, which this document already records under
+*"the part worth internalising is not the arithmetic"* — a caveat is only doing
+work if something downstream is *blocked* on it.
+
+#### And a replayed measurement is not a prediction — I got this wrong in public
+
+I reported "five scored forecasts, four inside a rounding error". That conflates
+two different things and overstates what was demonstrated.
+
+| what it was | example | what it proves |
+|---|---|---|
+| **Ex-ante forecast** — a number produced before the code exists | `+1,775` → **+1,005** | forecasting skill |
+| **Replayed measurement** — the change is built, scored on the agent's own instrument, then re-scored by the suite | `+1,188` → `+1,188` | the probe and the suite measure the same population |
+
+Three of my "hits" were the second kind, and one of their authors said so
+explicitly — *"no error bars; this is the suite's own instrument on the same
+pinned tree, not a projection."* That agreement is genuinely valuable: it is what
+`reconcile.rs` exists to establish, and a probe disagreeing with the suite has
+happened here repeatedly. **But it is an instrument-agreement check, not a
+forecast, and calling it one inflates the track record of a method this project
+uses to decide what to build.**
+
+Scored honestly, the ex-ante record for this cycle is **one miss (43% over,
+outside its bar) and one ceiling delivered at 0.84 of its estimate** — which is
+a reasonable record for hard estimates, and a completely different claim from
+"four of five inside a rounding error".
+
+**Say which kind of number you are quoting.** The distinction costs one word and
+it is the difference between "our probes are calibrated" and "we can predict what
+a slice will convert".
+
+### Half a mechanism renders the collateral of the half you built
+
+The sharpest rule of the cycle, found by the agent that had just shipped the
+build it indicts.
+
+`c91314c` made a module object nameable at its reference site: **630 of 634
+correct, 99.4%**. It also produced **+499 wrong lines nobody forecast**. Those
+were not a type error. The types were right and the **names were missing their
+qualifier**:
+
+```
+  32   upstream `() => import("./…_Widgets").Widget1`   ours `() => Widget1`
+  10   upstream `typeof Backbone.Model`                 ours `typeof Model`
+   8   upstream `PropTypes.Requireable<boolean>`        ours `Requireable<boolean>`
+```
+
+Upstream's `getAccessibleSymbolChain` returns a **chain**, and `symbolToEntityName`
+prints it dotted. The port implemented the **last hop only**. So every line the
+fix newly made *reachable* was then rendered by the half that was never ported,
+and fell back to the baked declared name.
+
+> **A fix that makes X computable hands X's *contents* to a renderer that was
+> never asked to render them. If those contents are rendered by the same
+> mechanism you have just ported *partially*, the collateral is wrong by
+> construction — every line of it.**
+>
+> Ask before building: *what will render what this unblocks, and is it the same
+> mechanism I am half-porting?* If so, forecast the collateral at the **unported**
+> half's failure rate, not the ported half's.
+
+Applied here it predicts the cycle exactly: naming 99.4% ported, qualification
+**0%** ported, collateral wrong at ~100%.
+
+#### It retrodicts the failure this document could not explain
+
+The reverse-cascade section records `tsr-6ph`'s two designs — one that printed
+the module object, one that only looked it up — measuring **2.1** and **2.5**
+wrong per right, and concludes: *"two designs that agree within 20% on what they
+break are not two designs."* True, and it never said **why** they agreed.
+
+This is why. **Both left the same renderer half-ported.** The two designs differed
+in what they *printed* and were identical in what they handed to a printer that
+could not name it, so their damage was drawn from one pool and had to come out
+the same size. That is a mechanism, where the earlier note had only a
+coincidence.
+
+#### And it is a sharper form of a rule already here
+
+*"The cascade runs both ways"* says to ask what else becomes computable and
+whether **those** answers can be spelled. This says where to look for the answer:
+**not at the new lines' shapes, but at the completeness of the mechanism that will
+render them.** A shape survey of the collateral would have reported function
+types and qualified names — all things this port renders — and passed. The
+question that catches it is not *"can we spell this?"* but *"is the thing that
+spells it finished?"*
