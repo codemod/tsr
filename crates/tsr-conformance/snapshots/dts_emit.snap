@@ -22,7 +22,7 @@ compiler/aliasInaccessibleModule2
 compiler/amdLikeInputDeclarationEmit
   line 1: missing `declare const ExtendedClass: new () => {`
 compiler/bindingPatternOmittedExpressionNesting
-  line 1: want `export {};`, got `export declare let [[[], []]]: any;`
+  line 1: want `export {};`, got `export declare let [, , [, [], , []]]: any;`
 compiler/commentsVariableStatement1
   line 1: want `/** Comment */`, got `declare var v: number;`
 compiler/conflictingDeclarationsImportFromNamespace1
