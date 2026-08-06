@@ -651,6 +651,78 @@ MA2 is the one worth keeping: it is the only mutation whose two assertions
 disagree, and *that* is the evidence the arm distinguishes "the global is
 missing" from "the global is there and the member is not".
 
+---
+
+# Part 3 — `PropertyAccessExpression` as a population, and `tsr-4qx` re-derived on lines
+
+## RULE-3, registered before either measurement
+
+Written before the probe was changed and before `tsr-4qx`'s slice was opened,
+in its own commit, with predictions attached. Same handling as RULE-2, for the
+same reason: RULE-1 was post-hoc and this is what a rule has to look like to be
+worth quoting.
+
+**Population for P1, pinned syntactically.** Gap assertion lines whose **node
+kind is `PropertyAccessExpression`** — `checker-notes-wrong.md`'s addendum
+measures **|P| = 24,072, of which 15,215 gap, 1,621 wrong, 322 unaligned, and
+TS2563 exposure 0**. The kind is a property of the AST, so `|P|` cannot move
+under the thing being measured. That is `fnexpr.rs`'s shape and I am copying it
+deliberately rather than inventing a fourth population.
+
+**Population for P2.** Gap assertion lines blocked by a receiver that is an
+**instantiated generic**, which Part 2 measured at 36.70% of 10,303 on one row
+(~3,781) plus 9.64% arrays (~1,024) — but that was one row, and P2's whole point
+is to size it over the board rather than over a row.
+
+> **RULE-3 / P1 — the property-access population.**
+> The actionable arm is `receiver RIGHT`: **we hold upstream's own type for the
+> receiver and still cannot look the member up**. Every other arm is a symptom
+> of something upstream of it. Arms mirror `checker-notes-evolvearray.md`'s
+> `ElementAccessExpression` split arm for arm, so the two are comparable:
+> `RIGHT / gapped / wrong / unaligned / not rendered`, with `not rendered` as
+> the default and `RIGHT` carrying the positive test.
+>
+> Build only if `RIGHT` clears **all three**:
+> - **P1a — size ≥ 2,000 lines.** The slice landed this session converted 976.
+>   A follow-on has to be worth at least twice that to beat the alternatives on
+>   the board.
+> - **P1b — top-1 case ≤ 40%**, top-10 ≤ 90%.
+> - **P1c — ≤ 25% of the arm's lines want `any`, and ≤ 25% want a name this
+>   port has no route to** (`typeof …`, `import(…)`).
+>
+> **Prediction, recorded to be falsified:** I expect `RIGHT` to land between
+> **3,000 and 6,000** lines — proportionally far above `ElementAccess`'s 786 of
+> 13,141 (6.0%), because that population is 76% TS2563 and this one has **zero**
+> TS2563 exposure, and because Part 2 already measured 78.31% correct receivers
+> on one of its rows. If it comes in under 2,000 I was wrong about the whole
+> population and P1a refuses it.
+>
+> **RULE-3 / P2 — `tsr-4qx`, re-derived on the line gradient.**
+> The parked verdict — *"of the 225 affected cases, ZERO have nothing else
+> failing"* — is a **case-gate** fact. It is true and it is **not inherited
+> here**: `cad4a4c` establishes that for the line gradient a row that finishes
+> no case can still be the largest lever available. So:
+> - **P2a — size ≥ 2,000 gap lines blocked**, measured over the board and not
+>   over one row.
+> - **P2b — the seam is landable in files this workstream owns.** Steps 1–3 of
+>   the issue move no line, so they are testable on their own; step 4 is the
+>   only one that moves the gradient.
+> - **P2c — wrong-per-right ≤ 0.5** on a `casedelta` pair, gains and losses read
+>   separately, and **0 cases lost** is not assumed.
+>
+> **P2 is not a threshold but a boundary, and it outranks all three:** the issue
+> says step 3 needs "a class/interface sibling of `type_parameter_types`
+> (`inference.rs:314`)", and `inference.rs` is **not mine**. If that turns out
+> to be *required* rather than optional, **stop and report** — do not build
+> across the line, do not reimplement it locally in a file I do own. A local
+> copy of another workstream's function is the worse failure, because it passes
+> every gate.
+>
+> **Prediction:** I expect P2b to hold for steps 1–3 and the `inference.rs`
+> boundary to be **real at step 4**, because instantiating a member's type needs
+> a type-parameter→argument mapping and that is what `type_parameter_types`
+> builds.
+
 ## Everything filed from this page
 
 | id | what | sized as |
