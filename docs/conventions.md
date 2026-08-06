@@ -1508,3 +1508,63 @@ roll-up and pairing count elsewhere in this repo. It moves 212 lines and C1 does
 not notice. M1 destroys the alignment and C3 does not notice. **Neither control is
 redundant, and a probe carrying only the arithmetic kind is carrying the one
 blind to the error that has actually happened here.**
+
+### Concentration is a case-gate concern; for the line gradient it is leverage
+
+This document tells you four separate times to run the concentration check and to
+distrust a row that a few cases dominate. Every one of those instances is sound
+and every one of them is about **the case gate**. Applied to the **line
+gradient** the same check points the other way, and nobody had said so.
+
+Measured at `9d5b026` with `crates/tsr-conformance/examples/casedelta.rs`, which
+dumps per-case tallies from `types_suite::compare`:
+
+| | lines | share of the 478,954-line denominator |
+|---|---:|---:|
+| the ten largest cases | 117,144 | **24.5%** |
+| unmatched within them | 43,843 | **9.15 gradient points** |
+
+```
+compiler/largeControlFlowGraph                        30,001 / 50,002   60.0%
+compiler/binaryArithmeticControlFlowGraphNotTooLarge  10,598 / 14,349   73.9%
+compiler/unionSubtypeReductionErrors                  14,014 / 14,016  100.0%
+compiler/resolvingClassDeclarationWhenInBaseTypeResolution 5,957 / 8,108 73.5%
+conformance/parserRealSource11                         1,783 /  7,635   23.4%
+```
+
+**Half the distance from 61.66% to 80% is in ten files.** `largeControlFlowGraph`
+alone is 20,001 unmatched lines — 4.18 points — and it is one file containing
+`const data = [];` followed by 10,000 identical `data[0] = 0;` statements.
+
+So the two readings are both true and must not be collapsed:
+
+| target | a row concentrated in one case is… |
+|---|---|
+| the **case gate** | nearly worthless — 20,001 lines flips exactly **one** case |
+| the **line gradient** | the largest lever available — **4.18 points** |
+
+The corrective is not to stop running the concentration check. It is to **say
+which number the check is being run against**, because the same measurement
+licenses opposite conclusions depending on the answer. A ranking that sorts by
+`finishes` and a ranking that sorts by lines are different rankings over the same
+rows, and `checker-notes-rank.md` §7 already records that the two axes are nearly
+orthogonal — this is that finding arriving at the sizing rules.
+
+#### And say what the number says about the corpus
+
+The honest report for such an item is *"+4.18 points, one case, and it says as
+much about the corpus as about the compiler"*. A gradient point bought from a
+machine-generated 10,000-statement test is not the same evidence of capability as
+a gradient point spread over 500 cases, even though the two are identical in the
+summary table. **Quote the case count beside any large concentrated gain**, or
+the number will be read as breadth by the next person, including you.
+
+#### The same instrument answers the question the totals cannot
+
+`casedelta.rs` exists because a commit moved the gradient `+431` and the two
+available readings — *one case gaining 1,700 while eighty lose*, or *a hundred
+cases gaining four* — license completely different next moves. Measured, it was
+neither: **24 cases moved, 22 gained 433 and two lost one line each.** A net is
+the one statistic guaranteed to hide a fix that is simultaneously helping and
+harming, which is the exact shape of any change to what the compiler *knows*
+rather than to what it *computes*.
