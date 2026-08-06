@@ -405,6 +405,64 @@ protected either, and that is worth knowing before someone simplifies it away.
   receivers that resolve through the module host and stop reporting *the
   receiver is a gap*. Not confirmed. `open`.
 
+---
+
+# Part 2 — the build decision for the two `members.rs` roots
+
+## RULE-2, re-registered 2026-08-06 at `b9a4f5c`
+
+Written **before** any new bucket was measured, before `members.rs` was opened,
+and before a line of checker was written. It exists because the rule in Part 1
+was written after two corpus runs and is therefore not a pre-registration; the
+coordinator's instruction was to write the rule I would have written blind and
+then check it. Nothing in this section was edited after the run that follows.
+
+**The population, stated in the rule rather than assumed.** The **19,818 gap
+assertion lines** that `gaproot` at `73f6dcd` attributes to the two roots
+`property access, the receiver has no such property` (13,206) and
+`property access, the property has no type` (6,612), out of the suite's
+**138,585** gap lines over **478,954** upstream baseline lines. Not nodes, not
+cases, not `.errors.txt` diagnostics.
+
+> **RULE-2.** Build a row only if it clears **all three**. A row that fails any
+> one is refused, and the refusal is the deliverable.
+>
+> - **B1 — the prerequisite is met in fact, not by label.** ≥ **60%** of the
+>   lines a row blocks must have a **receiver whose rendered type equals the
+>   baseline's type for that receiver**. `gaproot` calls these roots
+>   `ROOT/own-rule` because nothing *inside the access's span* gapped — but a
+>   receiver that is typed *wrongly* also does not gap, and a property lookup
+>   that fails on the wrong receiver type is not `members.rs` work. This is the
+>   direct form of the coordinator's *"prerequisite met is necessary and not
+>   sufficient"*: an item sized at 1,784 converted 362, a 4.9× miss.
+>   **Why 60%:** below it, a further haircut of that order leaves the row under
+>   the +0.34 gradient bar the last cycle's best work set.
+>
+> - **B2 — the root is a root.** ≤ **25%** of a row's blocked lines may dissolve
+>   when the descent is given a **property-declaration edge** — descend from
+>   `the property has no type` to the property symbol's own declaration.
+>   `gaproot`'s span test cannot see that declaration, which is the exact blind
+>   spot that made a 2,618-line row read TERMINAL and measure 68.6% propagated
+>   (`checker-notes-rank.md`, correction header). **I expect this to fail for
+>   `the property has no type` and to hold for `the receiver has no such
+>   property`**, and I am writing that prediction down before measuring it so
+>   the result can falsify me rather than confirm me.
+>
+> - **B3 — the collateral is spellable.** On a before/after corpus pair through
+>   `examples/casedelta.rs`, **wrong-per-right ≤ 0.5**, counted over the whole
+>   corpus and not over the targeted rows. Three builds were refused this week
+>   at 2.1, 2.5 and 1.0; the one that landed came in at 0.14. A **net** gradient
+>   figure does not satisfy B3 — it is the one statistic guaranteed to hide a
+>   change that helps and harms at once.
+>
+> **And, independently:** no row may be closed by widening an `any` answer, no
+> line of `indexed.rs` may be touched (the coordinator sequences that), and the
+> `any`-receiver identity guard in `members.rs` is not to be simplified.
+>
+> **Both counts are ceilings on ceilings.** 19,818 is *lines unblocked*, which
+> already assumes the row is closed completely in every case it touches, and B1
+> is the measurement of how much of that assumption survives contact.
+
 ## Everything filed from this page
 
 | id | what | sized as |
