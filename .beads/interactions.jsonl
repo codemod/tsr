@@ -75,3 +75,4 @@
 {"id":"int-5b2803fc","kind":"field_change","created_at":"2026-08-06T04:27:00.158758973Z","actor":"mo","issue_id":"tsr-rn4","extra":{"field":"status","new_value":"closed","old_value":"open"}}
 {"id":"int-de7e8a53","kind":"field_change","created_at":"2026-08-06T04:27:00.348001153Z","actor":"mo","issue_id":"tsr-q54","extra":{"field":"status","new_value":"closed","old_value":"open"}}
 {"id":"int-16546e82","kind":"field_change","created_at":"2026-08-06T04:27:00.544720005Z","actor":"mo","issue_id":"tsr-rmi","extra":{"field":"status","new_value":"closed","old_value":"open"}}
+{"id":"int-9e420038","kind":"field_change","created_at":"2026-08-06T05:32:38.261953181Z","actor":"mo","issue_id":"tsr-eak","extra":{"field":"status","new_value":"closed","old_value":"open"}}

@@ -2378,3 +2378,69 @@ The cheap check, which was not run here: after writing each branch, state the
 arithmetic that makes it true. *"`NEW < CALL` therefore the mixture sits between
 them, therefore including `new` lowers it"* takes one line and would have caught
 it before the probe existed.
+
+### Pin a control to the upstream construct you are claiming, not to your summary of it
+
+Sizing `removeSubtypes`, I read `checker.go:25934`, saw that only
+`StructuredOrInstantiable` constituents are removal candidates, and wrote:
+*"`UnionReductionLiteral` and `UnionReductionSubtype` can only disagree on a
+union carrying at least **two** structured constituents"* — reasoning that a
+removal needs a structured source and a structured target.
+
+It needs only a structured **source**. The gate at `:25955` is per-source and
+the target loop at `:25984` ranges over every other constituent whatever its
+flags, so `T extends string` inside `T | string` is removed against a
+*primitive*. Upstream's own comment three lines below is about that case.
+
+The control registered with it was *"a union with fewer than two structured
+constituents cannot change; expect 0"*. **It read 61.** On the corrected
+partition it reads 0.
+
+What makes this worth a rule is the counterfactual control. The obvious control
+— *"the four cross-tab cells sum to the union population"* — **passes under the
+wrong partition**, because a wrong partition still partitions. It would have
+passed, the probe would have looked sound, and the item's population would have
+been understated by the entire one-structured bucket: **2,639 lines, more than
+the item's whole candidate set.**
+
+> **An arithmetic control over a partition cannot see that the partition is
+> wrong.** The control that can is one whose expected value comes from the
+> *upstream construct being claimed* — here, "upstream's gate never admits these
+> as sources, so this bucket is empty" — because that value is fixed by
+> upstream's code and not by mine.
+
+This document already ranks controls by whether their value is pinned by
+construction rather than arithmetic, and whether the mutation would move both
+sides. This is the next question along: **is the property it is pinned to *your
+claim* or *the thing your claim is about*?** A control pinned to a summary is
+pinned to the very sentence that might be wrong.
+
+It is the third instance in two cycles of the same underlying error — read
+upstream, infer a rule, state the inference as upstream's. The first was
+`binary.rs`'s `getTypeFacts` comment, which cost two cycles because nothing
+tested it. The second was a registered decision branch whose stated direction
+was backwards. This one cost nothing, because the claim was turned into a bucket
+that had to read zero before the probe ran.
+
+#### And the sizing rule it produced
+
+The item was refused on a partition of the *wrong* lines by **why they are
+wrong**, not on the size of the rows it blocks:
+
+```
+  a strict subset survives — the removeSubtypes candidate   500   23.3%
+  narrowing: a nullable was not stripped                    483   22.5%
+  not a union on one side                                   437   20.4%
+  printer: parenthesisation                                 301   14.0%
+  the constituents themselves differ                        288   13.4%
+  printer: constituent order                                137    6.4%
+```
+
+Five of the six arms are other people's items, and two of them — 438 lines of
+pure printer work with no prerequisite — are better specified than the item that
+was going to absorb them.
+
+> **Before sizing a mechanism by the row it would fix, partition that row by
+> *why* each line is wrong.** "The baseline is shorter than our answer" is not a
+> diagnosis; narrowing, reduction, ordering and bracketing all shorten a union,
+> and only one of them is the mechanism you are costing.

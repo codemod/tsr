@@ -273,6 +273,16 @@ pub fn assertions_for_file(
 ///
 /// Anything else is `errorType` — a gap rather than an answer, exactly as it is
 /// inside the checker.
+/// The type a node has, as upstream's `GetTypeAtLocation` would answer it,
+/// **rendered**.
+///
+/// The whole body is [`type_id_at_location`]; this is `render` applied to its
+/// answer. The two were one function until `examples/subtypes.rs` needed the
+/// `TypeId` rather than the string, and the split is mechanical: every exit of
+/// the original was already `render(checker, id, <a TypeId>)`, so the rendering
+/// step lifts out without touching a single decision. That is why this is a
+/// refactor and not a change — there is no arm where the two could now
+/// disagree.
 pub fn type_at_location(
     checker: &mut tsr_checker::Checker<'_, '_>,
     binder: &tsr_binder::BindResult<'_>,
@@ -280,8 +290,25 @@ pub fn type_at_location(
     map: &NodeMap<'_>,
     id: NodeId,
 ) -> String {
+    let computed = type_id_at_location(checker, binder, nodes, map, id);
+    render(checker, id, computed)
+}
+
+/// The type a node has, as upstream's `GetTypeAtLocation` would answer it, as a
+/// [`tsr_checker::TypeId`] rather than a string.
+///
+/// This is the whole of [`type_at_location`]'s body; that function is this plus
+/// `render`. Split out for `examples/subtypes.rs`, which has to inspect a
+/// union's *constituents* and cannot do that through a rendered string.
+pub fn type_id_at_location(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    binder: &tsr_binder::BindResult<'_>,
+    nodes: &NodeTable,
+    map: &NodeMap<'_>,
+    id: NodeId,
+) -> tsr_checker::TypeId {
     let error = checker.intrinsics().error;
-    let Some(node) = map.get(id) else { return render(checker, id, error) };
+    let Some(node) = map.get(id) else { return error };
 
     // `IsTypeDeclarationName` (`ast/utilities.go:3598`): an identifier naming a
     // class, interface, type alias, enum or type parameter. Upstream tests this
@@ -293,7 +320,7 @@ pub fn type_at_location(
         && let Some(symbol) = binder.symbol_of(parent)
     {
         let declared = checker.get_declared_type_of_symbol(symbol);
-        return render(checker, id, declared);
+        return declared;
     }
 
     // `IsRightSideOfPropertyAccess` (`ast/utilities.go:3604`). The `b` of `a.b`
@@ -311,7 +338,7 @@ pub fn type_at_location(
         && let Some(Node::PropertyAccessExpression(access)) = map.get(parent)
     {
         let computed = checker.check_property_access_expression(access);
-        return render(checker, id, computed);
+        return computed;
     }
 
     // A declaration name resolves through its parent's symbol.
@@ -320,7 +347,7 @@ pub fn type_at_location(
         && let Some(symbol) = binder.symbol_of(parent)
     {
         let computed = checker.get_type_of_symbol(symbol);
-        return render(checker, id, computed);
+        return computed;
     }
 
     // **A base class expression prints the base's instance type, not `typeof`**,
@@ -373,7 +400,7 @@ pub fn type_at_location(
         // declared type is not available, the expression's own answer is used
         // rather than a gap being invented here.
         if declared != error {
-            return render(checker, id, declared);
+            return declared;
         }
     }
 
@@ -457,14 +484,14 @@ pub fn type_at_location(
         {
             let declared = checker.get_declared_type_of_symbol(symbol);
             if declared != checker.intrinsics().error {
-                return render(checker, id, declared);
+                return declared;
             }
             let value = checker.get_type_of_symbol(symbol);
-            return render(checker, id, value);
+            return value;
         }
 
         if enclosing != Some(SyntaxKind::TypeQuery) {
-            return render(checker, id, checker.intrinsics().any);
+            return checker.intrinsics().any;
         }
     }
 
@@ -529,7 +556,7 @@ pub fn type_at_location(
         let name = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if name == error {
-            return render(checker, id, checker.intrinsics().any);
+            return checker.intrinsics().any;
         }
     }
 
@@ -563,7 +590,7 @@ pub fn type_at_location(
         let label = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if label == error {
-            return render(checker, id, checker.intrinsics().any);
+            return checker.intrinsics().any;
         }
     }
 
@@ -626,15 +653,15 @@ pub fn type_at_location(
         let tag = tsr_ast::Expression::try_from(node)
             .map_or(error, |expression| checker.check_expression(expression));
         if tag == error || tag == checker.intrinsics().any {
-            return render(checker, id, checker.intrinsics().any);
+            return checker.intrinsics().any;
         }
     }
 
     if let Ok(expression) = tsr_ast::Expression::try_from(node) {
         let computed = checker.check_expression(expression);
-        return render(checker, id, computed);
+        return computed;
     }
-    render(checker, id, error)
+    error
 }
 
 /// Render a type as the answer for the line at `reference`.

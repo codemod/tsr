@@ -541,3 +541,111 @@ truncated head.
 It is the same shape as the two errors already recorded on this page — a shape
 test standing in for a match test, a header rule quoted and not followed. In all
 three the instrument was fine and the *reading* of it was truncated.
+
+---
+
+## 9. `removeSubtypes`, sized — and refused
+
+`bd tsr-eak`, sized by `crates/tsr-conformance/examples/subtypes.rs` (new) at
+`0a1fbdd`. The registered instruction was to size it by **counting unions whose
+answer would change**, never by summing the five rows it blocks, because those
+rows are in four files and do not ship together.
+
+### Reading upstream cut the population before any probe ran
+
+`removeSubtypes` (`checker.go:25934`) only admits a constituent as a removal
+*source* when it is `StructuredOrInstantiable` (`:25955`), and upstream says why
+on the line above: redundant primitives are assumed already gone, so the only
+possible supertype of a primitive is an empty object type. **A union of pure
+primitives reduces identically under `UnionReductionLiteral` — which this port
+has — and `UnionReductionSubtype`.** Of 26,140 union lines this port answers,
+21,093 carry no structured constituent at all and are outside the item by
+construction.
+
+### The number that refuses it
+
+| | lines | the proxy says would change |
+|---|---:|---:|
+| structured constituent, **RIGHT today** | **2,901** | **255** |
+| structured constituent, wrong today | 2,146 | 263 |
+| no structured constituent, right | 19,467 | **0** (C1) |
+| no structured constituent, wrong | 1,626 | **0** (C1) |
+
+The proxy is `Relation::Assignable`, which is *weaker* than upstream's
+`strictSubtypeRelation` and therefore over-removes, so both columns are upper
+bounds.
+
+**255 lines that are right today would be broken, against at most 263 wrong
+lines changed** — and *changed* is not *fixed*. That is **1.03 gained per lost at
+the theoretical ceiling** and below break-even on any realistic reading. The
+refusals on record are `tsr-6ph` at 2.1 and 2.5 wrong-per-right and qualified
+naming at 2.7; this is worse than all three.
+
+### And only a quarter of the target row is even this item
+
+The decisive step was refusing to treat "the baseline is shorter than our union"
+as the item's population. Partitioned by **why** the 2,146 structured wrong lines
+are wrong, on the two strings alone:
+
+| family | lines | share |
+|---|---:|---:|
+| a strict subset survives — **`removeSubtypes` candidate** | **500** | 23.3% |
+| narrowing: a nullable was not stripped | 483 | 22.5% |
+| not a union on one side — a different answer entirely | 437 | 20.4% |
+| **printer: parenthesisation** | 301 | 14.0% |
+| neither: the constituents themselves differ | 288 | 13.4% |
+| **printer: constituent order** | 137 | 6.4% |
+
+**500, not 2,146** — and 500 is itself an upper bound on an upper bound, because
+the arm admits any case where the baseline's constituents are a strict subset of
+ours, which includes narrowing. `Set<number> | Set<string>` → `Set<number>` (24
+lines) is in that arm and `Set<string>` is not a subtype of `Set<number>`.
+
+So the item is: **at most 500 candidates, of which the proxy says at most 263
+would move, against 255 certain losses.** Refused.
+
+### Two items fell out of it, and they are better than the item was
+
+- **`bd tsr-dto` — 438 lines of pure printer work with no prerequisite.**
+  Parenthesisation (301): we print `A & B | C & D` where upstream prints
+  `(A & B) | (C & D)`, and `() => boolean | undefined` where upstream prints
+  `(() => boolean) | undefined`. Constituent order (137): `number[] | string[]`
+  against `string[] | number[]`. **This supersedes `bd tsr-iiu`'s sizing**, which
+  called the ordering defect a two-line repro of unknown size; it is 137 lines
+  for order alone and `undefined | null` is one instance of it.
+- **`bd tsr-e10` — 483 lines wanting a nullable stripped.** `T | undefined` → `T`.
+  That is `getNonNullableType`/narrowing, and `removeSubtypes` would leave every
+  one of them alone: `undefined` is not a subtype of `T`. It is the largest
+  single family and it was sitting inside the population this item was about to
+  be sized by.
+
+Both carry the same caution that refused the parent, and it must not be lost in
+the enthusiasm: **a change to union rendering fires on all 26,140 union lines, of
+which 22,368 are right today.** The bar belongs on that population, not on the
+438. What makes them tractable where `removeSubtypes` is not is that they are
+deterministic string rules, so the counterfactual is one build and one
+`casedelta` rather than a relation nobody has ported.
+
+### C1 fired, and it fired against a sentence I had written as upstream's
+
+C1 was registered as *"a union with fewer than **two** structured constituents
+cannot change; expect 0"*, and read **61**.
+
+The gate at `:25955` is **per source**, and the target loop at `:25984` ranges
+over every other constituent whatever its flags. So `T extends string` inside
+`T | string` is a structured source removed against a *primitive* target — one
+structured constituent, and upstream's own comment three lines below is about
+exactly that case. The correct partition is **one or more**, and on it C1 reads
+**0**.
+
+The error is the same one this page records at §3.1 against `binary.rs`: read
+upstream, infer a rule, write the inference down as though it were upstream's.
+One cycle later, and this time with a control on it — which is the whole
+difference. Had C1 been written as *"the buckets sum to the population"* it would
+have passed, and the item's population would have been understated by the entire
+one-structured bucket: **2,639 lines**, more than the item's whole candidate set.
+
+> **Pin a control to the upstream construct you are claiming, not to your
+> summary of it.** The claim here was a sentence about a gate; the control that
+> caught it was the same sentence turned into a bucket that had to read zero. An
+> arithmetic control over the same partition cannot see a wrong partition.

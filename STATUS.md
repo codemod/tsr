@@ -140,7 +140,9 @@ unknown, rank by how cheap it is to find out.**
 
 | # | item | converts | file | the rule that would license it | what would falsify the estimate |
 |---|---|---:|---|---|---|
-| 0 | **`removeSubtypes` + a `Subtype` arm on `Relation`** (`tsr-eak`) | **~1,100 measured own-root**, plus return inference | `unions.rs` + `relater.rs` | size it by **counting unions whose answer would change**, not by summing the five rows — they are in four files and do not ship together | the relater's structural arm turns out not to decide the pairs `removeSubtypes` asks about, in which case this *is* the assignability item after all |
+| 0 | ~~`removeSubtypes` + a `Subtype` arm~~ (`tsr-eak`) | **REFUSED 2026-08-06** | — | — | 255 right lines broken against ≤263 changed — see §5 |
+| 0 | **Union rendering: parenthesisation + constituent order** (`tsr-dto`) | **438**, no prerequisite | `unions.rs` / `printing.rs` | deterministic string rules, so the counterfactual is one build and one `casedelta` | the mechanism fires on all 26,140 union lines, **22,368 of them right today** — the bar belongs on that population, not on the 438 |
+| 0b | **`getNonNullableType`: 483 lines want a nullable stripped** (`tsr-e10`) | 483 | `flow.rs` | `TypeFacts` needs `NEUndefinedOrNull`; it carries only `TRUTHY`/`FALSY` | the 483 may not be reached through a narrowing path this port already walks |
 | 1 | **`new C()` — the lib `*Constructor` arm** | unsized; **not 1,074** | `calls.rs` | **R2′ 75.9% on 1,074 lines, 229 cases, top-1 15.1%** — passed its registered test on 2026-08-06 | the typed arrays in it are generic instantiations (`tsr-4qx`, blocked). Size the `*Constructor` population **minus** those before quoting anything — one more bucket in `callres.rs` |
 | 2 | ~~Re-take the call row's bar with `new` scored separately~~ | **run 2026-08-06** | — | — | see §5 — R2′ has stopped discriminating and the answer is a counterfactual |
 | 3 | `tsr-n23` + contextual typing, as **one** cross-file item | 2,082 gap **+ 1,809 wrong** | `symbols.rs` **and** `signatures.rs` | 48.8% of it sits behind call resolution — item 2 gates this | a build confined to either file converts half of each function's lines, which is the measured reason it is one item |
@@ -176,7 +178,7 @@ arriving at.
 
 | blocker | blocks | state |
 |---|---|---|
-| **`removeSubtypes` — *not* assignability** | `\|\|` 358, `??` 96, `ConditionalExpression` 295, `ArrayLiteral` 355, return-inference from a body, `intersections.rs` | **CORRECTED 2026-08-06, same day.** I wrote *"assignability, newly identified as a shared blocker"* from three refusals' **stated reasons** — the exact "a prerequisite quoted three times is not established" trap I had written a convention about that morning. Grepped: `relater.rs` **exists and is not a stub** — `is_simple_type_related_to`, a structural arm with a results cache and cycle closure, composite handling. `Relation` has one variant, `Assignable`, and the file says at `:115` and `:231` that it was shaped so **"adding `Subtype` later is an arm rather than a refactor"**. The blocker is `removeSubtypes` in `unions.rs` plus that arm — a far smaller and better-specified item |
+| ~~**`removeSubtypes`**~~ — **refused, not a blocker worth clearing** | `\|\|` 358, `??` 96, `ConditionalExpression` 295, `ArrayLiteral` 355, return-inference from a body, `intersections.rs` | **CORRECTED 2026-08-06, same day.** I wrote *"assignability, newly identified as a shared blocker"* from three refusals' **stated reasons** — the exact "a prerequisite quoted three times is not established" trap I had written a convention about that morning. Grepped: `relater.rs` **exists and is not a stub** — `is_simple_type_related_to`, a structural arm with a results cache and cycle closure, composite handling. `Relation` has one variant, `Assignable`, and the file says at `:115` and `:231` that it was shaped so **"adding `Subtype` later is an arm rather than a refactor"**. The blocker is `removeSubtypes` in `unions.rs` plus that arm — a far smaller and better-specified item |
 | qualified naming (`tsr-awa`) | `tsr-4qx` (~5,161), 1,318 of its own | mechanism **measured at 90.7%**, build refused — see §5 |
 | `tsr-4qx` instantiated generics | ~5,161 | blocked on `tsr-awa`; `type_reference_text` bakes an unqualified name at type *creation* |
 | call resolution | 48.8% of contextual typing, the IIFE rows, and `new` | **the R2′ refusal no longer stands on its stated grounds** (§5). Its next step is a counterfactual, not another probe |
@@ -184,9 +186,13 @@ arriving at.
 **`members.rs` is done** until those land. Its own lookup is **104 lines**. That
 was registered as a prediction before measurement and confirmed.
 
-**Item 0 was added after the board was written, by grepping a prerequisite three
-documents asserted.** It is the smallest of the four blockers and the only one
-whose prerequisite is already three-quarters built.
+**Item 0 was added after the board was written and then refused the same day.**
+Sized at `0a1fbdd` by `examples/subtypes.rs`: the mechanism would break **255
+lines that are right today** against at most 263 changed, and only **500 of the
+2,146** structured wrong lines are even its population — the rest are narrowing
+(483), printing (438) and answers that differ outright. What replaced it on the
+board is two items that fell out of that sizing and are better specified than it
+ever was. `docs/architecture/checker-notes-armsplit.md` §9.
 
 ### Is 80% reachable at the implied rate?
 
@@ -235,7 +241,8 @@ what four cycles of ranking have now established.
 | **`BinaryExpression` destructuring assignment** | 252 | needs destructuring patterns **and** tuples — two unported subsystems |
 | **`ArrayLiteral` own-root row** | 604 | 602 are the object-reduction guard; **355 are one case**; needs assignability |
 | **`new C()`, the cheap design** | 1,052 | *strip `typeof` from the callee* exact-matches **23 of 1,052 — 2.2%**, and on 712 the callee is not `typeof X` at all |
-| **`\|\|` and `??`** | 358 + 96 | both need `UnionReductionSubtype`, i.e. assignability. `&&` does not, which is why only `&&` landed |
+| **`\|\|` and `??`** | 358 + 96 | both need `UnionReductionSubtype`. `&&` does not, which is why only `&&` landed |
+| **`removeSubtypes` (`tsr-eak`)** | 5 rows, ~1,100 quoted | **255 right lines broken vs ≤263 changed — 1.03 gained per lost at the ceiling**, worse than the 2.1 / 2.5 / 2.7 that refused three earlier items. And only **500 of 2,146** structured wrong lines are its population; 21,093 of 26,140 union lines carry no structured constituent and are outside it by construction |
 
 ---
 
