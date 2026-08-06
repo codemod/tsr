@@ -1571,3 +1571,106 @@ The renderer question is **already answered against it and unfavourably**: what
 `tsr-4qx` unblocks is *instantiated* types going to a printer nobody has checked,
 which is the shape that produced the 328 (§26). That is not a refusal — it is the
 first thing the next agent should measure, before the line count.
+
+---
+
+# Cycle 18 — two measurements, no build
+
+## 42. `tsr-awa` re-measured on the post-redirect binder: the refusal survives
+
+§34 gave two reasons the parent-walk chain fails. I later flagged a possible
+confound against my own number: `predicted_chain` stopped when
+`resolve_name(...) == Some(id)`, an **identity** comparison, and before
+`a05bf94` one logical symbol had several `SymbolId`s — so the test could fail
+spuriously wherever a name was declared in more than one file, and the 30.7%
+would be a lower bound.
+
+Corrected: both sides now go through `BindResult::merged_symbol`, which is
+idempotent and total, and the probe re-run at `8229b58`.
+
+| | pre-redirect | post-redirect, merged comparison |
+|---|---:|---:|
+| chain matches the baseline | 405 (**30.7%**) | 409 (**31.0%**) |
+| chain differs | 157 | 158 |
+| no chain could be built | 756 (57.4%) | 751 (57.0%) |
+
+**+0.3 points. The confound was not the confound**, and the refusal survives its
+own correction against a bar of ≥90%. The 57% that build no chain are
+`Symbol::parent` being unpopulated outside `ENUM_MEMBER | CLASS_MEMBER`, which
+§34 gave as the second reason and which is now the only one.
+
+Worth keeping separate from the result: I raised the confound, tested it, and it
+was not there. A flagged risk that measures to nothing is still worth the run —
+the alternative was a refusal carrying an untested asterisk.
+
+## 43. `tsr-4qx`: the renderer question, answered before the line count
+
+The lead asked for the renderer measured **first**, on the grounds that
+instantiated types go to "a printer nobody has checked". The printer is checked,
+and the answer is sharper than that.
+
+Steps 1–2 are done (`8fa6a3e`). Steps 3–4 are `declared.rs` and mine. Step 4
+flips `create_type_reference` to carry members; step 3 instantiates inside the
+seam. `getTypeOfPropertyOfType` re-taken with `grep -n`: **`checker.go:18951`**,
+as cited.
+
+### What renders what this unblocks, in two hops
+
+**Hop 1 — `instantiate_type` (`inference.rs:262`) is partially ported, and its
+failures are honest.** It handles exactly three shapes: a hit in the
+substitution map, a type reference, and a union. Everything else — a signature
+type `(value: T) => void`, a type literal `{ a: T }` — falls to `error`
+(`inference.rs:299`). Those are **gaps, not wrong lines**, so this hop does not
+trip `c592d0f`: an unported branch that answers `errorType` manufactures
+nothing.
+
+**Hop 2 — `type_reference_text` (`declared.rs`) is the problem, and it is my own
+328 again.** When instantiation *succeeds*, the result is printed by:
+
+```rust
+let name = self.binder.symbols().get(symbol).name.to_string();
+```
+
+**the symbol's own unqualified name**, plus `self.type_to_string(argument)` —
+the context-free entry point — for each argument. So an instantiated reference to
+a namespace-scoped generic prints `Requireable<boolean>` where upstream prints
+`PropTypes.Requireable<boolean>`, and a qualified type *argument* is unqualified
+too.
+
+That is **exactly** the mechanism §26 identified and §33 measured: the qualified
+name, whose portable construction reproduces the corpus at **31.0%** against a
+bar of 90%. And because `type_reference_text` bakes its result at type creation,
+`type_to_string_at` cannot repair it afterwards — the same baked-text wall §16
+recorded, hit a second time from a different direction.
+
+### The verdict the rule gives
+
+`c592d0f`: *forecast the collateral at the unported half's failure rate.* Hop 1
+is safe. **Hop 2 is a mechanism this workstream has already measured at 31.0% and
+refused**, and every instantiated member that needs a qualifier is drawn from
+that pool.
+
+So `tsr-4qx` is **blocked on `tsr-awa`**, not on its own size — and its size
+(5,161 lines, ~1.08 points, measured by another agent at `5eb252c` and **not
+re-derived here**) is not the binding constraint. Building it now converts the
+members whose names need no qualifier and manufactures wrong lines for the rest,
+in an unmeasured ratio.
+
+**No forecast is registered and nothing is built**, because the honest next step
+is a measurement rather than a threshold: *of the lines `tsr-4qx` would unblock,
+what share print a qualified name?* That is one probe pass over the
+instantiated-generic receiver population, joining each unblocked member's
+baseline against whether its type reference is dotted. It is the number that
+decides the item and nobody has taken it.
+
+**What would unblock it:** `tsr-awa` — the alias search at every chain level
+(`getSymbolChain`, `nodebuilderimpl.go:1086`) — after which `type_reference_text`
+can qualify, and then `tsr-4qx`'s size becomes the question.
+
+### And a note on ordering that survives either answer
+
+Whatever the share turns out to be, steps 3 and 4 must land in **separate
+commits** from `getMergedSymbol` (`a05bf94`) and from each other: `a05bf94`
+changed *which* symbol a lookup receives, step 4 changes *what* its type carries,
+and step 3 changes nothing observable. Only step 4 moves a line, which is what
+makes the pair attributable.
