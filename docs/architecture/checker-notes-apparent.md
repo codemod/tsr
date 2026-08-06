@@ -64,3 +64,44 @@ directly.
 
 **Falsifier:** more than 50% of the gain in one case (top case in the
 counterfactual holds well under that).
+
+## 4. Scored — and leg 1 FIRED first, on a real defect
+
+**First run: net 0.** Leg 1's floor was +60 and the arm converted nothing.
+Diagnosed by the rule (build wrong first): the arm tested
+`TypeData::Named { members: Some(symbol) }` to get back to the type
+parameter's symbol, and `new_named_type` (`declared.rs:1044`) sets
+`members: None` for a type parameter **deliberately** —
+
+> A class or interface owns its members; a type parameter and an enum do not,
+> and pointing them at a members table they do not have would be a lookup that
+> silently succeeds against the wrong symbol.
+
+That comment is right, and it also means there is no route from the `TypeId`
+back to the symbol at all. The fix is the `type_reference_targets` precedent
+for the third time: a `type_parameter_symbols` side table written where the
+type is minted (`declared.rs:856`), read by the head. **Not** a widening of
+`TypeData::Named`'s `members`, which would make one field mean two things and
+undo the safety property the comment describes.
+
+> **A bar that fires with a *zero* is the cheapest kind to diagnose.** There is
+> no ratio to argue about and no trade to price: the mechanism did not run.
+> The first question is always "did the code I wrote execute", and a net of
+> exactly 0 answers it.
+
+### Final measurement
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +60 | **+156** (22 cases) | pass |
+| 2 | lost ≤ 5, diagnosed | **0** | pass |
+| 3 | regressions < finished | **0 < 6** | pass |
+| 4 | gained ≥ 3 × new wrong | **156 vs 14 = 11.1×** | pass |
+
+**Falsifier did not fire**: top case `protectedMembersThisParameter` at 21 of
+156 = 13.5%, against the 50% line.
+
+**KEEP.** Gradient 70.27% → **70.30%**. Conversion **159% of the forecast 98**
+— and the head of the gain is a shape the counterfactual under-counted: a
+`this` **parameter** annotated with a type parameter (`function f(this: T)`),
+which is the `T` rule reached through a receiver that prints as `this`.

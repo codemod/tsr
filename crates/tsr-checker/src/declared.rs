@@ -853,7 +853,16 @@ impl<'a> Checker<'a, '_> {
         let computed = if flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
             self.get_declared_type_of_class_or_interface(symbol)
         } else if flags.contains(SymbolFlags::TYPE_PARAMETER) {
-            self.new_named_type(symbol, TypeFlags::TYPE_PARAMETER, false)
+            {
+                // Record the symbol behind the type parameter, which
+                // `new_named_type` deliberately does not put in `members`.
+                // `getApparentType`'s head reads the `extends` constraint back
+                // through this index (`bd tsr-rppd`,
+                // `Checker::type_parameter_symbols`).
+                let id = self.new_named_type(symbol, TypeFlags::TYPE_PARAMETER, false);
+                self.type_parameter_symbols.insert(id, symbol);
+                id
+            }
         } else if flags.contains(SymbolFlags::TYPE_ALIAS) {
             self.get_declared_type_of_type_alias(symbol)
         } else if flags.intersects(SymbolFlags::ENUM) {

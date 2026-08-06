@@ -126,25 +126,35 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             // parameter by resolving its printed name as a TYPE at the access
             // site and checking the symbol's flag.
             let printed = checker.type_to_string(receiver_type);
-            let receiver_is_this = matches!(map.get(receiver.node_id().unwrap_or(id)),
-                Some(Node::Token(_)) | None) && printed == "this";
+            let receiver_is_this =
+                matches!(map.get(receiver.node_id().unwrap_or(id)), Some(Node::Token(_)) | None)
+                    && printed == "this";
             let symbol = if receiver_is_this || printed == "this" {
                 // Walk out to the enclosing class.
                 let mut current = nodes.parent(id);
                 let mut found = None;
                 while let Some(node) = current {
-                    if matches!(nodes.kind(node), tsr_ast::SyntaxKind::ClassDeclaration
-                        | tsr_ast::SyntaxKind::ClassExpression)
-                    {
+                    if matches!(
+                        nodes.kind(node),
+                        tsr_ast::SyntaxKind::ClassDeclaration
+                            | tsr_ast::SyntaxKind::ClassExpression
+                    ) {
                         found = bound.symbol_of(node);
                         break;
                     }
                     current = nodes.parent(node);
                 }
-                match found { Some(s) => s, None => continue }
+                match found {
+                    Some(s) => s,
+                    None => continue,
+                }
             } else {
                 match bound.resolve_name(nodes, map, id, &printed, SymbolFlags::TYPE) {
-                    Some(s) if bound.symbols().get(s).flags.intersects(SymbolFlags::TYPE_PARAMETER) => s,
+                    Some(s)
+                        if bound.symbols().get(s).flags.intersects(SymbolFlags::TYPE_PARAMETER) =>
+                    {
+                        s
+                    }
                     _ => continue,
                 }
             };

@@ -210,6 +210,19 @@ pub struct Checker<'a, 'n> {
     /// The `type_reference_targets` precedent: record the data where it is
     /// already in hand rather than reshape the type.
     pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
+    /// `a type-parameter type -> the symbol it was minted from`.
+    ///
+    /// The third instance of the `type_reference_targets` precedent, and it
+    /// exists for a reason the type itself states: `new_named_type` gives a
+    /// type parameter `members: None` **deliberately**, because a type
+    /// parameter owns no members table and pointing it at its own symbol would
+    /// make a property lookup "silently succeed against the wrong symbol".
+    /// That is right, and it also means there is no route from the `TypeId`
+    /// back to the symbol — which `getApparentType`'s instantiable head needs
+    /// in order to read the `extends` constraint (`bd tsr-rppd`). Recorded
+    /// where it is already in hand rather than by widening `TypeData::Named`,
+    /// whose `members` field would then mean two different things.
+    pub(crate) type_parameter_symbols: FxHashMap<TypeId, SymbolId>,
     /// `the baked signature type -> the signatures its text was rendered from`.
     ///
     /// The sibling of [`Checker::type_reference_targets`] for function-shaped
@@ -375,6 +388,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_null_checks: true,
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
+            type_parameter_symbols: FxHashMap::default(),
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),

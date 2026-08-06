@@ -382,6 +382,30 @@ impl Checker<'_, '_> {
     /// Likewise a global whose *declared type* gaps: `get_declared_type_of_symbol`
     /// answering `errorType` means the interface is there and unreadable, and the
     /// original primitive is the more honest receiver to fail on.
+    /// The `extends` constraint of a type-parameter type, resolved.
+    ///
+    /// `getBaseConstraintOfType` (`checker.go`) reduced to the one shape this
+    /// port mints: a `Named` type flagged `TYPE_PARAMETER` whose symbol's
+    /// declaration is a `TypeParameterDeclaration`. `None` means "not a
+    /// constrained type parameter", which covers three cases the caller treats
+    /// alike — not a type parameter at all, an unconstrained one, and the
+    /// `this` type, whose symbol is a **class** and whose constraint
+    /// `checker-notes-apparent.md` measures as worth zero lines.
+    fn type_parameter_constraint(&mut self, id: TypeId) -> Option<TypeId> {
+        if !self.store.get(id).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            return None;
+        }
+        let symbol = *self.type_parameter_symbols.get(&id)?;
+        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let Some(Node::TypeParameterDeclaration(parameter)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let constraint = self.get_type_from_type_node(parameter.constraint?);
+        // A constraint that itself gaps leaves the parameter as it was: a gap
+        // beats reading members off `errorType`.
+        (constraint != self.intrinsics.error).then_some(constraint)
+    }
+
     fn apparent_type(&mut self, id: TypeId) -> TypeId {
         // Upstream's order, arm for arm (`checker.go:21745-21751`). `NUMBER_LIKE`
         // carrying `ENUM` is upstream's too, not a widening added here.
@@ -392,6 +416,25 @@ impl Checker<'_, '_> {
         // `boolean`. So `string | number` reaches no arm here and `boolean`
         // reaches the fourth — which is exactly upstream's behaviour, and the
         // reason this needs no union guard of its own.
+        // `getApparentType`'s **head**, before the switch (`checker.go:21731`):
+        // *"if t.flags&TypeFlagsInstantiable != 0 { t = getBaseConstraintOfType(t);
+        // if t == nil { t = unknownType } }"*. A type parameter is read
+        // through its constraint, which is what makes `T.x` resolve for
+        // `T extends Shape` (`bd tsr-rppd`).
+        //
+        // An **unconstrained** parameter becomes `unknown`, whose lookup finds
+        // nothing — the same gap as today, by a different route, which is why
+        // this cannot lose a line on its own.
+        //
+        // The `this` type carries the same flag and is deliberately left to
+        // fall through to its own identity: its constraint is the class
+        // instance type, and `checker-notes-apparent.md` measures that half at
+        // **zero** convertible lines — 522 of them find the member and gap on
+        // the member's own type. Porting it would be motion without a number.
+        let id = match self.type_parameter_constraint(id) {
+            Some(constraint) => constraint,
+            None => id,
+        };
         let flags = self.store.get(id).flags;
         let global = if flags.intersects(TypeFlags::STRING_LIKE) {
             "String"
