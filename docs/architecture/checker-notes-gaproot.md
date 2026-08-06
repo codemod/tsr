@@ -1626,6 +1626,55 @@ and one cycle, this one, of it being the opposite — I am not going to assert
 either way about 1,590 lines without the check that killed the last two
 element-access items.
 
+---
+
+# Part 9 — element access and object literals, over the right population
+
+## RULE-7, registered before the measurement
+
+**Populations, both pinned syntactically by node kind, both TS2563-excluded**,
+at `150b8ba`:
+
+- **`ElementAccessExpression`**, own root, TS2563 excluded — **1,590 lines**
+  (`bd tsr-1u9`);
+- **`ObjectLiteralExpression`**, own root, TS2563 excluded — **574 lines**.
+
+> **RULE-7.** Build a population only if **all three** hold.
+>
+> - **E1 — spellability, exact match on the baseline's right-hand side, both
+>   legs named.** Under **25%** of the lines want `any`, and under **25%** want
+>   a form this port has no route to naming. Exact string, not shape:
+>   `checker-notes-wrong.md` measured 29.19% of the wrong bucket failing on
+>   naming while the shape was right, so a shape test would pass a population
+>   that cannot be printed.
+> - **E2 — the mechanism is known and lives in `indexed.rs`,
+>   `index_signatures.rs`, `objects.rs` or `types.rs`.** If it needs
+>   `declared.rs`, the binder, `expressions.rs` or `calls.rs`, hand it back.
+> - **E3 — collateral.** `casedelta` pair, gains and losses read **separately**,
+>   wrong-per-right ≤ 0.5, **0 cases lost measured and not assumed**.
+>
+> **Prediction — and this one is arithmetic, not instinct.** Part 1 measured the
+> element-access root row at **13,163 lines, 88.4% wanting `any`** — 11,636
+> lines. `compiler/largeControlFlowGraph` supplies **10,000** TS2563 lines,
+> which are `any` by construction. If essentially all of them are the `any`,
+> the survivors carry `11,636 − 10,000 = 1,636` of `any` over roughly 3,163
+> lines — **about 52%**. So **I predict the `any` leg lands between 40% and 60%
+> and E1 FAILS for element access.**
+>
+> Two caveats stated with it, because a prediction that cannot be wrong is not
+> one. The 13,163 is the **root-blocked** count and the 1,590 is the **own-root**
+> subset; they are different populations and the arithmetic assumes the `any`
+> concentration carries across. And the assumption *"essentially all 10,000 are
+> `any`"* is itself unverified — the probe now measures it directly.
+>
+> **This prediction points at refusal, which is the direction I was wrong about
+> last cycle.** It gets no extra credence for that. Part 8 established that both
+> directions are biases and the only thing that worked was writing the number
+> down first, so this is written down first and will be read against the result.
+>
+> For object literals I register **no prediction**: nothing has measured them
+> and I would be guessing, which is worse than an honest blank.
+
 ## Everything filed from this page
 
 | id | what | sized as |
