@@ -1785,3 +1785,44 @@ render them.** A shape survey of the collateral would have reported function
 types and qualified names — all things this port renders — and passed. The
 question that catches it is not *"can we spell this?"* but *"is the thing that
 spells it finished?"*
+
+### The best control is a number that could have drifted and did not
+
+This document ranks controls: a vacuous one (a default arm nothing can reach), an
+arithmetic one (blind to anything that moves lines *between* buckets), a
+construction-pinned one (blind if its two sides share the code under test). There
+is a fourth kind and it is stronger than all of them.
+
+Sizing the contextual-typing item, an agent defined its population **syntactically**
+— every rendered line whose node is `ArrowFunction`/`FunctionExpression` and whose
+gate is the contextual guard — so `|G|` is a function of the parse tree and cannot
+move under any checker change.
+
+**It read 2,082 at `d612291` and 2,082 at `249bf65`** — across a week in which
+four agents landed six commits, `members.rs`, `symbols.rs`, `signatures.rs`,
+`checker.rs` and `types_producer.rs` all changed, and the gradient moved
+**61.09% → 62.49%**.
+
+That is not a bucket that reads zero because nothing can reach it. It is a number
+with **every opportunity to drift**, watched across the largest set of changes
+this project has landed in one cycle, that did not move by one line.
+
+| control | what it proves |
+|---|---|
+| a bucket reads 0 | nothing, if no input can reach it |
+| sums reconcile | no line was lost or double-counted |
+| a bucket is 0 *because the subject cannot produce it* | no semantic inversion |
+| **an invariant held across unrelated changes** | **the population is what you said it is** |
+
+The fourth is the only one that tests the *definition* rather than the
+arithmetic. A syntactic population that survived six commits to the checker is
+demonstrably not measuring the checker — which is exactly the claim a
+before/after pair needs and cannot make from a single run.
+
+**So: prefer a population defined by the parse tree, re-measure it after
+unrelated work lands, and print the previous value beside the current one.** It
+costs a stored constant. `fnexpr.rs`'s `C0″` and `gaproot.rs`'s `C7` are the two
+here that do it, and `C7`'s owner noted the standing cost honestly: it goes stale
+whenever the compiler moves, and each time it reads as a defect in the probe
+before it reads as a change in the subject. That cost is the price of the only
+control that can see a definition drift.
