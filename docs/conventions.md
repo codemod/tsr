@@ -1614,3 +1614,59 @@ Both are written up as gaps in the instrument's defences rather than left for a
 reader to assume were covered. **An instrument's mutation table should list the
 mutations that moved nothing and the ones nothing caught**, because a table
 showing only successful catches reads as coverage.
+
+### Spellability must be tested by *matching the baseline*, not by *looking nameable*
+
+The spellability check — *can this port spell the answer?* — has correctly
+refused four builds this week. It was nearly the thing that licensed a bad one,
+and the agent that caught it caught it against its own rule.
+
+On the **call** row, the check was run as a **shape** test: bucket the baseline's
+right-hand sides and ask what fraction are plain, nameable forms. It read 37.7%,
+failed a 70% threshold, and the refusal was correct.
+
+On the **ArrowFunction** row the same shape test reads **99.6%**, because
+essentially every answer the row needs is a *function type* and this port renders
+function types — `signature_to_string` is ported. A shape test would have
+licensed the build.
+
+The counterfactual says otherwise. Deleting the guard and measuring:
+
+```
+  P right   2,651 -> 2,880    +229
+  P gap     4,284 -> 2,994  -1,290
+  P wrong     495 -> 1,556  +1,061      4.6 wrong per converted
+```
+
+**Only 17.8% of the lines that stopped gapping actually matched.** The row is not
+unspellable — we can write `(x: number) => string` perfectly well. What is not
+computable is the *contents*: the parameter types inside the shape we can
+already draw.
+
+So the rule is narrower than it has been stated here:
+
+> **Spellability is `our rendered line == the baseline's line`, measured on the
+> lines that would stop gapping. It is not "does the answer's shape look like
+> something we can name".**
+
+A shape test answers *"is there a printer for this kind of type"*, which is a
+question about the printer. The question being asked is *"will this line match"*,
+which is a question about the whole answer. They agree whenever the failure is a
+missing printer — which is why the shape test worked on the alias and module-object
+rows, where the defect genuinely is naming — and they diverge exactly when the
+printer is present and the type flowing into it is wrong. That second case is
+invisible to a shape test and it is 4.6 wrong per right.
+
+#### And prefer the counterfactual to the estimate when the change is cheap to make
+
+Every refusal before this one was argued from a histogram. This one **applied the
+change, measured the corpus, and reverted it** — a real before/after with the
+population pinned syntactically so `|P|` could not move under the thing being
+measured (7,430 both runs, printed as the control).
+
+That is strictly better evidence than any estimate, and where the change is a
+guard to delete or an arm to add it costs one build and one corpus run. The
+estimate is for when the change is expensive; it is not the default. **Report the
+delta, not the projection, whenever you can afford to produce one** — and note
+that this one also caught the 833 lines that moved *outside* the target
+population, which no estimate over the row would have seen.
