@@ -1223,3 +1223,47 @@ as a pre-registered rule.
   successor to `tsr-6j2`, and the largest single thing this page has pointed at.
 - 1,620 `module not resolved`, still unmeasured as to how many upstream also
   fails (`bd tsr-m41`).
+
+## 30. Item 3, cross-file interface merging: the premise is wrong
+
+`bd tsr-9or.1` is quoted as *"28.50% of 10,303 lines — ~2,936 — are named
+interfaces we fail to **merge** across files"*, and it was handed to this slice
+because declaration merging is the binder's and `declared.rs`'s, both owned here.
+
+**The binder already merges them.** Two files, each declaring `interface I`,
+bound into one `BindResult`:
+
+```
+BINDER : symbol I has 2 declarations, 2 members: ["a", "b"]
+CHECKER: v : I
+  get_property_of_type(a) = false      <- declared in the OTHER file
+  get_property_of_type(b) = true       <- declared in v's own file
+```
+
+`Binder::merge_globals` (`crates/tsr-binder/src/binder.rs:552`) calls
+`merge_symbol` (`:630`) for every name already in `globals`, and `merge_symbol`
+unions the `members` tables. The merged symbol is correct and complete.
+
+**The checker's member lookup does not see it.** `get_declared_type_of_class_or_interface`
+(`declared.rs:699`) stores `members = Some(symbol)` — the *symbol*, whose table
+holds both — so the type is pointing at the right place, and the lookup that
+answers `false` for `a` is downstream of that.
+
+Two consequences, and they change who owns the item:
+
+1. **It is not a merging defect and no binder or `declared.rs` change addresses
+   it.** Anyone sizing "declaration merging" as binder work is sizing the wrong
+   subsystem — the same class of error as `checker-notes-rank.md`'s rows whose
+   *name* pointed at the wrong step.
+2. **`get_property_of_type` lives in `members.rs`**, which this slice does not
+   own. So this is a hand-over with a reproduction, not a build.
+
+**Not sized.** The ~2,936 figure is another agent's, over a population this page
+has not re-derived, and §28 is this cycle's second reminder that a number taken
+for one purpose should not be read as a decision for another. The measurement
+that would settle it is one pass: over the corpus, count gap lines whose receiver
+type is a named type whose symbol has **more than one declaration**, and split by
+whether the property being looked up is declared in the same file as the
+reference. The asymmetry above says that split is the whole item.
+
+`bd tsr-9or.1` updated with this; the reproduction is the six lines above.
