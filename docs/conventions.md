@@ -1886,3 +1886,60 @@ That margin belongs beside the verdict, not under it. A refusal at 68.3/70 and a
 refusal at 35.5/70 are different claims about how much new evidence would
 overturn them, and only the first tells the next reader that 85 more producible
 right-hand sides flip the leg.
+
+### The flattering direction is not a fixed direction — write the prediction down
+
+This document has three worked examples of an agent nearly shipping a claim that
+**invented work for itself**: *"the member is in the class's table, the lookup
+rejected it"* (816 lines, false), a base-type walk sized at ~100–220 lines that
+measured **zero**, and 19,818 lines that resolved to 976. In each case the
+tempting answer put the work in the author's own file, and the author caught it
+by **asking the code the question instead of reading the data structure**.
+
+That is a real pattern and it is not a rule, because the direction flipped.
+
+Root-splitting the largest family in the gap — 50,171 lines — the same agent
+registered four predictions in advance. Two failed, and they failed **against**
+the bias it had learned to watch for:
+
+| | registered | measured | |
+|---|---|---:|---|
+| roots outside the family | ≥ 55% | **37.79%** | FAILED |
+| `ROOT/own-rule` share | < 30% | **56.25%** | FAILED |
+
+The tempting answer here was the *opposite* of self-interest: a tidy **"the gap
+has one or two real roots and everything else is downstream"** — the most
+quotable line available, matching the structural story the project had just
+adopted, and it would have licensed **doing nothing**. The measurement says
+**22,596 lines, 16.3% of the whole gap, are forms whose every operand typed and
+whose own rule is simply missing** — the largest confirmed kind-1 population here.
+
+In its author's words:
+
+> Both directions are biases, and the one I'd learned to watch for wasn't the one
+> operating. The corrective isn't a better heuristic about direction; it's writing
+> the prediction down and reading it against the number — the only step that
+> worked in all four cases.
+
+#### So the rule is about the procedure, not the direction
+
+**Do not try to predict which way you are biased. Register the prediction before
+the measurement and read the result against it.** A heuristic about direction —
+*"distrust the answer that gives me work"* — is itself a claim that can be right
+three times and wrong on the fourth, and it fails silently, because a bias you
+are not watching for reads as a finding.
+
+The registration is cheap: one commit, before the probe runs, saying what you
+expect and what would falsify it. It is the only check in this document that has
+caught an error in **both** directions.
+
+#### And an elegant conclusion is a warning sign
+
+*"One or two real roots, everything else downstream"* is a better **story** than
+*"here is a list of twelve expression forms with no arm"*. It compresses better,
+it sounds more like insight, and it is what a reader wants to be told.
+
+This project's target is a line gradient, and the tidy answer would have moved it
+by nothing. **When a result is unusually quotable, check it harder** — not
+because elegance is evidence of error, but because it removes the friction that
+normally makes a wrong number feel wrong.
