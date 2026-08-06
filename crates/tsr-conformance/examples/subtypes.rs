@@ -375,9 +375,10 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     *report.families.entry(fam).or_default() += 1;
                     if fam == "narrowing: a nullable was not stripped" {
                         let kind = format!("{:?}", nodes.kind(id));
-                        let parent = nodes
-                            .parent(id)
-                            .map_or_else(|| "<root>".to_owned(), |p| format!("{:?}", nodes.kind(p)));
+                        let parent = nodes.parent(id).map_or_else(
+                            || "<root>".to_owned(),
+                            |p| format!("{:?}", nodes.kind(p)),
+                        );
                         *report.nullable_sites.entry((parent, kind)).or_default() += 1;
                     }
                 }

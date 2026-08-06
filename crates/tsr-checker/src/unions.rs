@@ -537,6 +537,83 @@ impl Checker<'_, '_> {
         types
     }
 
+    /// `compareTypeNames` (`utilities.go:589`) and the type-reference half of
+    /// `CompareTypes`'s object arm (`:446`–`:460`).
+    ///
+    /// # Why a type reference cannot be compared by its printed text
+    ///
+    /// `getTypeNameSymbol` (`utilities.go:607`) returns the **target** symbol
+    /// for a reference, so `number[]` and `string[]` both answer `Array`,
+    /// `s1 == s2`, and `compareTypeNames` returns 0. Upstream then falls into
+    /// the object arm and reaches `compareTypeLists(resolvedTypeArguments)`
+    /// (`:660`), which is `CompareTypes` elementwise — and `CompareTypes` on
+    /// `number` against `string` is `1 << 6` against `1 << 5`, so **`string`
+    /// sorts first**. The baselines record `string[] | number[]`, 25 lines, and
+    /// `Set<string> | Set<number>`, 20.
+    ///
+    /// Comparing the printed text instead answers `"number[]" < "string[]"` and
+    /// reverses them. The two agree for references to *different* targets — the
+    /// text begins with the target's name — so the disagreement is confined to
+    /// **references sharing a target**, which is exactly where the argument
+    /// lists are what upstream is comparing. `bd tsr-bgz`.
+    ///
+    /// # The pair upstream reads was already stored here
+    ///
+    /// The issue recorded this as needing `TypeData::Named` to carry a symbol
+    /// and an argument list — a reshape of a type two workstreams share.
+    /// [`Checker::type_reference_targets`] already holds exactly that pair for
+    /// every reference, written by
+    /// [`Checker::create_type_reference`](crate::Checker::create_type_reference)
+    /// and kept for substitution, so this reads it rather than duplicating it.
+    ///
+    /// # Scope, stated rather than quietly widened
+    ///
+    /// **Only the reference arm.** A non-reference [`TypeData::Named`] — a class
+    /// or interface instance type, an enum member, an object literal type —
+    /// keeps the text comparison. Widening it would need upstream's other
+    /// distinction too: `getTypeNameSymbol` returns *nil* for an anonymous
+    /// object type, where this port's `Named` carries a symbol, so an object
+    /// literal would start sorting before unnamed types instead of after. That
+    /// is a separate change with its own population and none of the 137 measured
+    /// lines need it.
+    fn compare_type_names(
+        &self,
+        a: TypeId,
+        b: TypeId,
+        left: &crate::types::Type,
+        right: &crate::types::Type,
+    ) -> Ordering {
+        if let (Some((target_a, args_a)), Some((target_b, args_b))) =
+            (self.type_reference_targets.get(&a), self.type_reference_targets.get(&b))
+        {
+            if target_a == target_b {
+                return self.compare_type_lists(args_a, args_b);
+            }
+            let symbols = self.binder.symbols();
+            return symbols.get(*target_a).name.cmp(symbols.get(*target_b).name);
+        }
+        match (type_name(&left.data), type_name(&right.data)) {
+            (Some(x), Some(y)) => x.cmp(y),
+            // A type with no name sorts after one with a name
+            // (`utilities.go:614`).
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (None, None) => Ordering::Equal,
+        }
+    }
+
+    /// `compareTypeLists` (`utilities.go:660`): shorter lists first, then
+    /// elementwise by `CompareTypes`.
+    fn compare_type_lists(&self, a: &[TypeId], b: &[TypeId]) -> Ordering {
+        a.len().cmp(&b.len()).then_with(|| {
+            a.iter()
+                .zip(b)
+                .map(|(&x, &y)| self.compare_types(x, y))
+                .find(|order| *order != Ordering::Equal)
+                .unwrap_or(Ordering::Equal)
+        })
+    }
+
     /// `CompareTypes` (`utilities.go:415`), reduced to the types this port has.
     ///
     /// The order of the tests is upstream's and is what produces the printed
@@ -549,14 +626,7 @@ impl Checker<'_, '_> {
         let (left, right) = (self.store.get(a), self.store.get(b));
         sort_order_flags(left.flags)
             .cmp(&sort_order_flags(right.flags))
-            .then_with(|| match (type_name(&left.data), type_name(&right.data)) {
-                (Some(x), Some(y)) => x.cmp(y),
-                // A type with no name sorts after one with a name
-                // (`utilities.go:614`).
-                (None, Some(_)) => Ordering::Greater,
-                (Some(_), None) => Ordering::Less,
-                (None, None) => Ordering::Equal,
-            })
+            .then_with(|| self.compare_type_names(a, b, left, right))
             .then_with(|| match (&left.data, &right.data) {
                 // "String literal types are ordered by their values."
                 (TypeData::StringLiteral(x), TypeData::StringLiteral(y)) => x.cmp(y),

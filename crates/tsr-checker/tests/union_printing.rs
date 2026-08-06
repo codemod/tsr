@@ -151,3 +151,45 @@ fn an_aliased_intersection_is_not_parenthesised_as_an_array_element() {
 fn an_anonymous_union_is_still_parenthesised_as_an_array_element() {
     assert_eq!(type_of_annotation("let x: (string | number)[];"), "(string | number)[]");
 }
+
+// ---------------------------------------------------------------------------
+// Constituent order: `compareTypeNames` for type references. `bd tsr-bgz`.
+// ---------------------------------------------------------------------------
+
+/// Two references to the **same** target compare by their type-argument lists,
+/// not by their printed text. `getTypeNameSymbol` (`utilities.go:607`) answers
+/// the *target* symbol for a reference, so `number[]` and `string[]` both say
+/// `Array` and `compareTypeNames` returns 0; upstream then reaches
+/// `compareTypeLists`, and `CompareTypes(number, string)` is `1 << 6` against
+/// `1 << 5`.
+///
+/// Baseline: `string[] | number[]`, 25 lines. Comparing the printed text
+/// answers `"number[]" < "string[]"` and reverses them.
+#[test]
+fn references_to_one_target_are_ordered_by_their_type_arguments() {
+    assert_eq!(type_of_annotation("let x: number[] | string[];"), "string[] | number[]");
+}
+
+/// The same, through a user-declared generic rather than `Array`, so the rule is
+/// not accidentally about arrays. Baseline: `Set<string> | Set<number>`, 20
+/// lines.
+#[test]
+fn a_user_generic_orders_the_same_way() {
+    let source = "interface Box<T> {} let x: Box<number> | Box<string>;";
+    assert_eq!(type_of_annotation(source), "Box<string> | Box<number>");
+}
+
+/// References to **different** targets compare by the target symbol's *name*.
+///
+/// This is the fixture that pinned the change's one lost line, and it is worth
+/// keeping because the baseline it comes from prints the same type two ways.
+/// `conformance/unionAndIntersectionInference3` writes
+/// `(Maybe<T> | Maybe<T>[])[]` in source and records
+/// `>args : (Maybe<T>[] | Maybe<T>)[]` — reordered, because `Array` sorts
+/// before `Maybe`. It also records the enclosing *signature* in source order,
+/// which is `bd tsr-a2c` and a different mechanism entirely.
+#[test]
+fn references_to_different_targets_are_ordered_by_the_target_name() {
+    let source = "interface Maybe<T> {} let x: Maybe<number> | Maybe<number>[];";
+    assert_eq!(type_of_annotation(source), "Maybe<number>[] | Maybe<number>");
+}
