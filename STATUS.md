@@ -160,6 +160,7 @@ the written name in *type* position and `any` in *value* position. See §5.
 | # | item | reachable | file |
 |---|---|---:|---|
 | 1 | **property access: `a.b` where the receiver types** — the two rows together | **12,742** over ~2,400 cases | `members.rs` |
+| 1a′ | **PREREQUISITE for 1a, and it must land first:** `instantiate_type` (`inference.rs:262`) carries **no recursion limit**, and its own doc says why that is safe today — "every argument reached is one that a *written* type node already produced, so the recursion is bounded by the source nesting. **That stops being true the moment a generic's members are instantiated**". `interface List<T> { next: List<List<T>> }` is unbounded. Port upstream's `instantiationDepth` / `instantiationCount` (`checker.go:22111`, `bd tsr-el3.2`) **before** any member instantiation, or a corpus run hangs rather than fails | 0 lines | `inference.rs` |
 | 1a | — of which **instantiated generic receivers** (`tsr-4qx`): `Promise<boolean>` 738, `Promise<number>` 264, `any[]`/`string[]`/`number[]` 506, `IPromise<…>` 311, `Record<…>` 156 — **2,357 in the top ten alone**, tail long. `create_type_reference` sets `members: None` for every instantiated reference (`declared.rs:501`), deliberately, and that is what makes every generic receiver a dead end | | `declared.rs` |
 | 1b | — of which **the property has no type** (`tsr-mcd`): 1,947 + 1,212 member names = **3,159** | | `members.rs` |
 | 2 | **call resolution** — the least ceiling-contaminated large row, 2.5% top-1 | **4,551** | `calls.rs` |
