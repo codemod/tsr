@@ -281,6 +281,30 @@ struct CaseReport {
     /// The same slice, by case, so its concentration can be read separately
     /// from the whole row's.
     primitive_by_case: HashMap<String, usize>,
+    /// **RULE-3's P1.** Every gap line whose *node kind* is
+    /// `PropertyAccessExpression`, split by what its **receiver** did. Keyed by
+    /// the arm; the unit is gap assertion lines.
+    ///
+    /// The population is pinned by the AST — a node's kind cannot move under
+    /// the checker — which is `fnexpr.rs`'s shape and is why `|P|` here is a
+    /// constant to compare against `checker-notes-wrong.md`'s 15,215 rather
+    /// than a number this probe produces.
+    access_arms: HashMap<&'static str, usize>,
+    /// The `RIGHT` arm only, by case, for P1b.
+    access_right_by_case: HashMap<String, usize>,
+    /// The `RIGHT` arm only: what upstream prints, for P1c.
+    access_right_rhs: HashMap<String, usize>,
+    /// The `RIGHT` arm only, by receiver kind, so the work items inside it are
+    /// separable exactly as they were in Part 2.
+    access_right_family: HashMap<&'static str, usize>,
+    /// **The cross-file merge split.** For `RIGHT`-arm lines whose receiver is a
+    /// plain named type: does a global of that name have declarations in more
+    /// than one **file**?
+    ///
+    /// This is the pass the naming agent specified, and it is the one that says
+    /// whether the merge asymmetry is a large item or a small one. Keyed by the
+    /// verdict; unit is gap assertion lines.
+    merge_split: HashMap<&'static str, usize>,
     roots: HashMap<(Root, String), Tally>,
     depth_hist: BTreeMap<usize, usize>,
     /// How many *distinct top-level* gapped children a span step chose from. 1
@@ -689,6 +713,26 @@ fn walk(
         }
     }
     *report.depth_hist.entry(depth).or_default() += 1;
+    // **RULE-3's P1**, read at the LINE and keyed on the line's own node kind,
+    // not at the root and not on the reason. A gap line whose node is a
+    // `PropertyAccessExpression` is in the population whatever it roots as, so
+    // `|P|` is fixed by the AST before the checker runs.
+    if nodes.kind(line_ids[start]) == SyntaxKind::PropertyAccessExpression {
+        let (arm, family) =
+            access_arm(checker, nodes, map, file, position_of, baseline, line_ids[start]);
+        *report.access_arms.entry(arm).or_default() += 1;
+        if arm == ACCESS_RIGHT {
+            *report.access_right_by_case.entry(case_name.to_string()).or_default() += 1;
+            *report.access_right_rhs.entry(want_type.to_string()).or_default() += 1;
+            *report.access_right_family.entry(family).or_default() += 1;
+            if family.starts_with("named / other") {
+                *report
+                    .merge_split
+                    .entry(merge_verdict(checker, bound, nodes, map, line_ids[start]))
+                    .or_default() += 1;
+            }
+        }
+    }
     // **RULE-2's B1**, read at the root rather than at the line: is the access
     // whose lookup failed even looking at the right type?
     if final_reason.contains("the receiver has no such property")
@@ -730,6 +774,63 @@ fn walk(
     if want_type == "any" {
         tally.any_rhs += 1;
     }
+}
+
+/// The loaded arm of [`access_arm`] — **we hold upstream's own type for the
+/// receiver and still cannot look the member up**. It carries the positive
+/// test; [`ACCESS_NOT_RENDERED`] is the default.
+const ACCESS_RIGHT: &str = "RIGHT   — we hold upstream's type and cannot look the member up";
+/// The default arm. Named rather than left as an `else` returning the loaded
+/// label, which is the defect `rank_board`'s `cause()` was corrected for.
+const ACCESS_NOT_RENDERED: &str = "not rendered — no line for the receiver at all";
+
+/// **RULE-3's P1.** What the receiver of a gapped property access did.
+///
+/// Arms mirror `checker-notes-evolvearray.md`'s `ElementAccessExpression`
+/// split one for one, so the two populations can be read side by side:
+/// `RIGHT` / `gapped` / `wrong` / `unaligned` / `not rendered`.
+///
+/// The distinction Part 2's `receiver_fidelity` did not draw is the one that
+/// matters here: *"typed DIFFERENTLY"* merges a receiver that **gapped** with
+/// one that is **confidently wrong**, and those are different owners — a
+/// gapped receiver is somebody's unported rule, a wrong one is somebody's
+/// defect. Splitting them is the whole reason this is a second function rather
+/// than a parameter on the first.
+fn access_arm(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    file: &[types_producer::Assertion],
+    position_of: &HashMap<NodeId, usize>,
+    baseline: &[types_baseline::TypeAssertion],
+    access: NodeId,
+) -> (&'static str, &'static str) {
+    let _ = nodes;
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return (ACCESS_NOT_RENDERED, "");
+    };
+    let Some(receiver) = node.expression else { return (ACCESS_NOT_RENDERED, "") };
+    let Some(receiver_id) = receiver.node_id() else { return (ACCESS_NOT_RENDERED, "") };
+    let Some(&position) = position_of.get(&receiver_id) else {
+        return (ACCESS_NOT_RENDERED, "");
+    };
+    let (Some(ours), Some(want)) = (file.get(position), baseline.get(position)) else {
+        return (ACCESS_NOT_RENDERED, "");
+    };
+    let Some(want_type) = want.text.strip_prefix(&format!("{} : ", ours.text)) else {
+        return ("unaligned — the receiver's own text did not reproduce", "");
+    };
+    // `error` first, because it is a *gap* and not a wrong answer, and the
+    // whole gap/wrong separation this project rests on lives in that order.
+    if ours.type_string == "error" {
+        return ("gapped  — the receiver is a gap; symptom, not this row", "");
+    }
+    if want_type != ours.type_string {
+        return ("wrong   — the receiver is confidently wrong; symptom", "");
+    }
+    let receiver_type = checker.check_expression(receiver);
+    let printed = checker.type_to_string(receiver_type);
+    (ACCESS_RIGHT, receiver_family(&printed))
 }
 
 /// **RULE-2's B1.** Is the receiver of this failing access typed the way
@@ -774,6 +875,58 @@ fn receiver_fidelity(
         ("receiver typed as upstream types it", Some(checker.type_to_string(receiver_type)))
     } else {
         ("receiver typed DIFFERENTLY", None)
+    }
+}
+
+/// Is the receiver's named type an interface declared in **more than one
+/// file**? — the cross-file merge split.
+///
+/// The test is on the printed type name looked up in `globals()`, which is the
+/// table `merge_globals` writes into, and then on the **files** its
+/// declarations live in. Two declarations in one file are an ordinary
+/// same-file merge and are not this item; two in two files are.
+///
+/// **This is an approximation and its direction is stated rather than implied.**
+/// It can only see receivers whose printed type is a bare global name, so it
+/// **undercounts** — a receiver typed through a local alias or a namespace
+/// member is missed entirely. It cannot overcount: a name with declarations in
+/// two files really does have them.
+fn merge_verdict(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    access: NodeId,
+) -> &'static str {
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return "not an access";
+    };
+    let Some(receiver) = node.expression else { return "no receiver" };
+    let receiver_type = checker.check_expression(receiver);
+    let printed = checker.type_to_string(receiver_type);
+    let Some(&symbol) = bound.globals().get(printed.as_str()) else {
+        return "receiver's type is not a global name (undercount: aliases, namespace members)";
+    };
+    let files: std::collections::BTreeSet<NodeId> = bound
+        .symbols()
+        .get(symbol)
+        .declarations
+        .iter()
+        .filter_map(|&declaration| {
+            let mut current = Some(declaration);
+            while let Some(id) = current {
+                if nodes.kind(id) == SyntaxKind::SourceFile {
+                    return Some(id);
+                }
+                current = nodes.parent(id);
+            }
+            None
+        })
+        .collect();
+    if files.len() > 1 {
+        "MERGED ACROSS FILES — the getMergedSymbol item"
+    } else {
+        "declared in one file — not the merge item"
     }
 }
 
@@ -1061,9 +1214,17 @@ fn report(reports: &[CaseReport]) {
     // **The constants are the compiler's, not the probe's**, so they move
     // whenever the checker moves — including when this workstream moves it.
     // Their history in one session: 22,739 / 45,814 at `b5decc5`, 22,764 /
-    // 44,342 at `b9a4f5c`, and 22,793 / 44,254 after the `getApparentType`
-    // slice landed. Each time, a stale constant read as a defect in this probe
-    // and was not one.
+    // 44,342 at `b9a4f5c`, 22,793 / 44,254 after the `getApparentType` slice
+    // landed, and 22,354 / 43,250 at `5eb252c`. **Four values in one session,
+    // three of them from other workstreams' merges and one from this
+    // workstream's own change.** Each time, a stale constant read as a defect
+    // in this probe and was not one.
+    //
+    // The honest reading after four: this control is a **tripwire, not an
+    // invariant**. It cannot be left green across a moving `main`, and anyone
+    // re-running this probe on a different commit must expect it non-zero and
+    // re-take both numbers from `rank_board` in the same worktree before
+    // concluding anything about the walk.
     //
     // That is the standing cost of a cross-instrument control, and it is paid
     // deliberately: M1 proved that C1-C4 cannot see a polarity inversion of the
@@ -1071,11 +1232,38 @@ fn report(reports: &[CaseReport]) {
     // descent uses, and C7 is the only control here that can. The commit is
     // named in the printed line rather than in a comment so a reader who sees
     // it non-zero checks the commit before checking the walk.
+    // **C7 is two legs and only the first is an invariant.**
+    //
+    // `rank_board` builds its checker with `Checker::new`; this probe uses
+    // `Checker::with_module_host`, which is what `render_case` itself builds
+    // (ADR-0041) and is therefore the configuration the gradient is scored
+    // through. The host can only ever *give a receiver a type*, and the only
+    // arm that reads is `the receiver is a gap` — so it moves lines **out of**
+    // `propagated/named` and into whatever they turn out to be.
+    //
+    // `TERMINAL` requires that no dependency is named at all, so **no line the
+    // module host affects can enter or leave it**. That makes leg A an
+    // invariant across the two instruments rather than a coincidence, and it is
+    // the leg carrying the evidence. Measured at `5eb252c`: named −386, span
+    // +193, UNMATCHED +292, DEPENDENT-UNKNOWN −99, netting to zero — the
+    // divergence has grown from 54 lines at `b9a4f5c` as the cross-file seam
+    // has gained answers, which is the direction it should grow in.
+    let board_terminal = board.get("TERMINAL").copied().unwrap_or_default();
+    let board_named = board.get("propagated/named").copied().unwrap_or_default();
     println!(
-        "  C7  TERMINAL - rank_board's post-slice 22,793 = {} | DEPENDENT-UNKNOWN - 44,254 = {} \
-         (must both be 0, pinned by ANOTHER INSTRUMENT)",
-        delta(board.get("TERMINAL").copied().unwrap_or_default(), 22_793),
-        delta(board.get("DEPENDENT-UNKNOWN").copied().unwrap_or_default(), 44_254)
+        "  C7a TERMINAL - rank_board@5eb252c's 22,354 = {} (must be 0: no line the module \
+         host affects can enter or leave TERMINAL)",
+        delta(board_terminal, 22_354)
+    );
+    println!(
+        "  C7b propagated/named - rank_board's 16,844 = {} (a MEASUREMENT: the module-host \
+         divergence, 54 lines at b9a4f5c and growing as the seam answers more)",
+        delta(board_named, 16_844)
+    );
+    println!(
+        "  A4  this probe's five buckets - gap total = {} (arithmetic; the divergence \
+         redistributes and never loses a line)",
+        delta(board.values().sum::<usize>(), gap)
     );
 
     println!("\n## DEPTH HISTOGRAM — how far each gap line had to be walked (unit: gap lines)\n");
@@ -1299,6 +1487,95 @@ fn report(reports: &[CaseReport]) {
             .collect::<Vec<_>>()
             .join(" | ")
     );
+
+    println!("\n## RULE-3 / P1 — the `PropertyAccessExpression` POPULATION (unit: gap lines)\n");
+    println!("  |P| is pinned by the AST: a node's kind cannot move under the checker.");
+    println!("  Arms mirror checker-notes-evolvearray.md's ElementAccess split one for one.");
+    println!("  `RIGHT` carries the positive test; `not rendered` is the default arm.");
+    let mut arms: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (arm, n) in &case.access_arms {
+            *arms.entry(arm).or_default() += n;
+        }
+    }
+    let arms_total: usize = arms.values().sum();
+    let mut arm_rows: Vec<_> = arms.iter().map(|(a, n)| (*n, *a)).collect();
+    arm_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, arm) in arm_rows {
+        println!("  {n:>8} {:>7.2}%  {arm}", pct(n, arms_total));
+    }
+    println!(
+        "  {arms_total:>8}           TOTAL  (checker-notes-wrong.md's addendum reads 15,215 \
+         gap for this kind)"
+    );
+    let mut right_cases: HashMap<&str, usize> = HashMap::new();
+    let mut right_rhs: HashMap<&str, usize> = HashMap::new();
+    let mut right_family: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (name, n) in &case.access_right_by_case {
+            *right_cases.entry(name.as_str()).or_default() += n;
+        }
+        for (text, n) in &case.access_right_rhs {
+            *right_rhs.entry(text.as_str()).or_default() += n;
+        }
+        for (family, n) in &case.access_right_family {
+            *right_family.entry(family).or_default() += n;
+        }
+    }
+    let right_total: usize = right_cases.values().sum();
+    let mut right_ranked: Vec<_> = right_cases.into_iter().map(|(c, n)| (n, c)).collect();
+    right_ranked.sort_unstable_by(|a, b| b.cmp(a));
+    let top1 = right_ranked.first().map_or(0, |(n, _)| *n);
+    let top10: usize = right_ranked.iter().take(10).map(|(n, _)| n).sum();
+    println!(
+        "\n  P1b concentration of RIGHT: {} cases, top-1 {:.1}%, top-10 {:.1}%  [{}]",
+        right_ranked.len(),
+        pct(top1, right_total),
+        pct(top10, right_total),
+        right_ranked
+            .iter()
+            .take(3)
+            .map(|(n, c)| format!("{c} {n}"))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    );
+    let any_rhs: usize = right_rhs.iter().filter(|(t, _)| **t == "any").map(|(_, n)| *n).sum();
+    let unnameable: usize = right_rhs
+        .iter()
+        .filter(|(t, _)| t.starts_with("typeof ") || t.contains("import("))
+        .map(|(_, n)| *n)
+        .sum();
+    println!(
+        "  P1c spellability of RIGHT: `any` {any_rhs} ({:.1}%), unnameable {unnameable} ({:.1}%)",
+        pct(any_rhs, right_total),
+        pct(unnameable, right_total)
+    );
+    let mut rhs_ranked: Vec<_> = right_rhs.into_iter().map(|(t, n)| (n, t)).collect();
+    rhs_ranked.sort_unstable_by(|a, b| b.cmp(a));
+    println!("  what upstream prints for the RIGHT arm:");
+    for (n, text) in rhs_ranked.iter().take(8) {
+        println!("      {n:>7}  {}", truncate(text, 56));
+    }
+    println!("\n  RULE-3 / P2 — the RIGHT arm by receiver kind, which names the owner:");
+    let mut family_ranked: Vec<_> = right_family.into_iter().map(|(f, n)| (n, f)).collect();
+    family_ranked.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, family) in family_ranked {
+        println!("      {n:>7} {:>7.2}%  {family}", pct(n, right_total));
+    }
+
+    println!("\n  THE CROSS-FILE MERGE SPLIT — `named / other` receivers only (unit: gap lines):");
+    let mut merge: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (verdict, n) in &case.merge_split {
+            *merge.entry(verdict).or_default() += n;
+        }
+    }
+    let merge_total: usize = merge.values().sum();
+    let mut merge_rows: Vec<_> = merge.iter().map(|(v, n)| (*n, *v)).collect();
+    merge_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, verdict) in merge_rows {
+        println!("      {n:>7} {:>7.2}%  {verdict}", pct(n, merge_total));
+    }
 
     println!("\n## CONTROLS — what pins each\n");
     let c1: usize = reports.iter().map(|r| r.c1_root_names_dependency).sum();
