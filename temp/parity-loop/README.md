@@ -60,9 +60,19 @@ Everything else is plumbing; these are the parts worth disagreeing with.
 
 ### 1. The loop measures the gradient itself and never reads it from the agent
 
-Each iteration runs `cargo run --release -p tsr-conformance --bin coverage` and
-parses the summary. It never extracts a number from the agent's prose, and the
+Each iteration runs `cargo run --release -p tsr-conformance --bin coverage`,
+which rewrites the `checker_types` snapshot, and reads the absolute line counts
+back out of it. It never extracts a number from the agent's prose, and the
 stall detector is driven entirely by lines the loop measured.
+
+The two-step is not incidental: the binary's **stdout is a per-suite table**
+whose `checker_types` row carries the gradient as a bare percentage, while the
+absolute counts a delta needs live only in the snapshot. The first version of
+this parsed stdout for the snapshot's prose format, found neither, and threw on
+the first live run. The table is now used as a **cross-check** — one binary
+produced both, so if the two gradients disagree the snapshot on disk is not the
+one this run wrote, and the loop fails loudly rather than steering by a stale
+number.
 
 This is not distrust of the model, it is this project's own recorded history.
 `STATUS.md` carries several corrections where a figure was true of one
