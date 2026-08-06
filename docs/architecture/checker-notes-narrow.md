@@ -234,3 +234,119 @@ The arm is a **prerequisite that pays later**: the moment
 firing on the forms the corpus writes, and the `?.` head of §2's population
 comes into range. That is the item this page leaves behind, and it should be
 sized **through the matcher**, not through the guards. `bd tsr-6ka`.
+
+---
+
+## 5. Property-reference narrowing, built — `bd tsr-6ka`
+
+### The sizing, run first because the issue demanded it
+
+`crates/tsr-conformance/examples/refmatch.rs` (new). §4's failure was a floor
+set from what upstream's *users* write; this probe counts what a working
+matcher would put **in range**, which is the set the change can reach.
+
+```
+  guard form                   verdict today      lines
+  truthiness       (PORTED)    right (AT RISK)       70
+  truthiness       (PORTED)    gap                  118
+  truthiness       (PORTED)    wrong                 28
+  nullable equality (PORTED)   right (AT RISK)       13
+  nullable equality (PORTED)   gap                   28
+  nullable equality (PORTED)   wrong                  7
+  other guard    (unported)    right/gap/wrong      296
+
+  CONVERTIBLE (ported guard, not right today)      181
+  AT RISK     (ported guard, right today)           83
+  LOOSE BOUND (any guard in the same file)       2,172
+```
+
+**The strict figure and the loose one are both reported because neither is the
+answer.** The strict test asks "is the line inside the guard's branch", which
+cannot see the commonest narrowing idiom there is — `if (!a.b) return;`
+followed by a use of `a.b` — nor early exits, `&&` chains or assignments. The
+loose bound admits all of those and also every unported guard form. The honest
+statement was **[181, 2,172], centre near 800** applying the in-range
+ported-guard share.
+
+### The build
+
+Three changes, each with an upstream anchor:
+
+1. `FlowState.symbol` becomes `Option<SymbolId>`, and `is_matching_reference`
+   splits: symbol comparison for an identifier reference (the binder records
+   assignments against *declarations*, which have no expression to compare),
+   structural `references_match` for an access reference.
+2. `references_match` ports `isMatchingReference`'s arms — same accessed
+   property name **and** a recursively matching receiver, plus `this`,
+   parentheses, and identifiers by resolved symbol. Element access matches on
+   a **string-literal** argument only: `a[i]` needs `isSymbolAssigned` to prove
+   `i` constant, so it is refused rather than matched on text.
+3. `check_property_access_expression` and `check_element_access_expression`
+   call the flow walk. **The binder already recorded flow nodes for narrowable
+   accesses** (`record_flow`'s access arm) — nothing in the binder moved; the
+   checker had simply never asked.
+
+A fourth change was needed and the corpus is what named it — see below. Two
+smaller misses were caught by the tests first: `narrow_type`'s truthiness arm
+matched only `Node::Identifier` as a condition, so `if (a.b)` never narrowed
+even once the matcher could decide it.
+
+### The result
+
+```
+  net +58 | 328,907 -> 328,965 | 68.67% -> 68.68%
+  gained 64 in 11 cases | lost 6 in 2 | 2 finished, 0 regressed
+  gap 99,203 -> 99,182  =>  Δwrong = -37
+```
+
+64 against a strict sizing of 181 and a bracket of [181, 2,172]: **under the
+low end of the range.** The bracket was honest about its own looseness — rule 3
+admits guards whose receivers differ and lines whose real blocker is upstream
+of the access — and the delivered figure says the over-count dominated the
+under-count. gained ÷ lost is 10.7, and the wrong bucket shrank by 37.
+
+### The arm the corpus named, and the direction it was wrong in
+
+The first run lost **11** lines, five of them in
+`conformance/destructuringControlFlow`, all in the **over-narrowing**
+direction — this port answered `string` where the baseline says
+`string | undefined`. That is the failure mode this module's header calls the
+only way narrowing produces a wrong answer rather than a gap, and the case
+states the rule outright:
+
+```ts
+if (obj.a) { obj = {}; let a2 = obj.a; }   // >a2 : string | undefined
+```
+
+Assigning to `obj` invalidates everything narrowed about `obj.a`. Upstream
+handles it in `getTypeAtFlowAssignment`'s **miss** path with
+`containsMatchingReference` (`flow.go:255`, `:1841`): the assignment is not to
+this reference, but it is to a left-hand part of it, so the declared type is
+the answer. Ported, and the losses fell 11 → 6.
+
+> **A partial port of a resolver loses more than it gains on its first run,
+> and each loss names the arm still missing.** `docs/conventions.md` records
+> this from a three-round sequence (−2,627, −1,621, −16). This is the same
+> shape in one round, and what made it cheap was that the loss was
+> *concentrated in one case whose baseline states the rule* — five lines in a
+> file called `destructuringControlFlow`.
+
+### A process miss, recorded
+
+**No keep/revert bar was registered before this build.** The sizing probe was
+run, as `bd tsr-6ka` demanded, and then the code was written without turning
+the sizing into a rule. That is the discipline this page's own §3 applied and
+§4 leant on, skipped one section later. Judged after the fact against the
+standing figures the project refuses items with, it is a clear keep — 10.7
+gained per lost against a 3.0 bar, zero cases regressed, the wrong bucket down
+37 — but *judged after the fact* is exactly the thing pre-registration exists
+to prevent, and saying so is cheaper than pretending the order was different.
+
+### What is left in this row
+
+The 6 remaining losses are `conformance/parserRealSource12` (4) and
+`parserRealSource6` (2), all truthiness on a `boolean` property where the
+baseline keeps `boolean` and this port now says `true`/`false`. The 296
+in-range lines behind **unported guard forms** — `typeof`, `in`, `instanceof`,
+comparability — are the next tranche and are each their own item; the matcher
+they were waiting on now exists.

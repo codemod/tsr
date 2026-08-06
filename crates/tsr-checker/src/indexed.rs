@@ -67,6 +67,25 @@ impl Checker<'_, '_> {
         &mut self,
         node: &ElementAccessExpression<'_>,
     ) -> TypeId {
+        let computed = self.check_element_access_type(node);
+        // The flow narrowing `checkIndexedAccess` ends with, the same call
+        // `crate::members` makes for `a.b` — `bd tsr-6ka`. Split into a wrapper
+        // rather than threaded through the six early returns below, because
+        // every one of them is an answer that narrowing applies to and
+        // repeating the call at each would be six chances to miss one.
+        //
+        // A gap is not narrowed: filtering `errorType` would answer `never` for
+        // an access this port could not type.
+        let error = self.intrinsics.error;
+        if computed == error {
+            return computed;
+        }
+        let Some(id) = node.node_id else { return computed };
+        self.get_flow_type_of_reference(id, None, computed)
+    }
+
+    /// The type `a[b]` computes before flow narrowing.
+    fn check_element_access_type(&mut self, node: &ElementAccessExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         if node.question_dot_token.is_some() {
             return error;

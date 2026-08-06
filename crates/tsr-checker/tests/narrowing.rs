@@ -359,3 +359,112 @@ fn a_shadowed_undefined_is_not_the_literal() {
         "string | undefined"
     );
 }
+
+/// Property-reference narrowing — `bd tsr-6ka`. Until this landed,
+/// `is_matching_reference` compared resolved **symbols**, so no guard on
+/// `a.b` narrowed anything and `check_property_access_expression` never
+/// reached the flow walk at all.
+///
+/// Ground truth: `conformance/controlFlowOptionalChain.types:973` guards
+/// `o?.foo !== undefined` on a `string | number | undefined` property, and
+/// `conformance/controlFlowGenericTypes.types:566` is the union shape.
+#[test]
+fn a_guard_on_a_property_access_narrows_that_property() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { foo: string | undefined };\nif (o.foo !== undefined) { o.foo; }"
+        ),
+        "string"
+    );
+    // Truthiness through the same matcher — the arm that has been ported
+    // longest and has been unreachable on this form the whole time.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { foo: string | undefined };\nif (o.foo) { o.foo; }"
+        ),
+        "string"
+    );
+    // Nested receivers, so the match is recursive rather than one level.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { a: { b: string | undefined } };\nif (o.a.b !== undefined) { o.a.b; }"
+        ),
+        "string"
+    );
+}
+
+#[test]
+fn a_guard_on_one_property_does_not_narrow_a_sibling() {
+    // The failure mode this module's header calls the only way narrowing
+    // produces a *wrong* answer rather than a gap: a match that is too loose.
+    // Same receiver, different property.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { a: string | undefined, b: string | undefined };\nif (o.a !== undefined) { o.b; }"
+        ),
+        "string | undefined",
+        "a guard on `o.a` must leave `o.b` alone"
+    );
+    // Same property name, different receiver — the half that a name-only
+    // comparison would get wrong, and the reason the receiver match recurses.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: { a: string | undefined };\ndeclare const y: { a: string | undefined };\nif (x.a !== undefined) { y.a; }"
+        ),
+        "string | undefined",
+        "a guard on `x.a` must leave `y.a` alone"
+    );
+}
+
+#[test]
+fn an_element_access_matches_only_on_a_literal_argument() {
+    // `a["b"]` names a property and matches `a.b`'s rule; `a[i]` does not,
+    // because upstream matches it only when `i` is provably constant
+    // (`isSymbolAssigned`), which this port cannot decide — so it refuses
+    // rather than matching on text.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { b: string | undefined };\nif (o[\"b\"] !== undefined) { o[\"b\"]; }"
+        ),
+        "string"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare const o: { [k: string]: string | undefined };\ndeclare const i: string;\nif (o[i] !== undefined) { o[i]; }"
+        ),
+        "string | undefined",
+        "a non-literal index is not a decidable reference"
+    );
+}
+
+#[test]
+fn an_assignment_to_the_receiver_resets_the_property_narrowing() {
+    // `conformance/destructuringControlFlow.ts:4` — the corpus case that
+    // named this arm when the first run of `bd tsr-6ka` shipped without it.
+    // The baseline records `string | undefined` for the inner `obj.a`, not
+    // the narrowed `string`: assigning to `obj` invalidates everything
+    // narrowed about `obj.a`, because it is a different object now.
+    //
+    // This is the *over-narrowing* direction — a confident wrong line rather
+    // than a gap — which is the one failure mode this module is most able to
+    // cause, so it is pinned in both spellings upstream records.
+    assert_eq!(
+        type_of_last_expression(
+            "declare let obj: { a?: string };\nif (obj.a) { obj = {}; obj.a; }"
+        ),
+        "string | undefined"
+    );
+    assert_eq!(
+        type_of_last_expression(
+            "declare let obj: { a?: string };\nif (obj[\"a\"]) { obj = {}; obj[\"a\"]; }"
+        ),
+        "string | undefined"
+    );
+    // The control: with no intervening assignment the narrowing stands, so the
+    // reset is about the assignment and not about property narrowing being
+    // switched off.
+    assert_eq!(
+        type_of_last_expression("declare let obj: { a?: string };\nif (obj.a) { obj.a; }"),
+        "string"
+    );
+}

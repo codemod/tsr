@@ -118,7 +118,7 @@ impl Checker<'_, '_> {
                         // does not ask.
                         if self.is_narrowable_symbol(symbol) {
                             let node_id = node.node_id.expect("checked above");
-                            self.get_flow_type_of_reference(node_id, symbol, declared)
+                            self.get_flow_type_of_reference(node_id, Some(symbol), declared)
                         } else {
                             declared
                         }

@@ -71,13 +71,20 @@ pub struct FlowType {
 struct FlowState {
     /// The reference node the question is about.
     reference: NodeId,
-    /// What that reference resolves to.
+    /// What that reference resolves to, when it is an identifier.
     ///
     /// Upstream has no such field: it compares reference *expressions* with
-    /// `isMatchingReference`, because a reference can be `a.b.c` and there is no
-    /// single symbol for it. Here the match is identifier-only, so the symbol is
-    /// the whole of it — see [`Checker::is_matching_reference`].
-    symbol: SymbolId,
+    /// `isMatchingReference`, because a reference can be `a.b.c` and there is
+    /// no single symbol for it. This port kept a symbol because the match was
+    /// identifier-only — and `bd tsr-6ka` measured that as the binding
+    /// constraint on every narrowing arm, so the match is now structural and
+    /// this field is `None` for an access-expression reference.
+    ///
+    /// It is kept rather than dropped because the identifier arm genuinely
+    /// needs it: the binder records an assignment's flow node against the
+    /// *declaration*, whose identity is a symbol and not an expression to
+    /// compare against.
+    symbol: Option<SymbolId>,
     /// The type the declaration gives it.
     declared_type: TypeId,
     /// The type at the top of the flow graph.
@@ -161,7 +168,7 @@ impl Checker<'_, '_> {
     pub(crate) fn get_flow_type_of_reference(
         &mut self,
         reference: NodeId,
-        symbol: SymbolId,
+        symbol: Option<SymbolId>,
         declared_type: TypeId,
     ) -> TypeId {
         if self.flow_analysis_disabled {
@@ -173,7 +180,10 @@ impl Checker<'_, '_> {
             // needed to record a flow for.
             return declared_type;
         };
-        let is_auto = self.is_auto_typed_declaration(symbol);
+        // Only a declaration can be automatically typed, so an access-
+        // expression reference is never auto: `a.b` has a declared property
+        // type whatever the flow says.
+        let is_auto = symbol.is_some_and(|symbol| self.is_auto_typed_declaration(symbol));
         let mut state = FlowState {
             reference,
             symbol,
@@ -324,6 +334,26 @@ impl Checker<'_, '_> {
     ) -> Option<FlowType> {
         let node = self.binder.flow().node(flow)?;
         if !self.is_matching_reference(state, node) {
+            // `flow.go:255`: the assignment may be to a **left-hand part** of
+            // the reference — for `x.y.z` we may be at an assignment to `x.y`
+            // or to `x` — and any such assignment invalidates everything
+            // narrowed about the whole reference, so the declared type is the
+            // answer.
+            //
+            // **This arm was missing from the first run of `bd tsr-6ka` and the
+            // corpus named it**: `conformance/destructuringControlFlow` writes
+            // `if (obj.a) { obj = {}; obj.a }` and records `string | undefined`
+            // for the inner `obj.a`, where this port answered the narrowed
+            // `string`. Without it, property narrowing survives an assignment
+            // that replaces the object it was narrowed on — the over-narrowing
+            // direction, which produces a confident wrong line.
+            //
+            // Upstream additionally returns `unreachableNeverType` for an
+            // unreachable assignment (`flow.go:256`); `isReachableFlowNode` is
+            // not ported, so the declared type is the whole of this arm.
+            if self.contains_matching_reference(state, node) {
+                return Some(FlowType { t: state.declared_type, incomplete: false });
+            }
             return None;
         }
         if state.is_auto {
@@ -567,20 +597,183 @@ impl Checker<'_, '_> {
         if node == state.reference {
             return true;
         }
-        // The binder records an assignment's flow node against the *target*
-        // node, which for `x = 1` is the identifier `x` and for a declaration
-        // with an initialiser is the declaration itself. Both answer through
-        // the symbol they declare or resolve to.
-        if let Some(symbol) = self.binder.symbol_of(node) {
-            return symbol == state.symbol;
+        match state.symbol {
+            // An identifier reference. The binder records an assignment's flow
+            // node against the *target* node, which for `x = 1` is the
+            // identifier `x` and for a declaration with an initialiser is the
+            // declaration itself. Both answer through the symbol they declare
+            // or resolve to, which is why this arm is symbol-based where the
+            // one below is structural.
+            Some(symbol) => {
+                if let Some(candidate) = self.binder.symbol_of(node) {
+                    return candidate == symbol;
+                }
+                if self.nodes.kind(node) != SyntaxKind::Identifier {
+                    return false;
+                }
+                let Some(Node::Identifier(identifier)) = self.node_map.get(node) else {
+                    return false;
+                };
+                self.binder
+                    .resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        node,
+                        identifier.text,
+                        SymbolFlags::VALUE,
+                    )
+                    .is_some_and(|resolved| resolved == symbol)
+            }
+            // An access-expression reference: `a.b`, `this.x`, `a.b.c`.
+            None => self.references_match(state.reference, node),
         }
-        if self.nodes.kind(node) != SyntaxKind::Identifier {
-            return false;
+    }
+
+    /// Whether `node` matches a **left-hand part** of the reference —
+    /// `containsMatchingReference` (`flow.go:1841`).
+    ///
+    /// For a reference `x.y.z` the parts are `x.y` and `x`. An assignment to
+    /// either invalidates what was narrowed about the whole, which is why this
+    /// is asked in [`Checker::get_type_at_flow_assignment`] on the *miss* path:
+    /// the assignment is not to this reference, but it is to something the
+    /// reference is built from.
+    ///
+    /// The reference itself is deliberately not included, matching upstream's
+    /// split between this and `isOrContainsMatchingReference` — the caller has
+    /// already tested that case.
+    fn contains_matching_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
+        let mut source = state.reference;
+        while let Some(receiver) = match self.node_map.get(source) {
+            Some(
+                access @ (Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_)),
+            ) => access.expression_id(),
+            _ => None,
+        } {
+            source = receiver;
+            // Compared against the *sub-reference*, so this cannot reuse
+            // `is_matching_reference`, which is fixed to `state.reference`.
+            if self.references_match(source, node) {
+                return true;
+            }
+            // An identifier part is also matched by the symbol the binder
+            // recorded the assignment against — `obj = {}` records its flow
+            // node on the declaration, not on an expression, which
+            // `references_match`'s identifier arm handles only when the target
+            // resolves. Asking the symbol directly is what makes an assignment
+            // to a `let` visible here.
+            if let (Some(Node::Identifier(identifier)), Some(assigned)) =
+                (self.node_map.get(source), self.binder.symbol_of(node))
+                && self
+                    .binder
+                    .resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        source,
+                        identifier.text,
+                        SymbolFlags::VALUE,
+                    )
+                    .is_some_and(|resolved| resolved == assigned)
+            {
+                return true;
+            }
         }
-        let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return false };
-        self.binder
-            .resolve_name(self.nodes, self.node_map, node, identifier.text, SymbolFlags::VALUE)
-            .is_some_and(|resolved| resolved == state.symbol)
+        false
+    }
+
+    /// Whether two reference *expressions* denote the same thing
+    /// (`isMatchingReference`, `flow.go`), for the forms this port can decide.
+    ///
+    /// # The arms, and the ones deliberately left out
+    ///
+    /// Ported: identifiers (by resolved symbol, and against a declaration
+    /// through the symbol it declares), `this`, a parenthesised operand on
+    /// either side, and the access arm — **the same accessed property name and
+    /// a recursively matching receiver**, which is upstream's rule character
+    /// for character.
+    ///
+    /// Not ported, each because deciding it needs something this port does not
+    /// have: an **element access with a non-literal argument**
+    /// (`a[i]` matches `a[i]` only when `i` is a constant or an unassigned
+    /// local, which needs `isSymbolAssigned`); `super`; `MetaProperty`; and the
+    /// comma and assignment unwrapping on the target side. Each answers
+    /// `false`, which costs a narrowing and never invents one.
+    ///
+    /// # Why `false` is the safe default here, unlike everywhere else
+    ///
+    /// This module's header records the one way narrowing produces a *wrong*
+    /// answer rather than a gap: a match that is too **loose** narrows the
+    /// wrong reference. So every unported arm answers `false` and every ported
+    /// arm is an equality rather than a heuristic — an element access whose
+    /// argument this port cannot prove constant is refused rather than matched
+    /// on its text.
+    fn references_match(&mut self, source: NodeId, target: NodeId) -> bool {
+        if source == target {
+            return true;
+        }
+        // `KindParenthesizedExpression` on either side (`flow.go`, both
+        // switches), so `(a.b)` and `a.b` are one reference.
+        if let Some(Node::ParenthesizedExpression(node)) = self.node_map.get(source)
+            && let Some(inner) = node.expression.and_then(|e| e.node_id())
+        {
+            return self.references_match(inner, target);
+        }
+        if let Some(Node::ParenthesizedExpression(node)) = self.node_map.get(target)
+            && let Some(inner) = node.expression.and_then(|e| e.node_id())
+        {
+            return self.references_match(source, inner);
+        }
+
+        match (self.node_map.get(source), self.node_map.get(target)) {
+            // `this` matches `this` and nothing else.
+            (Some(Node::KeywordExpression(left)), Some(Node::KeywordExpression(right))) => {
+                left.kind == SyntaxKind::ThisKeyword && right.kind == SyntaxKind::ThisKeyword
+            }
+            // Two accesses: same property name, matching receivers. The name
+            // comparison is on the **member name text**, which is what
+            // `getAccessedPropertyName` answers for a property access.
+            (
+                Some(left @ (Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_))),
+                Some(right),
+            ) => {
+                let (Some(left_name), Some(right_name)) =
+                    (accessed_property_name(left), accessed_property_name(right))
+                else {
+                    return false;
+                };
+                if left_name != right_name {
+                    return false;
+                }
+                let (Some(left_receiver), Some(right_receiver)) =
+                    (left.expression_id(), right.expression_id())
+                else {
+                    return false;
+                };
+                self.references_match(left_receiver, right_receiver)
+            }
+            // An identifier against an identifier, or against the declaration
+            // the binder recorded the flow node on.
+            (Some(Node::Identifier(identifier)), _) => {
+                let Some(resolved) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    source,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return false;
+                };
+                if let Some(declared) = self.binder.symbol_of(target) {
+                    return declared == resolved;
+                }
+                let Some(Node::Identifier(other)) = self.node_map.get(target) else {
+                    return false;
+                };
+                self.binder
+                    .resolve_name(self.nodes, self.node_map, target, other.text, SymbolFlags::VALUE)
+                    .is_some_and(|candidate| candidate == resolved)
+            }
+            _ => false,
+        }
     }
 
     /// Narrow `t` by a condition expression known to be true or false
@@ -610,8 +803,14 @@ impl Checker<'_, '_> {
     ) -> TypeId {
         let Some(node) = self.node_map.get(condition) else { return t };
         match node {
-            // `if (x)` and `while (x)`: the reference itself as the condition.
-            Node::Identifier(_) => {
+            // `if (x)`, `if (a.b)`, `while (o["k"])`: the reference itself as
+            // the condition. Every form [`Checker::is_matching_reference`] can
+            // decide belongs here — restricting it to `Identifier` is what kept
+            // truthiness narrowing dead on property references long after the
+            // matcher could have handled them (`bd tsr-6ka`).
+            Node::Identifier(_)
+            | Node::PropertyAccessExpression(_)
+            | Node::ElementAccessExpression(_) => {
                 if self.is_matching_reference(state, condition) {
                     let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
                     self.get_type_with_facts(t, facts)
@@ -953,5 +1152,26 @@ impl Checker<'_, '_> {
     /// not ask.
     pub(crate) fn is_narrowable_symbol(&self, symbol: SymbolId) -> bool {
         self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VARIABLE)
+    }
+}
+
+/// The property name an access expression reads, for the two forms
+/// `getAccessedPropertyName` (`flow.go`) decides.
+///
+/// A property access answers its member name; an element access answers only a
+/// **string-literal** argument, because `a[i]` names a property only when `i`
+/// is constant, and this port cannot prove that (see
+/// [`Checker::references_match`]).
+fn accessed_property_name(node: Node<'_>) -> Option<String> {
+    match node {
+        Node::PropertyAccessExpression(access) => match access.name? {
+            tsr_ast::MemberName::Identifier(name) => Some(name.text.to_string()),
+            tsr_ast::MemberName::PrivateIdentifier(name) => Some(name.text.to_string()),
+        },
+        Node::ElementAccessExpression(access) => match access.argument_expression? {
+            tsr_ast::Expression::StringLiteral(literal) => Some(literal.text.to_string()),
+            _ => None,
+        },
+        _ => None,
     }
 }

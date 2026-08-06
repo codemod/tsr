@@ -122,7 +122,28 @@ impl Checker<'_, '_> {
         // make the guard observable, so it was removed rather than kept as
         // decoration. The identity test above is what keeps that true now that
         // an `ANY`-flagged type has a fast path.
-        self.get_type_of_property_of_type(receiver_type, name.text).unwrap_or(error)
+        let property_type =
+            self.get_type_of_property_of_type(receiver_type, name.text).unwrap_or(error);
+        // `checkPropertyAccessExpressionOrQualifiedName` ends by narrowing the
+        // property's declared type by the flow reaching this access
+        // (`getFlowTypeOfReference`, `checker.go:11430`) — `bd tsr-6ka`. Until
+        // this call existed, *no* property access reached the flow walk, which
+        // made every ported narrowing guard dead on the forms the corpus
+        // actually writes (`a.b !== undefined`, `o.foo != null`).
+        //
+        // The binder already records a flow node for a narrowable access
+        // (`record_flow`'s `PropertyAccessExpression` arm), so nothing in the
+        // binder moves; `get_flow_type_of_reference` returns the declared type
+        // unchanged when there is none.
+        //
+        // A gap is not narrowed: `errorType` carries `TypeFlags::ANY`, and
+        // filtering it would answer `never` for a property this port could not
+        // type — a confident wrong line out of a missing one.
+        let Some(id) = node.node_id else { return property_type };
+        if property_type == error {
+            return property_type;
+        }
+        self.get_flow_type_of_reference(id, None, property_type)
     }
 
     /// The type whose members a property access should be looked up in.
