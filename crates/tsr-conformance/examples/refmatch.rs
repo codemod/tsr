@@ -78,8 +78,19 @@ enum Guard {
     Truthiness,
     /// `if (a.b !== undefined)`, `if (a.b != null)` — ported this cycle.
     NullableEquality,
-    /// `typeof`, `in`, `instanceof`, a comparison against a non-nullable —
-    /// every one unported, so the matcher alone converts nothing here.
+    /// `typeof x === "..."` (either operand order) — unported; the largest
+    /// single form upstream (`narrowTypeByTypeof`). Split out of `Unported`
+    /// for `bd tsr-q9g`'s per-form ranking.
+    TypeofGuard,
+    /// `"p" in x` — unported; needs `get_type_of_property_of_type` only.
+    InGuard,
+    /// `x instanceof C` — unported; needs construct signatures.
+    InstanceofGuard,
+    /// Equality against a non-nullable operand — unported; needs
+    /// `areTypesComparable`, which is the call-resolution blocker.
+    ComparabilityGuard,
+    /// Anything else — every one unported, so the matcher alone converts
+    /// nothing here.
     Unported,
 }
 
@@ -124,6 +135,10 @@ fn guard_label(g: u8) -> &'static str {
     match g {
         0 => "truthiness      (PORTED)",
         1 => "nullable equality (PORTED)",
+        3 => "typeof guard  (unported)",
+        4 => "`in` guard    (unported)",
+        5 => "instanceof    (unported)",
+        6 => "comparability (unported)",
         _ => "other guard   (unported)",
     }
 }
@@ -201,6 +216,12 @@ fn classify_guard(map: &NodeMap<'_>, condition: NodeId) -> Guard {
         }
         Some(Node::BinaryExpression(binary)) => {
             let Some(operator) = binary.operator_token else { return Guard::Unported };
+            if operator.kind == SyntaxKind::InKeyword {
+                return Guard::InGuard;
+            }
+            if operator.kind == SyntaxKind::InstanceOfKeyword {
+                return Guard::InstanceofGuard;
+            }
             if !matches!(
                 operator.kind,
                 SyntaxKind::EqualsEqualsToken
@@ -209,6 +230,18 @@ fn classify_guard(map: &NodeMap<'_>, condition: NodeId) -> Guard {
                     | SyntaxKind::ExclamationEqualsEqualsToken
             ) {
                 return Guard::Unported;
+            }
+            // `typeof x === "string"` before the nullable test: the typeof
+            // form compares against a string literal, never `null`/`undefined`.
+            let has_typeof_operand =
+                [binary.left, binary.right].into_iter().flatten().any(|operand| {
+                    matches!(
+                        operand.node_id().and_then(|id| map.get(id)),
+                        Some(Node::TypeOfExpression(_))
+                    )
+                });
+            if has_typeof_operand {
+                return Guard::TypeofGuard;
             }
             // The operand that decides: a written `null` or `undefined` makes
             // this the nullable half `crate::flow` ported; anything else needs
@@ -220,7 +253,7 @@ fn classify_guard(map: &NodeMap<'_>, condition: NodeId) -> Guard {
                     _ => false,
                 }
             });
-            if nullable { Guard::NullableEquality } else { Guard::Unported }
+            if nullable { Guard::NullableEquality } else { Guard::ComparabilityGuard }
         }
         _ => Guard::Unported,
     }
@@ -330,6 +363,10 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 Guard::Truthiness => 0u8,
                 Guard::NullableEquality => 1,
                 Guard::Unported => 2,
+                Guard::TypeofGuard => 3,
+                Guard::InGuard => 4,
+                Guard::InstanceofGuard => 5,
+                Guard::ComparabilityGuard => 6,
             };
             let v = match verdict {
                 Verdict::Right => 0u8,
