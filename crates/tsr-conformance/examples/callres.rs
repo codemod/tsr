@@ -417,6 +417,29 @@ struct Report {
     spelling: BTreeMap<(Row, Blocked, Spell), usize>,
     /// The baseline's RHS verbatim, for the lines R1 admits.
     admitted_rhs: BTreeMap<String, usize>,
+    /// The same, **keyed by row**, so R2′ can be read for the call half and the
+    /// `new` half separately (`bd tsr-4tw`).
+    ///
+    /// The aggregate above is deliberately left untouched rather than derived
+    /// from this: the published 69.4% has to stay reproducible from the same
+    /// expression it was produced by, or the split becomes an unfalsifiable
+    /// re-derivation of a number nobody can check.
+    admitted_rhs_by_row: BTreeMap<(Row, String), usize>,
+    /// `Row::ExprNew` is excluded from the admitted population by
+    /// `row.assigned()`, so it has never been scored at all — and it is the
+    /// 1,052-line own-root row `examples/armsplit.rs` measured. Tallied here on
+    /// its own and reported as an **addition** to the population, never netted
+    /// into the aggregate.
+    expr_new_rhs: BTreeMap<String, usize>,
+    /// Within the `new` rows, the baseline's RHS split by whether the callee's
+    /// own type is a `*Constructor` interface. That is a property of the
+    /// **callee**, which an implementation can see — unlike the baseline's
+    /// right-hand side, which `docs/conventions.md` forbids slicing a population
+    /// by.
+    new_by_callee: BTreeMap<(bool, String), usize>,
+    /// The same split, per **case**, because a rate is not a finding until its
+    /// concentration is beside it (`docs/conventions.md`).
+    new_by_callee_cases: BTreeMap<bool, BTreeMap<String, usize>>,
     /// The baseline's RHS verbatim for every line of the three assigned rows.
     row_rhs: BTreeMap<(Row, String), usize>,
     /// R2′: for each admitted line, whether the baseline's exact right-hand side
@@ -503,6 +526,21 @@ impl Report {
             *self.unrenderable.entry(key.clone()).or_default() += n;
         }
         self.corpus_vocabulary.extend(other.corpus_vocabulary.iter().cloned());
+        for (key, n) in &other.admitted_rhs_by_row {
+            *self.admitted_rhs_by_row.entry(key.clone()).or_default() += n;
+        }
+        for (key, n) in &other.expr_new_rhs {
+            *self.expr_new_rhs.entry(key.clone()).or_default() += n;
+        }
+        for (key, n) in &other.new_by_callee {
+            *self.new_by_callee.entry(key.clone()).or_default() += n;
+        }
+        for (key, cases) in &other.new_by_callee_cases {
+            let mine = self.new_by_callee_cases.entry(*key).or_default();
+            for (case, n) in cases {
+                *mine.entry(case.clone()).or_default() += n;
+            }
+        }
         for (key, tally) in &other.downstream {
             self.downstream.entry(*key).or_default().merge(tally);
         }
@@ -700,8 +738,8 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 (Some(id), None)
             };
 
-            let (bucket, shape) = match blocking {
-                None => (Blocked::NoBlockingNode, None),
+            let (bucket, shape, callee_type) = match blocking {
+                None => (Blocked::NoBlockingNode, None, None),
                 Some(node) => {
                     if row.via_initialiser() {
                         if nodes.kind(node) == row.blocking_kind() {
@@ -733,8 +771,32 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
 
             if let Some(rhs) = rhs_at(position) {
                 *report.spelling.entry((row, bucket, spell_of(&rhs))).or_default() += 1;
+                if bucket == Blocked::CalleeTyped {
+                    // `Row::ExprNew` on its own, because `row.assigned()` below
+                    // excludes it from the aggregate and it has therefore never
+                    // been scored. Reported as an addition, never netted in.
+                    if row == Row::ExprNew {
+                        *report.expr_new_rhs.entry(rhs.clone()).or_default() += 1;
+                    }
+                    if matches!(row, Row::InitNew | Row::ExprNew)
+                        && let Some(callee) = callee_type.as_deref()
+                    {
+                        // A property of the **callee's type**, which an
+                        // implementation can test. Not a slice by the baseline's
+                        // expected answer, which `docs/conventions.md` forbids.
+                        let is_ctor = callee.ends_with("Constructor");
+                        *report.new_by_callee.entry((is_ctor, rhs.clone())).or_default() += 1;
+                        *report
+                            .new_by_callee_cases
+                            .entry(is_ctor)
+                            .or_default()
+                            .entry(name.to_owned())
+                            .or_default() += 1;
+                    }
+                }
                 if bucket == Blocked::CalleeTyped && row.assigned() {
                     *report.admitted_rhs.entry(rhs.clone()).or_default() += 1;
+                    *report.admitted_rhs_by_row.entry((row, rhs.clone())).or_default() += 1;
                     // R2′. Exact string equality against what this port renders,
                     // with no shape heuristic anywhere in the test.
                     let shape = spell_of(&rhs);
@@ -865,17 +927,18 @@ fn classify(
     row: Row,
     report: &mut Report,
     case: &str,
-) -> (Blocked, Option<TypedShape>) {
+) -> (Blocked, Option<TypedShape>, Option<String>) {
     let callee = match map.get(blocking) {
         Some(Node::CallExpression(node)) => node.expression,
         Some(Node::NewExpression(node)) => node.expression,
-        Some(_) => return (Blocked::BlockingNodeNotACall, None),
-        None => return (Blocked::NoBlockingNode, None),
+        Some(_) => return (Blocked::BlockingNodeNotACall, None, None),
+        None => return (Blocked::NoBlockingNode, None, None),
     };
-    let Some(callee) = callee else { return (Blocked::NoCallee, None) };
+    let Some(callee) = callee else { return (Blocked::NoCallee, None, None) };
     let callee_type = checker.check_expression(callee);
     if callee_type != error {
-        *report.callee_types.entry(checker.type_to_string(callee_type)).or_default() += 1;
+        let printed = checker.type_to_string(callee_type);
+        *report.callee_types.entry(printed.clone()).or_default() += 1;
         // `== intrinsics.any` by **identity**, never `TypeFlags::ANY`, because
         // `errorType` also carries `ANY` (`docs/architecture/checker-notes-arrays.md`,
         // and the guard `members.rs` holds for the same reason). `error` is
@@ -891,9 +954,9 @@ fn classify(
             }
         };
         report.typed_shape.entry((row, shape)).or_default().add(case, 1);
-        return (Blocked::CalleeTyped, Some(shape));
+        return (Blocked::CalleeTyped, Some(shape), Some(printed));
     }
-    let Some(callee_id) = callee.node_id() else { return (Blocked::NoCallee, None) };
+    let Some(callee_id) = callee.node_id() else { return (Blocked::NoCallee, None, None) };
     let reason = types_producer::gap_reason(checker, bound, nodes, map, callee_id);
     report.callee_reasons.entry(reason.clone()).or_default().add(case, 1);
     let bucket = match nodes.kind(callee_id) {
@@ -913,7 +976,7 @@ fn classify(
         }
         _ => Blocked::CalleeOtherForm,
     };
-    (bucket, None)
+    (bucket, None, None)
 }
 
 #[allow(clippy::too_many_lines, clippy::cast_precision_loss, clippy::cast_possible_wrap)]
@@ -1182,6 +1245,100 @@ fn print(report: &Report) {
         "    (registered in advance: >= 70.0% here means R2′ was measured on too tight an\n     instrument and the refusal is NOT confirmed) -> {}",
         if corpus_rate >= 70.0 { "NOT CONFIRMED" } else { "still confirmed" }
     );
+    // ---- 6f. R2′ split, `bd tsr-4tw` -------------------------------------
+    //
+    // The aggregate above is untouched and stays reproducible from the same
+    // expression that produced the published figure. Everything below is added
+    // beside it.
+    println!("\n## 6f. R2′ split — the call half and the `new` half, scored separately\n");
+    println!("  Registered before this ran (`bd tsr-4tw`). The bar is the same 70%.");
+    println!("  A rate on fewer than 300 lines licenses nothing and is marked.\n");
+
+    let rate_over = |rows: &[Row]| -> (usize, usize) {
+        let mut hits = 0usize;
+        let mut total = 0usize;
+        for ((row, text), n) in &report.admitted_rhs_by_row {
+            if !rows.contains(row) {
+                continue;
+            }
+            total += n;
+            if report.corpus_vocabulary.contains(text) {
+                hits += n;
+            }
+        }
+        (hits, total)
+    };
+
+    println!("    half                              in corpus vocabulary          verdict");
+    let mut split_rows: Vec<(&str, Vec<Row>)> = vec![
+        ("CALL  (InitCall + ExprCall)", vec![Row::InitCall, Row::ExprCall]),
+        ("NEW   (InitNew)", vec![Row::InitNew]),
+        ("  of which InitCall", vec![Row::InitCall]),
+        ("  of which ExprCall", vec![Row::ExprCall]),
+    ];
+    split_rows.push(("the aggregate, for comparison", Row::ALL.to_vec()));
+    for (label, rows) in &split_rows {
+        let (hits, total) = rate_over(rows);
+        let rate = hits as f64 / total.max(1) as f64 * 100.0;
+        let verdict = if total < 300 {
+            "small denominator — licenses nothing"
+        } else if rate >= 70.0 {
+            ">= 70%  refusal NOT confirmed for this half"
+        } else {
+            "<  70%  refusal confirmed for this half"
+        };
+        println!("    {label:<33} {hits:>5} of {total:<5} = {rate:>5.1}%   {verdict}");
+    }
+
+    // `ExprNew` is outside the admitted population by construction, so it is
+    // printed on its own and never folded into any figure above.
+    let expr_new_hits: usize = report
+        .expr_new_rhs
+        .iter()
+        .filter(|(text, _)| report.corpus_vocabulary.contains(*text))
+        .map(|(_, n)| *n)
+        .sum();
+    let expr_new_total: usize = report.expr_new_rhs.values().sum();
+    println!(
+        "\n    ExprNew is EXCLUDED from every figure above by `row.assigned()` and has never\n    been scored. On its own: {expr_new_hits} of {expr_new_total} = {:.1}%",
+        expr_new_hits as f64 / expr_new_total.max(1) as f64 * 100.0
+    );
+
+    println!("\n  Within the `new` rows, split by the CALLEE'S OWN TYPE — a property the");
+    println!("  implementation can test, unlike the baseline's right-hand side:\n");
+    for (is_ctor, label) in [(true, "callee is a `*Constructor`"), (false, "every other callee")] {
+        let mut hits = 0usize;
+        let mut total = 0usize;
+        for ((ctor, text), n) in &report.new_by_callee {
+            if *ctor != is_ctor {
+                continue;
+            }
+            total += n;
+            if report.corpus_vocabulary.contains(text) {
+                hits += n;
+            }
+        }
+        let rate = hits as f64 / total.max(1) as f64 * 100.0;
+        let empty = BTreeMap::new();
+        let cases = report.new_by_callee_cases.get(&is_ctor).unwrap_or(&empty);
+        let (top_case, top_n) =
+            cases.iter().max_by_key(|(_, n)| **n).map_or(("", &0), |(c, n)| (c.as_str(), n));
+        let top1 = *top_n as f64 / total.max(1) as f64 * 100.0;
+        println!(
+            "    {label:<30} {hits:>5} of {total:<5} = {rate:>5.1}%   {:>4} cases, top-1 {top1:>5.1}%  {top_case}",
+            cases.len()
+        );
+    }
+    let mut ctor_rhs: Vec<_> = report.new_by_callee.iter().filter(|((c, _), _)| *c).collect();
+    ctor_rhs.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+    println!("\n    what the `*Constructor` lines want:");
+    for ((_, text), n) in ctor_rhs.iter().take(10) {
+        let renders =
+            if report.corpus_vocabulary.contains(text) { "" } else { "<-- never rendered" };
+        println!("      {n:>5}  {text:<34} {renders}");
+    }
+    println!();
+
     println!("\n  admitted right-hand sides the port never renders in the case:");
     let mut unrenderable: Vec<_> = report.unrenderable.iter().collect();
     unrenderable.sort_by_key(|(_, n)| std::cmp::Reverse(**n));

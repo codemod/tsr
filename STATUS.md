@@ -140,17 +140,24 @@ unknown, rank by how cheap it is to find out.**
 
 | # | item | converts | file | the rule that would license it | what would falsify the estimate |
 |---|---|---:|---|---|---|
-| 1 | **`new C()` — the lib `*Constructor` arm** | **~300–500** of 1,052 | `calls.rs` | exact-match spellability ≥ 70% on the `*Constructor` subset **scored on its own**, not folded into the call row | the construct signature's declared return type is not what upstream prints for `new Error()` — check `Error` against `ErrorConstructor`'s `new (…): Error` before building |
-| 2 | **Re-take the call row's bar with `new` scored separately** | 0 directly; **decides 18,294** | probe only | none — this is a measurement, and it is one probe | the combined figure stays under 70%, in which case the call row is refused on firmer ground than an 85-line margin |
+| 1 | **`new C()` — the lib `*Constructor` arm** | unsized; **not 1,074** | `calls.rs` | **R2′ 75.9% on 1,074 lines, 229 cases, top-1 15.1%** — passed its registered test on 2026-08-06 | the typed arrays in it are generic instantiations (`tsr-4qx`, blocked). Size the `*Constructor` population **minus** those before quoting anything — one more bucket in `callres.rs` |
+| 2 | ~~Re-take the call row's bar with `new` scored separately~~ | **run 2026-08-06** | — | — | see §5 — R2′ has stopped discriminating and the answer is a counterfactual |
 | 3 | `tsr-n23` + contextual typing, as **one** cross-file item | 2,082 gap **+ 1,809 wrong** | `symbols.rs` **and** `signatures.rs` | 48.8% of it sits behind call resolution — item 2 gates this | a build confined to either file converts half of each function's lines, which is the measured reason it is one item |
 | 4 | `ArrowFunction` | ≤ 1,341, and **17.8%** of the lines that stop gapping matched last time | `expressions.rs` | needs a *new* rule: the shape test read 99.6% and the counterfactual 4.6 wrong per right | the failure is parameter types, i.e. item 3 — this row may be item 3 wearing a different node kind |
 | 5 | `undefined \| null` sorts backwards (`tsr-iiu`) | unsized, **two-line repro** | `unions.rs` | count `null \| undefined` against `undefined \| null` in the baselines first | it is one pair and not a class, in which case it is small and still free |
 | 6 | `ConditionalExpression` | ≤ 295 | `expressions.rs` | unmeasured | |
 | 7 | JSX | ≤ 417 | jsx | unmeasured | |
 
-**Item 2 is ranked above every build on purpose.** It is a probe, it costs one
-run, and it decides an 18,294-line item that currently stands refused by 85
-lines. Nothing else on this board has that ratio.
+**Item 2 was run on 2026-08-06 and did not decide what it was meant to decide.**
+Scored alone the call half clears the bar at **70.6%** and `new` does not at
+64.8% — so the aggregate was `new` holding the call half under. But the call
+half is itself **58.9% and 76.3%**, so there is no level at which "the call row"
+is one population, and a bar registered against a row that turns out to be a
+mixture is void. `callres.rs`'s standing registration settles the rest: **R2′ is
+necessary and not sufficient and no value of it licenses a build.** What the
+call row needs is a counterfactual, which is the expensive thing R2′ existed to
+avoid paying for. Full working in
+[`docs/architecture/checker-notes-armsplit.md`](docs/architecture/checker-notes-armsplit.md) §8.
 
 ### Off the board, with the number that took it off
 
@@ -171,7 +178,7 @@ arriving at.
 | **assignability / `UnionReductionSubtype`** | `\|\|` 358, `??` 96, `ArrayLiteral` 355, and every subtype reduction | **newly identified as a shared blocker.** Three separate refusals this cycle bottom out in it |
 | qualified naming (`tsr-awa`) | `tsr-4qx` (~5,161), 1,318 of its own | mechanism **measured at 90.7%**, build refused — see §5 |
 | `tsr-4qx` instantiated generics | ~5,161 | blocked on `tsr-awa`; `type_reference_text` bakes an unqualified name at type *creation* |
-| call resolution | 48.8% of contextual typing, the IIFE rows, and `new` | refused at **68.3% against a 70% bar — by 85 lines**. Board item 2 is the cheapest thing that could move it |
+| call resolution | 48.8% of contextual typing, the IIFE rows, and `new` | **the R2′ refusal no longer stands on its stated grounds** (§5). Its next step is a counterfactual, not another probe |
 
 **`members.rs` is done** until those land. Its own lookup is **104 lines**. That
 was registered as a prediction before measurement and confirmed.
@@ -207,7 +214,7 @@ what four cycles of ranking have now established.
 
 | item | population | why refused |
 |---|---:|---|
-| call resolution | 18,294 | spellability **68.3%** vs 70% bar — 85 lines short |
+| call resolution | 18,294 | ~~spellability **68.3%** vs 70% bar — 85 lines short~~ **CORRECTED 2026-08-06.** That figure was taken at `058b4a9`; re-run unchanged at `d75cf16` the same expression reads **69.4%, 34 lines short**. R2′'s numerator moves with the compiler, so a bar it crosses by tens of lines decides nothing. Split by row: **CALL 70.6% (+25), `new` 64.8% (−60), `InitCall` 58.9%, `ExprCall` 76.3%.** The refusal no longer stands on its stated grounds and R2′ has stopped discriminating — §4 item 2 |
 | contextual typing | 2,082 + 1,809 wrong | **86% entangled**, 48.8% behind call resolution |
 | qualified naming build | 1,318 | 90.7% accurate on target row; counterfactual **lost 3,202 lines, regressed 753 cases** |
 | element access | 1,590 | **59.3% want `any`** over the corrected population; refused 3× |
@@ -262,6 +269,13 @@ Append one row per session. Keep it to what a future session needs.
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
 | 2026-08-06 | `5290e1a` | **63.54%** | **2,275** | **+0.20 pts, +958 lines, +5 cases** | the `&&` arm of `checkBinaryLikeExpression` — the only unblocked arm in the board's top three rows. The session's main product is the **board rewrite**: `tsr-jle` fell 11,008 → 1,004, `ArrayLiteral` and `\|\|`/`??` were shown blocked on assignability, and `new` was sized alone for the first time |
 | 2026-08-06 | `3299f53` | **63.34%** | **2,270** | **+2.25 pts, +10,761 lines** | export-marker link (+2,265), `this` parameter (+2,733), `super` (+838), `@lib`/`@noLib` harness fidelity (+431), unit-return widening (+1,188), `getApparentType` (+973), `getMergedSymbol` (+430), `autoArrayType` (+1,005), object spread (+74) |
+
+**2026-08-06, second session — and a gate failure to record.** `5290e1a` was
+committed with a **failing test**: `cargo test --workspace` was piped through
+`head -30`, which cut it off at the 30th of 96 test binaries, and
+`the_logical_operators_are_still_a_gap` — a test whose purpose is to go red when
+`&&` lands — was below the cut. Fixed at `HEAD`. A gate you sampled is not a
+gate you ran; reduce its output by counting, never by `head`.
 
 **2026-08-06, second session:** two new instruments (`armsplit.rs`,
 `namesample.rs`), one correction to a **doc comment that was acting as a

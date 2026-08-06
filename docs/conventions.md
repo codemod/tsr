@@ -2284,3 +2284,97 @@ That is twice in one cycle that a real defect was sitting in the bucket nobody
 ranks, the other being `tsr-n23`'s 1,809 parameter lines. The corpus tells you a
 change is good on net. **It cannot tell you a fixture is wrong, and it does not
 rank the column you are not steering by.**
+
+### A gate you sampled is not a gate you ran
+
+`cargo test --workspace` was run before a commit, piped through `head -30`, and
+reported as green. There are **96 test binaries**, and the one that failed was
+below the cut: `the_logical_operators_are_still_a_gap`, a test whose entire
+purpose is to go red when the `&&` arm lands. The commit shipped, and the
+architecture page said the gates were green.
+
+The truncation was not a shortcut taken knowingly — `head` was reached for to
+keep the output readable, on a command whose *whole output is the evidence*.
+
+> **Reduce a gate's output by counting, never by `head`.** Two lines, and they
+> cannot hide the thirty-first binary:
+>
+> ```
+> cargo test --workspace 2>&1 | tee run.txt | grep -cE "^test result: ok"
+> grep -c FAILED run.txt          # must be 0
+> ```
+
+It is the same shape as two other errors in the same cycle — a *shape* test
+standing in for a *match* test, and a rule quoted in a file header and not
+applied inside it. In all three the instrument was correct and the **reading of
+it** was narrowed: sampled, proxied, or skipped. The class is worth naming
+because it is invisible to every other check on this project — a truncated pass
+looks exactly like a pass, and nothing downstream disagrees with it.
+
+### A bar registered against a population is void if the population is a mixture
+
+The call row stands refused on R2′, a vocabulary test with a 70% bar. Scored by
+row for the first time:
+
+```
+  the aggregate                    3,745 / 5,398 = 69.4%   (-34 lines)
+    CALL  (InitCall + ExprCall)    3,003 / 4,253 = 70.6%   (+25)
+      InitCall                       824 / 1,399 = 58.9%
+      ExprCall                     2,179 / 2,854 = 76.3%
+    NEW   (InitNew)                  742 / 1,145 = 64.8%   (-60)
+```
+
+The aggregate was `new` holding the call half under the bar — a real finding,
+and the one the split was run to look for. But **the call half is itself 58.9%
+and 76.3%**, and the next split would find another pair. There is no level at
+which "the call row" is one population.
+
+> A figure that moves from 69.4% to 76.3% depending on where the line is drawn
+> is not measuring a property of the subject; it is measuring **where the line
+> was drawn**. When a pre-registered bar's population turns out to be a mixture,
+> the right move is to record that the bar has stopped discriminating — not to
+> re-register it against whichever half now clears.
+
+This is adjacent to *"a population cannot be sliced by the answer the baseline
+expects"* and is not the same error: that slice is one an implementation cannot
+make, and this one is by **row**, which it can. What they share is the *feeling*
+of licence that arrives when a subset clears a bar the whole did not. The
+distinguishing question is whether the split was chosen **before** the numbers
+were seen. Here it was — and it still did not license anything, because the
+standing registration on that instrument says R2′ is *necessary and not
+sufficient* and no value of it authorises a build.
+
+#### And an exclusion nobody revisited
+
+`ExprNew` was filed as a "companion" row four cycles ago and excluded from the
+admitted population by a `row.assigned()` call. It scores **71.2% on 1,160
+lines** and is the largest own-root `new` population on the board. Nobody hid
+it; the exclusion was written once, for a reason that made sense then, and was
+never read again.
+
+**A predicate that removes part of the population is a claim with an expiry
+date.** Every `assigned()`, `is_interesting()`, `should_skip()` in a probe is
+one, and they are invisible in the output by construction — the lines they
+remove leave no trace in a table of the lines that stayed.
+
+### Registering a rule makes it checkable, not correct
+
+The split above was registered in advance with four named branches. One of them
+read: *"NEW < CALL → folding `new` in was **helping** the call row's number."*
+That is backwards — if `NEW < CALL`, folding `new` into the mixture **lowers**
+it. The branch fired exactly as predicted and the sentence attached to it was
+false.
+
+The discipline still paid: the branch was named, its number appeared, and the
+error was visible the moment the two figures sat side by side. What it did not
+do is what registration is sometimes assumed to do.
+
+> **Pre-registration buys falsifiability, not correctness.** A rule written in
+> advance and quietly reinterpreted afterwards is worse than none, because it
+> launders a post-hoc reading as a prediction. A rule written in advance and
+> **contradicted in writing** costs one paragraph and leaves the record honest.
+
+The cheap check, which was not run here: after writing each branch, state the
+arithmetic that makes it true. *"`NEW < CALL` therefore the mixture sits between
+them, therefore including `new` lowers it"* takes one line and would have caught
+it before the probe existed.

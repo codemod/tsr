@@ -551,11 +551,20 @@ fn an_unported_operand_propagates_rather_than_becoming_number() {
 }
 
 #[test]
-fn the_logical_operators_are_still_a_gap() {
-    // `a && b` is a union of the operands, and unions do not exist (bd
-    // tsr-4sc.9). The tempting wrong answer is the *left* type, which is right
-    // only when the left operand can never be falsy.
-    assert_eq!(type_of_initialiser("const x = 1 && 2;"), "error");
+fn or_and_nullish_are_still_a_gap_and_and_is_not() {
+    // **This test went red when `&&` landed, which is what it is for.** It
+    // previously asserted all three as gaps on the grounds that "a && b is a
+    // union of the operands, and unions do not exist". Unions arrived, and then
+    // `&&` turned out to be separable from the other two for a reason the
+    // grounds never mentioned: `||` and `??` reduce with
+    // `UnionReductionSubtype` and need assignability, and `&&` does not. See
+    // [`crate::binary`] and `docs/architecture/checker-notes-armsplit.md` §3.1.
+    //
+    // `1 && 2` is `2`: the definitely-falsy part of the literal `1` is `never`,
+    // and `getUnionType([never, 2])` drops it. The tempting wrong answers are
+    // the *left* type, right only when the left can never be falsy, and the
+    // plain union `1 | 2`.
+    assert_eq!(type_of_initialiser("const x = 1 && 2;"), "2");
     assert_eq!(type_of_initialiser("const x = 1 || 2;"), "error");
     assert_eq!(type_of_initialiser("const x = 1 ?? 2;"), "error");
 }

@@ -394,3 +394,150 @@ that no corpus run would have surfaced:
   rather than a missing one, in a family `strictNullChecks` makes common. That
   is the second time this cycle a real defect was found sitting in the wrong
   bucket, and both times the bucket was the one nobody ranks.
+
+---
+
+## 8. Board item 2, run: the call row's bar with `new` scored separately
+
+`bd tsr-4tw`, registered at `d75cf16` before the split was computed. Measured
+at that tree with `examples/callres.rs`, extended so the per-row breakdown sits
+**beside** the aggregate rather than replacing it — the published figure has to
+stay reproducible from the expression that produced it, or the split becomes an
+unfalsifiable re-derivation of a number nobody can check.
+
+### First, a correction: 68.3% is stale and the margin was never 85 lines
+
+`STATUS.md` §5 and `docs/conventions.md` both quote R2′'s corpus-vocabulary leg
+as **68.3%**, refusing the call row against a 70% bar and *"surviving by 85
+lines"*. Re-run unchanged at `d75cf16` the same expression reads
+**3,745 of 5,398 = 69.4%**, and the margin is **34 lines**.
+
+Neither number is wrong. The 68.3% was taken at `058b4a9` when the gradient was
+61.09%; it is now 63.54%. **R2′'s numerator moves with the compiler**, because
+it asks what this port renders anywhere in the corpus — so every unrelated
+checker commit changes it. That is a property of the instrument, not a defect,
+and it has one consequence for planning: **a bar this instrument crosses by tens
+of lines is not deciding anything**, because a session of work elsewhere moves
+it by more than the margin.
+
+### The split
+
+| half | in corpus vocabulary | vs the 70% bar |
+|---|---:|---:|
+| **CALL** (`InitCall` + `ExprCall`) | 3,003 / 4,253 = **70.6%** | **+25 lines** |
+| — of which `InitCall` | 824 / 1,399 = 58.9% | −156 |
+| — of which `ExprCall` | 2,179 / 2,854 = **76.3%** | +181 |
+| **NEW** (`InitNew`) | 742 / 1,145 = 64.8% | −60 |
+| `ExprNew`, **never scored before** | 826 / 1,160 = **71.2%** | +14 |
+| the aggregate, for comparison | 3,745 / 5,398 = 69.4% | −34 |
+
+**The aggregate was `new` holding the call half under the bar.** Scored alone
+the call half clears at 70.6%, and the refusal's stated grounds do not hold for
+it.
+
+`ExprNew` deserves a line of its own: it was excluded from the admitted
+population entirely by `row.assigned()`, so the 1,052-line own-root `new` row
+§4 measured **had never been scored by this instrument at all**. Nobody hid it;
+it was filed as a "companion" row four cycles ago and the exclusion was never
+revisited.
+
+### And the reason not to act on that
+
+**Every level of this split separates a high half from a low half.** The
+aggregate at 69.4% is 70.6% and 64.8%. The call half at 70.6% is **58.9% and
+76.3%**. There is no level at which "the call row" is one population, and the
+next split would find another.
+
+That cuts against the split just performed exactly as hard as it cuts against
+the aggregate. A figure that moves from 69.4% to 76.3% depending on where the
+line is drawn is not measuring a property of call resolution; it is measuring
+how the drawer chose. The bar was registered at 70% against *the row*, and the
+row has turned out not to exist.
+
+> **A rule registered against a population is void when the population turns out
+> to be a mixture, and re-registering it against one half is the error the
+> element-access refusal already names** — *"a population cannot be sliced by the
+> answer the baseline expects"*. This slice is by **row**, not by expected
+> answer, so it is not that error outright; but the reason it feels licensed is
+> the same, and the honest verdict is that R2′ has stopped discriminating.
+
+`callres.rs`'s standing registration settles what follows regardless of the
+number: **R2′ is necessary and not sufficient, and no value of it licenses a
+build.** So the outcome of board item 2 is *not* "build call resolution". It is:
+
+- the refusal **no longer stands on its stated grounds** for the call half, and
+- what it needs instead is a **counterfactual**, which for call resolution is
+  the expensive thing R2′ existed to avoid paying for.
+
+### Board item 1 survives its own test, and it is the only clean positive
+
+Within the `new` rows, split by **the callee's own type** — a property the
+implementation can test, unlike the baseline's right-hand side:
+
+| the callee | in vocabulary | cases | top-1 |
+|---|---:|---:|---:|
+| a `*Constructor` interface | 815 / 1,074 = **75.9%** | **229** | 15.1% |
+| every other callee | 753 / 1,231 = 61.2% | 271 | 8.7% |
+
+It clears the bar by 63 lines, clears the 300-line denominator floor registered
+with the rule, and clears concentration outright at 229 cases and 15.1% top-1
+(R3's bar is a top-10 share ≥ 68%).
+
+What those lines want is two clean families and one that is not:
+
+```
+   129  Date                          109  Error
+    50  Uint8Array<ArrayBuffer>        41  Float32Array<ArrayBuffer>
+    40  Float64Array / Int16Array / Int32Array / Int8Array / Uint16Array …
+    43  Set<number>                    <-- never rendered anywhere in the corpus
+```
+
+`Date` and `Error` are the arm as advertised: a written construct-signature
+return type, no inference, no overload resolution. **The typed arrays are not** —
+they are generic instantiations, which is `bd tsr-4qx`, and `tsr-4qx` is blocked
+on `tsr-awa`. `typedArraysCrossAssignability01` alone supplies the 15.1%.
+
+So the sizing to carry forward is **not 1,074**. It is the `*Constructor`
+population minus the generic instantiations, and that has not been measured.
+Splitting it is one more bucket in a probe that already runs.
+
+### What was registered, and what happened
+
+| registered | outcome |
+|---|---|
+| NEW ≥ 70% and CALL < 70% → the mixture was hiding a separable `new` item | **did not happen** — the reverse |
+| NEW < CALL → "folding `new` in was **helping** the call row's number" | **the direction was written backwards.** `NEW < CALL` means folding it in *lowered* the mixture. The branch fired and its stated consequence was wrong |
+| both < 70% → item 1 argued on a sub-row | did not happen |
+| any half ≥ 70% on < 300 lines licenses nothing | did not fire; every half is over 1,000 lines |
+
+The second row is mine and it is the interesting failure. **Writing a rule down
+in advance does not make it correct — it makes it checkable**, and this one was
+checked by the arithmetic rather than by rereading it. The registration
+discipline still did its job: the branch it named fired, the number it predicted
+was there, and the sentence attached to the branch was visibly false the moment
+the two figures sat next to each other. A rule registered in advance and
+silently reinterpreted afterwards would have been worse than no rule; a rule
+registered in advance and **contradicted in writing** costs one paragraph.
+
+### And a process failure worth more than the result
+
+The previous section of this page reports the `&&` build's gates as green. They
+were not. `cargo test --workspace` was run and its output piped through
+`head -30`, which cut it off at the 30th of 96 test binaries, and
+`the_logical_operators_are_still_a_gap` — a test whose entire purpose is to go
+red when `&&` lands — was below the cut. **`5290e1a` shipped with a failing
+test and this page said the gates were green.**
+
+Fixed at the head of this section's commit: the test now asserts `1 && 2` is
+`2`, and `||` and `??` still `error`, with the reason they parted company. The
+count is now taken with `grep -c` over the whole run rather than read off a
+truncated head.
+
+> **A gate you sampled is not a gate you ran.** The failure mode is specific and
+> cheap to close: any command whose *whole* output is the evidence must be
+> reduced by counting, not by `head`. `grep -cE "^test result: ok"` and
+> `grep -c FAILED` are two lines and cannot hide the thirty-first binary.
+
+It is the same shape as the two errors already recorded on this page — a shape
+test standing in for a match test, a header rule quoted and not followed. In all
+three the instrument was fine and the *reading* of it was truncated.
