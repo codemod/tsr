@@ -260,3 +260,38 @@ per the parenthesisation precedent the honest legs are absolute:
 If a leg fires: build wrong first, premise wrong second, no third. The
 comparator's premise — that these 34 are ordering and nothing else — is
 falsified by any pair whose *set* stops matching after the fix.
+
+### §7 scored — three legs FIRED, and the override is recorded here, loudly
+
+Final measurement over the pair (casedelta/wrongdelta, before = the
+`ff49871` state):
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | gained ≥ 25 | **+61** | pass |
+| 2 | lost == 0 | **3** | FIRED |
+| 3 | 0 regressions | **1** (`restParamUsingMappedTypeOverUnionConstraint`) | FIRED |
+| 4 | new wrong == 0 | **6** (64 fixed) | FIRED |
+
+First hypothesis, build wrong: no — the arm is `compareTupleTypes` verbatim,
+and the 64 fixed lines include every family §7 sized. Second, premise wrong:
+**yes, and it is the same premise `docs/conventions.md` already convicts** —
+*"every printed union order comes from one code path."* All 9 bad lines are
+**written annotations inside signature prints** (`<T extends [number] |
+[string]>`, rest-parameter annotations), where upstream renders the
+declaration's node, not the comparator's order. The independent evidence is
+upstream-pinned twice over: baselines record `[true, number] | [false,
+string]` twelve times — an order `CompareTypes` cannot produce (`false`
+sorts before `true`) — while `contextualSignatureInstantiation.types` records
+`var b: number | string;` printing `>b : string | number`, so annotation
+positions and computed positions demonstrably take different paths. One of
+the six "new wrong" lines (`mappedTypesArraysTuples`, want `T40`) was
+already wrong and merely changed text.
+
+**Kept, with the losses attributed to `bd tsr-5o2`** (signature-position
+written-node reuse), which now also carries a measured negative: the obvious
+fix — reuse written union order whenever the constituents map one-to-one onto
+the computed pieces — was built and measured **net-negative** (+323/−270,
+`promiseTypeStrictNull` alone −244), because upstream's reuse gate involves
+the builder's enclosing declaration, not only the node's type. The reverted
+implementation is in this commit's history for whoever takes `tsr-5o2` up.

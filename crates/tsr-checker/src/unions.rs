@@ -602,7 +602,16 @@ impl Checker<'_, '_> {
             let symbols = self.binder.symbols();
             return symbols.get(*target_a).name.cmp(symbols.get(*target_b).name);
         }
-        match (type_name(&left.data), type_name(&right.data)) {
+        // A tuple has NO name upstream — it is a reference to a synthesised
+        // target with no symbol — so its printed text must not enter the name
+        // comparison. Left named, it sorted by ASCII (`[` before letters),
+        // which put `[number, string]` ahead of `null[]` where the baseline
+        // records the named type first (`bd tsr-5ll`, 34 lines, 8 cases).
+        let left_name =
+            if self.tuple_element_lists.contains_key(&a) { None } else { type_name(&left.data) };
+        let right_name =
+            if self.tuple_element_lists.contains_key(&b) { None } else { type_name(&right.data) };
+        match (left_name, right_name) {
             (Some(x), Some(y)) => x.cmp(y),
             // A type with no name sorts after one with a name
             // (`utilities.go:614`).
@@ -637,6 +646,25 @@ impl Checker<'_, '_> {
         sort_order_flags(left.flags)
             .cmp(&sort_order_flags(right.flags))
             .then_with(|| self.compare_type_names(a, b, left, right))
+            // `compareTupleTypes` (`utilities.go`), reached in upstream's
+            // object-kind switch when both references target tuples: readonly
+            // tuples after plain ones, then **ascending arity**
+            // (`[string] | [number, boolean]` — the `bd tsr-5ll` issue text
+            // had this backwards and is corrected there), then elementwise
+            // `CompareTypes` over the element lists, which upstream reaches as
+            // `compareTypeLists(resolvedTypeArguments)` two lines below the
+            // tuple test. Element flags and labels are equal by construction
+            // here while the modifier tuple forms refuse
+            // (`get_type_from_tuple_type_node`).
+            .then_with(|| {
+                match (self.tuple_element_lists.get(&a), self.tuple_element_lists.get(&b)) {
+                    (Some((elements_a, readonly_a)), Some((elements_b, readonly_b))) => readonly_a
+                        .cmp(readonly_b)
+                        .then(elements_a.len().cmp(&elements_b.len()))
+                        .then_with(|| self.compare_type_lists(elements_a, elements_b)),
+                    _ => Ordering::Equal,
+                }
+            })
             .then_with(|| match (&left.data, &right.data) {
                 // "String literal types are ordered by their values."
                 (TypeData::StringLiteral(x), TypeData::StringLiteral(y)) => x.cmp(y),

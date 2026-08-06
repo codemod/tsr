@@ -111,10 +111,18 @@ fn the_same_tuple_written_twice_is_one_type() {
         "[number, string]"
     );
     // And two *different* tuples stay two, so the key is the elements and not
-    // merely the arity.
+    // merely the arity. The ORDER here is the comparator's, not the source's:
+    // a var-annotation union sorts — `contextualSignatureInstantiation.types`
+    // records `var b: number | string;` as `>b : string | number` — and
+    // same-arity tuples compare elementwise (`compareTupleTypes` →
+    // `compareTypeLists`), so `[string, ...]` sorts before `[number, ...]`
+    // exactly as bare `string` sorts before `number`. This expectation
+    // previously asserted source order, written from intuition before the
+    // `compare_types` tuple arm existed (`bd tsr-5ll`); the ASCII-text
+    // comparison it leaned on happened to coincide.
     assert_eq!(
         type_of_declaration("declare const t: [number, string] | [string, number];", "t"),
-        "[number, string] | [string, number]"
+        "[string, number] | [number, string]"
     );
 }
 

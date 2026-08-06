@@ -556,6 +556,7 @@ impl<'a> Checker<'a, '_> {
         let printed =
             if readonly { format!("readonly [{printed}]") } else { format!("[{printed}]") };
         let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
+        self.tuple_element_lists.insert(id, (elements.clone(), readonly));
         self.tuple_types.insert((elements, readonly), id);
         id
     }

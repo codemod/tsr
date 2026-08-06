@@ -79,6 +79,10 @@ pub struct TypeParameter {
     pub name: String,
     /// The `extends` clause, if there is one.
     pub constraint: Option<TypeId>,
+    /// The written constraint's text under the same node-reuse rule as
+    /// [`Parameter::written_text`] — `<T extends [number] | [string]>` prints
+    /// the written constituent order, not the comparator's.
+    pub written_constraint: Option<String>,
     /// The `= T` default, if there is one.
     pub default: Option<TypeId>,
 }
@@ -310,7 +314,8 @@ impl<'a> Checker<'a, '_> {
             may_return_never,
         )?;
 
-        let written_return = return_annotation.and_then(Self::type_query_written_text);
+        let written_return =
+            return_annotation.and_then(|annotation| self.written_annotation_text(annotation));
         Some(Signature {
             declaration,
             type_parameters,
@@ -852,14 +857,34 @@ impl<'a> Checker<'a, '_> {
         if r#type == self.intrinsics.error {
             return None;
         }
+        let written_text =
+            node.r#type.and_then(|annotation| self.written_annotation_text(annotation));
         Some(Parameter {
             name: name.text.to_string(),
             // Filled in by the caller: optionality needs the whole list.
             optional: false,
             rest: node.dot_dot_dot_token.is_some(),
             r#type,
-            written_text: node.r#type.and_then(Self::type_query_written_text),
+            written_text,
         })
+    }
+
+    /// The written text of an annotation whose node the builder would reuse,
+    /// for the rule on [`Parameter::written_text`]. **Only a `TypeQueryNode`
+    /// qualifies**, and the scope is a measured negative, not an oversight: a
+    /// `UnionTypeNode` leg — print the written constituent order where the
+    /// computed union's is sorted, guarded on the written constituents mapping
+    /// one-to-one onto the computed text's pieces — was built and **measured
+    /// net-negative** (+323 gained, −270 lost, `promiseTypeStrictNull` alone
+    /// −244), because upstream renders lib signature declarations *sorted*
+    /// where the guard said reuse: upstream's gate involves the builder's
+    /// enclosing declaration, not only the node's type. That family — written
+    /// unions in `<T extends [number] | [string]>` and rest-parameter
+    /// annotations, 9 lines — belongs to `bd tsr-5o2`, which now carries this
+    /// measurement.
+    fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        let _ = &self;
+        Self::type_query_written_text(annotation)
     }
 
     /// The written text of a `typeof x` annotation, for the node-reuse rule on
@@ -904,7 +929,9 @@ impl<'a> Checker<'a, '_> {
         };
         let constraint = resolve(self, node.constraint)?;
         let default = resolve(self, node.default_type)?;
-        Some(TypeParameter { name, constraint, default })
+        let written_constraint =
+            node.constraint.and_then(|annotation| self.written_annotation_text(annotation));
+        Some(TypeParameter { name, constraint, written_constraint, default })
     }
 
     /// The signature-shaped parts of a node, or `None` if it is not one of the
@@ -1119,7 +1146,10 @@ impl<'a> Checker<'a, '_> {
                 out.push_str(&parameter.name);
                 if let Some(constraint) = parameter.constraint {
                     out.push_str(" extends ");
-                    out.push_str(&self.type_to_string(constraint));
+                    match &parameter.written_constraint {
+                        Some(written) => out.push_str(written),
+                        None => out.push_str(&self.type_to_string(constraint)),
+                    }
                 }
                 if let Some(default) = parameter.default {
                     out.push_str(" = ");

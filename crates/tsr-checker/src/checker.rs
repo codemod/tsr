@@ -198,6 +198,18 @@ pub struct Checker<'a, 'n> {
     /// `readonly [A]` and `[A]` are distinct types upstream, built from
     /// different targets.
     pub(crate) tuple_types: FxHashMap<(Vec<TypeId>, bool), TypeId>,
+    /// The reverse of [`Checker::tuple_types`]: `tuple type -> (elements,
+    /// readonly)`, written at the same mint site.
+    ///
+    /// What `compare_types` reads for its tuple arm (`bd tsr-5ll`): upstream's
+    /// tuple is a reference to a synthesised target and sorts by
+    /// `compareTupleTypes` (`utilities.go`) over the target's element
+    /// information, while this port's tuple is a [`TypeData::Named`] whose
+    /// text would otherwise be mistaken for a *name* and sorted by ASCII —
+    /// `[` before letters — which put an unnamed tuple ahead of named types.
+    /// The `type_reference_targets` precedent: record the data where it is
+    /// already in hand rather than reshape the type.
+    pub(crate) tuple_element_lists: FxHashMap<TypeId, (Vec<TypeId>, bool)>,
     /// `the baked signature type -> the signatures its text was rendered from`.
     ///
     /// The sibling of [`Checker::type_reference_targets`] for function-shaped
@@ -362,6 +374,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_count: 0,
             strict_null_checks: true,
             tuple_types: FxHashMap::default(),
+            tuple_element_lists: FxHashMap::default(),
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),

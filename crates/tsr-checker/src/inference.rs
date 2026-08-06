@@ -488,7 +488,11 @@ impl Checker<'_, '_> {
         };
         for parameter in &mut signature.type_parameters {
             if let Some(constraint) = parameter.constraint {
-                parameter.constraint = Some(substitute(self, constraint)?);
+                let image = substitute(self, constraint)?;
+                if image != constraint {
+                    parameter.written_constraint = None;
+                }
+                parameter.constraint = Some(image);
             }
             if let Some(default) = parameter.default {
                 parameter.default = Some(substitute(self, default)?);
