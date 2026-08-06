@@ -105,17 +105,34 @@ bitflags::bitflags! {
     /// (upstream's `TypeFacts`, `checker.go`).
     ///
     /// **A fragment.** Upstream's table has around thirty facts — the `typeof`
-    /// families, `EQUndefined`, `NEUndefinedOrNull`, and the rest. Only the two
-    /// truthiness bits are here, because they are the only ones this module's
-    /// ported guards ask for. The rest arrive with their consumers rather than
-    /// as a table nothing reads, which is the same discipline `FlowFlags`
-    /// followed in the binder.
+    /// families among them. Only the bits this module's ported guards ask for
+    /// are here: the two truthiness bits, and the six nullable-equality bits
+    /// [`Checker::narrow_type_by_equality`] filters on. The rest arrive with
+    /// their consumers rather than as a table nothing reads, which is the same
+    /// discipline `FlowFlags` followed in the binder.
+    ///
+    /// The bit *positions* are upstream's own (`checker.go:400`–`:425`) even
+    /// though nothing here depends on the numeric values, so that a future arm
+    /// ported from a `switch` on `TypeFacts` can be read against upstream
+    /// without a translation table.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(crate) struct TypeFacts: u32 {
+        /// The type can compare equal to `undefined`.
+        const EQ_UNDEFINED = 1 << 16;
+        /// The type can compare equal to `null`.
+        const EQ_NULL = 1 << 17;
+        /// The type can compare equal to either under `==`.
+        const EQ_UNDEFINED_OR_NULL = 1 << 18;
+        /// The type can compare *unequal* to `undefined`.
+        const NE_UNDEFINED = 1 << 19;
+        /// The type can compare unequal to `null`.
+        const NE_NULL = 1 << 20;
+        /// The type can compare unequal to both under `!=`.
+        const NE_UNDEFINED_OR_NULL = 1 << 21;
         /// The type can be truthy.
-        const TRUTHY = 1 << 0;
+        const TRUTHY = 1 << 22;
         /// The type can be falsy.
-        const FALSY = 1 << 1;
+        const FALSY = 1 << 23;
     }
 }
 
@@ -571,10 +588,19 @@ impl Checker<'_, '_> {
     ///
     /// The unported forms return `t` unchanged, which is upstream's own default
     /// arm — see this module's header for why that makes a partial port safe.
-    /// Not ported: `typeof` guards, equality and discriminant comparisons,
-    /// `instanceof`, `in`, and user-defined type predicates. Each needs
-    /// machinery this checker does not have yet (comparability, call
-    /// resolution), and each currently leaves the declared type.
+    /// Not ported: `typeof` guards, discriminant comparisons, `instanceof`,
+    /// `in`, and user-defined type predicates. Each needs machinery this
+    /// checker does not have yet (comparability, call resolution), and each
+    /// currently leaves the declared type.
+    ///
+    /// **Equality is ported for a nullable operand only** — see
+    /// [`Checker::narrow_type_by_equality`], which returns `t` unchanged for
+    /// the comparability half. And every arm here is additionally limited by
+    /// [`Checker::is_matching_reference`] being identifier-only: `a.b !==
+    /// undefined` narrows nothing, because this port has no flow reference for
+    /// a property access. That is the largest bound on what any guard here can
+    /// convert, and it is measured — `docs/architecture/checker-notes-narrow.md`
+    /// §4.
     fn narrow_type(
         &mut self,
         state: &mut FlowState,
@@ -607,7 +633,156 @@ impl Checker<'_, '_> {
                     .and_then(|e| e.node_id())
                     .map_or(t, |id| self.narrow_type(state, t, id, !assume_true))
             }
+            // `if (x !== undefined)`, `if (x != null)`. Upstream's
+            // `narrowTypeByEquality` (`flow.go:556`), reached through
+            // `narrowType`'s `BinaryExpression` arm.
+            Node::BinaryExpression(binary) => {
+                let (Some(left), Some(operator), Some(right)) =
+                    (binary.left, binary.operator_token, binary.right)
+                else {
+                    return t;
+                };
+                if !matches!(
+                    operator.kind,
+                    SyntaxKind::EqualsEqualsToken
+                        | SyntaxKind::ExclamationEqualsToken
+                        | SyntaxKind::EqualsEqualsEqualsToken
+                        | SyntaxKind::ExclamationEqualsEqualsToken
+                ) {
+                    return t;
+                }
+                let (Some(left), Some(right)) = (left.node_id(), right.node_id()) else {
+                    return t;
+                };
+                // Upstream normalises with `getReferenceCandidate` on the left
+                // and reads the value from the right; the reference can sit on
+                // either side, so both orders are tried and the *other* operand
+                // is the value.
+                let value = if self.is_matching_reference(state, left) {
+                    right
+                } else if self.is_matching_reference(state, right) {
+                    left
+                } else {
+                    return t;
+                };
+                self.narrow_type_by_equality(t, operator.kind, value, assume_true)
+            }
             _ => t,
+        }
+    }
+
+    /// `Checker.narrowTypeByEquality` (`flow.go:556`), **nullable-operand half
+    /// only**.
+    ///
+    /// # Why half of it is a port and the other half is not
+    ///
+    /// Upstream's function splits on whether the compared value is nullable.
+    /// The nullable branch reduces to picking one of six `TypeFacts` bits and
+    /// filtering, and every one of those bits is fixed by `TypeFlags`
+    /// ([`Checker::get_type_facts`]). The remaining branch needs
+    /// `areTypesComparable`, `isUniformUnionType` and
+    /// `replacePrimitivesWithLiterals` — assignability, which this port does
+    /// not have — so `x === "a"` and `x === 3` return the type unchanged,
+    /// which is `narrow_type`'s standing default and not a new guess. Same
+    /// separation, and same reason, as the `&&` arm of `binary.rs`
+    /// (`docs/architecture/checker-notes-armsplit.md` §3.1).
+    ///
+    /// # What is not ported inside the branch that is
+    ///
+    /// Upstream calls `getAdjustedTypeWithFacts` (`checker.go:31159`), which
+    /// wraps `getTypeWithFacts` with two extras: recombining `unknown` into
+    /// `unknownUnionType` first, and mapping surviving constituents through
+    /// `getGlobalNonNullableTypeInstantiation` for the `NEUndefinedOrNull` and
+    /// `Truthy` cases. Both act on `unknown` and on type parameters —
+    /// `NonNullable<T>` — and neither changes the answer for a union of
+    /// concrete constituents, which is what `string | undefined` is. They are
+    /// left out rather than approximated, so those two shapes answer exactly
+    /// as they do today.
+    fn narrow_type_by_equality(
+        &mut self,
+        t: TypeId,
+        operator: SyntaxKind,
+        value: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        // `t.flags&TypeFlagsAny != 0` (`flow.go:557`): `any` narrows to
+        // nothing. Identity against the intrinsic rather than the `ANY` flag,
+        // because `errorType` carries that flag too and a gap must stay a gap.
+        if t == self.intrinsics.any || t == self.intrinsics.error {
+            return t;
+        }
+        // `!=` and `!==` are `==`/`===` with the assumption flipped
+        // (`flow.go:560`), which is why there is one rule and not four.
+        let negated = matches!(
+            operator,
+            SyntaxKind::ExclamationEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
+        );
+        let assume_true = assume_true != negated;
+        let double_equals =
+            matches!(operator, SyntaxKind::EqualsEqualsToken | SyntaxKind::ExclamationEqualsToken);
+
+        // Only the *literal* nullable operands are read, rather than typing
+        // the expression: `checkExpression` from inside a flow walk would
+        // re-enter narrowing for the operand's own reference and could recurse
+        // through the same flow node. `null` and `undefined` written literally
+        // are the whole of what the nullable branch can act on anyway —
+        // upstream reaches the same two types through `getTypeOfExpression`,
+        // and a non-literal operand lands in the unported comparability branch
+        // either way, so nothing reachable is given up.
+        let Some(value_type) = self.nullable_literal_type(value) else { return t };
+        let value_flags = self.store.get(value_type).flags;
+        debug_assert!(value_flags.intersects(TypeFlags::NULLABLE));
+        // `if !c.strictNullChecks { return t }` (`flow.go:565`). Upstream
+        // narrows nothing by a nullable comparison in that mode, because every
+        // type can be `null` there and no constituent is removable.
+        if !self.strict_null_checks {
+            return t;
+        }
+        // `checker.go:568`–`:578`, arm for arm. `x == null` tests both under
+        // `==`'s coercion; `x === null` tests only `null`.
+        let facts = if double_equals {
+            if assume_true {
+                TypeFacts::EQ_UNDEFINED_OR_NULL
+            } else {
+                TypeFacts::NE_UNDEFINED_OR_NULL
+            }
+        } else if value_flags.contains(TypeFlags::NULL) {
+            if assume_true { TypeFacts::EQ_NULL } else { TypeFacts::NE_NULL }
+        } else if assume_true {
+            TypeFacts::EQ_UNDEFINED
+        } else {
+            TypeFacts::NE_UNDEFINED
+        };
+        self.get_type_with_facts(t, facts)
+    }
+
+    /// The type of a **literally written** `null` or `undefined` operand, or
+    /// `None` for anything else.
+    ///
+    /// `undefined` is an `Identifier` resolving to the synthesised global
+    /// (`crate::checker`'s `undefined_symbol` seeding), not a keyword, so it
+    /// is matched by name against that symbol rather than by syntax — a local
+    /// called `undefined` shadowing it must not be read as the literal.
+    fn nullable_literal_type(&self, value: NodeId) -> Option<TypeId> {
+        match self.node_map.get(value)? {
+            // `null` is a keyword in the grammar, `undefined` an identifier —
+            // the same asymmetry `crate::expressions` documents at its own
+            // literal arm.
+            Node::KeywordExpression(node) if node.kind == SyntaxKind::NullKeyword => {
+                Some(self.intrinsics.null)
+            }
+            Node::Identifier(identifier) if identifier.text == "undefined" => {
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    value,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                )?;
+                (Some(symbol) == self.binder.undefined_symbol())
+                    .then_some(self.intrinsics.undefined)
+            }
+            _ => None,
         }
     }
 
@@ -652,7 +827,31 @@ impl Checker<'_, '_> {
     /// answer is the one given today. Claiming a type is truthy when it is not
     /// would delete a constituent and print a plausible wrong type.
     pub(crate) fn get_type_facts(&self, t: TypeId) -> TypeFacts {
-        let both = TypeFacts::TRUTHY | TypeFacts::FALSY;
+        // Upstream carries these as one aggregate per kind of type
+        // (`TypeFactsUndefinedFacts` `checker.go:471`, `TypeFactsNullFacts`
+        // `:472`, and the `NEUndefined | NENull | NEUndefinedOrNull` shared by
+        // every `Base*StrictFacts`). Named here rather than spelled at each
+        // return so the three sets can be read against upstream's three
+        // constants.
+        //
+        // **The non-strict aggregates are deliberately not ported.** With
+        // `strictNullChecks` off every type also carries `EQUndefined | EQNull
+        // | EQUndefinedOrNull` (`checker.go:433`), and it does not matter:
+        // `narrow_type_by_equality` returns the type unchanged in that mode
+        // before it ever asks for facts, exactly as upstream does
+        // (`flow.go:565`). Adding them would be an unreachable arm.
+        let nullable_never =
+            TypeFacts::NE_UNDEFINED | TypeFacts::NE_NULL | TypeFacts::NE_UNDEFINED_OR_NULL;
+        let undefined_facts =
+            TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_UNDEFINED_OR_NULL | TypeFacts::NE_NULL;
+        let null_facts =
+            TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL | TypeFacts::NE_UNDEFINED;
+        // The undecidable default: **every** bit, so `filter_type` keeps the
+        // constituent under any query. A wrong `NE` claim deletes a
+        // constituent and prints a confident wrong type; the default must
+        // never be the one that does that.
+        let both =
+            TypeFacts::TRUTHY | TypeFacts::FALSY | nullable_never | undefined_facts | null_facts;
         let ty = self.store.get(t);
         let flags = ty.flags;
 
@@ -672,15 +871,30 @@ impl Checker<'_, '_> {
                 .fold(TypeFacts::empty(), |facts, &c| facts | self.get_type_facts(c));
         }
         // `undefined`, `null` and `void` are the whole of the falsy-only set
-        // among the types this checker builds.
-        if flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
-            return TypeFacts::FALSY;
+        // among the types this checker builds. They split three ways on the
+        // nullable bits and **`void` goes with `undefined`, not with `null`**:
+        // `TypeFactsVoidFacts` (`checker.go:470`) carries `EQUndefined |
+        // EQUndefinedOrNull | NENull`, character for character
+        // `TypeFactsUndefinedFacts` minus `IsUndefined`. Reading `NULLABLE |
+        // VOID` as one bucket — which is what the truthiness answer above
+        // allowed — would make `x !== null` fail to narrow `void` away.
+        if flags.intersects(TypeFlags::UNDEFINED | TypeFlags::VOID) {
+            return TypeFacts::FALSY | undefined_facts;
         }
-        // An object, a symbol, or a non-primitive is always truthy.
+        if flags.contains(TypeFlags::NULL) {
+            return TypeFacts::FALSY | null_facts;
+        }
+        // An object, a symbol, or a non-primitive is always truthy — and is
+        // never nullable, which is the `Base*StrictFacts` half every
+        // non-nullable type shares.
         if flags.intersects(TypeFlags::OBJECT | TypeFlags::ES_SYMBOL | TypeFlags::NON_PRIMITIVE) {
-            return TypeFacts::TRUTHY;
+            return TypeFacts::TRUTHY | nullable_never;
         }
-        match &ty.data {
+        // Every arm below is a **non-nullable** type, so each carries
+        // `nullable_never` beside its truthiness — the `Base*StrictFacts`
+        // half. The one type that must not reach here is `any`, which is
+        // undecidable on both axes and falls to the default.
+        let truthiness = match &ty.data {
             TypeData::StringLiteral(value) => {
                 if value.is_empty() {
                     TypeFacts::FALSY
@@ -711,11 +925,24 @@ impl Checker<'_, '_> {
                     TypeFacts::FALSY
                 }
             }
-            // `string`, `number`, `bigint`, `boolean`, `any`, `unknown`, a class
-            // or interface instance, a type parameter: either, or undecidable
-            // here. Both bits, so nothing is filtered out.
-            _ => both,
-        }
+            // `string`, `number`, `bigint`, `boolean`: truthiness is
+            // undecidable, nullability is not — a primitive is never `null` or
+            // `undefined` under `strictNullChecks`, which is what
+            // `BaseStringStrictFacts` and its siblings say.
+            _ if flags.intersects(
+                TypeFlags::STRING_LIKE
+                    | TypeFlags::NUMBER_LIKE
+                    | TypeFlags::BIG_INT_LIKE
+                    | TypeFlags::BOOLEAN_LIKE,
+            ) =>
+            {
+                TypeFacts::TRUTHY | TypeFacts::FALSY
+            }
+            // `any`, `unknown`, a type parameter, an unresolved name: nothing
+            // is decidable, so every bit — see the note on `both`.
+            _ => return both,
+        };
+        truthiness | nullable_never
     }
 
     /// Whether a symbol is one upstream would narrow a reference to.

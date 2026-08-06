@@ -151,3 +151,86 @@ which mechanism owns those lines.
 **+150 to +600**, spread widely, with most of it *outside* the 256 — `!= null`
 is a guard the whole corpus writes, and only a minority of the `tsr-e10`
 population is an equality test.
+
+---
+
+## 4. The result — the bar fired on its floor, and the floor was the wrong number
+
+Measured at the tree this section was written on.
+
+```
+  net +30 | 328,877 -> 328,907
+  gained 33 in 12 cases | lost 3 in 3 cases | 1 finished, 0 regressed
+  gap 99,215 -> 99,203  =>  Δwrong = -18
+```
+
+Against the registered bar: **lost ≤ 5 passes** (3), **no case regresses
+passes** (0), **Δwrong ≤ Δright ÷ 3 passes** (−18, the wrong bucket *shrank*),
+and **gained ≥ 150 fails by 117**.
+
+### The diagnosis, and it is not the mechanism
+
+The first hypothesis is that the build is wrong. It is not, and the evidence is
+independent of the arithmetic: six fixtures taken from two baselines
+(`controlFlowGenericTypes.types:566` for the union case,
+`equalityStrictNulls.types:4` for the non-nullable control) all pass, including
+the three that separate `!==` from `!=` and `null` from `undefined`. Three
+losses against thirty-three gains is 11:1, and the wrong bucket went down.
+
+The second hypothesis is that the bar's premise is wrong, and it is. The floor
+of 150 was set from this sentence in §3's prediction: *"`!= null` is a guard
+the whole corpus writes."* That is true about the corpus and irrelevant about
+this port, because of a fact that was in the code the whole time and was never
+checked before the number was written:
+
+> **`is_matching_reference` is identifier-only.** It compares resolved
+> **symbols** (`flow.rs`), so a guard narrows a reference only when both the
+> guard's operand and the reference under test are identifiers resolving to
+> the same variable. `a.b !== undefined`, `o?.foo !== undefined`,
+> `this.x != null` — the forms the corpus actually writes most — match
+> nothing, because this port has no flow reference for a property access at
+> all.
+
+`FlowState`'s own doc says so in as many words — *"upstream has no such field:
+it compares reference expressions with `isMatchingReference`, because a
+reference can be `a.b.c`… here the match is identifier-only"* — which is why
+this counts as evidence independent of whoever wrote the premise. It is also
+exactly what §2 of this page had already measured and then failed to carry
+forward: the head case of the population is `controlFlowOptionalChain`, whose
+119 guards are all `?.` property references.
+
+### KEPT, loudly, and what would have made the bar right
+
+The build stays. `docs/conventions.md` requires that overriding a registered
+bar be done in the commit message, the issue, `STATUS.md` and here, on evidence
+independent of the author — all four, and the evidence is a field comment in
+someone else's function.
+
+What the registration should have contained instead of a line count: **a
+population measured through the port's own reference matcher.** "How many
+corpus guards compare an *identifier* against `null`/`undefined`" is one probe
+over the parse trees, it costs nothing, and it would have set a floor near 30
+rather than 150. A floor derived from what upstream's users write, rather than
+from what this port can see, is not a floor about this change.
+
+> **A population is only a population if the change can reach it.** This is the
+> fourth entry in this project's record of a number that was true of one set
+> and quoted about another, and the first where the gap between the two sets is
+> a *capability boundary in this port* rather than a property of the corpus.
+
+### The three losses, named
+
+`compiler/narrowingPastLastAssignment`, `compiler/uncalledFunctionChecksInConditional2`,
+`conformance/parserRealSource7` — one line each. Each is a case where narrowing
+now fires on a type that was already wrong before it, moving one wrong answer
+to a different wrong answer; none flips a case.
+
+### What this unlocks, and the honest size of it
+
+The arm is a **prerequisite that pays later**: the moment
+`is_matching_reference` learns property references — upstream's structural
+`isMatchingReference` plus `getFlowTypeOfReference` reached from
+`check_property_access_expression` — every guard already ported here starts
+firing on the forms the corpus writes, and the `?.` head of §2's population
+comes into range. That is the item this page leaves behind, and it should be
+sized **through the matcher**, not through the guards. `bd tsr-6ka`.

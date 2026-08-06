@@ -252,3 +252,110 @@ fn an_assignment_reduces_a_declared_union() {
         "string | number"
     );
 }
+
+/// Every expectation below comes from a **baseline**, not from intuition —
+/// this file's own rule, and the one that caught three wrong guesses in
+/// `logical_and.rs`. The two sources:
+///
+/// - `conformance/controlFlowGenericTypes.types:566` writes
+///   `if (control !== undefined)` on a `control: T | undefined` and records
+///   `>control : T` inside the block.
+/// - `conformance/equalityStrictNulls.types:4` writes every one of the eight
+///   operator/operand combinations against a **non-nullable** `x: string`,
+///   which is the control: a type with no nullable constituent has nothing to
+///   remove on the `!=` side.
+#[test]
+fn an_inequality_against_undefined_removes_the_undefined() {
+    // The baseline shape, with `T` replaced by a concrete type so the fixture
+    // needs no generic machinery to answer.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const control: string | undefined;\nif (control !== undefined) { control; }"
+        ),
+        "string"
+    );
+    // `!= null` removes both constituents under `==`'s coercion, which is the
+    // whole reason `EQ_UNDEFINED_OR_NULL` is a separate bit from the two
+    // single ones.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: string | null | undefined;\nif (x != null) { x; }"
+        ),
+        "string"
+    );
+    // `!== null` removes **only** `null`: the strict operator does not see
+    // `undefined`. An implementation that routed both operators through
+    // `NE_UNDEFINED_OR_NULL` prints `string` here and is wrong.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: string | null | undefined;\nif (x !== null) { x; }"
+        ),
+        "string | undefined"
+    );
+    // The reference on the right-hand side, which upstream reaches through
+    // `getReferenceCandidate` normalising the operands.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: string | undefined;\nif (undefined !== x) { x; }"
+        ),
+        "string"
+    );
+}
+
+#[test]
+fn the_assume_false_branch_keeps_only_the_nullable_part() {
+    // The `else` of the first fixture above. `filter_type` on the negated
+    // assumption keeps exactly the constituents the `if` removed, which is
+    // what makes the two branches a partition rather than two guesses.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: string | undefined;\nif (x !== undefined) { 0; } else { x; }"
+        ),
+        "undefined"
+    );
+}
+
+#[test]
+fn a_non_nullable_type_is_left_alone_by_the_inequality() {
+    // `equalityStrictNulls`' control: `x: string` under `!= undefined` and
+    // `!== null` records `>x : string` throughout. This is the assertion that
+    // fails if the `Base*StrictFacts` bits are wrong — a `string` missing
+    // `NE_UNDEFINED` would filter to `never` here.
+    for guard in ["x != undefined", "x !== undefined", "x != null", "x !== null"] {
+        assert_eq!(
+            type_of_last_expression(&format!("declare const x: string;\nif ({guard}) {{ x; }}")),
+            "string",
+            "guard: {guard}"
+        );
+    }
+}
+
+#[test]
+fn an_equality_against_a_non_nullable_operand_narrows_nothing() {
+    // The comparability branch of `narrowTypeByEquality` is not ported — it
+    // needs `areTypesComparable`. `x === "a"` therefore leaves the declared
+    // type, which is `narrow_type`'s standing default rather than a new
+    // guess, and this test is what fails if someone routes a non-nullable
+    // operand into the facts filter: `string | undefined` has no constituent
+    // carrying a `"a"`-comparability fact, so it would collapse to `never`.
+    assert_eq!(
+        type_of_last_expression("declare const x: string | undefined;\nif (x === \"a\") { x; }"),
+        "string | undefined"
+    );
+}
+
+#[test]
+fn a_shadowed_undefined_is_not_the_literal() {
+    // `undefined` is an identifier, not a keyword, so the operand is matched
+    // against the synthesised global's **symbol** and not by name. A local
+    // binding of the same name is an ordinary reference and lands in the
+    // unported comparability branch, leaving the type alone.
+    // A block rather than a function body, because this file's helper walks
+    // blocks and `if`s and deliberately does not descend into functions.
+    assert_eq!(
+        type_of_last_expression(
+            "declare const x: string | undefined;\n{ let undefined: string = \"\"; if (x !== undefined) { x; } }"
+        ),
+        "string | undefined"
+    );
+}
