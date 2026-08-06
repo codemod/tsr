@@ -1,4 +1,4 @@
-# Function expressions: the guard is load-bearing, and a counterfactual says so
+# Function expressions: one guard priced and kept, one priced and removed
 
 Status: measured 2026-08-06 at **`d612291`**, over the 9,538-case `.types` corpus
 population, from one pinned binary in an isolated worktree. The instrument is
@@ -15,7 +15,16 @@ cargo run --release -p tsr-conformance --example fnexpr
 **Every number here is an assertion line in a `.types` baseline**, unless a row
 says otherwise.
 
-**The verdict is a refusal, and this time it is a measurement rather than an
+> **§1–§8 are the first measurement, taken at `d612291` with the checker
+> unchanged, and they are left as they were — except their
+> `crates/tsr-checker/src/signatures.rs` line anchors, which were **re-taken with
+> `grep -n` on each declaration** after §9's change moved the file. An anchor
+> that resolves while pointing at the wrong construct is worse than one that
+> fails, and `xtask anchors` does not check Rust paths. §9 is a second item on the same
+> page, measured at `3f140c2` and **built** in the same commit as this section.
+> Nothing in §1–§8 is edited to reflect it; where a number moved, §9 says so.**
+
+**§1–§8's verdict is a refusal, and it is a measurement rather than an
 argument.** Removing the candidate blocker converts **229** lines and
 manufactures **1,061** — 4.6 wrong per converted inside the population, 3.8
 corpus-wide. Both pre-registered rules fail, and they fail on either of the two
@@ -40,6 +49,11 @@ defensible populations. No checker code was written.
    whole-gradient it is **360 gained against 214 destroyed**, and the 214 are
    `strictNullChecks` cases. Not built; §6 says why and what it is waiting on.
 5. **A control fired and its premise was mine.** §7.
+6. **The other half of the row was split, and part of it was built.** `bd tsr-4e1`
+   is 2,000 lines; 44.2% of it is kind 2, `bd tsr-4sc.9` inside it turned out to
+   be **9 lines**, and the 693-line widening gate converted **565 against 98**
+   — 85.2% match, +1,188 corpus-wide, 29 cases newly finished, **0 regressed**.
+   Both pre-registered rules fired and it is in this commit. §9.
 
 ---
 
@@ -106,7 +120,7 @@ than `ArrowFunction`'s.
 
 ## 3. What stops them, in the checker's own order
 
-`get_type_of_function_expression` (`crates/tsr-checker/src/signatures.rs:1010`)
+`get_type_of_function_expression` (`crates/tsr-checker/src/signatures.rs:1039`)
 is four gates. The probe reproduces the first three **syntactically**, in the
 checker's order — the contextual guard runs before anything reads a parameter's
 name, so a function with both an unannotated parameter and a binding pattern
@@ -114,10 +128,10 @@ belongs to the guard.
 
 | gate | lines | share | cases | top-10 |
 |---|---:|---:|---:|---:|
-| unannotated parameter, contextual type not excluded (`signatures.rs:1014`) | **2,082** | 48.6% | 638 | 18.7% |
+| unannotated parameter, contextual type not excluded (`signatures.rs:1043`) | **2,082** | 48.6% | 638 | 18.7% |
 | every syntactic gate clear; the signature build failed | **2,000** | 46.7% | 584 | 30.9% |
 | the function is generic | 142 | 3.3% | 73 | 36.6% |
-| a parameter's name is a binding pattern (`signatures.rs:766`) | 60 | 1.4% | 25 | 75.0% |
+| a parameter's name is a binding pattern (`signatures.rs:794`) | 60 | 1.4% | 25 | 75.0% |
 | **total** | **4,284** | | | |
 
 `Gate::SignatureBody` is a **positive** test — every earlier gate false *and* the
@@ -159,7 +173,7 @@ Conjunctive.
 
 `docs/architecture/checker-notes-calls.md` is explicit that probing a blocker is
 too weak — *"pick the shape, hardcode past the blocker, and see whether the form
-then answers"*. **M-CF**: delete the guard at `signatures.rs:1014` so an
+then answers"*. **M-CF**: delete the guard at `signatures.rs:1043` so an
 unannotated parameter no longer forces `errorType`. Run, record, revert. **The
 relaxation is not in this commit; the number is.**
 
@@ -206,11 +220,11 @@ unported converts the shape and not the answer.
 
 ### What the guard is, restated
 
-It is not conservatism. `signatures.rs:1014` is the statement *"this port has no
+It is not conservatism. `signatures.rs:1043` is the statement *"this port has no
 `getContextualSignatureForFunctionLikeDeclaration` (`checker.go:20226`), so an
 unannotated parameter's type is unknown"*, and the counterfactual prices it: the
 port would answer `any` where upstream has the contextual parameter type, 1,061
-times. `has_no_contextual_type` (`signatures.rs:753`) recognising exactly one
+times. `has_no_contextual_type` (`signatures.rs:782`) recognising exactly one
 position — the initialiser of an unannotated `var`/`let`/`const` — is what keeps
 those 2,082 lines honest gaps instead of confident wrong answers.
 
@@ -228,7 +242,7 @@ For P's gap lines, what the **baseline** prints — no answer of ours enters thi
 | `FunctionExpression` | 795 | **793 (99.7%)** | 0 | 2 |
 
 **99.6% of the answers this row needs are function types**, which this port can
-render — `signature_to_string` (`signatures.rs:1027`) is ported and exercised. So
+render — `signature_to_string` (`signatures.rs:1056`) is ported and exercised. So
 unlike the call-resolution row, this one does **not** fail because the answer is
 unspellable. It fails because the *contents* of the signature — the parameter
 types — are not computable, and R2 caught that only because it is registered on
@@ -332,7 +346,7 @@ two were proven red under named mutations:
 - **The pair is not a pair.** C0 would differ between the runs. It reads 7,430
   both times.
 - **M-CF is not the guard.** The mutation deletes exactly the two-line test at
-  `signatures.rs:1014`; if it also changed something else, the gate table in §3
+  `signatures.rs:1043`; if it also changed something else, the gate table in §3
   and the delta in §4 would disagree about which lines moved. 2,082 lines are
   behind that gate and 1,290 stopped gapping, which is consistent with the guard
   releasing most of its own bucket plus part of the signature-build bucket
@@ -355,3 +369,183 @@ two were proven red under named mutations:
   gradient's denominator** — the suite counts baseline lines and gets 478,954
   (`examples/reconcile.rs`, `bd tsr-zlo`). Every share on this page is over P or
   over a bucket this probe computes itself.
+
+
+## 9. `bd tsr-4e1`: the other half, split, and the part of it that was built
+
+Measured at **`3f140c2`**, and **built in the same commit as this section**. §1–§8
+stand as taken at `d612291`; the only number of theirs this section moves is P's
+outcome split, which is restated at the end.
+
+### 9.1 The population, named before the buckets were written
+
+> **Q is every rendered `.types` line whose node kind is `ArrowFunction` or
+> `FunctionExpression` **and** which passes all three syntactic gates of §3** —
+> every parameter annotated or the node is the initialiser of an un-annotated
+> `var`/`let`/`const`; no parameter's name is a binding pattern; no type
+> parameters.
+
+Q is a function of the tree alone, so `|Q|` is invariant under any checker
+change — **control C0′**, and it read **4,913 on all three runs** below.
+
+**Q at `3f140c2`, before: 4,913 lines = 2,463 right + 2,000 gap + 450 wrong.**
+
+Pre-registered, before the buckets existed:
+
+- **RC2-whole**: license the item only if a counterfactual converts **≥25% of Q's
+  2,000 gap lines** — 500 — to exact baseline matches.
+- **RC2-part**: a **named** sub-bucket B licenses a *partial*, reported as such
+  with B named, at ≥25% of B.
+- **R2**: of the lines that **stop gapping**, **≥70% must match exactly.** A
+  match test, not a shape test.
+
+### 9.2 The split of the 2,000, and what it does to two filed issues
+
+`return_type_of` and `return_type_from_body` reproduced in the probe in their own
+order, using the public `check_expression` for the one step that needs a type:
+
+| refusal | lines | share | cases | top-1 | what the baseline wants |
+|---|---:|---:|---:|---:|---|
+| a return expression answers `error` — **kind 2, not ours** | **885** | 44.2% | 257 | 24.1% | `() => (Derived1 \| Derived2)[]` 195, `() => any` 160 |
+| one return type and it still gapped — the widening gate | **693** | 34.6% | 175 | 7.2% | `() => number` 236, `() => string` 102, `() => true` 23 |
+| `async` or generator | 206 | 10.3% | 82 | 10.7% | `() => Generator<…>` |
+| no `return` at all: `void` or `never` — needs reachability | 155 | 7.8% | 106 | 5.2% | `() => void` 111 |
+| a return annotation is written, and it gaps | 52 | 2.6% | 28 | 23.1% | `typeof globalThis.isNaN` shapes |
+| **two or more distinct return types** — `bd tsr-4sc.9` | **9** | 0.4% | 6 | 33.3% | `() => "ELSE" \| "SOMETHING"` |
+| **total** | **2,000** | | | | |
+
+**Two filed items are resized by this table, one up and one down.**
+
+- **`bd tsr-4sc.9` — the union of return types — is 9 lines.** It has been carried
+  as an item since it was written and it is the smallest thing on this page.
+  Nine. Six cases. That is the fifth row on this project to collapse on contact
+  with a measurement, and it collapsed by three orders of magnitude against the
+  2,000 it sat inside.
+- **44.2% of the item is kind 2 and belongs to nobody in this file.** A `return`
+  expression that itself answers `error` is another row — 213 of the 885 are
+  `conformance/generatedContextualTyping` alone. So `tsr-4e1`'s 2,000 is a
+  ceiling holding at most **1,115** lines of work that `signatures.rs` owns.
+
+### 9.3 The counterfactual, the test that caught it, and the build
+
+The 693-line bucket is `inferred_return_type` refusing to widen a unit return
+type unless the declaration could be *shown* to have no contextual type — which
+for a function expression or an arrow meant everything except `const f = …`.
+
+**M-W**: widen unconditionally. Applied, measured, and it **broke an existing
+test** — `an_unannotated_parameter_is_any_only_where_no_contextual_type_can_supply_one`
+(`crates/tsr-checker/tests/types.rs:1430`), which asserts that
+`const f: () => 1 = () => 1` is a **gap**. It is right to: a written annotation
+*is* a contextual type, it *is* a literal, and `isLiteralOfContextualType`
+answers yes there. The corpus measurement had priced that position at 23+6 lines
+wanting `() => true` / `() => false` and I had read those as unavoidable. The
+test said otherwise for the one position it covers, and it was correct.
+
+This is `docs/conventions.md`'s *"faithfulness is not evidence that a guard is
+load-bearing"* running the other way: that rule deletes a guard no mutation can
+make observable. Here a guard that looked like pure caution turned out to be
+observable at exactly one position, and a test written for it fired.
+
+**M-W2, shipped**: widen unless a contextual type is **written down at this
+position** — the parent is a `VariableDeclaration` with an annotation whose
+initialiser is this node, the exact complement of `has_no_contextual_type` over
+the one position either can see. Everything between — a call argument, an
+object-literal property, a `return` expression — widens, which is what upstream
+does there because the contextual return type at those positions is almost never
+a literal.
+
+| | before | after (shipped) | delta |
+|---|---:|---:|---:|
+| **\|Q\|** (C0′) | 4,913 | **4,913** | **0** |
+| Q right | 2,463 | **3,028** | **+565** |
+| Q gap | 2,000 | 1,337 | −663 |
+| Q wrong | 450 | 548 | **+98** |
+
+- **RC2-whole: 565 of 2,000 = 28.3% ≥ 25%. FIRES.** The item is licensed whole,
+  not as a partial, so RC2-part is not invoked.
+- **R2: 565 of 663 = 85.2% ≥ 70%. FIRES.**
+- **0.17 wrong per converted.** For scale, this project has refused items at 2.1,
+  2.5 and 4.6 (§4 is the last of those). This is an order of magnitude the other
+  side of everything refused.
+
+The narrowing costs 4 converted lines against the unconditional version (569 →
+565) and avoids 6 wrong ones (104 → 98) — so it is very nearly free, and the
+reason to prefer it is not the ratio but that it refuses where the source says
+something this port cannot read, rather than guessing over it.
+
+The mechanism attribution is confirmed by the bucket that emptied: **the
+widening-gate refusal falls 693 → 39.**
+
+### 9.4 Why this is a port and not a policy
+
+The tempting reading is *"we chose to widen because the numbers were good"*. That
+is not what happened and the distinction is checkable.
+
+`getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded` (`checker.go:20221`)
+hands the type to `getWidenedLiteralLikeTypeForContextualType`, which widens
+unless `isLiteralOfContextualType(t, contextualType)`. That function is
+`checker.go:25522`, and **its last statement is `return false`** when
+`contextualType` is `nil` (`:25551`). This port computes no contextual types —
+`getContextualSignatureForFunctionLikeDeclaration` (`:29711`) is unported — so
+`nil` is the only value that argument can take wherever the source does not write
+one down. **Widening there is upstream's own function evaluated on this port's
+inputs**, and refusing where an annotation *is* written is the acknowledgement
+that at that one position the argument would not have been `nil`.
+
+The 98 remaining wrong lines are not a mistake in this change; they are the
+already-known cost of the missing contextual type, showing up in one more place,
+and they are countable rather than diffuse.
+
+### 9.5 Corpus-wide, and the case gate
+
+`examples/casedelta.rs`, before and after, joined per case:
+
+```
+  matched  295,302 -> 296,490     +1,188 lines   (478,954 baseline lines)
+  61.657%  -> 61.905%             +0.248pp
+  cases moved                     171
+  cases that REGRESSED            0
+  cases that newly finish         29
+```
+
+**Zero cases regressed, and that is a structural fact rather than luck.**
+`casedelta` counts *matched* lines, and a gap and a wrong both fail to match — so
+a zero here says every one of the 156 newly-wrong lines corpus-wide came from the
+**gap** column and none from the **right** column. The arithmetic says the same
+thing independently: gap −1,344 = right +1,188 + wrong +156. Two instruments,
+one written by someone else, and they agree.
+
+The gain is distributed: the largest case is
+`compiler/isolatedDeclarationErrorsReturnTypes` at 130 lines, 10.9% of the total,
+over 171 cases. Next: `compiler/noImplicitAnyStringIndexerOnObject` 89,
+`compiler/fatarrowfunctionsOptionalArgs` 74.
+
+### 9.6 What §1–§8's tables now read
+
+P's outcome split moves, and §1's table is *not* edited:
+
+| | §1 (at `d612291`) | after this commit |
+|---|---|---|
+| P right | 2,651 | **3,245** |
+| P gap | 4,284 | **3,592** |
+| P wrong | 495 | **593** |
+
+`|P|` is 7,430 in both, as C0 requires. §4's counterfactual on the *contextual
+guard* was measured against the earlier baseline and has not been re-taken; its
+conclusion is a ratio over lines that guard owns and nothing in this commit
+touches that guard, but **the 229/1,061 figures should be re-measured before they
+are quoted again** (`open`, `bd tsr-94m`).
+
+### 9.7 What was deliberately not built
+
+- **The 885 kind-2 lines.** They are blocked on `check_expression` inside the
+  body and belong to whatever gaps there.
+- **The 206 `async`/generator lines.** The answers are `Promise<T>` and
+  `Generator<…>`; this port builds neither, so converting them would need
+  `create_type_reference` to carry members (`bd tsr-4sc.7`).
+- **The 155 reachability lines.** `void` against `never` is the flow graph, and
+  `flow.rs` is another workstream's file.
+- **`bd tsr-4sc.9`, at 9 lines.** Left open, resized, and not worth a union
+  implementation at that size.
+- **The 39 residual widening-gate lines.** A parameter annotation that gapped,
+  which is a type-node row.
