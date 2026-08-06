@@ -491,3 +491,21 @@ sized family is 25%; concentration well above it means the family was
 mis-sized).
 
 Bar fires → build wrong first, premise wrong second, no third.
+
+### §7 scored — all legs pass, Δwrong −37
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +15 | **+37** (6 cases, 3 finished) | pass |
+| 2 | lost ≤ 5 diagnosed | **0** | pass |
+| 3 | 0 regressions | **0** | pass |
+| 4 | gained ≥ 3 × new wrong | **37 fixed, 0 new** | pass |
+
+**Falsifier:** `parserRealSource7` took none of the gain — its 18 lines
+are a *different* freshness path (they remain in the wrong bucket and are
+the unowned remainder of the ~120 ceiling). Top gainer is the
+destructuring-pattern pair at 9/37 = 24%, and the mechanism's named case
+`literalFreshnessPropagationOnNarrowing` converted 7. **KEEP.**
+
+This is the build that carried the gradient over the exact 70% threshold:
+**335,293 / 478,954 = 70.003%**, cases 2,540.

@@ -525,9 +525,6 @@ impl Checker<'_, '_> {
     /// The memo upstream keeps (`assignmentReducedTypes`) is not ported: it
     /// guards repeated assignability queries, and this port's assignability is
     /// not yet the cost centre that makes a cache pay.
-    ///
-    /// Upstream's fresh-boolean-literal step (`flow.go:2421`) is not ported
-    /// either — freshness is not modelled here.
     fn get_assignment_reduced_type(&mut self, declared: TypeId, assigned: TypeId) -> TypeId {
         if declared == assigned {
             return declared;
@@ -545,6 +542,22 @@ impl Checker<'_, '_> {
                 kept.push(constituent);
             }
         }
+        // "Ensure that we narrow to fresh types if the assignment is a fresh
+        // boolean literal type" (`flow.go:2421`): `var c4 = true` narrows the
+        // declared `boolean` to the **fresh** `true`, which is what lets a
+        // mutable-location or initializer boundary widen it back to `boolean`
+        // — `checker-notes-narrow.md` §7 (`bd tsr-xs0`) carries the sizing
+        // and the bar. Mapped over the kept constituents, as upstream's
+        // `mapType(filteredType, getFreshTypeOfLiteralType)` is.
+        let assigned_is_fresh_boolean = {
+            let ty = self.store.get(assigned);
+            ty.flags.contains(TypeFlags::BOOLEAN_LITERAL) && ty.fresh
+        };
+        let kept = if assigned_is_fresh_boolean {
+            kept.into_iter().map(|t| self.get_fresh_type_of_literal_type(t)).collect()
+        } else {
+            kept
+        };
         let reduced = self.get_union_type(&kept);
         // Upstream's own guard on its "crude heuristic" (`flow.go:2424`): when
         // the assigned type is not assignable to what the filter kept, give up

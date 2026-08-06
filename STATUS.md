@@ -22,8 +22,8 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`4b81458`** and the defaults iteration after it, 2026-08-06
-(fifth session).
+Measured through the `tsr-xs0` build (after `4b81458` and the defaults
+iteration), 2026-08-06 (fifth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -41,14 +41,14 @@ Measured at **`4b81458`** and the defaults iteration after it, 2026-08-06
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,537/9,538** | **26.60%** | **gradient 69.998%** — the display rounds to 70.00%; the exact threshold is 12 lines away |
+| **`checker_types`** | **2,540/9,538** | **26.63%** | **gradient 70.01%** — the exact 70% threshold crossed at the `tsr-xs0` build |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-335,256 / 478,954 assertion lines = 69.998%   (the two-decimal display says 70.00%; +12 lines to the exact threshold)
-  right 335,256 | gap ~91,837 | wrong ~41,326   (41,189 at b00738d; +423, −58, +3, +127, −448, −19, +109, +0 by same-probe pairs through the defaults iteration)
+335,293 / 478,954 assertion lines = 70.003%   (the exact threshold, 335,268, is crossed)
+  right 335,293 | gap ~91,837 | wrong ~41,289   (41,189 at b00738d; +423, −58, +3, +127, −448, −19, +109, +0, −37 by same-probe pairs through tsr-xs0)
 ```
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
@@ -103,8 +103,8 @@ reachable denominator   476,752 of 478,954
 today                    333,651 / 476,752 = 69.98% of reachable   (carries the 1,539
                          right-lines-in-the-unreachable-set offset the 332,570 figure carried)
 80% of the full          383,163 lines  =  80.37% of the reachable
-gap to 80%               +47,907 lines (full-denominator terms: 383,163 − 335,256)
-gap to 70%               +12 lines     (70% of the full = 335,268)
+gap to 80%               +47,870 lines (full-denominator terms: 383,163 − 335,293)
+gap to 70%               CROSSED (70.003%; the threshold was 335,268)
 ```
 
 ---
@@ -121,7 +121,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **69.98% of lines** | the mountain; §4 and §5 |
+| **checker** | **70.00% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -217,8 +217,8 @@ populations as work would break this file's fourth rule.**
 
 ### 4.4 What the scores say about 80%
 
-- Distance to **80%** is **+47,907 lines**; to **70%**, **+12** (after the
-  defaults iteration; measured on the coverage instrument).
+- Distance to **80%** is **+47,870 lines**; **70% is crossed** (70.003%
+  at the `tsr-xs0` build, measured on the coverage instrument).
 - The scored list's *reachable* column sums to ~22,000. At the observed 15–57%
   conversion that is **+3,300 to +12,500** — so 70% is reachable from this
   board, and **80% is not**, even if every item on it lands.
@@ -302,6 +302,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `tsr-xs0` | **70.003%** | **2,540** | **+37, 0 lost, +3 cases, 0 regressed, Δwrong −37** | **assignment narrowing keeps a fresh boolean literal fresh** (`flow.go:2421`, `checker-notes-narrow.md` §7) — found by `tsr-o00`'s wrongdelta, sized 73+47 from the live wrong dump, bar registered before the four-line fix; every leg passed with zero downside and the mechanism's named case (`literalFreshnessPropagationOnNarrowing`) converted. **This crossed the exact 70% threshold** |
 | 2026-08-06 | defaults | **69.998%** | **2,537** | **+66, 0 lost, 0 finished, 0 regressed, Δwrong 0** | **defaults under a typed annotation** (`tsr-o00` §6) — the `IS_UNDEFINED` facts bit (the port's facts comment had already drawn the `UndefinedFacts`/`VoidFacts` line it splits), the `checker.go:17782` strip, sized 69/net 59, converted 112%, every bar leg passed with zero downside. The coverage display now reads 70.00% **by rounding**: the exact threshold is 12 lines away, said so it is not quoted as crossed |
 | 2026-08-06 | `4b81458` | **69.98%** | **2,537** | **+1,081, 1 lost, +16 cases, 0 regressed, Δwrong +109 (9.9×)** | **binding elements** (`tsr-o00`, fifth session) — sized by the new `bindgap.rs` (1,228 buildable of 2,632, six refused legs each with a number), bar registered and committed before code (`982bfe4`). The first run read +1,239 at 6.0× and **passed every leg while minting ~80 wrong lines** from approximating pattern-contextual tuple inference — refused whole on the faithfulness rule, not the ratio (`tsr-84iz`). The parser now records array-binding holes as all-nil `BindingElement`s (upstream `parser.go:1663`); skipping them renumbered every element after a hole. The eleventh unported-stand-in fixture came due (`types.rs`). Residuals filed: `tsr-pqnh` (flow-of-destructuring, the family the bar named in advance), `tsr-xs0` (assignment narrowing drops freshness — pre-existing, exposed). 70% now sits **+78 lines** away |
 | 2026-08-06 | `acdeed5` | **69.76%** | **2,521** | **+43, 0 lost, 0 regressed, Δwrong −19** | **the `in` guard** (`tsr-q9g` §6.1). The first run measured +45/−13 — numerically passing every leg — and **the 13 losses in one case were a bug the ratio would have priced as a trade**: the presence test read `SymbolFlags::OPTIONAL`, which this binder never writes, collapsing optional-property else-branches to `never`. Fixed to read the declaration's question token; the pair is pinned |
