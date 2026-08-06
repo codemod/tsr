@@ -46,7 +46,7 @@
 //!
 //! # The counterfactual
 //!
-//! `get_type_of_function_expression` (`crates/tsr-checker/src/signatures.rs:1010`)
+//! `get_type_of_function_expression` (`crates/tsr-checker/src/signatures.rs:1039`)
 //! answers `errorType` when any parameter is unannotated and the node is not
 //! demonstrably free of a contextual type (`:1014`). That guard is the candidate
 //! blocker. `docs/architecture/checker-notes-calls.md` is explicit that probing a
@@ -84,6 +84,38 @@
 //!   the node map. The loaded label — `Gate::ContextualGuard`, the one the
 //!   counterfactual targets — is first and syntactic.
 //! - **A1 — the outcome split partitions P.** Arithmetic.
+//!
+//! # Q — the second population, and the second pair of rules
+//!
+//! Added 2026-08-06 for `bd tsr-4e1`, and **registered before the buckets it is
+//! registered over were written.** The first measurement split P's 4,284 gap
+//! lines almost in half: 2,082 stop at the contextual guard (priced by M-CF at
+//! 4.6 wrong per converted) and **2,000 have every syntactic gate clear and fail
+//! inside `return_type_from_body`**. The second half is a different item and this
+//! is its population:
+//!
+//! > **Q is every `.types` assertion line this port renders whose node kind is
+//! > `ArrowFunction` or `FunctionExpression` **and** which passes all three
+//! > syntactic gates: every parameter annotated or the node is the initialiser of
+//! > an un-annotated `var`/`let`/`const`; no parameter's name is a binding
+//! > pattern; no type parameters.**
+//!
+//! Q is a function of the tree alone — the same property that makes P comparable
+//! across runs — so `|Q|` is invariant under any checker change. Control C0′.
+//!
+//! - **RC2-whole (size).** The item `tsr-4e1` names is licensed only if a
+//!   counterfactual converts **≥25% of Q's gap lines** to exact baseline matches.
+//! - **RC2-part (size, for a partial).** A **named** sub-bucket B of Q's gap
+//!   licenses a partial build if the counterfactual converts **≥25% of B**. A
+//!   build admitted this way must be reported as a partial, with B named and its
+//!   share of Q stated, because 25% of a bucket is not 25% of the item.
+//! - **R2 (match test).** Applies to both: of the lines that **stop gapping**,
+//!   **≥70% must match the baseline exactly.**
+//!
+//! R2 is a *match* test and not a shape test, which is the correction this probe
+//! bought last cycle: the shape test read 99.6% on the contextual half and the
+//! match test read 17.8%. They agree when the defect is naming and diverge when
+//! the printer is present and the type flowing into it is wrong.
 //!
 //! Run: `cargo run --release -p tsr-conformance --example fnexpr`
 
@@ -157,17 +189,17 @@ impl Outcome {
 /// decided **syntactically**, in the checker's own order.
 ///
 /// The order is load-bearing and is the checker's: the contextual guard
-/// (`signatures.rs:1014`) runs before anything reads a parameter's name, so a
+/// (`signatures.rs:1043`) runs before anything reads a parameter's name, so a
 /// function with both an unannotated parameter and a binding pattern is stopped
 /// by the guard and belongs in the first bucket.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum Gate {
     /// A parameter has no annotation and the node is not demonstrably free of a
     /// contextual type. `get_type_of_function_expression` returns `errorType`
-    /// here (`signatures.rs:1014`). **This is the gate the counterfactual lifts.**
+    /// here (`signatures.rs:1043`). **This is the gate the counterfactual lifts.**
     ContextualGuard,
     /// A parameter's name is a binding pattern, so `parameter_of` cannot render
-    /// it (`signatures.rs:766`).
+    /// it (`signatures.rs:794`).
     BindingPattern,
     /// The declaration is generic, so `type_parameter_of` has to succeed for
     /// every parameter.
@@ -198,6 +230,85 @@ impl Gate {
         }
     }
 }
+
+/// Which refusal inside the signature build holds a Q line, in the checker's own
+/// order: the return annotation is consulted by `return_type_of` before
+/// `return_type_from_body` ever sees the body (`signatures.rs:299`).
+///
+/// Every arm is a positive test. The two failure arms are positive tests on the
+/// node map, and the semantically loaded one — [`Refusal::SingleReturnType`],
+/// the bucket that says *"this should already have worked"* — is last but is not
+/// a default: it requires a body, one distinct return type and no bare return.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Refusal {
+    /// A return annotation is written. `return_type_of` takes it and answers
+    /// `None` when it gaps, so this line is waiting on a **type node**, not on
+    /// body inference.
+    ReturnAnnotation,
+    /// `async` or `function*`. `return_type_from_body` refuses outright
+    /// (`signatures.rs:400`) because the answer is `Promise<T>` / a generator
+    /// type, neither of which this port builds.
+    AsyncOrGenerator,
+    /// Some `return` expression — or the concise body — itself answers `error`.
+    /// Kind 2: the line is blocked on whatever gaps *inside* the function, which
+    /// is another row and usually another file.
+    ReturnExpressionGaps,
+    /// Two or more distinct return types. Needs a union with subtype reduction;
+    /// `bd tsr-4sc.9`.
+    MultipleReturnTypes,
+    /// A bare `return;` beside a valued one. The one configuration where
+    /// `strictNullChecks` changes the answer (`signatures.rs:450`), and this port
+    /// reads no compiler options.
+    BareReturnBesideValued,
+    /// No `return` statement at all, so the answer is `void` or `never` and the
+    /// difference is whether the end of the body is reachable —
+    /// `block_completes_normally`'s syntactic stand-in for the flow graph.
+    NoReturnStatements,
+    /// One distinct return type, no bare return, no annotation, not async. The
+    /// signature build had everything it needs, so what stopped it is the literal
+    /// widening gate in `inferred_return_type` (`signatures.rs:579`) or a
+    /// parameter annotation that gapped.
+    SingleReturnType,
+    /// The function-like node carries no body. A positive failure.
+    NoBody,
+    /// The node is in Q by kind but is not function-like when read back. A
+    /// positive failure.
+    NotFunctionLike,
+}
+
+impl Refusal {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::ReturnAnnotation => "a return annotation is written, and it gaps",
+            Self::AsyncOrGenerator => "async or generator (signatures.rs:400)",
+            Self::ReturnExpressionGaps => "a return expression answers error   <- kind 2, not ours",
+            Self::MultipleReturnTypes => "two or more distinct return types   <- bd tsr-4sc.9",
+            Self::BareReturnBesideValued => {
+                "a bare `return;` beside a valued one <- strictNullChecks"
+            }
+            Self::NoReturnStatements => "no return statement: void or never  <- needs reachability",
+            Self::SingleReturnType => "one return type and it still gapped <- the widening gate",
+            Self::NoBody => "NO BODY (walk failed)",
+            Self::NotFunctionLike => "NOT FUNCTION-LIKE (walk failed)",
+        }
+    }
+}
+
+/// The node kinds `Checker::signature_parts_of` (`signatures.rs:863`) claims.
+/// `return_expressions_of` (`signatures.rs:625`) stops descending at any of them,
+/// which is `ast.ForEachReturnStatement`'s contract, so this list has to match
+/// that function's arms exactly or the probe attributes an inner function's
+/// `return` to an outer one.
+const FUNCTION_LIKE: [SyntaxKind; 8] = [
+    SyntaxKind::FunctionDeclaration,
+    SyntaxKind::MethodDeclaration,
+    SyntaxKind::FunctionType,
+    SyntaxKind::CallSignature,
+    SyntaxKind::ConstructSignature,
+    SyntaxKind::MethodSignature,
+    SyntaxKind::FunctionExpression,
+    SyntaxKind::ArrowFunction,
+];
 
 /// A bucket's lines and the cases they came from, for concentration.
 #[derive(Default)]
@@ -281,6 +392,10 @@ struct Report {
     /// parameter, which no return rule would touch.
     widen_gain_return: Tally,
     widen_risk_return: Tally,
+    /// C0′ and the Q tables: Q's outcome split, and why its gap lines gap.
+    q_forms: BTreeMap<(Form, Outcome), Tally>,
+    refusals: BTreeMap<Refusal, Tally>,
+    refusal_rhs: BTreeMap<(Refusal, String), usize>,
     c1_reason_kind_mismatch: usize,
     c1_reason_kind_match: usize,
     c2_arrow_this_parameter: usize,
@@ -316,6 +431,15 @@ impl Report {
         self.widen_risk.merge(&other.widen_risk);
         self.widen_gain_return.merge(&other.widen_gain_return);
         self.widen_risk_return.merge(&other.widen_risk_return);
+        for (key, tally) in &other.q_forms {
+            self.q_forms.entry(*key).or_default().merge(tally);
+        }
+        for (key, tally) in &other.refusals {
+            self.refusals.entry(*key).or_default().merge(tally);
+        }
+        for (key, n) in &other.refusal_rhs {
+            *self.refusal_rhs.entry(key.clone()).or_default() += n;
+        }
         self.c1_reason_kind_mismatch += other.c1_reason_kind_mismatch;
         self.c1_reason_kind_match += other.c1_reason_kind_match;
         self.c2_arrow_this_parameter += other.c2_arrow_this_parameter;
@@ -566,6 +690,19 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     .or_default() += 1;
             }
 
+            // Q — the second population. Syntactic, so `|Q|` is invariant under a
+            // checker change exactly as `|P|` is (control C0′).
+            if form.in_p() && classify(nodes, map, id) == Gate::SignatureBody {
+                report.q_forms.entry((form, outcome)).or_default().add(name, 1);
+                if outcome == Outcome::Gap {
+                    let refusal = refusal_of(&mut checker, nodes, map, id);
+                    report.refusals.entry(refusal).or_default().add(name, 1);
+                    if let Some(rhs) = rhs.clone() {
+                        *report.refusal_rhs.entry((refusal, rhs)).or_default() += 1;
+                    }
+                }
+            }
+
             if outcome != Outcome::Gap || !form.in_p() {
                 continue;
             }
@@ -614,6 +751,115 @@ fn type_parameters_of<'a>(
     }
 }
 
+/// Which refusal inside the signature build holds this Q line.
+///
+/// Reproduces `Checker::return_type_of` (`signatures.rs:299`) and
+/// `Checker::return_type_from_body` (`signatures.rs:392`) in their own order,
+/// using the public `check_expression` for the one step that needs a type.
+fn refusal_of(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    id: NodeId,
+) -> Refusal {
+    let error = checker.intrinsics().error;
+    let (annotation, modifiers, asterisk, body) = match map.get(id) {
+        Some(Node::ArrowFunction(node)) => (
+            node.r#type.is_some(),
+            node.modifiers,
+            node.asterisk_token.is_some(),
+            node.body.map(Node::from),
+        ),
+        Some(Node::FunctionExpression(node)) => (
+            node.r#type.is_some(),
+            node.modifiers,
+            node.asterisk_token.is_some(),
+            node.body.map(Node::from),
+        ),
+        _ => return Refusal::NotFunctionLike,
+    };
+    // `return_type_of` reads the annotation before anything reaches the body.
+    if annotation {
+        return Refusal::ReturnAnnotation;
+    }
+    if asterisk
+        || modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::AsyncKeyword)
+        })
+    {
+        return Refusal::AsyncOrGenerator;
+    }
+    let Some(body) = body else { return Refusal::NoBody };
+    // A concise arrow body is its expression's type, with no return statements
+    // in play at all (`signatures.rs:493`).
+    if nodes.kind(body.node_id().unwrap_or(id)) != SyntaxKind::Block {
+        return match tsr_ast::Expression::try_from(body) {
+            Ok(expression) if checker.check_expression(expression) == error => {
+                Refusal::ReturnExpressionGaps
+            }
+            Ok(_) => Refusal::SingleReturnType,
+            Err(_) => Refusal::NotFunctionLike,
+        };
+    }
+    let Some(block) = body.node_id() else { return Refusal::NoBody };
+    let mut types: Vec<tsr_checker::TypeId> = Vec::new();
+    let mut has_bare_return = false;
+    let mut gapped = false;
+    for expression in return_expressions_of(nodes, map, block, id) {
+        match expression {
+            None => has_bare_return = true,
+            Some(expression) => {
+                let type_id = checker.check_expression(expression);
+                if type_id == error {
+                    gapped = true;
+                } else if !types.contains(&type_id) {
+                    types.push(type_id);
+                }
+            }
+        }
+    }
+    if gapped {
+        return Refusal::ReturnExpressionGaps;
+    }
+    match types.len() {
+        0 => Refusal::NoReturnStatements,
+        1 if has_bare_return => Refusal::BareReturnBesideValued,
+        1 => Refusal::SingleReturnType,
+        _ => Refusal::MultipleReturnTypes,
+    }
+}
+
+/// `Checker::return_expressions_of` (`signatures.rs:625`), reproduced.
+/// `ast.ForEachReturnStatement`'s contract is that it does **not** descend into a
+/// nested function-like node, so a `return` inside an inner arrow belongs to the
+/// arrow. Getting that wrong would attribute an inner function's return types to
+/// an outer one and inflate `MultipleReturnTypes`.
+fn return_expressions_of<'a>(
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'a>,
+    body: NodeId,
+    owner: NodeId,
+) -> Vec<Option<tsr_ast::Expression<'a>>> {
+    let Some(root) = map.get(body) else { return Vec::new() };
+    let mut found = Vec::new();
+    let mut stack = vec![root];
+    let mut children = Vec::new();
+    while let Some(node) = stack.pop() {
+        if node.node_id().is_some_and(|id| id != owner && FUNCTION_LIKE.contains(&nodes.kind(id))) {
+            continue;
+        }
+        if let Node::ReturnStatement(statement) = node {
+            found.push(statement.expression);
+            continue;
+        }
+        children.clear();
+        tsr_ast::push_children(node, &mut children);
+        stack.extend(children.iter().copied());
+    }
+    found
+}
+
 /// Which gate stops this function expression, in the checker's own order.
 fn classify(nodes: &tsr_ast::NodeTable, map: &tsr_ast::NodeMap<'_>, id: NodeId) -> Gate {
     if map.get(id).is_none() {
@@ -624,7 +870,7 @@ fn classify(nodes: &tsr_ast::NodeTable, map: &tsr_ast::NodeMap<'_>, id: NodeId) 
     else {
         return Gate::NotFunctionLike;
     };
-    // `signatures.rs:1013` — `parts.parameters.iter().any(|p| p.r#type.is_none())`
+    // `signatures.rs:1042` — `parts.parameters.iter().any(|p| p.r#type.is_none())`
     // — and `:1014`'s `!self.has_no_contextual_type(node)`, reproduced verbatim
     // below rather than approximated, because a looser test here would attribute
     // lines to a gate the checker did not take.
@@ -633,7 +879,7 @@ fn classify(nodes: &tsr_ast::NodeTable, map: &tsr_ast::NodeMap<'_>, id: NodeId) 
     {
         return Gate::ContextualGuard;
     }
-    // `parameter_of` (`signatures.rs:766`) returns `None` for any name that is
+    // `parameter_of` (`signatures.rs:794`) returns `None` for any name that is
     // not a plain identifier.
     if parameters
         .iter()
@@ -647,7 +893,7 @@ fn classify(nodes: &tsr_ast::NodeTable, map: &tsr_ast::NodeMap<'_>, id: NodeId) 
     Gate::SignatureBody
 }
 
-/// `Checker::has_no_contextual_type` (`crates/tsr-checker/src/signatures.rs:753`),
+/// `Checker::has_no_contextual_type` (`crates/tsr-checker/src/signatures.rs:782`),
 /// reproduced. The initialiser of a `var`/`let`/`const` with no annotation is the
 /// one position the checker will call contextual-type-free.
 fn has_no_contextual_type(
@@ -880,6 +1126,63 @@ fn print(report: &Report) {
         println!("          risk {n:>5}  {case}");
     }
     println!();
+
+    println!("## 6c. Q — the signature-build half, and why it refuses\n");
+    let qget =
+        |form: Form, outcome: Outcome| report.q_forms.get(&(form, outcome)).map_or(0, |t| t.lines);
+    let mut q_right = 0usize;
+    let mut q_gap = 0usize;
+    let mut q_wrong = 0usize;
+    for form in Form::ALL {
+        if !form.in_p() {
+            continue;
+        }
+        let (right, gap, wrong) =
+            (qget(form, Outcome::Right), qget(form, Outcome::Gap), qget(form, Outcome::Wrong));
+        println!(
+            "  {:<44} right {:>5}  gap {:>5}  wrong {:>5}  total {:>5}",
+            form.label(),
+            right,
+            gap,
+            wrong,
+            right + gap + wrong
+        );
+        q_right += right;
+        q_gap += gap;
+        q_wrong += wrong;
+    }
+    println!(
+        "\n  |Q| = {} lines (right {}, gap {}, wrong {})   <- C0', invariant across runs",
+        q_right + q_gap + q_wrong,
+        q_right,
+        q_gap,
+        q_wrong
+    );
+    println!("  RC2-whole fires at >= {} converted lines\n", q_gap / 4);
+    println!("{:<56} {:>7} {:>7} {:>6} {:>8}", "refusal", "lines", "share", "cases", "top-10");
+    let refusal_total: usize = report.refusals.values().map(|t| t.lines).sum();
+    for (refusal, tally) in &report.refusals {
+        let (cases, top1, top10) = tally.concentration();
+        println!(
+            "{:<56} {:>7} {:>6.1}% {:>6} {:>7.1}%  (top-1 {:.1}%)",
+            refusal.label(),
+            tally.lines,
+            tally.lines as f64 / refusal_total.max(1) as f64 * 100.0,
+            cases,
+            top10,
+            top1
+        );
+        let named: Vec<String> =
+            tally.top_cases(3).into_iter().map(|(case, n)| format!("{case} {n}")).collect();
+        println!("      top: {}", named.join(" | "));
+        let mut rhs: Vec<_> =
+            report.refusal_rhs.iter().filter(|((r, _), _)| r == refusal).collect();
+        rhs.sort_by_key(|(_, n)| std::cmp::Reverse(**n));
+        let shown: Vec<String> =
+            rhs.iter().take(5).map(|((_, text), n)| format!("{n}x {text}")).collect();
+        println!("      baseline wants: {}", shown.join(" | "));
+    }
+    println!("{:<56} {:>7}\n", "REFUSAL TOTAL", refusal_total);
 
     println!("## 7. Controls\n");
     println!(

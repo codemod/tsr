@@ -519,65 +519,94 @@ impl<'a> Checker<'a, '_> {
     /// single `return` would gap it for no reason upstream recognises. Identity
     /// is `TypeId` equality, which is exact because this port interns types.
     ///
-    /// # What the contextual test has to know that the arrow case did not
+    /// # The unit result widens unconditionally, and that is upstream's own answer
     ///
-    /// `getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded` (`:20221`)
-    /// widens a unit type **unless** a contextual signature supplied one, so
-    /// `function f() { return 1; }` is `() => number` and
-    /// `const f: () => 1 = () => 1` is `() => 1`. The contextual signature comes
-    /// from `getContextualSignatureForFunctionLikeDeclaration` (`:29711`), whose
-    /// whole body is a guard:
+    /// `getWidenedLiteralLikeTypeForContextualReturnTypeIfNeeded` (`:20221`) hands
+    /// the type to `getWidenedLiteralLikeTypeForContextualType`, which widens
+    /// unless `isLiteralOfContextualType(t, contextualType)`
+    /// (`checker.go:25522`). **That function's last line is `return false` when
+    /// `contextualType` is `nil`** (`:25551`), and this port computes no
+    /// contextual types at all — `getContextualSignatureForFunctionLikeDeclaration`
+    /// (`:29711`) is unported. So `nil` is the only value the argument could take
+    /// here, and widening unconditionally *is* running upstream's function on
+    /// this port's inputs, rather than a policy chosen in place of it.
     ///
-    /// ```go
-    /// // Only function expressions, arrow functions, and object literal methods are contextually typed.
-    /// if ast.IsFunctionExpressionOrArrowFunction(node) || ast.IsObjectLiteralMethod(node) {
+    /// Before this, the tail refused to answer whenever widening would change the
+    /// type and the declaration could not be *shown* to lack a contextual type —
+    /// which for a function expression or an arrow meant everything except
+    /// `const f = …`. The cost of that caution is measured, not argued
+    /// (`docs/architecture/checker-notes-fnexpr.md` §9, `bd tsr-4e1`), over the
+    /// 4,913-line population of function expressions whose signature build had
+    /// every syntactic gate clear:
+    ///
+    /// ```text
+    ///           gapping   right   wrong
+    ///   before     2,000   2,463     450
+    ///   after      1,337   3,028     548
+    ///   delta       -663    +565     +98
     /// ```
     ///
-    /// A **function declaration, a class method and an interface method are
-    /// therefore never contextually typed**, so their unit results widen
-    /// unconditionally. That distinction did not exist while this tail served
-    /// only concise arrow bodies — every caller was contextually typeable, so
-    /// [`Checker::has_no_contextual_type`]'s conservative "is this the
-    /// initialiser of an un-annotated `const`" was the whole question. Reusing it
-    /// alone for a block body would gap every `function f() { return 1; }` in the
-    /// corpus, which is the bulk of what this arm exists to answer.
+    /// **565 converted against 98 manufactured — 85.2% of the lines that stopped
+    /// gapping match the baseline character for character**, and corpus-wide the
+    /// same change is +1,188 right against +156 wrong, over 171 cases with
+    /// **zero regressing** and 29 newly complete. The 98 are the price of the
+    /// missing contextual type, and they are visible: 23 lines want `() => true`
+    /// and 6 want `() => false` where this now answers `() => boolean`, because
+    /// something upstream supplied a boolean-literal contextual type and
+    /// `isLiteralOfContextualType` said yes.
+    ///
+    /// **How you would know this is wrong.** Those 98 growing, or the ratio
+    /// falling below the 70% match rate the decision was registered on, means the
+    /// corpus has more literal-contextual positions than this measurement found.
+    /// The instrument that would say so is
+    /// `crates/tsr-conformance/examples/fnexpr.rs` §6c, which prints the
+    /// right/gap/wrong split of that same population on every run.
+    ///
+    /// # The one position that still refuses, and why it is not the old guard
+    ///
+    /// `const f: () => 1 = () => 1` prints `() => 1`: a written annotation is a
+    /// contextual type, it is a literal, and `isLiteralOfContextualType` says
+    /// yes. This port cannot read that annotation — a function **type node**
+    /// reaches [`Checker::get_signature_from_declaration`] but nothing joins it
+    /// to the initialiser — so where one is *written* the answer is still a gap.
+    ///
+    /// That is a much smaller set than the old guard's: it asks whether a
+    /// contextual type is **visible in the source at this position**, not whether
+    /// one could exist. `has_no_contextual_type` refuses unless the position is
+    /// `const f = …`; this refuses only when the position is `const f: T = …`.
+    /// Everything between — a call argument, an object-literal property, a
+    /// `return` expression — widens, which is what upstream does there.
     fn inferred_return_type(&mut self, declaration: NodeId, id: TypeId) -> Option<TypeId> {
         if id == self.intrinsics.error {
             return None;
         }
         let widened = self.get_widened_literal_type(id);
-        if widened != id && !self.has_no_contextual_return_type(declaration) {
+        if widened != id && self.has_a_written_contextual_type(declaration) {
             return None;
         }
         Some(widened)
     }
 
-    /// Whether no contextual signature can supply this declaration's return type.
+    /// Whether a contextual type for this function is **written down** at its
+    /// position — the exact complement of [`Checker::has_no_contextual_type`]
+    /// over the one position either can see.
     ///
-    /// `getContextualSignatureForFunctionLikeDeclaration` (`checker.go:29711`)
-    /// answers `nil` outright for anything that is not a function expression, an
-    /// arrow or an object-literal method — for those there is *nothing to check*,
-    /// which is a certainty rather than the conservative approximation
-    /// [`Checker::has_no_contextual_type`] makes for the ones that remain.
-    fn has_no_contextual_return_type(&self, declaration: NodeId) -> bool {
-        !self.is_contextually_typed_function(declaration)
-            || self.has_no_contextual_type(declaration)
-    }
-
-    /// `ast.IsFunctionExpressionOrArrowFunction(node) || ast.IsObjectLiteralMethod(node)`
-    /// (`checker.go:29713`).
-    ///
-    /// A method is contextually typed only as an **object literal**'s member; a
-    /// class or interface method is not, which is why this asks the parent rather
-    /// than the kind alone.
-    fn is_contextually_typed_function(&self, declaration: NodeId) -> bool {
-        match self.nodes.kind(declaration) {
-            SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction => true,
-            SyntaxKind::MethodDeclaration => self.nodes.parent(declaration).is_some_and(|parent| {
-                self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
-            }),
-            _ => false,
-        }
+    /// Deliberately narrow. `getContextualType` (`checker.go:29344`) reaches a
+    /// call argument, an object-literal property and a `return` expression as
+    /// well, and this recognises none of them: at those positions the contextual
+    /// return type is almost never a *literal*, so `isLiteralOfContextualType`
+    /// answers `false` and widening is upstream's answer too. Widening there and
+    /// refusing here is the split the corpus measures at 569 converted against
+    /// 104 manufactured — see the sibling doc on
+    /// [`Checker::inferred_return_type`].
+    fn has_a_written_contextual_type(&self, declaration: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(declaration) else { return false };
+        matches!(
+            self.node_map.get(parent),
+            Some(Node::VariableDeclaration(node))
+                if node.r#type.is_some()
+                    && node.initializer.and_then(|i| Node::from(i).node_id()) == Some(declaration)
+        )
     }
 
     /// The expression of every `return` statement belonging to `owner`, with
@@ -1123,6 +1152,78 @@ mod tests {
         // No body and no annotation is `any`, exactly as for a method signature:
         // `getReturnTypeOfSignature`'s `NodeIsMissing(Body())` arm.
         assert_eq!(signature_of("declare const f: (x: number) => any;"), "(x: number) => any");
+    }
+
+    /// The printed type of the first `ArrowFunction` or `FunctionExpression` in
+    /// `source`, through the same entry `crate::expressions` uses.
+    ///
+    /// Deliberately **not** keyed on a variable name: the whole point of these
+    /// two tests is the positions that are *not* `const f = …`, and a helper that
+    /// went looking for a declaration would only ever reach the position that
+    /// already worked.
+    fn function_expression_type(source: &str) -> String {
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
+        let bound = tsr_binder::bind(
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "t.ts", text: source },
+        );
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        for index in 0..parsed.nodes.len() {
+            #[allow(clippy::cast_possible_truncation)]
+            let id = tsr_ast::NodeId::new(index as u32);
+            if !matches!(
+                parsed.nodes.kind(id),
+                SyntaxKind::ArrowFunction | SyntaxKind::FunctionExpression
+            ) {
+                continue;
+            }
+            let type_id = checker.get_type_of_function_expression(id);
+            return checker.type_to_string(type_id);
+        }
+        "<no function expression>".to_string()
+    }
+
+    /// A unit return widens even where a contextual type could exist, because
+    /// `isLiteralOfContextualType(t, nil)` is `false` (`checker.go:25551`) and
+    /// this port has no contextual types to pass.
+    ///
+    /// Both mutations were run rather than reasoned about. **M1** — `return None`
+    /// whenever widening would change the type, which is the guard this commit
+    /// removed — answers `error` here. **M2** — return `Some(id)` instead of the
+    /// widened type — answers `() => 1`. Each was applied, seen red, and reverted.
+    #[test]
+    fn a_unit_return_widens_outside_a_const_initialiser() {
+        // A call argument. Upstream *does* compute a contextual signature here;
+        // its return type is `number`, which is not a literal, so
+        // `isLiteralOfContextualType` says no and the result widens anyway.
+        assert_eq!(
+            function_expression_type("declare function foo(f: () => number): void; foo(() => 1);"),
+            "() => number"
+        );
+        // An object-literal property value — `ast.IsObjectLiteralMethod`'s
+        // neighbour, and the position `has_no_contextual_type` could never admit.
+        assert_eq!(function_expression_type("var o = { m: () => \"a\" };"), "() => string");
+    }
+
+    /// The position that already worked keeps working, and a **block** body
+    /// reaches the same tail as a concise one.
+    ///
+    /// Red under both M1 and M2, at `"() => 1"` and `"error"` respectively. It is
+    /// a **regression** test rather than the one that pins the change: the first
+    /// fixture is the position the removed guard already admitted, and the second
+    /// is a block body, which reaches this tail through the other of its two
+    /// callers. If a future narrowing of the widening rule breaks either, it has
+    /// gone further than this commit did.
+    #[test]
+    fn a_const_initialiser_and_a_block_body_reach_the_same_tail() {
+        assert_eq!(function_expression_type("const f = () => 1;"), "() => number");
+        assert_eq!(
+            function_expression_type("const f = function () { return 1; };"),
+            "() => number"
+        );
     }
 
     #[test]
