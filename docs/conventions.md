@@ -1826,3 +1826,63 @@ here that do it, and `C7`'s owner noted the standing cost honestly: it goes stal
 whenever the compiler moves, and each time it reads as a defect in the probe
 before it reads as a change in the subject. That cost is the price of the only
 control that can see a definition drift.
+
+### A proxy agreeing with the real test is not evidence the proxy works
+
+The call row was refused on a **shape** test reading 37.7%. After `3f140c2`
+established that spellability must be an exact **match**, it was re-derived. The
+match test reads **35.5%**.
+
+Two instruments, 2.4 percentage points apart, same verdict. That looks like
+strong corroboration and this document elsewhere treats exactly that pattern —
+*"two things that could disagree and do not"* — as the best evidence available.
+
+**It was a coincidence.** The cross-tab:
+
+| shape bucket | the port renders it | it does not |
+|---|---:|---:|
+| `Plain` | 871 | **1,011** |
+| `Any` | 568 | 157 |
+| `Structural` | **326** | 2,035 |
+
+**1,011 false positives and 326 false negatives — 1,337 of 4,968 misclassified,
+26.9% — and the two errors cancelled.**
+
+The predicate rejected every right-hand side containing `<`, `{`, `[`, `|`, `&`,
+`(` or `=>`, which are precisely the shapes `printing::type_to_string` exists to
+print: it renders `TypeData::Union`, `Anonymous` and `Named` from a stored `text`,
+so `string | number`, `{ a: string; }`, `() => void`, `string[]` and
+`Promise<number>` are all rendered **by construction**. It was a *"is this a bare
+name"* test wearing a spellability label — and it erred in **both** directions,
+also accepting `unique symbol` (276 lines), which this port cannot produce.
+
+So 37.7% was **not an upper bound, not a lower bound, and not a bound.**
+
+#### The rule, and the check that costs one bucket
+
+> **Agreement between a proxy and the thing it proxies is evidence about the
+> aggregate, not about the proxy.** Two numbers can agree because the proxy is
+> right, or because its errors cancel. Only a **cross-tabulation** — proxy verdict
+> against true verdict, all four cells — distinguishes them, and it costs one
+> bucket in a probe you are already running.
+
+This is the same family as *"a number can be true and answer a different
+question"*, one level in: here both numbers are true, they agree, and one of them
+is computed from a predicate that is wrong about a quarter of its inputs.
+
+It also narrows the corroboration rule this document leans on. **Two instruments
+agreeing is strong evidence only when they are independent *and* each is checked
+against ground truth.** `receiver_gap` and `nameres` agreeing on 292,217 was a
+shared defect (§ *"the +499"*); this is the other failure mode — genuinely
+independent instruments, agreeing for the wrong reason.
+
+#### And report the margin when a threshold is close
+
+The re-derivation also produced a looser, deliberately-pre-registered bound:
+corpus-wide vocabulary rather than per-case, reading **68.3% against a 70% bar**.
+The refusal survives **by 85 lines**.
+
+That margin belongs beside the verdict, not under it. A refusal at 68.3/70 and a
+refusal at 35.5/70 are different claims about how much new evidence would
+overturn them, and only the first tells the next reader that 85 more producible
+right-hand sides flip the leg.
