@@ -768,3 +768,54 @@ The property-access root rows barely moved: 13,315 → 12,921 and 6,272 → 6,04
 falls through to `errorType` on them. Honest gaps, exactly as designed. The
 lever behind them is a structured, rebuildable representation for
 function/method member types — a data-model change, not another seam.
+
+## The registration for signature instantiation (`bd tsr-0hc`), before the build
+
+Registered at `HEAD` after the `tsr-4qx` scoring above; nothing below measured.
+
+### The mechanism
+
+The structure `tsr-0hc` asks for already exists: every baked signature text is
+rendered from a [`Signature`] at exactly two sites (`function_types.rs:98`,
+`symbols.rs:1207`), and then the struct is dropped. The build records
+`TypeId -> Vec<Signature>` at those two sites (the ADR-0003 side-table move,
+same as `type_reference_targets`), and `instantiate_type_worker` gains a
+signature arm porting `instantiateSignature` (`checker.go:19640`): substitute
+every `TypeId` the signature carries — parameter types, `this`, return,
+constraints, defaults — refusing the whole signature if any part refuses, then
+re-render through the same `signature_to_string` / type-literal branch that
+produced the original text.
+
+Two hazards named before the build, each with its guard:
+
+1. **Calls must not resolve through the minted type.** `resolve_call_signature`
+   reads signatures off an `Anonymous`'s symbol, which are the
+   *uninstantiated* declarations — `p.then(f)` would answer
+   `Promise<TResult1 | TResult2>`, a wrong line. The minted type is
+   registered in the instantiation intern table and the resolver gaps on it.
+2. **Union parenthesisation is keyed on `Anonymous::signature`**, so the minted
+   type must stay `Anonymous` with that bit, or
+   `(() => boolean) | undefined` loses its parens — the 19-line defect class
+   the union-paren build already paid for.
+
+A signature's own type parameters (`then<TResult1 = T>`) are distinct
+`TypeId`s from the receiver's, so the map misses them by identity and they
+survive substitution unrenamed, which is upstream's behaviour. A shadowed name
+(`m<T>` inside `C<T>`) misses the map, trips the mentions scan, and gaps —
+the bias this module already chose.
+
+### The bar
+
+**KEEP** only if all of: **net ≥ +800** matched lines; **gained ÷ lost ≥ 3.0**
+(vacuous-if-zero handled as in the previous registration); **fewer cases
+regress than finish**; **Δwrong = −Δgap − Δright ≤ Δright ÷ 3** with Δgap from
+`depend.rs` at the same commit pair. REVERT otherwise, after naming which
+premise failed.
+
+### Predictions
+
+The conversion lands in the two property-access rows (12,921 + 6,047 at
+`0fe102a`) on members whose signatures mention the receiver's parameters —
+`push`/`map`/`then`/`catch` — plus whatever the member-name row shares. The
+overload-set (`Many`) form converts little: its members are also behind call
+resolution. Net predicted +1,500 to +4,000.
