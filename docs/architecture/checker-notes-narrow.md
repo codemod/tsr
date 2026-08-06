@@ -350,3 +350,53 @@ baseline keeps `boolean` and this port now says `true`/`false`. The 296
 in-range lines behind **unported guard forms** — `typeof`, `in`, `instanceof`,
 comparability — are the next tranche and are each their own item; the matcher
 they were waiting on now exists.
+
+## 6. `tsr-q9g` — `typeof` guard narrowing, sized twice and registered
+
+Fourth session, at `5a6d735`. Two probes priced this in one day, in opposite
+directions, both before any code: the `refmatch.rs` per-form split showed the
+ACCESS-line population is 27 (typeof 18 + `in` 9 — the issue's "typeof is the
+largest form" was upstream inference, not corpus measurement), and the new
+`examples/idtypeof.rs` counted the population no instrument had ever seen:
+**440 identifier-reference lines under a `typeof x === "…"` guard, 417 of
+them in the WRONG bucket** — we print the un-narrowed declared union where
+upstream prints the narrowed member. Wants: `string` 110, `number` 64,
+`boolean` 47, `never` 39. Diffuse: top case 41 of 440.
+
+### The mechanism, read before writing
+
+`narrowTypeByTypeof` (`flow.go:614`) → `narrowTypeByLiteralExpression`
+(`:646`) → on the true branch `narrowTypeByTypeName` (`:657`), on the false
+branch the eight `typeofNEFacts` bits (`:635`); both end in
+`narrowTypeByTypeFacts` (`:687`), which needs
+`isTypeRelatedTo(t, implied, strictSubtypeRelation)` and `isTypeSubtypeOf` —
+**and `relater.rs` has only `Relation::Assignable`**. That is the real cost
+the issue's "as mechanical as the six nullable bits" missed. Three parts:
+
+1. `Relation::Subtype` and `Relation::StrictSubtype` in `relater.rs` — the
+   simple-arm deltas are three relation tests in `isSimpleTypeRelatedTo`
+   (`relater.go:212` unknown-target/any-source, `:258` object→nonPrimitive
+   freshness, `:261` the assignable/comparable-only block, which is what makes
+   `any` NOT strictSubtype-related to `string` and therefore not collapse);
+2. the eight `TypeofEQ`/`TypeofNE` facts bit pairs with their per-type
+   aggregates (`checker.go:400` region);
+3. the `narrowTypeByTypeof` arm family in `flow.rs`, behind the structural
+   matcher that already exists.
+
+### The bar
+
+1. **net ≥ 120** (~27% of 440);
+2. **gained ≥ 3 × lost** — a ratio, not an absolute, because over-narrowing
+   trades: a wrong facts bit deletes a live constituent from a line that was
+   right;
+3. **0 case regressions**;
+4. **Δwrong ≤ −150 by `wrongdelta`** — the PRIMARY leg here, inverted from
+   every previous bar: 95% of the population is wrong lines, so the arm's
+   success is a *fall* in the wrong bucket, which `casedelta` sees only
+   indirectly. Any NEW wrong concentrated in the `typeGuard*` family is
+   over-narrowing and means the build is wrong.
+
+**Falsifier:** the 39 `never` wants need the union-exhaustion semantics
+end-to-end (both facts directions correct). If they stay wrong while
+`string`/`number` convert, the facts table is half-right — a state worse than
+absent, and leg 4's concentration split will show it.
