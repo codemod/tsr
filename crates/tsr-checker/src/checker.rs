@@ -169,6 +169,48 @@ pub struct Checker<'a, 'n> {
     /// wrong answer, which is why it is part of the port and not an
     /// optimisation.
     pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
+    /// Upstream's `c.strictNullChecks` (`checker.go:604`, set from the
+    /// compiler options at `:919` via `GetStrictOptionValue`).
+    ///
+    /// **Defaults to `true`**, which preserves every existing construction
+    /// site bit-for-bit — the whole crate was written assuming it on. The
+    /// conformance harness overrides it per case from the `@strict` /
+    /// `@strictNullChecks` directives ([`Checker::set_strict_null_checks`]),
+    /// because upstream's test runner leaves strict mode off unless a case
+    /// asks for it, and a union built under the wrong mode prints the wrong
+    /// constituents (`checker.go:25783`; `crate::unions`).
+    ///
+    /// Only the union constructor consults it so far. Every other
+    /// `strictNullChecks` branch upstream has (the `&&` arm's widening,
+    /// optionality's added `undefined`, `unknown` narrowing) still assumes
+    /// **on**; each is a separately measurable change and `bd tsr-e10` names
+    /// the optionality one.
+    pub(crate) strict_null_checks: bool,
+    /// `the baked signature type -> the signatures its text was rendered from`.
+    ///
+    /// The sibling of [`Checker::type_reference_targets`] for function-shaped
+    /// types, and the same ADR-0003 move: upstream's `*Type` carries its
+    /// resolved signatures (`checker.go`, `t.AsObjectType()`), so
+    /// `instantiateSignature` reads them off the type; here the [`Signature`]s
+    /// exist at exactly the two sites that bake them to text
+    /// (`crate::function_types`, `crate::symbols`) and are dropped there, which
+    /// made every signature-typed member of a generic uninstantiable. One entry
+    /// per distinct baked type; written where the text is rendered, because
+    /// that is the last point the structure exists. `bd tsr-0hc`.
+    pub(crate) signature_types: FxHashMap<TypeId, Vec<crate::signatures::Signature>>,
+    /// `(baked signature type, substitution map) -> the instantiated type`,
+    /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
+    /// to the one key this port can build.
+    ///
+    /// Doubles as the guard `resolve_call_signature` needs: a minted type is
+    /// `Anonymous` over the *uninstantiated* symbol (the `signature` bit must
+    /// survive for union parenthesisation), so resolving a call through that
+    /// symbol would answer the uninstantiated return type — a wrong line. The
+    /// resolver tests [`Checker::is_instantiated_signature_type`] and gaps.
+    pub(crate) instantiated_signatures: FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    /// The values of [`Checker::instantiated_signatures`], for the O(1)
+    /// membership test the call resolver makes.
+    pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
     /// How many frames of [`Checker::instantiate_type`] are on the stack.
     ///
     /// Upstream's `c.instantiationDepth` (`checker.go:592`), consumed by the
@@ -306,6 +348,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             shared_flows: Vec::new(),
             instantiation_depth: 0,
             instantiation_count: 0,
+            strict_null_checks: true,
+            signature_types: FxHashMap::default(),
+            instantiated_signatures: FxHashMap::default(),
+            minted_signature_types: rustc_hash::FxHashSet::default(),
         }
     }
 
@@ -321,6 +367,15 @@ impl<'a, 'n> Checker<'a, 'n> {
     #[must_use]
     pub fn module_host(&self) -> Option<&'n dyn ModuleHost> {
         self.module_host
+    }
+
+    /// Set [`Checker::strict_null_checks`] from a case's compiler options.
+    ///
+    /// Called by the conformance harness before any type is created — the
+    /// union constructor consults the flag at build time, so flipping it after
+    /// types exist would leave a mixed store.
+    pub fn set_strict_null_checks(&mut self, on: bool) {
+        self.strict_null_checks = on;
     }
 
     /// The well-known types.

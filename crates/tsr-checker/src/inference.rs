@@ -332,7 +332,117 @@ impl Checker<'_, '_> {
             }
             return self.get_union_type(&substituted);
         }
+        if self.signature_types.contains_key(&id) {
+            return self.instantiate_signature_type(id, map, parameters, names);
+        }
         error
+    }
+
+    /// Arm 5: a baked signature type, rebuilt with substituted parts.
+    ///
+    /// Ported from `instantiateSignature` (`checker.go:19640`) over this port's
+    /// [`Signature`], for the types the two bake sites recorded in
+    /// [`Checker::signature_types`](crate::checker) — `bd tsr-0hc`. Upstream
+    /// clones the signature with a merged mapper and instantiates its types
+    /// lazily; here every carried [`TypeId`] is substituted eagerly and the
+    /// text re-rendered through the same code that rendered the original, so
+    /// the instantiated form can only print what the proven renderer prints.
+    ///
+    /// A signature's **own** type parameters (`then<TResult1 = T>`) are
+    /// distinct types from the receiver's, miss the map by identity, and
+    /// survive unrenamed — upstream's behaviour. A part that cannot be
+    /// substituted refuses the whole type: `errorType`, a gap.
+    ///
+    /// The minted type keeps the *uninstantiated* symbol so the `signature`
+    /// bit and union parenthesisation survive; `resolve_call_signature`
+    /// (`crate::calls`) must therefore gap on it — reading the symbol's
+    /// declarations back would answer the uninstantiated return type, a wrong
+    /// line. That guard tests [`Checker::is_instantiated_signature_type`].
+    fn instantiate_signature_type(
+        &mut self,
+        id: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let key = (id, map.to_vec());
+        if let Some(&cached) = self.instantiated_signatures.get(&key) {
+            return cached;
+        }
+        let signatures = self.signature_types.get(&id).cloned().unwrap_or_default();
+        let mut instantiated = Vec::with_capacity(signatures.len());
+        for signature in signatures {
+            let Some(image) = self.instantiate_signature(signature, map, parameters, names) else {
+                return error;
+            };
+            instantiated.push(image);
+        }
+        // Re-rendered exactly as the bake sites render: one signature is a
+        // `FunctionTypeNode`, several are the type-literal form. An empty list
+        // is unreachable (neither site records one) and refuses.
+        let (text, signature_node) = match instantiated.as_slice() {
+            [] => return error,
+            [signature] => (self.signature_to_string(signature), true),
+            many => {
+                let mut out = String::from("{ ");
+                for signature in many {
+                    out.push_str(&crate::objects::signature_member_text(self, signature));
+                    out.push_str("; ");
+                }
+                out.push('}');
+                (out, false)
+            }
+        };
+        let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else {
+            return error;
+        };
+        let minted =
+            self.store.new_anonymous(crate::flags::TypeFlags::OBJECT, text, symbol, signature_node);
+        // Recorded in `signature_types` too, so an instantiated signature can
+        // be instantiated again — `C<T>` inside `D<U>` reaches that.
+        self.signature_types.insert(minted, instantiated);
+        self.instantiated_signatures.insert(key, minted);
+        self.minted_signature_types.insert(minted);
+        minted
+    }
+
+    /// One signature with every carried type substituted, or `None` when any
+    /// part refuses.
+    fn instantiate_signature(
+        &mut self,
+        mut signature: Signature,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> Option<Signature> {
+        let error = self.intrinsics.error;
+        let substitute = |checker: &mut Self, id: TypeId| -> Option<TypeId> {
+            let image = checker.instantiate_type(id, map, parameters, names);
+            (image != error).then_some(image)
+        };
+        for parameter in &mut signature.type_parameters {
+            if let Some(constraint) = parameter.constraint {
+                parameter.constraint = Some(substitute(self, constraint)?);
+            }
+            if let Some(default) = parameter.default {
+                parameter.default = Some(substitute(self, default)?);
+            }
+        }
+        if let Some(this_parameter) = &mut signature.this_parameter {
+            this_parameter.r#type = substitute(self, this_parameter.r#type)?;
+        }
+        for parameter in &mut signature.parameters {
+            parameter.r#type = substitute(self, parameter.r#type)?;
+        }
+        signature.r#type = substitute(self, signature.r#type)?;
+        Some(signature)
+    }
+
+    /// Whether `id` was minted by [`Checker::instantiate_signature_type`] —
+    /// the guard `resolve_call_signature` (`crate::calls`) gaps on.
+    pub(crate) fn is_instantiated_signature_type(&self, id: TypeId) -> bool {
+        self.minted_signature_types.contains(&id)
     }
 
     /// The [`TypeId`] of each of a signature's own type parameters, in order.
@@ -646,14 +756,13 @@ mod tests {
 
     #[test]
     fn a_shape_with_no_intern_key_is_still_a_gap() {
-        // The boundary of the reverse index, and the reason it is a boundary: a
-        // function type is not built through `create_type_reference`, so no
-        // `(symbol, arguments)` pair exists to reverse and there is nothing to
-        // rebuild it from.
-        //
-        // This is the test that fails if substitution is ever made to guess — a
-        // fallback to the uninstantiated type would print `(y: T) => T`, a
-        // wrong line rather than an absent one.
+        // This test's first assertion was born asserting `error`: a function
+        // type had no `(symbol, arguments)` pair to reverse and nothing to
+        // rebuild it from. `bd tsr-0hc` gave signature types their own reverse
+        // index (`Checker::signature_types`), so the boundary moved and the
+        // assertion flips to the substituted form. What still gaps — and what
+        // this test now guards — is a shape with *neither* index: an unmapped
+        // type parameter below.
         //
         // A **tuple** return type belongs in this list and is deliberately not
         // asserted here: `[T, U]` gaps *earlier*, in
@@ -667,7 +776,7 @@ mod tests {
                 "declare function k<T>(x: T): (y: T) => T;\nconst a = k<string>(\"s\");",
                 "k"
             ),
-            "error"
+            "(y: string) => string"
         );
         // An *unmapped* type parameter is the third way in: `U` appears in the
         // return type and in no bare parameter position, so inference leaves it

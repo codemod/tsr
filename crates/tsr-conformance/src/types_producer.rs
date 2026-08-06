@@ -824,6 +824,22 @@ fn render_case(
     // have no program, and they are the control that a call site without a host
     // is unchanged.
     let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, node_map, Some(program));
+    // `GetStrictOptionValue(strictNullChecks)` (`checker.go:919`) over the
+    // case's directives: the explicit flag wins, `@strict` is the fallback.
+    // **The default is `true`, measured off the baselines rather than
+    // assumed**: `compiler/genericDefaults` carries no strict directive and
+    // records `a : T | undefined` for `a?: T` (the strict-mode added
+    // undefined), while `compiler/promiseType` says `@strict: false` outright
+    // and renders `lib.es5.d.ts`'s `then` with its written
+    // `| undefined | null` stripped. A `false` default was tried first and
+    // lost 1,221 lines across 345 strict-by-default cases. Reduced to the two
+    // directives rather than widening `CompilerOptions`, because this is the
+    // only site the gradient constructs a checker through; the field moves
+    // into `CompilerOptions` when a second consumer arrives. The union
+    // constructor is what consumes it (`checker.go:25783`).
+    let explicit = |name: &str| case.options.get(name).map(|v| v.eq_ignore_ascii_case("true"));
+    let strict_null_checks = explicit("strictnullchecks").or_else(|| explicit("strict"));
+    checker.set_strict_null_checks(strict_null_checks.unwrap_or(true));
 
     let mut ours = Vec::new();
     for expected_file in expected {

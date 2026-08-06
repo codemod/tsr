@@ -879,6 +879,41 @@ fn a_property_access_has_the_type_of_the_property() {
 }
 
 #[test]
+fn a_signature_typed_member_of_a_generic_is_instantiated() {
+    // `bd tsr-0hc`: the member's declared type is a baked signature, and the
+    // receiver's `T` substitutes inside it — parameters and return both. The
+    // wrong answers separated: the uninstantiated text prints `(cb: (value: T)
+    // => string) => T[]`; the pre-0hc behaviour prints `error`.
+    assert_eq!(
+        type_of_declaration(
+            "interface Array<T> { }\ninterface P<T> { m(cb: (value: T) => string): T[]; }\ndeclare const p: P<number>;\nconst x = p.m;",
+            "x"
+        ),
+        "(cb: (value: number) => string) => number[]"
+    );
+    // A *call* through the instantiated member stays a gap: the minted type
+    // carries the uninstantiated symbol, and resolving its declarations would
+    // answer `T[]` — the wrong line the resolver guard exists to prevent.
+    assert_eq!(
+        type_of_declaration(
+            "interface Array<T> { }\ninterface P<T> { m(cb: (value: T) => string): T[]; }\ndeclare const p: P<number>;\nconst y = p.m(0 as any);",
+            "y"
+        ),
+        "error"
+    );
+    // A member whose signature mentions only the method's OWN type parameter
+    // survives unrenamed and un-substituted, upstream's behaviour for
+    // `then<TResult1>`-shaped members.
+    assert_eq!(
+        type_of_declaration(
+            "interface P<T> { pick<U>(x: U): U; }\ndeclare const p: P<number>;\nconst z = p.pick;",
+            "z"
+        ),
+        "<U>(x: U) => U"
+    );
+}
+
+#[test]
 fn a_property_that_is_not_there_is_a_gap_and_not_a_free_name() {
     // The `bd tsr-tl8` hazard, as a test: a local called `a` in scope must not
     // become the type of `o.a`. This is the one shape where this port could

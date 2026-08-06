@@ -1204,7 +1204,13 @@ impl<'a> Checker<'a, '_> {
                 out
             }
         };
-        self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, signature_node)
+        let built = self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, signature_node);
+        // The structure `printed` was rendered from, kept reachable from the id
+        // for `instantiate_type` — see `Checker::signature_types`
+        // (`bd tsr-0hc`). Both arms are recorded; the single/many distinction
+        // is recovered from the length when the instantiated form re-renders.
+        self.signature_types.insert(built, signatures);
+        built
     }
 
     /// Whether `symbolToTypeNode` would spell this symbol as something other than

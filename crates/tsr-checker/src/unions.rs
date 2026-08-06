@@ -411,14 +411,18 @@ impl Checker<'_, '_> {
         }
 
         if set.is_empty() {
-            // Every constituent was `never`, which is the only way to empty the
-            // set now that nullable types are kept. Upstream's other two answers
-            // here — `nullWideningType` and `undefinedWideningType`
-            // (`checker.go:25692`) — are reachable only with `strictNullChecks`
-            // off, so they are not ported rather than written and left dead.
-            // They come back with `bd tsr-5s2`, and they are *not* `nullType`
-            // and `undefinedType`: answering with those would merge identities
-            // upstream keeps apart.
+            // With `strictNullChecks` off a union of nothing but `null` and
+            // `undefined` empties the set, and upstream answers
+            // `undefinedWideningType` or `nullWideningType`
+            // (`checker.go:25692`). Neither widening intrinsic exists here —
+            // the same recorded divergence as `Checker::with_module_host`'s
+            // `undefined` seeding — and answering the non-widening twins would
+            // merge identities upstream keeps apart, so this is a gap.
+            if !self.strict_null_checks && includes.flags.intersects(TypeFlags::NULLABLE) {
+                return self.intrinsics.error;
+            }
+            // Every constituent was `never`, the only other way to empty the
+            // set.
             return self.intrinsics.never;
         }
 
@@ -488,11 +492,17 @@ impl Checker<'_, '_> {
         if self.is_error(id) {
             includes.error = true;
         }
-        // `checker.go:25783` drops `null` and `undefined` here when
-        // `strictNullChecks` is off. It is assumed **on** — see the module docs
-        // — so the drop does not happen and this is where it would go. The
-        // constituents survive into the type; `format_union_types` is what moves
-        // them to the end of the *printed* form.
+        // `checker.go:25783`: with `strictNullChecks` off, `null` and
+        // `undefined` never enter a union's constituent set — `T | undefined |
+        // null` *is* `T` in that mode, and the baselines print it that way
+        // (`lib.es5.d.ts`'s `then` renders with both stripped in every
+        // non-strict case). Their flags still reach `includes` above, which is
+        // what the all-nullable fallback in `union_type_worker` reads. When
+        // the flag is on, the constituents survive into the type and
+        // `format_union_types` moves them to the end of the printed form.
+        if !self.strict_null_checks && flags.intersects(TypeFlags::NULLABLE) {
+            return;
+        }
         types.push(id);
     }
 

@@ -95,6 +95,12 @@ impl<'a> Checker<'a, '_> {
         // identity — see the note above.
         let Some(symbol) = self.binder.symbol_of(id) else { return error };
         // A `FunctionTypeNode`, which is what this module is for.
-        self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true)
+        let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
+        // The structure the text was rendered from, kept reachable from the id
+        // so `instantiate_type` can rebuild this type with substituted parts —
+        // see `Checker::signature_types` (`bd tsr-0hc`). Recorded here because
+        // this is the last point the `Signature` exists.
+        self.signature_types.insert(built, vec![signature]);
+        built
     }
 }

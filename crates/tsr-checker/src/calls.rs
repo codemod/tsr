@@ -580,6 +580,20 @@ impl Checker<'_, '_> {
             }
             return None;
         };
+        // An **instantiated** signature type carries the *uninstantiated*
+        // symbol (`Checker::instantiate_signature_type`, `bd tsr-0hc`), so
+        // reading the symbol's declarations back here would resolve the
+        // uninstantiated signature and answer `Promise<TResult1 | TResult2>`
+        // where upstream substitutes — a wrong line rather than a gap. Calls
+        // through an instantiated member gap until signatures are resolved
+        // from the type rather than its symbol. Counted with the no-signature
+        // bucket: signatures exist, and none of them is usable here.
+        if self.is_instantiated_signature_type(callee) {
+            if counted {
+                bump(&COUNTERS.callee_no_signatures);
+            }
+            return None;
+        }
         let Some(signatures) = self.get_signatures_of_symbol(symbol) else {
             if counted {
                 bump(&COUNTERS.callee_no_signatures);
