@@ -1,19 +1,20 @@
-//! Sizing probe for the element-access remainder — STATUS.md §4.2's 374-score
-//! row, refused three times historically on a `want-any` share that the
-//! `tsr-4qx` collapse reduced to 19.2%.
+//! Sizing probe for `checkNonNullExpression` in access positions.
 //!
-//! For every gap line whose own node is an `ElementAccessExpression` and whose
-//! receiver and index both type today (the "root is here" condition), classify
-//! by what `getIndexedAccessType` (`checker.go:21902`) would need:
+//! Upstream types `x.a` and `x["a"]` on a **nullable** receiver by removing
+//! `null`/`undefined` first — `checkPropertyAccessExpression` hands
+//! `checkNonNullExpression(expr)` to the lookup (`checker.go:11258`), and the
+//! "possibly undefined" report is a *diagnostic*, not the type answer
+//! (ADR-0040's two-channel distinction). This port's `members.rs` and
+//! `indexed.rs` hand the union itself to the lookup, which misses, so every
+//! such access is a gap.
 //!
-//! - the index type's shape (numeric literal / string literal / other), and
-//! - the receiver type's shape — in particular whether it is a **tuple** this
-//!   port minted (`tuple_element_lists`, recorded at `0d56467`), because
-//!   `t[0]`'s element type became answerable the moment the reverse index
-//!   existed, and whether the receiver is a union.
+//! Population: gap lines whose node is a property access (or its member name)
+//! or an element access, whose receiver types today as a union that PRINTS
+//! with a `null` or `undefined` constituent. Text-classified — a probe-only
+//! convenience (`checker-notes-tuple.md` §7's rule is about the comparator).
 //!
-//! Controls: C1 every classified line's node types to `errorType` (expect 0
-//! violations); C2 buckets sum to the classified total.
+//! Controls: C1 classified lines actually gap (expect 0 violations);
+//! C2 buckets sum.
 
 use std::collections::BTreeMap;
 
@@ -26,6 +27,7 @@ struct Report {
     classified: usize,
     forms: BTreeMap<String, usize>,
     wants_any: BTreeMap<String, usize>,
+    receivers: BTreeMap<String, usize>,
     cases: BTreeMap<String, usize>,
     c1_not_gap: usize,
 }
@@ -40,10 +42,22 @@ impl Report {
         for (k, n) in &other.wants_any {
             *self.wants_any.entry(k.clone()).or_default() += n;
         }
+        for (k, n) in &other.receivers {
+            *self.receivers.entry(k.clone()).or_default() += n;
+        }
         for (k, n) in &other.cases {
             *self.cases.entry(k.clone()).or_default() += n;
         }
     }
+}
+
+/// Does this printed union carry a `null` or `undefined` constituent at top
+/// level?
+fn is_nullable_union(text: &str) -> bool {
+    if !text.contains(" | ") {
+        return false;
+    }
+    text.split(" | ").any(|piece| piece == "null" || piece == "undefined")
 }
 
 fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
@@ -64,7 +78,6 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
     let bound = program.binder();
     let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, map, Some(&program));
     let error = checker.intrinsics().error;
-    let any = checker.intrinsics().any;
 
     let mut report = Report::default();
     for (index, expected_file) in expected.iter().enumerate() {
@@ -84,74 +97,58 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 continue;
             }
             let id = line_ids[position];
-            let Some(Node::ElementAccessExpression(access)) = map.get(id) else { continue };
-            let (Some(receiver), Some(argument)) = (access.expression, access.argument_expression)
-            else {
-                continue;
+            let node = map.get(id)?;
+            // The access node itself, or the member NAME of one (`a.b`'s `b`
+            // types as the property, so its gap has the same receiver).
+            let (access_kind, receiver, optional) = match node {
+                Node::PropertyAccessExpression(access) => {
+                    ("property access", access.expression, access.question_dot_token.is_some())
+                }
+                Node::ElementAccessExpression(access) => {
+                    ("element access", access.expression, access.question_dot_token.is_some())
+                }
+                _ => {
+                    let parent = nodes.parent(id).and_then(|p| map.get(p));
+                    match parent {
+                        Some(Node::PropertyAccessExpression(access))
+                            if access.name.and_then(|n| match n {
+                                tsr_ast::MemberName::Identifier(i) => i.node_id,
+                                tsr_ast::MemberName::PrivateIdentifier(i) => i.node_id,
+                            }) == Some(id) =>
+                        {
+                            (
+                                "member name",
+                                access.expression,
+                                access.question_dot_token.is_some(),
+                            )
+                        }
+                        _ => continue,
+                    }
+                }
             };
-
+            let Some(receiver) = receiver else { continue };
             let receiver_type = checker.check_expression(receiver);
-            let index_type = checker.check_expression(argument);
-            if receiver_type == error || index_type == error {
-                // The gap is upstream of this arm — not this row's.
+            if receiver_type == error {
+                continue;
+            }
+            let receiver_text = checker.type_to_string(receiver_type);
+            if !is_nullable_union(&receiver_text) {
                 continue;
             }
             report.classified += 1;
             if types_producer::type_id_at_location(&mut checker, bound, nodes, map, id) != error {
                 report.c1_not_gap += 1;
             }
-
-            // Classified from the PRINTED text — a probe-only convenience the
-            // comparator itself is forbidden (`checker-notes-tuple.md` §7): a
-            // tuple's print starts with `[`, a string literal's with `"`, and
-            // a numeric literal's parses as a number.
-            let index_text = checker.type_to_string(index_type);
-            let index_shape = if index_text.starts_with('"') {
-                "string literal"
-            } else if index_text.parse::<f64>().is_ok() {
-                "numeric literal"
-            } else if index_text == "number" {
-                "number"
-            } else if index_text == "string" {
-                "string"
-            } else {
-                "other index"
-            };
-            let receiver_text = checker.type_to_string(receiver_type);
-            let receiver_shape = if access.question_dot_token.is_some() {
-                "optional chain"
-            } else if receiver_text.starts_with('[') || receiver_text.starts_with("readonly [") {
-                "tuple"
-            } else if receiver_type == any {
-                "any receiver"
-            } else if receiver_text.contains(" | ") {
-                "union receiver"
-            } else {
-                "other receiver"
-            };
-            // For a literal index on a non-tuple receiver, split the miss by
-            // CAUSE: a property that exists but whose own type gaps is a
-            // downstream symptom (§4.3's rule — not this row's item), where a
-            // lookup that finds nothing needs either members this port has not
-            // built or an index signature it has not applied.
-            let cause = if receiver_shape == "other receiver"
-                && (index_shape == "string literal" || index_shape == "numeric literal")
-            {
-                let name = index_text.trim_matches('"').to_string();
-                match checker.get_type_of_property_of_type(receiver_type, &name) {
-                    Some(t) if t == error => " — property EXISTS, its type gaps (downstream)",
-                    Some(_) => " — property answers (?!)",
-                    None => " — no such property, no index info",
-                }
-            } else {
-                ""
-            };
-            let form = format!("{receiver_shape} [{index_shape}]{cause}");
+            let form = format!(
+                "{access_kind}{}",
+                if optional { " (optional chain)" } else { "" }
+            );
             let wants_any = want.text.rsplit_once(" : ").is_some_and(|(_, answer)| answer == "any");
             if wants_any {
                 *report.wants_any.entry(form.clone()).or_default() += 1;
             }
             *report.forms.entry(form).or_default() += 1;
+            *report.receivers.entry(receiver_text.clone()).or_default() += 1;
             *report.cases.entry(case.name.clone()).or_default() += 1;
         }
     }
@@ -167,7 +164,7 @@ fn main() {
         report.merge(&partial);
     }
 
-    println!("# elemgap — element-access gap lines whose receiver and index type\n");
+    println!("# nnaccess — access gap lines on a nullable-union receiver\n");
     println!("classified: {}\n", report.classified);
     let mut rows: Vec<_> = report.forms.iter().collect();
     rows.sort_by(|a, b| b.1.cmp(a.1));
@@ -179,6 +176,12 @@ fn main() {
     }
     println!("\n  C1 classified-but-not-gap: {}  (expect 0)", report.c1_not_gap);
     println!("  C2 buckets sum {sum} vs classified {}", report.classified);
+    let mut receivers: Vec<_> = report.receivers.iter().collect();
+    receivers.sort_by(|a, b| b.1.cmp(a.1));
+    println!("\n## Top receiver types\n");
+    for (receiver, n) in receivers.into_iter().take(12) {
+        println!("  {n:>6}  {receiver}");
+    }
     let mut cases: Vec<_> = report.cases.iter().collect();
     cases.sort_by(|a, b| b.1.cmp(a.1));
     println!("\n## Top cases\n");
