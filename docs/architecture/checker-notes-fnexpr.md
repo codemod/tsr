@@ -679,3 +679,101 @@ are quoted again** (`open`, `bd tsr-94m`).
   implementation at that size.
 - **The 39 residual widening-gate lines.** A parameter annotation that gapped,
   which is a type-node row.
+
+
+## 11. `bd tsr-a5d` was built, measured against `RA`, and reverted
+
+Measured at **`c0cf629`**. The change was written in full, ran green on all
+checker tests, and **was reverted because the rule registered before it said
+so.** What is committed is the number.
+
+### 11.1 The registration, verbatim, from `checker-notes-callres.md` §11.6
+
+> **RA — build only if a counterfactual converts ≥25% of the 95 to exact baseline
+> matches, and ≥70% of the lines that stop gapping match exactly.** Population:
+> the `WrittenVariableAnnotation` source of G, §10.2, syntactically pinned.
+>
+> **And the collateral is forecast in advance, under `c592d0f`:** 54 of that
+> source's 109 parameter lines are wrong and go through `get_type_of_symbol` in
+> `symbols.rs`. **If RA fires it must be reported as a half.**
+
+### 11.2 What was built
+
+`get_type_of_function_expression` gained one contextual source — an annotation
+written on the variable declaration whose initialiser the function is — and
+threaded it through the signature build:
+
+- `get_signature_in_context(declaration, Option<&Signature>)`, with
+  `get_signature_from_declaration` delegating to it. `parameter_of` takes the
+  contextual parameter type for an unannotated parameter, mirroring
+  `assignContextualParameterTypes` (`checker.go:20397`), and refuses the
+  alignment it cannot verify — a `this` parameter on either side, or more
+  parameters than the context supplies.
+- The contextual **return** type threaded to `inferred_return_type`, so
+  `isLiteralOfContextualType` (`checker.go:25522`) could be *evaluated* rather
+  than assumed absent. `const f: () => 1 = () => 1` stopped gapping and printed
+  `() => 1`; a union contextual return type answers `None` and still gaps,
+  because upstream's union arm (`:25524`) recurses through machinery this port
+  does not have.
+
+**One design error was found by a test rather than by reasoning**, and it is the
+same shape as the one `9.3` records. The contextual path was first gated on
+`unannotated`, because contextual typing is *about* unannotated parameters. But
+the two things a contextual signature supplies are independent: parameter types
+for `const f: (x: number) => void = x => {}`, and a contextual **return** type for
+`const f: () => 1 = () => 1`, **which has no parameters at all**. Gating on
+`unannotated` answered the first and left the second gapping, and the existing
+assertion in `crates/tsr-checker/tests/types.rs` is what said so.
+
+### 11.3 Measured, by `examples/casedelta.rs`
+
+```
+  matched  299,291 -> 299,309     +18 lines
+  cases moved                     11
+  cases that REGRESSED            0
+  cases that newly finish         1
+  wrong                           43,426 -> 43,435   +9
+  gap                            136,343 -> 136,316  -27
+```
+
+**27 lines stopped gapping. 18 are right. 9 are wrong.**
+
+| `RA` leg | threshold | measured | |
+|---|---|---:|---|
+| converted, over the 95 | ≥25% | **18.9%** | **fails** |
+| exact match, over the lines that stopped gapping | ≥70% | **66.7%** | **fails** |
+
+**Both legs fail. Reverted.**
+
+### 11.4 Why 27 and not 95
+
+The build reaches **28% of its own bucket**. `written_contextual_signature`
+admits only a **bare, non-generic `FunctionTypeNode`** annotation; the other 68
+lines are annotated with a type reference (`Callback<T>`), a union, or a type
+literal carrying a call signature, each of which needs a different route from the
+type node to a signature. Widening it is not a small follow-on — a union
+contextual type is `isLiteralOfContextualType`'s recursive arm, which is the same
+unported machinery that makes the return case gap.
+
+The 9 wrong lines are **unattributed**: the before/after pair for §6's
+ours-against-upstream table was not taken, and quoting a cause for them without
+it would be the inference this page keeps refusing (`open`, `bd tsr-bs5`).
+
+### 11.5 The part that is worth more than the build would have been
+
+The registration did its job **in the direction that costs something**. RA was
+written when the number was unknown, and it was written by me; honouring it when
+the answer came back at 18.9% and 66.7% is the only thing that makes the two
+earlier refusals mean anything. A rule that is only obeyed when it agrees with
+you is a preference with extra steps.
+
+Two things also survive the revert:
+
+1. **The WRITTEN source is worth 18 lines, not 95.** §10 ranked it at 95 and said
+   *"sound, buildable, and 4.6% of the item"*; the counterfactual says the
+   reachable part is **18**, 0.9% of G. That is the fifth row on this project to
+   shrink on contact with a measurement, and it shrank **after** being sized by a
+   method that already knew to distrust row sizes.
+2. **`0 regressed` and `+9 wrong` together** say the 9 came out of the gap column,
+   not the right column — the same structural reading as §9.5, and it held here
+   too.
