@@ -1,0 +1,5 @@
+node_modules/
+package-lock.json
+# Per-run JSONL logs. Local telemetry, not project history — STATUS.md §7 is
+# where a session's outcome belongs.
+runs/
