@@ -529,12 +529,22 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
         let mut blocked_symbols: BTreeSet<SymbolId> = BTreeSet::new();
 
         for (position, assertion) in our_file.iter().enumerate() {
+            // **The baseline is asked first, and the order is the whole point.**
+            // A line where we answer `error` *and upstream's baseline also says
+            // `error`* is a **right** answer — a program may declare a type named
+            // `error`, and some in the corpus do. `receiver_gap.rs` asked
+            // `type_string == "error"` first and filed 389 such lines as gaps;
+            // this probe was written from its shape and inherited the defect.
+            // Corrected in `9b10272` upstream of here and in this commit for
+            // this file; `crates/tsr-conformance/examples/reconcile.rs` is the
+            // instrument that found it. `rank_board`, `wrong_attribution` and
+            // `types_shapes` all test the baseline first and always did.
             let baseline = expected_file.assertions.get(position);
-            if assertion.type_string == "error" {
-                report.gap += 1;
-            } else if baseline.is_some_and(|b| b.text == assertion.line()) {
+            if baseline.is_some_and(|b| b.text == assertion.line()) {
                 report.right += 1;
                 continue;
+            } else if assertion.type_string == "error" {
+                report.gap += 1;
             } else {
                 report.wrong += 1;
                 continue;

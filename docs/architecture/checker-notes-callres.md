@@ -1,7 +1,40 @@
-# Call and `new` resolution: an 18,314-line row that licenses 844 lines of work
+# Call and `new` resolution: an 18,294-line row that licenses 844 lines of work
 
-Status: measured 2026-08-06 at `058b4a9` + this commit, over the 9,538-case
-`.types` corpus population, from one pinned binary in an isolated worktree. The
+> **CORRECTED 2026-08-06, same day, before this page was ever quoted. Every row
+> count on it moved, and the verdict did not.**
+>
+> This probe was written from `receiver_gap.rs`'s shape and inherited its
+> gap/right ordering defect: it asked `type_string == "error"` *before* asking
+> whether the baseline matched, so a line where we answer `error` **and upstream's
+> baseline also says `error`** — a right answer; programs may declare a type named
+> `error` — was filed as a gap. Found and fixed on `main` in `9b10272` by
+> `crates/tsr-conformance/examples/reconcile.rs`; fixed in this file in this
+> commit.
+>
+> **The first run's exact agreement with `receiver_gap.rs` (292,217 / 143,509) was
+> evidence that this probe had copied the defect, not evidence that it was
+> right.** That is the more useful reading and it is what a shared helper shape
+> does.
+>
+> | | first run (defective) | corrected |
+> |---|---:|---:|
+> | gradient right | 292,217 | **292,606** |
+> | gradient gap | 143,509 | **143,120** |
+> | the three assigned rows | 18,314 | **18,294** |
+> | R1, callee has a type | 5,009 = 27.4% | **5,006 = 27.4%** |
+> | R2, plain-shaped | 1,867 of 4,943 = 37.8% | **1,864 of 4,940 = 37.7%** |
+>
+> **20 of the 389 corrected lines were in these rows. R1 and R2 were recomputed
+> rather than assumed, and neither moved a decision:** R1 still fires at 27.4%,
+> R2 still fails at 37.7% against 70%. **The refusal stands on the corrected
+> numbers.** The superseded figures are kept in this header rather than edited
+> away.
+
+Status: **re-measured 2026-08-06 at `058b4a9` + this commit**, over the
+9,538-case `.types` corpus population, from one pinned binary in an isolated
+worktree, after the `receiver_gap.rs` gap/right ordering defect this probe
+inherited was corrected. It was first measured at the same commit with the defect
+in place; **every number below the header is from the corrected binary.** The
 instrument is `crates/tsr-conformance/examples/callres.rs`, added in the same
 commit as this file. Upstream references are to `vendor/typescript-go` @
 `5b1047d10`, each taken from `grep -n` on the declaration.
@@ -18,7 +51,7 @@ expression nodes**; the two are not interchangeable and the board has twice
 turned one into the other by omission.
 
 **The verdict is a refusal.** The pre-registered rules were R1 (prerequisite) and
-R2 (spellability), conjunctive. **R1 fired at 27.4%. R2 did not fire, at 37.8%
+R2 (spellability), conjunctive. **R1 fired at 27.4%. R2 did not fire, at 37.7%
 against a 70% threshold, and it does not fire for any sub-shape of the admitted
 population either.** No checker code was written. §7 says what the residual
 licensed slice is (**844 lines**, 0.59% of the gap) and why even that is smaller
@@ -33,7 +66,7 @@ than it looks.
 2. **The concentration warning in the assignment does not survive re-measurement
    at the row level.** Two sub-rows were described as ≥68% top-10; whole-gradient
    they are 33.1%, 38.9% and 21.9%. §2.
-3. **Only 15.1% of the row is a `calls.rs` defect** — 2,763 of 18,314 lines have
+3. **Only 15.1% of the row is a `calls.rs` defect** — 2,763 of 18,294 lines have
    a blocking call whose callee has an *object* type. The rest is a chain into
    other people's rows. §4.
 4. **The spellability gate fails on every shape.** The largest single answer the
@@ -48,16 +81,16 @@ than it looks.
 
 ---
 
-## 1. The row is 18,314 lines, and the 3,200 was a different unit
+## 1. The row is 18,294 lines, and the 3,200 was a different unit
 
 The assignment quotes `docs/architecture/checker-notes-recvgap.md` §4:
 
 | terminal reason | assignment | this probe, whole-gradient |
 |---|---:|---:|
-| `… / VariableDeclaration / initialiser CallExpression` (BLOCK_SCOPED) | 1,124 | 952 + 1,643 |
-| `expression answered error: CallExpression` | 791 | **11,739** |
+| `… / VariableDeclaration / initialiser CallExpression` (BLOCK_SCOPED) | 1,124 | 952 + 1,640 |
+| `expression answered error: CallExpression` | 791 | **11,722** |
 | `… / VariableDeclaration / initialiser NewExpression` (FUNCTION_SCOPED) | 526 | 474 + 527 |
-| **stated total** | **≈3,200** | **18,314** |
+| **stated total** | **≈3,200** | **18,294** |
 
 **Those two columns do not measure the same thing and neither is wrong.**
 `receiver_gap.rs` walks each *receiver-is-a-gap* line down to its terminal
@@ -72,7 +105,7 @@ The comparable quantity to recvgap's 1,124 / 526 is this page's **cascade**
 (§6): 1,480 and 947 lines held down. Those are within range of each other and of
 the recvgap figures once the flag split is folded in.
 
-So the row's ceiling is **18,314 lines carrying the reason, plus 2,427 held
+So the row's ceiling is **18,294 lines carrying the reason, plus 2,427 held
 down**, not 3,200. That is the largest call-shaped population anyone has sized
 here — and §4 is why the number does not survive contact.
 
@@ -85,8 +118,10 @@ output:
   do the `reference, ` and `declaration name, ` prefixes, which are the *use*
   site and the *declaration* site of one symbol. Sizing by one flag string
   quarters the row.
-- They are not `VariableDeclaration`-only. 226 lines carry `PropertyAssignment`,
-  `PropertyDeclaration` or `Parameter` initialisers. This is what control C2
+- They are not `VariableDeclaration`-only. **272** lines carry
+  `PropertyAssignment`, `PropertyDeclaration` or `Parameter` initialisers — read
+  off the control mirrors, 6,572 − 6,300, not off the visible rows of the
+  verbatim histogram, which show only 226 of them. This is what control C2
   caught (§9).
 
 ## 2. Concentration (rule R3), and where the assignment's figure came from
@@ -95,16 +130,16 @@ Whole-gradient, per row. Unit: assertion lines.
 
 | row | lines | cases | top-1 | top-10 | three largest cases |
 |---|---:|---:|---:|---:|---|
-| `… / initialiser CallExpression` | 4,864 | 818 | 14.0% | **33.1%** | `compiler/temporal` 681, `compiler/promiseType` 122, `compiler/promiseTypeStrictNull` 122 |
+| `… / initialiser CallExpression` | 4,861 | 816 | 14.0% | **33.1%** | `compiler/temporal` 681, `compiler/promiseType` 122, `compiler/promiseTypeStrictNull` 122 |
 | `… / initialiser NewExpression` | 1,711 | 297 | 8.9% | **38.9%** | `compiler/typedArraysCrossAssignability01` 153, `conformance/parserRealSource11` 116, `compiler/duplicateLocalVariable1` 82 |
-| `expression answered error: CallExpression` | 11,739 | 2,370 | 5.9% | **21.9%** | `compiler/temporal` 697, `conformance/parserRealSource11` 621, `compiler/genericDefaults` 242 |
+| `expression answered error: CallExpression` | 11,722 | 2,364 | 5.9% | **21.9%** | `compiler/temporal` 697, `conformance/parserRealSource11` 621, `compiler/genericDefaults` 242 |
 | `expression answered error: NewExpression` (companion) | 1,985 | 672 | 4.7% | 20.9% | `conformance/parserRealSource7` 93, `conformance/parserRealSource11` 51, `conformance/unionTypeConstructSignatures` 44 |
 
 **R3 does not fire.** The assignment's 90.2% and 68.4% top-10 figures are
 properties of the *recvgap subset* — the lines those reasons hold down, which
 concentrate because a few large files (`compiler/temporal`,
 `conformance/parserRealSource*`) contain long receiver chains. The rows
-themselves are corpus-wide: 818, 297 and 2,370 cases, top-10 between 21.9% and
+themselves are corpus-wide: 816, 297 and 2,364 cases, top-10 between 21.9% and
 38.9%.
 
 This is worth stating plainly because it is the opposite of what the assignment
@@ -135,10 +170,19 @@ callee's own `gap_reason`, which is the next link in the chain (§4.1).
 
 The probe routes through `types_producer::assertions_for_case_with_ids`, so it
 builds one program per case with every bundled lib loaded. Its own gradient
-reconciliation prints **479,060 = 292,217 right (61.00%) + 143,509 gap (29.96%) +
-43,334 wrong (9.05%)**, identical to `receiver_gap.rs` at `7602d6b` — including
-that page's unexplained 0.09pp difference against the committed `checker_types`
-snapshot, which this probe reproduces and does not resolve (`open`).
+reconciliation prints **479,060 lines = 292,606 right (61.08%) + 143,120 gap
+(29.88%) + 43,334 wrong (9.05%)**.
+
+**479,060 is not the gradient's denominator and must not be quoted as one.** It
+is the count of lines *this probe rendered*; `types_suite::compare`
+(`crates/tsr-conformance/src/types_suite.rs:98`) takes its total from
+`assertion_count(expected)` and iterates the **baseline**, giving **478,954**.
+The bridge is 479,060 − 964 surplus + 858 deficit = 478,954, difference 0,
+measured by `crates/tsr-conformance/examples/reconcile.rs` and written up in
+`docs/architecture/checker-notes-recvgap.md` §8 (`9b10272`, `bd tsr-zlo`). The
+right/gap/wrong figures above are the corrected ones — see this page's dated
+header for what they were before, and why their first agreement with
+`receiver_gap.rs` was not the corroboration it looked like.
 
 ## 4. R1 — the partition, and the bucket the rule was written on
 
@@ -146,15 +190,15 @@ Over the three assigned rows. Unit: assertion lines.
 
 | bucket | lines | share | cases | top-10 |
 |---|---:|---:|---:|---:|
-| **callee HAS a type** — the prerequisite is met | **5,009** | **27.4%** | 977 | 14.7% |
-| callee is `a.b`, receiver gaps | 5,158 | 28.2% | 622 | 55.5% |
+| **callee HAS a type** — the prerequisite is met | **5,006** | **27.4%** | 976 | 14.7% |
+| callee is `a.b`, receiver gaps | 5,151 | 28.2% | 618 | 55.6% |
 | callee is `a.b`, member gaps | 3,210 | 17.5% | 652 | 37.6% |
-| callee name resolves, symbol has no type | 3,111 | 17.0% | 615 | 25.5% |
+| callee name resolves, symbol has no type | 3,105 | 17.0% | 612 | 25.5% |
 | callee is another expression form, gapped | 1,074 | 5.9% | 397 | 19.2% |
-| callee name does not resolve | 752 | 4.1% | 145 | 63.8% |
-| **total** | **18,314** | | | |
+| callee name does not resolve | 748 | 4.1% | 143 | 64.2% |
+| **total** | **18,294** | | | |
 
-**R1 fires: 27.4% ≥ 25%.** The bucket is the one the rule names, printed
+**R1 fires: 27.4% ≥ 25%** (5,006 of 18,294; 27.36% unrounded). The bucket is the one the rule names, printed
 literally, not a quantity derived from it.
 
 Per row the split is very uneven, and it is the `new` half that carries it:
@@ -163,8 +207,8 @@ Per row the split is very uneven, and it is the `new` half that carries it:
 |---|---:|
 | `… / initialiser NewExpression` | 1,133 of 1,711 — **66.2%** |
 | `expression answered error: NewExpression` (companion) | 1,220 of 1,985 — 61.5% |
-| `… / initialiser CallExpression` | 1,404 of 4,864 — 28.9% |
-| `expression answered error: CallExpression` | 2,472 of 11,739 — 21.1% |
+| `… / initialiser CallExpression` | 1,403 of 4,861 — 28.9% |
+| `expression answered error: CallExpression` | 2,470 of 11,722 — 21.1% |
 
 A `new` expression's callee is a class name, which this port types; a call's
 callee is very often `a.b`, which it does not. **If the item were split by
@@ -178,9 +222,9 @@ The callee's own `gap_reason`, top rows. Unit: blocking call nodes, not lines
 
 | callee's reason | count |
 |---|---:|
-| `property access, the receiver is a gap: Identifier` | 3,014 |
-| `property access, the receiver is a gap: PropertyAccessExpression` | 1,432 |
-| `reference, the name does not resolve` | 945 |
+| `property access, the receiver is a gap: Identifier` | 3,009 |
+| `property access, the receiver is a gap: PropertyAccessExpression` | 1,431 |
+| `reference, the name does not resolve` | 941 |
 | `property access, the property has no type` | 841 |
 | `reference, symbol has no type: SymbolFlags(FUNCTION) / FunctionDeclaration / neither` | **797** |
 | `property access, the receiver has no such property: Promise<boolean>` | 491 (4 cases) |
@@ -191,7 +235,7 @@ The largest three are property-access chains, which is
 `docs/architecture/checker-notes-calls.md`'s finding — *"it is a property-access
 problem, not a call problem"* — arriving from a different direction and one level
 further out. That page measured it on **nodes** and got 56.4%; this page measures
-it on **lines** and gets 45.7% (5,158 + 3,210 of 18,314). Two instruments,
+it on **lines** and gets 45.7% (5,151 + 3,210 of 18,294). Two instruments,
 different units, same conclusion.
 
 The 797 under `FunctionDeclaration / neither` is a distinct mechanism and is
@@ -205,15 +249,15 @@ answer of ours enters it. `Plain` means a bare name or keyword; `Structural`
 means it contains `<`, `{`, `[`, `|`, `&`, `(` or `=>`; `Any` means literally
 `any`.
 
-Over the 5,009 admitted lines (4,943 of which have a comparable baseline RHS):
+Over the 5,006 admitted lines (4,940 of which have a comparable baseline RHS):
 
 | shape | lines | share |
 |---|---:|---:|
-| Plain | 1,867 | **37.8%** |
+| Plain | 1,864 | **37.7%** |
 | Structural | 2,339 | 47.3% |
 | Any | 737 | 14.9% |
 
-**R2 does not fire: 37.8% against a 70% threshold.**
+**R2 does not fire: 37.7% against a 70% threshold.**
 
 ### It does not fire for any sub-shape either
 
@@ -223,9 +267,9 @@ Splitting the admitted bucket by what kind of type the callee has — this split
 | callee's type shape | admitted lines | share | plain-shaped |
 |---|---:|---:|---:|
 | an object type (`TypeData::Anonymous`) — `calls.rs`/`signatures.rs` own it | 2,763 | 55.2% | 844 of 2,716 = **31.1%** |
-| a `Named` type — a lib constructor interface or a class | 1,435 | 28.6% | 722 of 1,423 = **50.7%** |
-| `any` | 608 | 12.1% | 238 of 601 = **39.6%** |
-| a union, a literal, a non-`any` intrinsic | 203 | 4.1% | 63 of 203 = **31.0%** |
+| a `Named` type — a lib constructor interface or a class | 1,435 | 28.7% | 722 of 1,423 = **50.7%** |
+| `any` | 606 | 12.1% | 236 of 599 = **39.4%** |
+| a union, a literal, a non-`any` intrinsic | 202 | 4.0% | 62 of 202 = **30.7%** |
 
 **And the 50.7% is itself an over-estimate.** Its two largest answers are
 `unique symbol` (264) and `symbol` (150) — `Symbol()` calls. `unique symbol`
@@ -265,9 +309,9 @@ whether that receiver's symbol is one these rows block:
 
 | row | own lines | downstream | multiplier | downstream cases | top-10 |
 |---|---:|---:|---:|---:|---:|
-| `… / initialiser CallExpression` | 4,864 | 1,480 | **1.30×** | 92 | 76.5% |
+| `… / initialiser CallExpression` | 4,861 | 1,480 | **1.30×** | 92 | 76.5% |
 | `… / initialiser NewExpression` | 1,711 | 947 | **1.55×** | 97 | 56.2% |
-| total | 6,575 | **2,427** | 1.37× | | |
+| total | 6,572 | **2,427** | 1.37× | | |
 
 That is the *planner's* ratio — against the rows predicted to move — in the sense
 `docs/conventions.md` distinguishes. It is in the same range as the 1.66× measured
@@ -282,7 +326,7 @@ order to be used.
 | Any | 437 | 18.1% |
 | Plain | 402 | 16.6% |
 
-**16.6% plain against 37.8% for the target.** The lines this row holds down are
+**16.6% plain against 37.7% for the target.** The lines this row holds down are
 *less* spellable than the row itself — they are member reads off generic lib
 types (`Promise<T>`, `Set<T>`, the typed arrays), which is exactly the family the
 module-object item went negative on. So the cascade does not rescue the item; it
@@ -294,7 +338,7 @@ counted only the row.
 The intersection of both gates is: **the callee has an object type** (2,716 lines
 with a comparable RHS) **and the baseline answer is plain-shaped** (844).
 
-**844 lines. 0.59% of the 143,509-line gap.** Against an 18,314-line row and a
+**844 lines. 0.59% of the 143,120-line gap.** Against an 18,294-line row and a
 whole-workstream assignment.
 
 I did not build it, for three reasons, in order of weight:
@@ -309,13 +353,13 @@ I did not build it, for three reasons, in order of weight:
    through the zero-signature arm, or through `choose_overload`'s `SELECTABLE`
    gate. Which of those, and in what proportion, is **not measured here**
    (`open`, `bd tsr-klm`). Without that split the 844 could be one change or five.
-3. **The `any` bucket is a trap.** 608 admitted lines have an `any` callee, whose
+3. **The `any` bucket is a trap.** 606 admitted lines have an `any` callee, whose
    upstream answer is `any` (`resolveUntypedCall`, `checker.go:9902`). Porting it
-   is faithful and it would move 608 lines from `gap` to `right` — and every one
+   is faithful and it would move 606 lines from `gap` to `right` — and every one
    of those lines answers `any`, which is the column
    `docs/architecture/checker-notes-rank.md` §6 already flags as unaudited
    (21,685 lines banked on `any`, computed and defaulted not separated). Adding
-   608 more to it before that audit exists would make the audit harder, for
+   606 more to it before that audit exists would make the audit harder, for
    credit nobody trusts.
 
 ## 8. Spin-off items, neither of them in `calls.rs`
@@ -348,19 +392,19 @@ Both are filed with `bd`: `tsr-4sa` and `tsr-cwz`.
 | control | reads | pinned by |
 |---|---:|---|
 | C1 the blocking node's kind ≠ the kind the reason names | **0** | `gap_reason` prints `nodes.kind(initializer)`; the probe reaches the same node by an independent route |
-| C1′ the mirror, kinds agreeing | 6,575 | — |
+| C1′ the mirror, kinds agreeing | 6,572 | — |
 | C2 where the reason says `/ VariableDeclaration /`, the blocking node's parent is not one | **0** | an initialiser's parent *is* its declaration — a property of the subject |
-| C2′ the mirror | 6,303 | — |
+| C2′ the mirror | 6,300 | — |
 | C3 an `expression answered error:` line whose node does not carry the row's kind | **0** | `gap_reason` prints that kind from the same node table |
 | C4 a downstream line that is itself in one of these rows | **0** | the reason prefixes are disjoint in `gap_reason` |
 | C5 a reason matching more than one row test | **0** | `/ initialiser X` and `expression answered error: X` cannot co-occur |
-| A1 rows == partition | 18,314 == 18,314, difference 0 | arithmetic |
+| A1 rows == partition | 18,294 == 18,294, difference 0 | arithmetic |
 
 **C2 fired, at 272, on the first run, and the defect was in the control.** It was
 written unconditionally — *"the blocking node's parent is a `VariableDeclaration`"*
 — and these rows also carry `PropertyAssignment`, `PropertyDeclaration` and
 `Parameter` initialisers. The fix was to read the declaration kind out of the
-reason string rather than to loosen the test. The 226 non-variable lines this
+reason string rather than to loosen the test. The 272 non-variable lines this
 surfaced are recorded in §1; without the control they would have been silently
 folded into the row.
 
@@ -380,30 +424,37 @@ and both assertions were proven red under a named mutation:
 ## 10. How you would know this page is wrong
 
 - **The partition is a list.** A1 would print a non-zero difference. It prints 0
-  over 18,314.
+  over 18,294.
 - **The navigation to the blocking node is wrong.** C1 or C2 would be non-zero.
   C2 already caught one error of exactly this class.
 - **R2's `Plain` arm is a shape test and can be fooled.** It already is, by
   `unique symbol` (264 lines, §5). If someone finds a second such family the
-  37.8% is an over-estimate again, and the refusal only gets stronger — but a
+  37.7% is an over-estimate again, and the refusal only gets stronger — but a
   family running the *other* way (a `Structural` RHS this port can in fact build,
   say a tuple or a union of literals) would weaken it. The verbatim RHS
   histograms are printed so this can be checked rather than argued.
 - **The `callee has a type` bucket is a ceiling on `calls.rs`'s ownership, not a
-  measurement of it.** 5,009 lines reach `resolve_call_signature` and it says
+  measurement of it.** 5,006 lines reach `resolve_call_signature` and it says
   `None`; *why* is not split here. If most of them stop at the
   `TypeData::Anonymous` destructure (that is, they are the `Named` shape) then
   the item is §8.1 and not a `calls.rs` item at all. That split is one more
   counter in this same probe, and it is filed rather than done (`open`,
   `bd tsr-klm`).
 - **The cascade is measured only for the two `initialiser` rows.** The
-  `expression answered error:` rows — 11,739 lines, the largest of the three —
+  `expression answered error:` rows — 11,722 lines, the largest of the three —
   have no cascade figure here, because a call expression's downstream is not
   reachable by the receiver-chain walk this probe reuses. If those rows hold down
   a large spellable population, §6's verdict is understated in the favourable
   direction (`open`, `bd tsr-trf`).
-- **The 0.09pp gradient difference against the committed `checker_types`
-  snapshot** is reproduced here and still unexplained (`open`, inherited from
-  `checker-notes-recvgap.md` §8). Nothing on this page is a share of that
-  denominator, so no figure here moves if it is resolved — but the absolute
-  right-count should not be quoted as the gradient's.
+- **The gap/right ordering.** This probe had it backwards and the dated header
+  says what that cost. The standing check is `reconcile.rs`'s C1: the probe's
+  `right` and `types_suite::compare`'s matched count are the same predicate at
+  the same positions, so their difference is 0 **by construction**, and it reads
+  −276,213 under a one-position shift. Any successor probe written from this
+  file's shape should run it before quoting a gradient.
+- **Nothing on this page leans on a `KIND` label from
+  `checker-notes-rank.md`.** Checked after that board's `cause()` gained a
+  positive terminal arm (`b5decc5`, `bd tsr-v1j`) and `TERMINAL` fell from
+  34.92% to **16.41%** — 52.6% of what it used to call terminal was not. The one
+  figure this page borrows from that board is §7's 21,685 lines banked on `any`,
+  which is not a `KIND` label and does not move.
