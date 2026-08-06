@@ -9,6 +9,7 @@ use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{
     checker::Checker,
+    flags::TypeFlags,
     types::{TypeData, TypeId},
 };
 
@@ -34,9 +35,16 @@ impl Checker<'_, '_> {
     ///
     /// Upstream takes the receiver's **apparent** type first, which is what makes
     /// `"a".length` work: a primitive's apparent type is its wrapper interface
-    /// from `lib.d.ts`. There are no lib files (`bd tsr-9or.1`), so a primitive
-    /// receiver has no members here and answers `errorType` — a gap the histogram
-    /// attributes to lib rather than to this function.
+    /// from `lib.d.ts`. That is [`Checker::apparent_type`], and it is now taken
+    /// here.
+    ///
+    /// > **This comment used to say "there are no lib files (`bd tsr-9or.1`), so
+    /// > a primitive receiver has no members here"**, and that has been false
+    /// > since the program started loading `internal/bundled/libs`. The gap it
+    /// > described was being attributed to lib rather than to this function, and
+    /// > it was this function's. Corrected rather than deleted, because
+    /// > `docs/conventions.md` records four stale comments outliving their truth
+    /// > in one session and this was a fifth.
     ///
     /// Not ported: optional chains, private identifiers, `super`, and index
     /// signatures. All answer `errorType`.
@@ -96,6 +104,15 @@ impl Checker<'_, '_> {
         // **Closing contextual typing is what removes them.** That is recorded
         // here rather than left to be rediscovered, because a limitation naming
         // no owner is how four stale comments outlived their truth this session.
+        // **The apparent type is taken before the `any` test, as upstream takes
+        // it** (`checker.go:11265`, `apparentType := c.getApparentType(...)`,
+        // one line above `isAnyLike`). The order is not cosmetic: upstream's
+        // `isAnyLike` asks about the *apparent* type, so a receiver whose
+        // apparent type is `any` takes the `any` path even when the original
+        // was not. Reversing it here would answer `any` for a primitive whose
+        // global interface is missing — the direction that manufactures
+        // confident wrong answers.
+        let receiver_type = self.apparent_type(receiver_type);
         if receiver_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
@@ -106,6 +123,78 @@ impl Checker<'_, '_> {
         // decoration. The identity test above is what keeps that true now that
         // an `ANY`-flagged type has a fast path.
         self.get_type_of_property_of_type(receiver_type, name.text).unwrap_or(error)
+    }
+
+    /// The type whose members a property access should be looked up in.
+    ///
+    /// Ported from `Checker.getApparentType` (`checker.go:21729`, from `grep -n`
+    /// on the declaration), **primitive arms only** — the five `switch` cases
+    /// that map a primitive to its global wrapper interface, in upstream's own
+    /// order.
+    ///
+    /// # What is deliberately not ported, and who owns each
+    ///
+    /// Upstream's `getApparentType` has five arms before these five and three
+    /// after. Every one of them is in a file this workstream does not own, and
+    /// each returns the type unchanged here rather than guessing:
+    ///
+    /// | upstream arm | what it needs | owner |
+    /// |---|---|---|
+    /// | `TypeFlagsInstantiable` → base constraint | `getBaseConstraintOfType` | type parameters |
+    /// | `ObjectFlagsMapped` | mapped types | not ported at all |
+    /// | `ObjectFlagsReference` → `getTypeWithThisArgument` | instantiation | `bd tsr-4qx` |
+    /// | `TypeFlagsIntersection` | `getApparentTypeOfIntersectionType` | `intersections.rs` |
+    /// | `TypeFlagsNonPrimitive` / `Index` / `Unknown` | `emptyObjectType`, `stringNumberSymbolType` | `intrinsics.rs` |
+    ///
+    /// **This is why the slice is 1,165 lines and not 13,156.** The row
+    /// `property access, the receiver has no such property` blocks 13,156 gap
+    /// lines; measured by `examples/gaproot.rs`, 36.7% of them have an
+    /// instantiated-generic receiver and 9.6% an array receiver — the
+    /// `ObjectFlagsReference` arm, which is `bd tsr-4qx` — and only 11.3% have a
+    /// primitive one. See `docs/architecture/checker-notes-gaproot.md` Part 2.
+    ///
+    /// # A missing global is a gap, never `any`
+    ///
+    /// `globals()` may not hold `String` — a lib-less unit test never does. The
+    /// original type is returned then, and the lookup below misses and answers
+    /// `errorType`. Returning `anyType` or `emptyObjectType` instead would turn
+    /// a lib configuration into a confident wrong answer on every primitive
+    /// member access in the corpus.
+    ///
+    /// Likewise a global whose *declared type* gaps: `get_declared_type_of_symbol`
+    /// answering `errorType` means the interface is there and unreadable, and the
+    /// original primitive is the more honest receiver to fail on.
+    fn apparent_type(&mut self, id: TypeId) -> TypeId {
+        // Upstream's order, arm for arm (`checker.go:21745-21751`). `NUMBER_LIKE`
+        // carrying `ENUM` is upstream's too, not a widening added here.
+        //
+        // A union carries `TypeFlags::UNION` and **not** its constituents'
+        // flags (`crate::unions::create_union`), with the single exception of
+        // `false | true`, which is given `BOOLEAN` deliberately so that it *is*
+        // `boolean`. So `string | number` reaches no arm here and `boolean`
+        // reaches the fourth — which is exactly upstream's behaviour, and the
+        // reason this needs no union guard of its own.
+        let flags = self.store.get(id).flags;
+        let global = if flags.intersects(TypeFlags::STRING_LIKE) {
+            "String"
+        } else if flags.intersects(TypeFlags::NUMBER_LIKE) {
+            "Number"
+        } else if flags.intersects(TypeFlags::BIG_INT_LIKE) {
+            "BigInt"
+        } else if flags.intersects(TypeFlags::BOOLEAN_LIKE) {
+            "Boolean"
+        } else if flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            "Symbol"
+        } else {
+            return id;
+        };
+        // Not `crate::declared::global_type_symbol`, which gates on the symbol
+        // having **exactly one** type parameter — right for `Array<T>` and
+        // `Promise<T>`, and wrong for every interface here, all of which have
+        // none. Reusing it would have made this arm silently dead.
+        let Some(&symbol) = self.binder.globals().get(global) else { return id };
+        let declared = self.get_declared_type_of_symbol(symbol);
+        if declared == self.intrinsics.error { id } else { declared }
     }
 
     /// The **type** of a property of `id`, or `None` if there is no such

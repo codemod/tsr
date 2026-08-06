@@ -71,6 +71,14 @@ use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
 /// (`docs/conventions.md`). `receiver_gap`'s deepest measured chain is 6.
 const MAX_DEPTH: usize = 64;
 
+/// **RULE-2's B2 switch.** With it off, this probe is the instrument that
+/// produced Part 1 of `checker-notes-gaproot.md`; with it on, a
+/// `the property has no type` access descends to the property's own
+/// declaration instead of claiming to be its own root. Both runs are reported,
+/// because the difference **is** the measurement — the same shape as
+/// `checker-notes-rank.md`'s M0.
+const PROPERTY_DECLARATION_EDGE: bool = true;
+
 /// What stopped the walk. **Every arm but [`Root::Unmatched`] has a positive
 /// test**; `Unmatched` is the default and is the control.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
@@ -252,6 +260,27 @@ struct CaseReport {
     /// The lib-name signal `row_key` cuts out of a type-node row: for a
     /// `TypeReference unresolved: X` root, the `X`.
     unresolved_names: HashMap<String, usize>,
+    /// **RULE-2's B1.** For every line whose root is a property-access row,
+    /// whether the root access's *receiver* is typed the way upstream types it.
+    /// Keyed by `(row, verdict)`; the unit is gap assertion lines.
+    ///
+    /// A receiver that is typed **wrongly** does not gap, so nothing inside the
+    /// access's span gapped, so `gaproot` calls the access its own root — and
+    /// the lookup that failed did so on a type `members.rs` was never given a
+    /// chance to search. Those lines are not this row's work at any size.
+    receiver_fidelity: HashMap<(String, &'static str), usize>,
+    /// The receiver types the lookup actually failed on, when the receiver is
+    /// typed correctly. This is what names the work inside the row.
+    receiver_types: HashMap<String, usize>,
+    /// For the **primitive-receiver** slice only — the one that is `members.rs`
+    /// work — what upstream prints for the line. `getApparentType` makes the
+    /// lookup *reach* `String`/`Number`; it does not make this port able to
+    /// compute what it finds there. A slice whose answers are call signatures
+    /// converts nothing, and this is the bucket that says which.
+    primitive_rhs: HashMap<String, usize>,
+    /// The same slice, by case, so its concentration can be read separately
+    /// from the whole row's.
+    primitive_by_case: HashMap<String, usize>,
     roots: HashMap<(Root, String), Tally>,
     depth_hist: BTreeMap<usize, usize>,
     /// How many *distinct top-level* gapped children a span step chose from. 1
@@ -482,6 +511,8 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                 our_file,
                 line_ids,
                 &position_of,
+                &expected_file.assertions,
+                &case.name,
                 position,
                 want_type,
             );
@@ -529,6 +560,8 @@ fn walk(
     file: &[types_producer::Assertion],
     line_ids: &[NodeId],
     position_of: &HashMap<NodeId, usize>,
+    baseline: &[types_baseline::TypeAssertion],
+    case_name: &str,
     start: usize,
     want_type: &str,
 ) {
@@ -537,7 +570,7 @@ fn walk(
     let mut depth = 0usize;
     let mut board_recorded = false;
 
-    let (root, key, final_reason) = loop {
+    let (root, key, final_reason, root_node) = loop {
         let reason = types_producer::gap_reason(checker, bound, nodes, map, node);
         // The span test, where this node is a rendered line. A node reached
         // through an initialiser edge may not be one; then there is no span
@@ -598,6 +631,7 @@ fn walk(
         }
 
         let step = descend(
+            checker,
             bound,
             nodes,
             map,
@@ -630,15 +664,15 @@ fn walk(
                         }
                     }
                 }
-                break (root, key, reason);
+                break (root, key, reason, node);
             }
             Step::Go(next, edge) => {
                 report.edge(edge);
                 if visited.contains(&next) {
-                    break (Root::Cycle, row_key(&reason), reason);
+                    break (Root::Cycle, row_key(&reason), reason, node);
                 }
                 if depth + 1 >= MAX_DEPTH {
-                    break (Root::DepthBound, row_key(&reason), reason);
+                    break (Root::DepthBound, row_key(&reason), reason, node);
                 }
                 visited.push(next);
                 node = next;
@@ -655,6 +689,26 @@ fn walk(
         }
     }
     *report.depth_hist.entry(depth).or_default() += 1;
+    // **RULE-2's B1**, read at the root rather than at the line: is the access
+    // whose lookup failed even looking at the right type?
+    if final_reason.contains("the receiver has no such property")
+        || final_reason.contains("the property has no type")
+    {
+        let row = row_key(&final_reason);
+        let (verdict, receiver_type) =
+            receiver_fidelity(checker, nodes, map, file, position_of, baseline, root_node);
+        *report.receiver_fidelity.entry((row, verdict)).or_default() += 1;
+        if let Some(receiver_type) = receiver_type {
+            if receiver_family(&receiver_type).starts_with("primitive")
+                || receiver_family(&receiver_type).ends_with("as `string`")
+                || receiver_family(&receiver_type).ends_with("as `number`")
+            {
+                *report.primitive_rhs.entry(want_type.to_string()).or_default() += 1;
+                *report.primitive_by_case.entry(case_name.to_string()).or_default() += 1;
+            }
+            *report.receiver_types.entry(receiver_type).or_default() += 1;
+        }
+    }
     // The lib-name signal, kept out of the row key but not thrown away.
     if root == Root::TypeNode
         && let Some((_, name)) = final_reason.rsplit_once("unresolved: ")
@@ -675,6 +729,82 @@ fn walk(
     }
     if want_type == "any" {
         tally.any_rhs += 1;
+    }
+}
+
+/// **RULE-2's B1.** Is the receiver of this failing access typed the way
+/// upstream types it?
+///
+/// Returns the verdict and, when the receiver *is* typed correctly, the type it
+/// was typed as — which is what names the work inside the row, since the lookup
+/// then failed on a type `members.rs` genuinely could have searched.
+///
+/// The comparison is against the **baseline's own right-hand side for the
+/// receiver's rendered line**, not against anything this port computes twice.
+/// `receiver not rendered` is its own verdict rather than being folded into
+/// either answer: upstream's walker does not emit a line for every receiver
+/// (a `this`, a parenthesised expression), and counting an absent line as
+/// agreement is how a probe manufactures a prerequisite.
+fn receiver_fidelity(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    file: &[types_producer::Assertion],
+    position_of: &HashMap<NodeId, usize>,
+    baseline: &[types_baseline::TypeAssertion],
+    access: NodeId,
+) -> (&'static str, Option<String>) {
+    let Some(Node::PropertyAccessExpression(node)) = map.get(access) else {
+        return ("not an access", None);
+    };
+    let Some(receiver) = node.expression else { return ("no receiver", None) };
+    let Some(receiver_id) = receiver.node_id() else { return ("no receiver", None) };
+    let _ = nodes;
+    let Some(&position) = position_of.get(&receiver_id) else {
+        return ("receiver not rendered", None);
+    };
+    let (Some(ours), Some(want)) = (file.get(position), baseline.get(position)) else {
+        return ("receiver not rendered", None);
+    };
+    let Some(want_type) = want.text.strip_prefix(&format!("{} : ", ours.text)) else {
+        return ("receiver line unaligned", None);
+    };
+    if want_type == ours.type_string {
+        let receiver_type = checker.check_expression(receiver);
+        ("receiver typed as upstream types it", Some(checker.type_to_string(receiver_type)))
+    } else {
+        ("receiver typed DIFFERENTLY", None)
+    }
+}
+
+/// Which work item a failing receiver type belongs to.
+///
+/// Ordered, and the order is load-bearing: `"a" | "b"` is a union and
+/// `Promise<A | B>` is a generic reference, so the bracket test must come before
+/// the union test and the literal test before both.
+///
+/// This is a **syntactic test on a printed type**, which
+/// `checker-notes-wrong.md` records as an upper bound on nothing in particular.
+/// It is used here only to separate work items, never to size a conversion.
+fn receiver_family(text: &str) -> &'static str {
+    if matches!(text, "string" | "number" | "boolean" | "symbol" | "bigint" | "true" | "false") {
+        "primitive           — needs getApparentType + a global interface (members.rs)"
+    } else if text.starts_with('"') || text.starts_with('\'') || text.starts_with('`') {
+        "string literal      — same apparent type as `string`"
+    } else if text.chars().next().is_some_and(|c| c.is_ascii_digit())
+        || (text.starts_with('-') && text.len() > 1)
+    {
+        "number literal      — same apparent type as `number`"
+    } else if text.ends_with("[]") {
+        "array               — apparent type is the generic `Array<T>` (bd tsr-4qx)"
+    } else if text.contains('<') {
+        "instantiated generic — bd tsr-4qx, NOT members.rs"
+    } else if text == "this" {
+        "this                — the `this` type"
+    } else if text.contains(" | ") || text.contains(" & ") {
+        "union / intersection — apparent type of each constituent"
+    } else {
+        "named / other       — an interface whose member we did not find"
     }
 }
 
@@ -710,6 +840,7 @@ fn names_dependency(reason: &str) -> bool {
 /// is a disagreement about *depth*, never about the first step.
 #[allow(clippy::too_many_arguments)]
 fn descend(
+    checker: &mut tsr_checker::Checker<'_, '_>,
     bound: &tsr_binder::BindResult<'_>,
     nodes: &tsr_ast::NodeTable,
     map: &tsr_ast::NodeMap<'_>,
@@ -767,6 +898,50 @@ fn descend(
         return initialiser.map_or_else(
             || Step::Stop(Root::BrokenDescent, format!("no initialiser node: {}", row_key(reason))),
             |initialiser| Step::Go(initialiser, "initialiser"),
+        );
+    }
+    // 5. THE PROPERTY'S OWN DECLARATION — **RULE-2's B2**, and the arm the span
+    //    test cannot stand in for. `property access, the property has no type`
+    //    means `get_property_of_type` **found** the member and
+    //    `get_type_of_symbol` answered `error` for it. The thing that gapped is
+    //    the property's declaration, which is somewhere else in the program
+    //    entirely, so nothing inside the access's span gapped and `gaproot`
+    //    without this arm calls the access its own root. That is the same blind
+    //    spot that let a 2,618-line row read TERMINAL and measure 68.6%
+    //    propagated (`checker-notes-rank.md`, correction header).
+    //
+    //    Mirrors `access_reason` step for step — `check_expression` on the
+    //    receiver, then `get_property_of_type` with the member name — so the
+    //    symbol reached here is the symbol the reason was written about.
+    if PROPERTY_DECLARATION_EDGE && reason.contains("the property has no type") {
+        let Some(Node::PropertyAccessExpression(access)) = map.get(node) else {
+            return Step::Stop(
+                Root::BrokenDescent,
+                format!("property-has-no-type on a non-access: {}", row_key(reason)),
+            );
+        };
+        let receiver = access.expression;
+        let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+            return Step::Stop(
+                Root::BrokenDescent,
+                format!("property name is not an identifier: {}", row_key(reason)),
+            );
+        };
+        let property = receiver
+            .map(|receiver| checker.check_expression(receiver))
+            .and_then(|receiver_type| checker.get_property_of_type(receiver_type, name.text));
+        let declaration_name = property
+            .and_then(|property| bound.symbols().get(property).value_declaration)
+            .and_then(|declaration| map.get(declaration))
+            .and_then(|declaration| declaration.name_id());
+        return declaration_name.map_or_else(
+            || {
+                Step::Stop(
+                    Root::BrokenDescent,
+                    format!("property with no named declaration: {}", row_key(reason)),
+                )
+            },
+            |declaration_name| Step::Go(declaration_name, "property-declaration"),
         );
     }
     let (root, key) = classify_stop(reason, has_inner);
@@ -883,11 +1058,24 @@ fn report(reports: &[CaseReport]) {
     // lines while every arithmetic control still reads zero — which is exactly
     // what mutation M1 measured, and what C1–C4 could not see, because C4's
     // board predicate is fed from the same span function the descent uses.
+    // **The constants are the compiler's, not the probe's**, so they move
+    // whenever the checker moves — including when this workstream moves it.
+    // Their history in one session: 22,739 / 45,814 at `b5decc5`, 22,764 /
+    // 44,342 at `b9a4f5c`, and 22,793 / 44,254 after the `getApparentType`
+    // slice landed. Each time, a stale constant read as a defect in this probe
+    // and was not one.
+    //
+    // That is the standing cost of a cross-instrument control, and it is paid
+    // deliberately: M1 proved that C1-C4 cannot see a polarity inversion of the
+    // span test, because C4's board predicate is fed by the same function the
+    // descent uses, and C7 is the only control here that can. The commit is
+    // named in the printed line rather than in a comment so a reader who sees
+    // it non-zero checks the commit before checking the walk.
     println!(
-        "  C7  TERMINAL - rank_board's published 22,739 = {} | DEPENDENT-UNKNOWN - 45,814 = {} \
+        "  C7  TERMINAL - rank_board's post-slice 22,793 = {} | DEPENDENT-UNKNOWN - 44,254 = {} \
          (must both be 0, pinned by ANOTHER INSTRUMENT)",
-        delta(board.get("TERMINAL").copied().unwrap_or_default(), 22_739),
-        delta(board.get("DEPENDENT-UNKNOWN").copied().unwrap_or_default(), 45_814)
+        delta(board.get("TERMINAL").copied().unwrap_or_default(), 22_793),
+        delta(board.get("DEPENDENT-UNKNOWN").copied().unwrap_or_default(), 44_254)
     );
 
     println!("\n## DEPTH HISTOGRAM — how far each gap line had to be walked (unit: gap lines)\n");
@@ -1012,6 +1200,105 @@ fn report(reports: &[CaseReport]) {
     }
     let _ = cumulative;
     println!("  distinct root rows in total: {}", rows.len());
+
+    println!("\n## RULE-2 / B1 — IS THE PREREQUISITE MET IN FACT? (unit: gap lines)\n");
+    println!("  For every line whose ROOT is a property-access row: is the receiver of");
+    println!("  that access typed the way upstream types it? A receiver typed WRONGLY does");
+    println!("  not gap, so nothing inside the access's span gapped, so this probe calls");
+    println!("  the access its own root — while the lookup failed on a type `members.rs`");
+    println!("  was never given a chance to search. Those lines are not the row's work.");
+    println!("  PROPERTY_DECLARATION_EDGE = {PROPERTY_DECLARATION_EDGE}");
+    let mut fidelity: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for case in reports {
+        for ((row, verdict), n) in &case.receiver_fidelity {
+            *fidelity.entry((row.as_str(), verdict)).or_default() += n;
+        }
+    }
+    let mut rows_seen: Vec<&str> = fidelity.keys().map(|(row, _)| *row).collect();
+    rows_seen.sort_unstable();
+    rows_seen.dedup();
+    for row in rows_seen {
+        let total: usize = fidelity.iter().filter(|((r, _), _)| *r == row).map(|(_, n)| *n).sum();
+        println!("\n  {row}  —  {total} lines rooted here");
+        for ((r, verdict), n) in &fidelity {
+            if *r == row {
+                println!("      {n:>8} {:>7.2}%  {verdict}", pct(*n, total));
+            }
+        }
+    }
+    // Which *kind* of receiver the lookup failed on, because the row is not one
+    // work item: a primitive receiver needs `getApparentType` and a non-generic
+    // global interface, and that is `members.rs`; an instantiated generic
+    // receiver needs `bd tsr-4qx` and is not.
+    println!("\n  what KIND of receiver the lookup failed on (unit: gap lines rooted here,");
+    println!("  restricted to the ones whose receiver IS typed as upstream types it):");
+    let mut families: BTreeMap<&str, usize> = BTreeMap::new();
+    for case in reports {
+        for (text, n) in &case.receiver_types {
+            *families.entry(receiver_family(text)).or_default() += n;
+        }
+    }
+    let family_total: usize = families.values().sum();
+    let mut family_rows: Vec<_> = families.into_iter().map(|(f, n)| (n, f)).collect();
+    family_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, family) in family_rows {
+        println!("      {n:>8} {:>7.2}%  {family}", pct(n, family_total));
+    }
+
+    println!("\n  the receiver types the lookup failed on, where the receiver IS correct:");
+    let mut receiver_types: HashMap<&str, usize> = HashMap::new();
+    for case in reports {
+        for (text, n) in &case.receiver_types {
+            *receiver_types.entry(text.as_str()).or_default() += n;
+        }
+    }
+    let mut ranked_types: Vec<_> = receiver_types.into_iter().map(|(t, n)| (n, t)).collect();
+    ranked_types.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, text) in ranked_types.iter().take(15) {
+        println!("      {n:>8}  {}", truncate(text, 60));
+    }
+
+    println!("\n  THE PRIMITIVE SLICE — what upstream prints for the lines it would unblock:");
+    let mut primitive_rhs: HashMap<&str, usize> = HashMap::new();
+    let mut primitive_cases: HashMap<&str, usize> = HashMap::new();
+    for case in reports {
+        for (text, n) in &case.primitive_rhs {
+            *primitive_rhs.entry(text.as_str()).or_default() += n;
+        }
+        for (name, n) in &case.primitive_by_case {
+            *primitive_cases.entry(name.as_str()).or_default() += n;
+        }
+    }
+    let primitive_total: usize = primitive_rhs.values().sum();
+    let signatures: usize =
+        primitive_rhs.iter().filter(|(text, _)| text.contains("=>")).map(|(_, n)| *n).sum();
+    let mut primitive_ranked: Vec<_> = primitive_rhs.into_iter().map(|(t, n)| (n, t)).collect();
+    primitive_ranked.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, text) in primitive_ranked.iter().take(12) {
+        println!("      {n:>8}  {}", truncate(text, 62));
+    }
+    println!(
+        "      of {primitive_total} lines, {signatures} ({:.1}%) print a CALL SIGNATURE — a \
+         method, not a property",
+        pct(signatures, primitive_total)
+    );
+    let mut primitive_case_ranked: Vec<_> =
+        primitive_cases.into_iter().map(|(n, c)| (c, n)).collect();
+    primitive_case_ranked.sort_unstable_by(|a, b| b.cmp(a));
+    let top1 = primitive_case_ranked.first().map_or(0, |(n, _)| *n);
+    let top10: usize = primitive_case_ranked.iter().take(10).map(|(n, _)| n).sum();
+    println!(
+        "      concentration: {} cases, top-1 {:.1}%, top-10 {:.1}%  [{}]",
+        primitive_case_ranked.len(),
+        pct(top1, primitive_total),
+        pct(top10, primitive_total),
+        primitive_case_ranked
+            .iter()
+            .take(3)
+            .map(|(n, c)| format!("{c} {n}"))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    );
 
     println!("\n## CONTROLS — what pins each\n");
     let c1: usize = reports.iter().map(|r| r.c1_root_names_dependency).sum();
