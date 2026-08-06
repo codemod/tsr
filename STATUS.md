@@ -242,6 +242,32 @@ and the band puts a realistic ceiling for the whole family near **+0.6 to +2.5
 points**. Call resolution is the largest *family* on the board and it is not a
 double-digit item. The three mechanisms it decomposes into are scored above.
 
+### 4.3b Structural assignability is the single highest-leverage unported thing
+
+Measured this session, from three independent directions that all end at the
+same relation. `relater.rs` compares object types only to themselves, and its
+own module doc says a `false` between two distinct object types means
+"comparison is narrow", not "unrelated".
+
+| dependent | lines | measured by |
+|---|---:|---|
+| overload selection's `SELECTABLE` gate | **303** of 492 | `selectable.rs` — 62% of what the gate excludes is object parameters |
+| the `Named`-callee remainder's disagreeing overload sets | 48 | `namedcallee.rs` |
+| unions and intersections in the same gate | 44 | `selectable.rs` |
+| `\|\|` / `??` (`UnionReductionSubtype`) | 358 + 96 | §5, standing |
+| `removeSubtypes` | ~500 | §5, standing |
+| destructuring defaults (annotation-less) | 155 | `checker-notes-destructure.md` §3 |
+| `ArrayLiteral` own-root row | 604 | §5, standing |
+
+**~2,100 lines across seven items, none of which is buildable without it**, and
+three of the seven were refused *this session* on grounds that reduce to it.
+That is a different shape from the rest of the board: it is one relation with
+many dependents rather than many rows with one cause each.
+
+It is also the reason the board keeps producing measured refusals rather than
+builds — five rows dissolved this session, and the recurring sentence in each
+is some form of "the mechanism is fine, the relation underneath it is not".
+
 ### 4.4 What the scores say about 80%
 
 - Distance to **80%** is **+47,184 lines**; **70% is crossed** (70.15% at
