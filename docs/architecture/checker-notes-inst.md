@@ -724,3 +724,47 @@ iterate, not to revert on sight; the bar judges the *final* state.
 If the gain concentrates in one or two cases (`casedelta` top-1 ≥ 50% of the
 gain), the population was never the ~2,400 diffuse cases `depend.rs` measured,
 and prediction 1's mechanism is not what converted it.
+
+## The result, scored against that registration at `0fe102a`
+
+```
+  net +12,357 lines | 313,849 -> 326,206 | 65.53% -> 68.11%
+  lost 0 lines, 0 cases regressed, 26 finished
+  gap 113,765 -> 101,303 (depend.rs)  =>  Δwrong = +105, against a bound of 4,119
+```
+
+Every leg of the bar passed (leg 2 vacuous at lost = 0, as the registration
+said it would be treated). **KEEP.**
+
+### The falsifier fired, and what it means is not what it predicted
+
+`compiler/largeControlFlowGraph` gained 10,000 lines — 81% of the gain — and
+the registration said concentration ≥ 50% means the diffuse population was not
+what converted. Both readings are true at once and they decompose cleanly:
+
+- **The windfall.** The case's `data: any[]` element accesses now compute a
+  genuine `any` through `Array<any>`'s instantiated index signature — and that
+  string coincides with the `any` upstream prints because `TS2563` disabled its
+  flow analysis. These lines were **ADR-0038's ceiling**: counted unmatchable
+  on the premise that upstream's answer there is `errorType`, which this port
+  refuses to render as `any`. The premise had an unstated assumption — that
+  this port could never *honestly compute* `any` on those lines. It can, and
+  did. `ceiling.rs` re-run at `0fe102a` reads **2,202 firmly unreachable**
+  (was 35,508): the reachable denominator is 476,752, today is 68.42% of
+  reachable, and 80% of the full denominator is now only 80.37% of the
+  reachable one.
+- **The predicted mechanism.** Ex-largeControlFlowGraph the gain is **+2,357
+  over 147 cases**, diffuse (next largest 1,216, then 110), and above the
+  1,500 floor on its own. Prediction 1 held: `typedArrays` +99,
+  `parserRealSource11` +110, arrays and `Record` receivers throughout.
+
+### What did NOT convert, and why — the next item's sizing starts here
+
+The property-access root rows barely moved: 13,315 → 12,921 and 6,272 → 6,047
+(`depend.rs`). The `Promise<boolean>`-receiver population that headlines
+`bd tsr-4qx` is still gapped, because those members — `then`, `catch`, `map`,
+`push` — have declared types that are **baked signature text**
+(`TypeData::Named`/`Anonymous` with no intern key), so `instantiate_type`
+falls through to `errorType` on them. Honest gaps, exactly as designed. The
+lever behind them is a structured, rebuildable representation for
+function/method member types — a data-model change, not another seam.
