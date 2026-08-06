@@ -81,14 +81,14 @@ enum Guard {
     /// `typeof x === "..."` (either operand order) — unported; the largest
     /// single form upstream (`narrowTypeByTypeof`). Split out of `Unported`
     /// for `bd tsr-q9g`'s per-form ranking.
-    TypeofGuard,
+    TypeofTest,
     /// `"p" in x` — unported; needs `get_type_of_property_of_type` only.
-    InGuard,
+    InTest,
     /// `x instanceof C` — unported; needs construct signatures.
-    InstanceofGuard,
+    InstanceofTest,
     /// Equality against a non-nullable operand — unported; needs
     /// `areTypesComparable`, which is the call-resolution blocker.
-    ComparabilityGuard,
+    ComparabilityTest,
     /// Anything else — every one unported, so the matcher alone converts
     /// nothing here.
     Unported,
@@ -217,10 +217,10 @@ fn classify_guard(map: &NodeMap<'_>, condition: NodeId) -> Guard {
         Some(Node::BinaryExpression(binary)) => {
             let Some(operator) = binary.operator_token else { return Guard::Unported };
             if operator.kind == SyntaxKind::InKeyword {
-                return Guard::InGuard;
+                return Guard::InTest;
             }
             if operator.kind == SyntaxKind::InstanceOfKeyword {
-                return Guard::InstanceofGuard;
+                return Guard::InstanceofTest;
             }
             if !matches!(
                 operator.kind,
@@ -241,7 +241,7 @@ fn classify_guard(map: &NodeMap<'_>, condition: NodeId) -> Guard {
                     )
                 });
             if has_typeof_operand {
-                return Guard::TypeofGuard;
+                return Guard::TypeofTest;
             }
             // The operand that decides: a written `null` or `undefined` makes
             // this the nullable half `crate::flow` ported; anything else needs
@@ -253,7 +253,7 @@ fn classify_guard(map: &NodeMap<'_>, condition: NodeId) -> Guard {
                     _ => false,
                 }
             });
-            if nullable { Guard::NullableEquality } else { Guard::ComparabilityGuard }
+            if nullable { Guard::NullableEquality } else { Guard::ComparabilityTest }
         }
         _ => Guard::Unported,
     }
@@ -363,10 +363,10 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 Guard::Truthiness => 0u8,
                 Guard::NullableEquality => 1,
                 Guard::Unported => 2,
-                Guard::TypeofGuard => 3,
-                Guard::InGuard => 4,
-                Guard::InstanceofGuard => 5,
-                Guard::ComparabilityGuard => 6,
+                Guard::TypeofTest => 3,
+                Guard::InTest => 4,
+                Guard::InstanceofTest => 5,
+                Guard::ComparabilityTest => 6,
             };
             let v = match verdict {
                 Verdict::Right => 0u8,
