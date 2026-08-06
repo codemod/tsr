@@ -305,6 +305,9 @@ struct CaseReport {
     /// whether the merge asymmetry is a large item or a small one. Keyed by the
     /// verdict; unit is gap assertion lines.
     merge_split: HashMap<&'static str, usize>,
+    /// The same verdict crossed with the receiver kind, so a reader can see
+    /// which sub-item each verdict belongs to rather than inferring it.
+    merge_by_family: HashMap<(&'static str, &'static str), usize>,
     roots: HashMap<(Root, String), Tally>,
     depth_hist: BTreeMap<usize, usize>,
     /// How many *distinct top-level* gapped children a span step chose from. 1
@@ -725,12 +728,19 @@ fn walk(
             *report.access_right_by_case.entry(case_name.to_string()).or_default() += 1;
             *report.access_right_rhs.entry(want_type.to_string()).or_default() += 1;
             *report.access_right_family.entry(family).or_default() += 1;
-            if family.starts_with("named / other") {
-                *report
-                    .merge_split
-                    .entry(merge_verdict(checker, bound, nodes, map, line_ids[start]))
-                    .or_default() += 1;
-            }
+            // **Every RIGHT-arm line, not only the named ones.** RULE-4 asks
+            // for the 2,842 outside the 2,599 to be split too, and the same
+            // verdict function answers for them — a `this` receiver or a
+            // union prints a type name that resolves to nothing, which is a
+            // real answer rather than an exclusion.
+            *report
+                .merge_split
+                .entry(merge_verdict(checker, bound, nodes, map, line_ids[start]))
+                .or_default() += 1;
+            *report
+                .merge_by_family
+                .entry((family, merge_verdict(checker, bound, nodes, map, line_ids[start])))
+                .or_default() += 1;
         }
     }
     // **RULE-2's B1**, read at the root rather than at the line: is the access
@@ -904,8 +914,26 @@ fn merge_verdict(
     let Some(receiver) = node.expression else { return "no receiver" };
     let receiver_type = checker.check_expression(receiver);
     let printed = checker.type_to_string(receiver_type);
-    let Some(&symbol) = bound.globals().get(printed.as_str()) else {
-        return "receiver's type is not a global name (undercount: aliases, namespace members)";
+    // **Resolve from the access site, in TYPE meaning, before falling back to
+    // `globals()`.** Part 4 asked `globals()` only, which sees a script file's
+    // top-level interface and nothing else — so every receiver typed through a
+    // *module* file, a namespace or a local declaration fell into one
+    // unmeasured bucket of 1,403. `resolve_name` is the same lookup the checker
+    // itself used to reach the type, so it reaches the same symbol.
+    let symbol = bound
+        .resolve_name(nodes, map, access, printed.as_str(), SymbolFlags::TYPE)
+        .or_else(|| bound.globals().get(printed.as_str()).copied());
+    let Some(symbol) = symbol else {
+        if printed.starts_with('{') {
+            return "structural type — an object/type literal, no declaration to merge";
+        }
+        if printed.starts_with("typeof ") {
+            return "typeof query — resolution, not members";
+        }
+        if printed.contains('.') {
+            return "qualified name — a namespace member; resolution";
+        }
+        return "the receiver's type name does not resolve in TYPE meaning — resolution";
     };
     let files: std::collections::BTreeSet<NodeId> = bound
         .symbols()
@@ -924,9 +952,24 @@ fn merge_verdict(
         })
         .collect();
     if files.len() > 1 {
-        "MERGED ACROSS FILES — the getMergedSymbol item"
+        return "MERGED ACROSS FILES — the getMergedSymbol item (binder)";
+    }
+    // One declaration site, and the member still was not found. The remaining
+    // reasons are all about what `get_property_of_declared_symbol` can walk:
+    // an unfollowable base (`extends B<T>`, `extends M.B`, `extends mixin()`)
+    // makes the whole lookup a miss by design (`crate::members`). Separated
+    // because that arm IS mine and the ones above are not.
+    let has_base = bound.symbols().get(symbol).declarations.iter().any(|&declaration| {
+        match map.get(declaration) {
+            Some(Node::ClassDeclaration(node)) => !node.heritage_clauses.is_empty(),
+            Some(Node::InterfaceDeclaration(node)) => !node.heritage_clauses.is_empty(),
+            _ => false,
+        }
+    });
+    if has_base {
+        "declared once, HAS a heritage clause — base-type walk (members.rs, MINE)"
     } else {
-        "declared in one file — not the merge item"
+        "declared once, no heritage clause — the member is genuinely absent"
     }
 }
 
@@ -1563,7 +1606,7 @@ fn report(reports: &[CaseReport]) {
         println!("      {n:>7} {:>7.2}%  {family}", pct(n, right_total));
     }
 
-    println!("\n  THE CROSS-FILE MERGE SPLIT — `named / other` receivers only (unit: gap lines):");
+    println!("\n  RULE-4 — WHY THE MEMBER WAS NOT FOUND, over ALL RIGHT-arm lines (gap lines):");
     let mut merge: BTreeMap<&str, usize> = BTreeMap::new();
     for case in reports {
         for (verdict, n) in &case.merge_split {
@@ -1575,6 +1618,18 @@ fn report(reports: &[CaseReport]) {
     merge_rows.sort_unstable_by(|a, b| b.cmp(a));
     for (n, verdict) in merge_rows {
         println!("      {n:>7} {:>7.2}%  {verdict}", pct(n, merge_total));
+    }
+    println!("\n  the same, crossed with the receiver kind:");
+    let mut crossed: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for case in reports {
+        for ((family, verdict), n) in &case.merge_by_family {
+            *crossed.entry((family, verdict)).or_default() += n;
+        }
+    }
+    let mut crossed_rows: Vec<_> = crossed.iter().map(|((f, v), n)| (*n, *f, *v)).collect();
+    crossed_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, family, verdict) in crossed_rows.iter().take(14) {
+        println!("      {n:>7}  {:<38}  {}", truncate(family, 36), truncate(verdict, 58));
     }
 
     println!("\n## CONTROLS — what pins each\n");
