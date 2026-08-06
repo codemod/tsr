@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`d356450`**, 2026-08-06.
+Measured at **`0fe102a`**, 2026-08-06 (third session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,15 +40,23 @@ Measured at **`d356450`**, 2026-08-06.
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,364/9,538** | **24.79%** | **gradient 65.53%** — the target |
+| **`checker_types`** | **2,390/9,538** | **25.06%** | **gradient 68.11%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-313,849 / 478,954 assertion lines = 65.53%
-  right 313,849 | gap ~113,765 | wrong ~37,252
+326,206 / 478,954 assertion lines = 68.11%
+  right 326,206 | gap 101,303 | wrong 41,391   (wrongflip.rs, aligned lines)
 ```
+
+**The previous “wrong ~37,252” was stale and is corrected, and it was worth a
+worktree to find out.** `wrongflip.rs` run at the pre-build commit `2d490b8`
+reads **41,286**, so the `tsr-4qx` build's true wrong delta is **+105** — which
+is also exactly what the registered leg-4 expression (−Δgap − Δright over
+aligned lines) derived. The first post-build reading, 41,391 against the stale
+37,252, looked like +4,139 and would have failed the leg by 20 lines; a
+cross-instrument, cross-session subtraction is not a measurement.
 
 **The gate is whole-baseline and positional; the gradient is per-line. They are
 nearly orthogonal** — a change can add 2,733 lines and flip zero cases. Say which
@@ -74,21 +82,29 @@ is unmatchable however good the checker gets.
 
 | | lines | points |
 |---|---:|---:|
-| unreachable, best estimate | **~26,000** | ~5.4 |
-| firm upper bound (`examples/ceiling.rs`) | 35,508 | 7.41 |
-| of which `largeControlFlowGraph` under `TS2563` | 20,000 | 4.18 |
+| firmly unreachable (`examples/ceiling.rs` at `0fe102a`) | **2,202** | 0.46 |
+| ~~unreachable, best estimate~~ | ~~26,000~~ | ~~5.4~~ |
+| ~~firm upper bound~~ | ~~35,508~~ | ~~7.41~~ |
 
-**Corrected 2026-08-06 from ~6,000 — a 4× error.** The original figure enumerated
-*unresolved names* and never counted upstream *bailing out* of control-flow
-analysis. The decision is unaffected and strengthened.
+**Corrected a second time, 2026-08-06 (third session), from ~26,000 down to
+2,202 — and the previous correction had itself quadrupled the estimate the
+other way.** The ceiling's premise carried an unstated assumption: that a line
+where upstream's answer is a rendered `errorType` (`any`) can never be matched
+because this port refuses to print `any` for a gap. The `tsr-4qx` build showed
+the assumption false: `Array<any>`'s instantiated index signature *honestly
+computes* `any` on 10,000 `largeControlFlowGraph` element accesses, and the
+computed answer coincides with upstream's bail-out. A ceiling built from
+"upstream's answer is errorType" is an upper bound only on lines this port
+*also* fails to compute — which is not a stable population. Treat `ceiling.rs`'s
+attributed count as the only firm figure and expect it to move.
 
 **Consequences for any target:**
 
 ```
-reachable denominator   ~452,954 of 478,954
-today                    313,849 / 452,954 = ~69.3% of reachable
-80% of the full          383,163 lines  =  ~84.6% of reachable
-gap to 80%               +69,314 lines
+reachable denominator   476,752 of 478,954
+today                    326,206 / 476,752 = 68.42% of reachable
+80% of the full          383,163 lines  =  80.37% of the reachable
+gap to 80%               +56,957 lines
 ```
 
 ---
@@ -105,7 +121,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **63.34% of lines** | the mountain; §4 and §5 |
+| **checker** | **68.11% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -115,8 +131,13 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 Landed and measured this cycle: cross-file alias resolution, export-marker symbol
 link, `getApparentType` for primitives, `autoArrayType` for `const x = []`,
 unit-return widening, `this` with a written `this` parameter, `super` (both
-disjuncts), object-literal spread, `getMergedSymbol`, and **the `&&` arm of
-`checkBinaryLikeExpression`** (`5290e1a`, +958 lines, 0 lost).
+disjuncts), object-literal spread, `getMergedSymbol`, **the `&&` arm of
+`checkBinaryLikeExpression`** (`5290e1a`, +958 lines, 0 lost), the
+**instantiation depth/count guard** (`40970d7`, `checker.go:22111`,
+corpus-neutral by measurement), and **instantiated generic members**
+(`0fe102a`, `tsr-4qx`: +12,357 lines, 0 lost, +26 cases — property access,
+element access, index signatures and the relater all substitute through the
+`get_type_of_property_of_type` seam).
 
 Deliberately **not** ported, each with a reason on record: the evolving-array
 `x.push(e)` widening (53 lines, all already wrong); `hadErrorBaseline`
@@ -145,28 +166,40 @@ board looks nothing like the previous one.
 
 | root of the gap | lines | want `any` | **reachable** | cases | top-1 |
 |---|---:|---:|---:|---:|---:|
-| **`a.b` — receiver types, lookup fails** | 13,315 | 35.7% | **8,559** | 1,261 | 11.2% |
-| `ElementAccessExpression` | 12,544 | **88.8%** | 1,400 | 305 | 79.7% |
-| `BinaryExpression` (probe has no step arm) | 8,186 | 22.7% | 6,331 | 820 | 18.3% |
-| **the member *name* of `a.b`** | 6,272 | 33.3% | **4,183** | 1,186 | 11.0% |
+| **`a.b` — receiver types, lookup fails** | 12,921 | 36.8% | **8,162** | 1,228 | 11.3% |
+| `BinaryExpression` (probe has no step arm) | 7,560 | 16.5% | 6,313 | 815 | 19.9% |
 | unresolved **value** name | 6,960 | **79.5%** | 1,425 | 858 | 16.2% |
-| **`CallExpression` — callee types** | 5,304 | **14.2%** | **4,551** | 943 | **2.5%** |
+| **the member *name* of `a.b`** | 6,047 | 34.7% | **3,951** | 1,153 | 11.1% |
+| **`CallExpression` — callee types** | 5,303 | **14.3%** | **4,544** | 949 | **2.5%** |
+| `NewExpression` — callee types | 4,078 | 13.0% | 3,548 | 487 | 6.1% |
+| `ElementAccessExpression` | 1,391 | 21.2% | 1,096 | 221 | 7.8% |
 
-Two rows are effectively dead: element access at **88.8% ceiling** (and 79.7%
-one case), and the unresolved-**value** row at **79.5%** — the sibling of the
-type row that just paid 4,645 lines, and worth nothing, because upstream prints
-the written name in *type* position and `any` in *value* position. See §5.
+**Re-measured at `0fe102a` after the `tsr-4qx` build.** Element access
+collapsed 12,544 → 1,391 (the `largeControlFlowGraph` mass converted — §2) and
+is no longer dead. The unresolved-value row still is (79.5% want `any`).
+
+**The property-access rows survived the build almost intact — and the survivor
+analysis says why** (`checker-notes-inst.md`): the members that stayed gapped
+are typed with **baked signature text** (`then`, `catch`, `map`, `push`), which
+`instantiate_type` cannot rebuild because a function type carries no
+`(symbol, arguments)` intern key. The lever behind ~2/3 of the top row, the
+member-name row, and a share of the call rows is the same one: **a structured,
+rebuildable representation for function/method member types.** That is a
+data-model change in `types.rs`/`function_types.rs`, sized and filed as
+`bd tsr-0hc`.
 
 | # | item | reachable | file |
 |---|---|---:|---|
-| 1 | **property access: `a.b` where the receiver types** — the two rows together | **12,742** over ~2,400 cases | `members.rs` |
-| 1a′ | **PREREQUISITE for 1a, and it must land first:** `instantiate_type` (`inference.rs:262`) carries **no recursion limit**, and its own doc says why that is safe today — "every argument reached is one that a *written* type node already produced, so the recursion is bounded by the source nesting. **That stops being true the moment a generic's members are instantiated**". `interface List<T> { next: List<List<T>> }` is unbounded. Port upstream's `instantiationDepth` / `instantiationCount` (`checker.go:22111`, `bd tsr-el3.2`) **before** any member instantiation, or a corpus run hangs rather than fails | 0 lines | `inference.rs` |
-| 1a | — of which **instantiated generic receivers** (`tsr-4qx`): `Promise<boolean>` 738, `Promise<number>` 264, `any[]`/`string[]`/`number[]` 506, `IPromise<…>` 311, `Record<…>` 156 — **2,357 in the top ten alone**, tail long. `create_type_reference` sets `members: None` for every instantiated reference (`declared.rs:501`), deliberately, and that is what makes every generic receiver a dead end | | `declared.rs` |
-| 1b | — of which **the property has no type** (`tsr-mcd`): 1,947 + 1,212 member names = **3,159** | | `members.rs` |
-| 2 | **call resolution** — the least ceiling-contaminated large row, 2.5% top-1 | **4,551** | `calls.rs` |
-| 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,331 | measurement |
+| 1 | **structured function/method member types** (`bd tsr-0hc`) — the named blocker behind what survived the `tsr-4qx` build. Size the rendering fidelity **before** flipping anything: the baked text is right on thousands of lines today | ceiling ~12,100 across four rows; conversion unmeasured | `types.rs`, `function_types.rs` |
+| 2 | **call resolution** — the least ceiling-contaminated large row, 2.5% top-1. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | **4,544** | `calls.rs` |
+| 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,313 | measurement |
 | 4 | `tsr-e10` optionality in a declaration-name position | ≤483 | `optionality.rs` |
 | 5 | `tsr-y9x` — 16 lines printing `undefined`/`error` where upstream prints `any` | 16 | resolver |
+
+**Items 1a′/1a/1b of the previous board landed or closed 2026-08-06 (third
+session):** the depth/count guard at `40970d7` (corpus-neutral alone), member
+instantiation at `0fe102a` (+12,357, scored in
+`checker-notes-inst.md`), `tsr-mcd` closed earlier as a symptom count.
 
 **Item 0 was added after the board was written and then refused the same day.**
 Sized at `0a1fbdd` by `examples/subtypes.rs`: the mechanism would break **255
@@ -178,19 +211,21 @@ ever was. `docs/architecture/checker-notes-armsplit.md` §9.
 
 ### Is 80% reachable at the implied rate?
 
-**Not at this session's rate, and the previous session's rate should not be
-carried forward either.** The arithmetic, stated plainly:
+The arithmetic, restated at `0fe102a`:
 
-- Distance to 80%: **+78,839 lines**.
-- Last session: +10,761 lines. This session: **+958**.
-- Everything now ranked and unblocked on this board sums to **under 3,000 lines.**
+- Distance to 80%: **+56,957 lines** (was +69,314 at the session's start).
+- This session so far: **+12,357**, of which 10,000 is the one-case windfall §2
+  records — the repeatable rate is nearer **+2,400**.
+- Everything now ranked and unblocked on this board sums to **under 5,100
+  measured lines** plus item 1's unmeasured conversion.
 
 The gap is not a list of missing expression arms. **22,596 lines were measured
 as `ROOT/own-rule` and this cycle took the three largest of those rows apart:
 one landed at 958, one is one case, one is the call item.** What is left is
-concentrated behind four capabilities — assignability, call resolution,
-qualified naming, and contextual typing — and every one of them is a subsystem
-rather than a row.
+concentrated behind five capabilities — assignability, call resolution,
+qualified naming, contextual typing, and (named by the `tsr-4qx` survivor
+analysis, third session) **structured signature types** — and every one of them
+is a subsystem rather than a row.
 
 So the honest statement is: **80% is reachable and it is not reachable by
 ranking rows.** What would have to change is that a session takes on one of the
@@ -263,6 +298,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `0fe102a` | **68.11%** | **2,390** | **+2.58 pts, +12,357 lines, 0 lost, +26 cases** | **instantiated generic members** (`tsr-4qx` steps 3+4, one change) behind the **instantiation depth/count guard** (`40970d7`, corpus-neutral alone, `tsr-el3.2` half). Scored against a bar registered at `2d490b8`; all legs passed, the concentration falsifier fired and is decomposed in `checker-notes-inst.md` — 10,000 of the gain is `largeControlFlowGraph` via `Array<any>` index signatures, which **collapsed ADR-0038's ceiling estimate to 2,202 firm** (§2). Ex that case: +2,357 diffuse over 147 cases. Also corrected §1's stale wrong-bucket figure by re-running `wrongflip` at the pre-build commit in a worktree: 41,286 → 41,391, Δ+105, confirming the registered leg-4 expression exactly |
 | 2026-08-06 | `d356450` | **65.53%** | **2,364** | **+0.97 pts, +4,645 lines, 0 lost** | **an unresolved type reference prints the name that was written** (`tsr-eep`) — upstream reports `TS2304 Cannot find name` *and renders the name*; answering `errorType` was the divergence |
 | 2026-08-06 | `3b7fa44` | **64.56%** | **2,335** | **+0.90 pts, +4,319 lines, +60 cases** | **namespace exports resolve** (`tsr-56r`) — `resolve_name` never read a namespace's `exports`, and its locals lookup never filtered by meaning, so **exporting a declaration made it unresolvable**. Found by `examples/depend.rs` (`tsr-550`), the first instrument to walk declaration edges rather than span edges |
 | 2026-08-06 | `a371ec8` | **63.66%** | **2,275** | **+0.02 pts, +81 lines, −1** | `compareTypeNames` for type references (`tsr-bgz`) — the reshape the issue said it needed was already stored in `type_reference_targets`. The single loss is `bd tsr-a2c`, a different mechanism |
