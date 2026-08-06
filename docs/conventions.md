@@ -2535,3 +2535,63 @@ claimed*. Three expectations written from intuition had already been wrong in
 this same session, and a fourth was a defect report filed against correct code.
 **The failure mode is not being wrong once; it is being wrong the fourth time in
 the same session because the first three were cheap to fix.**
+
+### A registered bar that fires may be indicting its own premise
+
+The union-constituent-order build registered **`lost == 0 and gained ≥ 60`**,
+on the reasoning the parenthesisation build had just used successfully: a line
+that is right today already prints upstream's order, so a *correct* comparator
+cannot move it, and a loss is therefore proof of a wrong rule rather than a bad
+trade.
+
+It measured **+81 and −1**. By the letter of the rule, revert.
+
+The one line says otherwise, and — this is the part that makes it usable —
+**a single baseline proves it without appeal to judgement.**
+`conformance/unionAndIntersectionInference3` writes
+`(Maybe<T> | Maybe<T>[])[]` in source and records both:
+
+```
+>concatMaybe : <T>(...args: (Maybe<T> | Maybe<T>[])[]) => T[]    source order
+>args : (Maybe<T>[] | Maybe<T>)[]                                sorted order
+```
+
+Same parameter, same type, two renderings in one case. Upstream cannot be
+sorting both. `args` goes through the type, so `CompareTypes` runs and puts
+`Array` before `Maybe` — which is what the new comparator produces. The
+signature goes through `signatureToSignatureDeclarationHelper`, which renders
+parameters from their *declarations*.
+
+So the bar's premise was false: **the order of a signature-rendered parameter
+type never came from the comparator at all.** The rule was not too strict; the
+sentence justifying it had an unstated assumption — that every printed union
+order comes from one code path.
+
+> **When a registered bar fires, the first hypothesis is that the build is
+> wrong. The second is that the bar's stated premise is wrong. There is no
+> third.** Both are findings; the difference is that only the second licenses
+> continuing, and only on evidence that is independent of the person who wrote
+> the premise.
+
+Overriding a registered bar is worse than never having registered one *if done
+quietly* — this document says so already. Done loudly it costs a paragraph and
+leaves the premise corrected for the next person, which a revert would not have.
+The test of "loudly" is concrete: the override is in the commit message, the
+issue, `STATUS.md`, and here, and the evidence is a self-contradicting baseline
+rather than a judgement.
+
+#### And the cost the issue quoted was wrong in the cheap direction
+
+`bd tsr-bgz` had recorded, correctly and a day earlier, that the mechanism
+needed `TypeData::Named` to carry a symbol and a type-argument list — *"a
+reshape of a type two workstreams share"*. The pair was **already stored**:
+`Checker::type_reference_targets` holds `(SymbolId, Vec<TypeId>)` per reference,
+written for substitution and readable from `compare_types` without touching the
+data model.
+
+The note was written by someone reasoning about what the *type* carries, and
+the answer lived on the *checker*. This document has several entries about
+prerequisites asserted and not checked; they all point at a claim being too
+optimistic. This one was too pessimistic, and it parked a 137-line item for a
+day. **Grep for the data before quoting the reshape** — the same command either
+way.
