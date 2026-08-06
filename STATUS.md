@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`a371ec8`**, 2026-08-06.
+Measured at **`3b7fa44`**, 2026-08-06.
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`a371ec8`**, 2026-08-06.
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,275/9,538** | **23.85%** | **gradient 63.66%** — the target |
+| **`checker_types`** | **2,335/9,538** | **24.48%** | **gradient 64.56%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-304,885 / 478,954 assertion lines = 63.66%
-  right 304,885 | gap ~127,736 | wrong ~37,117
+309,204 / 478,954 assertion lines = 64.56%
+  right 309,204 | gap ~123,417 | wrong ~37,117
 ```
 
 **The gate is whole-baseline and positional; the gradient is per-line. They are
@@ -86,9 +86,9 @@ analysis. The decision is unaffected and strengthened.
 
 ```
 reachable denominator   ~452,954 of 478,954
-today                    304,885 / 452,954 = ~67.3% of reachable
+today                    309,204 / 452,954 = ~68.3% of reachable
 80% of the full          383,163 lines  =  ~84.6% of reachable
-gap to 80%               +78,278 lines
+gap to 80%               +73,959 lines
 ```
 
 ---
@@ -282,6 +282,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `3b7fa44` | **64.56%** | **2,335** | **+0.90 pts, +4,319 lines, +60 cases** | **namespace exports resolve** (`tsr-56r`) — `resolve_name` never read a namespace's `exports`, and its locals lookup never filtered by meaning, so **exporting a declaration made it unresolvable**. Found by `examples/depend.rs` (`tsr-550`), the first instrument to walk declaration edges rather than span edges |
 | 2026-08-06 | `a371ec8` | **63.66%** | **2,275** | **+0.02 pts, +81 lines, −1** | `compareTypeNames` for type references (`tsr-bgz`) — the reshape the issue said it needed was already stored in `type_reference_targets`. The single loss is `bd tsr-a2c`, a different mechanism |
 | 2026-08-06 | `39a3853` | **63.64%** | **2,275** | **+0.10 pts, +481 lines, 0 lost** | union-constituent parenthesisation (`tsr-xm9`) +353, and the same predicate fixing a pre-existing defect in `array_element_text` +128. Also this session: `removeSubtypes` sized and **refused**, `tsr-jle` and `tsr-iiu` withdrawn, the call row's bar re-scored with `new` separated |
 | 2026-08-06 | `5290e1a` | **63.54%** | **2,275** | **+0.20 pts, +958 lines, +5 cases** | the `&&` arm of `checkBinaryLikeExpression` — the only unblocked arm in the board's top three rows. The session's main product is the **board rewrite**: `tsr-jle` fell 11,008 → 1,004, `ArrayLiteral` and `\|\|`/`??` were shown blocked on assignability, and `new` was sized alone for the first time |
