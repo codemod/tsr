@@ -58,6 +58,16 @@
 > compiler is unchanged, and `right` reads 292,606 either way. They differ from
 > the published `33e3bd5` figures because three checker commits landed in between
 > (`fa29e66`, `1e4bddb`, `979f18c`); gap is 138,585 here against 139,612 there.
+>
+> **Same caution as `checker-notes-recvgap.md` §4 carries**, and it applies to
+> every `the name does not resolve` figure on this page: the row is a population
+> and a majority of it is not a defect — upstream's own baseline answers `any` or
+> `error` for those names too, and this port already computes the same answer with
+> a different renderer (ADR-0038). Its largest single contributor was a harness
+> limitation (`@lib` was dropped; fixed in `9d5b026`, converted 362 lines against
+> a 1,784-line estimate). The corrected split is being re-measured and is not
+> quoted until it is. `bd tsr-cug`.
+>
 > See `bd tsr-v1j`.
 
 > **CORRECTED 2026-08-05 (cycle 11). `TERMINAL` does not mean what this page

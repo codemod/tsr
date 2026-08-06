@@ -181,6 +181,25 @@ non-module 91.6%:
 | terminal reason | lines | cases | top-10 |
 |---|---:|---:|---:|
 | `reference, the name does not resolve` | 3,616 | 110 | 87.9% |
+
+> **CAUTION added 2026-08-06: the 3,616 is a population, and more than half of it
+> is not a defect.** An agent measuring this row whole-gradient found that for a
+> majority of it **upstream's own baseline says `any` or `error` — upstream does
+> not resolve those names either**, and this port already computes the same
+> answer; only the renderer differs, deliberately (ADR-0038). The single largest
+> contributor, `compiler/temporal`, was not a compiler limitation at all but a
+> harness one: `apply_test_directives` dropped `@lib`, so `lib.esnext.temporal.d.ts`
+> was never in the program. That is fixed (`9d5b026`) and it converted **362**
+> lines — against a 1,784-line estimate for the same case, because a name
+> resolving is necessary and not sufficient for the assertion line to match.
+>
+> The exact corrected split is being re-measured and is deliberately **not quoted
+> here** until it is: the probe that produced the first version carried the
+> baseline-ordering defect this page's header describes, and the family it
+> mis-filed — lines answering `error` where the baseline also says `error` — is
+> precisely the family that finding is about. `bd tsr-cug`.
+>
+> **Do not quote 3,616 as available work.**
 | `BLOCK_SCOPED_VARIABLE / VariableDeclaration / initialiser CallExpression` | 1,124 | 44 | 90.2% |
 | `SymbolFlags(EXPORT_VALUE) / no value declaration` | 1,120 | 44 | 93.2% |
 | `expression answered error: CallExpression` | 791 | 144 | 44.0% |
