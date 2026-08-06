@@ -2293,6 +2293,62 @@ fn is_a_bare_qualified_name(rhs: &str) -> bool {
 /// (`symbolaccessibility.go`), reduced to the one table this port can consult.
 /// It is what keeps a fix from qualifying names that are already correct: where
 /// the plain name resolves, the chain is one element and nothing changes.
+/// The target of an `import a = b` / `import a = b.c` alias, and of the three
+/// module forms — the port of the subset of `resolve_alias` this probe can
+/// reach without the checker.
+///
+/// Enough to test the hypothesis: the dominant miss is
+/// `import m1_im2_private = m1_M2_private` (`compiler/privacyImport.ts:52`),
+/// a bare-identifier `ImportEqualsDeclaration`, which is 84 of the 158 wrong
+/// chains on its own.
+fn local_alias_target(
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    symbol: tsr_binder::SymbolId,
+) -> Option<tsr_binder::SymbolId> {
+    let declaration = alias_declaration(bound, nodes, symbol)?;
+    let Some(Node::ImportEqualsDeclaration(node)) = map.get(declaration) else { return None };
+    let tsr_ast::ModuleReference::Identifier(name) = node.module_reference? else { return None };
+    bound
+        .resolve_name(nodes, map, name.node_id?, name.text, SymbolFlags::all())
+        .map(|found| bound.merged_symbol(found))
+}
+
+/// A name in scope at `reference` that **resolves to** `symbol` — upstream's
+/// `getAccessibleSymbolChain` -> `trySymbolTable` alias search
+/// (`internal/checker/symbolaccessibility.go:373`), applied at ONE level.
+///
+/// `getSymbolChain` (`internal/checker/nodebuilderimpl.go:1087`) applies it at
+/// **every** level of the chain, which is the difference between the mechanism
+/// and the container walk that scored 31%.
+fn alias_name_for<'a>(
+    bound: &tsr_binder::BindResult<'a>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'a>,
+    reference: NodeId,
+    symbol: tsr_binder::SymbolId,
+) -> Option<&'a str> {
+    let want = bound.merged_symbol(symbol);
+    let mut best: Option<(u32, &'a str)> = None;
+    for candidate in aliases_in_scope(bound, nodes, reference) {
+        if local_alias_target(bound, nodes, map, candidate) != Some(want) {
+            continue;
+        }
+        let Some(&declaration) = bound.symbols().get(candidate).declarations.first() else {
+            continue;
+        };
+        // `compareSymbolsWorker` (`internal/checker/utilities.go:366`): source
+        // position breaks the tie, and stability matters more than the choice.
+        let key = nodes.span(declaration).start;
+        let name = bound.symbols().get(candidate).name;
+        if best.is_none_or(|(p, _)| key < p) {
+            best = Some((key, name));
+        }
+    }
+    best.map(|(_, name)| name)
+}
+
 fn predicted_chain(
     bound: &tsr_binder::BindResult<'_>,
     nodes: &tsr_ast::NodeTable,
@@ -2304,6 +2360,16 @@ fn predicted_chain(
     let mut current = Some(symbol);
     for _ in 0..8 {
         let id = current?;
+        // **The alias search, at every level.** This is what the container walk
+        // was missing: before falling back to the container's own name, ask
+        // whether some alias in scope names it. `import m1_im2_private =
+        // m1_M2_private` is why upstream prints `m1_im2_private.c1` where the
+        // walk printed `m1_M2_private.c1`.
+        if let Some(alias) = alias_name_for(bound, nodes, map, reference, id) {
+            parts.push(alias);
+            parts.reverse();
+            return Some(parts.join("."));
+        }
         let entry = bound.symbols().get(id);
         parts.push(entry.name);
         // Resolvable by this name, to this symbol, from here? Then stop.
