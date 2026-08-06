@@ -3126,22 +3126,24 @@ impl<'a, 'n> Binder<'a, 'n> {
             // The exception is an *unnamed* default (`export default class {}`):
             // there is no name to declare a local under, and upstream says so in
             // as many words — "No local symbol for an unnamed default!".
-            if let Some(name) = name {
+            let local = if let Some(name) = name {
                 let local_owner = self.locals_owner(flags);
                 let export_value = if flags.intersects(SymbolFlags::VALUE) {
                     SymbolFlags::EXPORT_VALUE
                 } else {
                     SymbolFlags::empty()
                 };
-                self.declare_into(
+                Some(self.declare_into(
                     Destination::Locals,
                     local_owner,
                     self.owner,
                     name,
                     export_value,
                     id,
-                );
-            }
+                ))
+            } else {
+                None
+            };
 
             let exported = self.declare_into(
                 Destination::Exports,
@@ -3151,6 +3153,16 @@ impl<'a, 'n> Binder<'a, 'n> {
                 flags,
                 id,
             );
+            // `local.ExportSymbol = b.declareSymbol(ast.GetExports(...))`
+            // (`internal/binder/binder.go:407`), the line immediately after
+            // upstream declares the local. The marker is the only symbol a
+            // reference inside the container can reach, so without this link the
+            // real symbol — and therefore the type — is reachable only by
+            // guessing which table it went into. The binder is the one place
+            // that does not have to guess.
+            if let Some(local) = local {
+                self.symbols.get_mut(local).export_symbol = Some(exported);
+            }
             // The export symbol is the node's symbol, so a class's members land
             // on the thing `M.C` names rather than on the shadow local.
             self.node_symbols[id.index()] = Some(exported);

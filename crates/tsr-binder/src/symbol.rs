@@ -253,6 +253,38 @@ pub struct Symbol<'a> {
     pub exports: SymbolTable<'a>,
     /// The symbol whose table this one lives in.
     pub parent: Option<SymbolId>,
+    /// For an **export marker**, the export symbol it shadows.
+    ///
+    /// Ported from the export-symbol link on `ast.Symbol`
+    /// (`internal/ast/symbol.go:20`), set by `declareModuleMember`
+    /// (`internal/binder/binder.go:373`) at `internal/binder/binder.go:407`:
+    ///
+    /// ```go
+    /// local.ExportSymbol = b.declareSymbol(ast.GetExports(container.Symbol()), …)
+    /// ```
+    ///
+    /// # Why the checker cannot re-derive it
+    ///
+    /// `export var x` declares twice — a marker into the container's `locals`
+    /// carrying only [`SymbolFlags::EXPORT_VALUE`], and the real symbol into the
+    /// container's `exports`. An unqualified reference resolves to the marker,
+    /// so every consumer that wants the *type* has to get from one to the other.
+    ///
+    /// Before this field, `Checker::export_symbol_of` reconstructed the link by
+    /// walking the marker's declaration to its **source file** and reading that
+    /// file's module symbol's `exports`. That is right only when the container
+    /// *is* the file. For `namespace N { export enum E {} }` the export lives on
+    /// `N`, and for a **script** file there is no module symbol to read at all —
+    /// measured at **2,175 assertion lines** over the corpus, of which 988 fail
+    /// at the missing-file-symbol step. See
+    /// [`docs/architecture/checker-notes-nameres.md`](../../../docs/architecture/checker-notes-nameres.md).
+    ///
+    /// The binder is the only place that knows which container it declared into,
+    /// which is why upstream records the answer here rather than recomputing it.
+    ///
+    /// `None` for every symbol that is not an export marker, which is almost all
+    /// of them.
+    pub export_symbol: Option<SymbolId>,
 }
 
 /// Names to symbols, within one scope.
@@ -287,6 +319,7 @@ impl<'a> SymbolStore<'a> {
             members: SymbolTable::default(),
             exports: SymbolTable::default(),
             parent: None,
+            export_symbol: None,
         });
         id
     }
