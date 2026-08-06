@@ -454,3 +454,40 @@ port keeps it — the declaration's question token, via
 **+43, 0 lost, 0 regressions, Δwrong −19** (21 fixed, 2 new). A leg that
 passes numerically can still be naming a bug; 13 lines in one case was the
 tell, and pricing it as a trade would have shipped it.
+
+## 7. Assignment narrowing keeps a fresh boolean literal fresh (`bd tsr-xs0`)
+
+Registered at `563849e`, before code. Found by `bd tsr-o00`'s wrongdelta:
+`function f15() { var c4 = true; return { c4 }; }` prints the shorthand
+member `c4: true` where upstream prints `boolean`. Upstream's
+`getAssignmentReducedTypeWorker` (`flow.go:2415`) carries the exact line —
+*"Ensure that we narrow to fresh types if the assignment is a fresh boolean
+literal type"*: after filtering the declared union, a fresh boolean-literal
+assignment maps the kept constituents through `getFreshTypeOfLiteralType`,
+so the narrowed literal **widens back to `boolean` at mutable-location and
+initializer boundaries**. The port's `get_assignment_reduced_type` skipped
+the step behind a comment whose reason — "freshness is not modelled here" —
+was true when written and is stale since the literals module landed.
+
+Sized from the live wrong dump at `563849e`: **73 lines** are exactly
+`want boolean, got true/false`, and **47 more** are compound texts fixed by
+that substitution — a ~120-line ceiling of which this mechanism owns an
+unknown share (other freshness paths exist). Head case
+`conformance/parserRealSource7` at 18; the mechanism's own named case,
+`compiler/literalFreshnessPropagationOnNarrowing`, is in the head at 5.
+
+**The bar:**
+
+1. **net ≥ +15**;
+2. **lost ≤ 5, each diagnosed** — the mapped-to-fresh condition mirrors
+   upstream's exactly (fresh boolean-literal assigned type), so a loss
+   means the *assigned type's* freshness diverges somewhere upstream's
+   does not;
+3. **0 case regressions**;
+4. **gained ≥ 3 × new wrong** by `wrongdelta`.
+
+**Falsifier:** >40% of the gain in `parserRealSource7` (its share of the
+sized family is 25%; concentration well above it means the family was
+mis-sized).
+
+Bar fires → build wrong first, premise wrong second, no third.
