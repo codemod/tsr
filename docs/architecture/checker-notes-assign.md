@@ -149,7 +149,7 @@ possible that the relation is three-valued, correct, and still decides almost
 none of the population. **Leg 1 is cheap and answers this before a line of
 relater code is written; run it first.**
 
-## 4. What this session did and did not do
+## 4. What that session did and did not do
 
 Did: established that structural comparison exists (§1), located the three doc
 sites that said otherwise and corrected two of them, filed `bd tsr-7wkn` for the
@@ -158,3 +158,184 @@ bar (§3).
 
 Did **not**: write the counterfactual, touch `relater.rs`'s logic, or move the
 gradient. The item is unstarted, and §3 is a registration, not a result.
+
+---
+
+## 5. Leg 1, run — the falsifier fired, and a control fired harder
+
+Sixth session, at `df13a69`. `examples/ternary.rs`, 492 classified lines, the
+same reachability rule as `selectable.rs` verbatim so the two populations are
+comparable.
+
+**The ternary is real code, not a probe-side model.** A decidability predicate
+is not a flag set — it is the walk itself — so a model of it would have
+forecast the model. `relater.rs` was made three-valued first
+([`Ternary`](../../crates/tsr-checker/src/relater.rs)), with
+`is_type_related_to` **defined as** `relate_ternary(..) == Related` so the two
+can never drift. The control that makes the forecast readable ran before it:
+
+```
+checker_types  2,657 / 9,538  27.86%   gradient 71.14%    <- identical to §1 of STATUS.md
+```
+
+Behaviour-neutral across the change, so every number below is measuring the
+ternary and not a refactor.
+
+### The result
+
+```
+classified                                          492
+  a GENERIC candidate — inference, a different item  146
+  an `any` parameter — REFUSED positionally          132
+  UNDECIDED — a pair the relation cannot decide       52
+  a rest or optional parameter                        48
+  CONVERTS                                            33
+  a parameter annotation that GAPS                    32
+  an ARGUMENT whose type gaps                         22
+  decided: NO candidate applies (upstream errors)     14
+  a parameter with no annotation                      11
+  WOULD PRINT WRONG                                    2
+
+  leg 1 floor      150
+  forecast         33      -> FALSIFIER FIRES
+  C1 not-gap        0      (expect 0)
+  C2 buckets sum  492  vs classified 492
+  C3 binary-relation conversions  33      (expect 0)   -> FIRES
+```
+
+**Leg 1's falsifier fired, exactly as §3 named it would.** 33 against a floor
+of 150. §3's stated reason was right too: the object-parameter overload sets do
+differ by the shapes `Unknown` swallows — 145 of the 303 land in `UNDECIDED`
+before the `any` refusal moves them.
+
+### C3 fired, and it is the finding
+
+C3 was registered as *"re-run the same scan with `Unknown` folded back to
+`NotRelated` — which is what `is_type_assignable_to` does today — and it must
+select **zero** calls that convert."* It selected **33 — every single one.** The
+cross-tab the control forced carries no `[NEEDS the ternary]` row anywhere:
+
+```
+  19  OBJECT param     CONVERTS [binary decides it too]
+  18  UNION param      CONVERTS [binary decides it too]
+   2  all selectable   CONVERTS [binary decides it too]
+   1  `any` param      CONVERTS [binary decides it too]
+```
+
+**The marginal contribution of three-valuedness to this population is zero
+conversions.**
+
+First hypothesis on a firing control is that the build is wrong, so that was
+checked before anything was written down. `conformance/stringLiteralTypesOverloads01`
+supplies 6 of the conversions and settles it: its overloads are
+`getFalsyPrimitive(x: "boolean" | "string")` and friends. A union of string
+literals is decided by the binary relation without difficulty — `SELECTABLE`
+contains `STRING_LITERAL` but not `UNION`, so `calls.rs` never *asks*.
+
+> **The premise C3 was written from was mine, and it was wrong: it conflated the
+> gate with the relation.** "Under the binary relation every one of these calls
+> fails to select, or the line would not be a gap" is false — they fail to
+> select because `SELECTABLE` refuses to pose the question, not because the
+> relation cannot answer it. This is `docs/conventions.md`'s *"pre-registration
+> buys falsifiability, not correctness"* arriving for the second time, and the
+> cheap check it prescribes — state the arithmetic that makes each branch true —
+> would have caught it: `SELECTABLE` is a **flag set** and `Unknown` is a
+> property of a **pair**, so the two cannot be the same gate.
+
+### So §2's diagnosis is corrected, the way §1 corrected the one before it
+
+§2 concluded: *"the real item is a three-valued relation"*. Measured, it is not.
+
+- The relation's binary answers are **already right** on everything in this
+  population it is asked about; three-valuedness converts nothing.
+- What blocks the 33 lines is `calls.rs`'s **`SELECTABLE` gate**, which is a
+  flag set that excludes unions and objects wholesale.
+- What three-valuedness actually buys is **safety for removing that gate**: the
+  52 `UNDECIDED` lines are precisely the ones a naive gate removal would decide
+  wrongly. It is worth zero conversions and it is load-bearing for the
+  conversions something else makes.
+
+This item's *numbers* have now been right and its *diagnosis* wrong twice
+running — §1 corrected "the relation is unported", §5 corrects "the relation
+needs a third value". Both times the population was real. That is a pattern
+worth naming rather than a coincidence; `docs/conventions.md` carries it.
+
+### The positional refusal, priced not assumed
+
+The first run read **40 converts against 26 would-be-wrong**, and 18 of the 26
+were one family: overload sets with an `any` parameter. `any` relates to
+everything in both directions (`isSimpleTypeRelatedTo`,
+`internal/checker/relater.go`), so such a candidate is *trivially* applicable and
+the declaration-order scan always stops on the first one. Upstream still selects
+correctly there because it has argument-order and inference machinery this port
+does not — so stopping on the first is a **wrong rule, not a bad trade**, and
+`docs/conventions.md` says a rule is not priced.
+
+Refused positionally, in the probe, and re-measured rather than subtracted:
+
+| | converts | would-be-wrong | ratio |
+|---|---:|---:|---:|
+| naive | 40 | 26 | 1.5× |
+| `any`-parameter sets refused | **33** | **2** | **16.5×** |
+
+The refusal costs 7 conversions and removes 24 wrong lines. Both remaining wrong
+lines are one family, `want never got any`.
+
+## 6. `bd tsr-kmzf` is REFUSED. What replaces it, with a fresh bar
+
+**Refused on two independent numbers**: leg 1 at 33 against a floor of 150, and
+C3 showing the mechanism's own marginal yield is **0**. The ternary stays in the
+tree — it is behaviour-neutral, it is the only way to re-derive this refusal, and
+§6.1 gives it a consumer — but *"make the relation three-valued"* is not an item
+and must not be re-scored as one.
+
+`STATUS.md` §4.4 lists **assignability** first among the five capabilities that
+four cycles of ranking said the remaining gradient hides behind. On the
+population it was named to unblock, it is now measured: **33 lines.**
+
+### 6.1 The replacement item, and its bar — registered BEFORE the code
+
+The item is not the relation. It is the **gate**: replace `calls.rs`'s
+`SELECTABLE` flag set with the ternary's own verdict, plus the `any`-parameter
+positional refusal.
+
+**Population.** The 492 lines `selectable.rs` and `ternary.rs` both classify, at
+`df13a69`. Not the object/union/namedcallee union §3 registered — that
+population was chosen to stop a gate admitting objects but not unions, and the
+cross-tab shows the two behave the same way (19 and 18 conversions, both binary),
+so the concern it guarded against did not materialise. **§3's bar is void, not
+merely failed**: its floor was set for a different mechanism.
+
+**Leg 1 — net.** `casedelta` over a `git stash`, **net ≥ +25 lines**. The
+forecast is 33 and the observed conversion band is 15–57% of a *sized row*; this
+is a counterfactual rather than a row, and the two counterfactual builds on
+record converted 413% (`tsr-tgov`) and ~100% (`tsr-4sa`) of forecast. A floor at
+76% of forecast is the honest reading of that. **A net of exactly 0 means the
+code did not run — check that before re-reading the premise.**
+
+**Leg 2 — new wrong ≤ 5 lines, ABSOLUTE.** Forecast is 2. The shape is absolute
+and not a ratio for §3's reason, which survives its bar being void: the only way
+this manufactures a wrong line is by deciding a pair it cannot decide, which
+promotes a different overload and yields a confident wrong return type. A loss is
+evidence of a wrong rule. Measured by `wrongdelta`, which `casedelta` cannot see
+by construction.
+
+**Leg 3 — `regressed == 0`.** Written as an equality and not as
+`regressed < finished`: 33 lines over ~20 cases will finish few or none, so
+`regressed < finished` could read `0 < 0` and be vacuous — the `tsr-84iz` leg
+that this rule was written from.
+
+**Leg 4 — the control survives.** `ternary.rs`'s C1 still reads 0 and C2 still
+sums, re-run after the build.
+
+**Falsifier.** If the measured net exceeds ~60, the mechanism reached lines the
+counterfactual did not model and the *residual must be read before banking it*
+(`docs/conventions.md`, "a passing ratio is permission to ship, not permission to
+stop reading"). If new wrong exceeds 5, the `any` refusal is not the only family
+that needs refusing and the next one is named from the dump rather than guessed.
+
+**What this is worth, said plainly so nobody re-scores it upward.** 33 lines is
+0.007 points of a gradient that needs +47,184 for 80%. It is worth building only
+because it is an arm on machinery that now exists, it is measured end-to-end, and
+it retires a capability question that has sat at the top of §4.4 for four
+cycles — not because it moves the number.

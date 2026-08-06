@@ -107,6 +107,103 @@ use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 /// continue, never the reverse. Giving up answers "not related", never "related".
 pub const MAX_DEPTH: usize = 100;
 
+/// The answer to a relation question, including *"I could not tell"*.
+///
+/// **This has no upstream counterpart, and that is the point.** Upstream's
+/// `checkTypeRelatedTo` returns a `Ternary` too (`internal/checker/relater.go`),
+/// but its third value is `TernaryMaybe`, which means *"assumed related while a
+/// cycle is open"* — an internal bookkeeping value, not an admission of
+/// ignorance. Upstream never needs one, because every arm this port omits is
+/// implemented there.
+///
+/// Here the omissions are real, and six of them answer "not related" while
+/// meaning "not computed" — enumerated in `docs/architecture/checker-notes-assign.md`
+/// §2. [`Unknown`](Ternary::Unknown) is what those six answer instead. The
+/// public [`Checker::is_type_assignable_to`] maps it back to `false`, so every
+/// existing caller is unaffected; a caller that acts on a **negative** can
+/// instead ask [`Checker::relate_ternary`] and refuse the pair it cannot decide.
+///
+/// The composition rules are Kleene's, not Go's: see [`Ternary::all`] and
+/// [`Ternary::any`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ternary {
+    /// The relation holds.
+    Related,
+    /// The relation does not hold, and this port is entitled to say so.
+    NotRelated,
+    /// This port cannot decide the pair. Never a licence to assume either way.
+    Unknown,
+}
+
+impl Ternary {
+    /// Kleene conjunction over a sequence: `Related` only if every element is,
+    /// `NotRelated` if any element is, `Unknown` otherwise.
+    ///
+    /// The short circuit is on `NotRelated` and **not** on `Unknown`: an
+    /// `Unknown` early in the sequence must not mask a `NotRelated` later in
+    /// it, because a definite negative is a strictly better answer than "could
+    /// not tell" and this port would otherwise refuse pairs it can decide.
+    fn all(parts: impl IntoIterator<Item = Ternary>) -> Ternary {
+        let mut unknown = false;
+        for part in parts {
+            match part {
+                Ternary::NotRelated => return Ternary::NotRelated,
+                Ternary::Unknown => unknown = true,
+                Ternary::Related => {}
+            }
+        }
+        if unknown { Ternary::Unknown } else { Ternary::Related }
+    }
+
+    /// Kleene disjunction over a sequence: `Related` if any element is,
+    /// `NotRelated` only if every element is, `Unknown` otherwise. The dual of
+    /// [`Ternary::all`], short-circuiting on `Related` for the same reason.
+    fn any(parts: impl IntoIterator<Item = Ternary>) -> Ternary {
+        let mut unknown = false;
+        for part in parts {
+            match part {
+                Ternary::Related => return Ternary::Related,
+                Ternary::Unknown => unknown = true,
+                Ternary::NotRelated => {}
+            }
+        }
+        if unknown { Ternary::Unknown } else { Ternary::NotRelated }
+    }
+}
+
+/// The flag domain on which [`Relater::is_simple_type_related_to`] is a
+/// *complete* decision procedure, so that its failure to fire is an answer.
+///
+/// Pinned to upstream's `isSimpleTypeRelatedTo` (`internal/checker/relater.go`)
+/// rather than to a summary of it: a flag belongs here when every upstream arm
+/// mentioning it is ported. The four upstream arms this port omits — `EnumLike`
+/// source against an enum target, `UniqueESSymbol`, the wildcard type, and the
+/// enum-literal pairings — are exactly why [`TypeFlags::ENUM`],
+/// [`TypeFlags::ENUM_LITERAL`] and [`TypeFlags::UNIQUE_ES_SYMBOL`] are
+/// **absent** from this set despite being primitives: for them a non-firing
+/// simple arm means "unported", not "unrelated".
+///
+/// This is a strict superset of [`crate::calls`]'s `SELECTABLE`, which
+/// additionally excludes [`TypeFlags::NON_PRIMITIVE`]. Widening a caller from
+/// one to the other is a separate decision from making the relation ternary,
+/// and is not taken here.
+const FLAG_DECIDABLE: TypeFlags = TypeFlags::ANY
+    .union(TypeFlags::UNKNOWN)
+    .union(TypeFlags::UNDEFINED)
+    .union(TypeFlags::NULL)
+    .union(TypeFlags::VOID)
+    .union(TypeFlags::STRING)
+    .union(TypeFlags::NUMBER)
+    .union(TypeFlags::BIG_INT)
+    .union(TypeFlags::BOOLEAN)
+    .union(TypeFlags::ES_SYMBOL)
+    .union(TypeFlags::STRING_LITERAL)
+    .union(TypeFlags::NUMBER_LITERAL)
+    .union(TypeFlags::BIG_INT_LITERAL)
+    .union(TypeFlags::BOOLEAN_LITERAL)
+    .union(TypeFlags::NEVER)
+    .union(TypeFlags::NON_PRIMITIVE);
+
 /// The relation being checked.
 ///
 /// Upstream's `*Relation` (`internal/checker/relater.go`), which is both the
@@ -142,12 +239,21 @@ struct Relater<'c, 'a, 'n> {
     relation: Relation,
     /// `(source, target) -> related`, upstream's `Relation.results`.
     ///
-    /// An entry is written **before** the recursive walk with the value `true`,
-    /// which is what closes a cycle: re-entering the same pair assumes the
-    /// relation holds, exactly as upstream's `recursiveTypeRelatedTo` does when
-    /// it finds the pair already on the stack. The assumption is discharged by
-    /// the surrounding walk failing if any *other* constituent fails.
-    results: FxHashMap<(TypeId, TypeId), bool>,
+    /// An entry is written **before** the recursive walk with the value
+    /// [`Ternary::Related`], which is what closes a cycle: re-entering the same
+    /// pair assumes the relation holds, exactly as upstream's
+    /// `recursiveTypeRelatedTo` does when it finds the pair already on the
+    /// stack. The assumption is discharged by the surrounding walk failing if
+    /// any *other* constituent fails.
+    ///
+    /// **The park stays `Related` and not `Unknown`.** Parking `Unknown` would
+    /// be the conservative-looking choice and it is the wrong one: every
+    /// mutually recursive interface pair — `interface A { x: B }` /
+    /// `interface B { x: A }`, which `tests/relater.rs` asserts — would then
+    /// answer `Unknown` rather than `Related`, turning upstream's termination
+    /// device into a mass refusal. The cycle assumption is a *proof technique*
+    /// (co-induction), not an inability to compute.
+    results: FxHashMap<(TypeId, TypeId), Ternary>,
     depth: usize,
 }
 
@@ -196,6 +302,30 @@ impl Checker<'_, '_> {
         target: TypeId,
         relation: Relation,
     ) -> bool {
+        self.relate_ternary(source, target, relation) == Ternary::Related
+    }
+
+    /// The same walk as [`Checker::is_type_related_to`], without collapsing
+    /// *"not related"* and *"could not tell"* into one `false`.
+    ///
+    /// There is no upstream counterpart — see [`Ternary`] for why this port
+    /// needs a distinction upstream does not. `is_type_related_to` is defined in
+    /// terms of this function rather than beside it, so the two can never drift:
+    /// there is one walk, and the binary entry point is a projection of it.
+    ///
+    /// The intended caller is one that acts on a **negative** — overload
+    /// selection, which promotes the next candidate when a parameter does not
+    /// accept an argument. Such a caller must refuse an [`Ternary::Unknown`]
+    /// pair rather than treat it as a rejection, because a wrong rejection here
+    /// does not degrade to a gap: it silently selects a different overload and
+    /// yields a confident wrong answer.
+    #[must_use]
+    pub fn relate_ternary(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        relation: Relation,
+    ) -> Ternary {
         let mut relater =
             Relater { checker: self, relation, results: FxHashMap::default(), depth: 0 };
         relater.is_related_to(source, target)
@@ -206,17 +336,19 @@ impl Relater<'_, '_, '_> {
     /// The body of `isTypeRelatedTo`, minus the entry-point bookkeeping.
     ///
     /// Ported from `Checker.isTypeRelatedTo` (`internal/checker/relater.go`).
-    fn is_related_to(&mut self, source: TypeId, target: TypeId) -> bool {
+    fn is_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
         // Upstream reduces a fresh literal to its regular form on both sides
         // before comparing identity, so that `"a"` fresh and `"a"` regular are
         // one type here even though they are two interned types.
         let source = self.checker.get_regular_type_of_literal_type(source);
         let target = self.checker.get_regular_type_of_literal_type(target);
         if source == target {
-            return true;
+            return Ternary::Related;
         }
-        if self.is_simple_type_related_to(source, target) {
-            return true;
+        match self.is_simple_type_related_to(source, target) {
+            Some(true) => return Ternary::Related,
+            Some(false) => return Ternary::NotRelated,
+            None => {}
         }
         let composite = TypeFlags::UNION.union(TypeFlags::INTERSECTION);
         let s = self.checker.type_of(source).flags;
@@ -231,12 +363,70 @@ impl Relater<'_, '_, '_> {
         {
             return self.recursive_type_related_to(source, target);
         }
-        false
+        // Nothing fired. That is an **answer** only where the simple arms above
+        // are a complete decision procedure for both sides — `string -> number`
+        // is genuinely not related. Where either side carries a flag this port
+        // has no arm for (an enum, a `unique symbol`, a type parameter, a
+        // conditional), or is an object type that never reached the structural
+        // arm because it has no members table (a function type, an
+        // index-signature-only type), the same fallthrough means *not
+        // computed*. Rows 3 and 6 of `checker-notes-assign.md` §2.
+        if self.flag_decidable(source) && self.flag_decidable(target) {
+            Ternary::NotRelated
+        } else {
+            Ternary::Unknown
+        }
     }
 
     /// Whether `id` is an object type with a members table to compare.
     fn has_members(&self, id: TypeId) -> bool {
         matches!(&self.checker.type_of(id).data, TypeData::Named { members: Some(_), .. })
+    }
+
+    /// Whether a non-firing [`Relater::is_simple_type_related_to`] is an answer
+    /// about `id`. See [`FLAG_DECIDABLE`].
+    fn flag_decidable(&self, id: TypeId) -> bool {
+        let flags = self.checker.type_of(id).flags;
+        !flags.is_empty() && FLAG_DECIDABLE.contains(flags)
+    }
+
+    /// Whether `id` carries call, construct or index signatures that this
+    /// module's structural comparison does not look at.
+    ///
+    /// This is row 6 of `checker-notes-assign.md` §2, and it is the load-bearing
+    /// one: for a signature-bearing pair the comparison is unsound in **both**
+    /// directions at once — a missing rejection (the signatures are never
+    /// compared, so two differently-callable types can relate) and a missing
+    /// acceptance (a bare `{}` target is satisfied without them). Neither
+    /// direction is recoverable from the property walk, so the pair is not
+    /// decided at all.
+    ///
+    /// Two sources, because signatures reach a type by two routes in this port:
+    /// [`Checker::signatures_of_type`] for a baked function-shaped type, and the
+    /// members symbol's own declarations for an interface or type literal that
+    /// writes a signature member.
+    fn signature_bearing(&self, id: TypeId) -> bool {
+        if self.checker.signatures_of_type(id).is_some_and(|signatures| !signatures.is_empty()) {
+            return true;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(id).data else {
+            return false;
+        };
+        self.checker.binder.symbols().get(owner).declarations.iter().any(|&declaration| {
+            let members = match self.checker.node_map.get(declaration) {
+                Some(tsr_ast::Node::InterfaceDeclaration(node)) => node.members,
+                Some(tsr_ast::Node::TypeLiteralNode(node)) => node.members,
+                _ => return false,
+            };
+            members.iter().any(|member| {
+                matches!(
+                    member,
+                    tsr_ast::TypeElement::CallSignatureDeclaration(_)
+                        | tsr_ast::TypeElement::ConstructSignatureDeclaration(_)
+                        | tsr_ast::TypeElement::IndexSignatureDeclaration(_)
+                )
+            })
+        })
     }
 
     /// The non-recursive arms: everything decidable from flags alone.
@@ -251,14 +441,25 @@ impl Relater<'_, '_, '_> {
     /// crate has no enum types, no `wildcardType` distinct from `errorType` in
     /// any reachable path, and no `uniqueESSymbol`. Each is a missing `true`,
     /// i.e. a gap.
-    fn is_simple_type_related_to(&mut self, source: TypeId, target: TypeId) -> bool {
+    ///
+    /// # The return is `Option<bool>`, and the `Some(false)` is one arm
+    ///
+    /// `None` means *no arm fired*, which on its own decides nothing — the
+    /// caller then tries the composite arms and, failing those, asks
+    /// [`Relater::flag_decidable`] whether the silence was an answer. The single
+    /// `Some(false)` is upstream's third arm, `target.flags&TypeFlags::Never`:
+    /// nothing but `never` is assignable to `never`, and upstream returns there
+    /// rather than falling through, so it is a **decision** and not an absence.
+    /// Collapsing it into `None` would make every `X -> never` pair `Unknown`
+    /// whenever `X` is an object type.
+    fn is_simple_type_related_to(&mut self, source: TypeId, target: TypeId) -> Option<bool> {
         let s = self.checker.type_of(source).flags;
         let t = self.checker.type_of(target).flags;
         // `any` on the right and `never` on the left relate to everything.
         // `errorType` is `ANY` here, which is upstream's behaviour too: an
         // erroneous type must not cascade a second error.
         if t.intersects(TypeFlags::ANY) || s.intersects(TypeFlags::NEVER) {
-            return true;
+            return Some(true);
         }
         // Upstream excludes `strictSubtypeRelation` with an `any` source here
         // (`relater.go:212`) — `any` is assignable to `unknown` but not its
@@ -267,25 +468,25 @@ impl Relater<'_, '_, '_> {
         if t.intersects(TypeFlags::UNKNOWN)
             && !(matches!(self.relation, Relation::StrictSubtype) && s.intersects(TypeFlags::ANY))
         {
-            return true;
+            return Some(true);
         }
         if t.intersects(TypeFlags::NEVER) {
-            return false;
+            return Some(false);
         }
         if s.intersects(TypeFlags::STRING_LIKE) && t.intersects(TypeFlags::STRING) {
-            return true;
+            return Some(true);
         }
         if s.intersects(TypeFlags::NUMBER_LIKE) && t.intersects(TypeFlags::NUMBER) {
-            return true;
+            return Some(true);
         }
         if s.intersects(TypeFlags::BIG_INT_LIKE) && t.intersects(TypeFlags::BIG_INT) {
-            return true;
+            return Some(true);
         }
         if s.intersects(TypeFlags::BOOLEAN_LIKE) && t.intersects(TypeFlags::BOOLEAN) {
-            return true;
+            return Some(true);
         }
         if s.intersects(TypeFlags::ES_SYMBOL_LIKE) && t.intersects(TypeFlags::ES_SYMBOL) {
-            return true;
+            return Some(true);
         }
         // The two `strictNullChecks`-off arms are collapsed to their strict
         // reading; see the module docs for why the permissive one is not the
@@ -293,10 +494,10 @@ impl Relater<'_, '_, '_> {
         if s.intersects(TypeFlags::UNDEFINED)
             && t.intersects(TypeFlags::UNDEFINED.union(TypeFlags::VOID))
         {
-            return true;
+            return Some(true);
         }
         if s.intersects(TypeFlags::NULL) && t.intersects(TypeFlags::NULL) {
-            return true;
+            return Some(true);
         }
         // Upstream guards this with a `strictSubtypeRelation` exception for a
         // stale empty anonymous object type (`relater.go:258`). This port has
@@ -305,7 +506,7 @@ impl Relater<'_, '_, '_> {
         // `object` under every relation here, which upstream denies only for
         // `StrictSubtype` on that one shape.
         if s.intersects(TypeFlags::OBJECT) && t.intersects(TypeFlags::NON_PRIMITIVE) {
-            return true;
+            return Some(true);
         }
         // The **assignable-only** arms (`relater.go:261`, `relation ==
         // assignable || relation == comparable`). This gate is the whole
@@ -317,9 +518,9 @@ impl Relater<'_, '_, '_> {
         // The enum arms in the same upstream block are not ported — there are no
         // enum types in this crate — so `number -> E` is a gap.
         if matches!(self.relation, Relation::Assignable) && s.intersects(TypeFlags::ANY) {
-            return true;
+            return Some(true);
         }
-        false
+        None
     }
 
     /// The composite arms, guarded by the depth cap and the cycle cache.
@@ -327,20 +528,23 @@ impl Relater<'_, '_, '_> {
     /// Ported from `Checker.recursiveTypeRelatedTo` (`internal/checker/relater.go`),
     /// reduced to the union and intersection dispatch that
     /// `structuredTypeRelatedTo` performs before it reaches object types.
-    fn recursive_type_related_to(&mut self, source: TypeId, target: TypeId) -> bool {
+    fn recursive_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
         if let Some(&cached) = self.results.get(&(source, target)) {
             return cached;
         }
         if self.depth >= MAX_DEPTH {
             // Upstream reports `Excessive_stack_depth_comparing_types_0_and_1`
             // and records the pair as failed. There are no diagnostics in this
-            // crate (`bd tsr-5e7.6`), so the failure is silent — but it is a
-            // failure, never a permissive `true`.
-            return false;
+            // crate (`bd tsr-5e7.6`), so the failure is silent — and it was a
+            // *failure*, never a permissive `true`. It is now `Unknown`: giving
+            // up at a depth cap is the plainest case of "not computed" on this
+            // page, and reporting it as a rejection is what row 4 of
+            // `checker-notes-assign.md` §2 objects to.
+            return Ternary::Unknown;
         }
         // Park the pair as *assumed related* before recursing. This is what
         // terminates a co-recursive cycle; see the field docs on `results`.
-        self.results.insert((source, target), true);
+        self.results.insert((source, target), Ternary::Related);
         self.depth += 1;
         let related = self.structured_type_related_to(source, target);
         self.depth -= 1;
@@ -359,21 +563,27 @@ impl Relater<'_, '_, '_> {
     /// right, rather than by asking whether the whole source union is one of the
     /// target's constituents — which it is not, since union interning makes
     /// `"a" | "b"` a type the target's list does not contain.
-    fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> bool {
+    fn structured_type_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
         if let Some(constituents) = self.union_constituents(source) {
             // Every constituent of a source union must be related.
             // Upstream's `eachTypeRelatedToType`.
-            return constituents.iter().all(|&c| self.is_related_to(c, target));
+            let parts: Vec<_> =
+                constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
+            return Ternary::all(parts);
         }
         if let Some(constituents) = self.intersection_constituents(target) {
             // Related to every constituent of a target intersection.
             // Upstream's `typeRelatedToEachType`.
-            return constituents.iter().all(|&c| self.is_related_to(source, c));
+            let parts: Vec<_> =
+                constituents.iter().map(|&c| self.is_related_to(source, c)).collect();
+            return Ternary::all(parts);
         }
         if let Some(constituents) = self.union_constituents(target) {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
-            return constituents.iter().any(|&c| self.is_related_to(source, c));
+            let parts: Vec<_> =
+                constituents.iter().map(|&c| self.is_related_to(source, c)).collect();
+            return Ternary::any(parts);
         }
         if let Some(constituents) = self.intersection_constituents(source) {
             // *Some* constituent of a source intersection suffices.
@@ -384,14 +594,25 @@ impl Relater<'_, '_, '_> {
             // being related. That case needs the structural comparison this
             // module gaps, so it is a gap here for the same reason and not a
             // second one.
-            return constituents.iter().any(|&c| self.is_related_to(c, target));
+            let parts: Vec<_> =
+                constituents.iter().map(|&c| self.is_related_to(c, target)).collect();
+            return Ternary::any(parts);
         }
         if self.has_members(source) && self.has_members(target) {
+            // Row 6 of `checker-notes-assign.md` §2, checked **before** the
+            // property walk rather than inside it: a signature-bearing pair is
+            // not decided at all, and letting it reach `properties_related_to`
+            // would produce a confident answer from a comparison that ignored
+            // the members that distinguish the two types.
+            if self.signature_bearing(source) || self.signature_bearing(target) {
+                return Ternary::Unknown;
+            }
             return self.properties_related_to(source, target);
         }
         // Reached only by a type whose *flags* say union or intersection while
         // its data says otherwise, which `is_related_to`'s gate lets through.
-        false
+        // Nothing was compared, so nothing was decided.
+        Ternary::Unknown
     }
 
     /// Every property of `target` has a corresponding property of `source`, and
@@ -420,10 +641,14 @@ impl Relater<'_, '_, '_> {
     ///   answering `None`) makes the whole comparison `false`, because a target
     ///   whose inherited requirements cannot be enumerated must not be satisfied
     ///   by checking only the ones that can.
-    fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> bool {
+    fn properties_related_to(&mut self, source: TypeId, target: TypeId) -> Ternary {
         let Some(names) = self.property_names_of(target) else {
-            return false;
+            // Row 1 of `checker-notes-assign.md` §2: the target's inherited
+            // requirements could not be *enumerated*, so no verdict about them
+            // is available in either direction.
+            return Ternary::Unknown;
         };
+        let mut parts = Vec::with_capacity(names.len());
         for name in names {
             // Through [`Checker::get_type_of_property_of_type`], not
             // `get_property_of_type` + `get_type_of_symbol`. The symbol is the
@@ -443,13 +668,30 @@ impl Relater<'_, '_, '_> {
                 self.checker.get_type_of_property_of_type(target, &name),
                 self.checker.get_type_of_property_of_type(source, &name),
             ) else {
-                return false;
+                // Row 2 of `checker-notes-assign.md` §2. A target property with
+                // no source counterpart is a rejection *only if the target
+                // property is required*, and optionality is not read here — so
+                // `{ x } -> { x, y?: number }` must not be reported as a
+                // rejection. A target property whose own type does not compute
+                // is row 2's twin: the requirement itself is unknown.
+                parts.push(Ternary::Unknown);
+                continue;
             };
-            if !self.is_related_to(source_type, target_type) {
-                return false;
+            // Row 5 of `checker-notes-assign.md` §2 (`bd tsr-4qx`): the member
+            // read may be the *uninstantiated* declaration, so on a `C<number>`
+            // with a member declared `a: T` this comparison would run against
+            // `T` itself. A type parameter surviving into a property type is the
+            // observable signature of that, and it is not something to decide on.
+            let unresolved = TypeFlags::TYPE_PARAMETER;
+            if self.checker.type_of(target_type).flags.intersects(unresolved)
+                || self.checker.type_of(source_type).flags.intersects(unresolved)
+            {
+                parts.push(Ternary::Unknown);
+                continue;
             }
+            parts.push(self.is_related_to(source_type, target_type));
         }
-        true
+        Ternary::all(parts)
     }
 
     /// The names of every property of `id`, own and inherited, or `None` if any
