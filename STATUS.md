@@ -140,6 +140,7 @@ unknown, rank by how cheap it is to find out.**
 
 | # | item | converts | file | the rule that would license it | what would falsify the estimate |
 |---|---|---:|---|---|---|
+| 0 | **`removeSubtypes` + a `Subtype` arm on `Relation`** (`tsr-eak`) | **~1,100 measured own-root**, plus return inference | `unions.rs` + `relater.rs` | size it by **counting unions whose answer would change**, not by summing the five rows — they are in four files and do not ship together | the relater's structural arm turns out not to decide the pairs `removeSubtypes` asks about, in which case this *is* the assignability item after all |
 | 1 | **`new C()` — the lib `*Constructor` arm** | unsized; **not 1,074** | `calls.rs` | **R2′ 75.9% on 1,074 lines, 229 cases, top-1 15.1%** — passed its registered test on 2026-08-06 | the typed arrays in it are generic instantiations (`tsr-4qx`, blocked). Size the `*Constructor` population **minus** those before quoting anything — one more bucket in `callres.rs` |
 | 2 | ~~Re-take the call row's bar with `new` scored separately~~ | **run 2026-08-06** | — | — | see §5 — R2′ has stopped discriminating and the answer is a counterfactual |
 | 3 | `tsr-n23` + contextual typing, as **one** cross-file item | 2,082 gap **+ 1,809 wrong** | `symbols.rs` **and** `signatures.rs` | 48.8% of it sits behind call resolution — item 2 gates this | a build confined to either file converts half of each function's lines, which is the measured reason it is one item |
@@ -175,13 +176,17 @@ arriving at.
 
 | blocker | blocks | state |
 |---|---|---|
-| **assignability / `UnionReductionSubtype`** | `\|\|` 358, `??` 96, `ArrayLiteral` 355, and every subtype reduction | **newly identified as a shared blocker.** Three separate refusals this cycle bottom out in it |
+| **`removeSubtypes` — *not* assignability** | `\|\|` 358, `??` 96, `ConditionalExpression` 295, `ArrayLiteral` 355, return-inference from a body, `intersections.rs` | **CORRECTED 2026-08-06, same day.** I wrote *"assignability, newly identified as a shared blocker"* from three refusals' **stated reasons** — the exact "a prerequisite quoted three times is not established" trap I had written a convention about that morning. Grepped: `relater.rs` **exists and is not a stub** — `is_simple_type_related_to`, a structural arm with a results cache and cycle closure, composite handling. `Relation` has one variant, `Assignable`, and the file says at `:115` and `:231` that it was shaped so **"adding `Subtype` later is an arm rather than a refactor"**. The blocker is `removeSubtypes` in `unions.rs` plus that arm — a far smaller and better-specified item |
 | qualified naming (`tsr-awa`) | `tsr-4qx` (~5,161), 1,318 of its own | mechanism **measured at 90.7%**, build refused — see §5 |
 | `tsr-4qx` instantiated generics | ~5,161 | blocked on `tsr-awa`; `type_reference_text` bakes an unqualified name at type *creation* |
 | call resolution | 48.8% of contextual typing, the IIFE rows, and `new` | **the R2′ refusal no longer stands on its stated grounds** (§5). Its next step is a counterfactual, not another probe |
 
 **`members.rs` is done** until those land. Its own lookup is **104 lines**. That
 was registered as a prediction before measurement and confirmed.
+
+**Item 0 was added after the board was written, by grepping a prerequisite three
+documents asserted.** It is the smallest of the four blockers and the only one
+whose prerequisite is already three-quarters built.
 
 ### Is 80% reachable at the implied rate?
 
