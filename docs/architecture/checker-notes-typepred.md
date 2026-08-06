@@ -219,4 +219,99 @@ today, so the ratio's divisor is structurally zero and the leg would have
 
 ## 3. Scoring against the bar
 
-*(Filled in after the measurement; see the session log in `STATUS.md`.)*
+Measured over a `52c69a4` → build pair with the standing instruments —
+`casedelta.rs` joined case by case, `wrongdelta.rs` at both ends with
+`comm -13` for new wrong and `comm -23` for fixed.
+
+```
+net      +1,041     gained 1,041   lost 0
+cases    +132 gained, 0 lost, 9 finished, 0 regressed
+Δwrong   +81        (82 new, 1 fixed)
+```
+
+| leg | bar | measured | verdict |
+|---|---|---|---|
+| 1 net floor | ≥ +400 | **+1,041** | **pass** |
+| 2 lost | ≤ 5 | **0** | **pass** |
+| 3 case regression | regressed < finished | **0 < 9** | **pass** |
+| 4 gap→wrong | gained ≥ 4 × new wrong | **1,041 vs 328** (12.7×) | **pass** |
+
+**Conversion is 191% of the counterfactual's 545.** The excess is cascade and
+was not forecast: a predicate-returning declaration is usually *called*, and
+every call, every narrowed reference and every containing object literal that
+gapped behind it now types. `conformance/assertionTypePredicates1` gains 81 on
+a forecast of 22. This is the fourth build in a row to exceed its sized row and
+the reason §4.1 of `STATUS.md` says a population is a ceiling *for the row it
+was measured on*.
+
+**The falsifier did not fire.** It was: *the residual is dominated by a
+disagreement that appears only after `is`.* Of the 82 new wrong lines, 15 sit
+after an `is` — `value is ("foo" | "bar")`, `value is undefined | null`,
+`x is { type: 'foo'; … }` — and every one of them has a sibling in the dump
+that sits in a **parameter** position instead: `(value: Point | Line)` where
+the baseline writes `Point | Line`, `<T_1>` where we print `<T>`. The
+disagreement is written-node reuse and type-parameter naming, not a rule about
+predicates, so the predicate's type stays rendered from the computed type as
+upstream renders it (`typeToTypeNode`, `nodebuilderimpl.go:1780`).
+
+### 3.1 The residual, read line by line — and what it paid for
+
+Read even though leg 4 passed at 12.7×, on the standing rule that the last
+build's 68 residual passed by 2.8× and reading it anyway was worth +114.
+
+| lines | family | owner |
+|---:|---|---|
+| 22 | an **alias name** we expand — `P1 \| P2` printed as `((x: unknown) => x is string) \| …`, `typeof isString` expanded, `PartialUser` as `Partial<User>`, `FAILURE` as `"FAILURE"` | alias naming |
+| 14 | `\| undefined` added by an optional chain — `((x: any) => x is number) \| undefined` | `bd tsr-97d` / `bd tsr-e10` |
+| 15 | written union order and parenthesisation, in both parameter and predicate position | `bd tsr-5o2` |
+| 10 | type-parameter renaming, `<T_1>` | not ported |
+| 6 | **inferred predicates** — `(t: Something) => t is Rock` printed as `boolean` | **`bd tsr-u4fc`, filed** |
+| 5 | `kind: "A" \| "A"` — a parameter union of two identical literals we reduce | union reduction |
+| 4 | `arg is any` wanted where we compute `arg is string` — upstream bailed on a circularity | ADR-0038/0039 |
+| 6 | intersection reduction, `this`-type intersections, narrowing residue | existing owners |
+
+**The 6 inferred-predicate lines are a genuine gap→wrong this build created**,
+and they are recorded rather than gated. The gate that would prevent them is
+upstream's own (`relater.go:2035`): *an unannotated function-like whose return
+type is `boolean` and which has at least one parameter* tries
+`getTypePredicateFromBody`. Refusing on that **shape** would gap every
+`function f(x) { return x > 1 }` in the corpus — thousands of lines — to avoid
+six. The whole-construct refusal rule applies to sub-forms of the construct
+being built, and an inferred predicate is a different construct with a
+different input (there is no `TypePredicateNode`), so this is a *missing
+mechanism* on the board and not an approximation shipped inside this one.
+
+#### And one line of it was a parser defect, fixed here
+
+`conformance/typePredicateASI` printed
+`(callback: (a: any, b: any) => void) => I is any` where the baseline says
+`=> I`, and lost the interface's `is()` member with it. The source is
+
+```ts
+interface I {
+    foo(callback: (a: any, b: any) => void): I
+    is(): boolean;
+}
+```
+
+Upstream guards the predicate on `p.token == ast.KindIsKeyword &&
+!p.hasPrecedingLineBreak()` (`parser.go:3408`); this port's
+`next_is_is_keyword` had only the first half, so the *next member's* name was
+eaten as the predicate's `is`. Pre-existing, invisible until a predicate
+printed at all, and one line of `crates/tsr-parser/src/types.rs`. Pinned by
+`a_return_type_on_its_own_line_is_not_glued_to_a_member_named_is`.
+
+That is the second cycle running in which reading a passing residual found a
+defect the ratio would have banked.
+
+### 3.2 What the arm deliberately does not carry
+
+- The predicate is stored as a [`TypeId`], not as rendered text, so
+  `instantiate_signature` substitutes it the way `instantiateTypePredicate`
+  (`relater.go:2101`) does. Storing the rendered string was the first design
+  and it would have had to *discard* the predicate on every instantiation —
+  turning `conformance/conditionalTypes2`'s instantiated guards back into gaps.
+- `type_predicate_of` answers `None` — a gap for the **whole signature** — when
+  the predicate's own type node does not resolve. `x is keyof T` is a gap and
+  not `x is error`; the pair is pinned in
+  `crates/tsr-checker/tests/type_predicates.rs`.

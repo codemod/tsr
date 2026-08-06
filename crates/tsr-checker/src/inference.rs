@@ -517,6 +517,16 @@ impl Checker<'_, '_> {
             signature.written_return = None;
         }
         signature.r#type = image;
+        // `instantiateTypePredicate` (`relater.go:2101`) substitutes the
+        // predicate's type and leaves its kind and parameter name alone. The
+        // predicate is carried as a `TypeId` rather than as rendered text
+        // precisely so this is a substitution and not a discard — see
+        // [`crate::signatures::TypePredicate`].
+        if let Some(predicate) = &mut signature.predicate
+            && let Some(id) = predicate.r#type
+        {
+            predicate.r#type = Some(substitute(self, id)?);
+        }
         Some(signature)
     }
 
