@@ -219,24 +219,23 @@ impl Checker<'_, '_> {
                     return error;
                 }
                 if let Some(initializer) = self.initializer_of(holder) {
-                    // An **array literal destructured by an array pattern**
-                    // refuses whole. Upstream types the initializer under the
-                    // pattern's implied contextual type
-                    // (`checkDeclarationInitializer` threads
-                    // `getTypeFromBindingPattern`, `checker.go:16748` →
-                    // `:17904`), which is what makes `var [a, b] = [1, "x"]`
-                    // infer the *tuple* `[number, string]` — so `a` is
-                    // `number`. Without that machinery this port's
-                    // `check_expression` answers `(string | number)[]` and
-                    // every element would print the union: measured on the
-                    // first run of `bd tsr-o00` as ~80 wrong lines across
-                    // `declarationEmitDestructuringArrayPattern1/2/4` and
-                    // `destructuringArrayBindingPatternAndAssignment1*`. A
-                    // gap beats that wrong answer.
-                    if matches!(initializer, tsr_ast::Expression::ArrayLiteralExpression(_))
+                    // **The pattern-implied contextual type** (`bd tsr-84iz`,
+                    // `checker-notes-patctx.md`). Upstream threads
+                    // `getTypeFromBindingPattern` (`checker.go:17904`) into
+                    // `checkDeclarationInitializer` (`checker.go:16797`), and
+                    // for an array pattern over an array literal that
+                    // contextual type makes `checkArrayLiteral` infer a
+                    // **tuple**: `var [a, b] = [1, "x"]` is `[number, string]`,
+                    // so `a` is `number` and not `string | number`.
+                    //
+                    // Built here as the tuple of the literal's widened element
+                    // types, through the **shared** `create_tuple_type`, so a
+                    // tuple inferred from a literal and one written as an
+                    // annotation are the same interned type.
+                    if let tsr_ast::Expression::ArrayLiteralExpression(literal) = initializer
                         && self.holder_pattern_kind(holder) == Some(SyntaxKind::ArrayBindingPattern)
                     {
-                        return error;
+                        return self.tuple_from_array_literal(literal, holder);
                     }
                     // `widenTypeInferredFromInitializer(checkDeclarationInitializer(..))`
                     // (`checker.go:16748`), the same pair the identifier path
@@ -283,6 +282,65 @@ impl Checker<'_, '_> {
             }
         }
         parent_type
+    }
+
+    /// The tuple an array literal implies when an array pattern destructures
+    /// it — `bd tsr-84iz`, `docs/architecture/checker-notes-patctx.md`.
+    ///
+    /// This is `getTypeFromBindingPattern` (`checker.go:17904`) threaded into
+    /// `checkDeclarationInitializer` (`checker.go:16797`), reduced to what
+    /// that contextual type actually does to a plain array literal: each
+    /// element keeps its own **widened** type instead of collapsing into the
+    /// union an uncontextualised array literal produces.
+    ///
+    /// Every refusal below is a shape `examples/patctx.rs` measured this arm
+    /// mispredicting, and each returns `errorType` so the construct gaps whole
+    /// rather than answering part of it:
+    ///
+    /// - a **spread** in the literal, or a **rest** in the pattern — both need
+    ///   `sliceTupleType`;
+    /// - a pattern **longer than the literal**: upstream's out-of-range
+    ///   element is optional and prints `T | undefined`, and the tuple minted
+    ///   here carries no optional flag;
+    /// - an **element that itself gaps** — a gap in an element gaps the tuple,
+    ///   the rule the tuple type-node arm already follows.
+    fn tuple_from_array_literal(
+        &mut self,
+        literal: &tsr_ast::ArrayLiteralExpression<'_>,
+        holder: NodeId,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(Some(tsr_ast::BindingName::BindingPattern(pattern))) =
+            self.node_map.get(holder).map(|node| match node {
+                Node::VariableDeclaration(declaration) => declaration.name,
+                _ => None,
+            })
+        else {
+            return error;
+        };
+        if pattern.elements.iter().any(|element| element.dot_dot_dot_token.is_some()) {
+            return error;
+        }
+        // A pattern longer than the literal reads out of range.
+        if pattern.elements.len() > literal.elements.len() {
+            return error;
+        }
+        let mut elements = Vec::with_capacity(literal.elements.len());
+        for element in literal.elements {
+            if matches!(element, tsr_ast::Expression::SpreadElement(_)) {
+                return error;
+            }
+            let id = self.check_expression(*element);
+            if id == error {
+                return error;
+            }
+            // The element of a *contextually tuple-typed* literal widens its
+            // literal types the same way a mutable location does — `[1, "x"]`
+            // implies `[number, string]`, not `[1, "x"]`, which is what the
+            // baselines record for a non-`const` declaration.
+            elements.push(self.get_widened_literal_type(id));
+        }
+        self.create_tuple_type(elements, false)
     }
 
     /// The kind of the pattern a holder declares — `holder.name` when it is a

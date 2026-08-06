@@ -566,6 +566,21 @@ impl<'a> Checker<'a, '_> {
             .node_id
             .and_then(|id| self.nodes.parent(id))
             .is_some_and(|parent| self.is_readonly_type_operator(parent));
+        self.create_tuple_type(elements, readonly)
+    }
+
+    /// Mint (or reuse) the tuple type for an element list.
+    ///
+    /// Extracted from [`Checker::get_type_from_tuple_type_node`] when
+    /// `bd tsr-84iz` needed a tuple built from an **array literal's** element
+    /// types rather than from a type node. Shared rather than copied, and that
+    /// is load-bearing: `tsr-5ll`'s comparator and `tsr-o00`'s element lookup
+    /// both key on `tuple_element_lists`, and the interning on
+    /// `(elements, readonly)` is what makes `[number, string]` written twice —
+    /// once as an annotation, once inferred from `[1, "x"]` — **one** type.
+    /// Two minting sites would produce two ids that print alike and compare
+    /// unequal.
+    pub(crate) fn create_tuple_type(&mut self, elements: Vec<TypeId>, readonly: bool) -> TypeId {
         if let Some(&cached) = self.tuple_types.get(&(elements.clone(), readonly)) {
             return cached;
         }

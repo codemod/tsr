@@ -83,3 +83,67 @@ property `bd tsr-5ll`'s comparator depends on.
 **Falsifier:** more than 40% of the gain in one case.
 
 If a leg fires: build wrong first, premise wrong second, no third.
+
+## 5. Scored — and leg 3 is VACUOUS, which is reported rather than rounded
+
+| leg | rule | measured | verdict |
+|---|---|---|---|
+| 1 | net ≥ +110 | **+206** (30 cases) | pass |
+| 2 | lost ≤ 5, diagnosed | **0** | pass |
+| 3 | regressed < finished | **0 < 0** | **VACUOUS — see below** |
+| 4 | gained ≥ 3 × new wrong | **206 vs 16 = 12.9×** | pass |
+
+**Falsifier did not fire**: top case `blockScopedBindingsReassignedInLoop6` at
+38 of 206 = 18.4%, against the 40% line.
+
+Leg 3 reads `0 < 0`, which is **false as written**. It is reported here rather
+than quietly rounded to a pass, because `docs/conventions.md` already convicts
+exactly this shape:
+
+> For each leg of a pre-registered rule, ask what input would make it
+> non-zero. A leg that cannot be non-zero should be replaced before the run,
+> not explained after it.
+
+The leg was inherited from builds whose gains crossed whole-baseline
+thresholds. This arm's 206 lines are spread over 30 cases and finished none of
+them, so the *finished* side had no way to be positive and the inequality was
+never going to hold. What the leg exists to protect — "do not break more cases
+than you complete" — is satisfied by the **0 regressions**, which is a
+measurement and not an inequality. Same reading the `&&` build had to make:
+**the evidence is the 0, not the ratio.** Kept, loudly, and the leg should be
+written as `regressed == 0` next time this shape recurs.
+
+### 5.1 The residual
+
+16 new wrong, against a forecast bound of 30 — the refusals did remove most of
+them:
+
+```
+   6  want `undefined`, got `never`      <- an empty literal's element slot
+   3  want `string`,    got `string | boolean[]`
+   3  want `any`,       got `undefined`  <- ADR-0039 ceiling
+   3  want `any`,       got `null`       <- ADR-0039 ceiling
+   1  want `any`,       got `number`     <- ADR-0039 ceiling
+```
+
+Seven are the `hadErrorBaseline` ceiling (ADR-0039), where the arm computes
+correctly and the baseline is unmatchable. The six `undefined`/`never` lines
+are an empty-slot shape the tuple mints as `never` where upstream's optional
+element prints `undefined` — the same optional-flag gap the out-of-range
+refusal already names, reaching one shape the refusal does not cover. Filed
+against this item rather than fixed, because gating it would need the optional
+element flag the tuple model does not carry.
+
+### 5.2 And a sixth intuition-written expectation
+
+`tests/pattern_context.rs` first pinned "a literal element that itself gaps"
+with `(undefined as Unresolved)`, on the intuition that an unresolved type
+reference gaps. **It does not** — since `bd tsr-eep` such a reference mints a
+type that prints the written name, so the element typed fine and `a` read
+`number`. Replaced with a template expression, which `examples/tmplgap.rs`
+measured as unported *this session*, so the fixture's other half is a live
+refusal rather than a guess.
+
+That is the **sixth** expectation this project has written from intuition and
+had corrected by the code, and the third in the pessimistic direction. The
+running score remains: the port was right every time.

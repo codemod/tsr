@@ -163,13 +163,19 @@ fn the_refused_legs_stay_gaps() {
     let rest = r#"var { a, ...rest } = { a: 1, b: "x" };"#;
     assert_eq!(type_of_binding(rest, "rest"), "error");
     assert_eq!(type_of_binding(rest, "a"), "number");
-    // An array literal destructured by an array pattern: upstream infers the
-    // *tuple* `[number, string]` through the pattern's implied contextual
-    // type (`conformance/destructuringArrayBindingPatternAndAssignment1ES5`
-    // records `>[1, 2, 3] : [number, number, number]`), which this port's
-    // `(string | number)[]` answer would contradict on every element.
+    // An array literal destructured by an array pattern **is now ported**
+    // (`bd tsr-84iz`): upstream infers the *tuple* `[number, string]` through
+    // the pattern's implied contextual type
+    // (`conformance/destructuringArrayBindingPatternAndAssignment1ES5` records
+    // `>[1, 2, 3] : [number, number, number]`). This asserted `error` until
+    // that landed — the fourteenth stand-in fixture in this project to come
+    // due — and is now the **pair**: the ported form answers, and the shapes
+    // `checker-notes-patctx.md` still refuses gap beside it. `tests/pattern_context.rs`
+    // is the wider suite.
     let literal = r#"var [q] = [1, "x"];"#;
-    assert_eq!(type_of_binding(literal, "q"), "error");
+    assert_eq!(type_of_binding(literal, "q"), "number");
+    let out_of_range = r#"var [q1, q2, q3] = [1, "x"];"#;
+    assert_eq!(type_of_binding(out_of_range, "q3"), "error");
     // A parameter pattern with no annotation: upstream consults contextual
     // typing first (`checker.go:16735`), and `None` from the ported slice
     // cannot distinguish absent from unported.
