@@ -1,5 +1,36 @@
 # Names that do not resolve, and symbols with no value declaration
 
+> **CORRECTED 2026-08-06 (cycle 13). This page's probe had the gap/right
+> ordering defect, and §2's headline moved.**
+>
+> `examples/nameres.rs` inherited `receiver_gap.rs`'s classification order — it
+> tested `type_string == "error"` **before** testing the baseline, so a line
+> where this port answers `error` **and upstream's baseline also says `error`**
+> was filed as a gap. It is a right answer. Found by the lead with
+> `examples/reconcile.rs` (`9b10272`, `bd tsr-zlo`); `callres.rs` had the same
+> defect independently.
+>
+> Fixed here by testing the baseline first. What moved, at `26efa2a`:
+>
+> | | as published | corrected |
+> |---|---:|---:|
+> | this probe's `right` | 292,217 | **294,871** |
+> | DIRECT row | 4,673 | **4,569** |
+> | "upstream also errors" | 4,467 (**53.9%**) | **4,360 (53.3%)** |
+> | "upstream has a REAL type" | 2,904 | **2,904 — unchanged** |
+>
+> **The finding survives and the available-work figure does not move at all.**
+> The 104 lines that left were `error`-on-both-sides, so they were never
+> available work either; they were miscounted as gap rather than as right. Every
+> §3 and §4 figure is over the "real type" sub-population and is unaffected.
+>
+> The 294,871 also reconciles exactly with the merged corpus run at `26efa2a`.
+> §0's claim that this probe's agreement with `receiver_gap` was evidence
+> *neither* was at fault **was wrong, and backwards**: two probes agreeing
+> because one copied the other's classifier is not corroboration, it is a shared
+> defect. `docs/conventions.md`'s "two independent instruments" rule requires the
+> instruments to be independent, and these two were not.
+
 Measured 2026-08-06 at `058b4a9` by
 `crates/tsr-conformance/examples/nameres.rs`, which routes through
 `types_producer::assertions_for_case_with_ids` and so measures the same
@@ -88,9 +119,13 @@ cases, top-10 87.9%. It is a handful of files.
 
 | | lines | share |
 |---|---:|---:|
-| upstream also errors (`any` / `error` on the baseline) | **4,467** | **53.9%** |
-| upstream has a real type | 2,904 | 35.0% |
-| the root's own baseline line could not be located | 921 | 11.1% |
+| upstream also errors (`any` on the baseline) | **4,360** | **53.3%** |
+| upstream has a real type | 2,904 | 35.5% |
+| the root's own baseline line could not be located | 921 | 11.3% |
+
+*Corrected 2026-08-06; see the header. The `error`-on-both-sides lines that used
+to sit in the first row are `right` and have left the table entirely, which is
+why the first row shrank and the second did not move.*
 
 An unresolved name is `errorType` in upstream, and `errorType` is printed as
 `any` — which is why the `.types` baseline for `conformance/parserRealSource10`
@@ -487,3 +522,236 @@ one as current.
   that the *old* lookup was addressed at correctly and still missed. 225 of them
   had the name in the file's exports, so `export_symbol_of` returned a symbol and
   the gap is downstream of it; the remainder is unexplained.
+
+---
+
+# Cycle 13 — the `SymbolFlags(ALIAS) / no value declaration` row
+
+Measured 2026-08-06 at `26efa2a` by the same probe, extended. §6 handed this row
+over as *"the least concentrated large row anywhere in `docs/architecture/`"* and
+noted that ADR-0041 had just changed its premise. Both were right. It is also
+**refused**, on a leg that reads 0.0% against a required 80%.
+
+## 9. The row, with the seam live
+
+`checker-notes-symbols.md` §4 split this row's 2,430-line predecessor by form and
+found 77% blocked on module resolution. Module resolution landed
+(ADR-0041, `fa29e66`). This is the first measurement with it live.
+
+**5,207 lines — 3,437 declaration-name (direct) + 1,770 behind a receiver gap
+(cascade) — over 912 cases, top-1 5.3%, top-10 24.8%.** Larger than the 3,455 I
+handed over, because that figure was the direct row only. Top cases:
+`privacyImportParseErrors` 276, `privacyFunctionCannotNameParameterTypeDeclFile`
+187, `ramdaToolsNoInfinite2` 131. It survives the concentration check outright —
+no other large row in `docs/architecture/` does.
+
+### By form, and whether the target is reachable *and* typed
+
+The right column replays the target lookup through the same seam
+`Checker::resolve_alias` uses — `ModuleHost::resolved_module`, then the module
+symbol, then `export =`, then the exports table — and asks
+`get_type_of_symbol` whether the result has a type. Deliberately **not** a call
+into `resolve_alias`: that function declines four forms on purpose, so asking it
+would answer "no" for exactly the population under measurement.
+
+| form | direct | cascade | total | convertible |
+|---|---:|---:|---:|---:|
+| `import a = require("m")` | 1,026 | 988 | **2,014** | **962** |
+| `import { x } from "m"` *(handled)* | 820 | 62 | 882 | 0 |
+| `import * as ns from "m"` | 475 | 341 | 816 | 512 |
+| `import d from "m"` | 377 | 95 | 472 | 41 |
+| `import a = b.c` | 251 | 80 | 331 | 1 |
+| `import a = b` *(handled)* | 153 | 166 | 319 | 289 |
+| `export { q }` *(handled)* | 180 | 0 | 180 | 27 |
+| `export as namespace N` | 72 | 38 | 110 | 0 |
+| `export { q } from "m"` *(handled)* | 75 | 0 | 75 | 0 |
+| `export * as ns from "m"` | 8 | 0 | 8 | 8 |
+
+| verdict | lines | share | cases | top-1 |
+|---|---:|---:|---:|---:|
+| **reached AND typed — convertible** | **1,840** | 35.3% | 215 | 9.7% |
+| reached, its own type gaps (kind 2) | 1,275 | 24.5% | 354 | 2.9% |
+| module not resolved | 1,620 | 31.1% | 348 | 10.2% |
+| module resolved, name not exported | 362 | 7.0% | 129 | 8.0% |
+| no replay for this form | 110 | 2.1% | 39 | 11.8% |
+
+## 10. The rule, its population named this time, and the leg that refused it
+
+Registered before the two spellability legs were run. §5 records that Rule 2's
+top-1 leg did not say which population it was over; this one does, in the
+sentence itself.
+
+> **Population: the ALIAS row's direct *and* cascade lines together, under a
+> form `Checker::resolve_alias` does not handle, whose target this probe reaches
+> and types — excluding the forms `bd tsr-4jk` already measured unspellable
+> (`import * as ns`, `export * as ns`).**
+>
+> BUILD if that population exceeds **800 lines** over more than **40 cases**
+> with a **top-1 case share below 40% taken over that same population**, AND
+> **≥80% of those lines reach their target through an `export =`** — so the
+> printed name is the target's own rather than the module's file path — AND
+> **fewer than 25% of the lines the form unblocks** have a baseline right-hand
+> side containing `import(`, which is upstream's syntax for a symbol with no
+> accessible name and which this port cannot produce.
+>
+> Otherwise REFUSE.
+
+Measured:
+
+| leg | required | measured | |
+|---|---|---:|---|
+| size | > 800 | **1,004** (962 + 41 + 1) | pass |
+| cases | > 40 | 75 on the largest form alone | pass |
+| **spellable row: `export =` share** | **≥ 80%** | **0.0%** | **FAIL** |
+| collateral: `import(` share of what it unblocks | < 25% | 24.9% | pass, barely |
+
+**REFUSED**, on the third leg, by the largest margin available.
+
+### What 0.0% means, and the control that proves it is not a probe defect
+
+`resolve_external_module_symbol` (`checker.go:15556`) hands back the `export =`
+target when there is one and the **module symbol** otherwise. A module symbol's
+name in this port is the stripped file path. So a bare-module target prints
+`typeof /privacyCannotNameVarTypeDeclFile_exporter` where upstream prints
+`typeof exporter`.
+
+**Not one of the 962 convertible `import a = require` lines reaches its target
+through an `export =`.** Nor do the 512 `import * as ns` lines, nor the 8
+`export * as ns`. Read the largest case rather than the number
+(`vendor/typescript-go/_submodules/TypeScript/tests/cases/compiler/privacyCannotNameVarTypeDeclFile.ts:56`):
+
+```ts
+import exporter = require("./privacyCannotNameVarTypeDeclFile_exporter");
+```
+
+and the target file exports functions — it writes no `export =`. The baseline
+says `>exporter : typeof exporter`: **the local alias name**, which is
+`tsr-4jk`'s finding exactly, now confirmed for `import a = require` as well as
+for `import * as ns`.
+
+**Control C9, and it is the reason this is a finding rather than a fourth probe
+defect.** Three earlier readings on this page turned out to be defects in this
+probe, not facts about the port — control C8 fired at 2 when it must read 0
+(a specifier that was *not a string literal* was being reported as *absent*),
+and `import a = require` first read **0 convertible of 2,014** because that
+form's specifier is the argument of its own `require(...)` rather than a
+`module_specifier` on any ancestor, so a parent walk found nothing. Both were
+fixed before anything here was quoted.
+
+So `export =` at 0.0% needed a control that could distinguish "the mechanism
+never fires" from "the mechanism is not wired". C9 counts `export =` over **all**
+alias lines rather than the convertible ones, and it is pinned by construction:
+`compiler/es6ExportEqualsInterop.ts` writes `export = Foo` five times, so a
+corpus-wide zero would be provably wrong.
+
+```
+C9  import a = require("m")   218 export=  /  1,796 bare   (10.8%)
+C9  import * as ns from "m"    72 export=  /    744 bare   ( 8.8%)
+C9  import d from "m"          66 export=  /    406 bare   (14.0%)
+C8  NamespaceImport with no module specifier = 0 (mirror 475)
+```
+
+The mechanism fires. It fires on 218 `import a = require` lines — **and every one
+of those 218 is in a non-convertible bucket**, because the `export =` target's
+own type gaps or its module is not in the program. The convertible set and the
+spellable set are disjoint here, and that is the whole result.
+
+### Consequences, stated as a number
+
+Building the largest unhandled form would convert **962 lines** and print a file
+path on **962 of them**. That is not 0.14 wrong per right, as the export-marker
+arm measured; it is **1.0 wrong per right on the row itself**, before any
+collateral. Add the collateral — 24.9% of what `import a = require` unblocks has
+`import(` in its baseline, which this port cannot emit — and the item is
+**negative**, in the same way and for the same reason as `bd tsr-6ph` (2.1) and
+its lookup-only variant (2.5).
+
+**What would make this build win:** a printer that emits the *alias's own name*
+for a module-symbol-typed reference. That is one mechanism, it is the same one
+`tsr-4jk` and `tsr-6ph` and `tsr-6j2` are all blocked on, and it would unlock
+962 + 512 + 8 = **1,482 lines of this row alone**, on top of what those issues
+already count. It is now the single highest-value unbuilt thing this workstream
+has measured, and `bd tsr-6j2` is where it lives (`bd tsr-e2u` carries this measurement).
+
+## 11. Two things the split found that are not this row
+
+### `import a = b` is the `tsr-sgd` item wearing a different hat
+
+The `import a = b` form shows **289 of 319 lines convertible under my replay
+while the checker answers `errorType`**. That discrepancy is the finding, not the
+289: my replay looks the name up with `SymbolFlags::all()`, and
+`resolve_alias`'s Identifier arm re-checks `SymbolFlags::NAMESPACE`
+(`symbols.rs`, and upstream's `resolveEntityName` passes the same meaning).
+
+Reproduced at unit level, and the pair is the whole diagnosis:
+
+```ts
+namespace m1 { export namespace P { export var v: string; } import im = P; export var q = im; }
+//                                                                              -> error
+namespace m1 {        namespace P { export var v: string; } import im = P; export var q = im; }
+//                                                                              -> typeof P
+```
+
+**Exporting the namespace changes the answer**, which cannot be right. From
+inside `m1`, `P` resolves to the **export marker** in `m1`'s locals, whose flags
+are `EXPORT_VALUE` and nothing else, so the `NAMESPACE` test fails.
+
+My first diagnosis was that this is a one-line meaning fix in `resolve_alias`,
+using the `Symbol::export_symbol` link added in `033277f`. **That is wrong, and
+reading upstream says so.** Upstream's `lookup` (`internal/binder/nameresolver.go`)
+filters the `locals` hit by meaning, so the marker fails there *too* — and
+upstream then falls through to the enclosing `ModuleDeclaration`'s **exports**
+table and finds the real `P` with full flags. The divergence is not the meaning
+test; it is the missing exports arm.
+
+So **this is `bd tsr-sgd` — the namespace-exports arm in
+`BindResult::resolve_name` — and not a separate item.** I refused that at 434
+lines from the name-resolution row; it is worth more than that, because this
+row contributes to it as well. The two populations were measured by different
+routes and must not simply be added (`docs/conventions.md`: *"sharing a
+downstream function is not the same as being blocked by it"*), so the honest
+statement is **434 confirmed plus an unmeasured share of these 319**, and sizing
+it properly is one probe pass. `tsr-sgd` now carries this.
+
+Refused again this cycle on the standing 800-line threshold this workstream has
+applied three times. Fixing it with a marker-following hack in `resolve_alias`
+was specifically declined: it would reach the right symbol for this shape while
+being a second copy of a decision the binder already makes, which is the exact
+argument §5 used to reject the walking reconstruction — and that argument does
+not stop applying because the second copy would be mine.
+
+### The `handled` column is a measurement of my replay, not of available work
+
+316 lines are "convertible" under forms `resolve_alias` already handles. Every
+one is a place where my replay is **wider** than the checker — `all()` rather
+than the meaning upstream passes, and no `export =` guard on the named-import
+path. **Do not read that column as work.** It is reported because a reader would
+otherwise compute 1,840 − 1,524 and think it was something.
+
+## 12. How you would know this section is wrong
+
+- **C8** — a `NamespaceImport` with no module specifier — is 0 by the grammar,
+  against a mirror of 475. It read **2** on the first run and that was a probe
+  defect, which is the strongest thing that can be said for a control.
+- **C9** — `export =` over all alias lines — is non-zero (218 / 72 / 66) against
+  a construction anchor (`es6ExportEqualsInterop.ts` writes it five times). A
+  zero here would mean §10's refusal rests on a mechanism that never fires.
+- **The 0.0% leg.** The falsifier is a convertible `import a = require` line
+  whose target comes through an `export =`. There are none; the probe prints the
+  split per form and would show it.
+- **The `import a = b` diagnosis.** The falsifier is upstream resolving the
+  export marker rather than the namespace's export. The two-line fixture above
+  is the test to write when `tsr-sgd` is built.
+
+## 13. Open, cycle 13
+
+- `open` — the 1,620 `module not resolved` lines. Some are bare specifiers no
+  case supplies (upstream fails too); the split is unmeasured.
+- `open` — the 41 convertible `import d from "m"` lines. Their target is
+  `exports["default"]`, a declared symbol, so leg 1's `false` is a false alarm
+  for that form; whether this port prints `typeof A` or `typeof default` for it
+  is **unverified** and 41 lines did not justify checking.
+- `open` — the 218 `export =` lines that are not convertible. If their targets'
+  types become computable, they are the spellable half of this row, and the
+  refusal in §10 would have to be re-taken against them rather than against the
+  962.

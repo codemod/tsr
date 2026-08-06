@@ -276,6 +276,31 @@ struct Report {
     export_value: BTreeMap<(Row, Container), Tally>,
     /// Per container bucket, what the baseline prints for the marker's own line.
     export_value_rhs: BTreeMap<(Container, String), usize>,
+    /// The ALIAS row: (row, form, target) -> lines.
+    alias: BTreeMap<(Row, Form, Target), Tally>,
+    /// Per form, what the baseline prints for the ALIAS line itself.
+    alias_rhs: BTreeMap<(Form, String), usize>,
+    /// Per form, what the baseline prints for the lines a CASCADE alias
+    /// unblocks — the member, not the alias. The collateral spellability check.
+    alias_unblocks_rhs: BTreeMap<(Form, String), usize>,
+    /// Rule 3's first spellability leg: per form, convertible lines split by
+    /// whether the target was reached THROUGH an `export =` (so the printed
+    /// name is the target's own) or IS the module symbol (whose name in this
+    /// port is the stripped file path — `bd tsr-4jk`).
+    alias_export_equals: BTreeMap<(Form, bool), Tally>,
+    /// The same, restricted to the convertible lines. Leg 1 is read off this;
+    /// the unrestricted map above is control C9, which must be non-zero for
+    /// `export =` somewhere, because `compiler/es6ExportEqualsInterop.ts`
+    /// demonstrably writes `export = Foo` five times.
+    alias_export_equals_conv: BTreeMap<(Form, bool), Tally>,
+    /// Rule 3's second leg: per form, the lines this alias unblocks, split by
+    /// whether upstream's baseline for them contains `import(` — upstream's
+    /// syntax for a symbol with no accessible name, which this port cannot
+    /// produce.
+    alias_unblocks_import_syntax: BTreeMap<(Form, bool), usize>,
+    /// C8: a `NamespaceImport` with no module specifier. 0 by the grammar.
+    c8_ns_import_without_specifier: usize,
+    c8_ns_import_with_specifier: usize,
     /// The two preconditions `export_symbol_of` needs, counted per line.
     /// `file_has_no_symbol`: the marker's source file has no module symbol at
     /// all, so the lookup cannot even start. `lookup_would_hit`: the file's own
@@ -318,6 +343,26 @@ impl Report {
         for (k, v) in &o.export_value_rhs {
             *self.export_value_rhs.entry(k.clone()).or_default() += v;
         }
+        for (k, v) in &o.alias {
+            self.alias.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.alias_rhs {
+            *self.alias_rhs.entry(k.clone()).or_default() += v;
+        }
+        for (k, v) in &o.alias_unblocks_rhs {
+            *self.alias_unblocks_rhs.entry(k.clone()).or_default() += v;
+        }
+        for (k, v) in &o.alias_export_equals {
+            self.alias_export_equals.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.alias_export_equals_conv {
+            self.alias_export_equals_conv.entry(*k).or_default().merge(v);
+        }
+        for (k, v) in &o.alias_unblocks_import_syntax {
+            *self.alias_unblocks_import_syntax.entry(*k).or_default() += v;
+        }
+        self.c8_ns_import_without_specifier += o.c8_ns_import_without_specifier;
+        self.c8_ns_import_with_specifier += o.c8_ns_import_with_specifier;
         self.file_has_no_symbol += o.file_has_no_symbol;
         self.lookup_would_hit += o.lookup_would_hit;
         self.c1_direct_not_identifier += o.c1_direct_not_identifier;
@@ -550,11 +595,18 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
 
         for (position, assertion) in our_file.iter().enumerate() {
             let baseline = expected_file.assertions.get(position);
-            if assertion.type_string == "error" {
-                report.gap += 1;
-            } else if baseline.is_some_and(|b| b.text == assertion.line()) {
+            // **The baseline is tested FIRST, and the order is the whole
+            // correctness of this block.** A line where this port answers
+            // `error` and upstream's baseline *also* says `error` is a **right**
+            // answer, not a gap. Testing `type_string == "error"` first filed
+            // 389 such lines as gaps — inherited from `receiver_gap.rs`, found
+            // by `examples/reconcile.rs`, `bd tsr-zlo`. It matters twice over
+            // here, because those lines are exactly the family §2 counts.
+            if baseline.is_some_and(|b| b.text == assertion.line()) {
                 report.right += 1;
                 continue;
+            } else if assertion.type_string == "error" {
+                report.gap += 1;
             } else {
                 report.wrong += 1;
                 continue;
@@ -572,6 +624,40 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     && let Some(rhs) = line.text.strip_prefix(&format!("{} : ", assertion.text))
                 {
                     *report.no_value_decl_rhs.entry(rhs.to_string()).or_default() += 1;
+                }
+                if key.starts_with("SymbolFlags(ALIAS) /")
+                    && let Some(symbol) = symbol_of_line(bound, nodes, map, id)
+                {
+                    let (form, target, export_equals) =
+                        alias_split(&mut checker, &program, bound, nodes, map, symbol);
+                    report
+                        .alias_export_equals
+                        .entry((form, export_equals))
+                        .or_default()
+                        .add(name, 1);
+                    if target == Target::ReachedAndTyped {
+                        report
+                            .alias_export_equals_conv
+                            .entry((form, export_equals))
+                            .or_default()
+                            .add(name, 1);
+                    }
+                    if form == Form::NamespaceImport {
+                        let declaration = alias_declaration(bound, nodes, symbol)
+                            .expect("a NamespaceImport form came from a declaration");
+                        match specifier_of(nodes, map, declaration) {
+                            Specifier::Absent => report.c8_ns_import_without_specifier += 1,
+                            Specifier::Text(_) | Specifier::NotALiteral => {
+                                report.c8_ns_import_with_specifier += 1;
+                            }
+                        }
+                    }
+                    report.alias.entry((Row::Direct, form, target)).or_default().add(name, 1);
+                    if let Some(line) = baseline
+                        && let Some(rhs) = line.text.strip_prefix(&format!("{} : ", assertion.text))
+                    {
+                        *report.alias_rhs.entry((form, rhs.to_string())).or_default() += 1;
+                    }
                 }
                 if key.starts_with("SymbolFlags(EXPORT_VALUE) /")
                     && let Some(symbol) = symbol_of_line(bound, nodes, map, id)
@@ -637,6 +723,39 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 };
                 if terminal_reason.contains(RECEIVER_GAP) {
                     report.c2_terminal_is_access += 1;
+                }
+                if terminal_reason.contains("SymbolFlags(ALIAS) /")
+                    && terminal_reason.contains(NO_VALUE_DECL)
+                    && let Some(root) = terminal
+                    && let Some(symbol) = symbol_of_line(bound, nodes, map, root)
+                {
+                    let (form, target, export_equals) =
+                        alias_split(&mut checker, &program, bound, nodes, map, symbol);
+                    report
+                        .alias_export_equals
+                        .entry((form, export_equals))
+                        .or_default()
+                        .add(name, 1);
+                    if target == Target::ReachedAndTyped {
+                        report
+                            .alias_export_equals_conv
+                            .entry((form, export_equals))
+                            .or_default()
+                            .add(name, 1);
+                    }
+                    report.alias.entry((Row::Cascade, form, target)).or_default().add(name, 1);
+                    // The collateral spellability check: what does the line this
+                    // alias BLOCKS print? `docs/conventions.md` — the cascade
+                    // runs both ways, and the sign is a naming property.
+                    if let Some(line) = baseline
+                        && let Some(rhs) = line.text.strip_prefix(&format!("{} : ", assertion.text))
+                    {
+                        *report.alias_unblocks_rhs.entry((form, rhs.to_string())).or_default() += 1;
+                        *report
+                            .alias_unblocks_import_syntax
+                            .entry((form, rhs.contains("import(")))
+                            .or_default() += 1;
+                    }
                 }
                 if terminal_reason.contains("SymbolFlags(EXPORT_VALUE) /")
                     && terminal_reason.contains(NO_VALUE_DECL)
@@ -851,6 +970,7 @@ fn print(t: &Report) {
             println!("            {n:>5}  {case}");
         }
     }
+    print_alias(t);
     println!("\n================ EXPORT_VALUE MARKERS, split by container");
     for row in [Row::Direct, Row::Cascade] {
         for container in [Container::InNamespace, Container::AtFileTop, Container::NoDeclaration] {
@@ -894,4 +1014,574 @@ fn top<K: Clone + Ord>(m: &BTreeMap<K, usize>, n: usize) -> Vec<(K, usize)> {
     v.sort_by_key(|(k, c)| (std::cmp::Reverse(*c), k.clone()));
     v.truncate(n);
     v
+}
+
+// ===========================================================================
+// Cycle 13: the `SymbolFlags(ALIAS) / no value declaration` row.
+//
+// 3,455 lines over 914 cases at `058b4a9`, top-1 3.8%, top-10 18.4% — the least
+// concentrated large row in `docs/architecture/`. `checker-notes-symbols.md` §4
+// split its 2,430-line predecessor by *form* and found 77% blocked on module
+// resolution. ADR-0041 landed module resolution. **This row has never been
+// measured with the seam live**, and that is what the code below does.
+//
+// The direct bucket, and the rule, are in §9 of
+// `docs/architecture/checker-notes-nameres.md`.
+// ===========================================================================
+
+/// The alias form, taken from the **last alias-shaped declaration**, which is
+/// what `Checker::declaration_of_alias_symbol` selects
+/// (`getDeclarationOfAliasSymbol`, `checker.go:16397`, a `FindLast`). Reading
+/// `declarations[0]` instead is a bug this port has already had and fixed.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Form {
+    /// `import { x } from "./m"`. `resolve_alias` HANDLES this.
+    ImportSpecifier,
+    /// `export { q }` with no module specifier. HANDLED.
+    ExportSpecifierLocal,
+    /// `export { q } from "./m"`. HANDLED.
+    ExportSpecifierFrom,
+    /// `import a = b` — a bare identifier entity name. HANDLED.
+    ImportEqualsIdentifier,
+    /// `import d from "./m"` — the default import clause. Not handled.
+    ImportClauseDefault,
+    /// `import * as ns from "./m"`. Not handled; deliberately, `bd tsr-4jk`.
+    NamespaceImport,
+    /// `export * as ns from "./m"`. Not handled.
+    NamespaceExport,
+    /// `export as namespace N`. Not handled.
+    NamespaceExportDeclaration,
+    /// `import a = require("./m")`. Not handled.
+    ImportEqualsRequire,
+    /// `import a = b.c` — resolvable, deliberately not printed. Not handled.
+    ImportEqualsQualified,
+    /// The symbol carries `ALIAS` but has no alias-shaped declaration at all.
+    /// A positive failure of the selection, not a residue.
+    NoAliasDeclaration,
+    /// An alias-shaped declaration whose sub-shape none of the arms above names.
+    Unclassified,
+}
+
+impl Form {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::ImportSpecifier => "import { x } from 'm'      [resolve_alias HANDLES]",
+            Self::ExportSpecifierLocal => "export { q }               [resolve_alias HANDLES]",
+            Self::ExportSpecifierFrom => "export { q } from 'm'      [resolve_alias HANDLES]",
+            Self::ImportEqualsIdentifier => "import a = b               [resolve_alias HANDLES]",
+            Self::ImportClauseDefault => "import d from 'm'          (default)",
+            Self::NamespaceImport => "import * as ns from 'm'    (tsr-4jk: unspellable)",
+            Self::NamespaceExport => "export * as ns from 'm'",
+            Self::NamespaceExportDeclaration => "export as namespace N",
+            Self::ImportEqualsRequire => "import a = require('m')",
+            Self::ImportEqualsQualified => "import a = b.c             (resolvable, unprintable)",
+            Self::NoAliasDeclaration => "NO ALIAS DECLARATION (selection failed)",
+            Self::Unclassified => "UNCLASSIFIED",
+        }
+    }
+
+    /// Whether `Checker::resolve_alias` has an arm for this form today. A line
+    /// under a handled form is **not** a resolution gap: the target was reached
+    /// and its own type gapped, which makes it kind 2 and someone else's row.
+    const fn is_handled(self) -> bool {
+        matches!(
+            self,
+            Self::ImportSpecifier
+                | Self::ExportSpecifierLocal
+                | Self::ExportSpecifierFrom
+                | Self::ImportEqualsIdentifier
+        )
+    }
+}
+
+/// Whether the target could be reached *and* typed, replayed independently of
+/// `Checker::resolve_alias` (which is private) through the same seam it uses.
+///
+/// **This is the direct bucket the §9 rule is registered on.** It is not a
+/// proxy: it asks the question the decision is about — *if this alias resolved,
+/// would this port have an answer?* — rather than a quantity derived from it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Target {
+    /// The target was reached and `get_type_of_symbol` gives it a real type.
+    /// **Convertible.**
+    ReachedAndTyped,
+    /// The target was reached and its own type is `errorType`. Kind 2: blocked
+    /// on whatever types *that* symbol, not on alias resolution.
+    ReachedButUntyped,
+    /// The specifier named a file the program does not hold, or that file has
+    /// no module symbol.
+    ModuleNotResolved,
+    /// The module resolved but does not export the name.
+    NameNotExported,
+    /// This probe has no replay for the form.
+    NotReplayed,
+}
+
+impl Target {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::ReachedAndTyped => "reached AND typed  <- convertible",
+            Self::ReachedButUntyped => "reached, type gaps (kind 2)",
+            Self::ModuleNotResolved => "module not resolved",
+            Self::NameNotExported => "module resolved, name not exported",
+            Self::NotReplayed => "no replay for this form",
+        }
+    }
+}
+
+/// Form and target for one ALIAS-row symbol, so the direct and cascade branches
+/// cannot classify the same symbol two different ways.
+fn alias_split(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    program: &tsr_compiler::Program<'_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    symbol: tsr_binder::SymbolId,
+) -> (Form, Target, bool) {
+    let Some(declaration) = alias_declaration(bound, nodes, symbol) else {
+        return (Form::NoAliasDeclaration, Target::NotReplayed, false);
+    };
+    let form = form_of(nodes, map, declaration);
+    // The name a specifier looks up is its `propertyName` when it has one —
+    // `import { a as b }` looks up `a`, not `b` (`checker.go:14677`).
+    let lookup = match map.get(declaration) {
+        Some(Node::ImportSpecifier(node)) => match node.property_name {
+            Some(tsr_ast::ModuleExportName::Identifier(name)) => name.text,
+            _ => bound.symbols().get(symbol).name,
+        },
+        Some(Node::ExportSpecifier(node)) => match node.property_name {
+            Some(tsr_ast::ModuleExportName::Identifier(name)) => name.text,
+            _ => bound.symbols().get(symbol).name,
+        },
+        Some(Node::ImportEqualsDeclaration(node)) => match node.module_reference {
+            Some(tsr_ast::ModuleReference::Identifier(name)) => name.text,
+            _ => bound.symbols().get(symbol).name,
+        },
+        _ => bound.symbols().get(symbol).name,
+    };
+    let target = target_of(checker, program, bound, nodes, map, declaration, form, lookup);
+    (form, target, reaches_through_export_equals(program, bound, nodes, map, declaration))
+}
+
+/// Whether the module this form names writes `export = X`.
+///
+/// The whole spellability question for `import a = require("m")` and
+/// `import * as ns from "m"`: with an `export =`, `resolve_external_module_symbol`
+/// (`checker.go:15556`) hands back **`X`**, a declared symbol with its own name,
+/// and `typeof React` is printable. Without one it hands back the **module
+/// symbol**, whose name in this port is the stripped file path, and the same
+/// line prints `typeof /moduleA` — `bd tsr-4jk`'s finding, and the reason two
+/// designs were refused this week at 2.1 and 2.5 wrong per right.
+fn reaches_through_export_equals(
+    program: &tsr_compiler::Program<'_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    declaration: NodeId,
+) -> bool {
+    let Specifier::Text(specifier) = specifier_of(nodes, map, declaration) else { return false };
+    let mut file = declaration;
+    while nodes.kind(file) != SyntaxKind::SourceFile {
+        let Some(parent) = nodes.parent(file) else { return false };
+        file = parent;
+    }
+    let Some(target_file) = program.resolved_module(file, specifier) else { return false };
+    let Some(module) = bound.symbol_of(target_file) else { return false };
+    bound.symbols().get(module).exports.contains_key("export=")
+}
+
+/// `Checker::declaration_of_alias_symbol` replayed: `FindLast` over the
+/// alias-shaped kinds (`ast/utilities.go:2631`).
+fn alias_declaration(
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    symbol: tsr_binder::SymbolId,
+) -> Option<NodeId> {
+    bound.symbols().get(symbol).declarations.iter().rev().copied().find(|&declaration| {
+        matches!(
+            nodes.kind(declaration),
+            SyntaxKind::ImportEqualsDeclaration
+                | SyntaxKind::NamespaceExportDeclaration
+                | SyntaxKind::NamespaceImport
+                | SyntaxKind::NamespaceExport
+                | SyntaxKind::ImportSpecifier
+                | SyntaxKind::ExportSpecifier
+                | SyntaxKind::ImportClause
+        )
+    })
+}
+
+/// Where a form's module specifier is, and what it says.
+///
+/// **The three answers must stay apart**, and conflating two of them fired
+/// control C8 on the first run: `Absent` is the grammar claim (an `import * as
+/// ns` is a clause of an `ImportDeclaration`, which cannot exist without a
+/// specifier, so `Absent` must be **0**), while `NotALiteral` is parser error
+/// recovery and is allowed to be non-zero. A single `Option<&str>` reported both
+/// as "no specifier" and made a control read 2 where it must read 0 — the
+/// control was right and the probe was wrong.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Specifier<'a> {
+    /// A string literal specifier, with its text.
+    Text(&'a str),
+    /// A specifier node that is not a string literal. Parser recovery.
+    NotALiteral,
+    /// No specifier node at all.
+    Absent,
+}
+
+/// The module specifier that governs `id`.
+///
+/// Two shapes, and the second is why the first run reported **0 convertible for
+/// all 2,014 `import a = require("m")` lines**: that form's specifier is the
+/// argument of the `require(...)` on the declaration itself, not a
+/// `module_specifier` on any ancestor, so a parent walk finds nothing and every
+/// line was filed `ModuleNotResolved`. That was a defect in this probe, not a
+/// finding about the port.
+fn specifier_of<'a>(
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'a>,
+    id: NodeId,
+) -> Specifier<'a> {
+    let literal = |expression: Option<tsr_ast::Expression<'a>>| match expression {
+        Some(tsr_ast::Expression::StringLiteral(text)) => Specifier::Text(text.text),
+        Some(_) => Specifier::NotALiteral,
+        None => Specifier::Absent,
+    };
+    // `import a = require("m")` — the specifier is on the declaration.
+    if let Some(Node::ImportEqualsDeclaration(node)) = map.get(id)
+        && let Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) =
+            node.module_reference
+    {
+        return literal(reference.expression);
+    }
+    let mut current = Some(id);
+    for _ in 0..4 {
+        let Some(node) = current else { return Specifier::Absent };
+        match map.get(node) {
+            Some(Node::ImportDeclaration(declaration)) => {
+                return literal(declaration.module_specifier);
+            }
+            Some(Node::ExportDeclaration(declaration)) => {
+                return literal(declaration.module_specifier);
+            }
+            _ => {}
+        }
+        current = nodes.parent(node);
+    }
+    Specifier::Absent
+}
+
+fn form_of(nodes: &tsr_ast::NodeTable, map: &tsr_ast::NodeMap<'_>, declaration: NodeId) -> Form {
+    match nodes.kind(declaration) {
+        SyntaxKind::ImportSpecifier => Form::ImportSpecifier,
+        SyntaxKind::ExportSpecifier => {
+            // The grammar question — does the `export { q }` have a `from`? —
+            // and NOT whether the specifier is a string literal. Those are
+            // different, and `getTargetOfExportSpecifier` (`checker.go:14951`)
+            // branches on the first.
+            if specifier_of(nodes, map, declaration) == Specifier::Absent {
+                Form::ExportSpecifierLocal
+            } else {
+                Form::ExportSpecifierFrom
+            }
+        }
+        SyntaxKind::ImportClause => Form::ImportClauseDefault,
+        SyntaxKind::NamespaceImport => Form::NamespaceImport,
+        SyntaxKind::NamespaceExport => Form::NamespaceExport,
+        SyntaxKind::NamespaceExportDeclaration => Form::NamespaceExportDeclaration,
+        SyntaxKind::ImportEqualsDeclaration => match map.get(declaration) {
+            Some(Node::ImportEqualsDeclaration(node)) => match node.module_reference {
+                Some(tsr_ast::ModuleReference::Identifier(_)) => Form::ImportEqualsIdentifier,
+                Some(tsr_ast::ModuleReference::QualifiedName(_)) => Form::ImportEqualsQualified,
+                Some(tsr_ast::ModuleReference::ExternalModuleReference(_)) => {
+                    Form::ImportEqualsRequire
+                }
+                None => Form::Unclassified,
+            },
+            _ => Form::Unclassified,
+        },
+        _ => Form::Unclassified,
+    }
+}
+
+/// Replay the target lookup through the same seam `resolve_alias` uses, then ask
+/// the checker whether that symbol has a type.
+///
+/// Deliberately **not** a call into `resolve_alias`: that function declines four
+/// forms on purpose, so asking it would answer "no" for exactly the population
+/// under measurement. This asks what is *available*, which is the question.
+#[allow(clippy::too_many_arguments)]
+fn target_of(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    program: &tsr_compiler::Program<'_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    map: &tsr_ast::NodeMap<'_>,
+    declaration: NodeId,
+    form: Form,
+    name: &str,
+) -> Target {
+    let error = checker.intrinsics().error;
+    let verdict = |checker: &mut tsr_checker::Checker<'_, '_>, symbol| {
+        if checker.get_type_of_symbol(symbol) == error {
+            Target::ReachedButUntyped
+        } else {
+            Target::ReachedAndTyped
+        }
+    };
+
+    // The module symbol a specifier names, plus `export =` applied — the two
+    // steps `get_external_module_member` takes before the table lookup.
+    let module_symbol = |bound: &tsr_binder::BindResult<'_>| -> Option<tsr_binder::SymbolId> {
+        let Specifier::Text(specifier) = specifier_of(nodes, map, declaration) else { return None };
+        let mut file = declaration;
+        while nodes.kind(file) != SyntaxKind::SourceFile {
+            file = nodes.parent(file)?;
+        }
+        let target_file = program.resolved_module(file, specifier)?;
+        let module = bound.symbol_of(target_file)?;
+        Some(bound.symbols().get(module).exports.get("export=").copied().unwrap_or(module))
+    };
+
+    match form {
+        Form::NamespaceImport | Form::NamespaceExport | Form::ImportEqualsRequire => {
+            match module_symbol(bound) {
+                Some(module) => verdict(checker, module),
+                None => Target::ModuleNotResolved,
+            }
+        }
+        Form::ImportClauseDefault => {
+            let Some(module) = module_symbol(bound) else { return Target::ModuleNotResolved };
+            match bound.symbols().get(module).exports.get("default").copied() {
+                Some(target) => verdict(checker, target),
+                None => Target::NameNotExported,
+            }
+        }
+        Form::ImportSpecifier | Form::ExportSpecifierFrom => {
+            let Some(module) = module_symbol(bound) else { return Target::ModuleNotResolved };
+            match bound.symbols().get(module).exports.get(name).copied() {
+                Some(target) => verdict(checker, target),
+                None => Target::NameNotExported,
+            }
+        }
+        Form::ExportSpecifierLocal | Form::ImportEqualsIdentifier | Form::ImportEqualsQualified => {
+            match bound.resolve_name(nodes, map, declaration, name, SymbolFlags::all()) {
+                Some(target) => verdict(checker, target),
+                None => Target::NameNotExported,
+            }
+        }
+        Form::NamespaceExportDeclaration | Form::NoAliasDeclaration | Form::Unclassified => {
+            Target::NotReplayed
+        }
+    }
+}
+
+const FORMS: [Form; 12] = [
+    Form::ImportSpecifier,
+    Form::ExportSpecifierLocal,
+    Form::ExportSpecifierFrom,
+    Form::ImportEqualsIdentifier,
+    Form::ImportClauseDefault,
+    Form::NamespaceImport,
+    Form::NamespaceExport,
+    Form::NamespaceExportDeclaration,
+    Form::ImportEqualsRequire,
+    Form::ImportEqualsQualified,
+    Form::NoAliasDeclaration,
+    Form::Unclassified,
+];
+
+const TARGETS: [Target; 5] = [
+    Target::ReachedAndTyped,
+    Target::ReachedButUntyped,
+    Target::ModuleNotResolved,
+    Target::NameNotExported,
+    Target::NotReplayed,
+];
+
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+fn print_alias(t: &Report) {
+    println!("\n================ SymbolFlags(ALIAS) / no value declaration");
+
+    let mut grand = Tally::default();
+    for tally in t.alias.values() {
+        grand.merge(tally);
+    }
+    let (cases, top1, top10) = grand.concentration();
+    println!(
+        "{} lines (direct + cascade), {cases} cases, top-1 {top1:.1}%, top-10 {top10:.1}%",
+        grand.lines
+    );
+    for (case, n) in grand.top_cases(5) {
+        println!("      {n:>5}  {case}");
+    }
+
+    println!("\n-- by form (both rows), and how many are CONVERTIBLE --");
+    println!(
+        "{:<52} {:>7} {:>7} {:>7} {:>7} {:>6} {:>6}",
+        "form", "direct", "cascade", "total", "conv", "cases", "top1"
+    );
+    for form in FORMS {
+        let mut direct = Tally::default();
+        let mut cascade = Tally::default();
+        let mut convertible = Tally::default();
+        for ((row, f, target), tally) in &t.alias {
+            if *f != form {
+                continue;
+            }
+            match row {
+                Row::Direct => direct.merge(tally),
+                Row::Cascade => cascade.merge(tally),
+            }
+            if *target == Target::ReachedAndTyped {
+                convertible.merge(tally);
+            }
+        }
+        let total = direct.lines + cascade.lines;
+        if total == 0 {
+            continue;
+        }
+        let (cases, top1, _) = convertible.concentration();
+        println!(
+            "{:<52} {:>7} {:>7} {:>7} {:>7} {:>6} {:>5.1}%",
+            form.label(),
+            direct.lines,
+            cascade.lines,
+            total,
+            convertible.lines,
+            cases,
+            top1
+        );
+    }
+
+    println!("\n-- by target verdict (both rows), the direct bucket --");
+    let mut by_target = BTreeMap::<Target, Tally>::new();
+    for ((_, _, target), tally) in &t.alias {
+        by_target.entry(*target).or_default().merge(tally);
+    }
+    for target in TARGETS {
+        let Some(tally) = by_target.get(&target) else { continue };
+        let (cases, top1, top10) = tally.concentration();
+        println!(
+            "{:>7}  {:>5.1}%  {cases:>4} cases  top-1 {top1:>5.1}%  top-10 {top10:>5.1}%  {}",
+            tally.lines,
+            tally.lines as f64 / grand.lines.max(1) as f64 * 100.0,
+            target.label()
+        );
+    }
+
+    println!("\n-- THE DECISION BUCKET: convertible, split handled/unhandled --");
+    for handled in [false, true] {
+        let mut tally = Tally::default();
+        for ((_, form, target), t2) in &t.alias {
+            if *target == Target::ReachedAndTyped && form.is_handled() == handled {
+                tally.merge(t2);
+            }
+        }
+        let (cases, top1, top10) = tally.concentration();
+        println!(
+            "{:>7} lines  {cases:>4} cases  top-1 {top1:>5.1}%  top-10 {top10:>5.1}%  {}",
+            tally.lines,
+            if handled {
+                "under a form resolve_alias ALREADY handles (not resolution work)"
+            } else {
+                "under a form resolve_alias does NOT handle  <- THE RULE'S POPULATION"
+            }
+        );
+        for (case, n) in tally.top_cases(5) {
+            println!("          {n:>5}  {case}");
+        }
+    }
+
+    println!("\n-- C9: `export =` over ALL alias lines (must be non-zero somewhere) --");
+    println!("{:<52} {:>10} {:>10} {:>8}", "form", "export=", "bare module", "export=%");
+    for form in FORMS {
+        let yes = t.alias_export_equals.get(&(form, true)).map_or(0, |t2| t2.lines);
+        let no = t.alias_export_equals.get(&(form, false)).map_or(0, |t2| t2.lines);
+        if yes + no == 0 {
+            continue;
+        }
+        println!(
+            "{:<52} {:>10} {:>10} {:>7.1}%",
+            form.label(),
+            yes,
+            no,
+            yes as f64 / (yes + no) as f64 * 100.0
+        );
+    }
+
+    println!("\n-- RULE 3 LEG 1: CONVERTIBLE lines, does the target come through `export =`? --");
+    println!("{:<52} {:>10} {:>10} {:>8}", "form", "export=", "bare module", "export=%");
+    for form in FORMS {
+        let yes = t.alias_export_equals_conv.get(&(form, true)).map_or(0, |t2| t2.lines);
+        let no = t.alias_export_equals_conv.get(&(form, false)).map_or(0, |t2| t2.lines);
+        if yes + no == 0 {
+            continue;
+        }
+        println!(
+            "{:<52} {:>10} {:>10} {:>7.1}%",
+            form.label(),
+            yes,
+            no,
+            yes as f64 / (yes + no) as f64 * 100.0
+        );
+    }
+
+    println!("\n-- RULE 3 LEG 2: lines this form UNBLOCKS whose baseline uses `import(` --");
+    println!("{:<52} {:>10} {:>10} {:>8}", "form", "import(", "nameable", "import(%");
+    for form in FORMS {
+        let yes = t.alias_unblocks_import_syntax.get(&(form, true)).copied().unwrap_or(0);
+        let no = t.alias_unblocks_import_syntax.get(&(form, false)).copied().unwrap_or(0);
+        if yes + no == 0 {
+            continue;
+        }
+        println!(
+            "{:<52} {:>10} {:>10} {:>7.1}%",
+            form.label(),
+            yes,
+            no,
+            yes as f64 / (yes + no) as f64 * 100.0
+        );
+    }
+
+    println!("\n-- CAN WE SPELL THE ROW? baseline RHS of the alias line, per form --");
+    for form in FORMS {
+        let mut rhs = BTreeMap::<String, usize>::new();
+        for ((f, text), n) in &t.alias_rhs {
+            if *f == form {
+                *rhs.entry(text.clone()).or_default() += n;
+            }
+        }
+        if rhs.is_empty() {
+            continue;
+        }
+        println!("  -- {}", form.label());
+        for (text, n) in top(&rhs, 8) {
+            println!("  {n:>7}  {text}");
+        }
+    }
+
+    println!("\n-- CAN WE SPELL WHAT IT UNBLOCKS? baseline RHS of the BLOCKED line --");
+    for form in FORMS {
+        let mut rhs = BTreeMap::<String, usize>::new();
+        for ((f, text), n) in &t.alias_unblocks_rhs {
+            if *f == form {
+                *rhs.entry(text.clone()).or_default() += n;
+            }
+        }
+        if rhs.is_empty() {
+            continue;
+        }
+        println!("  -- {}", form.label());
+        for (text, n) in top(&rhs, 8) {
+            println!("  {n:>7}  {text}");
+        }
+    }
+
+    println!(
+        "\nC8 NamespaceImport with no module specifier = {} (must be 0), mirror {}",
+        t.c8_ns_import_without_specifier, t.c8_ns_import_with_specifier
+    );
 }
