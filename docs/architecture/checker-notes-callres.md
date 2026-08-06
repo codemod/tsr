@@ -701,3 +701,90 @@ the class symbol with the written arguments — and this port has
 
 **826 lines, want-any 42, ~784 net**, and it needs no relation, no inference
 and no new data. Sized and registered in §14.
+
+## 14. `new C<T>()` — sized by counterfactual, bar registered before the code
+
+Fifth session, at the commit before the arm. `bd tsr-tgov`.
+
+### 14.1 Why this and not the two larger gates
+
+§13.2's two largest gates were both weighed and both declined, with reasons:
+
+- **inference gapped, 2,324 lines.** `inference.rs`'s own module doc measures
+  the cliff: **53%** of generic calls have no type parameter written bare in a
+  parameter position, so the candidate has to be dug out of the argument's
+  type — that is `inferTypes` (`inference.go:53`), a structural walk with a
+  priority lattice and contravariant tracking. A subsystem, not an arm.
+- **`Named` callee never reaches signature lookup, 2,791 lines** (`bd tsr-4sa`).
+  Needs `getSignaturesOfType` → `resolveStructuredTypeMembers` — an
+  interface's members resolved into call/construct signature lists.
+  `get_signatures_of_symbol` reads a symbol's *declarations*, and an
+  interface's declaration is not signature-shaped, so this is new machinery.
+  It also carries a **measured wrong-manufacturing risk**: §5 records 264
+  `unique symbol` lines that would print `symbol`, and half the row wants a
+  generic instantiation this port has no members for.
+
+### 14.2 The counterfactual, which is the sizing
+
+`examples/newgen.rs` does not count the row. It **computes the string the arm
+would produce** — `type_reference_text`'s `Name<A, B>` from the class's name
+and the written type arguments' resolved types — and compares it to the
+baseline. Over 332 gap lines on a generic class:
+
+| | lines |
+|---|---:|
+| **CONVERTS — forecast matches the baseline exactly** | **166** |
+| no written type arguments — needs inference (out of scope) | 155 |
+| arity differs from the class's type parameters | 7 |
+| a written type argument itself gaps | 3 |
+| **MISS — forecast differs** | **1** |
+
+The single miss is named in advance: `want G<D>, forecast G<any>`, a written
+type argument resolving to `any`.
+
+**166 is own-node lines only.** `callgate.rs` attributes **516** lines to this
+gate, the difference being the *cascade* — a variable initialised by
+`new C<string>()` and every read of it. Those are not forecast here, so they
+are upside and must not be in the floor.
+
+### 14.3 What will be built
+
+In `check_new_expression`, replacing the two unconditional refusals:
+
+- a generic class **with written type arguments whose count matches** its type
+  parameters resolves each argument through `get_type_from_type_node` and
+  answers `create_type_reference(symbol, arguments)` — the same constructor
+  `crate::declared` uses for `C<number>` in type position, so the instance
+  type is *identical by interning* to the annotation's and `tsr-4qx`'s
+  instantiated members hang off it unchanged;
+- **arity mismatch refuses** (7 lines): `fillMissingTypeArguments`' default
+  handling is ported only for the no-candidate case (`tsr-1uz`) and upstream
+  errors the whole call on a wrong count;
+- **a gapping type argument gaps the whole `new`** (3 lines), the rule every
+  other arm here follows;
+- **no written type arguments still refuses** (155 lines): that is inference
+  from the constructor's arguments, §14.1's declined item.
+
+### 14.4 The bar
+
+> **KEEP** if **net ≥ +120**, **lost ≤ 10 with every loss diagnosed as a
+> cascade**, **fewer cases regress than finish**, and **gained ≥ 3 × new
+> wrong** by `wrongdelta`.
+> **REVERT** otherwise.
+
+- The floor is **72% of the forecast 166**, deliberately not of the 516: the
+  cascade is upside and a floor resting on unforecast lines is a floor resting
+  on a guess.
+- Leg 2's denominator is not empty, unlike the destructuring arm's: this
+  answers a type where the port answered `errorType`, so a consumer of the
+  newly typed `new` can now compute confidently and wrongly. That is the
+  cascade the leg is watching for.
+- Leg 4 is the live one. The forecast names **one** wrong line in advance
+  (`G<any>`); new wrong beyond that family indicts the arm.
+
+**Falsifier:** more than 40% of the gain in a single case. The counterfactual's
+top case is `overloadResolutionClassConstructors` at 22 of 332 (6.6%), so
+concentration near half means the mechanism reached something the forecast did
+not describe.
+
+If a leg fires: build wrong first, premise wrong second, no third.
