@@ -138,54 +138,32 @@ unknown, rank by how cheap it is to find out.**
 
 ### The ranking
 
-| # | item | converts | file | the rule that would license it | what would falsify the estimate |
-|---|---|---:|---|---|---|
-| 0 | ~~`removeSubtypes` + a `Subtype` arm~~ (`tsr-eak`) | **REFUSED 2026-08-06** | — | — | 255 right lines broken against ≤263 changed — see §5 |
-| 0 | ~~Union parenthesisation~~ (`tsr-xm9`) | **DONE `39a3853`, +481, 0 lost** | — | — | — |
-| 0b | **Optionality in a declaration-name position** (`tsr-e10`, **rediagnosed, now corroborated twice**) | ≤483, of which **204 confirmed** | `optionality.rs` / `symbols.rs` | **none yet** — partition the 204 by declaration shape and by the case's `strictNullChecks`, then read the baselines per bucket | the baselines contradict a blanket rule: `classWithOptionalParameter` records `>x : string \| undefined`, other cases record `>opt : number` 19× |
-| 0c | ~~Union **constituent order**~~ (`tsr-bgz`) | **DONE, +81/−1** | — | the reshape it required was **already stored** in `type_reference_targets` | — |
-| 1 | **`new C()` — the lib `*Constructor` arm** | unsized; **not 1,074** | `calls.rs` | **R2′ 75.9% on 1,074 lines, 229 cases, top-1 15.1%** — passed its registered test on 2026-08-06 | the typed arrays in it are generic instantiations (`tsr-4qx`, blocked). Size the `*Constructor` population **minus** those before quoting anything — one more bucket in `callres.rs` |
-| 2 | ~~Re-take the call row's bar with `new` scored separately~~ | **run 2026-08-06** | — | — | see §5 — R2′ has stopped discriminating and the answer is a counterfactual |
-| 3 | `tsr-n23` + contextual typing, as **one** cross-file item | 2,082 gap **+ 1,809 wrong** | `symbols.rs` **and** `signatures.rs` | 48.8% of it sits behind call resolution — item 2 gates this | a build confined to either file converts half of each function's lines, which is the measured reason it is one item |
-| 4 | `ArrowFunction` | ≤ 1,341, and **17.8%** of the lines that stop gapping matched last time | `expressions.rs` | needs a *new* rule: the shape test read 99.6% and the counterfactual 4.6 wrong per right | the failure is parameter types, i.e. item 3 — this row may be item 3 wearing a different node kind |
-| 5 | `undefined \| null` sorts backwards (`tsr-iiu`) | unsized, **two-line repro** | `unions.rs` | count `null \| undefined` against `undefined \| null` in the baselines first | it is one pair and not a class, in which case it is small and still free |
-| 6 | `ConditionalExpression` | ≤ 295 | `expressions.rs` | unmeasured | |
-| 7 | JSX | ≤ 417 | jsx | unmeasured | |
+**Rewritten 2026-08-06 from `examples/depend.rs`, which walks declaration edges
+and now splits every root by whether the baseline wants `any`** — ADR-0038's
+ceiling, which no root histogram can see. The `want-any` column is why this
+board looks nothing like the previous one.
 
-**Item 2 was run on 2026-08-06 and did not decide what it was meant to decide.**
-Scored alone the call half clears the bar at **70.6%** and `new` does not at
-64.8% — so the aggregate was `new` holding the call half under. But the call
-half is itself **58.9% and 76.3%**, so there is no level at which "the call row"
-is one population, and a bar registered against a row that turns out to be a
-mixture is void. `callres.rs`'s standing registration settles the rest: **R2′ is
-necessary and not sufficient and no value of it licenses a build.** What the
-call row needs is a counterfactual, which is the expensive thing R2′ existed to
-avoid paying for. Full working in
-[`docs/architecture/checker-notes-armsplit.md`](docs/architecture/checker-notes-armsplit.md) §8.
+| root of the gap | lines | want `any` | **reachable** | cases | top-1 |
+|---|---:|---:|---:|---:|---:|
+| **`a.b` — receiver types, lookup fails** | 13,315 | 35.7% | **8,559** | 1,261 | 11.2% |
+| `ElementAccessExpression` | 12,544 | **88.8%** | 1,400 | 305 | 79.7% |
+| `BinaryExpression` (probe has no step arm) | 8,186 | 22.7% | 6,331 | 820 | 18.3% |
+| **the member *name* of `a.b`** | 6,272 | 33.3% | **4,183** | 1,186 | 11.0% |
+| unresolved **value** name | 6,960 | **79.5%** | 1,425 | 858 | 16.2% |
+| **`CallExpression` — callee types** | 5,304 | **14.2%** | **4,551** | 943 | **2.5%** |
 
-### Off the board, with the number that took it off
+Two rows are effectively dead: element access at **88.8% ceiling** (and 79.7%
+one case), and the unresolved-**value** row at **79.5%** — the sibling of the
+type row that just paid 4,645 lines, and worth nothing, because upstream prints
+the written name in *type* position and `any` in *value* position. See §5.
 
-| was | ranked | now | why |
-|---|---|---|---|
-| `BinaryExpression` | 1 (1,418) | **partly done, rest blocked** | 659 `&&` lines **landed** (`5290e1a`, +958). Of the remainder: 340 want `any`, 252 need tuples *and* destructuring patterns, 454 (`\|\|`, `??`) need assignability |
-| `tsr-jle` naming | 4 (11,008) | **gone** | **10,000 of 11,004 are `compiler/largeControlFlowGraph`** — ADR-0038's ceiling. Real size 1,004 over 362 cases in 566 pairs, head 21 lines. `bd tsr-q54` |
-| `ArrayLiteralExpression` | 3 (637) | **blocked** | 602 of 604 own-root lines are the object-reduction guard; **355 are one case**. Needs assignability. `bd tsr-rn4` |
-| `ParenthesizedExpression` | — | **not work** | 0.0% own root, confirmed twice |
-
-### The three blockers that gate everything downstream
-
-Unchanged, and now joined by a fourth that this cycle's measurements kept
-arriving at.
-
-| blocker | blocks | state |
-|---|---|---|
-| ~~**`removeSubtypes`**~~ — **refused, not a blocker worth clearing** | `\|\|` 358, `??` 96, `ConditionalExpression` 295, `ArrayLiteral` 355, return-inference from a body, `intersections.rs` | **CORRECTED 2026-08-06, same day.** I wrote *"assignability, newly identified as a shared blocker"* from three refusals' **stated reasons** — the exact "a prerequisite quoted three times is not established" trap I had written a convention about that morning. Grepped: `relater.rs` **exists and is not a stub** — `is_simple_type_related_to`, a structural arm with a results cache and cycle closure, composite handling. `Relation` has one variant, `Assignable`, and the file says at `:115` and `:231` that it was shaped so **"adding `Subtype` later is an arm rather than a refactor"**. The blocker is `removeSubtypes` in `unions.rs` plus that arm — a far smaller and better-specified item |
-| qualified naming (`tsr-awa`) | `tsr-4qx` (~5,161), 1,318 of its own | mechanism **measured at 90.7%**, build refused — see §5 |
-| `tsr-4qx` instantiated generics | ~5,161 | blocked on `tsr-awa`; `type_reference_text` bakes an unqualified name at type *creation* |
-| call resolution | 48.8% of contextual typing, the IIFE rows, and `new` | **the R2′ refusal no longer stands on its stated grounds** (§5). Its next step is a counterfactual, not another probe |
-
-**`members.rs` is done** until those land. Its own lookup is **104 lines**. That
-was registered as a prediction before measurement and confirmed.
+| # | item | reachable | file |
+|---|---|---:|---|
+| 1 | **property access: `a.b` where the receiver types** — the two rows together | **12,742** over ~2,400 cases | `members.rs` |
+| 2 | **call resolution** — the least ceiling-contaminated large row, 2.5% top-1 | **4,551** | `calls.rs` |
+| 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,331 | measurement |
+| 4 | `tsr-e10` optionality in a declaration-name position | ≤483 | `optionality.rs` |
+| 5 | `tsr-y9x` — 16 lines printing `undefined`/`error` where upstream prints `any` | 16 | resolver |
 
 **Item 0 was added after the board was written and then refused the same day.**
 Sized at `0a1fbdd` by `examples/subtypes.rs`: the mechanism would break **255

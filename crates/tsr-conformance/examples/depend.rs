@@ -265,6 +265,10 @@ struct Report {
     /// For the two name-resolution roots, the **name text**. If a handful of
     /// globals dominate, the item is the global scope rather than the resolver.
     unresolved: BTreeMap<(&'static str, String), usize>,
+    /// Of each root bucket, how many want `any` — ADR-0038's ceiling, which a
+    /// root histogram cannot see and which contaminates every row whose
+    /// receiver is an unresolved *value* (`bd tsr-eep` records the asymmetry).
+    wants_any: BTreeMap<(String, &'static str), usize>,
     cycles: usize,
     too_deep: usize,
     c1_root_does_not_gap: usize,
@@ -284,6 +288,9 @@ impl Report {
             for (case, n) in cases {
                 *mine.entry(case.clone()).or_default() += n;
             }
+        }
+        for (k, n) in &other.wants_any {
+            *self.wants_any.entry(k.clone()).or_default() += n;
         }
         for (k, n) in &other.unresolved {
             *self.unresolved.entry(k.clone()).or_default() += n;
@@ -402,6 +409,9 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             }
             let key = (kind, ending);
             *report.roots.entry(key.clone()).or_default() += 1;
+            if want.text.strip_prefix(&format!("{} : ", got.text)) == Some("any") {
+                *report.wants_any.entry(key.clone()).or_default() += 1;
+            }
             *report.root_cases.entry(key).or_default().entry(case.name.clone()).or_default() += 1;
             *report.depths.entry(depth.min(6)).or_default() += 1;
         }
@@ -441,8 +451,11 @@ fn main() {
         let share = **n as f64 / total.max(1) as f64 * 100.0;
         #[allow(clippy::cast_precision_loss)]
         let top1 = *top_n as f64 / (**n).max(1) as f64 * 100.0;
+        let any = report.wants_any.get(&((*kind).clone(), *ending)).copied().unwrap_or(0);
+        #[allow(clippy::cast_precision_loss)]
+        let any_share = any as f64 / (**n).max(1) as f64 * 100.0;
         println!(
-            "  {kind:<30} {ending:<38} {n:>6} {share:>5.1}%  {:>5} cases, top-1 {top1:>5.1}%  {top}",
+            "  {kind:<30} {ending:<34} {n:>6} {share:>5.1}%  want-any {any:>6} ({any_share:>4.1}%)  {:>5} cases, top-1 {top1:>5.1}%  {top}",
             cases.len()
         );
     }
