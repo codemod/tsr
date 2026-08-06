@@ -1,7 +1,11 @@
 # Call and `new` resolution: an 18,294-line row that licenses 844 lines of work
 
-> **CORRECTED 2026-08-06, same day, before this page was ever quoted. Every row
-> count on it moved, and the verdict did not.**
+> **CORRECTED TWICE. (1) 2026-08-06, same day: a gap/right ordering defect moved
+> every row count and not the verdict — the header below. (2) 2026-08-06, later:
+> **§5's R2 is a *shape* test, and `3f140c2` has since made spellability a
+> *match* test.** §11 re-derives it. The refusal stands on the corrected
+> instrument, but it stands on the looser of the two registered variants **by
+> 1.7pp — 85 lines** — and that margin belongs beside the verdict.**
 >
 > This probe was written from `receiver_gap.rs`'s shape and inherited its
 > gap/right ordering defect: it asked `type_string == "error"` *before* asking
@@ -458,3 +462,134 @@ and both assertions were proven red under a named mutation:
   34.92% to **16.41%** — 52.6% of what it used to call terminal was not. The one
   figure this page borrows from that board is §7's 21,685 lines banked on `any`,
   which is not a `KIND` label and does not move.
+
+
+## 11. R2 was a shape test — re-derived 2026-08-06 at `66d0acf`
+
+`3f140c2` made *"spellability is a match test, not a shape test"* a convention,
+on evidence from this workstream's own ArrowFunction row where the shape test
+read **99.6%** and the match test read **17.8%**. **§5's R2 is the shape test**,
+so this page's refusal rested on an instrument the project has since declared
+unreliable. This section re-derives it. **No code was written.**
+
+### 11.1 The question is settled by reading the predicate, not by measuring
+
+The tempting defence is *"shape is permissive, so 37.7% caps the match rate and
+the refusal is untouched"*. **That is false here**, and it is a property of
+`spell_of` rather than of the corpus.
+
+`Spell::Structural` rejects every right-hand side containing `<`, `{`, `[`, `|`,
+`&`, `(` or `=>`. **Those are exactly the shapes `printing::type_to_string`
+exists to print**: it renders `TypeData::Union`, `TypeData::Anonymous` and
+`TypeData::Named` from a stored `text` (`crates/tsr-checker/src/printing.rs:45`),
+so `string | number`, `{ a: string; }`, `() => void`, `string[]` and
+`Promise<number>` are rendered **by construction**. `Promise<boolean>` appears in
+this page's own §4.1 histogram as a type this port built and printed.
+
+So `spell_of` is a *"is this a bare name"* test wearing a spellability label, and
+it errs in **both** directions — it rejects `string[]`, and it accepts
+`unique symbol`, which §5 already recorded as unproducible.
+
+**37.7% is not an upper bound, not a lower bound, and not a bound.**
+
+### 11.2 R2′, registered before it was computed
+
+An exact match needs the build, and the build is call resolution. What is
+affordable is the **necessary** condition, by exact string equality:
+
+> **R2′** — for each admitted line, is the baseline's right-hand side a string
+> this port **demonstrably renders elsewhere in the same case**?
+
+- **< 70%** → the refusal is confirmed on the corrected instrument.
+- **≥ 70%** → the refusal does not stand on its stated grounds.
+
+70% is R2's own threshold, kept for comparability. Registered with it, and
+independent of the number: **R2′ is necessary and not sufficient, so no value of
+it licenses a build this round.**
+
+A second variant was registered before it was computed, because the per-case
+vocabulary is too tight to be a clean upper bound — a case with no line answering
+`string` does not put `string` in its vocabulary, though the port obviously builds
+it: **if the corpus-wide vocabulary reads ≥70%, R2′ was measured on too tight an
+instrument and the refusal is NOT confirmed.**
+
+### 11.3 Measured
+
+| instrument | reads | verdict |
+|---|---:|---|
+| R2, the shape test (§5) | 37.9% | — |
+| **R2′, per-case vocabulary** | **35.5%** | **refusal confirmed** |
+| R2′, rendered on a line we get *right* | 35.1% | — |
+| **R2′, corpus-wide vocabulary** (the looser bound) | **68.3%** | **still confirmed — by 1.7pp** |
+
+**The refusal stands on both registered instruments. It stands on the looser one
+by 85 lines**, and that margin is small enough that it must be quoted with the
+verdict rather than buried under it. A future change that makes 85 more admitted
+right-hand sides producible anywhere in the corpus overturns this leg.
+
+### 11.4 The finding that outlives the call row
+
+The shape test read 37.9% and the per-case truth is 35.5% — **agreement to
+2.4pp.** The cross-tab says that agreement is a coincidence:
+
+| shape bucket | the port renders it | it does not | total |
+|---|---:|---:|---:|
+| `Plain` | 871 | **1,011** | 1,882 |
+| `Any` | 568 | 157 | 725 |
+| `Structural` | **326** | 2,035 | 2,361 |
+
+**The shape test called 1,011 lines spellable that this port does not render, and
+326 unspellable that it does — 1,337 of 4,968 misclassified, 26.9% — and the two
+errors cancelled to within 2.4pp.**
+
+So: **a proxy agreeing with the real test is not evidence the proxy works.** It is
+the same family as *"a number can be true and answer a different question"*, one
+level further in — here two numbers are both true, agree, and one of them is
+computed from a predicate that is wrong about a quarter of its inputs. The only
+thing that separated them was printing the cross-tab, which costs one bucket.
+
+The unproducible list is where the 1,011 come from, and it is not exotic:
+`unique symbol` 276, `any` 157, `symbol` 143, `any[]` 94, `void` 90, `string` 83,
+`number` 75, `never` 64, `unknown` 58, `Date` 38, `Uint8Array<ArrayBuffer>` 38,
+`Set<number>` 36. **`string` and `number` appear because the vocabulary is
+per-case**, which is exactly the tightness the corpus-wide variant was registered
+to bound — and it moved the figure from 35.5% to 68.3% without crossing the line.
+
+### 11.5 What this closes, and what it does not
+
+- **Closed.** §7's refusal is re-derived on a match-based instrument and stands.
+  R1 (28.4% at `66d0acf`, up from 27.4%) still fires; R2 in every form still
+  fails. The row should stop being revisited on spellability grounds unless the
+  85-line margin moves.
+- **Not closed.** R2′ is necessary, not sufficient. **Nobody has measured what
+  call resolution would actually convert**, and doing so needs a counterfactual —
+  the method that has decided every other item here. `bd tsr-klm` is still the
+  prerequisite: the 5,034 admitted lines reach `resolve_call_signature` and it
+  says `None`, and *which* gate is still unmeasured.
+- **And under `c592d0f`**, any such counterfactual must forecast the collateral of
+  the half that stays unported. A resolved call hands its return type to
+  [`crate::inference`] for a generic signature and to the printer for everything
+  else; `check_generic_call` answers only the shapes it can read a candidate off
+  directly. **Half a mechanism renders the collateral of the half you built** —
+  the naming agent's 328 wrong lines — and the generic half of this row is where
+  that would land.
+
+### 11.6 Pre-registration for `bd tsr-a5d`, recorded before its number is known
+
+The brief's fallback is the 95-line WRITTEN-annotation contextual source
+(`checker-notes-fnexpr.md` §10). **This round had no budget left to build it**, and
+a rule registered after the fact is the retrofit this workstream has twice
+refused. So the rule is recorded here now, and whoever takes it is bound by it:
+
+> **RA — build only if a counterfactual converts ≥25% of the 95 to exact baseline
+> matches, and ≥70% of the lines that stop gapping match exactly.** Population:
+> the `WrittenVariableAnnotation` source of G, named in `checker-notes-fnexpr.md`
+> §10.2, syntactically pinned and invariant across runs.
+>
+> **And the collateral is forecast in advance, under `c592d0f`:** 54 of that
+> source's 109 parameter lines are wrong and go through `get_type_of_symbol` in
+> `symbols.rs`, which this workstream does not own. So the build converts the
+> *function's* line and leaves the *parameter's* line wrong — `>f : (x: number)
+> => void` beside `>x : any` in the same file. That is half a mechanism by
+> construction. **If RA fires, it must be reported as a half**, and the ≥70% leg
+> must be read over the function lines alone, with the 54 named as unconverted.
