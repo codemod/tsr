@@ -152,6 +152,40 @@ fn row_key(reason: &str) -> String {
     reason.to_string()
 }
 
+/// `rank_board::family`, copied verbatim including its arm order, so this
+/// probe's roll-up reconciles line-for-line with the board's rather than
+/// approximating it. The order is load-bearing: several reasons satisfy more
+/// than one test.
+fn family(reason: &str) -> &'static str {
+    if reason.starts_with("type declaration name") {
+        "a type alias whose right-hand side gaps"
+    } else if reason.starts_with("neither a declaration name nor an expression") {
+        "a node that is neither a declaration name nor an expression"
+    } else if reason.contains("symbol has a type (") {
+        "the symbol has a type; the line differs for another reason"
+    } else if reason.contains("the receiver is a gap") {
+        "a property access whose receiver we cannot type"
+    } else if reason.starts_with("property access") || reason.starts_with("member name,") {
+        "a property access whose property we cannot find or type"
+    } else if reason.contains("annotation") {
+        "a type node we cannot resolve"
+    } else if reason.contains("initialiser") {
+        "an initialiser expression we do not compute"
+    } else if reason.starts_with("expression answered error") {
+        "AN EXPRESSION WE DO NOT COMPUTE  <- the family under test"
+    } else if reason.contains("the name of a") {
+        "a member name, resolved as if it were free"
+    } else if reason.contains("does not resolve") {
+        "a free name that does not resolve, in value position"
+    } else if reason.contains("no value declaration") {
+        "a symbol with no value declaration at all"
+    } else if reason.contains("neither") {
+        "a symbol whose kind getTypeOfSymbol does not handle"
+    } else {
+        "UNCLASSIFIED"
+    }
+}
+
 /// `rank_board::cause`, copied verbatim, used **only** as a cross-instrument
 /// control (C4). Not part of this probe's classification.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -316,6 +350,18 @@ struct CaseReport {
     /// leg, kept per container because the answers differ completely between
     /// them (`this` vs `typeof C` vs `typeof globalThis`).
     this_rhs: HashMap<(&'static str, String), usize>,
+    /// **RULE-6.** For every gap line in the family under test: the family its
+    /// ROOT belongs to. This is the transition matrix that answers whether the
+    /// largest family is downstream of the others.
+    expr_to_root_family: HashMap<(&'static str, bool), usize>,
+    /// The same lines by what the expression syntactically **is**, crossed with
+    /// whether the line is its own root.
+    expr_by_kind: HashMap<(String, &'static str), usize>,
+    /// The root KIND (own-rule / type-node / …) within the family.
+    expr_root_kind: HashMap<(&'static str, bool), usize>,
+    /// TS2563 lines in the family, by case, so the concentration claim is
+    /// measured rather than asserted.
+    expr_ts2563_by_case: HashMap<String, usize>,
     /// **RULE-5.** The three remaining `members.rs` questions, each keyed by
     /// what the sub-item actually turns out to be.
     left_n22: HashMap<&'static str, usize>,
@@ -501,6 +547,12 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
     // (ADR-0041). `receiver_gap` uses the same; `rank_board` uses
     // `Checker::new`, and the difference is noted in the report.
     let mut checker = tsr_checker::Checker::with_module_host(bound, nodes, map, Some(&program));
+    // **The ADR-0038 ceiling, pinned by the case's own `.errors.txt`.** Under
+    // TS2563 upstream *disables* control-flow analysis and answers `any`, so
+    // these lines are unreachable by any checker work. Printed as its own
+    // count, never netted away (`checker-notes-evolvearray.md`).
+    let ts2563 =
+        case.expected_errors().ok().flatten().is_some_and(|errors| errors.contains("TS2563"));
 
     let mut report = CaseReport { name: case.name.clone(), ..CaseReport::default() };
 
@@ -556,6 +608,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                 &position_of,
                 &expected_file.assertions,
                 &case.name,
+                ts2563,
                 position,
                 want_type,
             );
@@ -605,6 +658,7 @@ fn walk(
     position_of: &HashMap<NodeId, usize>,
     baseline: &[types_baseline::TypeAssertion],
     case_name: &str,
+    ts2563: bool,
     start: usize,
     want_type: &str,
 ) {
@@ -612,9 +666,15 @@ fn walk(
     let mut visited: Vec<NodeId> = vec![node];
     let mut depth = 0usize;
     let mut board_recorded = false;
+    // The line's OWN reason, kept because the root's reason overwrites it and
+    // the family under test is defined by the first, not the last.
+    let mut first_reason = String::new();
 
     let (root, key, final_reason, root_node) = loop {
         let reason = types_producer::gap_reason(checker, bound, nodes, map, node);
+        if depth == 0 {
+            first_reason.clone_from(&reason);
+        }
         // The span test, where this node is a rendered line. A node reached
         // through an initialiser edge may not be one; then there is no span
         // evidence and the reason alone decides.
@@ -729,6 +789,22 @@ fn walk(
             report.c4_board_terminal_depth0 += 1;
         } else {
             report.c4_board_terminal_deep += 1;
+        }
+    }
+    // **RULE-6.** The family under test, crossed with where its lines root.
+    if family(&first_reason) == "AN EXPRESSION WE DO NOT COMPUTE  <- the family under test" {
+        *report.expr_to_root_family.entry((family(&final_reason), ts2563)).or_default() += 1;
+        *report.expr_root_kind.entry((root.label(), ts2563)).or_default() += 1;
+        if ts2563 {
+            *report.expr_ts2563_by_case.entry(case_name.to_string()).or_default() += 1;
+        } else {
+            *report
+                .expr_by_kind
+                .entry((
+                    format!("{:?}", nodes.kind(line_ids[start])),
+                    if depth == 0 { "its own root" } else { "propagated" },
+                ))
+                .or_default() += 1;
         }
     }
     *report.depth_hist.entry(depth).or_default() += 1;
@@ -1597,9 +1673,9 @@ fn report(reports: &[CaseReport]) {
     // whenever the checker moves — including when this workstream moves it.
     // Their history in one session: 22,739 / 45,814 at `b5decc5`, 22,764 /
     // 44,342 at `b9a4f5c`, 22,793 / 44,254 after the `getApparentType` slice
-    // landed, and 22,354 / 43,250 at `5eb252c`. **Four values in one session,
-    // three of them from other workstreams' merges and one from this
-    // workstream's own change.** Each time, a stale constant read as a defect
+    // landed, 22,354 / 43,250 at `5eb252c`, and 22,536 / 43,273 at `9f8bdba`.
+    // **Five values in one session**, four of them from other workstreams'
+    // merges and one from this workstream's own change. Each time, a stale constant read as a defect
     // in this probe and was not one.
     //
     // The honest reading after four: this control is a **tripwire, not an
@@ -1633,14 +1709,15 @@ fn report(reports: &[CaseReport]) {
     let board_terminal = board.get("TERMINAL").copied().unwrap_or_default();
     let board_named = board.get("propagated/named").copied().unwrap_or_default();
     println!(
-        "  C7a TERMINAL - rank_board@5eb252c's 22,354 = {} (must be 0: no line the module \
-         host affects can enter or leave TERMINAL)",
-        delta(board_terminal, 22_354)
+        "  C7a TERMINAL - rank_board@9f8bdba's 22,536 = {} (0 AT THAT COMMIT ONLY. The \
+         invariant is that the module host cannot move TERMINAL; the CONSTANT is the \
+         compiler's and has taken five values today. Re-take it, do not debug the walk.)",
+        delta(board_terminal, 22_536)
     );
     println!(
-        "  C7b propagated/named - rank_board's 16,844 = {} (a MEASUREMENT: the module-host \
-         divergence, 54 lines at b9a4f5c and growing as the seam answers more)",
-        delta(board_named, 16_844)
+        "  C7b propagated/named - rank_board@9f8bdba's 16,804 = {} (a MEASUREMENT: the \
+         module-host divergence: 54 at b9a4f5c, -386 at 5eb252c, UNCHANGED at 9f8bdba)",
+        delta(board_named, 16_804)
     );
     println!(
         "  A4  this probe's five buckets - gap total = {} (arithmetic; the divergence \
@@ -2046,6 +2123,90 @@ fn report(reports: &[CaseReport]) {
         for (n, verdict) in rows {
             println!("      {n:>7} {:>7.2}%  {verdict}", pct(n, total));
         }
+    }
+
+    println!("\n## RULE-6 — THE LARGEST FAMILY, ROOT-SPLIT (unit: gap assertion lines)\n");
+    let mut to_family: BTreeMap<(&str, bool), usize> = BTreeMap::new();
+    let mut root_kind: BTreeMap<(&str, bool), usize> = BTreeMap::new();
+    for case in reports {
+        for (key, n) in &case.expr_to_root_family {
+            *to_family.entry(*key).or_default() += n;
+        }
+        for (key, n) in &case.expr_root_kind {
+            *root_kind.entry(*key).or_default() += n;
+        }
+    }
+    let family_all: usize = to_family.values().sum();
+    let ts2563: usize = to_family.iter().filter(|((_, t), _)| *t).map(|(_, n)| *n).sum();
+    let reachable = family_all - ts2563;
+    println!("  |P| = {family_all} lines in the family (rank_board's roll-up reads 51,784)");
+    println!(
+        "  TS2563 EXCLUDED = {ts2563} ({:.2}%) — upstream disabled control flow and answers",
+        pct(ts2563, family_all)
+    );
+    println!("      `any`; unreachable by any checker work. Printed, never netted away.");
+    println!("  REACHABLE = {reachable}\n");
+    let mut ts_cases: HashMap<&str, usize> = HashMap::new();
+    for case in reports {
+        for (name, n) in &case.expr_ts2563_by_case {
+            *ts_cases.entry(name.as_str()).or_default() += n;
+        }
+    }
+    let mut ts_ranked: Vec<_> = ts_cases.into_iter().map(|(c, n)| (n, c)).collect();
+    ts_ranked.sort_unstable_by(|a, b| b.cmp(a));
+    let ts_top: Vec<String> = ts_ranked.iter().take(3).map(|(n, c)| format!("{c} {n}")).collect();
+    println!("  the TS2563 lines live in {} case(s): {}", ts_ranked.len(), ts_top.join(" | "));
+
+    println!("\n  WHERE THE FAMILY'S LINES ROOT — the transition matrix, TS2563 excluded:");
+    let mut rows: Vec<_> =
+        to_family.iter().filter(|((_, t), _)| !*t).map(|((f, _), n)| (*n, *f)).collect();
+    rows.sort_unstable_by(|a, b| b.cmp(a));
+    let mut outside = 0usize;
+    for (n, destination) in &rows {
+        if !destination.starts_with("AN EXPRESSION") {
+            outside += n;
+        }
+        println!("    {n:>8} {:>7.2}%  {destination}", pct(*n, reachable));
+    }
+    println!(
+        "\n    ROOTS OUTSIDE THE FAMILY: {outside} ({:.2}%) — RULE-6's P-a predicted >= 55%",
+        pct(outside, reachable)
+    );
+
+    println!("\n  BY ROOT KIND within the family, TS2563 excluded:");
+    let kind_total: usize = root_kind.iter().filter(|((_, t), _)| !*t).map(|(_, n)| *n).sum();
+    let mut kind_rows: Vec<_> =
+        root_kind.iter().filter(|((_, t), _)| !*t).map(|((k, _), n)| (*n, *k)).collect();
+    kind_rows.sort_unstable_by(|a, b| b.cmp(a));
+    for (n, kind) in kind_rows {
+        println!("    {n:>8} {:>7.2}%  {kind}", pct(n, kind_total));
+    }
+
+    println!("\n  WHAT THE EXPRESSION ACTUALLY IS — top forms, own root vs propagated:");
+    let mut by_kind: HashMap<String, (usize, usize)> = HashMap::new();
+    for case in reports {
+        for ((kind, which), n) in &case.expr_by_kind {
+            let entry = by_kind.entry(kind.clone()).or_default();
+            if *which == "its own root" {
+                entry.0 += n;
+            } else {
+                entry.1 += n;
+            }
+        }
+    }
+    let mut kinds: Vec<_> =
+        by_kind.into_iter().map(|(k, (own, prop))| (own + prop, own, prop, k)).collect();
+    kinds.sort_unstable_by(|a, b| b.cmp(a));
+    println!(
+        "    {:<34} {:>8} {:>9} {:>11} {:>8}",
+        "form", "lines", "own root", "propagated", "own %"
+    );
+    for (total, own, prop, kind) in kinds.iter().take(16) {
+        println!(
+            "    {:<34} {total:>8} {own:>9} {prop:>11} {:>7.1}%",
+            truncate(kind, 32),
+            pct(*own, *total)
+        );
     }
 
     println!("\n## CONTROLS — what pins each\n");

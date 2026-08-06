@@ -1481,6 +1481,151 @@ compute (unported form, or an error operand)"* — **51,784 lines, 37.37%** of t
 > mostly terminal — then the list *is* the plan and I was wrong four times
 > running about which direction flatters me.
 
+## RESULTS — Part 8
+
+*(Nothing above this line was edited after the run.)*
+
+Measured at **`9f8bdba`**. Controls green.
+
+### Two of my four predictions failed, and they failed *against* my bias
+
+| | registered | measured | |
+|---|---|---:|---|
+| **P-a** roots outside the family | ≥ 55% | **37.79%** | **FAILED** |
+| **P-b** largest destination is a type node or an initialiser | — | type nodes **17.27%**; initialisers **0.02%** | **HELD**, half of it |
+| **P-c** `ROOT/own-rule` under 30% | < 30% | **56.25%** | **FAILED** |
+| **P-d** TS2563 ≈ 10,000, concentrated | — | **10,000**, all in **one** case | **HELD exactly** |
+
+RULE-6 said: *"If they fail — if the family really is mostly terminal — then the
+list **is** the plan and I was wrong four times running about which direction
+flatters me."* **They failed. The family is mostly terminal.**
+
+**And the shape of the error is worth more than the result.** For three cycles
+the flattering direction was *"this invents work for me"*, and I generalised it
+into *"expect the tempting answer to be work-inventing"*. Here the tempting
+answer was the opposite — a tidy structural finding that *"the gap has one or
+two real roots and everything else is downstream"*, which would have been the
+most quotable result on this page and would have licensed doing nothing. **Both
+directions are biases, and the one I had learned to watch for was not the one
+operating.** The corrective is not a better heuristic about direction; it is
+that the prediction has to be written down and then read against the number,
+which is the only step that worked in all four cases.
+
+### The split
+
+```
+  |P|                    50,171 lines   (rank_board's roll-up reads 51,784)
+  TS2563 EXCLUDED        10,000 (19.93%)  — all in compiler/largeControlFlowGraph
+  REACHABLE              40,171
+```
+
+**The 1,613 against `rank_board`'s 51,784** is the same class already recorded
+twice on this page: the board is a different commit's compiler plus the
+module-host divergence (C7b, −386 and growing). Not rounded, not netted.
+
+**P-d landed exactly.** 10,000 lines, **one case**, `compiler/largeControlFlowGraph`
+— the file `checker-notes-rank.md` §3 flagged and `checker-notes-wrong.md`
+flagged again. Printed as its own count and never netted away.
+
+#### Where the family's lines root — the transition matrix, TS2563 excluded
+
+| destination family | lines | share of reachable |
+|---|---:|---:|
+| **the family itself** | **24,990** | **62.21%** |
+| a type node we cannot resolve | 6,939 | 17.27% |
+| a property access whose property we cannot find or type | 2,829 | 7.04% |
+| a free name that does not resolve | 2,714 | 6.76% |
+| a symbol whose kind `getTypeOfSymbol` does not handle | 1,790 | 4.46% |
+| a symbol with no value declaration | 780 | 1.94% |
+| the symbol has a type | 115 | 0.29% |
+| **an initialiser expression** | **10** | **0.02%** |
+| a type alias RHS | 4 | 0.01% |
+
+**Roots outside the family: 15,181 (37.79%).**
+
+**The initialiser row is the surprise inside the surprise.** Row four of the
+roll-up is 16,384 lines, and it supplies **ten** of this family's roots. The two
+largest families are almost entirely disjoint chains, not one feeding the other
+— which is the opposite of what "one or two real roots" would predict, and it is
+why P-a failed rather than merely came in low.
+
+#### By root kind, TS2563 excluded
+
+| root kind | lines | share |
+|---|---:|---:|
+| **`ROOT/own-rule`** — a form whose children all typed; its own rule is missing | **22,596** | **56.25%** |
+| `ROOT/type-node` | 6,943 | 17.28% |
+| `UNMATCHED` — the control; no evidence either way | 6,619 | 16.48% |
+| `ROOT/name-unresolved` | 2,714 | 6.76% |
+| `ROOT/no-value-decl` | 780 | 1.94% |
+| walk limits (depth bound, broken descent, cycle) | 404 | 1.01% |
+
+**22,596 lines — 16.3% of the entire 138,585-line gap — are forms whose every
+operand typed and whose own rule is missing.** That is the largest confirmed
+kind-1 population anyone has measured on this project, and it is what P-c got
+wrong.
+
+#### What the expression actually is
+
+Unit: **gap assertion lines**, TS2563 excluded. `own root` is **depth 0** — the
+line is its own root, whatever kind that root is — which is a *wider* set than
+`ROOT/own-rule` above; the two columns answer different questions and are not
+summable.
+
+| form | lines | own root | propagated | own % | owner |
+|---|---:|---:|---:|---:|---|
+| `CallExpression` | 11,044 | 2,103 | 8,941 | 19.0% | `calls.rs` |
+| `BinaryExpression` | 8,978 | 1,418 | 7,560 | 15.8% | `binary.rs` |
+| `ElementAccessExpression` | 3,130 | 1,590 | 1,540 | **50.8%** | **`indexed.rs` — mine** |
+| `ArrowFunction` | 2,592 | 1,341 | 1,251 | 51.7% | `expressions.rs` |
+| `ParenthesizedExpression` | 2,062 | **0** | 2,062 | **0.0%** | — |
+| `NewExpression` | 1,688 | 1,049 | 639 | 62.1% | `calls.rs` |
+| `ObjectLiteralExpression` | 1,623 | 574 | 1,049 | 35.4% | **`objects.rs` — mine** |
+| `ArrayLiteralExpression` | 1,141 | 637 | 504 | 55.8% | `array_literals.rs` |
+| `TemplateExpression` | 1,036 | 956 | 80 | **92.3%** | `expressions.rs` |
+| `SuperKeyword` | 603 | 603 | 0 | **100.0%** | `expressions.rs` |
+| `ConditionalExpression` | 633 | 295 | 338 | 46.6% | `expressions.rs` |
+| `JsxSelfClosingElement` / `JsxElement` | 1,136 | 417 | 719 | 36.7% | jsx |
+
+Three cross-checks that were not designed in and came out right:
+
+- **`ParenthesizedExpression` is 0.0% own root**, reproducing
+  `checker-notes-rank.md` §4's *"2,178 lines, zero of them terminal — there is
+  no work item here"* at a different commit, from a different instrument.
+- **`SuperKeyword` is 100% own root, 603 lines.** Part 6 noted `super` was
+  unsized and outside the `this` population; it is sized now, and it is a
+  genuinely unported form.
+- **`CallExpression` is 19.0% own root**, against `checker-notes-rank.md` §4's
+  span test giving 1,854 of 11,414 (16.2%) and `checker-notes-calls.md`'s
+  four-measurement walk down to 557. Three instruments, same order of magnitude.
+
+### Owner attribution, and the one thing that lands in my files
+
+| owner | own-root lines in this family |
+|---|---:|
+| `calls.rs` + `expressions.rs` (contextual agent) | ~6,247 |
+| `binary.rs` + `array_literals.rs` (evolving-arrays agent) | ~2,055 |
+| **`indexed.rs` + `objects.rs` (mine)** | **2,164** |
+| jsx | 417 |
+
+**`ElementAccessExpression`: 3,130 lines, 50.8% own root — 1,590 — in
+`indexed.rs`, which I own and have never measured.** That is the one place this
+split points at my files with a real mechanism.
+
+**I am not claiming it, and the reason is on this page already.**
+`checker-notes-rank.md` §3 and Part 1 both measured element access as
+**88.4% `any` on the baseline's right-hand side** — closing it means answering
+`any`, which §6 forbids. That measurement was taken over the ROOT-blocked
+population *including* `largeControlFlowGraph`; this 1,590 is what survives the
+TS2563 exclusion, and **nobody has run the spellability check on the survivors**.
+So the honest statement is: *there is a 1,590-line candidate in a file I own,
+and the one check that would decide it has not been run.* `bd tsr-1u9`.
+
+Given three cycles of the flattering answer being the one that invents work —
+and one cycle, this one, of it being the opposite — I am not going to assert
+either way about 1,590 lines without the check that killed the last two
+element-access items.
+
 ## Everything filed from this page
 
 | id | what | sized as |
@@ -1496,6 +1641,7 @@ compute (unported form, or an error operand)"* — **51,784 lines, 37.37%** of t
 | `tsr-tjz` | **SPEC** — the `this` type, handed to the contextual-typing agent | **399 lines**, ~173 available, ~110 a clean first slice |
 | `tsr-bfr` | the static/instance split inside the 57 method lines is unmeasured | 57 lines, two arms |
 | `tsr-ecz` | the 392 private-identifier accesses — an unported form, not a lookup defect | 392 lines, parser/binder |
+| `tsr-1u9` | spellability of the 1,590 own-root `ElementAccess` lines surviving TS2563 | 1,590 lines, **undecided** |
 
 Both build items are sized in **lines they unblock**, not lines they contain,
 and both numbers are ceilings.
