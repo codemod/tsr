@@ -44,6 +44,53 @@ The second was found while bucketing a different row and independently
 confirmed to be the same defect seen from a second position: upstream propagates
 `errorType` through the access, and `errorType` renders as `any`.
 
+> ### CORRECTED 2026-08-06: the size is ~26,000 lines, not ~6,000
+>
+> **The decision below is unaffected and is strengthened. Only this section's
+> number was wrong, and it was wrong by more than 4×.**
+>
+> The table above enumerates *unresolved names*. It never counted the other way
+> upstream produces an `errorType`: **bailing out**. `compiler/largeControlFlowGraph`
+> alone carries **20,000** such lines. Its baseline sits under
+> `error TS2563: too large for control flow analysis`, and upstream's bailout is
+> `internal/checker/flow.go:120-125` — at depth 2000 it sets `flowAnalysisDisabled`
+> and returns `c.errorType`, after which `flow.go:81-83` returns it again for every
+> later reference in the body. So 10,000 `>data : any` and 10,000 `>data[0] : any`
+> lines are the error type, printed as `any`, and unmatchable here.
+>
+> `TS2563` appears in **exactly one baseline corpus-wide**, so this is one
+> pathological file rather than a class — which is precisely why enumerating
+> *name-resolution* rows could not find it.
+>
+> | | lines | points |
+> |---|---:|---:|
+> | as published (unresolved names) | ~6,000 | ~1.25 |
+> | `largeControlFlowGraph`, flow bailout | 20,000 | 4.176 |
+> | **corrected total** | **~26,000** | **~5.4** |
+>
+> **Independently bounded from a third direction.**
+> `crates/tsr-conformance/examples/ceiling.rs` counts every line where upstream
+> says exactly `any` and this port says `error`, without knowing why: **35,508**,
+> 7.41% of the denominator. That is a firm *upper* bound on this ceiling, and
+> ~26,000 sits inside it. Three measurements, three code paths, no contradiction.
+>
+> **Why the decision gets stronger rather than weaker.** The rejected option —
+> render `any` for comparison — now buys ~26,000 lines instead of ~6,000, which
+> sounds like a reason to reopen it. It is the opposite: **20,000 of the 26,000
+> are one file**, so the option's payoff is now visibly a single pathological
+> case rather than a broad tax, while its cost (destroying the gap/wrong
+> distinction every ranking in this project depends on) is unchanged and
+> corpus-wide.
+>
+> **The consequence for planning.** The reachable ceiling is ~94.6% of the full
+> denominator rather than the ~98.7% quoted below, and any target must be quoted
+> against that. At 61.66% today, 80% of the full denominator is ~84.6% of the
+> reachable one — still reachable, and the tax is 4× what this ADR said it was.
+>
+> Found by the agent sent to *build* the 20,000 lines as the largest available
+> item, on the strength of my briefing. See `bd tsr-zwi` and
+> `docs/architecture/checker-notes-evolvearray.md`.
+
 **These ~6,000 lines are unreachable by any amount of checker work.** They are
 not outstanding work; they are a ceiling. Before this was measured, the gradient
 was being treated as though 100% were approachable and the gap to it was
@@ -73,8 +120,10 @@ that it did.
 ## Consequences accepted
 
 - **`checker_types` cannot reach 100%.** Any target should be stated against a
-  ceiling of roughly 98.7% of aligned lines, not 100%.
-- ~6,000 lines will remain in the histogram's gap buckets forever, and must be
+  ceiling of roughly 98.7% of aligned lines, not 100%. **Corrected 2026-08-06:
+  roughly 94.6% of the full denominator; see the correction block above.**
+- ~6,000 lines (**corrected 2026-08-06: ~26,000**) will remain in the
+  histogram's gap buckets forever, and must be
   excluded by hand from any ranking. `bd tsr-4sc` records them as a ceiling
   rather than an item.
 - A reader comparing a single line against a baseline will see `error` where
