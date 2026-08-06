@@ -156,9 +156,15 @@ impl Checker<'_, '_> {
     ///
     /// Ported from `Checker.isTypeAssignableTo` (`internal/checker/relater.go`).
     ///
-    /// Read the module docs before trusting a `false`: object types that are not
-    /// the same [`TypeId`] answer `false` because structural comparison is not
-    /// ported, not because they are unrelated.
+    /// Read the module docs before trusting a `false`. Object types **are**
+    /// compared structurally ([`Relater::properties_related_to`]), but the
+    /// comparison has no way to say "I could not tell": an unfollowable base, an
+    /// absent property whose target counterpart may be optional, a signature or
+    /// index signature, and the depth cap all answer `false`. A caller that acts
+    /// on a negative must therefore restrict itself to a domain where `false` is
+    /// decidable — [`crate::calls`]'s `SELECTABLE` is that restriction, and
+    /// `docs/architecture/checker-notes-assign.md` is why it has not been
+    /// widened.
     #[must_use]
     pub fn is_type_assignable_to(&mut self, source: TypeId, target: TypeId) -> bool {
         self.is_type_related_to(source, target, Relation::Assignable)
