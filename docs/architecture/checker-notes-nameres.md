@@ -1076,3 +1076,194 @@ and 91.3%.
   wrong answer with `any[]`, so it cannot un-match a matching line — which the
   zero-loss column confirms — but "how many wrong lines did it *create*" is
   genuinely unanswered.
+
+---
+
+# Cycle 15 — the +499 separated, and the rule it yields
+
+Measured 2026-08-06 at `5eb252c` by `examples/nameres.rs`, extended with a
+`WrongCause` classifier. `bd tsr-441`.
+
+## 25. The attribution, and why it is sound
+
+§17 measured the naming arm converting 1,753 gap lines into +1,254 right and
+**+499 wrong**, and asserted — as an inference, not a measurement — that the
++499 was "the cascade half, member accesses whose receiver now has a type".
+
+The attribution rests on a property of the **previous** state rather than on a
+reason string: before `c91314c` a module object had no reachable type at all, so
+a line whose receiver chain roots at one could not have been answered. Any such
+line that is wrong today is therefore new. The classifier walks each wrong line's
+receiver chain by AST — a wrong line has no `gap_reason` — and asks whether any
+receiver's type is `TypeData::Anonymous` over a symbol one of whose declarations
+is a `SourceFile`, the same positive test `Checker::is_module_symbol` makes.
+
+| cause | lines | cases | top-1 |
+|---|---:|---:|---:|
+| the line **is** a module object's name, named wrongly | **6** | 3 | 50.0% |
+| a member access **rooted at** a module object | **328** | 37 | 18.9% |
+| unrelated to the naming arm | 43,092 | 3,627 | 23.2% |
+
+The 6 are the naming rule's own residue and they are the expected ones —
+3 in `compiler/modulePreserve4`, the `g1`/`g2` pair §15 already named. **The
+inference in §17 was right about the mechanism.**
+
+334 against the 499 measured at `c91314c`: the difference is that this run is at
+`5eb252c`, three merges later, so other agents' work has moved part of it. The
+*shape* is what this section is for, and the shape is stable.
+
+## 26. It is not a type error. It is the same naming problem one level down
+
+The pairs are the finding, and they are almost uniform:
+
+```
+  32  upstream `() => import("./…_Widgets").Widget1`      ours `() => Widget1`
+  24  upstream `() => import("./…").SpecializedWidget.Widget2`  ours `() => Widget2`
+  10  upstream `typeof Backbone.Model`                    ours `typeof Model`
+   8  upstream `PropTypes.Requireable<boolean>`           ours `Requireable<boolean>`
+   8  upstream `typeof m4.d`                              ours `typeof d`
+   6  upstream `typeof Widgets.SpecializedWidget`         ours `typeof SpecializedWidget`
+```
+
+**The type is right. The name is missing its qualifier.**
+
+Upstream's `getAccessibleSymbolChain` (`internal/checker/symbolaccessibility.go:373`)
+returns a **chain** — `[Widgets, Widget1]` — and `symbolToEntityName` prints it
+dotted. `Checker::type_to_string_at` ports the *last hop only*: it finds one
+alias naming a module object and prints that one name. Symbols reached
+**through** that alias are printed by the pre-existing baked text, which is the
+declared name with no qualifier at all.
+
+So the collateral is wrong **by construction**, not by accident: I ported half of
+one mechanism, and the half I did not port is the half that renders everything
+the ported half unblocks.
+
+The residual 52 lines are a different and benign family — `any [ours: 0]` 34 and
+`any [ours: number]` 18 — where upstream itself answers `errorType` and this port
+now computes a real type. Those are the mirror of §2's finding and are not
+damage in any sense the gradient measures.
+
+## 27. The rule, for `docs/conventions.md`
+
+`docs/conventions.md` already records the cascade running both ways: a fix
+converts 1.66× its row, and it can also *manufacture* wrong lines in rows it
+never targeted. Both of those are stated as facts about **size**. Neither says
+when the sign flips, and the answer turns out to be structural:
+
+> **A fix that makes X computable hands X's *contents* to a renderer that was
+> never asked to render them before. If those contents are rendered by the same
+> mechanism you have just ported *partially*, the collateral is wrong by
+> construction — every line of it — and no amount of care inside the target row
+> changes that.**
+>
+> The check is one question, asked before building: **what will render what this
+> unblocks, and is it the same mechanism I am half-porting?** If it is, forecast
+> the collateral at the *un*ported half's failure rate, not at the ported half's.
+
+Applied backwards, it predicts this cycle exactly. `type_to_string_at` names the
+last hop at 99.4%. Qualification of everything reached through that hop is
+**0%** ported. The 328 collateral lines are members reached through a module
+object, and they are wrong at essentially 100% wherever upstream qualifies.
+
+It also predicts the two refusals that came before it. `tsr-6ph`'s printing
+design and its lookup-only twin measured 2.1 and 2.5 wrong per right and
+`docs/conventions.md` records the tell — *"two designs that differ in what they
+print, and agree to within 20% on what they break, are not two designs"*. They
+agreed because both left the same renderer half-ported.
+
+**How you would know this rule is wrong:** a fix whose unblocked contents are
+rendered by a mechanism that is fully ported, producing collateral at the target
+row's accuracy rather than at the unported half's. That is the case worth
+finding, because it would bound the rule rather than refute it.
+
+## 28. Item 1, re-derived: the ALIAS row was already built
+
+The lead asked for the ALIAS row to be built now that §18's refusal had reversed.
+Re-derived at `5eb252c`, it should not be, and the reason is that `c91314c`
+**is** the build.
+
+| verdict | lines | share |
+|---|---:|---:|
+| reached AND typed — convertible | **376** | 10.2% |
+| reached, its own type gaps (kind 2) | 1,203 | 32.8% |
+| module not resolved | 1,620 | 44.1% |
+| module resolved, name not exported | 362 | 9.9% |
+| no replay for this form | 110 | 3.0% |
+
+Of the **376 convertible**, **323 sit under forms `resolve_alias` already
+handles** — 296 `import a = b` and 27 `export { q }` — where the discrepancy is
+that this probe's replay looks names up with `SymbolFlags::all()` while the
+checker re-checks the meaning upstream passes. Those are `bd tsr-sgd`, not new
+work. That leaves **53 lines under unhandled forms** (52 default imports, 1
+qualified `import a = b.c`), against the 800-line threshold this workstream has
+now applied four times.
+
+**And widening to `export =` — the thing §16 deferred and the lead asked me to
+gate on `tsr-441` — converts exactly zero lines.** Control C9 shows `export =`
+firing on 218 `import a = require` lines and 72 `import * as ns` lines, and Leg 1
+shows **0 of the convertible set** reaching its target that way, for every form.
+The 218 are non-convertible because the `export =` target's own type gaps. So the
+deferral costs nothing and the gate is moot.
+
+**REFUSED, and no rule was pre-registered for it** — the measurement above was
+taken for §25's purpose and I read the decision off it afterwards, which is
+exactly the shape `docs/conventions.md` warns is caught by nothing. It is
+recorded as a re-derivation against a standing threshold rather than dressed up
+as a pre-registered rule.
+
+## 29. What is actually left in this row, for whoever takes it
+
+- **`bd tsr-sgd`** — the namespace-exports arm in `BindResult::resolve_name`.
+  Now carries three separate populations: 434 lines from the name-resolution row,
+  296 from `import a = b`, and 27 from `export { q }`. Still not summed; they were
+  measured by different routes.
+- **Qualified naming** — the mechanism §26 names. It would fix the 328 collateral
+  lines *and* is the prerequisite for `import a = b.c` (331 lines, "resolvable,
+  unprintable" since the first cycle). This is `bd tsr-awa`, the natural
+  successor to `tsr-6j2`, and the largest single thing this page has pointed at.
+- 1,620 `module not resolved`, still unmeasured as to how many upstream also
+  fails (`bd tsr-m41`).
+
+## 30. Item 3, cross-file interface merging: the premise is wrong
+
+`bd tsr-9or.1` is quoted as *"28.50% of 10,303 lines — ~2,936 — are named
+interfaces we fail to **merge** across files"*, and it was handed to this slice
+because declaration merging is the binder's and `declared.rs`'s, both owned here.
+
+**The binder already merges them.** Two files, each declaring `interface I`,
+bound into one `BindResult`:
+
+```
+BINDER : symbol I has 2 declarations, 2 members: ["a", "b"]
+CHECKER: v : I
+  get_property_of_type(a) = false      <- declared in the OTHER file
+  get_property_of_type(b) = true       <- declared in v's own file
+```
+
+`Binder::merge_globals` (`crates/tsr-binder/src/binder.rs:552`) calls
+`merge_symbol` (`:630`) for every name already in `globals`, and `merge_symbol`
+unions the `members` tables. The merged symbol is correct and complete.
+
+**The checker's member lookup does not see it.** `get_declared_type_of_class_or_interface`
+(`declared.rs:699`) stores `members = Some(symbol)` — the *symbol*, whose table
+holds both — so the type is pointing at the right place, and the lookup that
+answers `false` for `a` is downstream of that.
+
+Two consequences, and they change who owns the item:
+
+1. **It is not a merging defect and no binder or `declared.rs` change addresses
+   it.** Anyone sizing "declaration merging" as binder work is sizing the wrong
+   subsystem — the same class of error as `checker-notes-rank.md`'s rows whose
+   *name* pointed at the wrong step.
+2. **`get_property_of_type` lives in `members.rs`**, which this slice does not
+   own. So this is a hand-over with a reproduction, not a build.
+
+**Not sized.** The ~2,936 figure is another agent's, over a population this page
+has not re-derived, and §28 is this cycle's second reminder that a number taken
+for one purpose should not be read as a decision for another. The measurement
+that would settle it is one pass: over the corpus, count gap lines whose receiver
+type is a named type whose symbol has **more than one declaration**, and split by
+whether the property being looked up is declared in the same file as the
+reference. The asymmetry above says that split is the whole item.
+
+`bd tsr-9or.1` updated with this; the reproduction is the six lines above.
