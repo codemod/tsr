@@ -321,11 +321,22 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
 
         for (position, assertion) in our_file.iter().enumerate() {
             let baseline = expected_file.assertions.get(position);
-            if assertion.type_string == "error" {
-                report.gap += 1;
-            } else if baseline.is_some_and(|b| b.text == assertion.line()) {
+            // **The baseline is tested first, and the order is load-bearing.**
+            // Until `examples/reconcile.rs` measured it this arm asked
+            // `type_string == "error"` first, which put **389 right answers into
+            // `gap`** — the lines where upstream's own baseline text ends in
+            // `error`, because a program may declare a type called `error` and
+            // some do. `rank_board`, `wrong_attribution` and `types_shapes` all
+            // test the baseline first; this file was the only one that did not.
+            //
+            // The direction is the unflattering one: it moved correct answers
+            // into the column this project reads as "not built yet".
+            if baseline.is_some_and(|b| b.text == assertion.line()) {
                 report.right += 1;
                 continue;
+            }
+            if assertion.type_string == "error" {
+                report.gap += 1;
             } else {
                 report.wrong += 1;
                 continue;

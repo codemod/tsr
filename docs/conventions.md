@@ -1430,3 +1430,81 @@ holds only when the capability's outputs are themselves spellable. Before
 building a lookup-only version of an unspellable type, enumerate what the lookup
 **returns**, not just what it is. If those answers include the same unnameable
 family, the escape is the original item wearing different clothes.
+
+### A probe's denominator is its own rendered lines; the suite's is upstream's
+
+`docs/architecture/checker-notes-recvgap.md` §8 published a gradient of
+**479,060 lines / 61.00%** beside the committed snapshot's **478,954 / 61.09%**,
+called the 0.09pp difference *"not explained"*, and — correctly — refused to
+quote the absolute until someone reconciled it. That refusal is the only reason
+what was underneath stayed contained to one number.
+
+Reconciled by `crates/tsr-conformance/examples/reconcile.rs`, the paragraph held
+**two** differences with nothing to do with each other.
+
+**The denominator, 106 lines: a unit mismatch, not an error.**
+`types_suite::compare` opens with `let total = assertion_count(expected)` and
+iterates `expected_file.assertions` — every figure the suite produces is over
+**upstream's baseline lines**. A probe written the obvious way iterates
+`our_file` and counts **the lines we rendered**. Those are different populations
+and neither is wrong:
+
+```
+  probe total (rendered lines)                        479,060
+  - surplus: we rendered more than upstream asserts       964
+  + deficit: upstream asserts more than we rendered       858
+  = suite total                                       478,954   (actual: 478,954)
+```
+
+**The numerator, 389 lines: a defect, in the flattering direction.** The probe
+asked `type_string == "error"` *before* it asked whether the baseline matched, so
+a line where we answer `error` **and upstream's baseline also says `error`** was
+filed as a gap. It is a right answer; programs may declare a type named `error`,
+and some do. `rank_board`, `wrong_attribution` and `types_shapes` all test the
+baseline first. This is the same direction as the lib-less probes: it moved
+correct answers into the column this project reads as *"not built yet"*.
+
+#### The rule
+
+**A probe that quotes a gradient must reconcile its denominator against
+`assertion_count`, or quote shares of its own population and say so.** The page
+above did the second thing correctly for every figure on it — which is exactly
+why nothing on it changed sign when the defect was fixed, and why the one
+absolute in its last paragraph did.
+
+#### And the part that generalises past denominators
+
+The reconciliation was written to test **three** hypotheses, in confidence order:
+the rendered/baseline mismatch, whole files dropped by the probe's
+`our_file.len() != line_ids.len()` guard, and whole cases dropped by
+`case.load().ok()?`. The second and third are real divergences from the suite,
+correctly identified by reading the two loops side by side, and both measure
+**0 files and 0 cases**. They never fire.
+
+That is the cheap half of the method and it is worth stating on its own: **the
+hypotheses that turn out to be zero cost one bucket each, and the argument about
+which one is right costs more and settles nothing.** Both non-firing buckets are
+still printed, because a guard that fires zero times *today* is one refactor away
+from firing, and a control nobody prints is a control nobody notices going
+non-zero.
+
+#### Two mutations, two controls, and only one of them could have caught either
+
+The four controls read zero, which this document says means nothing until a line
+can reach them. Both were run:
+
+| mutation | C1 (construction) | C3 (arithmetic) |
+|---|---:|---:|
+| **M1** — shift the probe's positional test by one, `get(position + 1)` | **−276,213** | 0 |
+| **M2** — invert the surplus/deficit polarity | 0 | **212** |
+
+C1 is *"probe right − `compare` matched, over counted files"*, and it is pinned by
+**construction**: the two are the same predicate at the same positions, so they
+are one number reached two ways whatever the file lengths are. Nothing about the
+corpus makes it zero — the predicate does.
+
+M2 is the polarity inversion this document already records passing every sum,
+roll-up and pairing count elsewhere in this repo. It moves 212 lines and C1 does
+not notice. M1 destroys the alignment and C3 does not notice. **Neither control is
+redundant, and a probe carrying only the arithmetic kind is carrying the one
+blind to the error that has actually happened here.**
