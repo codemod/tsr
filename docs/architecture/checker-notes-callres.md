@@ -593,3 +593,28 @@ refused. So the rule is recorded here now, and whoever takes it is bound by it:
 > => void` beside `>x : any` in the same file. That is half a mechanism by
 > construction. **If RA fires, it must be reported as a half**, and the ≥70% leg
 > must be read over the function lines alone, with the 54 named as unconverted.
+
+## 12. The `FunctionDeclaration` row decomposed — shards, not an item (fifth session)
+
+`examples/retgap.rs` (committed with this section), over every gap line whose
+node names or references a `FunctionDeclaration`. Classified **4,088 lines**,
+controls clean (C1 = 0, C2 exact). The row the fourth session's `depend.rs`
+reported at ~3,312 own-root lines plus §8.2's 797 blocked callees splits:
+
+| bucket | lines | owner |
+|---|---:|---|
+| the return **annotation itself gaps** | 879 | unported type nodes — heads are template literal types (84), variadic tuples (111), `const` type-parameter modifiers (118) |
+| a return **expression** gaps | 797 | downstream by construction |
+| a **parameter annotation** gaps | 507 | same type-node owners |
+| annotated, **everything types**, still gaps | 257 | unsplit — one more probe; `typeParameterConstModifiers*` in its head suggests type-parameter machinery |
+| `async` / generator | 466 | `Promise` wrapping / iteration, unported |
+| unannotated, 0/1 distinct return types, gap is elsewhere | 959 | parameter gaps and entanglement, unsplit |
+| **multi-distinct return aggregate — `bd tsr-4sc.9`** | **81** | **refused with this number**: the leg needs `removeSubtypes` machinery for 81 lines at the observed 15–57% conversion — ~12–46 lines |
+| strictness legs (bare beside valued) | 14 | stays refused (§ signatures.rs) |
+| ambient/no body | 72 | — |
+
+**Verdict: the row leaves the board the way the element-access row did** —
+no shard is an arm of `signatures.rs`; each belongs to an unported type-node
+or type-parameter subsystem. `bd tsr-cwz`'s 797-callee framing ("return-type
+inference is missing") is corrected: the inference *is* ported
+(`return_type_from_body`), and what keeps the row down is its inputs.
