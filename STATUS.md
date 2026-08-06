@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`b00738d`**, 2026-08-06 (third session).
+Measured at **`ff49871`**, 2026-08-06 (fourth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`b00738d`**, 2026-08-06 (third session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,452/9,538** | **25.71%** | **gradient 69.03%** — the target |
+| **`checker_types`** | **2,509/9,538** | **26.31%** | **gradient 69.44%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-330,612 / 478,954 assertion lines = 69.03%
-  right 330,612 | gap 97,099 | wrong ~41,189   (41,391 at 0fe102a; −600 +17 −18 −37 +290 +146)
+332,570 / 478,954 assertion lines = 69.44%
+  right 332,570 | gap ~94,718 | wrong ~41,612   (41,189 at b00738d; +423 at ff49871, same-probe pair)
 ```
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
@@ -99,10 +99,10 @@ attributed count as the only firm figure and expect it to move.
 
 ```
 reachable denominator   476,752 of 478,954
-today                    330,612 / 476,752 = 69.35% of reachable
+today                    332,570 / 476,752 = 69.76% of reachable
 80% of the full          383,163 lines  =  80.37% of the reachable
-gap to 80%               +52,551 lines
-gap to 70% (this session's target)        +4,656 lines
+gap to 80%               +50,593 lines
+gap to 70%               +2,698 lines
 ```
 
 ---
@@ -130,6 +130,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `ff49871` | `typeof x` in type position (`tsr-4sc.10`), plus written-node reuse for `typeof` annotations in signature prints | +1,958 |
 | `b00738d` | object-literal method members | +420 |
 | `bf5681b` | plain tuple type nodes (74.9% of printed tuples; modifiers still refuse) | +1,227 |
 | `c72ebf2` | narrowing for property/element references (`tsr-6ka`) | +58 |
@@ -152,7 +153,8 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Measured at **`b00738d`** by `examples/depend.rs`. Two lists, because the
+Measured at **`b00738d`** by `examples/depend.rs`, re-confirmed unchanged by a
+fresh run at `7cecc02` (fourth session; every row within noise). Two lists, because the
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
@@ -167,7 +169,11 @@ score = (reachable / effort) x feasibility
   conversion over the seven builds of the third session ran **15% to 57%** of
   the sized population (tuples 57%, property references 35%, member
   instantiation 18% ex-windfall, object methods 15%), so read a score as an
-  *ordering*, not as a line count.
+  *ordering*, not as a line count. The fourth session's `typeof` build then
+  converted **122%** of its sized row (+1,958 against 1,600), because its
+  mechanism — written-node reuse in signature prints — reached lines whose
+  `depend.rs` root was not the `TypeQuery` node: a population is a ceiling
+  *for the row it was measured on*, and a mechanism can turn out wider.
 - **effort** is 1–5, anchored to builds that actually happened rather than to
   intuition: **1** = one arm on machinery that exists (tuples, object methods);
   **2** = a few arms plus new data (the six narrowing facts bits); **3** = a new
@@ -184,7 +190,6 @@ score = (reachable / effort) x feasibility
 |---:|---|---:|---:|---:|---|
 | **869** | **call resolution — overload sets.** The largest reachable mass and the sole owner of what `tsr-1uz` left behind, including every multi-signature instantiated member. Needs the relater's subtype relation, so it is genuinely a subsystem; the old R2′ refusal no longer stands (§5) but a **counterfactual** does. | 9,660 | 5 | 0.45 | `calls.rs`, `relater.rs` |
 | **761** | **contextual typing.** `ArrowFunction` 3,978 + `FunctionExpression` 1,096 at a **0.7% ceiling** over ~1,070 cases — the largest diffuse rows nobody has opened. `contextual.rs` exists with three arms; the refusal at *"86% entangled"* predates every change of the third session and **must be re-measured before it is believed**. | 5,074 | 4 | 0.60 | `contextual.rs` |
-| **680** | **`typeof x` in type position (`TypeQuery`).** No arm at all, yet `symbols.rs` already computes `typeof C` for a class/enum/module symbol — the node only needs entity-name resolution and the symbol's type. Highest feasibility of anything this size. | 1,600 | 2 | 0.85 | `declared.rs` |
 | **649** | **destructuring / binding patterns.** Zero references in the checker today. `BindingElement` cycles are the root. Unblocked by tuples landing, since array patterns need a tuple element list. | 2,781 | 3 | 0.70 | new module |
 | **374** | **element access remainder.** 1,245 after the `tsr-4qx` collapse took the row from 12,544 to 1,391. Refused three times historically on a `want-any` share that is now **19.2%**, not 59.3% — that refusal is stale. | 1,245 | 2 | 0.60 | `indexed.rs` |
 | **230** | **JSX.** `JsxSelfClosingElement` 742 + `JsxElement` 570. Self-contained and entirely unported. | 1,312 | 4 | 0.70 | new module |
@@ -290,6 +295,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `ff49871` | **69.44%** | **2,509** | **+1,958 lines, 0 lost, +57 cases, 0 regressed** | **`typeof x` in type position** (`tsr-4sc.10`, fourth session) — sized by `examples/tquery.rs` (1,728-line row decomposed by mechanism form), bar registered and committed **before** code (`30d1ce8`). **The bar's gap→wrong leg FIRED** (+1,341 vs +1,053) and the diagnosis was a mechanism boundary, not a bad build: upstream reuses the **written** `typeof a` node in signature prints. Ported as `Parameter::written_text`/`Signature::written_return`; an intermediate refuse-parameters narrowing measured +1,084/+1,024 and was removed for the mechanism. Final legs all pass at **4.5×** gained/wrong. Δwrong **+423** (436 new in owned families — accessibility chains `tsr-93f`, module internal names, alias naming, signature-position reuse beyond `typeof`, filed `tsr-5o2`). Conversion **122% of the sized row** — the mechanism reached beyond it (§4.1) |
 | 2026-08-06 | `b00738d` | **69.03%** | **2,452** | **+1,647 lines, 0 lost, +25 cases, 0 regressed** | **plain tuple type nodes** (`bf5681b`, +1,227) and **object-literal method members** (`b00738d`, +420). The tuple arm was registered with a bar and passed all four legs, its falsifier not firing; the method arm **was not registered**, the second such miss in two sessions, and its Δwrong/Δright of 0.35 sits just over the 1-in-3 the last three registrations used — recorded in `checker-notes-tuple.md` §6 rather than rounded down. Ten fixtures across nine files had used a tuple as their stand-in for "unported" and all came due at once |
 | 2026-08-06 | `c72ebf2` | **68.68%** | **2,427** | **+58 lines, 6 lost, +2 cases, 0 regressed** | **narrowing reaches property and element references** (`tsr-6ka`) — `isMatchingReference` made structural, both access forms wired to the flow walk (the binder had recorded their flow nodes all along), and `containsMatchingReference` added after the corpus named it: five over-narrowed lines in `destructuringControlFlow`, the one direction this module can produce a wrong line rather than a gap. **Sized through the matcher first** with the new `refmatch.rs` — 181 strict, 2,172 loose, delivered 64 gained. **No bar was registered before the build**, recorded as a process miss in `checker-notes-narrow.md` §5 |
 | 2026-08-06 | `2642e7b` | **68.67%** | **2,425** | **+30 lines, 3 lost, +1 case, 0 regressed** | **equality narrowing against `null`/`undefined`** (`narrowTypeByEquality`'s nullable half; the other half needs `areTypesComparable`). **Its registered bar fired on the floor — 33 gained against 150 — and is overridden, loudly**, in the commit, the issue, here and `checker-notes-narrow.md` §4: the build is right (six fixtures from two baselines, Δwrong **−18**) and the floor was derived from what upstream's *users* write rather than from what this port can *reach* — `is_matching_reference` is identifier-only, so no property-access guard narrows anything. That constraint is now the board's item 1 (`tsr-6ka`). The session's other product is a **refusal with its number**: strict-gating the optionality arm converts zero |
