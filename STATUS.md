@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`cf33aee`**, 2026-08-06 (fourth session).
+Measured at **`e7a65fb`**, 2026-08-06 (fourth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`cf33aee`**, 2026-08-06 (fourth session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,509/9,538** | **26.31%** | **gradient 69.59%** — the target |
+| **`checker_types`** | **2,521/9,538** | **26.43%** | **gradient 69.75%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-333,321 / 478,954 assertion lines = 69.59%
-  right 333,321 | gap ~93,840 | wrong ~41,684   (41,189 at b00738d; +423, −58, +3, +127 by same-probe pairs through cf33aee)
+334,066 / 478,954 assertion lines = 69.75%
+  right 334,066 | gap ~93,117 | wrong ~41,236   (41,189 at b00738d; +423, −58, +3, +127, −448 by same-probe pairs through e7a65fb)
 ```
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
@@ -130,6 +130,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `e7a65fb` | `typeof` guard narrowing — subtype relations, sixteen facts bits, three flow arms (`checker-notes-narrow.md` §6) | +745 |
 | `cf33aee` | nullable receivers strip, optional chains propagate `undefined` (`checker-notes-nnaccess.md`) | +590 |
 | `9eaa2f1` | `t[0]` — a tuple's numeric-literal property is its element (`checker-notes-tuple.md` §8) | +103 |
 | `0d56467` | the tuple arm of `compare_types` (`tsr-5ll`) — 64 wrong lines fixed; three bar legs fired and are overridden loudly, `checker-notes-tuple.md` §7 | +58 |
@@ -196,7 +197,6 @@ score = (reachable / effort) x feasibility
 | **374** | **element access remainder.** Decomposed by `examples/elemgap.rs` at `ec981ae`: 757 lines have both sides typed. The tuple families landed at `9eaa2f1` (+103); the remainder is **"other receiver" families** — 204 string-literal lookup misses, 210 non-literal indexes without index info, 48 optional chains, 75 union receivers — each needing its own mechanism split before costing. | ~650 | 2 | 0.55 | `indexed.rs` |
 | **230** | **JSX.** `JsxSelfClosingElement` 742 + `JsxElement` 570. Self-contained and entirely unported. | 1,312 | 4 | 0.70 | new module |
 | **165** | **template literal types.** Refused once: the cheap leg is **not separable**, because upstream's `evaluate` is a syntactic folder consulting no types. Kept on the list because the row survived the session unchanged. | 1,237 | 3 | 0.40 | `declared.rs` |
-| **147** | **`typeof` guard narrowing** (`bd tsr-q9g`) — re-priced twice at `8298d72`, both times by a probe before a build: access lines are only 27 (refmatch split), but `examples/idtypeof.rs` counts **440 identifier lines, 417 of them in the WRONG bucket** (we print the un-narrowed union; wants `string` 110, `number` 64, `never` 39) — the column no gap histogram ranks. Blocker named from `flow.go:687`: `narrowTypeByTypeFacts` needs the **subtype and strictSubtype relations**, of which `relater.rs` has only `Assignable`. Three parts: relation simple-arms, eight facts bits, three flow arms. | 440 | 3 | 0.75 | `relater.rs`, `flow.rs` |
 
 ### 4.3 Measurement first — cheap probes that unlock a score
 
@@ -296,6 +296,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `e7a65fb` | **69.75%** | **2,521** | **+745 net (767/22, 34.9×), 0 regressed, +12 cases, Δwrong −448** | **`typeof` guard narrowing** (`tsr-q9g`'s typeof form) — `Relation::Subtype`/`StrictSubtype` in the relater, the sixteen typeof facts bits with per-kind aggregates, and the `narrowTypeByTypeof` arm family. Sized twice by probes before building (access lines 27, identifiers **440 with 417 wrong**); the bar's primary leg was `wrongdelta` for the first time, and it read **−448**. Conversion **169%** of the sized row. A third "unported stand-in" fixture came due (`narrowing.rs`'s typeof guard) and was replaced with a comparability pair. Residual 260 new wrong in three owned families: loop fixpoints (unported incomplete-types iteration), further narrows (`tsr-97d`), want-`any` ceiling |
 | 2026-08-06 | `cf33aee` | **69.59%** | **2,509** | **+590 lines, 0 lost, 0 cases moved** | **nullable receivers and optional chains** — `checkNonNullType` (diagnostics-less), `getOptionalExpressionType`, `propagateOptionalTypeMarker`, wired at all three access sites. Sized by the new `nnaccess.rs` (704 lines, want-any 3%), bar registered before code; conversion **86%** of the sized population. **The registered falsifier fired exactly as named**: 106 of 129 new wrong lines are `controlFlowOptionalChain` wanting the post-access *narrow* — attributed in advance and filed as `tsr-97d` against the flow matcher. A types.rs fixture asserting "optional chains are unported" came due and was rewritten from `elementAccessChain.types` |
 | 2026-08-06 | `9eaa2f1` | **69.47%** | **2,509** | **+103 lines, 0 lost, +1 case, 0 regressed** | **`t[0]` answers the element** — one arm at `get_type_of_property_of_type`, reading `tsr-5ll`'s reverse index; sized by the new `elemgap.rs` (56-line row, converted 184% — the seam serves more consumers than the row). All four bar legs passed (34× on the gap→wrong leg; 3 residuals are narrowing/instantiation). §8's registration guessed out-of-range is a gap and the **baseline corrected it before the code ran**: `>strNumTuple[2] : undefined` — the diagnostic and the type answer are separate channels. §3's "no members" safety argument is deliberately spent, on record |
 | 2026-08-06 | probe | — | — | 0 lines, by design | **the contextual-typing withdrawal is itself withdrawn**: `fnexpr` re-run at `0d56467` reproduces the 86%-entangled table exactly (|G| 2,082, every row within 14 lines), so the refusal stands re-armed on a fresh number and the 761-score row leaves §4.2. One probe decided a 5,074-line item's session priority — the cheap-probe-first ordering paying out |
@@ -313,6 +314,11 @@ Append one row per session. Keep it to what a future session needs.
 | 2026-08-06 | `39a3853` | **63.64%** | **2,275** | **+0.10 pts, +481 lines, 0 lost** | union-constituent parenthesisation (`tsr-xm9`) +353, and the same predicate fixing a pre-existing defect in `array_element_text` +128. Also this session: `removeSubtypes` sized and **refused**, `tsr-jle` and `tsr-iiu` withdrawn, the call row's bar re-scored with `new` separated |
 | 2026-08-06 | `5290e1a` | **63.54%** | **2,275** | **+0.20 pts, +958 lines, +5 cases** | the `&&` arm of `checkBinaryLikeExpression` — the only unblocked arm in the board's top three rows. The session's main product is the **board rewrite**: `tsr-jle` fell 11,008 → 1,004, `ArrayLiteral` and `\|\|`/`??` were shown blocked on assignability, and `new` was sized alone for the first time |
 | 2026-08-06 | `3299f53` | **63.34%** | **2,270** | **+2.25 pts, +10,761 lines** | export-marker link (+2,265), `this` parameter (+2,733), `super` (+838), `@lib`/`@noLib` harness fidelity (+431), unit-return widening (+1,188), `getApparentType` (+973), `getMergedSymbol` (+430), `autoArrayType` (+1,005), object spread (+74) |
+
+**Fourth session's process miss:** `180bcb0` shipped with clippy RED — the
+compound command printed the count (5) and committed anyway, the same class as
+the `head`-piped gate: instrument correct, reading skipped. Fixed and recorded
+at `5a6d735`.
 
 **Process failures worth carrying, all now written up in
 `docs/conventions.md`:** a gate piped through `head` reported green while a
