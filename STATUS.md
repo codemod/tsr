@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`c72ebf2`**, 2026-08-06 (third session).
+Measured at **`b00738d`**, 2026-08-06 (third session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`c72ebf2`**, 2026-08-06 (third session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,427/9,538** | **25.45%** | **gradient 68.68%** — the target |
+| **`checker_types`** | **2,452/9,538** | **25.71%** | **gradient 69.03%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-328,965 / 478,954 assertion lines = 68.68%
-  right 328,965 | gap 99,182 | wrong ~40,753   (41,391 at 0fe102a, then −600 +17 −18 −37)
+330,612 / 478,954 assertion lines = 69.03%
+  right 330,612 | gap 97,099 | wrong ~41,189   (41,391 at 0fe102a; −600 +17 −18 −37 +290 +146)
 ```
 
 **The previous “wrong ~37,252” was stale and is corrected, and it was worth a
@@ -102,9 +102,10 @@ attributed count as the only firm figure and expect it to move.
 
 ```
 reachable denominator   476,752 of 478,954
-today                    328,965 / 476,752 = 69.02% of reachable
+today                    330,612 / 476,752 = 69.35% of reachable
 80% of the full          383,163 lines  =  80.37% of the reachable
-gap to 80%               +54,198 lines
+gap to 80%               +52,551 lines
+gap to 70% (this session's target)        +4,656 lines
 ```
 
 ---
@@ -121,7 +122,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **68.68% of lines** | the mountain; §4 and §5 |
+| **checker** | **69.03% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -144,7 +145,9 @@ instantiated members and default type arguments** (`385fb60`, `tsr-1uz`:
 bar overridden — §7), and **narrowing for property/element references**
 (`c72ebf2`, `tsr-6ka`: +58 — `isMatchingReference` is structural, both access
 forms reach the flow walk, and `containsMatchingReference` resets narrowing on
-assignment to a receiver).
+assignment to a receiver), **plain tuple type nodes** (`bf5681b`: +1,227, 0
+lost — 74.9% of printed tuples, with the per-element flags model still
+refusing), and **object-literal method members** (`b00738d`: +420, 0 lost).
 
 Deliberately **not** ported, each with a reason on record: the evolving-array
 `x.push(e)` widening (53 lines, all already wrong); `hadErrorBaseline`
@@ -196,6 +199,7 @@ says exactly where the arm goes.
 
 | # | item | reachable | file |
 |---|---|---:|---|
+| 0 | **`ArrowFunction` roots — 4,011 lines at a 0.7% ceiling over 830 cases, top-1 3.9%.** The largest diffuse row nobody has opened, and `depend.rs` has no step arm for it so it has never been ranked. Almost certainly contextual typing (`get_signature_from_declaration` gaps an unannotated parameter that has a contextual type), which stands refused at *"86% entangled"* — **re-measure that refusal before believing it**, the population has changed completely since | ≤3,986 | measurement first |
 | 1 | **the unported narrowing guard forms** (`bd tsr-q9g`) — `typeof`, `in`, `instanceof`, comparability. Measured at **296 in-range lines** by `refmatch.rs`, and unblocked twice over as of `c72ebf2`: they needed both the structural matcher (now built) and an arm. `typeof` is the largest and needs eight facts bits as mechanical as the six that landed; `in` needs only `get_type_of_property_of_type`. **Register a bar — `tsr-6ka` shipped without one** | **296** measured, but see the bracket caveat in `checker-notes-narrow.md` §5 | `flow.rs` |
 | 2 | **call resolution** — the largest reachable mass, ceiling 11.4%, and the sole owner of what `tsr-1uz` left behind: **overload sets**, including every multi-signature instantiated member. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | ~**6,000** | `calls.rs` |
 | 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,295 | measurement |
@@ -219,11 +223,17 @@ ever was. `docs/architecture/checker-notes-armsplit.md` §9.
 
 The arithmetic, restated at `2642e7b`:
 
-- Distance to 80%: **+54,198 lines** (was +69,314 at the session's start).
-- This session: **+15,116** over five kept builds, of which 10,000 is the
-  one-case windfall §2 records. Excluding it, the five read
-  **+2,357 / +2,266 / +405 / +30 / +58** — the rate is falling, and the tail
-  says why: the cheap arms are done, and what remains is gated behind
+- Distance to 80%: **+52,551 lines** (was +69,314 at the session's start), and
+  to the **70%** this session was steered by, **+4,656**.
+- This session: **+16,763** over seven kept builds, of which 10,000 is the
+  one-case windfall §2 records. Excluding it, the seven read
+  **+2,357 / +2,266 / +405 / +30 / +58 / +1,227 / +420**. The tail fell and
+  then **recovered**, and what recovered it is worth naming: the two largest
+  late builds were *type-node* arms (tuples, object-literal methods), not
+  expression arms. The falling rate was a property of the rows being picked —
+  expression roots gated behind capabilities — rather than of the port running
+  out of cheap work. `depend.rs`'s type-node roots are where the remaining
+  cheap work is, and the cheap arms are done, and what remains is gated behind
   **capabilities** rather than behind arms. The last two builds are the
   clearest case — an equality arm converted 33 lines because no property
   reference could match, and building that matcher then converted 58. Neither
@@ -315,6 +325,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `b00738d` | **69.03%** | **2,452** | **+1,647 lines, 0 lost, +25 cases, 0 regressed** | **plain tuple type nodes** (`bf5681b`, +1,227) and **object-literal method members** (`b00738d`, +420). The tuple arm was registered with a bar and passed all four legs, its falsifier not firing; the method arm **was not registered**, the second such miss in two sessions, and its Δwrong/Δright of 0.35 sits just over the 1-in-3 the last three registrations used — recorded in `checker-notes-tuple.md` §6 rather than rounded down. Ten fixtures across nine files had used a tuple as their stand-in for "unported" and all came due at once |
 | 2026-08-06 | `c72ebf2` | **68.68%** | **2,427** | **+58 lines, 6 lost, +2 cases, 0 regressed** | **narrowing reaches property and element references** (`tsr-6ka`) — `isMatchingReference` made structural, both access forms wired to the flow walk (the binder had recorded their flow nodes all along), and `containsMatchingReference` added after the corpus named it: five over-narrowed lines in `destructuringControlFlow`, the one direction this module can produce a wrong line rather than a gap. **Sized through the matcher first** with the new `refmatch.rs` — 181 strict, 2,172 loose, delivered 64 gained. **No bar was registered before the build**, recorded as a process miss in `checker-notes-narrow.md` §5 |
 | 2026-08-06 | `2642e7b` | **68.67%** | **2,425** | **+30 lines, 3 lost, +1 case, 0 regressed** | **equality narrowing against `null`/`undefined`** (`narrowTypeByEquality`'s nullable half; the other half needs `areTypesComparable`). **Its registered bar fired on the floor — 33 gained against 150 — and is overridden, loudly**, in the commit, the issue, here and `checker-notes-narrow.md` §4: the build is right (six fixtures from two baselines, Δwrong **−18**) and the floor was derived from what upstream's *users* write rather than from what this port can *reach* — `is_matching_reference` is identifier-only, so no property-access guard narrows anything. That constraint is now the board's item 1 (`tsr-6ka`). The session's other product is a **refusal with its number**: strict-gating the optionality arm converts zero |
 | 2026-08-06 | `385fb60` | **68.67%** | **2,424** | **+0.09 pts, +405 lines, 0 lost, +15 cases** | **calls through instantiated members** (`tsr-1uz`): signatures resolve from the type's recorded `Vec<Signature>`, plus `fillMissingTypeArguments`' no-candidate default fallback — built as one registered iteration after the first arm read +280 against a 300 floor and the registration's own branch sentence named the missing arm. `p.then(f)` / `p.catch()` / `arr.push(x)` resolve; overload sets stay with call resolution |
