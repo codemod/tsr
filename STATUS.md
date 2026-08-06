@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`0fe102a`**, 2026-08-06 (third session).
+Measured at **`856972a`**, 2026-08-06 (third session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at **`0fe102a`**, 2026-08-06 (third session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,390/9,538** | **25.06%** | **gradient 68.11%** — the target |
+| **`checker_types`** | **2,409/9,538** | **25.26%** | **gradient 68.58%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-326,206 / 478,954 assertion lines = 68.11%
-  right 326,206 | gap 101,303 | wrong 41,391   (wrongflip.rs, aligned lines)
+328,472 / 478,954 assertion lines = 68.58%
+  right 328,472 | gap 99,637 | wrong ~40,791   (wrong = 41,391 at 0fe102a − 600 measured Δ)
 ```
 
 **The previous “wrong ~37,252” was stale and is corrected, and it was worth a
@@ -166,40 +166,40 @@ board looks nothing like the previous one.
 
 | root of the gap | lines | want `any` | **reachable** | cases | top-1 |
 |---|---:|---:|---:|---:|---:|
-| **`a.b` — receiver types, lookup fails** | 12,921 | 36.8% | **8,162** | 1,228 | 11.3% |
-| `BinaryExpression` (probe has no step arm) | 7,560 | 16.5% | 6,313 | 815 | 19.9% |
+| **`a.b` — receiver types, lookup fails** | 10,494 | 45.2% | **5,755** | 1,091 | 13.9% |
+| `BinaryExpression` (probe has no step arm) | 7,542 | 16.5% | 6,295 | 814 | 19.9% |
 | unresolved **value** name | 6,960 | **79.5%** | 1,425 | 858 | 16.2% |
-| **the member *name* of `a.b`** | 6,047 | 34.7% | **3,951** | 1,153 | 11.1% |
-| **`CallExpression` — callee types** | 5,303 | **14.3%** | **4,544** | 949 | **2.5%** |
+| **`CallExpression` — callee types** | 6,863 | **11.4%** | **6,084** | 1,063 | **4.4%** |
+| **the member *name* of `a.b`** | 5,240 | 40.0% | **3,144** | 1,016 | 12.8% |
 | `NewExpression` — callee types | 4,078 | 13.0% | 3,548 | 487 | 6.1% |
 | `ElementAccessExpression` | 1,391 | 21.2% | 1,096 | 221 | 7.8% |
 
-**Re-measured at `0fe102a` after the `tsr-4qx` build.** Element access
-collapsed 12,544 → 1,391 (the `largeControlFlowGraph` mass converted — §2) and
-is no longer dead. The unresolved-value row still is (79.5% want `any`).
-
-**The property-access rows survived the build almost intact — and the survivor
-analysis says why** (`checker-notes-inst.md`): the members that stayed gapped
-are typed with **baked signature text** (`then`, `catch`, `map`, `push`), which
-`instantiate_type` cannot rebuild because a function type carries no
-`(symbol, arguments)` intern key. The lever behind ~2/3 of the top row, the
-member-name row, and a share of the call rows is the same one: **a structured,
-rebuildable representation for function/method member types.** That is a
-data-model change in `types.rs`/`function_types.rs`, sized and filed as
-`bd tsr-0hc`.
+**Re-measured at `856972a` after the two builds of the third session.**
+Element access collapsed 12,544 → 1,391 at the first build (§2); the
+property-access rows fell 12,921 → 10,494 and 6,047 → 5,240 at the second,
+whose gains also made the **call row grow** 5,303 → 6,863 with
+`compiler/promiseType` as its new top case — lines that used to gap at the
+member access now gap at the *call through it*, because
+`resolve_call_signature` deliberately refuses an instantiated signature type
+rather than resolving its uninstantiated symbol. That population is
+`bd tsr-1uz` and it is the cleanest item this session leaves behind: the
+recorded `Vec<Signature>` is already on the type, and upstream's shape —
+`getSignaturesOfType` reads the *type*, not the symbol (`checker.go:18959`) —
+says exactly where the arm goes.
 
 | # | item | reachable | file |
 |---|---|---:|---|
-| 1 | **structured function/method member types** (`bd tsr-0hc`) — the named blocker behind what survived the `tsr-4qx` build. Size the rendering fidelity **before** flipping anything: the baked text is right on thousands of lines today | ceiling ~12,100 across four rows; conversion unmeasured | `types.rs`, `function_types.rs` |
-| 2 | **call resolution** — the least ceiling-contaminated large row, 2.5% top-1. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | **4,544** | `calls.rs` |
-| 3 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,313 | measurement |
-| 4 | `tsr-e10` optionality in a declaration-name position | ≤483 | `optionality.rs` |
+| 1 | **calls through instantiated members** (`bd tsr-1uz`): one arm in `resolve_call_signature` reading `Checker::signature_types` off the callee type before falling back to the symbol — upstream's `getSignaturesOfType` shape. Single-signature members are the cheap half; overload sets fold into item 2 | inside the 6,084 call row; unmeasured — register a rule first | `calls.rs` |
+| 2 | **call resolution** — grew to the second-largest reachable row and its ceiling *dropped* to 11.4%. Needs a **counterfactual**, which is the expensive thing R2′ existed to avoid | **6,084** | `calls.rs` |
+| 3 | **strict-flag gating of the remaining strict-only arms** — optionality's added `undefined` (`bd tsr-e10`, whose hidden variable is now named and plumbed), the `&&` arm's non-strict widening, `unknown` narrowing. Each is now a small measurable change where before the flag did not exist | `tsr-e10` alone ≤483 | `optionality.rs` |
+| 4 | `BinaryExpression` roots — needs a step arm in `depend.rs` before it can be ranked at all | ≤6,295 | measurement |
 | 5 | `tsr-y9x` — 16 lines printing `undefined`/`error` where upstream prints `any` | 16 | resolver |
 
-**Items 1a′/1a/1b of the previous board landed or closed 2026-08-06 (third
-session):** the depth/count guard at `40970d7` (corpus-neutral alone), member
-instantiation at `0fe102a` (+12,357, scored in
-`checker-notes-inst.md`), `tsr-mcd` closed earlier as a symptom count.
+**Landed or closed 2026-08-06 (third session):** the depth/count guard
+(`40970d7`, corpus-neutral alone), member instantiation (`0fe102a`, +12,357),
+signature instantiation plus `strictNullChecks` plumbing (`856972a`, +2,266),
+`tsr-4qx`/`tsr-0hc` closed with scores, `tsr-mcd` closed earlier as a symptom
+count.
 
 **Item 0 was added after the board was written and then refused the same day.**
 Sized at `0a1fbdd` by `examples/subtypes.rs`: the mechanism would break **255
@@ -211,13 +211,13 @@ ever was. `docs/architecture/checker-notes-armsplit.md` §9.
 
 ### Is 80% reachable at the implied rate?
 
-The arithmetic, restated at `0fe102a`:
+The arithmetic, restated at `856972a`:
 
-- Distance to 80%: **+56,957 lines** (was +69,314 at the session's start).
-- This session so far: **+12,357**, of which 10,000 is the one-case windfall §2
-  records — the repeatable rate is nearer **+2,400**.
-- Everything now ranked and unblocked on this board sums to **under 5,100
-  measured lines** plus item 1's unmeasured conversion.
+- Distance to 80%: **+54,691 lines** (was +69,314 at the session's start).
+- This session: **+14,623**, of which 10,000 is the one-case windfall §2
+  records — the repeatable rate is nearer **+2,300 per build**.
+- The board's measured items sum to ~6,800; items 1 and 2 (the call rows) are
+  the unmeasured mass, and this session moved their prerequisite into place.
 
 The gap is not a list of missing expression arms. **22,596 lines were measured
 as `ROOT/own-rule` and this cycle took the three largest of those rows apart:
@@ -277,6 +277,7 @@ Built and maintained; **use them, do not rebuild them.**
 | `examples/ceiling.rs` | the ADR-0038 unreachable bound |
 | `examples/rank_board.rs` | the gradient board, `TERMINAL`/propagated split |
 | `examples/wrongflip.rs` | the only cause split for **wrong** lines |
+| `examples/wrongdelta.rs` | **`casedelta`'s sibling for the wrong bucket** — raw joinable `want`/`got` dump; two runs over a `git stash` attribute every gap→wrong line, which `casedelta` cannot see by construction |
 | `fnexpr` · `nameres` · `evolvearray` · `thisparam` · `receiver_gap` | per-workstream |
 
 Five gates, all green before every commit:
@@ -298,6 +299,7 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-06 | `856972a` | **68.58%** | **2,409** | **+0.47 pts, +2,266 lines, 46 lost, +19 cases, 0 regressed** | **signature-typed members instantiate** (`tsr-0hc`): `Signature` side-table + `instantiateSignature` arm + **`strictNullChecks` plumbed** (union constructor only). First run **failed its leg 4** (+538 wrong vs 381) and the new `wrongdelta.rs` attributed it: instantiated lib signatures rendered under the wrong strict mode; the harness default was then measured off the baselines (strict-ON) after a wrong first guess lost 1,221 lines. Δwrong finished at **−600**. Residual: 264 annotation-reuse lines (`tsr-a2c` note). Calls through instantiated members filed as `tsr-1uz` |
 | 2026-08-06 | `0fe102a` | **68.11%** | **2,390** | **+2.58 pts, +12,357 lines, 0 lost, +26 cases** | **instantiated generic members** (`tsr-4qx` steps 3+4, one change) behind the **instantiation depth/count guard** (`40970d7`, corpus-neutral alone, `tsr-el3.2` half). Scored against a bar registered at `2d490b8`; all legs passed, the concentration falsifier fired and is decomposed in `checker-notes-inst.md` — 10,000 of the gain is `largeControlFlowGraph` via `Array<any>` index signatures, which **collapsed ADR-0038's ceiling estimate to 2,202 firm** (§2). Ex that case: +2,357 diffuse over 147 cases. Also corrected §1's stale wrong-bucket figure by re-running `wrongflip` at the pre-build commit in a worktree: 41,286 → 41,391, Δ+105, confirming the registered leg-4 expression exactly |
 | 2026-08-06 | `d356450` | **65.53%** | **2,364** | **+0.97 pts, +4,645 lines, 0 lost** | **an unresolved type reference prints the name that was written** (`tsr-eep`) — upstream reports `TS2304 Cannot find name` *and renders the name*; answering `errorType` was the divergence |
 | 2026-08-06 | `3b7fa44` | **64.56%** | **2,335** | **+0.90 pts, +4,319 lines, +60 cases** | **namespace exports resolve** (`tsr-56r`) — `resolve_name` never read a namespace's `exports`, and its locals lookup never filtered by meaning, so **exporting a declaration made it unresolvable**. Found by `examples/depend.rs` (`tsr-550`), the first instrument to walk declaration edges rather than span edges |

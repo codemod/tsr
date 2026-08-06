@@ -819,3 +819,57 @@ The conversion lands in the two property-access rows (12,921 + 6,047 at
 `push`/`map`/`then`/`catch` — plus whatever the member-name row shares. The
 overload-set (`Many`) form converts little: its members are also behind call
 resolution. Net predicted +1,500 to +4,000.
+
+## The result for signature instantiation, scored at `856972a`
+
+```
+  net +2,266 | 326,206 -> 328,472 | 68.11% -> 68.58%
+  gained 2,312 in 260 cases | lost 46 in 7 | 19 finished, 0 regressed
+  gap 101,303 -> 99,637  =>  Δwrong = -600
+```
+
+All four legs pass — leg 2 at 50.3 against the 3.0 bar — and the net sits
+inside the registered +1,500-to-+4,000 prediction. **KEEP.** But the first run
+**failed leg 4** (+538 wrong against a 381 bound), and the iteration that
+turned it is the part worth keeping notes on:
+
+1. **`wrongdelta.rs`** (new instrument, `casedelta`'s sibling for the wrong
+   bucket) named the family in one command: ~490 of the 658 new wrong lines
+   were instantiated `lib.es5.d.ts` signatures — `then`, `catch` — printed
+   with their written `| undefined | null` kept, where the baseline strips
+   both. The mechanism was not the signature arm at all: **those cases run
+   with `strictNullChecks` off**, and upstream's union constructor drops
+   nullable constituents in that mode (`checker.go:25783`) — the exact line
+   `unions.rs` had marked "this is where it would go".
+2. The checker now carries `strict_null_checks` (default **on**, so every
+   existing unit-test call site is bit-for-bit unchanged) and the harness
+   derives it per case. **The harness default was measured, not assumed, and
+   the first guess was wrong**: `false` lost 1,221 lines across 345 cases.
+   `compiler/genericDefaults` (no strict directive) records `a : T |
+   undefined` — strict behaviour — while `compiler/promiseType` says
+   `@strict: false` explicitly; the runner's default is strict-ON.
+3. Only the union constructor consults the flag. The `&&` arm, optionality's
+   added `undefined` (`bd tsr-e10` — whose 483-line family now has its hidden
+   variable named), and `unknown` narrowing still assume strict-on; each is a
+   separately measurable follow-up.
+
+### The residual, named
+
+264 new wrong lines survive, dominated by one shape
+(`compiler/objectCreate2`: upstream `o: object | null`, ours `o: object`):
+**upstream reuses the written annotation node when rendering a parameter
+whose computed type differs from it** (`serializeTypeForDeclaration`'s
+pseudo-equivalence reuse, `nodebuilderimpl.go:2229`) — the `tsr-a2c`
+mechanism arriving through signature rendering rather than declarations.
+Priced here at 264 lines against the naive form's 9.1-lost-per-gained
+refusal; do not rebuild that refusal from this side without the counterfactual
+it already demands.
+
+### What calls through instantiated members still need
+
+`p.then(f)` stays a gap: the minted type refuses `resolve_call_signature`
+because its symbol's declarations are the uninstantiated ones. The fix with
+an upstream shape is resolving signatures **from the type** (the recorded
+`Vec<Signature>`) rather than from the symbol — one arm in
+`resolve_call_signature` reading `signature_types`, plus overload selection
+where there are several. That is the follow-on lever this build exposes.
