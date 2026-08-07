@@ -1756,3 +1756,14 @@ gate must remain a SOURCE-side property — peeking at the oracle to decide
 the answer is the one move the conformance methodology forbids — so the
 next session's question is which source shape predicts tsgo's
 error-printing (JS comma-chain assignment recovery is the observed one).
+
+### §36 An uninferred type parameter without a default is `unknown`
+
+`genericDefaults`' head (`f01() : unknown`): `getInferredType`'s final
+fallback (`inference.go:1406`) — no candidates, no default, no possible
+inference source → `unknownType`. The port's default-fill leg exists; its
+no-default exit left the parameter unmapped, which the unmapped-mention
+guard then turned into a gap. The same structural-source guard applies —
+only a parameter NOTHING supplied could have informed takes the fallback.
+Falsifier: non-strict cases wanting the legacy `{}` fallback, counted by
+the measure.
