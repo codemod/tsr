@@ -1801,3 +1801,6 @@ guard keeps rejecting lists LONGER than the parameters and lists shorter
 than the non-defaulted prefix. Falsifier: a written-args call whose want
 shows the UNfilled arity error stays a gap — those wants print the error
 signature's shape, counted by the measure.
+
+**§38 score — LANDED.** **+81 GAP→RIGHT, ZERO adverse.** `checker_types`
+right 388,917 → **388,998 (81.22%)**.

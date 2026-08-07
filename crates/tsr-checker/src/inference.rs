@@ -169,13 +169,38 @@ impl Checker<'_, '_> {
         // (`fillMissingTypeArguments`); none is ported, so a signature with a
         // defaulted type parameter is a gap rather than a guess.
         if let Some(written) = self.written_type_arguments(call) {
-            if written.len() != parameters.len() || written.contains(&error) {
+            // `fillMissingTypeArguments` (`checker.go:19458`), the written
+            // half (§38): a PARTIAL list is legal when defaults (or the
+            // `unknown` fallback) cover the tail; a list longer than the
+            // parameters is still the arity error.
+            if written.len() > parameters.len() || written.contains(&error) {
                 return error;
             }
             if !self.mentions_type_parameter(returned, &parameters, &names) {
                 return returned;
             }
-            let map = parameters.iter().copied().zip(written).collect::<Vec<_>>();
+            let mut map = Vec::with_capacity(parameters.len());
+            for (position, &type_parameter) in parameters.iter().enumerate() {
+                if let Some(&argument) = written.get(position) {
+                    map.push((type_parameter, argument));
+                    continue;
+                }
+                let image = match signature
+                    .type_parameters
+                    .get(position)
+                    .and_then(|parameter| parameter.default)
+                {
+                    Some(default) => {
+                        let filled = self.instantiate_type(default, &map, &parameters, &names);
+                        if filled == error {
+                            return error;
+                        }
+                        filled
+                    }
+                    None => self.intrinsics.unknown,
+                };
+                map.push((type_parameter, image));
+            }
             return self.instantiate_type(returned, &map, &parameters, &names);
         }
 
