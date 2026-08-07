@@ -430,3 +430,89 @@ to reverse — not an inference limit. It becomes answerable when a tuple gains 
 structured `TypeData`, which is the same prerequisite `inference.rs`'s module
 doc has named since `bd tsr-0hc`. Nothing in the inference walk itself is worth
 more than that.
+
+## 7. The PRIORITY LATTICE, sized — and refused beside the contravariant bucket
+
+Sixth session, measured at `a57a04b` by the extended `examples/infergen.rs`.
+§6 refused the contravariant bucket at **6 own-node lines**. The obvious
+objection to that refusal was that it sized one leg of a mechanism with two, and
+that the **priority lattice** — the other leg, and the one `inference.go`'s own
+structure makes look larger — had never been sized. It has now.
+
+### Why this needed sizing at all: the row said 2,056
+
+`STATUS.md` §4.2 carried inference as the board's **top live row** on a
+`callgate.rs` figure of **2,056** admitted call lines stopping at *"inference
+gapped"*, at only 1.6% want-any. That is a **row**, and this project's fourth
+rule says a row is a ceiling. Measured as a mechanism:
+
+```
+classified (own-node call, one generic candidate, gap line)   1,231
+
+   494  40.1%  REFUSED — no candidate: the type parameter stays unmapped
+   458  37.2%  an argument's own type is a gap          <- DOWNSTREAM, not this item
+    88   7.1%  REFUSED — return type not rebuildable by `instantiate_type`
+    56   4.5%  a rest parameter — `getSpreadArgumentType`, unported
+    52   4.2%  REFUSED — two COVARIANT candidates disagree
+    39   3.2%  a spread argument — no position to land on
+    32   2.6%  REFUSED — a `null`/`undefined` candidate, needs `getWidenedType`
+     6   0.5%  CONVERTS
+     5   0.4%  REFUSED — contravariant candidates disagree (`getCommonSubtype`)
+     1          MISS
+```
+
+**77.3% of the row is two things that are not the lattice**: 494 lines where no
+candidate is found at all, and 458 where an argument's own type gaps — the
+latter is downstream by construction and belongs to whatever gaps the argument.
+
+### The three columns, per leg, as deltas
+
+Each leg is measured as a **delta over the shipped arm**, not as an absolute, so
+the legs cannot double-count each other. The at-risk column is computed in the
+same pass, as `docs/conventions.md` requires of a mechanism that fires on a
+position.
+
+| leg | changes | CONVERTS | WOULD PRINT WRONG | AT RISK |
+|---|---:|---:|---:|---:|
+| contravariant bucket (§6) | 13 | **6** | 1 | **0** |
+| priority lattice, cheap leg (delta over contravariant) | 12 | **11** | 1 | **0** |
+| lattice leg **alone** (no contravariant, no `strictFunctionTypes` guess) | 16 | **11** | 4 | **0** |
+
+```
+right lines admitted in the same pass    792
+wrong lines admitted in the same pass    202
+wrong lines either leg would FIX           0
+```
+
+### The verdict: REFUSED, and §6's refusal is strengthened rather than replaced
+
+**Both legs together are worth ~17 conversions.** The lattice is not the larger
+leg the objection assumed — it is 11 lines, and it is the *better* of the two.
+Against a board whose last two builds converted 3,590 and 2,973, and against §5's
+smallest recorded refusal, this is not an item.
+
+Three things make the refusal safe to rely on rather than merely small:
+
+1. **Every leg's at-risk column is 0**, computed in the same pass over 792
+   admitted right lines. So this is not a case of a good conversion hidden behind
+   a bad trade — there is no trade, there is just very little there.
+2. **The lattice alone is *worse*, not better** — 11 converts against 4 wrong
+   rather than 1. Sequencing it first to dodge §6's `strictFunctionTypes`
+   dependency does not rescue it.
+3. **C4 is honest about the probe's direction.** The counterfactual fails to
+   reproduce **239** of the 792 admitted right lines, and in every one of the
+   239 it *gaps* rather than answering differently. The probe is conservative:
+   it can understate conversions, and it cannot manufacture a false zero in the
+   at-risk column. A control that under-reports in the safe direction is worth
+   stating, because the opposite would have made the 0 unreadable.
+
+### Where the row's mass actually is, for whoever comes next
+
+Not here. **494 lines find no candidate at all** — the type parameter is never
+mapped, which is upstream of the lattice and of the contravariant bucket both;
+and **458 are downstream** of a gapping argument. Neither is a priority-lattice
+item, and quoting 2,056 — or 1,400 — as inference work would be the row-for-
+mechanism substitution this project has now made and caught four times.
+
+**`bd tsr-g30h` closes.** Its first slice landed (+372); its remaining legs are
+refused with the numbers above.
