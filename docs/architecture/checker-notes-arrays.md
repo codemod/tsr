@@ -757,3 +757,12 @@ confident wrongs across decorator/binding/argument cases against 23
 gains. The arm reverts whole; the row stays TERMINAL with this number
 recorded. The prerequisite is spread-aware call resolution, not the
 expression arm.
+
+**§6.1 postscript — the study the refusal mandated.** The corpus holds
+**zero** gap lines whose own text is a `...` spread with a type assertion:
+the 402-line TERMINAL row is entirely ROOT-CAUSE attribution — calls and
+literals whose failure traces TO a SpreadElement, never the spread's own
+printed line. The expression arm therefore had no population of its own to
+convert (+23 were coincidental), and the 388 wrongs were its whole effect.
+Confirms TASK item 8: the consumer (spread-aware call resolution) is the
+only road into this row.
