@@ -2573,3 +2573,16 @@ reports rather than silences — TS2551 here, and the static-member arm stays a
 decline because TS2576 needs a `typeof` distinction this port does not draw at
 that site. The lib arms (TS2550, TS2812) remain silences for want of a
 lib-version table.
+
+### 40.1 TS2693 — the same move, REFUSED at −4
+
+`check_value_identifier` declines a name that resolves in **type** space, and
+§33's lesson said the resolution that made it a decline is the resolution the
+report needs. Emitting TS2693 there measured **1,069 → 1,065**.
+
+`checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) is not the one-line
+substitution TS2552 and TS2551 were: it has further conditions this port does not
+draw — a type-only import, an `import type` alias, and the position tests that
+separate it from TS2749 and TS2708. **The pattern generalises to the
+substitutions whose upstream site is a single `if`, and TS2693's is not.**
+Reverted; the decline stands.
