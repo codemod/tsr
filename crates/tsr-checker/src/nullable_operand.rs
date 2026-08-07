@@ -23,7 +23,7 @@
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
 
-use crate::{checker::Checker, flags::TypeFlags};
+use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
 impl Checker<'_, '_> {
     /// The nullable-operand check for one binary expression.
@@ -37,16 +37,41 @@ impl Checker<'_, '_> {
             return;
         }
         let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
+        // **`+` is conditional and every other operator here is not.**
+        // `checkNonNullType` — the function that emits this code — runs for an
+        // addition only when NEITHER operand is string-like
+        // (`checker.go:12418`), because `null + d` with `d: string` is a
+        // concatenation and the `null` is fine. `isTypeAssignableToKind`
+        // without `strict` lets `any` satisfy `StringLike` too
+        // (`checker.go:27652`), so `null + a` is silent for the same reason.
+        // Sixteen wrong lines, all in `additionOperatorWith*Value*` and
+        // `operatorAddNullUndefined` — `checker-notes-diag2.md` §50.2.
+        if operator.kind == SyntaxKind::PlusToken {
+            let left_type = self.check_expression(left);
+            let right_type = self.check_expression(right);
+            if self.is_string_like_or_any(left_type) || self.is_string_like_or_any(right_type) {
+                return;
+            }
+        }
         for operand in [left, right] {
             let Some(id) = operand.node_id() else { continue };
             let ty = self.check_expression(operand);
             let flags = self.type_of(ty).flags;
-            let printed = if flags.contains(TypeFlags::NULL) {
-                "null"
-            } else if flags.contains(TypeFlags::UNDEFINED) {
-                "undefined"
-            } else {
+            if !flags.intersects(TypeFlags::NULLABLE) {
                 continue;
+            }
+            // **This code is chosen by the node, not by the type.**
+            // `reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`)
+            // emits `The value '{0}' cannot be used here` only for a `null`
+            // keyword or for an identifier literally spelled `undefined`;
+            // every other nullable operand gets TS18048 / TS18049 / TS2531 /
+            // TS2532 with the same *facts*. `var x: typeof undefined; t < x`
+            // is upstream's TS18048 and was 64 wrong lines of this rule —
+            // `checker-notes-diag2.md` §50.3.
+            let printed = match self.node_map.get(id) {
+                _ if self.nodes.kind(id) == SyntaxKind::NullKeyword => "null",
+                Some(Node::Identifier(identifier)) if identifier.text == "undefined" => "undefined",
+                _ => continue,
             };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
             let span = self.error_span(id);
@@ -59,6 +84,28 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// `isTypeAssignableToKind(t, TypeFlagsStringLike)` **without** `strict`
+    /// (`checker.go:27645`): the flag test, then assignability to `string` —
+    /// which `any` and `unknown` satisfy, since the strict short-circuit is
+    /// what would have excluded them.
+    fn is_string_like_or_any(&mut self, ty: TypeId) -> bool {
+        if self
+            .type_of(ty)
+            .flags
+            .intersects(TypeFlags::STRING_LIKE.union(TypeFlags::ANY_OR_UNKNOWN))
+        {
+            return true;
+        }
+        // `Related` and not "not `NotRelated`". This test decides whether to
+        // **stay silent**, so an undecidable pair must not be read as
+        // string-like: an enum operand answers `Unknown` here and is not
+        // assignable to `string` upstream, and reading `Unknown` as a positive
+        // cost 28 correct lines in the first measurement.
+        let string = self.intrinsics.string;
+        self.relate_ternary(ty, string, crate::relater::Relation::Assignable)
+            == crate::relater::Ternary::Related
     }
 }
 

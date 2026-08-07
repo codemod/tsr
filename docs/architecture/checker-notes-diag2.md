@@ -3663,3 +3663,131 @@ relational arm need **constraint following** in the relater — a `checker_types
 item. `parserGreaterThanTokenAmbiguity2/3/4` and `grammarAmbiguities1` are
 parser-recovery shapes. `additionOperatorWithInvalidOperands` is `STILL SHORT` by
 three lines out of nineteen. None of them is this rule's condition.
+
+---
+
+## 50. Two re-measurements on the false-positive side
+
+`diaggap.rs` at `HEAD` puts the whole workstream's wrong column at **898 lines**,
+and says removing every false positive would add **323 cases** to the reachable
+set. Two of its rows were re-measured against the audit rule from the tenth
+session's close: *"re-run a decline only after a build that changes what the port
+can decide."* Seven builds have landed since.
+
+### 50.1 TS2304's parse-error decline — §40.3's deletion STILL STANDS, at −6
+
+`arrowFunctionsMissingTokens` 15 lines, `objectLiteralWithSemicolons1/2/3` 9,
+`modifiersInObjectLiterals` 4, `conflictMarkerDiff3Trivia2` 4 — 155 wrong TS2304
+lines and the parse-error families are their head. §40.3 **deleted** that decline
+for +6, and re-adding it now measures **1,178 → 1,172**.
+
+The +6 is not stale. Recorded so the third session to notice those case names
+does not spend a coverage run on it.
+
+### 50.2 TS18050 on `+` — a decline with a line number, worth 16 wrong lines
+
+§40.5 added `+` to TS18050's operator list for +3. It also produced sixteen wrong
+lines, and every one is in an addition:
+
+```
+6  additionOperatorWithUndefinedValueAndValidOperator
+6  additionOperatorWithNullValueAndValidOperator
+4  operatorAddNullUndefined
+```
+
+Reading upstream's arm rather than the row names why. `checkNonNullType` — the
+function that emits TS18050 — is **conditional** for `+` and unconditional for
+every other operator in the list:
+
+```go
+case ast.KindPlusToken, ast.KindPlusEqualsToken:
+    …
+    if !c.isTypeAssignableToKind(leftType, TypeFlagsStringLike) && !c.isTypeAssignableToKind(rightType, TypeFlagsStringLike) {
+        leftType = c.checkNonNullType(leftType, left)
+        rightType = c.checkNonNullType(rightType, right)
+    }
+```
+
+(`checker.go:12418`.) `null + d` with `d: string` is a concatenation and the
+null is fine; `null + a` with `a: any` is the same, because
+`isTypeAssignableToKind` **without** `strict` lets `any` satisfy `StringLike`
+(`checker.go:27652`). Both are exactly the wrong families above.
+
+**Fourth instance this session of the same shape**: the port copied a call and
+not the condition it sits inside — §15's trap, after
+`registerForUnusedIdentifiersCheck`, `checkTruthinessExpression`'s site list, and
+§49's match-arm ordering.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,178**. Forecast **0 to +4** — a decline converts only where the removed line was a case's last defect |
+| 2 | `checker_types` pass count unchanged at **3,681** |
+| 3 | LOST == **0** |
+| 4 | TS18050's WRONG drops from **16** to ≤ 4 |
+| 5 | every other snapshot unchanged |
+
+### Scored — **+5**, and TS18050's wrong column goes 96 → **0**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,178, forecast 0 to +4 | **1,183 / 5,488 = 21.56%** | pass, above |
+| 2 | `checker_types` pass count 3,681 | **3,681 / 82.78%** | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | TS18050's WRONG 16 → ≤ 4 | **96 → 0** — and the 16 was a **reading error**, see below | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 18050: **CONVERTS 17 → 22 · RIGHT 718 → 718 ·
+WRONG 96 → 0 · LOST 0.**
+
+**Correction to this section's own bar.** Leg 4 was registered against "16 wrong
+lines", read off the full-list run's printed wrong column — which is
+**truncated**, `diag2307.rs` printing only the first forty. TS18050's real wrong
+count was **96**. The bar's threshold was therefore meaningless as written, and
+the number it should have carried is the isolated one. *Isolate the code before
+quoting its wrong column* is the procedural lesson, and it belongs beside §2's
+warning about the single-code column.
+
+### 50.2's second correction: `Unknown` is not a positive here either
+
+The string-like test was first written as `!= Ternary::NotRelated` — §25's
+form, correct where the *report* depends on a negative. Here it decides whether
+to **stay silent**, so the reading is the mirror: an enum operand answers
+`Unknown` for `enum → string` and is not assignable to `string` upstream, so
+reading `Unknown` as string-like declined 28 correct lines. `== Ternary::Related`
+restored them and gained five conversions.
+
+> **The three-valued relation has two correct projections and which one is right
+> is a property of the *caller's* direction.** §25: reporting on a negative needs
+> `!= Related` collapsed as `== NotRelated`. §49: staying silent on a positive
+> needs `!= NotRelated`. §50.2: staying silent on a positive that upstream reads
+> off a *binary* relation needs `== Related`. Three call sites, three different
+> collapses, all of `relate_ternary`.
+
+### 50.3 TS18050 is chosen by the **node**, not by the type — the other 74
+
+The remaining wrong lines were 64 in `comparisonOperatorWithOneOperandIsUndefined`
+alone, and the baseline names the cause: upstream reports **TS18048**,
+`'x' is possibly 'undefined'`, where this port reported TS18050.
+
+`reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`) picks the message
+from the **node**:
+
+```go
+if node.Kind == ast.KindNullKeyword { … The_value_0_cannot_be_used_here, "null" }
+if ast.IsIdentifier(node) && nodeText == "undefined" { … The_value_0_cannot_be_used_here, "undefined" }
+… X_0_is_possibly_undefined / X_0_is_possibly_null_or_undefined / Object_is_possibly_undefined
+```
+
+So TS18050 is the message for a **written** `null` or a **written** `undefined`,
+and every other nullable operand — a variable of type `typeof undefined`, an
+optional property, a narrowed union — is a different code with the same *facts*.
+§32 built the rule on the type and got the common case right for the wrong
+reason.
+
+Gating on the node instead takes the wrong column to **zero** with no right line
+lost. It also names the next rule exactly: the same function's other four
+messages (**TS18048** 7 cases, **TS18049** 3, **TS2532** 3) are the same facts
+test with a different branch, and `getTypeFacts` is what stands between here and
+them.
