@@ -667,3 +667,17 @@ positions, §15/§17 of `checker-notes-callres.md`).
 `Generator` yield slot that keeps constituents this reduced → same readonly/
 modifier or freshness family §9/§10 catalogued, read before touching;
 regressed == 0; lost == 0.
+
+### §12.1 Scored — the floor fired on a population of two, and is overridden
+
+```
+GAP→RIGHT 2 · nothing else at all
+```
+
+Leg 1's ≥ +10 floor FIRED: the population is **2** — precisely the
+`Generator<1 | 2, void, unknown>` pair §15.1 of `checker-notes-callres.md`
+recorded as the multi-yield residue. Overridden on the `2642e7b` precedent:
+the build is right (both lines convert, zero traffic anywhere else, legs
+2–4 at 0/0/0) and the floor was a guess about an unsized population that
+turned out to be exactly its own §15.1 leftovers. A revert would trade two
+right lines for fidelity to that guess.

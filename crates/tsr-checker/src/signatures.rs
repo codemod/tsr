@@ -747,8 +747,16 @@ impl<'a> Checker<'a, '_> {
                 // widens the freshness away — `yield 1` prints `number`.
                 [single] => self.get_widened_literal_type(*single),
                 // Two or more distinct operand types aggregate under
-                // `UnionReductionSubtype` (`checker.go:20159`), unported.
-                _ => return None,
+                // `UnionReductionSubtype` (`checker.go:20159`) — the §9
+                // reduction, wired alone under `checker-notes-assign.md` §12
+                // with §11.2's JS decline; an undecidable set stays a gap.
+                many => {
+                    if self.in_js_file(declaration) {
+                        return None;
+                    }
+                    let candidates = many.to_vec();
+                    self.union_with_subtype_reduction(&candidates)?
+                }
             };
             let generator = self.global_type_symbol_with_arity("Generator", 3)?;
             let void = self.intrinsics.void;
