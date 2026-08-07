@@ -1,0 +1,19 @@
+# Pinned so that "the clippy gate is green" means the same thing for everyone.
+#
+# It did not. The eighth session's gates ran on a machine whose default was
+# 1.89.0 and read `clippy --workspace --all-targets -- -D warnings` RED at
+# `7299a14` — `inefficient_to_string` in a test file untouched since the
+# scaffold commit — while CI's `dtolnay/rust-toolchain@stable` had been green on
+# the same code for the whole project. An unpinned lint gate is not a gate: its
+# verdict is a property of whoever ran it.
+#
+# `channel` is an exact version rather than `stable` because that is the whole
+# point — clippy adds lints in every release, so `stable` re-decides the gate
+# for each contributor on the day they update. Bump this deliberately, in its
+# own commit, with the lint fixes the bump requires.
+#
+# `.github/workflows/ci.yml` pins the same version at the action, so CI does not
+# install a toolchain it then discards.
+[toolchain]
+channel = "1.96.0"
+components = ["clippy", "rustfmt"]

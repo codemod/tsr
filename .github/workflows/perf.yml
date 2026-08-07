@@ -54,7 +54,9 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Same pin as ci.yml and rust-toolchain.toml — a benchmark compiled by a
+      # different rustc than the gates is not comparing the same compiler.
+      - uses: dtolnay/rust-toolchain@1.96.0
 
       - uses: Swatinem/rust-cache@v2
 

@@ -47,7 +47,11 @@ jobs:
           # measured in minutes and one measured in seconds.
           fetch-depth: 1
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned to the same version as `rust-toolchain.toml`. `@stable` would
+      # install a toolchain that cargo then overrides from that file on the
+      # first invocation — a wasted download, and a second source of truth for
+      # which clippy decides the gate. Bump both together.
+      - uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt, clippy
 
