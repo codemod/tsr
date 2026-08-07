@@ -37,6 +37,15 @@ use crate::{
 /// safe Rust here — see
 /// [ADR-0013](../../../docs/adr/0013-checker-memoisation.md). Read a type's
 /// contents with [`Checker::type_of`].
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "upstream's `Checker` holds each strict-option value as its own \
+              bool field — sixteen of them run from `checker.go:601` to \
+              `checker.go:614`. Grouping \
+              them here would make every read spell a path upstream's does not, \
+              for a lint whose stated fix — a state machine — does not describe \
+              independent compiler options."
+)]
 pub struct Checker<'a, 'n> {
     pub(crate) store: TypeStore,
     pub(crate) intrinsics: Intrinsics,

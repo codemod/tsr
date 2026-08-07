@@ -391,3 +391,57 @@ remainder is the constructor half and it is blocked on synthesising a flow
 reference — which is an ADR-sized question about whether this port grows a
 synthetic-node facility, not a follow-up patch. Read the post-build TS2564 row
 and write the number down either way.
+
+### TS2564 scored — every leg passed, and falsifier 3 answered the bound
+
+```
+diagnostics   130/5,488 (2.37%)  ->  263/5,488 (4.79%)     +133
+checker_types 2,841 / 73.65%     ->  unchanged, byte-identical
+every other snapshot             ->  byte-identical
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 255 | **263** — 130 + 133 exactly | pass |
+| 2 | `checker_types` unchanged | byte-identical snapshot | pass |
+| 3 | cases regressed == 0 | **0** | pass |
+| 4 | own new wrong ≤ 10 | **6 cases** in `diaggap.rs`'s false-positive table | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**Forecast exact for the second time**: 133 forecast, 133 delivered. Falsifier 1
+did not fire.
+
+**Falsifier 3 answered, and the answer is that the bound is nearly free.** The
+TS2564 single-code row went **165 → 32**. The no-constructor refusal — declining
+upstream's whole second disjunct, the one needing a synthesised flow reference —
+costs **32 cases**, not most of 165. So the synthetic-node question this page
+raised as *"ADR-sized"* does not need answering to finish this rule; it is worth
+32 cases and belongs behind TS2454 and TS2304 on the board.
+
+### The cascade this build made visible, and how not to misread it
+
+Two rows *grew* across the build:
+
+```
+TS2322   475 -> 518      TS2454   255 -> 300      TS6133   77 -> 81
+```
+
+Nothing regressed. Those are cases that were blocked on **two** codes — one of
+them TS2564 — and are now blocked on one. It is the same arithmetic that makes
+the single-code column a forecast rather than a ceiling, running in the helpful
+direction, and it means **the board gets more valuable as rules land** rather
+than being consumed by them. Re-run `diaggap.rs` after every rule; a row's
+number is only true of the compiler that produced it.
+
+Board at `263` passing:
+
+| code | converts alone | needs |
+|---|---:|---|
+| TS2322 | 518 | assignability + reporting positions |
+| TS2454 | 300 | definite-assignment over the existing flow graph |
+| TS2304 | 197 | a full identifier walk |
+| TS2339 | 137 | property lookup + the walk |
+| TS2345 | 100 | assignability at argument positions |
+| TS6133 | 81 | reference counting, no types |
+| TS2741 / TS2353 | 38 / 37 | assignability |
+| TS2564 | 32 | the constructor disjunct — synthesised flow reference |

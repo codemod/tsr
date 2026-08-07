@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 130/5488 (2.37%)
-Failed         : 5358
+Passed         : 263/5488 (4.79%)
+Failed         : 5225
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5358 failures:
+First 100 of 5225 failures:
 compiler/ArrowFunctionExpression1
   1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
 compiler/ClassDeclaration10
@@ -73,13 +73,13 @@ compiler/TransportStream
 compiler/abstractClassInLocalScopeIsAbstract
   1 missing (first TS2511 at abstractClassInLocalScopeIsAbstract.ts(4,5))
 compiler/abstractClassUnionInstantiation
-  7 missing (first TS2564 at abstractClassUnionInstantiation.ts(3,28))
+  5 missing (first TS2511 at abstractClassUnionInstantiation.ts(14,1))
 compiler/abstractPropertyInConstructor
   13 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessInstanceMemberFromStaticMethod01
   1 missing (first TS2662 at accessInstanceMemberFromStaticMethod01.ts(5,17))
 compiler/accessStaticMemberFromInstanceMethod01
-  2 missing (first TS2564 at accessStaticMemberFromInstanceMethod01.ts(2,5))
+  1 missing (first TS2304 at accessStaticMemberFromInstanceMethod01.ts(5,17))
 compiler/accessorBodyInTypeContext
   8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
 compiler/accessorDeclarationEmitVisibilityErrors
@@ -97,7 +97,7 @@ compiler/addMoreCallSignaturesToBaseSignature2
 compiler/addMoreOverloadsToBaseSignature
   1 missing (first TS2430 at addMoreOverloadsToBaseSignature.ts(5,11))
 compiler/aliasAssignments
-  3 missing (first TS2322 at aliasAssignments_1.ts(3,1))
+  2 missing (first TS2322 at aliasAssignments_1.ts(3,1))
 compiler/aliasBug
   1 missing (first TS2694 at aliasBug.ts(16,15))
 compiler/aliasDoesNotDuplicateSignatures
@@ -110,22 +110,12 @@ compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
   1 missing (first TS2352 at aliasInstantiationExpressionGenericIntersectionNoCrash2.ts(15,1))
 compiler/aliasOnMergedModuleInterface
   1 missing (first TS2708 at aliasOnMergedModuleInterface_1.ts(5,16))
-compiler/aliasUsageInArray
-  1 missing (first TS2564 at aliasUsageInArray_backbone.ts(2,12))
-compiler/aliasUsageInFunctionExpression
-  1 missing (first TS2564 at aliasUsageInFunctionExpression_backbone.ts(2,12))
 compiler/aliasUsageInGenericFunction
-  2 missing (first TS2564 at aliasUsageInGenericFunction_backbone.ts(2,12))
-compiler/aliasUsageInIndexerOfClass
-  2 missing (first TS2564 at aliasUsageInIndexerOfClass_backbone.ts(2,12))
-compiler/aliasUsageInObjectLiteral
-  1 missing (first TS2564 at aliasUsageInObjectLiteral_backbone.ts(2,12))
+  1 missing (first TS2352 at aliasUsageInGenericFunction_main.ts(10,19))
 compiler/aliasUsageInOrExpression
-  6 missing (first TS2564 at aliasUsageInOrExpression_backbone.ts(2,12))
-compiler/aliasUsageInTypeArgumentOfExtendsClause
-  2 missing (first TS2564 at aliasUsageInTypeArgumentOfExtendsClause_backbone.ts(2,12))
+  5 missing (first TS2352 at aliasUsageInOrExpression_main.ts(10,40))
 compiler/aliasUsageInVarAssignment
-  2 missing (first TS2564 at aliasUsageInVarAssignment_backbone.ts(2,12))
+  1 missing (first TS2454 at aliasUsageInVarAssignment_main.ts(7,25))
 compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
   1 missing (first TS2304 at aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts(2,9))
 compiler/allowImportClausesToMergeWithTypes
@@ -209,6 +199,16 @@ compiler/arrayAssignmentTest5
 compiler/arrayAssignmentTest6
   1 missing (first TS2322 at arrayAssignmentTest6.ts(16,13))
 compiler/arrayBestCommonTypes
-  31 missing (first TS2769 at arrayBestCommonTypes.ts(16,37))
+  26 missing (first TS2769 at arrayBestCommonTypes.ts(16,37))
 compiler/arrayBindingPatternOmittedExpressions
   1 missing (first TS2454 at arrayBindingPatternOmittedExpressions.ts(4,22))
+compiler/arrayBufferIsViewNarrowsType
+  1 missing (first TS2454 at arrayBufferIsViewNarrowsType.ts(2,24))
+compiler/arrayCast
+  1 missing (first TS2353 at arrayCast.ts(3,23))
+compiler/arrayConcatMap
+  2 missing (first TS2769 at arrayConcatMap.ts(1,20))
+compiler/arrayDestructuringInSwitch2
+  1 missing (first TS2488 at arrayDestructuringInSwitch2.ts(11,13))
+compiler/arrayFakeFlatNoCrashInferenceDeclarations
+  1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))

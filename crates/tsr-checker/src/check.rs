@@ -46,7 +46,7 @@
 //! the wrong unit, which is the failure mode that looks like a checker bug for a
 //! week.
 
-use tsr_ast::{ClassElement, HasNodeId as _, ModifierLike, Node, NodeId, SyntaxKind};
+use tsr_ast::{ClassElement, ModifierLike, Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -140,7 +140,8 @@ impl Checker<'_, '_> {
                 // `declare class C { x: number }` puts every member in an
                 // ambient context, which is where upstream's flag would already
                 // be set on the members themselves.
-                let ambient = ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
+                let ambient =
+                    ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
             }
             Some(Node::ModuleDeclaration(declaration)) => {
@@ -291,7 +292,6 @@ impl Checker<'_, '_> {
         };
         self.report(importing, Diagnostic::with_args(message, span, [text.to_string()]));
     }
-
 
     /// TS2564 — `Property '{0}' has no initializer and is not definitely
     /// assigned in the constructor.`
