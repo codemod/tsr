@@ -396,3 +396,25 @@ of optional parameters, which the probe refuses outright. The probe was built to
 size a decision, and it is retained at that fidelity rather than grown into a
 second implementation of `choose_overload` — a model that tracked the code
 exactly would forecast nothing the code could not already tell you.
+
+## §7 The conditional's reduction gate is wider than its premise — bar (ninth session)
+
+`check_conditional_expression` declines when either branch is not
+"subtype-reduction-free". Two shapes need no reduction judgement at all:
+
+- **identical branches** — the union of `[t, t]` is `t` under every
+  reduction; references intern by `(symbol, args)`, so `c ? x : y` with both
+  sides the same declared type is one `TypeId`;
+- **an `any`/`unknown` branch** — a union containing `any` is `any` (and
+  `unknown` absorbs everything but `any`) under both reductions
+  (`getUnionType`'s absorption, `checker.go`), which is where the row's 201
+  want-`any` lines live.
+
+The board's `ConditionalExpression / NO STEP ARM` row: 1,095 lines, want-any
+18.4%, 158 cases, top-1 10.2%.
+
+**Bar:** net ≥ **+80** (the identical-branch and any-branch shares are
+unsized; the floor is deliberately under half the row's want-any alone);
+own ≤ **10** — falsifier: wrong lines whose want is a *union of the two
+branches* → the identity test admitted two same-printing distinct types
+(non-interned object literals); regressed == 0; lost == 0.
