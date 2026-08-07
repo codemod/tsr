@@ -13,7 +13,7 @@ FIRST: git pull. Then read, in this order:
   there is a build or a refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,054/5,488 = 19.21%   (was 717 = 13.06%; running total 80 → 993)
+  diagnostics    1,056/5,488 = 19.24%   (was 717 = 13.06%; running total 80 → 993)
   checker_types  3,043/9,538 · 74.46% gradient — the other workstream's
 
 WHAT THE SESSION WAS ASKED FOR, AND WHAT IT MEASURED
