@@ -2051,3 +2051,35 @@ the discriminant filter exposed (distinct unit literals are now
 incomparable, which also tightens the switch road). The residue: sibling
 conditions in switch/else-chains and the tuple-parameter dependent case,
 both named. `checker_types` right 395,719 → **395,771 (82.63%)**.
+
+## §50.1 — the switch form of the sibling discriminant
+
+§50 landed the equality-condition half (`kind === 'A'`). Upstream's walk is
+condition-agnostic: `switch (kind)` reaches the same pseudo-reference flow
+through `FlowSwitchClause`, and `narrowTypeBySwitchOnDiscriminant`
+(`flow.go:1092`) filters the walked union by comparability of the clause
+range against the discriminant — here, against the sibling MEMBER's type in
+each constituent.
+
+**The bar.** Extract §50's equality-arm sibling closure into a method; in
+`get_type_at_switch_clause`, before the matching-reference test, test the
+switch expression as a sibling of `state.discriminant_pattern`; on a hit,
+filter constituents by "some clause-range literal is comparable to the
+member's type in this constituent". Default clauses (empty range or a
+`never` in the slice) DECLINE whole — the member-directed twin of §16's
+default filter is unbuilt, and declining keeps the failure mode at the
+unnarrowed status quo. Any missing member or Kleene-unknown comparability
+declines whole, as in §50.
+
+**Falsifiers.** (a) If the equality form covered every baseline site and no
+switch-form pseudo-reference exists in the corpus, the pair scores zero —
+revert. (b) If clause ranges carry non-unit types that `comparable_ternary`
+mis-answers against member unions, R→W appears — narrow to unit-only
+clause ranges.
+
+**§50.1 score — LANDED.** **+26 (20 G→R, 6 W→R), ZERO adverse.** Neither
+falsifier fired. The switch form's population is real
+(`dependentDestructuredVariables`'s switch blocks, both
+`arrayDestructuringInSwitch` cases). `checker_types` right 395,771 →
+**395,797 (82.64%)**. Residue unchanged: the tuple-parameter dependent case
+(`checker.go:13806`), else-chain accumulation across clauses.

@@ -1734,6 +1734,15 @@ impl Checker<'_, '_> {
                 expr = next;
             }
         }
+        // §50.1: the switch expression is a SIBLING element of the
+        // pseudo-reference pattern — the clause narrows the walked union
+        // by that member.
+        if let Some(member) = state.discriminant_pattern.and_then(|pattern| {
+            expr.node_id().and_then(|id| self.sibling_member_of_pattern(pattern, id))
+        }) {
+            let narrowed = self.narrow_union_by_member_switch(incoming.t, &member, switch, &clause);
+            return FlowType { t: narrowed, incomplete: incoming.incomplete };
+        }
         let narrowed = if expr.node_id().is_some_and(|id| self.is_matching_reference(state, id)) {
             self.narrow_type_by_switch_on_discriminant(incoming.t, switch, &clause)
         } else if let tsr_ast::Expression::TypeOfExpression(type_of) = expr
@@ -1747,6 +1756,85 @@ impl Checker<'_, '_> {
             incoming.t
         };
         FlowType { t: narrowed, incomplete: incoming.incomplete }
+    }
+
+    /// §50's sibling test, shared by the equality arm and the switch arm
+    /// (§50.1): is `id` an identifier bound to a sibling element of
+    /// `pattern`? The value declaration may be the element OR its name
+    /// node — walk up to two hops to the pattern.
+    fn sibling_member_of_pattern(&self, pattern: NodeId, id: NodeId) -> Option<String> {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(id) else {
+            return None;
+        };
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            id,
+            identifier.text,
+            SymbolFlags::VALUE,
+        )?;
+        let declaration = self.binder.symbols().get(symbol).value_declaration?;
+        let mut current = Some(declaration);
+        for _ in 0..2 {
+            let node = current?;
+            if self.nodes.parent(node) == Some(pattern) {
+                return Some(identifier.text.to_string());
+            }
+            current = self.nodes.parent(node);
+        }
+        None
+    }
+
+    /// §50.1's switch half: filter the walked union's constituents by
+    /// whether the named sibling MEMBER admits any clause-range literal.
+    /// Default clauses and every undecidable pair decline whole
+    /// (`checker-notes-narrow.md` §50.1).
+    fn narrow_union_by_member_switch(
+        &mut self,
+        t: TypeId,
+        member: &str,
+        switch: &tsr_ast::SwitchStatement<'_>,
+        clause: &tsr_binder::SwitchClause,
+    ) -> TypeId {
+        let Some(clause_types) = self.switch_clause_types(switch) else { return t };
+        if clause_types.is_empty() {
+            return t;
+        }
+        let (start, end) = (clause.clause_start as usize, clause.clause_end as usize);
+        let slice = &clause_types[start.min(clause_types.len())..end.min(clause_types.len())];
+        if start == end || slice.contains(&self.intrinsics.never) {
+            return t;
+        }
+        let clause_list: Vec<TypeId> = slice.to_vec();
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let mut kept = Vec::new();
+        for constituent in constituents {
+            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
+                return t;
+            };
+            let mut admits = false;
+            for &clause_type in &clause_list {
+                let regular = self.get_regular_type_of_literal_type(clause_type);
+                match self.comparable_ternary(regular, member_type) {
+                    Some(true) => {
+                        admits = true;
+                        break;
+                    }
+                    Some(false) => {}
+                    None => return t,
+                }
+            }
+            if admits {
+                kept.push(constituent);
+            }
+        }
+        if kept.is_empty() {
+            return t;
+        }
+        self.get_union_type(&kept)
     }
 
     /// `narrowTypeBySwitchOnDiscriminant` (`flow.go:1092`), the
@@ -2163,33 +2251,12 @@ impl Checker<'_, '_> {
                 // reference pattern discriminates the walked union
                 // (`checker-notes-narrow.md`).
                 if let Some(pattern) = state.discriminant_pattern {
-                    let sibling = |checker: &Self, id: NodeId| -> Option<String> {
-                        let Some(Node::Identifier(identifier)) = checker.node_map.get(id) else {
-                            return None;
-                        };
-                        let symbol = checker.binder.resolve_name(
-                            checker.nodes,
-                            checker.node_map,
-                            id,
-                            identifier.text,
-                            SymbolFlags::VALUE,
-                        )?;
-                        let declaration = checker.binder.symbols().get(symbol).value_declaration?;
-                        // The value declaration may be the element OR its
-                        // name node — walk up to two hops to the pattern.
-                        let mut current = Some(declaration);
-                        for _ in 0..2 {
-                            let Some(node) = current else { break };
-                            if checker.nodes.parent(node) == Some(pattern) {
-                                return Some(identifier.text.to_string());
-                            }
-                            current = checker.nodes.parent(node);
-                        }
-                        None
-                    };
-                    let pair = sibling(self, left)
+                    let pair = self
+                        .sibling_member_of_pattern(pattern, left)
                         .map(|name| (name, right))
-                        .or_else(|| sibling(self, right).map(|name| (name, left)));
+                        .or_else(|| {
+                            self.sibling_member_of_pattern(pattern, right).map(|name| (name, left))
+                        });
                     if let Some((member, literal_node)) = pair {
                         let literal_type = self
                             .node_map
