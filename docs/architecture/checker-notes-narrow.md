@@ -1017,3 +1017,32 @@ want the *declared* type (`x` in `x = foo(x)` prints
 staleness; and `foo(x) : never` on converged union arguments needs the
 overload-failure result type. Both stay wrong under this bar and are the
 §12.7 candidates.
+
+**§12.6 score — LANDED.** The pair (the §12 fixpoint patch, JS decline
+included, plus the one-line write gate in `check_expression`):
+**+117 gained (106 WRONG→RIGHT, 11 GAP→RIGHT) / 53 RIGHT→WRONG /
+1 RIGHT→GAP / 1 WRONG→GAP** — net **+63 right, −54 wrong, −9 gap**;
+`checker_types` 74.46% → **74.48%**, right 356,653 → **356,716**. Both
+falsifiers held: the gate moved the adverse side (75+2 → 54), and the pair
+is net-positive. Gains: `controlFlowLoopAnalysis`, `nestedLoopTypeGuards`,
+`controlFlowForStatement`, `cf`, the iteration-errors arg positions.
+
+**Two cases regressed** — stated loudly, the session's first:
+`controlFlowForStatementContinueIntoIncrementor1` and
+`parserForOfStatement24` (case count 3,043 → 3,041 while the line count
+rose). Both sit in the residue families below.
+
+**The §12.7 residue, priced from the 53 R→W:**
+1. **The self-referential `any` bail** (~30 lines: `controlFlowSelfReferentialLoop` ×9,
+   `shorthandPropertyAssignmentsInDestructuring_ES6` ×3, `ContinueIntoIncrementor1` ×2,
+   both regressed cases): upstream answers `any` for auto-typed variables whose
+   loop assignment depends on the variable itself; this port computes the real
+   union. Find upstream's circularity bail before coding.
+2. **So-far under-accumulation** (~20 lines: want `string | number` got
+   `string`, want `number | undefined` got `number`): the on-stack so-far
+   union misses a contribution upstream has by its second iteration —
+   upstream RE-ITERATES `getTypeAtFlowLoopLabel` to convergence where this
+   port walks antecedents once. Read `flow.go:1325`'s loop shape before
+   coding.
+3. Assignment-LHS declared-type rule and overload-failure `never` (from the
+   bar's non-goals; `controlFlowIterationErrors*` ×16 residue).

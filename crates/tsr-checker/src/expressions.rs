@@ -34,7 +34,18 @@ impl Checker<'_, '_> {
         self.computations += 1;
         let computed = self.check_expression_worker(expression);
 
-        if let Some(id) = node.node_id() {
+        // Never persist a type computed during loop fixpoint analysis: the
+        // walk hands out transient so-far unions, and an entry stamped from
+        // one would outlive convergence (`foo(x)` resolved against a
+        // provisional `string` stays `number` forever). Upstream's
+        // formulation clears `flowLoopStack` before any computation it will
+        // cache — `Checker.checkExpressionCachedEx`
+        // (`internal/checker/checker.go:7517`); suppressing the write while
+        // the stack is non-empty is the dual for this port's single cache.
+        // See docs/architecture/checker-notes-narrow.md §12.6.
+        if self.flow_loop_stack.is_empty()
+            && let Some(id) = node.node_id()
+        {
             self.node_types.insert(id, computed);
         }
         computed

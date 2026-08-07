@@ -125,6 +125,14 @@ pub struct Checker<'a, 'n> {
     /// ever-assigned memo (`checker-notes-narrow.md` §9.7), read by the flow
     /// START arm's outer-reference split.
     pub(crate) symbol_assignment_scan: FxHashMap<SymbolId, bool>,
+    /// Converged loop-label types, keyed by (flow node, reference key).
+    /// Upstream's `flowLoopCache` (`internal/checker/flow.go:1325` family).
+    pub(crate) flow_loop_cache: FxHashMap<(usize, u64), TypeId>,
+    /// In-process loop-label computations with their so-far unions —
+    /// upstream's `flowLoopKeys`/`flowLoopTypes` stacks. Non-empty means the
+    /// checker is in a transient fixpoint pass, and `check_expression` must
+    /// not persist results (`checker-notes-narrow.md` §12.6).
+    pub(crate) flow_loop_stack: Vec<((usize, u64), Vec<TypeId>)>,
     /// `(generic symbol, type arguments) -> the instantiated reference`,
     /// upstream's `d.instantiations` keyed by `getTypeListKey`
     /// (`checker.go:17342`).
@@ -493,6 +501,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             diagnostics: Vec::new(),
             symbol_types,
             symbol_assignment_scan: FxHashMap::default(),
+            flow_loop_cache: FxHashMap::default(),
+            flow_loop_stack: Vec::new(),
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),

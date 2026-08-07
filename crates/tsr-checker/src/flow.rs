@@ -332,6 +332,8 @@ impl Checker<'_, '_> {
                 }
             } else if flags.intersects(FlowFlags::CONDITION) {
                 break self.get_type_at_flow_condition(state, flow);
+            } else if flags.contains(FlowFlags::LOOP_LABEL) && !self.in_js_file(state.reference) {
+                break self.get_type_at_flow_loop_label(state, flow);
             } else if flags.contains(FlowFlags::BRANCH_LABEL) {
                 let mut antecedents = binder.flow().antecedents(flow);
                 let Some(first) = antecedents.next() else {
@@ -828,6 +830,116 @@ impl Checker<'_, '_> {
         // type to `never`, so that a loop's provisional pass reports nothing.
         // Not ported: nothing here produces an incomplete type yet.
         FlowType { t: narrowed, incomplete: incoming.incomplete }
+    }
+    /// The converging loop-label walk — `Checker.getTypeAtFlowLoopLabel`
+    /// (`internal/checker/flow.go:1325`). On-stack re-entry answers with the
+    /// so-far union marked incomplete; a converged answer is cached. The
+    /// residual divergences from upstream (the self-referential `any` bail,
+    /// so-far under-accumulation) are priced in
+    /// `docs/architecture/checker-notes-narrow.md` §12.6.
+    fn get_type_at_flow_loop_label(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
+        let key = (
+            tsr_core::index::Idx::index(flow),
+            match state.symbol {
+                Some(symbol) => symbol.index() as u64,
+                None => (1 << 63) | u64::from(state.reference.as_u32()),
+            },
+        );
+        if let Some(&cached) = self.flow_loop_cache.get(&key) {
+            return FlowType { t: cached, incomplete: false };
+        }
+        if let Some((_, types)) = self.flow_loop_stack.iter().find(|(stacked, _)| *stacked == key) {
+            let so_far = types.clone();
+            let t = if so_far.is_empty() {
+                self.intrinsics.never
+            } else {
+                self.get_union_type(&so_far)
+            };
+            return FlowType { t, incomplete: true };
+        }
+        let antecedents: Vec<FlowId> = self.binder.flow().antecedents(flow).collect();
+        let stack_index = self.flow_loop_stack.len();
+        self.flow_loop_stack.push((key, Vec::new()));
+        let mut subtype_reduction = false;
+        let mut first: Option<FlowType> = None;
+        for antecedent in antecedents {
+            let depth_mark = state.depth;
+            let flow_type = if first.is_none() {
+                let entry = self.get_type_at_flow_node(state, antecedent);
+                first = Some(entry);
+                entry
+            } else {
+                let shared_mark = self.shared_flows.len();
+                let back = self.get_type_at_flow_node(state, antecedent);
+                self.shared_flows.truncate(shared_mark);
+                if let Some(&cached) = self.flow_loop_cache.get(&key) {
+                    state.depth = depth_mark;
+                    self.flow_loop_stack.truncate(stack_index);
+                    return FlowType { t: cached, incomplete: false };
+                }
+                back
+            };
+            state.depth = depth_mark;
+            if std::env::var("TSR_TRACE_LOOP").is_ok() {
+                eprintln!(
+                    "  LOOPANTE key={key:?} t={:?} incomplete={}",
+                    flow_type.t, flow_type.incomplete
+                );
+            }
+            let live = &mut self.flow_loop_stack[stack_index].1;
+            if flow_type.t != self.intrinsics.never && !live.contains(&flow_type.t) {
+                live.push(flow_type.t);
+            }
+            if !self.is_type_subset_of(flow_type.t, state.initial_type) {
+                subtype_reduction = true;
+            }
+            if flow_type.t == state.declared_type {
+                break;
+            }
+        }
+        let types = self.flow_loop_stack[stack_index].1.clone();
+        self.flow_loop_stack.truncate(stack_index);
+        let result = if types.is_empty() {
+            self.intrinsics.never
+        } else if subtype_reduction {
+            match self.union_with_subtype_reduction(&types) {
+                Some(reduced) => reduced,
+                None => state.declared_type,
+            }
+        } else {
+            self.get_union_type(&types)
+        };
+        let incomplete = first.is_some_and(|f| f.incomplete);
+        if std::env::var("TSR_TRACE_LOOP").is_ok() {
+            eprintln!(
+                "LOOP key={key:?} types={types:?} subtype_red={subtype_reduction} result={result:?} incomplete={incomplete}"
+            );
+        }
+        if incomplete {
+            return FlowType { t: result, incomplete: true };
+        }
+        self.flow_loop_cache.insert(key, result);
+        FlowType { t: result, incomplete: false }
+    }
+
+    fn is_type_subset_of(&mut self, sub: TypeId, superset: TypeId) -> bool {
+        if sub == superset || self.store.get(sub).flags.contains(TypeFlags::NEVER) {
+            return true;
+        }
+        let super_constituents: Vec<TypeId> = match &self.store.get(superset).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![superset],
+        };
+        let sub_constituents: Vec<TypeId> = match &self.store.get(sub).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![sub],
+        };
+        sub_constituents.into_iter().all(|c| {
+            let regular = self.get_regular_type_of_literal_type(c);
+            super_constituents
+                .iter()
+                .any(|&s| s == c || self.get_regular_type_of_literal_type(s) == regular)
+        })
     }
 
     /// The union of what every path into a junction says
