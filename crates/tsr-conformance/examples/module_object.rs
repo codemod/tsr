@@ -256,6 +256,21 @@ struct CaseReport {
     /// The C3 exceptions, printed rather than counted: a control that only
     /// prints a number cannot be acted on when it is non-zero.
     decl_exceptions: Vec<(String, String)>,
+    /// **The alias-search counterfactual** (`getAccessibleSymbolChain`'s alias
+    /// arm, `trySymbolTable`, `symbolaccessibility.go:535`): for each
+    /// unspellable line, does the name upstream printed resolve *at the line's
+    /// own site* to a namespace-shaped alias of the very module the line is
+    /// blocked on? That is the reachability question a build would have to
+    /// answer, and its failure buckets are the would-be-wrong column.
+    forecast: BTreeMap<&'static str, usize>,
+    forecast_lines: BTreeMap<String, usize>,
+    /// `import("m").X` lines where a namespace alias of the line's module IS
+    /// in scope — upstream's search *rejected* that alias, so a naive search
+    /// would print `typeof alias`/`alias.X` and manufacture a wrong line.
+    import_form_alias_in_scope: usize,
+    /// Unspellable lines where ≥ 2 distinct in-scope alias names reach the
+    /// line's module — the chain-choice rule decides, not mere reachability.
+    ambiguous_choice: usize,
 }
 
 /// `rank_board::row_key` (`examples/rank_board.rs:145`), verbatim.
@@ -390,6 +405,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
         let mut seed_of: HashMap<usize, Reach> = HashMap::new();
         let mut mock_of: HashMap<usize, Mock> = HashMap::new();
         let mut ns_of: HashMap<usize, NsTarget> = HashMap::new();
+        let mut seed_module: HashMap<usize, Option<AliasTarget>> = HashMap::new();
         let mut aliases: BTreeSet<String> = BTreeSet::new();
         let mut pending: Vec<(usize, String, String, String, Option<String>, NsTarget)> =
             Vec::new();
@@ -431,12 +447,15 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                     &mut mock_checker,
                     bound,
                     nodes,
+                    node_map,
                     declaration,
                     specifier.as_deref(),
                     want,
                     error,
                 );
                 ns_of.insert(position, target);
+                seed_module
+                    .insert(position, alias_module_symbol(&program, bound, nodes, node_map, symbol));
                 pending.push((position, form, row_key(reason), alias, module_name, target));
             }
         }
@@ -457,7 +476,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
         }
 
         // Pass three: walk every gap line down to its blocking leaves.
-        let mut memo: HashMap<usize, (Blockers, Option<Mock>, Option<NsTarget>)> = HashMap::new();
+        let mut memo: HashMap<usize, (Blockers, Option<Mock>, Option<(NsTarget, usize)>)> = HashMap::new();
         for &position in reasons.keys() {
             let mut stack = Vec::new();
             let (blockers, worst, ns) = blockers_of(
@@ -485,7 +504,8 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
             }
             let want = wants.get(&position).cloned().unwrap_or_default();
             let spell = spell_of(&want, &aliases);
-            let ns = ns.unwrap_or(NsTarget::NoTargetFile);
+            let seed_position = ns.map(|(_, at)| at);
+            let ns = ns.map_or(NsTarget::NoTargetFile, |(ns, _)| ns);
             *report.split.entry((spell, ns)).or_default() += 1;
             // A line is spellable if upstream's answer never names a module
             // object, OR every module object beneath it resolves through an
@@ -503,10 +523,90 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
             if spellable {
                 report.spellable_lines += 1;
                 *report.spellable_wants.entry(want).or_default() += 1;
-            } else {
-                report.unspellable_lines += 1;
-                *report.unspellable_wants.entry(want).or_default() += 1;
+                continue;
             }
+            report.unspellable_lines += 1;
+            *report.unspellable_wants.entry(want.clone()).or_default() += 1;
+
+            // -----------------------------------------------------------------
+            // The alias-search counterfactual, on the line's own site.
+            // -----------------------------------------------------------------
+            let site = line_ids[position];
+            let line_module =
+                seed_position.and_then(|at| seed_module.get(&at).cloned().flatten());
+            // Distinct in-scope alias names reaching the line's module — the
+            // ambiguity a chain-choice rule has to break, and, for the
+            // `import(` form, the wrong name a naive search would print.
+            let in_scope_of_module = |module: &AliasTarget| {
+                aliases
+                    .iter()
+                    .filter(|name| {
+                        bound
+                            .resolve_name(nodes, node_map, site, name, SymbolFlags::VALUE)
+                            .map(|s| bound.merged_symbol(s))
+                            .is_some_and(|s| {
+                                alias_module_symbol(&program, bound, nodes, node_map, s)
+                                    .as_ref()
+                                    == Some(module)
+                            })
+                    })
+                    .count()
+            };
+            let outcome = match spell {
+                Spell::IsModuleObject | Spell::RootedAtModuleObject => {
+                    let root = want.strip_prefix("typeof ").unwrap_or(&want);
+                    let root =
+                        root.split(['.', '<', '[', '(', ' ']).next().unwrap_or("").to_string();
+                    let candidate = bound
+                        .resolve_name(nodes, node_map, site, &root, SymbolFlags::VALUE)
+                        .map(|s| bound.merged_symbol(s));
+                    match candidate {
+                        None => "MISS — upstream's name does not resolve at the site",
+                        Some(found) => {
+                            match alias_module_symbol(&program, bound, nodes, node_map, found) {
+                                None => "MISS — resolves, but not a namespace-shaped alias",
+                                Some(module) => match &line_module {
+                                    Some(blocking) if module == *blocking => {
+                                        let ambiguous = in_scope_of_module(&module) > 1;
+                                        if ambiguous {
+                                            report.ambiguous_choice += 1;
+                                        }
+                                        match (&module, ambiguous) {
+                                            (AliasTarget::File(_), true) => "REACHABLE, ambiguous — ≥2 in-scope names [file module]",
+                                            (AliasTarget::File(_), false) => "REACHABLE, unique in-scope name [file module]",
+                                            (AliasTarget::Ambient(_), true) => "REACHABLE, ambiguous — ≥2 in-scope names [AMBIENT]",
+                                            (AliasTarget::Ambient(_), false) => "REACHABLE, unique in-scope name [AMBIENT]",
+                                            (AliasTarget::Spec(_), true) => "REACHABLE, ambiguous — but module UNRESOLVABLE, stays gap",
+                                            (AliasTarget::Spec(_), false) => "REACHABLE name — but module UNRESOLVABLE, stays gap",
+                                        }
+                                    }
+                                    Some(_) => "MISS — alias of a DIFFERENT module than the line's",
+                                    None => "reachable? line's own module unknown",
+                                },
+                            }
+                        }
+                    }
+                }
+                Spell::ImportTypeForm => {
+                    // Upstream chose `import("m")` — its search REJECTED every
+                    // alias. If one is in scope for this line's module, a naive
+                    // search prints it: a manufactured wrong line.
+                    match &line_module {
+                        Some(blocking) if in_scope_of_module(blocking) > 0 => {
+                            report.import_form_alias_in_scope += 1;
+                            "import(...) wanted, alias IN SCOPE — naive search would print WRONG"
+                        }
+                        Some(_) => "import(...) wanted, no alias in scope — refusal holds, stays gap",
+                        None => "import(...) wanted, line's module unknown",
+                    }
+                }
+                Spell::Ordinary => "unspellable, ordinary want (unclassified)",
+            };
+            *report.forecast.entry(outcome).or_default() += 1;
+            *report
+                .forecast_lines
+                .entry(format!("{outcome:<58}  want `{want}`  [{}]", report.name))
+                .or_default() += 1;
         }
     }
     Some(report)
@@ -666,11 +766,19 @@ fn mock_target(
     };
     let Some(name) = name else { return Mock::NotMocked };
     let Some(specifier) = specifier else { return Mock::NoSuchFile };
-    let Some(file) = resolve_specifier(program, nodes, declaration, specifier) else {
-        return Mock::NoSuchFile;
+    let module = match resolve_specifier(program, nodes, declaration, specifier) {
+        Some(file) => match file.source_file().node_id {
+            Some(root) => match bound.symbol_of(root) {
+                Some(module) => Some(module),
+                None => return Mock::NoSuchExport,
+            },
+            None => None,
+        },
+        // `resolveExternalModuleNameWorker`'s ambient fallback: `declare
+        // module "x"` binds a global symbol under the quoted name.
+        None => ambient_module_symbol(bound, node_map, specifier),
     };
-    let Some(root) = file.source_file().node_id else { return Mock::NoSuchFile };
-    let Some(module) = bound.symbol_of(root) else { return Mock::NoSuchExport };
+    let Some(module) = module else { return Mock::NoSuchFile };
     let Some(&target) = bound.symbols().get(module).exports.get(name.as_str()) else {
         return Mock::NoSuchExport;
     };
@@ -698,17 +806,19 @@ fn mock_namespace(
     checker: &mut tsr_checker::Checker<'_, '_>,
     bound: &tsr_binder::BindResult<'_>,
     nodes: &tsr_ast::NodeTable,
+    node_map: &tsr_ast::NodeMap<'_>,
     declaration: NodeId,
     specifier: Option<&str>,
     want: &str,
     error: tsr_checker::TypeId,
 ) -> (NsTarget, Option<String>) {
     let Some(specifier) = specifier else { return (NsTarget::NoTargetFile, None) };
-    let Some(file) = resolve_specifier(program, nodes, declaration, specifier) else {
-        return (NsTarget::NoTargetFile, None);
-    };
-    let Some(root) = file.source_file().node_id else { return (NsTarget::NoTargetFile, None) };
-    let Some(module) = bound.symbol_of(root) else { return (NsTarget::NoTargetFile, None) };
+    let module = resolve_specifier(program, nodes, declaration, specifier)
+        .and_then(|file| file.source_file().node_id)
+        .and_then(|root| bound.symbol_of(root))
+        // The ambient fallback, as in `mock_target`.
+        .or_else(|| ambient_module_symbol(bound, node_map, specifier));
+    let Some(module) = module else { return (NsTarget::NoTargetFile, None) };
     let module_name = bound.symbols().get(module).name.to_string();
     // `bind_source_file_as_external_module` names the module symbol after the
     // file. `INTERNAL_EXPORT_EQUALS` (`crates/tsr-binder/src/binder.rs:3527`)
@@ -725,6 +835,31 @@ fn mock_namespace(
         NsTarget::ExportEqualsWrong
     };
     (kind, Some(module_name))
+}
+
+/// The **ambient** module a specifier names — `tryFindAmbientModule`
+/// (`checker.go:15533`). Upstream keys ambient modules under the *quoted*
+/// name; this binder stores the literal's text unquoted (`module_name`,
+/// `crates/tsr-binder/src/binder.rs:4091`), so the lookup is by bare specifier
+/// and the declaration shape is what distinguishes `declare module "x"` from
+/// an ordinary global that happens to share the name.
+fn ambient_module_symbol(
+    bound: &tsr_binder::BindResult<'_>,
+    node_map: &tsr_ast::NodeMap<'_>,
+    specifier: &str,
+) -> Option<tsr_binder::SymbolId> {
+    let &symbol = bound.globals().get(specifier)?;
+    let symbol = bound.merged_symbol(symbol);
+    let entry = bound.symbols().get(symbol);
+    (entry.flags.intersects(SymbolFlags::MODULE)
+        && entry.declarations.iter().any(|&declaration| {
+            matches!(
+                node_map.get(declaration),
+                Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+            )
+        }))
+    .then_some(symbol)
 }
 
 fn module_export_name(name: tsr_ast::ModuleExportName<'_>) -> String {
@@ -784,9 +919,9 @@ fn blockers_of(
     nodes: &tsr_ast::NodeTable,
     node_map: &tsr_ast::NodeMap<'_>,
     bound: &tsr_binder::BindResult<'_>,
-    memo: &mut HashMap<usize, (Blockers, Option<Mock>, Option<NsTarget>)>,
+    memo: &mut HashMap<usize, (Blockers, Option<Mock>, Option<(NsTarget, usize)>)>,
     stack: &mut Vec<usize>,
-) -> (Blockers, Option<Mock>, Option<NsTarget>) {
+) -> (Blockers, Option<Mock>, Option<(NsTarget, usize)>) {
     if let Some(&known) = memo.get(&position) {
         return known;
     }
@@ -797,7 +932,7 @@ fn blockers_of(
     let answer = (|| {
         if let Some(&reach) = seed_of.get(&position) {
             let mock = mock_of.get(&position).copied();
-            let ns = ns_of.get(&position).copied();
+            let ns = ns_of.get(&position).copied().map(|ns| (ns, position));
             return match reach {
                 Reach::CrossFile => (Blockers { cross: true, ..Blockers::default() }, mock, ns),
                 Reach::SameFile => (Blockers { same: true, ..Blockers::default() }, None, None),
@@ -831,7 +966,7 @@ fn blockers_of(
         }
         let mut answer = Blockers::default();
         let mut worst: Option<Mock> = None;
-        let mut worst_ns: Option<NsTarget> = None;
+        let mut worst_ns: Option<(NsTarget, usize)> = None;
         let outer = nodes.span(line_ids[position]);
         let mut index = position + 1;
         let mut covered = outer.start;
@@ -864,7 +999,7 @@ fn blockers_of(
                     (None, None) => None,
                 };
                 worst_ns = match (worst_ns, below_ns) {
-                    (Some(left), Some(right)) => Some(left.max(right)),
+                    (Some(left), Some(right)) => Some(if right.0 > left.0 { right } else { left }),
                     (Some(only), None) | (None, Some(only)) => Some(only),
                     (None, None) => None,
                 };
@@ -880,6 +1015,56 @@ fn blockers_of(
     stack.pop();
     memo.insert(position, answer);
     answer
+}
+
+/// The module a **namespace-shaped** alias names, as an identity two aliases
+/// can be compared by: the target file's module symbol where the specifier
+/// resolves to a program file, otherwise the specifier text itself — which is
+/// how an **ambient** module (`declare module "react"`) keeps an identity even
+/// though no file exists.
+#[derive(Clone, PartialEq, Eq)]
+enum AliasTarget {
+    File(tsr_binder::SymbolId),
+    /// `declare module "x"` — resolvable, but through `tryFindAmbientModule`
+    /// (`checker.go:15533`), which this port has no port of.
+    Ambient(tsr_binder::SymbolId),
+    /// Neither a program file nor an ambient declaration: nothing to resolve.
+    Spec(String),
+}
+
+/// `None` for every non-namespace shape — a default import aliases the
+/// module's default *export*, not the module object, and `import { x }`
+/// aliases a member.
+fn alias_module_symbol(
+    program: &tsr_compiler::Program<'_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    node_map: &tsr_ast::NodeMap<'_>,
+    symbol: tsr_binder::SymbolId,
+) -> Option<AliasTarget> {
+    let &declaration = bound.symbols().get(symbol).declarations.first()?;
+    let namespace_shaped = match node_map.get(declaration)? {
+        Node::NamespaceImport(_) | Node::NamespaceExport(_) => true,
+        Node::ImportEqualsDeclaration(node) => matches!(
+            node.module_reference,
+            Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+        ),
+        _ => false,
+    };
+    if !namespace_shaped {
+        return None;
+    }
+    let specifier = module_specifier(node_map, nodes, declaration)?;
+    match resolve_specifier(program, nodes, declaration, &specifier)
+        .and_then(|file| file.source_file().node_id)
+        .and_then(|root| bound.symbol_of(root))
+    {
+        Some(module) => Some(AliasTarget::File(module)),
+        None => match ambient_module_symbol(bound, node_map, &specifier) {
+            Some(module) => Some(AliasTarget::Ambient(module)),
+            None => Some(AliasTarget::Spec(specifier)),
+        },
+    }
 }
 
 /// `examples/module_blocked.rs:942`, verbatim.
@@ -935,8 +1120,19 @@ fn report(reports: &[CaseReport]) {
     let mut via_export_equals = 0usize;
     let mut decl_exceptions: Vec<(String, String, String)> = Vec::new();
     let mut spellable_by_case: BTreeMap<String, usize> = BTreeMap::new();
+    let mut forecast: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut forecast_lines: BTreeMap<String, usize> = BTreeMap::new();
+    let (mut import_form_alias_in_scope, mut ambiguous_choice) = (0usize, 0usize);
 
     for case in reports {
+        for (&outcome, &count) in &case.forecast {
+            *forecast.entry(outcome).or_default() += count;
+        }
+        for (line, &count) in &case.forecast_lines {
+            *forecast_lines.entry(line.clone()).or_default() += count;
+        }
+        import_form_alias_in_scope += case.import_form_alias_in_scope;
+        ambiguous_choice += case.ambiguous_choice;
         for (&mock, &count) in &case.seam_worst {
             *seam_worst.entry(mock).or_default() += count;
         }
@@ -1034,6 +1230,34 @@ fn report(reports: &[CaseReport]) {
         for (&ns, &count) in targets {
             println!("{form:<40}{:<44}{count:>9}", ns.label());
         }
+    }
+
+    let reachable_total: usize = forecast
+        .iter()
+        .filter(|(outcome, _)| outcome.starts_with("REACHABLE"))
+        .map(|(_, &count)| count)
+        .sum();
+    println!("\n=== THE ALIAS-SEARCH COUNTERFACTUAL (getAccessibleSymbolChain's alias arm) ===");
+    println!("For each UNSPELLABLE line: does the name upstream printed resolve at the");
+    println!("line's own site to a namespace-shaped alias of the line's blocking module?");
+    println!("REACHABLE = the search can produce upstream's exact root name.\n");
+    for (outcome, &count) in &forecast {
+        println!("{count:>9}  {outcome}");
+    }
+    println!(
+        "\n  REACHABLE total {reachable_total} of {unspellable} unspellable ({:.1}%)",
+        pct(reachable_total, unspellable)
+    );
+    println!("  ambiguous-choice share of reachable: {ambiguous_choice}");
+    println!(
+        "  import(...) lines a naive search would print WRONG: {import_form_alias_in_scope}"
+    );
+
+    println!("\n=== alias-search forecast, verbatim (top 40) ===");
+    let mut ranked: Vec<(&String, &usize)> = forecast_lines.iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    for (line, count) in ranked.iter().take(40) {
+        println!("{count:>9}  {}", truncate(line, 150));
     }
 
     println!("\n=== what upstream prints, UNSPELLABLE half (top 25) ===");

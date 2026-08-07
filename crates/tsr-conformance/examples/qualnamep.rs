@@ -227,7 +227,7 @@ fn is_external_module<'a>(
 }
 
 /// Why a chain could not be built.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum Decline {
     /// `needsQualification` said no — the bare name is right. Not a shortfall.
     NoQualifierNeeded,
@@ -235,7 +235,15 @@ enum Decline {
     /// what upstream records for a **local** of a namespace.
     NoContainer,
     /// The container is an external module — `getSpecifierForModuleSymbol`.
-    ExternalModule,
+    ///
+    /// `bd tsr-xpb8`'s split: for an **ambient** module (`declare module "x"`,
+    /// `IsAmbientModuleSymbolName` = the name starts and ends with a quote,
+    /// `ast/utilities.go:1656`) the specifier is exact and free
+    /// (`nodebuilderimpl.go:1260`), so `qualifier` carries the full forecast
+    /// prefix — `import("x").N.` — accumulated on unwind. For a real **file**
+    /// module it is `None`: that half needs the whole `modulespecifiers`
+    /// package.
+    ExternalModule { qualifier: Option<String> },
     /// The container is not a namespace: a class's static side, an enum, an
     /// interface's members table. `getQualifiedLeftMeaning` asks for
     /// `SymbolFlagsNamespace` (`nodebuilderimpl.go:1111`).
@@ -245,12 +253,15 @@ enum Decline {
 }
 
 impl Decline {
-    fn label(self) -> &'static str {
+    fn label(&self) -> &'static str {
         match self {
             Decline::NoQualifierNeeded => "no qualifier needed (needsQualification = false)",
             Decline::NoContainer => "no container — Symbol.Parent unset (a namespace LOCAL)",
-            Decline::ExternalModule => {
-                "container is an external module — getSpecifierForModuleSymbol"
+            Decline::ExternalModule { qualifier: Some(_) } => {
+                "container is an AMBIENT module — specifier is the quoted name (effort 1)"
+            }
+            Decline::ExternalModule { qualifier: None } => {
+                "container is a FILE module — needs the modulespecifiers package"
             }
             Decline::ContainerNotANamespace => "container is not a namespace",
             Decline::TooDeep => "chain cap",
@@ -283,7 +294,31 @@ fn symbol_chain<'a>(
         return Err(Decline::NoContainer);
     };
     if is_external_module(binder, map, parent) {
-        return Err(Decline::ExternalModule);
+        // `bd tsr-xpb8`: split the stop by which branch of
+        // `getSpecifierForModuleSymbol` it would take. Ambient — no source-file
+        // declaration, and the declaration is `declare module "x"`
+        // (`nodebuilderimpl.go:1260`, `ast/utilities.go:1656`) — is exact: the
+        // printed root is `import("x")`. Upstream tests the *quoted symbol
+        // name*; this binder stores the literal's text unquoted (`module_name`,
+        // `crates/tsr-binder/src/binder.rs:4091`), so the test here is the
+        // declaration's shape — a first run keyed on the quotes read a false 0.
+        let parent_symbol = binder.symbols().get(parent);
+        let has_file = parent_symbol
+            .declarations
+            .iter()
+            .any(|&declaration| matches!(map.get(declaration), Some(Node::SourceFile(_))));
+        let ambient = !has_file
+            && parent_symbol.declarations.iter().any(|&declaration| {
+                matches!(
+                    map.get(declaration),
+                    Some(Node::ModuleDeclaration(module))
+                        if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                )
+            });
+        let name = parent_symbol.name;
+        return Err(Decline::ExternalModule {
+            qualifier: ambient.then(|| format!("import(\"{name}\").")),
+        });
     }
     if !binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
         return Err(Decline::ContainerNotANamespace);
@@ -296,6 +331,11 @@ fn symbol_chain<'a>(
         // The parent itself does not need qualifying: the chain stops there,
         // which is the recursion's base case and not a decline.
         Err(Decline::NoQualifierNeeded) => Ok(format!("{parent_name}.")),
+        // An ambient-module stop above extends its forecast prefix on unwind,
+        // so the top-level caller holds `import("x").N.` for the whole chain.
+        Err(Decline::ExternalModule { qualifier: Some(prefix) }) => Err(Decline::ExternalModule {
+            qualifier: Some(format!("{prefix}{parent_name}.")),
+        }),
         Err(other) => Err(other),
     }
 }
@@ -400,6 +440,19 @@ struct Report {
     families: BTreeMap<(String, &'static str), usize>,
     declines: BTreeMap<&'static str, usize>,
 
+    // --- bd tsr-xpb8: the AMBIENT half's counterfactual, same pass ----------
+    amb_converts: usize,
+    amb_churn: usize,
+    amb_at_risk: usize,
+    amb_gap: usize,
+    amb_lines: BTreeMap<String, usize>,
+    /// The FILE half, split by what the baseline wants: `import(` — needs the
+    /// `modulespecifiers` package — versus anything else, which an accessible
+    /// **alias** could in principle spell without one.
+    file_want_import: usize,
+    file_want_other: usize,
+    file_lines: BTreeMap<String, usize>,
+
     // --- loose: token rewriting inside composite prints ---------------------
     loose_converts: usize,
     loose_converts_lines: BTreeMap<String, usize>,
@@ -449,6 +502,12 @@ impl Report {
             (&mut self.cp6_unmerged, other.cp6_unmerged),
             (&mut self.cp7_right_dotted, other.cp7_right_dotted),
             (&mut self.gap_reached, other.gap_reached),
+            (&mut self.amb_converts, other.amb_converts),
+            (&mut self.amb_churn, other.amb_churn),
+            (&mut self.amb_at_risk, other.amb_at_risk),
+            (&mut self.amb_gap, other.amb_gap),
+            (&mut self.file_want_import, other.file_want_import),
+            (&mut self.file_want_other, other.file_want_other),
         ] {
             *target += source;
         }
@@ -471,6 +530,8 @@ impl Report {
             (&mut self.cp4_hits, &other.cp4_hits),
             (&mut self.cp4_audit, &other.cp4_audit),
             (&mut self.cp6_unmerged_lines, &other.cp6_unmerged_lines),
+            (&mut self.amb_lines, &other.amb_lines),
+            (&mut self.file_lines, &other.file_lines),
         ] {
             for (key, n) in source {
                 *target.entry(key.clone()).or_default() += n;
@@ -624,6 +685,61 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     match symbol_chain(bound, nodes, map, symbol, id, meaning, 0) {
                         Err(reason) => {
                             *report.declines.entry(reason.label()).or_default() += 1;
+                            // `bd tsr-xpb8` — the ambient half, priced in the
+                            // same pass: the forecast is exact, so CONVERTS /
+                            // WOULD-WRONG / AT-RISK all come from one string.
+                            if let Decline::ExternalModule { qualifier: Some(ref qualifier) } =
+                                reason
+                            {
+                                let forecast = format!("{prefix}{qualifier}{name}{suffix}");
+                                let outcome = if forecast == printed {
+                                    "NO-OP"
+                                } else if is_right {
+                                    report.amb_at_risk += 1;
+                                    "AT RISK"
+                                } else if is_gap {
+                                    report.amb_gap += 1;
+                                    "GAP"
+                                } else if forecast == wanted {
+                                    report.amb_converts += 1;
+                                    "CONVERTS"
+                                } else {
+                                    report.amb_churn += 1;
+                                    "WOULD-WRONG"
+                                };
+                                *report
+                                    .amb_lines
+                                    .entry(format!(
+                                        "{outcome:<11} want `{wanted}`, `{printed}` -> `{forecast}`  [{}]",
+                                        case.name
+                                    ))
+                                    .or_default() += 1;
+                            }
+                            // The FILE half: what would upstream print here?
+                            // `import(` in the want means only the
+                            // `modulespecifiers` package can spell it; anything
+                            // else an accessible alias might.
+                            if let Decline::ExternalModule { qualifier: None } = reason {
+                                let verdict = if is_right {
+                                    "right"
+                                } else if is_gap {
+                                    "gap  "
+                                } else {
+                                    "wrong"
+                                };
+                                if wanted.contains("import(") {
+                                    report.file_want_import += 1;
+                                } else {
+                                    report.file_want_other += 1;
+                                }
+                                *report
+                                    .file_lines
+                                    .entry(format!(
+                                        "{verdict} want `{wanted}`, printed `{printed}`  [{}]",
+                                        case.name
+                                    ))
+                                    .or_default() += 1;
+                            }
                         }
                         Ok(qualifier) => {
                             debug_assert!(has_container);
@@ -959,6 +1075,17 @@ fn main() {
         println!("  {n:>7}  {reason}");
     }
     println!("  -- total {total}");
+
+    println!("\n## bd tsr-xpb8 — the AMBIENT half's counterfactual (exact forecast)\n");
+    println!("  CONVERTS      wrong today, forecast IS the baseline's   {:>7}", report.amb_converts);
+    println!("  WOULD-WRONG   wrong today, forecast still not right     {:>7}", report.amb_churn);
+    println!("  AT RISK       RIGHT today, forecast changes the text    {:>7}", report.amb_at_risk);
+    println!("  GAP           port answers error, forecast untestable   {:>7}", report.amb_gap);
+    print_map("bd tsr-xpb8 — ambient forecast, verbatim", &report.amb_lines, 40);
+    println!("\n## bd tsr-xpb8 — the FILE half, by what the baseline wants\n");
+    println!("  want contains `import(`  (modulespecifiers only)        {:>7}", report.file_want_import);
+    println!("  want is anything else    (an alias might spell it)      {:>7}", report.file_want_other);
+    print_map("bd tsr-xpb8 — FILE half, verbatim", &report.file_lines, 50);
 
     print_map(
         "CP6 — the lines getMergedSymbol drops (qualname.rs counted them)",

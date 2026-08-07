@@ -261,3 +261,115 @@ upstream sometimes prints a *different* alias's name.
 
 Nothing was built in `crates/tsr-checker/src/symbols.rs` or `resolution.rs` for
 this item. That is the finding.
+
+## 10. Ambient modules — the slice the seventh session found, sized, and its bar
+
+*(A previous §10 described the lookup-only build `3baeb70`, reverted at
+`a618e3a` for 2.5 wrong per right; it was removed with the code. This section
+is a different slice with a different counterfactual, and it exists because the
+naming half — the thing that killed both earlier designs — has since shipped at
+`c91314c` for the forms it could reach.)*
+
+### 10.1 What changed since the refusal
+
+`c91314c` (sixth session) named a module object at the reference site — the
+alias-arm of `getAccessibleSymbolChain` — for `import * as ns`,
+`import a = require(...)` and `export * as ns`, refusing when ≥2 distinct
+aliases are in scope. That build's residue is what this section sizes: the
+seam population is now **1,691** (was 3,539 at the refusal), the unspellable
+half **439** (was 1,654).
+
+### 10.2 The counterfactual, one pass, three columns
+
+`examples/module_object.rs` gained the alias-search forecast: for every
+unspellable line, does the *name upstream printed* resolve at the *line's own
+site* to a namespace-shaped alias of the *line's own blocking module* — with
+the module's identity split three ways: a program file, an **ambient**
+`declare module "x"`, or nothing at all. Measured at `d098d66`:
+
+```
+  263  REACHABLE name — but module UNRESOLVABLE          stays gap either way
+   69  REACHABLE, unique in-scope name [AMBIENT]         the build's conversions
+   52  REACHABLE, ambiguous [file module]                stays gap (c91314c's refusal)
+    7  REACHABLE, ambiguous [AMBIENT] (1) + unresolvable (6)
+    5  REACHABLE, unique [file module]                   other causes, not this item
+   19  MISS (5 not namespace-shaped + 14 name absent)
+   16  import(...) wanted, alias IN SCOPE                the would-wrong ceiling's larger half
+    8  import(...) wanted, no alias in scope             refusal holds
+```
+
+And the member half, mocked exactly as §1's instrument mocks everything:
+adding ambient resolution to the probe's own replay moved the seam leaves
+`WouldConvert` **14 → 42 (+28)** and `WouldBeWrong` **39 → 64 (+25)**;
+247 `specifier names no file` lines re-resolved, of which 98 land on
+`target found, still error` — downstream gaps, converted by nobody today.
+
+**Two probe defects were found and fixed before any number above was read**,
+both the same lesson: this binder stores an ambient module's name *unquoted*
+(`module_name`, `crates/tsr-binder/src/binder.rs:4091`) where upstream keys the
+quoted string. A quoted-name test can never fire here, and it read a false
+zero twice — once in this probe's first ambient tag, once in `qualnamep.rs`'s
+`bd tsr-xpb8` split (where the corrected test *still* reads 0, so that
+conclusion survives its own defect).
+
+### 10.3 The item: `tryFindAmbientModule`, and nothing else
+
+`resolveExternalModule` (`checker.go:15149`) consults
+`tryFindAmbientModule` (`checker.go:15533`) **before** file resolution:
+a non-relative specifier is first looked up among the globals under its quoted
+name with `SymbolFlagsValueModule` meaning, merged. This port's
+`resolve_external_module_name` (`crates/tsr-checker/src/symbols.rs:939`) goes
+straight to the `ModuleHost` and so answers `None` for every
+`declare module "x"` in the corpus.
+
+The build is that fallback, checker-side, plus one gate-widening: the naming
+interception in `type_to_string_at` tests `is_module_symbol` (a `SourceFile`
+declaration), which an ambient module fails, so the same interception must
+also accept `is_ambient_module` — otherwise a resolved ambient module prints
+its baked name, which is the exact failure mode that killed `3baeb70`.
+
+**One deliberate divergence, stated with its reason**: upstream distinguishes
+ambient modules from ordinary globals by the quotes in the symbol name. This
+binder's naming is unquoted and is load-bearing for its other consumers, so
+the checker distinguishes by *declaration shape* (`is_ambient_module`,
+`checker.rs:708`) instead. Same selection, different key.
+
+**What this slice does NOT do**: the `/.lib/<file>` reference-path mapping
+(upstream `harnessutil.go:39`), which is why 263 reachable lines stay
+unresolvable — `react.d.ts` is simply never loaded by this harness. That is a
+harness-fidelity item, measurable separately, and follows this one.
+
+### 10.4 The bar, registered before any checker code
+
+Forecast components, each measured above: **69** naming conversions (unique
+in-scope ambient alias) + **28** member conversions (mocked exact-text) = 97.
+The naming 69 is a *root-name* match, not a whole-line match — `typeof ns.x`
+lines match on `ns` and can still miss on `.x` — so the floor discounts it.
+
+- **Leg 1 — net ≥ +60.** Rule: ~60% of the 97-line two-component forecast,
+  the discount owned entirely by the root-vs-whole-line gap in the naming
+  column.
+- **Leg 2 — the mechanism's own new wrong ≤ 82**, with global `Δwrong`
+  reported beside it, per the post-W rule. Rule: 2× the counterfactual's own
+  would-wrong ceiling of 41 (25 mocked member `WouldBeWrong` + ≤16
+  `import(...)`-wanted lines with an alias in scope).
+- **Leg 3 — cases regressed == 0.**
+- **Leg 4 — lost (RIGHT→WRONG, by `verdictdump`) ≤ 5.** Not 0, because
+  ambient-first ordering is upstream's and this port resolves files first
+  today: a case with both a file and an ambient module under one specifier
+  can flip. ≤ 5 because the probe saw no such case; a larger reading is
+  diagnosis, not trade.
+
+Falsifiers, in the order to open the drawers:
+
+1. **New wrong far above 82, concentrated in member reads** → the member arm
+   is wider than `mock_target`'s three name forms (import specifier, default,
+   export specifier); re-take the mock with the missing form before touching
+   the build.
+2. **Any lost line** → grep the losing case for a file and a
+   `declare module` sharing one specifier; the ambient-first ordering is the
+   suspect, and it is upstream's ordering, so the fix direction is not
+   obvious — stop and measure.
+3. **Net far below 60** → check that the namespace-shaped `resolve_alias`
+   arms actually route through `resolve_external_module_name` rather than a
+   second copy of resolution the build did not touch.
