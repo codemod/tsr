@@ -378,14 +378,17 @@ impl Checker<'_, '_> {
     /// prevent.
     fn unary_result_type(&mut self, operand: TypeId) -> TypeId {
         let flags = self.store.get(operand).flags;
-        if operand == self.intrinsics.error
-            || flags.intersects(TypeFlags::BIG_INT_LIKE)
-            // `any` and `unknown` could each be a bigint at runtime, and
-            // `maybeTypeOfKind` answers yes for them.
-            || flags.intersects(TypeFlags::ANY_OR_UNKNOWN)
-        {
+        if operand == self.intrinsics.error || flags.intersects(TypeFlags::BIG_INT_LIKE) {
             return self.intrinsics.error;
         }
+        // `any`/`unknown` answer `number`: `maybeTypeOfKind` is a FLAG test
+        // (`checker.go:10923` reads `operandType`'s flags against
+        // `TypeFlagsBigIntLike`), and neither carries the bigint bit, so
+        // upstream falls straight to `numberType` —
+        // `bitwiseNotOperatorWithAnyOtherType.types` records `~ANY1 : number`
+        // throughout. The comment this replaces claimed `maybeTypeOfKind`
+        // "answers yes for them" — an intuition falsified by its own anchor,
+        // caught when the §9.4 initial-type change exposed 8 such lines.
         self.intrinsics.number
     }
 

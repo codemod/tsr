@@ -165,14 +165,15 @@ fn a_negated_bigint_literal_is_a_negative_bigint_literal() {
 
 #[test]
 fn an_operand_this_port_cannot_type_makes_the_result_a_gap() {
-    // The only thing the answer depends on is whether the operand is
-    // bigint-like, and an `error` operand is exactly the case where that is
-    // unknown — so `number` would be a guess.
-    //
-    // The operand is a variable with an unresolvable annotation rather than an
-    // unported *expression* form, deliberately: this fixture used `new C()`
-    // until `new` was ported, at which point it started asserting the opposite
-    // of what it says. An unresolved name stays a gap however much of the
-    // expression grammar lands later.
-    assert_eq!(type_of_last("var u: Unresolved;\nconst x = -u;"), "error");
+    // The twenty-first stand-in fixture to come due, and this one flipped
+    // TWICE: it used `new C()` until `new` was ported, then asserted `error`
+    // on the grounds that a gap operand makes bigint-likeness unknown — an
+    // intuition the ninth session falsified against the anchor:
+    // `maybeTypeOfKind` (`checker.go:10923`) is a FLAG test, an
+    // unresolved/any operand does not carry `BigIntLike`, and upstream falls
+    // straight to `numberType` (`bitwiseNotOperatorWithAnyOtherType.types`
+    // records `~ANY1 : number` throughout). The unresolved-name type prints
+    // its written name (`tsr-eep`) and negates to `number` exactly as
+    // upstream's errorType operand does.
+    assert_eq!(type_of_last("var u: Unresolved;\nconst x = -u;"), "number");
 }

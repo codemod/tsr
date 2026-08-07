@@ -686,3 +686,29 @@ assigned type (`number`, not `any`) at a mixed-path reference → the
 absorption model is wrong and the arm needs the branch-label distinction,
 stop and record; regressed == 0; lost == 0 (strict behaviour untouched by
 construction).
+
+### §9.5 §9.4 scored — the one-line arm delivered the family's non-strict half, plus a falsified intuition
+
+```
+WRONG→RIGHT 510 · GAP→RIGHT 506 · GAP→WRONG 6 · RIGHT→anything 0
+0 regressed · suite +19 cases (2,963 → 2,982) · 74.19% → 74.40%
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +200 | **+1,010** | pass (5×) |
+| 2 | own ≤ 25 | **6** (4 catch-clause narrowing, 2 JSX parse-recovery) | pass — the mixed-path falsifier did not fire |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** — after the unary fix below | pass |
+
+The first measurement's 8 losses were all `~`/`-` on a newly-`any` operand
+and exposed a wrong intuition comment in `unary_result_type`:
+`maybeTypeOfKind` is a **flag** test (`checker.go:10923`), an `any`/`unknown`
+operand does not carry `BigIntLike`, and upstream answers `number` —
+`bitwiseNotOperatorWithAnyOtherType.types` throughout. The comment claiming
+the opposite is the **eighth** intuition comment this project has falsified
+against its own anchor, and the twenty-first stand-in fixture came due — one
+that had already flipped once and whose second assertion was also wrong.
+
+The strict same-container behaviour is untouched by construction (the §9.2
+losses' population), and the OUTER-strict remainder keeps §9.2's price list.

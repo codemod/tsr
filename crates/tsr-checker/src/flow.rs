@@ -264,6 +264,14 @@ impl Checker<'_, '_> {
             // label out of the assignment on one path and this on the other.
             initial_type: match initial_type {
                 Some(initial) => initial,
+                // `checker.go:11165`'s substituted initial — and the §9.3
+                // rule's non-strict half (`checker-notes-narrow.md` §9.4):
+                // with `strictNullChecks` off, a never-assigned auto
+                // reference answers `any` (the corpus's non-strict
+                // want-`any` population), and the initial IS that answer;
+                // strict same-container keeps `undefined`, which the §9.2
+                // revert's losses pinned.
+                None if is_auto && !self.strict_null_checks => self.intrinsics.any,
                 None if is_auto => self.intrinsics.undefined,
                 None => declared_type,
             },
