@@ -42,14 +42,12 @@ fn an_unresolved_name_prints_itself() {
     assert_eq!(type_of_annotation("let x: NodeType;"), "NodeType");
 }
 
-/// A qualified name is minted **only when its root does not resolve**.
+/// A qualified name whose root **does not resolve** is minted here.
 ///
-/// `resolveEntityName` is unported, so `M.I` where `M` is a real namespace has
-/// to keep gapping — this port cannot compute it, and upstream's answer there
-/// depends on `getAccessibleSymbolChain` (`bd tsr-awa`). The discriminator is
-/// upstream's own control flow: `getUnresolvedSymbolForEntityName` is reached
-/// *only* when `resolveEntityName` failed, and that begins by resolving the
-/// leftmost name.
+/// The discriminator is upstream's own control flow:
+/// `getUnresolvedSymbolForEntityName` is reached *only* when `resolveEntityName`
+/// failed, and that begins by resolving the leftmost name
+/// (`resolveQualifiedName`, `checker.go:15829`).
 ///
 /// Shipping this arm ungated gained 8,797 corpus lines against 4,645 gated —
 /// and a `matched`-count bar could not tell how many of the extra 4,152 were
@@ -61,12 +59,18 @@ fn an_unresolved_qualified_name_is_minted_when_its_root_does_not_resolve() {
     assert_eq!(type_of_annotation("let x: TypeScript.AST;"), "TypeScript.AST");
 }
 
-/// The other arm: the root resolves, so upstream had a real symbol and this
-/// port must keep gapping until `resolveEntityName` lands.
+/// The other arm: the root **does** resolve, so upstream had a real symbol.
+///
+/// **This assertion was `"error"` until design W landed.** It stood for
+/// *"`resolveEntityName` is unported"*, and the gap it recorded was priced at
+/// 4,557 corpus lines by `docs/architecture/checker-notes-qualname.md`. The arm
+/// now resolves the name through the namespace's exports and reprints the
+/// written text; `tests/qualified_type_reference.rs` owns the rest of its
+/// behaviour, including the one position where it still refuses.
 #[test]
-fn a_qualified_name_whose_root_resolves_still_gaps() {
+fn a_qualified_name_whose_root_resolves_prints_the_written_name() {
     let source = "namespace M { export interface I {} }\nlet x: M.I;";
-    assert_eq!(type_of_annotation(source), "error");
+    assert_eq!(type_of_annotation(source), "M.I");
 }
 
 /// Type arguments go on the alias upstream, so they are printed.

@@ -8,7 +8,7 @@
 //! Not to be confused with [`crate::symbols`], which answers what type a
 //! *value* symbol has.
 
-use tsr_ast::{Expression, Node, SyntaxKind, TypeNode};
+use tsr_ast::{Expression, Node, NodeId, SyntaxKind, TypeNode};
 use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
@@ -160,8 +160,9 @@ impl<'a> Checker<'a, '_> {
     /// Resolves the name and asks the symbol what type it declares. Two things
     /// are deliberately left as gaps rather than approximated:
     ///
-    /// - **A qualified name** (`M.I`) needs `resolveEntityName` walking module
-    ///   exports, which the binder does not expose yet.
+    /// - **A qualified name** (`M.I`) goes to
+    ///   [`Checker::qualified_type_reference`], which reprints the written
+    ///   entity name rather than building upstream's symbol chain.
     /// - **Type arguments** (`C<number>`) need instantiation, the machinery
     ///   upstream guards with a depth of 100 and a count of 5 million
     ///   (`checker.go:22111`, `bd tsr-el3.2`). Half of it — substituting names
@@ -169,24 +170,27 @@ impl<'a> Checker<'a, '_> {
     ///   corpus and hangs on a real program.
     fn get_type_from_type_reference(&mut self, node: &tsr_ast::TypeReferenceNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
-        // **A qualified name is minted only when its root does not resolve.**
-        //
-        // `resolveEntityName` is unported, so this port cannot type `M.I` where
-        // `M` is a real namespace — upstream resolves that and prints `I`, not
-        // `M.I`. Minting the written text unconditionally would turn every
-        // *resolvable* qualified reference into a confident wrong line, and a
-        // `matched`-count bar cannot see it: those lines gap today, so gap→wrong
-        // moves nothing the bar watches. That is how this arm shipped and was
-        // caught by a unit test rather than by the corpus.
-        //
-        // The discriminator is upstream's own control flow:
+        // **A qualified name splits on whether its root resolves as a
+        // namespace**, which is upstream's own control flow:
         // `getUnresolvedSymbolForEntityName` is reached *only* when
         // `resolveEntityName` failed, and `resolveEntityName` begins by
-        // resolving the **leftmost** name as a namespace. So if the root
-        // resolves, upstream had a real symbol and this port must keep gapping
-        // until `resolveEntityName` lands; if the root does not resolve,
-        // nothing downstream can, and the whole dotted path is unresolvable for
-        // upstream too.
+        // resolving the **leftmost** name as a namespace
+        // (`resolveQualifiedName`, `checker.go:15829`).
+        //
+        // - The root does **not** resolve — nothing downstream can, the whole
+        //   dotted path is unresolvable for upstream too, and upstream mints the
+        //   synthetic symbol and prints the written text.
+        //   [`Checker::unresolved_type_reference`].
+        // - The root **does** resolve — upstream had a real symbol, and this
+        //   port answers it through [`Checker::qualified_type_reference`], whose
+        //   doc comment carries the design and the one refusal inside it.
+        //
+        // Until `2a7a03f` the second arm was an unconditional `errorType`,
+        // because minting the written text *unconditionally* turns every
+        // resolvable qualified reference into a confident wrong line and a
+        // `matched`-count bar cannot see it — those lines gap today, so gap→wrong
+        // moves nothing the bar watches. That refusal was of an unrefined design;
+        // see `docs/architecture/checker-notes-qualname.md`.
         let name = match node.type_name {
             Some(tsr_ast::EntityName::Identifier(name)) => name,
             Some(qualified @ tsr_ast::EntityName::QualifiedName(_)) => {
@@ -197,20 +201,16 @@ impl<'a> Checker<'a, '_> {
                 }
                 let tsr_ast::EntityName::Identifier(root) = root else { return error };
                 let Some(root_id) = root.node_id else { return error };
-                if self
-                    .binder
-                    .resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        root_id,
-                        root.text,
-                        SymbolFlags::NAMESPACE,
-                    )
-                    .is_some()
-                {
-                    return error;
-                }
-                return self.unresolved_type_reference(node);
+                let Some(namespace) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    root_id,
+                    root.text,
+                    SymbolFlags::NAMESPACE,
+                ) else {
+                    return self.unresolved_type_reference(node);
+                };
+                return self.qualified_type_reference(node, qualified, namespace);
             }
             None => return error,
         };
@@ -754,6 +754,159 @@ impl<'a> Checker<'a, '_> {
         let id = self.store.new_named(TypeFlags::ANY, printed, None);
         self.unresolved_types.insert(id);
         id
+    }
+
+    /// A type reference `M.I` whose leftmost name **does** resolve as a
+    /// namespace, printed as the entity name that was written.
+    ///
+    /// Anchored to `resolveQualifiedName` (`checker.go:15828`) for the
+    /// resolution and to `needsQualification` (`symbolaccessibility.go:688`) for
+    /// the refusal. **Design W** of
+    /// [`docs/architecture/checker-notes-qualname.md`](../../../docs/architecture/checker-notes-qualname.md),
+    /// with that page's positional refusal.
+    ///
+    /// # Why the *written* text and not the symbol's name
+    ///
+    /// Upstream resolves `M.I` to `I`'s symbol and then hands the printing to
+    /// `getSymbolChain` (`nodebuilderimpl.go:1087`), which re-derives a
+    /// qualifier from the reference site. That chain is unported, and the
+    /// obvious substitute — resolve and print the symbol's bare name — is
+    /// **design R** on that page and is refused there with a number: 384
+    /// conversions against 1,025 newly wrong lines, because upstream's baselines
+    /// want the qualifier wherever the source bothered to write one. Reprinting
+    /// the written text is the design whose forecast is 1,702 conversions
+    /// against 20.
+    ///
+    /// # The one refusal, and it is upstream's rule rather than a knob
+    ///
+    /// `needsQualification` (`symbolaccessibility.go:688`) answers *no qualifier
+    /// needed* the moment a symbol table in scope holds the symbol itself
+    /// (`symbolaccessibility.go:701`). Inside `namespace M`, `I` is in scope, so
+    /// upstream prints `I` and the written `M.I` is over-qualified by
+    /// construction. 79 of design W's 99 would-be-wrong lines come from exactly
+    /// that position against only 68 conversions, so the site being inside the
+    /// namespace it qualifies is refused.
+    ///
+    /// [`Checker::site_is_inside_namespace`] is a deliberate **over**-approximation
+    /// of `needsQualification`: it also refuses a site inside the namespace's own
+    /// enclosing namespace, where upstream might still qualify. Over-approximating
+    /// a refusal can only cost conversions, never add wrong lines, and it is the
+    /// predicate the counterfactual's 1,702/20 was measured with — a build that
+    /// narrowed it would be reporting under a forecast it did not compute.
+    ///
+    /// # The answer is still a gap, and that is what makes this unable to lose
+    ///
+    /// The type minted here is [`Checker::unresolved_type_reference`]'s, so
+    /// [`Checker::is_error`] stays true and every consumer downstream — the
+    /// arithmetic arm, `+`, the union worker, property access — keeps
+    /// propagating a gap. **Only the line that renders this node changes.** That
+    /// is a stated deviation from upstream, which has a real type here: a
+    /// resolved `M.I` participates in assignability and property lookup, and
+    /// this port declines all of that rather than approximating it from a
+    /// symbol whose declared type it has not asked for. The registered bar was
+    /// `lost == 0`, and a mechanism that cannot move a line it does not render
+    /// is how that is met by construction rather than by measurement.
+    fn qualified_type_reference(
+        &mut self,
+        node: &tsr_ast::TypeReferenceNode<'a>,
+        name: tsr_ast::EntityName<'a>,
+        namespace: SymbolId,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(site) = node.node_id else { return error };
+        if self.site_is_inside_namespace(site, namespace) {
+            return error;
+        }
+        // W still has to *resolve* to answer at all: a name upstream cannot
+        // resolve is a different bucket, and printing text for it here would be
+        // inventing an export that does not exist.
+        if self.resolve_entity_name(name, SymbolFlags::TYPE).is_none() {
+            return error;
+        }
+        self.unresolved_type_reference(node)
+    }
+
+    /// `resolveEntityName` (`checker.go:15772`) for the two arms a type
+    /// reference can take.
+    ///
+    /// The qualified arm is `resolveQualifiedName` (`checker.go:15828`):
+    /// resolve the left with meaning `SymbolFlagsNamespace`, then look the
+    /// right-hand text up in `getExportsOfSymbol(namespace)`
+    /// (`checker.go:15851`). The resolution site is the name's own node, which
+    /// is upstream's default — `resolveEntityName` falls back to `name` when its
+    /// `location` is nil (`checker.go:15789`), and every call reaching a type
+    /// reference passes nil.
+    ///
+    /// **Three of upstream's arms are not ported and each is a `None` rather
+    /// than an approximation**: the `export =` re-resolution through
+    /// `resolveAlias` when the export lookup misses (`checker.go:15855`), the
+    /// `CommonJS` `require` redirect (`checker.go:15836`), and the alias chain
+    /// upstream walks when the found symbol lacks the wanted meaning
+    /// (`checker.go:15820`). An `ALIAS` is accepted here without being resolved,
+    /// which is what `BindResult::resolve_name`'s own `lookup_scoped` already
+    /// does for the leftmost name; resolving it needs `bd tsr-4jk`'s machinery.
+    fn resolve_entity_name(
+        &self,
+        name: tsr_ast::EntityName<'a>,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        match name {
+            tsr_ast::EntityName::Identifier(identifier) => self.binder.resolve_name(
+                self.nodes,
+                self.node_map,
+                identifier.node_id?,
+                identifier.text,
+                meaning,
+            ),
+            tsr_ast::EntityName::QualifiedName(qualified) => {
+                let namespace =
+                    self.resolve_entity_name(qualified.left?, SymbolFlags::NAMESPACE)?;
+                let right = qualified.right?;
+                let found = *self.binder.symbols().get(namespace).exports.get(right.text)?;
+                let found = self.binder.merged_symbol(found);
+                let flags = self.binder.symbols().get(found).flags;
+                (flags.intersects(meaning) || flags.intersects(SymbolFlags::ALIAS)).then_some(found)
+            }
+        }
+    }
+
+    /// Whether the reference site sits inside the namespace it is qualifying —
+    /// the position `needsQualification` (`symbolaccessibility.go:688`) answers
+    /// *no qualifier needed* for.
+    ///
+    /// Two tests, and the second is the over-approximation
+    /// [`Checker::qualified_type_reference`] documents: the site is inside one
+    /// of the namespace's own declarations, **or** inside the nearest
+    /// `ModuleDeclaration` enclosing one of them. Upstream recovers containers
+    /// the same way — `getContainersOfSymbol` (`symbolaccessibility.go:280`)
+    /// walks declarations, because `Symbol.Parent` is left off for locals.
+    fn site_is_inside_namespace(&self, site: NodeId, namespace: SymbolId) -> bool {
+        let declarations = &self.binder.symbols().get(namespace).declarations;
+        if declarations.iter().any(|&declaration| Self::is_inside(self.nodes, site, declaration)) {
+            return true;
+        }
+        for &declaration in declarations {
+            let mut current = self.nodes.parent(declaration);
+            while let Some(id) = current {
+                if matches!(self.node_map.get(id), Some(Node::ModuleDeclaration(_))) {
+                    return Self::is_inside(self.nodes, site, id);
+                }
+                current = self.nodes.parent(id);
+            }
+        }
+        false
+    }
+
+    /// Whether `node` is `container` or sits beneath it.
+    fn is_inside(nodes: &tsr_ast::NodeTable, node: NodeId, container: NodeId) -> bool {
+        let mut current = Some(node);
+        while let Some(id) = current {
+            if id == container {
+                return true;
+            }
+            current = nodes.parent(id);
+        }
+        false
     }
 
     /// The source spelling of an entity name — `A`, or `A.B.C`.

@@ -544,6 +544,8 @@ struct Report {
     c1_root_does_not_gap: usize,
     c3_left_not_a_namespace: usize,
     c3_routes: BTreeMap<&'static str, usize>,
+    c3_kinds: BTreeMap<String, usize>,
+    c3_outcomes: BTreeMap<String, usize>,
     /// How many `depend.rs` steps separate the assertion node from the root
     /// reference, capped at 4. `1` is the scorable population.
     depths: BTreeMap<usize, usize>,
@@ -598,6 +600,8 @@ impl Report {
             (&mut self.at_risk_p_sample, &other.at_risk_p_sample),
             (&mut self.at_risk_p_loose_cases, &other.at_risk_p_loose_cases),
             (&mut self.at_risk_p_loose_names, &other.at_risk_p_loose_names),
+            (&mut self.c3_kinds, &other.c3_kinds),
+            (&mut self.c3_outcomes, &other.c3_outcomes),
         ] {
             for (key, n) in source {
                 *target.entry(key.clone()).or_default() += n;
@@ -959,7 +963,9 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             {
                 report.c1_root_does_not_gap += 1;
             }
-            if !bound.symbols().get(root_symbol).flags.intersects(SymbolFlags::NAMESPACE) {
+            let c3_line =
+                !bound.symbols().get(root_symbol).flags.intersects(SymbolFlags::NAMESPACE);
+            if c3_line {
                 report.c3_left_not_a_namespace += 1;
                 // Which of `resolve_name`'s two unfiltered routes admitted it.
                 // `lookup_scoped` accepts an `ALIAS` whatever its own flags say
@@ -974,6 +980,18 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     "neither an alias nor a global — unexplained"
                 };
                 *report.c3_routes.entry(route).or_default() += 1;
+                // What the admitted-but-not-a-namespace leftmost actually IS,
+                // by the kind of its first declaration. The question C3 cannot
+                // answer on its own is whether the classified population is a
+                // MIXTURE, and that is decided by whether these are aliases
+                // *to* namespaces or something else in type position.
+                let kind = bound
+                    .symbols()
+                    .get(root_symbol)
+                    .declarations
+                    .first()
+                    .map_or(SyntaxKind::Unknown, |&d| nodes.kind(d));
+                *report.c3_kinds.entry(format!("{kind:?}  [{}]", case.name)).or_default() += 1;
             }
             let wanted = want.text.rsplit_once(" : ").map_or("", |(_, a)| a).to_string();
             if wanted == "any" {
@@ -1116,6 +1134,12 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     other => other.label().to_string(),
                 };
                 *forms.entry(bucket).or_default() += 1;
+                if c3_line {
+                    *report
+                        .c3_outcomes
+                        .entry(format!("{design}  {}", outcome.label()))
+                        .or_default() += 1;
+                }
                 *report.families.entry((family.clone(), design, outcome.label())).or_default() += 1;
                 match outcome {
                     Outcome::Converts => {
@@ -1279,6 +1303,8 @@ fn main() {
         println!("  {n:>6}  {depth} step(s){label}");
     }
 
+    print_map("C3 — what the non-namespace leftmosts are", &report.c3_kinds, 25);
+    print_map("C3 — how that subset scores", &report.c3_outcomes, 20);
     print_map("Design W — every bucket", &report.forms_w, 30);
     print_map("Design R — every bucket", &report.forms_r, 30);
     print_map("Design W — the would-be-wrong lines, verbatim", &report.wrong_w, 25);

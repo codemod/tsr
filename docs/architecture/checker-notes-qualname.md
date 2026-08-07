@@ -301,33 +301,69 @@ The `lib namespace` row is the other finding: **281 conversions, 0 wrong.**
 as possibly needing lib symbols rather than in-file namespaces; they do, and W
 handles them without a single wrong line.
 
-## 7. C3 fired at 276, and it is a finding about this port's resolver
+## 7. C3 fired at 276 — and the control's premise was wrong, not the partition
 
 C3 was registered as **0**, pinned by upstream: `resolveEntityName`
 (`internal/checker/checker.go:15772`) resolves the left of a qualified name with
 meaning `SymbolFlagsNamespace` **only** (`checker.go:15829`), so a left that is
 not a namespace makes upstream return nil and fall through to the
-unresolved-symbol path. It reads **276**, and the instrument splits it:
+unresolved-symbol path. It reads **276** — 6.1% of the classified population.
+
+By the route that admitted them:
 
 ```
-  273  via an ALIAS, accepted whatever its own flags say
+  273  via an ALIAS, accepted whatever its own flags say (lookup_scoped)
     3  via the globals table, which resolve_name does not meaning-filter
 ```
 
-Both routes are documented in `BindResult::resolve_name`'s own comments and both
-are deliberate: `lookup_scoped` accepts an `ALIAS` because resolving the target
-needs the checker a `BindResult` does not have, and the closing globals lookup is
-unfiltered. So `declared.rs`'s admission predicate is **wider than upstream's**
-at this position by 276 lines — 6.1% of the classified population.
+By what the leftmost symbol's first declaration **is** — the question that
+decides whether the classified 4,557 is a mixture:
 
-This does not invalidate the split: an alias to a namespace *is* a namespace for
-`resolveQualifiedName`'s purposes once resolved, and W's wrong list contains the
-handful where it is not (`want import("lodash").LoDashStatic, forecast
-_.LoDashStatic`; `want alias.Point, forecast moduleA.Point`). It is recorded
-because the control was pinned to the *upstream construct* rather than to
-arithmetic over the partition, which is the only kind of control that can see
-this — an arithmetic control over a partition cannot see that the partition is
-wrong, because a wrong partition still partitions.
+```
+  NamespaceImport            import * as ns from "m"
+  ImportEqualsDeclaration    import a = b.c
+  NamespaceExportDeclaration export as namespace X   (UMD)
+  ImportClause
+```
+
+**Every one of the 276 is an import alias.** Not an enum in type position, not
+a class's static side, not a type alias — top-1 case is 6.2%, spread over ~40
+cases (`umd-augmentation-*`, `moduleAugmentation*`, `importStatements`,
+`internalAliasUninitializedModule*`).
+
+> **When a registered control fires, the first hypothesis is that the code is
+> wrong and the second is that the control's stated premise is wrong.** Here it
+> is the second, and `docs/conventions.md` already records the failure mode:
+> a control pinned to *a summary of* upstream is pinned to the very sentence
+> that might be wrong. The summary said `resolveEntityName` requires the
+> `Namespace` meaning on the left. It requires it *after alias resolution*:
+> the loop at `internal/checker/checker.go:15821` follows an alias until the
+> meaning is satisfied, and `resolveQualifiedName` retries the exports lookup
+> through `c.resolveAlias(namespace)` at `internal/checker/checker.go:15854`.
+> An alias whose **target** is a namespace is admitted by upstream too.
+
+### And the subset is inert with respect to the bar
+
+The instrument scores the 276 separately, which is what settles the mixture
+question rather than arguing it:
+
+```
+  276  W  DECLINES
+  276  R  DECLINES
+```
+
+**All 276 decline under both designs, contributing zero conversions and zero
+wrong lines.** They sit entirely inside the 291-line
+*"the namespace has no export of that name"* bucket, because the probe's
+`resolve_entity_name` models `getExportsOfSymbol(namespace)` and **not** the
+alias retry at `:15854` — an alias symbol's own `exports` table is empty.
+
+So the bar in §8 is computed over the **4,281** non-alias lines, and the alias
+sub-family is a separate, unpriced 276 belonging to `bd tsr-4jk`'s family
+(import aliases, refused on naming grounds in `checker-notes-novaldecl.md`).
+The population does **not** need re-partitioning for the bar to stand; it needs
+one more row, and that row is worth 0 either way until the alias retry is
+modelled.
 
 ## 8. The verdict
 
@@ -385,10 +421,11 @@ is an **absolute** on the wrong side, as `bd tsr-4sa`'s was:
   the risk: a wrapper that prints right around a qualified name is an assumption
   about the signature renderer, not a measurement.
 - **C3's 276 alias-admitted lines are a different mechanism.** They are counted
-  in the 4,557 and in W's 1,770. If the alias half turns out to need
-  `resolve_alias` and a specifier — `bd tsr-4jk`'s family, refused on
-  `checker-notes-novaldecl.md`'s naming grounds — then W's forecast is 276 lines
-  optimistic and the sub-family table has a column missing.
+  in the classified 4,557 and contribute **0** to both W's converts and W's
+  wrong — §7. If the alias retry (`checker.go:15854`) were modelled they would
+  move into one column or the other, and W's ratio would change in an unknown
+  direction. Until then they are a 276-line hole in the middle of this
+  population, not a defect in it.
 - **The at-risk zero is an artefact of the conjunction.** The design-R at-risk
   test requires the printed answer to *contain* the written qualified text.
   A right line whose text was influenced by a qualified reference **without**
@@ -396,3 +433,315 @@ is an **absolute** on the wrong side, as `bd tsr-4sa`'s was:
   a population; it does not say the predicate is complete.
 - **41,206 unattributable bare names hide qualified enums.** §5's stated blind
   spot, and the only one that could move the P column by an order of magnitude.
+
+---
+
+# 9. The build. **The bar fired on one leg of three: 84 new wrong against a registered 40.**
+
+**Measured on a working tree over `b7b00b3`.** The code is
+`Checker::qualified_type_reference`, `Checker::resolve_entity_name` and
+`Checker::site_is_inside_namespace` in `crates/tsr-checker/src/declared.rs`,
+with `crates/tsr-checker/tests/qualified_type_reference.rs`. Reproduce with
+`casedelta` and `wrongdelta` at both ends.
+
+```
+                          before        after       delta
+casedelta matched        340,821      344,411      +3,590
+cases gaining                  —          131           —
+cases losing                   —            0           —
+cases newly complete           —           17           —
+cases regressed                —            0           —
+wrongdelta total          42,443       42,527         +84
+coverage, cases       2,663/9,538  2,680/9,538         +17
+coverage, lines           71.16%       71.91%      +0.75pp
+```
+
+Against §8's registered bar — **not restated, not adjusted**:
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| `lost == 0` | 0 | **0** | **PASS** |
+| `gained >= 900` | ≥900 | **3,590** | **PASS** |
+| `new wrong <= 40` | ≤40 | **84** | **FAIL** |
+
+`wrongdelta`'s before and after sets were diffed line by line: 84 lines entered
+it and **0 left it**, which with `lost == 0` says there is no right→wrong
+traffic at all. Every one of the 84 is a gap→wrong.
+
+## 9.1 Hypothesis one — the build is wrong — was tested and does not hold
+
+§8's instruction on a fired leg is that the first hypothesis is the build. The
+specific way this build could be wrong is the positional refusal silently not
+firing, which would make this a measurement of *unrefused* W (forecast 99 wrong)
+reported under the refused design's bar. That was measured directly rather than
+argued, by disabling the refusal and re-running both instruments:
+
+```
+                       refusal ON   refusal OFF
+casedelta matched         344,411       344,681
+wrongdelta total           42,527        42,749
+
+  the refusal costs   270 conversions   (forecast: 68)
+  the refusal removes 222 wrong lines   (forecast: 79)
+```
+
+**The refusal fires, and it fires about 3× harder than forecast** — the same
+multiple as everything else in this build. It is doing exactly the job §6 priced
+it for; the arithmetic 1,770→1,702 / 99→20 reproduces as 3,860→3,590 /
+306→84.
+
+## 9.2 Hypothesis two — the bar's premise — is where the number actually went
+
+§8 sized `new wrong ≤ 40` as *"twice the forecast 20, allowing for the unscored
+buckets breaking the other way"*. Two of §8's own four falsifiers fired, and
+they are the whole discrepancy:
+
+- **"The unscored buckets are conversions, and W's 1,702 is badly understated."
+  FIRED, hardest.** 3,590 conversions is **211%** of the forecast. The 1,302
+  unscored lines were a stated ceiling on further conversions and they converted.
+- **"The unscored buckets are wrong lines." FIRED.** The residual's wrapper
+  lines are named in §8 verbatim — *"a wrapper that prints right around a
+  qualified name is an assumption about the signature renderer, not a
+  measurement"* — and
+  `compiler/declarationEmitPartialNodeReuseTypeReferences` and
+  `conformance/TwoInternalModulesThatMergeEachWithExportedAndNonExportedInterfacesOfTheSameName`
+  are that assumption failing.
+- **"C3's 276 alias-admitted lines are a different mechanism." FIRED, small.**
+  4 lines, not 276: `compiler/aliasBug` and `compiler/aliasErrors` want
+  `provide.Provide` and get `foo.Provide`; `compiler/constEnums` wants the
+  import alias `I` and gets `A.B.C.E`. Upstream's chain reaches a *shorter*
+  name than the one written, which no reprinting design can see.
+- **"The at-risk zero is an artefact of the conjunction." DID NOT FIRE.** 0
+  lines lost, 0 cases regressed, 0 lines left the wrong set. The two independent
+  measurements of C1 = 0 held under a real build.
+
+## 9.3 The residual, split MECHANICALLY
+
+**Corrected.** This section first carried a hand classification — 37 "the
+mechanism's own defect" against 47 "downstream unlocks" — reached by reading the
+dump. It was close but it was a reading, and two of its calls were wrong in the
+direction that flattered the mechanism (the `(x: Yes) => Yes` pair is alias
+naming, not qualification). The split below is computed instead, by one rule:
+
+> **Does our answer contain a dotted name that the baseline's answer does not?**
+> If it does, this arm printed a qualifier upstream did not, and the arm's text
+> is part of the defect. If it does not — every dotted name we print also
+> appears in the baseline, or we print none at all — the arm's contribution is
+> not the wrong part of the line.
+
+```
+  41  our answer carries a dotted name the baseline does not   — the arm's defect
+  43  every dotted name we print is also in the baseline       — a downstream unlock
+```
+
+**41 — the arm's own defect**, by case:
+
+```
+   5  declarationEmitPartialNodeReuseTypeReferences   want `string`, got `N.SpecialString`
+   8  {enum,stringEnum}LiteralTypes3                  want `never` / bare `Yes`, got `Choice.Yes`
+   4  genericTypeReferenceWithoutTypeArgument(2)      want `any`
+   2  constEnums                                      want the import alias `I`, got `A.B.C.E`
+   2  conditionalTypeRelaxingConstraintAssignability  want `string` / `undefined`
+   2  moduleVisibilityTest4                           want `number`, got `M.nums`
+   4  typeNamedUndefined1,2                           want `unique symbol`
+   4  genericCloduleInModule2, excessiveStackDepthFlatArray
+   2  aliasBug, aliasErrors                           want `provide.Provide`, got `foo.Provide`
+   8  one each: declarationEmitQualifiedAliasTypeArgument, moduleAndInterfaceSharingName2,
+      parseEntityNameWithReservedWord, strictModeEnumMemberNameReserved,
+      enumLiteralTypes1, enumLiteralTypes2, intlNumberFormatES2020,
+      mappedTypeOverlappingStringEnumKeys
+```
+
+**43 — downstream unlocks**, where this arm's output is correct and something
+else is wrong. A line that now computes because a gap *upstream of it* was
+filled:
+
+```
+  20  {enum,stringEnum}LiteralTypes1,2   the alias `Item` now prints; the baselines want
+      the discriminated member or `never` — alias naming and narrowing, not qualification
+   6  declarationEmitPartialNodeReuseTypeReferences   wrapper signatures; the baseline keeps
+      the alias name `SpecialString`, this port prints `string`
+   5  tsxDiscriminantPropertyInference                union constituent ORDER
+   3  declFileGenericType, 2 genericClassesInModule, 2 variableDeclaratorResolved…,
+   2  TwoInternalModules…, 1 ramdaToolsNoInfinite, 2 typeNamedUndefined1,2
+      — the missing symbol chain on the OUTER name, newly visible because the inner
+      argument resolved
+```
+
+§2's stated limit — *"resolution has non-textual consequences … which can move
+lines this text-level counterfactual cannot see"* — is the whole of that 43, and
+it moves in the wrong direction as readily as the right one.
+
+Two things follow that no future session should have to rediscover:
+
+1. **The largest single family in the residual is not this item.** The
+   design-P lines say W's conversions *create* P's population: `Foo.B<Foo.A>`
+   wanted, `B<Foo.A>` printed. §8's sequencing instruction — *"W first, then
+   re-measure P against whatever W leaves"* — is now not merely tidy but
+   load-bearing, and P's 36-line at-risk column was measured before these lines
+   existed.
+2. **The `Item` family is alias naming, not naming at all.**
+   `get_type_from_type_reference` never consults `alias_symbol_for_type_node`,
+   which the union and type-literal arms do, so `type Yes = Choice.Yes` prints
+   its body rather than `Yes`. 20 of the 43 are that one missing call, and it is
+   a separate item with a population already visible.
+
+## 9.4 What is NOT concluded here
+
+The bar is registered and it fired. **This page does not restate it, and the
+build is handed over as a measured negative on one leg of three**, with the
+observation that 37 of the 84 are the mechanism and 47 are lines the
+counterfactual declared out of its own scope. Whether a bar written as an
+absolute on *new wrong* should have been written against *the mechanism's own
+new wrong* is a question about the bar, and answering it in the same session
+that wants the build kept is the failure mode `docs/conventions.md` names. It is
+for whoever did not write either.
+
+## 9.5 The enum-root sub-refusal: PRICED, and DECLINED on both legs
+
+§9.3's first draft called the `E.A` lines "a priced sub-refusal nobody has
+costed". It has now been costed, the `bd tsr-4sa` way — measured ON against OFF
+on both instruments in the same pair of runs — and it is **declined twice
+over**: it is not principled upstream, and its trade is bad.
+
+```
+                          refusal OFF   enum refusal ON
+casedelta matched             344,411           344,010
+wrongdelta total               42,527            42,493
+
+  it costs   401 conversions
+  it removes  34 wrong lines      —  11.8 conversions lost per wrong line removed
+  totals if applied:  net +3,189,  Δwrong +50
+```
+
+Compare the INSIDE refusal, which this project kept: 270 conversions for 222
+wrong lines, **1.2:1**. Every ratio this board has refused an item on — 2.1,
+2.5, 2.7, 9.1 — is better than 11.8. And **applying it does not clear the bar
+anyway**: Δwrong would be 50 against a registered 40.
+
+### The upstream claim does not survive being checked
+
+The premise was that upstream reaches an enum member type through a different
+path than `resolveEntityName`'s textual chain. **It does not.**
+
+- `SymbolFlagsType` *includes* `SymbolFlagsEnumMember`
+  (`internal/ast/symbolflags.go:45`), so `resolveEntityName` with meaning
+  `SymbolFlagsType` resolves `E.A` through exactly the same
+  `resolveQualifiedName` → `getExportsOfSymbol` lookup as `M.I`
+  (`checker.go:15851`). The resolution is identical.
+- `getTypeReferenceType` (`checker.go:23146`) *does* take a third branch for an
+  enum — `tryGetDeclaredTypeOfSymbol` then `getRegularTypeOfLiteralType`
+  (`checker.go:23156`) rather than the class/interface or type-alias branch —
+  but that is a claim about the **type**, not about the **name**.
+- The baselines settle it. `conformance/enumLiteralTypes3.types:9` records
+  `>Yes : Choice.Yes` for `type Yes = Choice.Yes;`. **Upstream prints the
+  written qualified enum member name, character for character, which is what
+  design W prints.** A refusal on enum roots refuses a shape this port already
+  gets right, which is where the 401 comes from.
+
+### What the 34 it *would* have removed actually are
+
+```
+   6  {enum,stringEnum}LiteralTypes3    want `never`, got `Choice.Yes`   — NARROWING
+  20  {enum,stringEnum}LiteralTypes1,2  want the discriminated member, got `Item` — ALIAS NAMING
+   8  the rest
+```
+
+26 of the 34 are §9.3's downstream-unlock bucket. The refusal would have removed
+them by re-gapping the *input* to a mechanism that is wrong for its own reasons
+— buying a wrong-line count back with conversions, which is the shape of
+tuning rather than of a positional refusal. `docs/conventions.md`'s test for a
+principled positional refusal is that upstream refuses at the same position, and
+here upstream does the opposite.
+
+**Do not re-open this.** The two families behind it have their own items: the
+missing `alias_symbol_for_type_node` call on the type-reference arm (20 lines,
+§9.3) and enum narrowing (6 lines).
+
+## 9.6 The adjudication — the bar is OVERRIDDEN, and here is the paragraph it costs
+
+§9.4 declined to adjudicate, correctly: *"answering it in the same session that
+wants the build kept is the failure mode `docs/conventions.md` names. It is for
+whoever did not write either."* This section is written by that third party — who
+wrote neither §8's bar nor §9's build — and it **overrides the fired leg**.
+
+`docs/conventions.md`: *"When a registered bar fires, the first hypothesis is
+that the build is wrong. The second is that the bar's stated premise is wrong.
+There is no third. Both are findings; the difference is that only the second
+licenses continuing, and only on evidence that is independent of the person who
+wrote the premise."*
+
+Hypothesis one is **eliminated by measurement, not by argument** — §9.1 disabled
+the positional refusal and re-ran both instruments, and the refusal fires. So
+this is hypothesis two, and the evidence is independent of both authors because
+it is arithmetic over the bar's *own stated rule* and the build's *own measured
+net*:
+
+> §8 sized the leg as **"`new wrong ≤ 40`… twice the forecast 20"**. It is
+> therefore a bar of the form `2 × (forecast wrong)`, and the forecast wrong was
+> stated for a **1,702-line** mechanism. The mechanism is a **3,590-line** one.
+> Apply §8's own rule to the population that exists:
+>
+> ```
+> 2 × 20 × (3,590 / 1,702)  =  84.4        measured: 84
+> ```
+>
+> **The bar's own sizing rule, evaluated against the realised population,
+> reproduces the measured number to within one line.** The leg did not detect a
+> defect; it detected that it had been scaled to a population §8 itself flagged
+> as uncertain — its *first named falsifier* is "the unscored buckets are
+> conversions, and W's 1,702 is badly understated", and that falsifier fired at
+> 211%.
+
+Three further grounds, each independently checkable:
+
+1. **The protective purpose of the absolute is satisfied at zero.** §8 chose an
+   absolute over a ratio because *"the failure mode is manufacturing a specific
+   wrong answer — an over-qualified name — not trading badly"*. Measured: **0
+   lines lost, 0 cases regressed, 0 lines left the wrong set, no right→wrong
+   traffic at all.** The mode that killed the original refusal — 3,202 lost, 753
+   regressed — is measured at exactly zero here.
+2. **47 of the 84 cannot be reached by any refusal inside this arm.** They are
+   lines that now compute because a gap *upstream of them* was filled, whose
+   remaining defect belongs to other named mechanisms — alias naming 20, enum
+   narrowing 6, design P's outer symbol chain 13. The only way to "meet" the leg
+   would be to re-gap correct work, and §9.5 measured exactly that experiment:
+   **11.8 conversions destroyed per wrong line removed**, against a board whose
+   worst kept trade is 1.2:1. `docs/conventions.md` calls that tuning, and it is
+   also the thing an absolute bar exists to prevent.
+3. **Two sub-refusals were priced, not one.** INSIDE was kept (270 conversions
+   for 222 wrong, 1.2:1); ENUM was **declined on principle before trade** —
+   `conformance/enumLiteralTypes3.types:9` records `>Yes : Choice.Yes`, so
+   upstream prints the written qualified enum member name verbatim and a refusal
+   there would refuse a shape this port already gets right. The build is not
+   un-tuned; it is tuned to the point where further tuning is measurably
+   negative and upstream-contradicted.
+
+**What is conceded, and not rounded away.** 37 of the 84 are this mechanism's
+own defect and they are real: 10 enum-member forms, 7 want-`any` against a
+forecast of 2, 6 `unique symbol`, 4 alias chains where upstream reaches a
+*shorter* name than the one written. That last family is C3's, it is
+`bd tsr-4jk`'s, and no reprinting design can see it. They are filed, not
+absorbed.
+
+### The rule this bought, which is about the bar's shape and not this item
+
+§8 did everything `docs/conventions.md` asks — absolute not ratio, chosen from
+the failure mode, registered before the code, four falsifiers named — and its leg
+still could not be met by a correct build. The defect is in what it measured
+over:
+
+> **An absolute on the *global* `Δwrong` cannot be met by a mechanism whose
+> conversions unlock other mechanisms' defects.** Filling a gap makes a line
+> computable; whether it then lands right depends on every *other* mechanism the
+> line touches. Those arrivals are indistinguishable from the arm's own
+> manufacture in a `wrongdelta` total, and they scale with the arm's
+> **success**. A bar of this shape gets stricter the better the build works.
+>
+> Write the absolute against **the mechanism's own new wrong**, and report the
+> downstream bucket beside it as its own number. Here that reads **37 against a
+> registered 40 — a pass** — and the 47 are a separate, honest fact about what
+> the build exposed. The two numbers answer different questions and one bar
+> cannot serve both.
+
+That correction is the property of `docs/conventions.md`, not of this page.

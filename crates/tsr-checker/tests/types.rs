@@ -682,21 +682,24 @@ fn a_type_parameter_is_its_own_named_type() {
 }
 
 #[test]
-fn a_qualified_name_is_still_a_gap() {
-    // `M.I` needs `resolveEntityName` through module exports. Resolving only the
-    // left-hand identifier would answer the module's type for the member, which
-    // is the plausible wrong thing.
+fn a_qualified_name_resolves_through_the_namespace_and_prints_what_was_written() {
+    // `M.I` goes through `resolveEntityName` and module exports. Resolving only
+    // the left-hand identifier would answer the module's type for the member,
+    // which is the plausible wrong thing.
     // The left-hand name is given a declared type of its own here — `M` is an
     // interface as well as a namespace — so a version that resolved `M.I` by its
-    // left identifier would answer `M` rather than failing. Without that
-    // merge the test passes whether or not qualified names are handled, which is
-    // the kind of test this project has shipped before.
+    // left identifier would answer `M` rather than `M.I`. Without that merge the
+    // test passes whether or not qualified names are handled, which is the kind
+    // of test this project has shipped before.
+    //
+    // This assertion was `"error"` until design W landed; the behaviour it now
+    // records is owned by `tests/qualified_type_reference.rs`.
     assert_eq!(
         type_of_declaration(
             "interface M {}\nnamespace M { export interface I {} }\ndeclare const x: M.I;",
             "x"
         ),
-        "error"
+        "M.I"
     );
 }
 
