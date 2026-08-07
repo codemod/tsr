@@ -104,6 +104,15 @@ built this session** and is `verdictdump.rs`; see the paragraph above for what i
 reads and for what it does *not* yet claim. The old warning still stands: **do not
 substitute a figure from one instrument into another's series.**
 
+**The wrong bucket re-split post-naming, seventh session (38,433 at
+`ffb77fe`, coarse shapes over the verdictdump):** 12,325 want `any`
+(ADR-0038/39 territory), 10,000 are `largeControlFlowGraph` alone, the naming
+families are down to **1,235** (874 dotted-qualifier + 361 `import()`-form),
+and the remainder is structural — unions 4,128, signature bodies 3,017,
+generics 2,785, unsplit 14,943. The morning's dominant family is now the
+smallest named one; what is left is ceiling and subsystems, which is §4.4's
+conclusion measured from the wrong side.
+
 **The wrong figure is carried forward by measured deltas, not re-derived.**
 It was once quoted 4,000 lines stale, which nearly failed a bar by 20 lines: a
 cross-instrument, cross-session subtraction is not a measurement. Re-run
