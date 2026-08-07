@@ -1661,7 +1661,29 @@ impl<'a> Checker<'a, '_> {
         if self.combined_node_flags(declaration).intersects(NodeFlags::CONSTANT) {
             return id;
         }
-        self.get_widened_literal_type(id)
+        let widened = self.get_widened_literal_type(id);
+        // `getWidenedTypeWithContext`'s nullable arm (`checker.go:18368`):
+        // a purely nullable WIDENING type is `any`. The widening twins exist
+        // only with `strictNullChecks` OFF — strict `let x = null` keeps
+        // `null` (`initializersWidened`, the §20 bar's fired leg: 69 R→W
+        // before this gate). See `checker-notes-narrow.md` §20.
+        if self.strict_null_checks {
+            return widened;
+        }
+        let flags = self.store.get(widened).flags;
+        if flags.intersects(crate::flags::TypeFlags::NULLABLE)
+            && !flags.intersects(!crate::flags::TypeFlags::NULLABLE)
+        {
+            return self.intrinsics.any;
+        }
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(widened).data
+            && types
+                .iter()
+                .all(|&t| self.store.get(t).flags.intersects(crate::flags::TypeFlags::NULLABLE))
+        {
+            return self.intrinsics.any;
+        }
+        widened
     }
 
     /// The type annotation of a declaration, if it has one.

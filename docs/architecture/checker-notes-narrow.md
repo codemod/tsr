@@ -1398,3 +1398,10 @@ widening: a mutable declaration whose widened initializer is purely
 nullable answers `any`. Falsifiers: (a) `const` declarations keep their
 `null` (the CONSTANT early-return already guards); (b) annotated `null`
 TYPES never pass through this path.
+
+**§20 score — LANDED after the fired leg.** The first pair read +150/71 and
+the 69 R→W named the gate: the widening twins exist only with
+`strictNullChecks` OFF — strict `let x = null` keeps `null`
+(`initializersWidened`, `implicitAnyCastedValue`). Gated: **+91 W→R, +12
+G→R, ZERO adverse.** `checker_types` right 370,043 → **370,146**, wrong
+22,094 → **22,003**.
