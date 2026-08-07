@@ -1461,3 +1461,18 @@ it dropped (`{}` vs `Record<string, unknown>`). Final: **+27 WRONG→RIGHT /
 3 RIGHT→WRONG** — the three are relater precision on `Record`
 instantiations and one alias-keep, recorded. `checker_types` right
 370,173 → **370,197**.
+
+### §23 A named interface with call signatures carries function facts
+
+The §16 residue: `case 'function'` kept `Basic` whole because the lib's
+`Function` interface — a `Named` type with a members table — took the
+object-facts arm of `get_type_facts`, and `typeof x === "function"` could
+not separate it from `object`. Upstream's facts split is by CALL/CONSTRUCT
+SIGNATURES (`getTypeFacts`' `ObjectFlags`/signature test), not by
+representation: any type with call or construct signatures answers
+`TypeofEQFunction`. The port's `Named` members carry rendered signature
+members; a member whose printed form opens with `(`, `<`, or `new ` is a
+call/construct signature (a METHOD prints its name first, so the prefix
+test separates them). Falsifier: interfaces with methods but no call
+signatures must stay object-facts (`typeGuardsInFunctionAndModuleBlock`'s
+object narrows).
