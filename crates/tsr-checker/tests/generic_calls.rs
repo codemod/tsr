@@ -110,12 +110,15 @@ fn type_arguments_that_do_not_check_are_a_gap() {
         type_of_last("function g(x: number): number { return x; }\nconst a = g<string>(1);"),
         "error"
     );
-    // A written argument this port cannot resolve is a gap, not `any`: the
-    // whole point of `f<Unported>()` not being `f<any>()`.
+    // The stand-in came due (the twenty-seventh): §31 made a truly
+    // unresolved NAME answer upstream's TS2304 `errorType`, printed `any` —
+    // so `typeof missing` is `any` and the instantiated call answers it,
+    // exactly as upstream's baseline would. An unresolved TYPE reference
+    // (`f<Unported>()`) still gaps; only value-name resolution changed.
     assert_eq!(
         type_of_last(
             "function f<T>(x: T): T { return x; }\nconst a = f<typeof missing>(1 as any);"
         ),
-        "error"
+        "any"
     );
 }

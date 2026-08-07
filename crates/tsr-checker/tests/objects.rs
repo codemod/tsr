@@ -90,8 +90,10 @@ fn a_string_named_property_prints_unquoted_only_when_it_is_an_identifier() {
 #[test]
 fn a_member_this_port_cannot_type_makes_the_whole_literal_a_gap() {
     // The same rule the type-node path already follows: a partial object type is
-    // a wrong answer that looks like a right one.
-    assert_eq!(type_of_initialiser("const o = { a: unknownThing };"), "error");
+    // a wrong answer that looks like a right one. §31 changed the MEMBER's
+    // answer: a truly unresolved name is upstream's TS2304 `any`, so the
+    // literal builds `{ a: any; }` — upstream's own baseline shape here.
+    assert_eq!(type_of_initialiser("const o = { a: unknownThing };"), "{ a: any; }");
     // A method needs a signature. A gap, not faked.
     //
     // The shorthand `{ a }` used to be asserted here as a second gap. It is now

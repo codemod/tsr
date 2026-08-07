@@ -1669,3 +1669,16 @@ plainly:** everywhere THIS PORT's resolver misses but upstream's resolves
 falsifier is the measure itself — a net-negative or wrong-heavy pair
 refuses the arm whole, and a partial gate (e.g. only when no import/export
 machinery is in scope) is the fallback to price.
+
+**§31 score — LANDED at the fifth measured variant.** Five gate sets
+priced: ungated +6,729/1,909; any-meaning resolution +6,708/1,720; +
+`arguments` +6,539/1,477; + JS-file decline +4,754/738 (the JS gate cost
+1,500 honest conversions); the landed set — any-meaning + `arguments` +
+`globalThis` + import-machinery files, JS files INCLUDED —
+**+6,267 (6,244 G→R, 23 W→R) / 486 (291 G→W, 195 R→W)**, 12.9:1. Of the
+195 R→W, 182 are `parsingDeepParenthensizedExpression` — the standing
+JS-trap case, already majority-wrong, worsened rather than newly broken.
+`checker_types` right 374,491 → **380,563 (79.46%)**, gap 72,043 →
+**65,508** — the third mountain range (`parserRealSource*`) largely
+converted. The two synthetic-global exclusions (`arguments`,
+`globalThis`) are PORT misses recorded as their own future rules.

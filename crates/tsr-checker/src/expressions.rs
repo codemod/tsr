@@ -145,6 +145,41 @@ impl Checker<'_, '_> {
         self.intrinsics.string
     }
 
+    /// Whether the node's source file carries any import/export declaration
+    /// — the §31 gate's structural half (`checker-notes-narrow.md`).
+    fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
+        let mut root = node;
+        while let Some(parent) = self.nodes.parent(root) {
+            root = parent;
+        }
+        if let Some(&cached) = self.file_import_machinery.get(&root) {
+            return cached;
+        }
+        let answer = self.node_map.get(root).is_none_or(|file| {
+            let mut stack = vec![file];
+            let mut children = Vec::new();
+            let mut found = false;
+            while let Some(current) = stack.pop() {
+                if matches!(
+                    current,
+                    Node::ImportDeclaration(_)
+                        | Node::ImportEqualsDeclaration(_)
+                        | Node::ExportDeclaration(_)
+                        | Node::ExportAssignment(_)
+                ) {
+                    found = true;
+                    break;
+                }
+                children.clear();
+                tsr_ast::push_children(current, &mut children);
+                stack.extend(children.iter().copied());
+            }
+            found
+        });
+        self.file_import_machinery.insert(root, answer);
+        answer
+    }
+
     fn check_expression_worker(&mut self, expression: Expression<'_>) -> TypeId {
         match expression {
             // Literal *expressions* produce **fresh** literal types, which is
@@ -207,14 +242,15 @@ impl Checker<'_, '_> {
                 // expression (`checkIdentifier` -> `getResolvedSymbol`). It is
                 // what keeps an enclosing class's type parameter from being
                 // resolved here — see `BindResult::resolve_name`.
-                match self.binder.resolve_name(
+                let resolved = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
                     id,
                     node.text,
                     SymbolFlags::VALUE,
-                ) {
-                    Some(symbol) => {
+                );
+                if let Some(symbol) = resolved {
+                    {
                         let declared = self.get_type_of_symbol(symbol);
                         // `getNarrowedTypeOfSymbol` (`checker.go`): only a
                         // variable or parameter reference is narrowed. A class,
@@ -271,7 +307,44 @@ impl Checker<'_, '_> {
                             declared
                         }
                     }
-                    None => self.intrinsics.error,
+                    // `checkIdentifier`'s unresolved exit: upstream reports
+                    // TS2304 and answers `errorType` — printed `any`, the
+                    // §14/§27/§31 boundary argument. Gated on the name being
+                    // absent in EVERY meaning: a name this port can find as
+                    // an alias/type/namespace but not resolve as a value is
+                    // the PORT's resolution gap, and answering `any` there
+                    // manufactured 1,909 adverse lines in the ungated
+                    // measurement (`checker-notes-narrow.md` §31).
+                } else {
+                    {
+                        let anywhere = self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            node.text,
+                            SymbolFlags::VALUE
+                                | SymbolFlags::TYPE
+                                | SymbolFlags::NAMESPACE
+                                | SymbolFlags::ALIAS,
+                        );
+                        // The structural gate: a file with import/export
+                        // machinery can miss through the PORT's alias
+                        // resolution; a `///<reference>`-style script cannot
+                        // — its unresolved names are the SOURCE's.
+                        // `arguments` is THIS PORT's miss (upstream binds
+                        // `IArguments` in every function), and a JS/JSX file
+                        // resolves through machinery with known port gaps —
+                        // both stay honest gaps.
+                        if anywhere.is_some()
+                            || node.text == "arguments"
+                            || node.text == "globalThis"
+                            || self.file_has_import_machinery(id)
+                        {
+                            self.intrinsics.error
+                        } else {
+                            self.intrinsics.any
+                        }
+                    }
                 }
             }
             Expression::ParenthesizedExpression(node) => {

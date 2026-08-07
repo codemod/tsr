@@ -136,6 +136,9 @@ pub struct Checker<'a, 'n> {
     /// One NAMED placeholder per alias symbol, served to mentions of the
     /// alias inside its own resolution (`checker-notes-narrow.md` §29).
     pub(crate) alias_placeholders: FxHashMap<SymbolId, TypeId>,
+    /// Per-file memo: does the file contain import/export machinery? The
+    /// §31 gate (`checker-notes-narrow.md`).
+    pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -530,6 +533,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             last_assignment_pos: FxHashMap::default(),
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),
+            file_import_machinery: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),

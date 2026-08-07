@@ -172,8 +172,13 @@ fn an_array_literal_is_the_same_type_as_the_annotation_would_give() {
 
 #[test]
 fn an_element_this_port_cannot_type_makes_the_literal_a_gap() {
-    assert_eq!(type_of_initialiser("const a = [unknownThing];"), "error");
-    assert_eq!(type_of_initialiser("const a = [1, unknownThing];"), "error");
+    // §31 (`checker-notes-narrow.md`) made a truly-unresolved name answer
+    // upstream's `any` (TS2304's errorType observable), so an unknown-name
+    // element now builds `any[]` — upstream's own answer for this literal.
+    // The fixture's NAME outlived its truth; an element this port cannot
+    // type still gaps (the omitted-element case below keeps that pinned).
+    assert_eq!(type_of_initialiser("const a = [unknownThing];"), "any[]");
+    assert_eq!(type_of_initialiser("const a = [1, unknownThing];"), "any[]");
 }
 
 #[test]

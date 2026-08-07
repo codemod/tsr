@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 3233/9538 (33.90%)
-Assertion lines: 374491/478954 (78.19%)  — a gradient, not a pass rate
-Failed         : 6305
+Passed         : 3427/9538 (35.93%)
+Assertion lines: 380563/478954 (79.46%)  — a gradient, not a pass rate
+Failed         : 6111
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 6305 failures:
+First 100 of 6111 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -21,8 +21,6 @@ compiler/ExportAssignment7
   ExportAssignment7.ts: >B : error — expected >B : any
 compiler/ExportAssignment8
   ExportAssignment8.ts: >B : error — expected >B : any
-compiler/TransportStream
-  TransportStream.ts: >G : error — expected >G : any
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : error — expected >(() => {    abstract class A {}    class B extends A {}    new A();    new B();})() : void
 compiler/abstractClassUnionInstantiation
@@ -33,12 +31,8 @@ compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >Symbol('s') : error — expected >Symbol('s') : unique symbol
 compiler/acceptableAlias1
   acceptableAlias1.ts: >X : typeof N — expected >X : any
-compiler/accessInstanceMemberFromStaticMethod01
-  accessInstanceMemberFromStaticMethod01.ts: >k : error — expected >k : any
 compiler/accessOverriddenBaseClassMember1
   accessOverriddenBaseClassMember1.ts: >super(x, y) : error — expected >super(x, y) : void
-compiler/accessStaticMemberFromInstanceMethod01
-  accessStaticMemberFromInstanceMethod01.ts: >k : error — expected >k : any
 compiler/accessorBodyInTypeContext
   accessorBodyInTypeContext.ts: 12 assertion(s), expected 10
 compiler/accessorDeclarationEmitJs
@@ -127,8 +121,6 @@ compiler/ambientModuleWithTemplateLiterals
   ambientModuleWithTemplateLiterals.ts: >Foo.c : Bar.a — expected >Foo.c : Foo.Bar.a
 compiler/ambientPropertyDeclarationInJs
   /test.js: >this.prop : error — expected >this.prop : string
-compiler/ambiguousGenericAssertion1
-  ambiguousGenericAssertion1.ts: ><<T : error — expected ><<T : number
 compiler/ambiguousOverload
   ambiguousOverload.ts: >foof("s", null) : error — expected >foof("s", null) : number
 compiler/ambiguousOverloadResolution
@@ -149,8 +141,6 @@ compiler/anonymousClassExpression1
   anonymousClassExpression1.ts: >class {} : error — expected >class {} : typeof (Anonymous class)
 compiler/anonymousClassExpression2
   anonymousClassExpression2.ts: >this.methodA : error — expected >this.methodA : any
-compiler/anonymousModules
-  anonymousModules.ts: >module : error — expected >module : any
 compiler/anyAndUnknownHaveFalsyComponents
   anyAndUnknownHaveFalsyComponents.ts: >foo1 : error — expected >foo1 : () => any
 compiler/anyAsReturnTypeForNewOnCall
@@ -213,3 +203,13 @@ compiler/argumentsReferenceInMethod6_Js
   /a.js: >this.foo = arguments : error — expected >this.foo = arguments : IArguments
 compiler/argumentsReferenceInMethod7_Js
   /a.js: >this.callee = arguments.callee : error — expected >this.callee = arguments.callee : Function
+compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
+  argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts: >A : error — expected >A : () => typeof T
+compiler/argumentsUsedInObjectLiteralProperty
+  argumentsUsedInObjectLiteralProperty.ts: >createSelectableViewModel : error — expected >createSelectableViewModel : (initialState?: any, selectedValue?: any) => { selectedValue: number; }
+compiler/arithAssignTyping
+  arithAssignTyping.ts: >f : typeof f — expected >f : any
+compiler/arithmeticOnInvalidTypes
+  arithmeticOnInvalidTypes.ts: >z : error — expected >z : any
+compiler/arithmeticOnInvalidTypes2
+  arithmeticOnInvalidTypes2.ts: >z1 : error — expected >z1 : any
