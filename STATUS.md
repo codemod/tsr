@@ -259,7 +259,60 @@ symptom), unresolved VALUE identifiers 7,678 (74% want-any),
 `ArrowFunction` 3,836 at 0.9% want-any (contextual typing, refused),
 `NewExpression` 3,318, FunctionDeclaration-cycle 2,943, ObjectLiteral 2,383
 (contextual), BindingElement-cycle 2,363, ArrayType 2,120 (94.3% one case),
-TemplateExpression 1,890 (refused). **No unowned row remains above 1,000.**
+TemplateExpression 1,890 (refused). ~~**No unowned row remains above 1,000.**~~
+
+> **CORRECTED, eighth session, and the correction is about this file rather
+> than about the compiler.** The board was re-run at `7299a14`: **gap 80,315,
+> every row unchanged**. But *"no unowned row remains above 1,000"* was true
+> only of the rows `depend.rs` **attributes**. Two of its five endings attribute
+> nothing — `cycle` 5,394 and `depth cap` 1,330, 8.4% of the gap — and the kind
+> printed for those is an arbitrary member of a loop, not a cause. `cyclegap.rs`
+> (new) measured them; `docs/architecture/checker-notes-cyclegap.md`:
+>
+> - **The `cycle` ending is not a cycle.** 5,319 of 5,394 have loop length
+>   **one** — the node's step is itself — and all 5,319 are declarations with
+>   **neither an annotation nor an initialiser**, so `step` falls through its
+>   declaration arm into its reference arm and returns the node it started from.
+>   Both rows are `NO STEP ARM` wearing the `cycle` label. The genuinely
+>   recursive shape `depend.rs`'s own C2 describes is **75 lines**, not 5,394.
+>   **`FunctionDeclaration`-cycle is therefore UNOWNED**: 2,943 lines, want-any
+>   **1.8%** (net 2,889), 611 cases, top-1 3.7%, and **1,894 of them want a
+>   signature** — an un-annotated function declaration whose own name gaps. It
+>   is the most diffuse, lowest-want-any row above 2,000 on the board.
+>   `BindingElement`-cycle (2,369, want-any 32.5%) belongs to `tsr-84iz` /
+>   `tsr-pqnh`.
+> - **`ArrayType` 2,120 is 99.7% propagation, not a root** — 2,114 of it has a
+>   gapping *child* type node. Across all type-node kinds `step` has no arm for,
+>   **4,696 of 8,499 lines are propagating** and belong inward.
+> - **`depth cap` is not an item**: all 1,330 lines are two pathological cases.
+>
+> Two `depend.rs` fixes are named and deliberately not made, so the board stays
+> comparable: relabel a length-1 cycle, and add `step` arms for
+> `ArrayType`/`TupleType`/`UnionType`/`IntersectionType`.
+
+### 4.0b The gap by what upstream's ANSWER LOOKS LIKE — new, eighth session
+
+`cyclegap.rs` at `7299a14`, over the same 80,315 lines. The first whole-gap view
+that is not a node-kind histogram, and it re-frames the board:
+
+```
+any (ADR-0038) 19,970 (24.9%) | primitive 14,652 (18.2%) | signature/arrow 12,606 (15.7%)
+bare name 6,411 | anonymous object 5,799 | array 5,152 | generic ref 4,177 | union 4,112
+typeof query 2,109 | qualified name 1,425 | tuple 1,414 | string literal 1,406 | rest 1,082
+```
+
+**A quarter of the remaining gap wants `any`.** That is *not* §2's firm ceiling
+of 2,202 — it is the unstable population §2 warns about (lines this port fails
+to compute *and* whose baseline answer is `any`). Neither figure supersedes the
+other and neither may be substituted for the other.
+
+**"Signature / arrow" at 12,606 lines is the largest shape that is neither
+ceiling nor primitive, and it matches no single board row** — `ArrowFunction`
+3,328, the mislabelled `FunctionDeclaration`-cycle 1,894,
+`PropertyAccessExpression` 908, `FunctionExpression` 832, `FunctionDeclaration /
+dependency` 664, long tail. This is §4.4's *structured signature types*
+capability measured from the answer side for the first time, and it is the
+largest single thing the board has ever shown.
 
 ### 4.0a The board it replaces, re-measured at `d9a730b` (sixth session)
 
@@ -559,6 +612,7 @@ Built and maintained; **use them, do not rebuild them.**
 | `examples/refmatch.rs` | what a narrowing **matcher** can reach — in-range lines split by guard form and by current verdict, with a strict and a loose bound reported together |
 | `examples/verdictdump.rs` | **the transition probe, and the only one that can say where a wrong line CAME FROM.** One verdict per aligned line (`case:file:position`), so two runs give the exact matrix — `WRONG→RIGHT`, `RIGHT→WRONG`, `GAP→WRONG`. `wrongdelta` cannot distinguish a gap→wrong arrival from a right→wrong one and that distinction is what `docs/conventions.md` requires a bar's absolute to be written against; design P's fourth leg is scored on it. Also the first probe whose `right + gap + wrong` is an identity rather than a cross-instrument subtraction — §1 |
 | `examples/qualname.rs` · `qualnamep.rs` | the two halves of namespace-qualified naming, priced separately: `qualname` the **resolution** half (designs W and R, which convert *gap* lines), `qualnamep` the **printing** half (design P, which converts *wrong* lines and cannot touch a gap). **`qualname.rs`'s at-risk-P column of 36 is superseded by 23** — it omits `getMergedSymbol` |
+| `examples/cyclegap.rs` | **what the gap board does NOT attribute, and what the gap WANTS.** `depend.rs`'s `cycle` and `depth cap` endings resolved (the first is 98.6% a length-1 self-loop — a missing step arm, not a recursive shape), plus the whole-gap **want-shape** histogram, which is the only view of the gap that is not a node-kind histogram. Its C2 is frozen against `depend.rs`'s cycle/depth-cap counts: if they stop reproducing exactly, the copied walk has drifted and nothing it prints is readable |
 | `examples/wrongdelta.rs` | **`casedelta`'s sibling for the wrong bucket** — raw joinable `want`/`got` dump; two runs over a `git stash` attribute every gap→wrong line, which `casedelta` cannot see by construction |
 | `fnexpr` · `nameres` · `evolvearray` · `thisparam` · `receiver_gap` | per-workstream |
 
@@ -580,6 +634,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | `7299a14` | 73.65% | 2,841 | 0 lines, by design | **the eighth session opens by falsifying the seventh's closing sentence.** Board re-run fresh: gap **80,315**, every row unchanged — and *"no unowned row remains above 1,000"* holds only over the endings `depend.rs` **attributes**. `cyclegap.rs` (new) measured the two that attribute nothing (8.4% of the gap): the `cycle` ending is **98.6% a length-1 self-loop**, every one a declaration with neither annotation nor initialiser, i.e. `NO STEP ARM` under a label that says "a real shape here". **`FunctionDeclaration`-cycle is unowned: 2,889 net, want-any 1.8%, 611 cases, 1,894 wanting a signature.** `ArrayType` 2,120 is 99.7% *propagation* (2,114 have a gapping child type node); 4,696 of 8,499 type-node roots are the same. And the first whole-gap **want-shape** histogram: **24.9% wants `any`**, and **signature/arrow is 12,606 lines (15.7%)** spread across six rows — §4.4's structured-signature capability seen from the answer side. Both `depend.rs` fixes named and not made, so the board stays comparable. `docs/architecture/checker-notes-cyclegap.md`. **Also recorded: the clippy gate is RED at `7299a14` before this session touched anything** — `crates/tsr-ast/tests/kind_conformance.rs:83` `inefficient_to_string`, in a file untouched since the scaffold commit, so it is a toolchain drift (local 1.89.0) rather than a regression; left unfixed and reported rather than silently swept |
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
 | 2026-08-07 | `154653b` | **73.30%** | **2,793** | **+2,664 in the session's third act, 6 lost, +26 cases, 0 regressed** | **The JSX element arm and the composite-print seam, each a stale premise re-measured.** JSX (+1,153, `9fe8056`): the "46% cannot resolve" figure predated the `/.lib` mount; the arm is 30 lines and converted 152% of forecast. The seam (`bd tsr-2ghn`, filed, sized and SHIPPED in one session): symbol-exact counterfactual (`sigprint.rs`, self-check leg) → the Union/Intersection naming arm it exposed (+11, `0796633` — a class-typed return qualified while an alias-typed parameter did not, ONE missing match arm) → the site-aware twin `signature_to_string_at` (+1,500 — **forecast delivered to the line**, RIGHT→WRONG exactly the measured 2, because probe and build are the same function). Plus the default-import arm (+83, `cc8c422`) with the `default`-never-prints refusal cleaning 67 pre-existing wrongs |
 | 2026-08-07 | `cc8c422` | **72.74%** | **2,767** | **+859 across five checker builds + one harness mount, 5 lost, +17 cases, 0 regressed** | **The seventh session's second half: the whole export= / naming family, each slice with a registered bar.** After the ambient and container-qualifier slices (rows below): the **export= chain** `952b328` (+297 — `ExportAssignment` arm, `import a = require` follows `resolveExternalModuleSymbol`, and `best_name`, the innermost-table walk; **leg 4 fired at 130 lost on the first measurement** and the fix was upstream's own `useOnlyExternalAliasing` flag — the counterfactual's alias reduction was blind to same-file `import a = b`, a recorded probe defect); the **chain-segment rename** `67949ee` (+58, WRONG→RIGHT 58 with *no other transition*); the **default-import arm** `cc8c422` (+83, Δwrong −38 — its first measurement fired leg 2 at 67 and 40 of those printed **`default` as a name**, which upstream never does; the rendering refusal cleaned 67 pre-existing wrongs too). `bd tsr-6ph` and `tsr-6j2` CLOSED; residue filed as `tsr-epnz`, `tsr-wwum`, `tsr-fpti`. Fresh `depend.rs` at `cc8c422`: gap 81,769; every head row is owned (contextual typing, call/inference, property-access symptom, modulespecifiers, JSX instance typing) |
