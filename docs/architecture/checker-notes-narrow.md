@@ -1329,3 +1329,26 @@ Plumbed as a real per-case option (the third, after `strictNullChecks` and
 `noUncheckedSideEffectImports`). Final pair: **+72 GAP→RIGHT / 2
 GAP→WRONG** (one subtler shape inside `noUncheckedIndexedAccess`'s own
 case). `checker_types` right 369,354 → **369,426**.
+
+### §18 The enum member's regular twin — fresh forms must regularize to the union's constituent
+
+`controlFlowManyConsecutiveConditionsNoTimeout` (120 lines, want
+`Choice.One` got `Choice`) traced to an identity break, not a narrowing
+arm: the enum union's constituents are the raw `new_named` member ids
+(`declared.rs`, the §10.16 creation site), while
+`get_regular_type_of_literal_type` on the FRESH member form interns a
+twin — so `is_related_to`'s regularize-both-sides preamble compares two
+different ids for the same member, the union-target arm finds no
+constituent, `Choice.One -> Choice` answers NotRelated/Unknown, and
+`getAssignmentReducedType`'s filter keeps nothing (its own guard then
+returns the unreduced declared type). Upstream never has this problem
+because fresh and regular are two pointers linked on one type object
+(`freshType`/`regularType`, `types.go`).
+
+**The port**: record the pairing at the one place a member type is
+created — `regular(fresh) = member_type` — and consult it first in
+`get_regular_type_of_literal_type`. **The bar**: the 120 flip; assignment
+reduction and equality narrowing over enum unions start deciding.
+Falsifiers: (a) any change to non-enum literals — the map only ever holds
+enum members; (b) `E`-vs-`E.A` printing must not move (the §10.16 bar
+re-asserted).
