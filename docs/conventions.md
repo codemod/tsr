@@ -2890,3 +2890,82 @@ miss, because the honest-looking output of a total failure to build is **silence
 > ran, and so does reading the tail. Only the positive count distinguishes "108
 > blocks green" from "the test binary was never built", and those are the two
 > readings a workspace gate has to tell apart.
+
+### An absolute on *global* `Δwrong` gets stricter the better the build works
+
+The qualified-naming build registered `lost == 0` and `new wrong ≤ 40` and
+`gained ≥ 900`, before any code, with four falsifiers named. It measured
+**+3,590 gained, 0 lost, 0 regressed, 84 new wrong**. Two legs passed with
+enormous margin and the third failed by 44 lines.
+
+The bar was well made. It was absolute rather than a ratio, and for the right
+reason — this document's own rule, *"is a loss here evidence of a bad trade, or
+evidence of a wrong rule?"*, answered "wrong rule": the failure mode is
+manufacturing an over-qualified name. It was registered in advance. It named its
+own falsifiers, and the **first one it named is the one that fired.**
+
+It still could not be met by a correct build, and the reason is what it measured
+over. Of the 84, **37 were the arm's own manufacture and 47 were lines that now
+*compute* because a gap upstream of them was filled** — and whose remaining
+defect belongs to alias naming, enum narrowing, and a different design's symbol
+chain. Filling a gap makes a line computable; whether it then lands right depends
+on every *other* mechanism that line touches.
+
+> **A gap→wrong line arriving through a mechanism's success is
+> indistinguishable, in a `wrongdelta` total, from a line the mechanism got
+> wrong.** The first kind scales with **how well the build works**, so an
+> absolute over the global total is a bar that tightens as the build improves —
+> the opposite of what a safety bar is for. A build converting 211% of its
+> forecast is punished for exactly that.
+>
+> **Write the absolute against the mechanism's own new wrong, and report the
+> downstream bucket beside it as its own number.** Here that reads 37 against a
+> registered 40 — a pass — and the 47 are a separate, honest fact about what the
+> build exposed. One bar cannot answer both questions.
+
+The arithmetic that made the override safe is worth copying, because it is
+independent of whoever wrote the premise — which is what this document requires
+before a fired bar may be overridden. The registration said `≤ 40` **because**
+that was *"twice the forecast 20"*. That makes it a rule, `2 × forecast`, not a
+constant, and the forecast was stated for a 1,702-line mechanism:
+
+```
+2 × 20 × (3,590 / 1,702) = 84.4        measured: 84
+```
+
+> **When a bar states *why* its number is that number, the bar becomes
+> re-evaluable against the population that actually turned up.** A bare `≤ 40`
+> would have left nothing to check and the argument would have come down to
+> whether the build "felt" right. One clause of justification — *"twice the
+> forecast"* — is what turned an override into an arithmetic check.
+
+And the process point, which is the reason any of this is trustworthy:
+
+> **The party that adjudicates a fired bar must be neither the party that wrote
+> it nor the party that wrote the build.** Here the build's own write-up
+> explicitly declined to adjudicate — *"answering it in the same session that
+> wants the build kept is the failure mode"* — and handed over a measured
+> negative on one leg of three. That refusal to self-acquit is what made the
+> override reviewable rather than a rationalisation, and it cost one section.
+
+#### And a suggestion from the lead was a hypothesis, was grepped, and was wrong
+
+Reading the residual, the lead proposed a second positional refusal — decline
+when the qualified name's root is an **enum** — on the stated premise that
+"upstream reaches an enum member type through a different path". Priced the
+`bd tsr-4sa` way and checked against upstream, it was declined **twice**:
+
+- the premise is false. `SymbolFlagsType` includes `SymbolFlagsEnumMember`
+  (`internal/ast/symbolflags.go:45`), so `resolveEntityName` resolves `E.A`
+  through the same `resolveQualifiedName` lookup as `M.I`. `getTypeReferenceType`
+  does branch for an enum (`checker.go:23156`) — but that is a claim about the
+  **type**, not the **name**;
+- `conformance/enumLiteralTypes3.types:9` records `>Yes : Choice.Yes`. Upstream
+  prints the written qualified enum member name verbatim, which is what the
+  build already does. The refusal would have refused a shape the port gets right,
+  which is where its 401 lost conversions came from — 11.8 destroyed per wrong
+  line removed.
+
+This document already says *a prerequisite stated in a comment is a hypothesis*.
+It applies with no discount to a prerequisite stated **by whoever is running the
+session**, and the cost of checking was one grep and one baseline lookup.
