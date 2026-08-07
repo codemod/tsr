@@ -68,24 +68,10 @@ impl<'a> Checker<'a, '_> {
         let Some(target) = self.assignment_target_type(left_id) else { return };
         let source = self.check_expression(right);
         let Some(right_id) = right.node_id() else { return };
-        if !self.assignability_is_decidable(source, target)
-            || self.source_is_an_unnarrowed_reference(right_id, source)
-            || self.is_type_assignable_to(source, target)
-        {
+        if self.source_is_an_unnarrowed_reference(right_id, source) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(left_id) else { return };
-        let span = self.nodes.span(left_id);
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                span,
-                [source_text, target_text],
-            ),
-        );
+        self.report_assignability_failure(left_id, source, target);
     }
 
     /// `checkVariableLikeDeclaration` (`checker.go:9967`) — the annotation
@@ -111,24 +97,10 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
-        if !self.assignability_is_decidable(source, target)
-            || self.source_is_an_unnarrowed_reference(initializer_id, source)
-            || self.is_type_assignable_to(source, target)
-        {
+        if self.source_is_an_unnarrowed_reference(initializer_id, source) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                span,
-                [source_text, target_text],
-            ),
-        );
+        self.report_assignability_failure(node, source, target);
     }
 
     /// `checkVariableLikeDeclaration`'s other two callers: a **property
@@ -159,24 +131,10 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
-        if !self.assignability_is_decidable(source, target)
-            || self.source_is_an_unnarrowed_reference(initializer_id, source)
-            || self.is_type_assignable_to(source, target)
-        {
+        if self.source_is_an_unnarrowed_reference(initializer_id, source) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                span,
-                [source_text, target_text],
-            ),
-        );
+        self.report_assignability_failure(node, source, target);
     }
 
     /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
@@ -199,24 +157,10 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(expression);
         let Some(expression_id) = expression.node_id() else { return };
-        if !self.assignability_is_decidable(source, target)
-            || self.source_is_an_unnarrowed_reference(expression_id, source)
-            || self.is_type_assignable_to(source, target)
-        {
+        if self.source_is_an_unnarrowed_reference(expression_id, source) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
-                span,
-                [source_text, target_text],
-            ),
-        );
+        self.report_assignability_failure(node, source, target);
     }
 
     /// The return annotation of the function a `return` belongs to, where this
@@ -352,6 +296,80 @@ impl<'a> Checker<'a, '_> {
         self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
     }
 
+    /// TS2741 — `Property '{0}' is missing in type '{1}' but required in type
+    /// '{2}'.`
+    ///
+    /// `reportUnmatchedProperty` (`relater.go:4345`), the `len(props) == 1` arm.
+    /// **Reported at the same position TS2322 would be**, and *instead of* it:
+    /// `assignmentCompat1.ts(4,1)` is the `x` of `x = y`, and reporting TS2322
+    /// there is a wrong code at a right position.
+    ///
+    /// # Why this can run where §16's gate declines
+    ///
+    /// §16's gate admits only types whose assignability is settled by flags,
+    /// because the *structural relation* is incomplete. This asks a different
+    /// question — **is a required property absent** — and that one is answered by
+    /// the member tables alone, which [`crate::member_completeness`] can now
+    /// certify. No relation runs, so no incompleteness leaks.
+    ///
+    /// Only the one-missing-property arm is ported. Upstream's 2-and-more arms
+    /// (TS2739 / TS2740) are gated on `tryElaborateArrayLikeErrors`
+    /// (`relater.go:4367`) and fall back to the plain TS2322 head when it
+    /// declines; reproducing that needs the elaboration machinery, and the board
+    /// row is the single-property one.
+    fn missing_required_property(&mut self, source: TypeId, target: TypeId) -> Option<String> {
+        let target_properties = self.declared_property_table(target)?;
+        let source_properties = self.declared_property_table(source)?;
+        let mut missing = target_properties.into_iter().filter(|(name, optional)| {
+            !optional && !source_properties.iter().any(|(seen, _)| seen == name)
+        });
+        let first = missing.next()?;
+        // Two or more is upstream's other arm and this port does not have it.
+        if missing.next().is_some() {
+            return None;
+        }
+        Some(first.0)
+    }
+
+    /// Report the assignability failure at `span`, choosing the code the way
+    /// upstream's relation does: a single absent required property is TS2741 and
+    /// everything else this port will speak about is TS2322.
+    fn report_assignability_failure(&mut self, at: NodeId, source: TypeId, target: TypeId) -> bool {
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
+        let span = self.nodes.span(at);
+        if REPORT_MISSING_REQUIRED_PROPERTY
+            && let Some(property) = self.missing_required_property(source, target)
+        {
+            let source_text = self.type_to_string(source);
+            let target_text = self.type_to_string(target);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_IS_MISSING_IN_TYPE_1_BUT_REQUIRED_IN_TYPE_2,
+                    span,
+                    [property, source_text, target_text],
+                ),
+            );
+            return true;
+        }
+        if !self.assignability_is_decidable(source, target)
+            || self.is_type_assignable_to(source, target)
+        {
+            return false;
+        }
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                span,
+                [source_text, target_text],
+            ),
+        );
+        true
+    }
+
     /// The declines: situations where this port's relation cannot be trusted to
     /// disagree with upstream.
     ///
@@ -436,6 +454,20 @@ fn has_async(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
         matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
     })
 }
+
+/// Is the TS2741 arm live?
+///
+/// **`false`, and refused with its number** — `checker-notes-diag2.md` §22
+/// measured it at **1 conversion for 8 wrong lines**, 0.125 gained per wrong,
+/// against a project refusal band of 0.47–1.03.
+///
+/// A constant rather than a deletion, and the distinction is the point: the
+/// machinery it switches — [`Checker::missing_required_property`] and
+/// [`crate::member_completeness`]'s property enumeration — is *correct* and is
+/// what four named residual families stand between and a positive score. §22
+/// lists them. Deleting the code would make the refusal unrevisitable, which is
+/// the one thing `docs/conventions.md` forbids about a refusal.
+const REPORT_MISSING_REQUIRED_PROPERTY: bool = false;
 
 /// The type flags whose assignability is settled by the flags themselves.
 ///

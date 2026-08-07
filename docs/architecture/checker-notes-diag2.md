@@ -1600,3 +1600,61 @@ and upstream did not"; there is no cheap predicate for "upstream narrowed and we
 did not" short of the narrowing itself. Three are `missingDomElements`, whose
 receiver is a locally declared `interface Element` that upstream recognises as a
 DOM name. Three are class-side and protected-member shapes.
+
+---
+
+## 22. TS2741 — built on §21's machinery, measured, REFUSED at 1 conversion for 8 wrong
+
+```
+CONVERTS +1     LOST 0     RIGHT 41     WRONG 8     STILL SHORT 15
+```
+
+**0.125 conversions per wrong line, against a project refusal band of
+0.47–1.03.** Refused, and the switch is kept as a named constant
+(`REPORT_MISSING_REQUIRED_PROPERTY`) rather than deleted, because everything it
+switches is correct and four named families stand between it and a positive
+score.
+
+### Why it was worth trying, and what the number actually says
+
+TS2741 is 40 cases on the board and it is the row that *should* have fallen out
+of §21: `reportUnmatchedProperty` (`relater.go:4345`) asks whether a required
+property is **absent**, and that is a member-table question, not a relation one.
+No relation runs, so §16's *"an incomplete relation reports wrongly"* does not
+apply — and indeed **41 right lines against 8 wrong** is a far better *line*
+ratio than §16's first build managed.
+
+The **case** ratio is what refuses it. `STILL SHORT 15` is the explanation: of
+the row's 40 cases, fifteen gain a correct TS2741 and still fail, because a case
+that assigns incompatible object types usually does so several times and in
+several ways. TS2741 alone finishes one of them.
+
+> **A row's population is a ceiling for the code, not for the rule.** `diaggap.rs`
+> counts cases blocked on TS2741 *and nothing else*; a case can be blocked on
+> TS2741 alone and still need three of them, of which this arm emits one.
+> This is the fourth time this file has had to separate the two, and the first
+> time the gap was this wide.
+
+### The residual 8, each with an owner
+
+| lines | case | owner |
+|---:|---|---|
+| 2 | `assignmentCompatWithObjectMembersStringNumericNames` | `{ 1: x }` and `{ "1": x }` are one member upstream and two here — `tsr-binder`'s module header names it: *"a numeric name must be built rather than sliced"* |
+| 2 | `inheritance1` | an inherited member reached through a base this walk follows and a modifier it does not read |
+| 2 | `flowControlTypeGuardThenSwitch` | narrowing, the same family §21's third gate declines |
+| 1 | `classImplementsClass4` | `implements` conformance, a different diagnostic |
+| 1 | `privateNamesUnique-4` | private-identifier members, whose table key upstream mangles (`GetSymbolNameForPrivateIdentifier`) |
+
+### The trap this build paid for, and it is the third of its kind
+
+`SymbolFlags::OPTIONAL` is declared in `tsr-binder` and **set by nothing**. The
+first measurement reported TS2741 for every *optional* property of every target —
+`assignmentCompatWithObjectMembersOptionality2` was three lines on one case —
+because `entry.flags.intersects(OPTIONAL)` is `false` for `x?: T`.
+
+That is `NodeFlags::AMBIENT` (eighth session, three residuals) and
+`NodeFlags::JAVASCRIPT_FILE` (ninth session, one build's worth) arriving a third
+time, in a third crate, on a third flag. **A declared flag with no writer is a
+landmine with one instance per reader**, and this project has now stepped on
+three. Optionality is read off the declaration's `?` here; the flag itself needs
+the binder.

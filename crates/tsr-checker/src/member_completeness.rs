@@ -42,7 +42,7 @@
 //! here, because only `TypeData::Named` does.
 
 use tsr_ast::{ClassElement, Node, NodeId, SyntaxKind, TypeElement};
-use tsr_binder::SymbolId;
+use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{checker::Checker, types::TypeData, types::TypeId};
 
@@ -80,6 +80,146 @@ impl Checker<'_, '_> {
         };
         let mut visiting = Vec::new();
         self.symbol_members_are_complete(owner, &mut visiting, 0)
+    }
+
+    /// Every declared property of `id`, with whether it is optional — or `None`
+    /// where the walk is not complete.
+    ///
+    /// The same traversal as [`Checker::declared_members_are_complete`] with the
+    /// **index-signature condition removed**, and that difference is the whole
+    /// reason this is a second entry point rather than a flag.
+    ///
+    /// An index signature changes what a *property access* means — `a.anything`
+    /// is legal — so [`crate::nonexistent_property`] must decline it. It changes
+    /// nothing about what a *required property* is: `getPropertyOfType` does not
+    /// answer from an index signature, so `{ [k: string]: any }` is still
+    /// missing `one` when assigned to `{ one: number }`. That is
+    /// `assignmentCompat1`, and it is the case that would be silently lost if
+    /// the two questions shared one predicate.
+    pub(crate) fn declared_property_table(&mut self, id: TypeId) -> Option<Vec<(String, bool)>> {
+        if self.type_reference_targets.contains_key(&id) {
+            return None;
+        }
+        let owner = match &self.store.get(id).data {
+            TypeData::Named { members: Some(owner), .. } => *owner,
+            _ => return None,
+        };
+        let mut visiting = Vec::new();
+        let mut out = Vec::new();
+        self.collect_declared_properties(owner, &mut out, &mut visiting, 0).then_some(out)
+    }
+
+    /// One step of the property enumeration. Own members shadow inherited ones,
+    /// exactly as `get_property_of_declared_symbol`'s first-hit-wins walk does.
+    fn collect_declared_properties(
+        &mut self,
+        owner: SymbolId,
+        out: &mut Vec<(String, bool)>,
+        visiting: &mut Vec<SymbolId>,
+        depth: u32,
+    ) -> bool {
+        if depth > MAX_BASE_DEPTH || visiting.contains(&owner) {
+            return false;
+        }
+        visiting.push(owner);
+        let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        if declarations.is_empty() {
+            return false;
+        }
+        for declaration in declarations {
+            if !self.declaration_property_names_are_readable(declaration) {
+                return false;
+            }
+        }
+        let members: Vec<(String, SymbolId)> = self
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .map(|(name, id)| ((*name).to_string(), *id))
+            .collect();
+        for (name, symbol) in members {
+            let entry = self.binder.symbols().get(symbol);
+            if !entry.flags.intersects(SymbolFlags::VALUE) {
+                continue;
+            }
+            if out.iter().any(|(seen, _)| *seen == name) {
+                continue;
+            }
+            // `SymbolFlagsOptional` is set by upstream's binder and by nothing
+            // in this one — the same class of trap `NodeFlags::AMBIENT` was, and
+            // caught the same way: the first measurement reported TS2741 for
+            // every *optional* property of every target
+            // (`assignmentCompatWithObjectMembersOptionality2`, 3 lines on one
+            // case). Optionality is read off the declaration's `?` instead.
+            let declarations = entry.declarations.to_vec();
+            let optional = declarations.iter().any(|d| self.declaration_is_optional_member(*d));
+            out.push((name, optional));
+        }
+        let Some(bases) = self.base_symbols_of(owner) else { return false };
+        for base in bases {
+            if !self.collect_declared_properties(base, out, visiting, depth + 1) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Does this member declaration carry a `?`?
+    fn declaration_is_optional_member(&self, declaration: NodeId) -> bool {
+        match self.node_map.get(declaration) {
+            Some(Node::PropertySignatureDeclaration(property)) => property.postfix_token.is_some(),
+            Some(Node::PropertyDeclaration(property)) => property.postfix_token.is_some(),
+            Some(Node::MethodSignatureDeclaration(method)) => method.postfix_token.is_some(),
+            Some(Node::MethodDeclaration(method)) => method.postfix_token.is_some(),
+            _ => false,
+        }
+    }
+
+    /// The completeness condition minus the index-signature one — see
+    /// [`Checker::declared_property_table`].
+    fn declaration_property_names_are_readable(&mut self, declaration: NodeId) -> bool {
+        match self.node_map.get(declaration) {
+            Some(Node::ClassDeclaration(class)) => {
+                class.type_parameters.is_empty()
+                    && class.members.iter().all(|member| self.class_member_name_is_written(*member))
+            }
+            Some(Node::ClassExpression(class)) => {
+                class.type_parameters.is_empty()
+                    && class.members.iter().all(|member| self.class_member_name_is_written(*member))
+            }
+            Some(Node::InterfaceDeclaration(interface)) => {
+                interface.type_parameters.is_empty()
+                    && interface
+                        .members
+                        .iter()
+                        .all(|member| self.type_member_name_is_written(*member))
+            }
+            _ => false,
+        }
+    }
+
+    fn class_member_name_is_written(&self, member: ClassElement<'_>) -> bool {
+        match member {
+            ClassElement::PropertyDeclaration(property) => self.name_is_written(property.name),
+            ClassElement::MethodDeclaration(method) => self.name_is_written(method.name),
+            ClassElement::GetAccessorDeclaration(accessor) => self.name_is_written(accessor.name),
+            ClassElement::SetAccessorDeclaration(accessor) => self.name_is_written(accessor.name),
+            _ => true,
+        }
+    }
+
+    fn type_member_name_is_written(&self, member: TypeElement<'_>) -> bool {
+        match member {
+            TypeElement::PropertySignatureDeclaration(property) => {
+                self.name_is_written(property.name)
+            }
+            TypeElement::MethodSignatureDeclaration(method) => self.name_is_written(method.name),
+            TypeElement::GetAccessorDeclaration(accessor) => self.name_is_written(accessor.name),
+            TypeElement::SetAccessorDeclaration(accessor) => self.name_is_written(accessor.name),
+            _ => true,
+        }
     }
 
     /// One step of the completeness walk, mirroring
