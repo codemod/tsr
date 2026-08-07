@@ -318,6 +318,12 @@ impl Checker<'_, '_> {
                         .get(position)
                         .and_then(|parameter| parameter.default)
                     else {
+                        // `getInferredType`'s final fallback
+                        // (`inference.go:1406`): no candidates, no default,
+                        // no possible source — `unknownType`
+                        // (`checker-notes-narrow.md` §36).
+                        let unknown = self.intrinsics.unknown;
+                        map.push((type_parameter, unknown));
                         continue;
                     };
                     // A default may reference an earlier parameter
@@ -1095,16 +1101,16 @@ mod tests {
             ),
             "(y: string) => string"
         );
-        // An *unmapped* type parameter is the third way in: `U` appears in the
-        // return type and in no bare parameter position, so inference leaves it
-        // unmapped and the whole answer is a gap rather than a half-substituted
-        // `C<string, U>`.
+        // §36 changed the third way in: an uninferable `U` with no default
+        // and no possible source takes upstream's `unknownType` fallback
+        // (`inference.go:1406`), so the answer is `C<unknown>` — upstream's
+        // own — rather than the pre-§36 gap.
         assert_eq!(
             generic_call(
                 "interface C<T> { }\ndeclare function m<T, U>(x: T): C<U>;\nconst a = m(\"s\");",
                 "m"
             ),
-            "error"
+            "C<unknown>"
         );
     }
 

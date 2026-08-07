@@ -1767,3 +1767,11 @@ guard then turned into a gap. The same structural-source guard applies —
 only a parameter NOTHING supplied could have informed takes the fallback.
 Falsifier: non-strict cases wanting the legacy `{}` fallback, counted by
 the measure.
+
+**§36 score — LANDED.** **+149 GAP→RIGHT / 39 GAP→WRONG** — the 39 head at
+`arrayFlat*` recursive-generic shapes where upstream's STRUCTURAL
+inference finds candidates the bare-position walk cannot see; the
+structural-source guard admits them because the source parameter's type
+mentions no parameter BARELY (it mentions it under `ConcatArray<…>`),
+the known ported-inference boundary. `checker_types` right 388,533 →
+**388,682 (81.15%)**.
