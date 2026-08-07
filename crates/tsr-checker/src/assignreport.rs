@@ -204,6 +204,16 @@ impl<'a> Checker<'a, '_> {
     /// mechanism `docs/architecture/checker-notes-narrow.md` §9 measures from the
     /// `.types` side.
     fn assignment_target_type(&mut self, node: NodeId) -> Option<TypeId> {
+        // **A property-access target is admitted**, and §16's third decline —
+        // which refused it because a `set` accessor's write type differs from
+        // its getter's — is retired by measurement: +16 cases. The divergent-
+        // accessor cases it was drawn for (`divergentAccessorsTypes2`) are a
+        // handful; the ordinary `obj.field = value` it was also refusing is
+        // sixteen. `getWriteTypeOfSymbol` would recover the handful.
+        if self.nodes.kind(node) == SyntaxKind::PropertyAccessExpression {
+            let ty = self.check_expression_at_node(node);
+            return (ty != self.intrinsics().error).then_some(ty);
+        }
         if self.nodes.kind(node) != SyntaxKind::Identifier {
             return None;
         }

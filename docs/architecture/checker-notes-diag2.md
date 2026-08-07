@@ -2674,3 +2674,29 @@ The compound arithmetic assignments — `-=`, `*=`, `/=`, `%=` — are one more
 their bare forms, and the set is now closed: **+7 across three widenings of one
 `matches!`**, from a rule §32 shipped believing its operator list was the
 decision it had made rather than a fact it had guessed.
+
+---
+
+## 41. The property-access assignment target — **+16, past 20%**
+
+```
+diagnostics 1,087 -> 1,103 = 20.10%
+```
+
+§16's third decline refused a property or element access as an assignment
+target, because a `set` accessor whose parameter type differs from its getter's
+return type makes the write type the setter's (`getWriteTypeOfSymbol`), and
+`divergentAccessorsTypes2` is exactly that.
+
+**Admitted, and the decline is retired by measurement: +16.** The divergent-
+accessor cases it was drawn for are a handful; the ordinary `obj.field = value`
+it was *also* refusing is sixteen. `getWriteTypeOfSymbol` would recover the
+handful, and it is now priced.
+
+**The largest single audit payment of the session, and the last one found.** It
+sat behind the same error every other stale decline did — a real upstream
+mechanism, correctly identified, used to justify a bound far wider than the
+mechanism itself. §16 named `divergentAccessorsTypes2` and then declined *every*
+property access, which is the whole class of defect §35 through §40.6 keep
+finding: **the decline is drawn around the shape the counter-example belongs to,
+not around the counter-example.**
