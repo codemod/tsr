@@ -269,7 +269,6 @@ impl Checker<'_, '_> {
             | Node::WhileStatement(_)
             | Node::ForStatement(_)
             | Node::ForInOrOfStatement(_)
-            | Node::ReturnStatement(_)
             | Node::WithStatement(_)
             | Node::SwitchStatement(_)
             | Node::LabeledStatement(_)
@@ -287,6 +286,11 @@ impl Checker<'_, '_> {
             }
             Node::VariableDeclaration(declaration) => {
                 self.check_variable_like_declaration(node, declaration, ambient);
+                ambient
+            }
+            Node::ReturnStatement(_) => {
+                self.check_grammar_statement_in_ambient_context(node, ambient);
+                self.check_return_statement(node, ambient);
                 ambient
             }
             Node::BinaryExpression(binary)

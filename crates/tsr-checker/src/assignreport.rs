@@ -131,6 +131,84 @@ impl<'a> Checker<'a, '_> {
         );
     }
 
+    /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
+    /// against the function's **written** return annotation.
+    ///
+    /// The error node is the **return statement**, not the expression:
+    /// `arrayAssignmentTest1.ts(6,16)` for `IM1():void[] {return null;}` is
+    /// column 16, which is the `r` of `return`.
+    ///
+    /// Only a *written* annotation is used. An inferred return type is computed
+    /// from the very returns being checked, so a mismatch against it is not a
+    /// diagnostic upstream would ever report.
+    pub(crate) fn check_return_statement(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ReturnStatement(statement)) = self.node_map.get(node) else { return };
+        let Some(expression) = statement.expression else { return };
+        let Some(annotation) = self.enclosing_return_annotation(node) else { return };
+        let target = self.get_type_from_type_node(annotation);
+        let source = self.check_expression(expression);
+        let Some(expression_id) = expression.node_id() else { return };
+        if !self.assignability_is_decidable(source, target)
+            || self.source_is_an_unnarrowed_reference(expression_id, source)
+            || self.is_type_assignable_to(source, target)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                span,
+                [source_text, target_text],
+            ),
+        );
+    }
+
+    /// The return annotation of the function a `return` belongs to, where this
+    /// port can use it directly.
+    ///
+    /// **Async and generator functions are declined**: their annotation is a
+    /// `Promise<T>` or an `Iterator<…>` and the value returned is compared
+    /// against the *unwrapped* `T` (`checkReturnStatement`'s
+    /// `getReturnTypeFromAnnotation` unwrapping, `checker.go:12420`). Comparing
+    /// against the wrapper is a wrong diagnostic on correct code.
+    fn enclosing_return_annotation(&self, node: NodeId) -> Option<tsr_ast::TypeNode<'a>> {
+        let mut at = self.nodes.parent(node);
+        while let Some(current) = at {
+            let typed = self.node_map.get(current)?;
+            let parts = match typed {
+                Node::FunctionDeclaration(n) => {
+                    Some((n.r#type, n.asterisk_token.is_some(), n.modifiers))
+                }
+                Node::FunctionExpression(n) => {
+                    Some((n.r#type, n.asterisk_token.is_some(), n.modifiers))
+                }
+                Node::ArrowFunction(n) => Some((n.r#type, false, n.modifiers)),
+                Node::MethodDeclaration(n) => {
+                    Some((n.r#type, n.asterisk_token.is_some(), n.modifiers))
+                }
+                Node::GetAccessorDeclaration(n) => Some((n.r#type, false, n.modifiers)),
+                Node::ConstructorDeclaration(_) | Node::SetAccessorDeclaration(_) => return None,
+                _ => None,
+            };
+            if let Some((annotation, generator, modifiers)) = parts {
+                if generator || has_async(modifiers) {
+                    return None;
+                }
+                return annotation;
+            }
+            at = self.nodes.parent(current);
+        }
+        None
+    }
+
     /// The type an assignment writes *into*, or `None` where this port declines.
     ///
     /// # Why this is `getTypeOfSymbol` and not `checkExpression`
@@ -302,6 +380,13 @@ impl<'a> Checker<'a, '_> {
         DECIDABLE_WITHOUT_MEMBERS.intersects(type_.flags)
             && !type_.flags.intersects(UNDECIDABLE_HERE)
     }
+}
+
+/// Does this modifier list carry `async`?
+fn has_async(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
+    modifiers.iter().any(|modifier| {
+        matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
+    })
 }
 
 /// The type flags whose assignability is settled by the flags themselves.

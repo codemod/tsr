@@ -1317,3 +1317,24 @@ needs the file *text*, applies to parser, binder and checker diagnostics
 together, and belongs to whatever assembles a program's diagnostics. Putting it
 in `tsr-checker` would give the checker a filter over diagnostics it did not
 produce.
+
+### 16.1 The third anchor — `checkReturnStatement`, +6 for −1 wrong
+
+```
+CONVERTS 29 -> 35   LOST 0   RIGHT 186 -> 215   WRONG 28 -> 27
+```
+
+The error node is the **return statement**, which `arrayAssignmentTest1.ts(6,16)`
+pins: `IM1():void[] {return null;}` reports at column 16, the `r` of `return`,
+not at the `null`. Only a **written** annotation is used — an inferred return
+type is computed from the very returns being checked, so a mismatch against it is
+not something upstream can report.
+
+Two declines went in with the anchor rather than after a measurement, because
+both are structural rather than statistical: an **async** function's annotation
+is a `Promise<T>` and the returned value is compared against the unwrapped `T`
+(`checker.go:12420`), and a **generator**'s is an `Iterator<…>`. Comparing against
+the wrapper would be a wrong diagnostic on every correct `async` function in the
+corpus, which is the largest single wrong family this rule could have produced.
+
+`diagnostics` 863/5,488 → **868/5,488 = 15.82%**.
