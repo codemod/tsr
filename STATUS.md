@@ -156,7 +156,8 @@ rule and the refusals. **`checker_types` is byte-identical across all four**: th
 The suite's board is now `diaggap.rs`'s single-code column, re-run after every
 rule because rows *grow* as rules land (a case blocked on two codes becomes a
 case blocked on one). At **611** passing: TS2322 433, TS2339 133, TS2345 85,
-TS2304 81, TS6133 80, TS2454 60, TS2564 35.
+TS2304 81, TS6133 80, TS2454 60, TS2564 35 — **TS2339 is refused with its
+number**, §5.
 
 **The metric a diagnostic rule is scored on is not its conversions.** A case
 carrying a spurious diagnostic can never pass however many rules land later, so
@@ -631,6 +632,7 @@ it means the item returns to §4 needing a fresh bar, not that it is now good.
 | **widening `SELECTABLE` as a flag set** | — | same measurement, and it is a *structural* refusal rather than a numeric one. Decidability is a property of the **pair**: for signature-bearing types the old relation was unsound in **both directions at once**, so no per-type flag predicate separates the trustworthy pairs from the rest. The flag set is now deleted rather than widened |
 | **the `any`-parameter overload set** | 7 conversions | sixth session. `any` relates to everything both ways, so such a candidate is trivially applicable and declaration-order selection always stops on it — a **wrong rule, not a bad trade**. Refusing it positionally costs 7 conversions and removes **24** would-be-wrong lines: 40/26 → **33/2** |
 | **the overload braces form of the composite-print seam** | 939 ceiling | seventh session, `sigprint.rs` braces mode (self-checked): **14 converts / 30 would-wrong (0.47 per wrong) / 330 of the ceiling unmodelable** — the wrongs are inside-signature defects (Intl/Temporal option unions), not naming. The single-signature twin's +1,500 is the seam's harvest; this shard is not its sibling |
+| **TS2339 as a `diagnostics` rule** | 133 cases | eighth session, `checker-notes-diag2.md` §9. Built to the tightest available bound — fire only where the receiver type carries a resolved members table — and measured at **2 conversions against 254 wrong lines, 0.008 per wrong**, two orders of magnitude below the worst refusal on this page. The diagnosis is structural and is the reusable part: **an absent property and an unbuilt members table are the same `None`**, and `Named { members: Some(_) }` says a table was built, not that it is complete — heritage, mapped, conditional and mixin members are resolved lazily by other arms. Same shape as the `SELECTABLE` refusal, in a second subsystem. Returns when `resolveStructuredTypeMembers` carries an explicit resolved state per type rather than an `Option` that conflates "no members" with "not yet" |
 | **`removeSubtypes` (`tsr-eak`)** | 5 rows, ~1,100 quoted | **255 right lines broken vs ≤263 changed — 1.03 gained per lost at the ceiling**, worse than the 2.1 / 2.5 / 2.7 that refused three earlier items. And only **500 of 2,146** structured wrong lines are its population; 21,093 of 26,140 union lines carry no structured constituent and are outside it by construction |
 
 ---

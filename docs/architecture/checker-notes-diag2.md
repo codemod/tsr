@@ -671,3 +671,59 @@ to delegate to the `_ex` form. If `checker_types` moves by a single line, the
 refactor was not behaviour-neutral — the `initial_type` default now runs through
 a `match` where it ran through an `if`, and the auto-typed arm is the one that
 could have been dropped.
+
+---
+
+## 9. TS2339 — built, measured, REFUSED at 2 conversions for 254 wrong lines
+
+`Property '{0}' does not exist on type '{1}'.` `diaggap.rs` sized it at **133
+cases blocked on it alone** at 611 passing, third on the board.
+
+Built to the tightest bound available and reverted the same measurement. The
+build is at `reportNonexistentProperty` (`checker.go:11530`), error node the
+property name, with this port's own incompleteness handled by firing **only**
+where the receiver type carries `members: Some(_)` — an object type whose
+members this checker actually resolved — and declining for every union,
+intersection, type parameter, primitive and intrinsic.
+
+```
+CONVERTS  533 (+2 over §8)     LOST 0     WRONG 460 (+254)
+```
+
+**Two conversions for 254 wrong lines**, or 0.008 gained per wrong. Every
+refusal in `STATUS.md` §5 is between 0.47 and 1.03; this is two orders of
+magnitude below the worst of them.
+
+### The diagnosis, which is the part worth keeping
+
+The bound does not do what it was chosen to do. `Named { members: Some(_) }`
+says *a* table was built, not that it is **complete**: members reached through
+heritage, mapped types, conditional types and mixins are resolved lazily and by
+different arms, so a type can carry a table and still be missing the property the
+source names. The wrong column says exactly that —
+`longObjectInstantiationChain1`/`3` 13 lines each (instantiation depth),
+`mixinAccessModifiers` 9, `genericDefaults` 9, `discriminatedUnionTypes2` 8,
+`conditionalTypes1` 8, `mappedTypes6`, `recursiveIntersectionTypes`,
+`classExtendingClassLikeType`.
+
+> **An absent property and an unbuilt members table are the same `None`, and no
+> predicate over the *type* separates them.** That is the same structural shape
+> as `checker-notes-selectable.md`'s refusal — decidability is a property of the
+> pair, not of either side — arriving in a second subsystem. A flag on the type
+> cannot say whether the table it points at is finished.
+
+And the 2 conversions say the other half: of the 133 cases, the ones this bound
+can reach are almost none, because the interesting TS2339 sites in the corpus are
+exactly the generic and mapped receivers the bound excludes.
+
+**What would make this win**, stated so the refusal is revisitable: a members
+table that knows whether it is complete — i.e. `resolveStructuredTypeMembers`
+ported with an explicit resolved/unresolved state per type, rather than an
+`Option` that conflates "no members" with "not yet". That is a members-subsystem
+question and it is worth more than this diagnostic; `bd tsr-o9tl` records it, and
+the 133 cases are its size on the `diagnostics` side.
+
+The four declines above the message in `reportNonexistentProperty` — TS2576
+static member, TS2550 newer `lib`, TS2551 spelling, TS2812 DOM — were **not** the
+problem and are not what refused this. They would each have cost a handful of
+lines against 254.
