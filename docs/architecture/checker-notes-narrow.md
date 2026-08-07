@@ -951,3 +951,26 @@ a second back edge's placeholder can see the first back edge's contribution
 
 Reverted again; the arm plus JS decline is the base state for the next
 cycle, preserved in `fixpoint-patch-§12.md` (amended).
+
+### §12.5 Cycles 7–8 — the last two plumbing hypotheses retired; the residue is SEMANTIC
+
+Cycle 7 (the live on-stack accumulator, upstream's slice aliasing made
+literal): **byte-identical to cycle 6.** Cycle 8 (a completing second pass
+at the top level when the walk roots incomplete, caches primed): **also
+byte-identical.** With the JS decline in place, the fixpoint's balance is
+stable at **+111 gained / 63 wrong / 12 lost / 2 regressed across three
+structurally different implementations** — the 86 adverse lines are
+invariant under every incomplete-machinery variant, so they are not
+plumbing: they are the narrowing ARMS' answers diverging from upstream
+inside loop bodies (`controlFlowIterationErrors*`, `WhileStatement`,
+`typeGuardsAsAssertions`, `SelfReferentialLoop` — try/catch interplay,
+assertion re-narrowing, the self-referential `any` bail).
+
+**Eight cycles, five retired hypotheses** (antecedent order, missing
+declaration-assignments, depth cap, slice aliasing, completing pass), one
+solved trap (the 196 were a JS file), one real defect banked (branch-label
+`incomplete` laundering). **The mandated next step is a one-line semantic
+trace**: pick `controlFlowIterationErrors:0:<n>`, print the walk's per-arm
+answers, and set them against upstream's arms for the same line — the
+divergence is in an arm, and the plumbing is proven ready to carry the fix
+when it is found.
