@@ -670,3 +670,19 @@ assignment union behaviour under that initial is unmeasured, so it needs its
 own counterfactual); the OUTER arm still needs the container test; and any
 provenance-dependent remainder keeps §9.2's FlowType-flag requirement. Loop-label
 handling unchanged as a cost.
+
+### §9.4 The non-strict arm as an initial-type change — bar
+
+Under `!strictNullChecks`, an auto declaration's substituted initial becomes
+`any` instead of `undefined` — pure-initial references answer `any` (the
+§9.3 rule's non-strict half) through the ordinary walk, no provenance, no
+second walk, no cache exposure. Mixed-assignment paths union the assigned
+type with `any` and absorb — a behaviour the §9.3 study did NOT measure,
+which is what the own-wrong leg is for.
+
+**Bar:** net ≥ **+200** (the non-strict share of the 592-line family); own ≤
+**25** — falsifier: wrong lines in non-strict cases whose want is the BARE
+assigned type (`number`, not `any`) at a mixed-path reference → the
+absorption model is wrong and the arm needs the branch-label distinction,
+stop and record; regressed == 0; lost == 0 (strict behaviour untouched by
+construction).
