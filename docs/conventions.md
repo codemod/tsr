@@ -3172,3 +3172,131 @@ disagree about the *expression*, so no comparison of answers is meaningful.
 The corollary for how instruments get written: `verdictdump.rs` reports **every**
 verdict rather than the one its bar needed. That generality cost nothing at the
 time and is the entire reason it could answer a question it was not built for.
+
+## Tooling costs, measured — and the guess that was wrong
+
+Every figure below was timed on 2026-08-07, on a 32-core machine, warm. They are
+here because a session spent an hour reasoning about pace from an **estimate**.
+
+### What a corpus run actually costs
+
+```
+coverage        (all 16 suites)              35 s
+verdictdump     (a verdict per line, 468,915) 39 s
+casedelta                                     41 s
+depend                                        39 s
+cargo test --workspace          (warm)       7.5 s
+cargo clippy --workspace --all-targets (warm) 0.2 s
+```
+
+The suites use rayon and saturate ~15–18 cores, so these do not shrink much on a
+smaller box, and they do not grow much either.
+
+> **A full before/after measurement pair — stash, run, pop, run — is about 90
+> seconds.** Sizing a mechanism, registering a bar, and measuring a build costs
+> roughly two minutes of machine time.
+
+**The correction this replaces.** A session explained slow progress as *"easily
+45+ minutes of pure compute"* from corpus runs. That figure was never measured
+and it was wrong: across ~40 runs the corpus accounted for perhaps twenty
+minutes of a multi-hour session. The time actually went to **waiting on
+subagents** — explicit `sleep` poll loops — and to release rebuilds after each
+`tsr-checker` edit.
+
+> **The measurement discipline is not the expensive part, and a session that
+> feels slow should time something before blaming it.** The instinct to
+> attribute cost to the most rigorous-looking activity is self-flattering and,
+> here, was off by more than an order of magnitude on the specific claim.
+
+## `ast-grep` — verified patterns, and one silent-failure trap
+
+`ast-grep` (0.45.0) is installed and every pattern below was run before being
+written down. It replaces the `grep -n 'func …'` + `sed -n 'START,ENDp'` pair
+that this project's upstream reading has otherwise been done with — that pair
+requires **guessing the end line**, and guessing it wrong is how a read silently
+takes in the neighbouring function or truncates the one you wanted.
+
+### File shape — 0.02 s
+
+```sh
+ast-grep outline crates/tsr-checker/src/relater.rs   # works on .go and .rs
+```
+
+Prints every `impl`, `enum`, `mod` and their member names with line numbers. Use
+it **before** reading a file in chunks.
+
+### One upstream function, exact boundaries — 0.16 s
+
+```sh
+ast-grep --pattern 'func (c *Checker) resolveUntypedCall($$$) $$$ {$$$}' \
+  vendor/typescript-go/internal/checker/ --lang go
+```
+
+No line-range guessing. The Rust equivalent works the same way:
+
+```sh
+ast-grep run -p 'fn symbol_chain($$$) -> $R { $$$ }' -l rust crates/tsr-checker/src/checker.rs
+```
+
+### Rust expression patterns work
+
+```sh
+ast-grep run -p 'bump(&COUNTERS.$X)' -l rust crates/tsr-checker/src/calls.rs
+ast-grep run -p 'self.intrinsics.error' -l rust crates/tsr-checker/src/calls.rs
+```
+
+### **THE TRAP: a bare expression pattern in Go returns NOTHING, silently**
+
+```sh
+ast-grep run -p 'c.resolveUntypedCall($$$)' -l go vendor/typescript-go/internal/checker/checker.go
+#   -> no output, exit 0.   grep proves 3 call sites exist at :2514, :2533, :8490.
+```
+
+Go's grammar cannot parse a bare expression as a whole file, so the *pattern*
+becomes an `ERROR` node and matches nothing. **The failure is indistinguishable
+from "no matches found"** — the exact shape this document warns about elsewhere,
+a green-looking result from something that never ran. It does **not** happen in
+Rust, which is what makes it easy to trust the tool and be wrong in one language
+only.
+
+Detect it by asking what the pattern parsed to:
+
+```sh
+ast-grep run -p 'c.resolveUntypedCall($$$)' -l go --debug-query=ast <file>
+#   Debug AST:  source_file -> ERROR -> qualified_type …     <- the pattern is broken
+```
+
+The fix is a rule file giving the expression a valid **context** and selecting
+the node you actually want:
+
+```yaml
+# /tmp/callsite.yml
+id: callsite
+language: go
+rule:
+  pattern:
+    context: 'func f() { c.resolveUntypedCall($$$A) }'
+    selector: call_expression
+```
+```sh
+ast-grep scan -r /tmp/callsite.yml vendor/typescript-go/internal/checker/checker.go
+#   -> :2514, :2533, :8490
+```
+
+> **Before trusting an `ast-grep` pattern that returns zero, prove the zero.**
+> Either `--debug-query=ast` it, or cross-check one hit with `grep`. A tool that
+> reports nothing when it is *itself* malformed cannot be distinguished from a
+> true negative, and a true negative is exactly the kind of finding this project
+> acts on — refusals get written from zeros.
+
+### And the case for reading past the function you asked for
+
+The precise tool has one cost worth naming. Reading `resolveUntypedCall` with a
+guessed `sed` range overshot its end — and the overshoot is how `resolveErrorCall`
+and `unknownSignature` were found on the next screen, which became the whole
+ADR-0038 argument that unblocked a build. A pattern match would have returned
+exactly the function requested and missed the neighbour.
+
+> **Use `outline` for shape, then a pattern for the body — and then read what is
+> next to it.** The neighbour is where the distinction you did not know you
+> needed usually lives.
