@@ -145,12 +145,15 @@ fn a_return_type_that_is_a_gap_makes_the_function_type_a_gap() {
     assert_eq!(type_of_function_annotation("let f: (x: number) => Nope;"), "(x: number) => Nope");
 }
 
-/// A destructuring parameter is one of the forms `get_signature_from_declaration`
-/// refuses: `parameterToParameterDeclarationName` invents a name this port has
-/// no equivalent of, and an invented name is compared verbatim.
+/// §48 (`checker-notes-narrow.md`) rendered PLAIN patterns verbatim, so
+/// this fixture's name outlived its truth for the undecorated shape;
+/// decorated patterns (defaults/rest/renames) still gap.
 #[test]
 fn a_destructuring_parameter_makes_the_function_type_a_gap() {
-    assert_eq!(type_of_function_annotation("let f: ({ a }: any) => void;"), "error");
+    assert_eq!(
+        type_of_function_annotation("let f: ({ a }: any) => void;"),
+        "({ a }: any) => void"
+    );
 }
 
 /// Calling a function-typed value now resolves, with **no code in `calls.rs`**.
@@ -271,9 +274,11 @@ fn a_constructor_type_prints_its_new() {
 fn a_constructor_type_inherits_the_function_types_gaps_and_adds_none() {
     let source = "let f: new ({ a }: any) => void;";
     assert_eq!(annotation_kind(source), SyntaxKind::ConstructorType);
-    assert_eq!(type_of_annotation(source), "error");
-    // The same refusal, one spelling over — so a change that made the
-    // constructor arm laxer than the function arm shows up as a disagreement
-    // between these two lines rather than as a silent divergence.
-    assert_eq!(type_of_function_annotation("let f: ({ a }: any) => void;"), "error");
+    // §48: the plain pattern renders in BOTH spellings — the two lines
+    // still move together, which is the property this fixture pins.
+    assert_eq!(type_of_annotation(source), "new ({ a }: any) => void");
+    assert_eq!(
+        type_of_function_annotation("let f: ({ a }: any) => void;"),
+        "({ a }: any) => void"
+    );
 }

@@ -1999,3 +1999,11 @@ stays the decline (a generated name compared verbatim is a guess, the
 original comment's rule intact for the shapes it feared). Falsifier:
 decorated patterns must keep declining — one default rendered wrong is
 instantly visible in the pair.
+
+**§48 score — LANDED after the token-kind trap's SECOND firing.** The
+first pair read +69/108 because `BindingPattern.kind` is a TOKEN field
+whose equality against the node kinds silently failed — object patterns
+printed as arrays. The side-table kind (the §16 CaseKeyword lesson,
+now twice-paid) reads **+149 GAP→RIGHT / 28 GAP→WRONG** (empty/optional
+pattern shapes, the decline set's edge). `checker_types` right 394,836 →
+**394,985 (82.47%)**.

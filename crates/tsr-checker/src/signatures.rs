@@ -1351,11 +1351,38 @@ impl<'a> Checker<'a, '_> {
     /// One parameter, or `None` for a form whose printed name this port cannot
     /// reproduce.
     fn parameter_of(&mut self, node: &ParameterDeclaration<'a>) -> Option<Parameter> {
-        let Some(tsr_ast::BindingName::Identifier(name)) = node.name else {
-            // A binding pattern. `parameterToParameterDeclarationName` renders one
-            // from the pattern, and a generated name compared verbatim against a
-            // baseline is a guess.
-            return None;
+        let name_text: String = match node.name {
+            Some(tsr_ast::BindingName::Identifier(name)) => name.text.to_string(),
+            // §48 (`checker-notes-narrow.md`): a PLAIN pattern renders its
+            // written shape verbatim; anything decorated stays the decline
+            // (`parameterToParameterDeclarationName`'s generated names are a
+            // guess, the original rule intact for the shapes it feared).
+            Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
+                let mut names = Vec::with_capacity(pattern.elements.len());
+                for element in pattern.elements {
+                    if element.dot_dot_dot_token.is_some()
+                        || element.initializer.is_some()
+                        || element.property_name.is_some()
+                    {
+                        return None;
+                    }
+                    let Some(tsr_ast::BindingName::Identifier(inner)) = element.name else {
+                        return None;
+                    };
+                    names.push(inner.text.to_string());
+                }
+                // The side-table kind, not the token field — the §16
+                // CaseKeyword lesson's second application.
+                let is_object = pattern.node_id.is_some_and(|id| {
+                    self.nodes.kind(id) == tsr_ast::SyntaxKind::ObjectBindingPattern
+                });
+                if is_object {
+                    format!("{{ {} }}", names.join(", "))
+                } else {
+                    format!("[{}]", names.join(", "))
+                }
+            }
+            None => return None,
         };
         let id = node.node_id?;
         let symbol = self.binder.symbol_of(id)?;
@@ -1386,7 +1413,7 @@ impl<'a> Checker<'a, '_> {
         let written_text =
             node.r#type.and_then(|annotation| self.written_annotation_text(annotation));
         Some(Parameter {
-            name: name.text.to_string(),
+            name: name_text,
             // Filled in by the caller: optionality needs the whole list.
             optional: false,
             rest: node.dot_dot_dot_token.is_some(),
