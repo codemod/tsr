@@ -63,6 +63,14 @@ That table is the guard against reading the row as the whole kind. It is not:
 the other 2,081 lines hold the mechanisms the row does *not* contain, and they
 are listed in §5.
 
+> **The row is GONE at `d9a730b`.** A fresh `depend.rs` after the two
+> qualified-naming builds shows no `TypeReference / no further dependency` row at
+> all — it was 4,010 lines and ranked 5th at the start of that session. The
+> sibling ending fell 1,939 → 1,563. This is the check §7 asks for, run in the
+> direction that confirms rather than refutes: **a different instrument, one this
+> page did not use to score itself, agreeing that the mechanism and the row were
+> the same thing.** Removing the mechanism removed the row.
+
 ## 2. The mechanism split is a branch table, not a guess
 
 Every bucket is a branch of `Checker::get_type_from_type_reference`
@@ -260,6 +268,35 @@ counterfactual is re-run**, on that page's own instruction and this project's
 rule that a mechanism firing on a position rather than on a defect must have its
 at-risk column computed in the same pass.
 
+### CORRECTION, 2026-08-07, same session — it was measured, and it was built
+
+**The paragraph above is superseded and its instruction is spent.** It is left
+standing rather than edited away, per §8 of `STATUS.md`, because the reasoning it
+contains turned out to be the load-bearing part.
+
+The counterfactual was re-run the same session (`examples/qualname.rs`,
+`docs/architecture/checker-notes-qualname.md`). It found the refusal had priced
+**the wrong design**: the 3,202-line loss belongs to the design that qualifies
+*every* printed name, and it had been quoted against a different design's
+population. The mechanism this section describes was arrived at independently,
+from a different instrument, and named **design W**:
+
+| | converts | would-be-wrong | at risk | built |
+|---|---:|---:|---:|---|
+| **W** — reuse the written entity name | 1,770 | 99 | **0** | `8e28971`, **+3,590** |
+| **P** — the computed symbol chain | 2,990 | 450 | 14 | `a57a04b`, **+2,973** |
+
+**The sentence that mattered is the blast-radius one** — *"it cannot fire on a
+line that did not write a dotted name"*. That is exactly why W's at-risk column
+measured **0**, and it was written here before anyone measured it. Design P, the
+printing half this section correctly separated out, then landed too, once it was
+built against upstream's `needsQualification` stop conditions rather than
+qualifying everything.
+
+**Do not read the paragraph above as a live instruction.** Both halves are built.
+What is still open is the residue, filed: alias naming 20 lines, enum narrowing 6,
+and design P's outer symbol chain.
+
 ## 7. How you would know this page is wrong
 
 - **The mechanism attribution is an artefact of the branch order.** It is not:
@@ -276,8 +313,11 @@ at-risk column computed in the same pass.
   every other probe on this board takes it — the baseline's answer text being
   exactly `any`. ADR-0038's ceiling is not a stable population (§2 of
   `STATUS.md`), so 3,973 is a ceiling on a ceiling.
-- **The re-run of the refused counterfactual comes back negative again.** That
-  is the outcome this page cannot predict, and it is the reason §6 recommends a
-  measurement rather than a build. If it does, the item stays refused with a
-  second number and this row's 4,002 lines are quotable as *blocked*, never as
-  work.
+- **The re-run of the refused counterfactual comes back negative again.**
+  ~~That is the outcome this page cannot predict~~ — **RESOLVED, and it did NOT
+  fire.** The re-run came back *positive*, at +3,590 (design W) and +2,973
+  (design P). Recorded here rather than left silent, because **a falsifier that
+  resolves and is not written down is worse than none**: the next reader cannot
+  tell it was ever tested, and an untested falsifier and a passed one look
+  identical on the page. The 4,002 lines were quotable as blocked when this was
+  written; they are now converted.
