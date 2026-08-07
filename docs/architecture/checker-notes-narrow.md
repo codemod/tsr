@@ -1944,3 +1944,12 @@ decline.
 `noUncheckedIndexedAccess` wants `| undefined` through this road too, and
 unbounded-parameter values — both recorded refinements). `checker_types`
 right 393,561 → **393,835 (82.23%)**.
+
+**§44 postscript/build 70 — the queued trace paid.** The typed-array
+decline was the candidates loop's `?`: ONE unbuildable overload killed the
+whole interface. Skip-with-agreement (the all-equal return check still
+gates the kept) reads **+891 GAP→RIGHT / 147 GAP→WRONG** — typed arrays
+and every uniform-return constructor interface with one exotic overload.
+The 147 head at conditional-type constructor shapes where the skipped
+overload's return WOULD have disagreed — the stated risk, measured and
+carried. `checker_types` right 393,835 → **394,726 (82.42%)**.

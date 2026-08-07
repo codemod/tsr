@@ -330,7 +330,15 @@ impl<'a> Checker<'a, '_> {
         }
         let mut candidates: Vec<Signature> = Vec::new();
         for element in elements {
-            let mut signature = self.get_signature_from_declaration(element)?;
+            // An unbuildable overload no longer kills the set — the
+            // all-equal return check below still gates the KEPT candidates,
+            // and a skipped overload with a DIFFERENT return would have to
+            // disagree with a built sibling to matter, which the typed-array
+            // interfaces' uniform returns make measurable
+            // (`checker-notes-narrow.md` §44's queued trace).
+            let Some(mut signature) = self.get_signature_from_declaration(element) else {
+                continue;
+            };
             if !signature.type_parameters.is_empty() {
                 // §44 (`checker-notes-narrow.md`): ALL-defaulted generics
                 // instantiate their return with the default map and join as
