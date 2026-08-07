@@ -2026,3 +2026,19 @@ answers the full union and upstream's flow narrows it (`kind === 'A'` →
 which was always this row's other owner. The projection is its
 prerequisite, not its rival. `checker_types` right 394,985 → **395,719
 (82.62%)**.
+
+### §50 Dependent destructured narrowing — the pseudo-reference
+
+`getNarrowedTypeOfSymbol`'s binding-element case (`checker.go:13751`): a
+non-rest, initializer-less binding element from a ≥2-element pattern whose
+root is a const variable or parameter, with a UNION parent — the PATTERN
+is the pseudo-reference, flow-narrowed at the use site, and the element
+re-projects from the narrowed parent. The port: `FlowState` carries the
+pattern and its union; a condition on a SIBLING element acts as a
+discriminant on the walked union (the §16 comparable filter, member-
+directed); the projection reuses the destructure module against the
+narrowed parent. Declines: tuple-parameter dependents (the second
+upstream case), assigned-parameter roots, and any sibling condition whose
+member/literal pair the comparability cannot decide. Falsifiers: (a) the
+268 §49 residuals flip or stay — nothing else may move; (b) an
+undecidable discriminant keeps the FULL union (never `never`).
