@@ -1342,3 +1342,8 @@ what the existing positional gate detected and refused to fake as
 `symbol`. The gate's error becomes the mint. Falsifier: `typeof s`
 positions print `typeof s` — node-reuse territory; if those dominate the
 adverse, the mint narrows to declaration lines only.
+
+**§26 score — LANDED.** **+377 GAP→RIGHT / 19 GAP→WRONG** (the nineteen
+are `typeof s`-reuse and computed-property positions, the falsifier's
+named family, small enough to stand). `checker_types` right 387,778 →
+**388,155 (81.04%)**.

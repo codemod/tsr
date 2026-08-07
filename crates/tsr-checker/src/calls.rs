@@ -504,7 +504,14 @@ impl Checker<'_, '_> {
             && Self::is_symbol_or_symbol_for_call(node)
             && self.is_valid_es_symbol_declaration(node.node_id)
         {
-            return error;
+            // §26 (`checker-notes-callres.md`): the position the gate
+            // detected now MINTS — one distinct `unique symbol` per site
+            // (`getESSymbolLikeTypeForNode`, `checker.go:22982`).
+            return self.store.new_named(
+                TypeFlags::UNIQUE_ES_SYMBOL,
+                "unique symbol".to_string(),
+                None,
+            );
         }
         if counters::counting() {
             if signature.r#type == error {

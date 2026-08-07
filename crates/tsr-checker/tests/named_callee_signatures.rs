@@ -160,18 +160,17 @@ fn an_interface_with_a_heritage_clause_is_refused() {
 
 #[test]
 fn a_symbol_call_in_a_const_position_gaps_rather_than_printing_symbol() {
-    // `resolveCallExpression` (`checker.go:8348`) answers a *fresh unique
-    // symbol* here, and this port has no type carrying
-    // `TypeFlags::UNIQUE_ES_SYMBOL`. 291 corpus lines want `unique symbol` in
-    // this position; printing `symbol` would make every one of them a wrong
-    // line rather than a gap.
+    // The stand-in came due (the twenty-eighth): §26 MINTS the fresh
+    // `unique symbol` this fixture existed to keep un-faked — the 291-line
+    // row converted (+377), and the name now pins the mint rather than the
+    // gap.
     assert_eq!(
         type_of_last(
             "interface SymbolConstructor { (description?: string): symbol; }\n\
              declare const Symbol: SymbolConstructor;\n\
              const s = Symbol();"
         ),
-        "error"
+        "unique symbol"
     );
 }
 
