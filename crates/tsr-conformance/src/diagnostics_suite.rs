@@ -234,7 +234,13 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         let declaration_file = unit.name.ends_with(".d.ts")
             || unit.name.ends_with(".d.mts")
             || unit.name.ends_with(".d.cts");
-        checker.check_source_file(id, declaration_file);
+        checker.check_source_file(
+            id,
+            tsr_checker::check::FileContext {
+                ambient: declaration_file,
+                has_parse_errors: !file.diagnostics().is_empty(),
+            },
+        );
         units.push((id, unit.name.clone(), file.text()));
     }
 

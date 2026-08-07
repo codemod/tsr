@@ -229,6 +229,16 @@ pub struct Checker<'a, 'n> {
     /// the corpus contains such cases. Collapsing them would over-report every
     /// one of them.
     pub(crate) strict_property_initialization: bool,
+    /// Did the parser report a diagnostic in the file currently being walked?
+    ///
+    /// Set by [`Checker::check_source_file`] and read by the rules that cannot
+    /// trust a recovered tree. Upstream needs no equivalent: its recovery is the
+    /// recovery the baselines were produced from, so a node it built in a broken
+    /// file is still the node the diagnostic is about. Here the two parsers
+    /// disagree about *what tree a broken file has*, and a rule that reports on
+    /// a node one parser invented is reporting about a program the other never
+    /// saw. `crate::check` measures what this refusal costs.
+    pub(crate) file_has_parse_errors: bool,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -435,6 +445,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_null_checks: true,
             no_unchecked_side_effect_imports: true,
             strict_property_initialization: true,
+            file_has_parse_errors: false,
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),

@@ -491,6 +491,50 @@ impl<'a> BindResult<'a> {
         self.globals.get(name).copied().map(|found| self.merged_symbol(found))
     }
 
+    /// Every name a lookup from `start` could reach, in no particular order.
+    ///
+    /// The same scope chain [`BindResult::resolve_name`] walks — enclosing
+    /// `locals`, a class or interface's `members`, a module's or enum's
+    /// `exports`, and finally `globals` — collected instead of searched.
+    ///
+    /// # Why this exists, and what it is not
+    ///
+    /// Upstream's `getSpellingSuggestion` (`checker.go`) is driven by
+    /// `forEachSymbol`, which walks the same chain. The checker's TS2304 rule
+    /// needs the *set* rather than a hit, because upstream reports a different
+    /// code (TS2552) when a near-miss exists and this port must stay silent
+    /// there rather than report the wrong one — see
+    /// `Checker::has_spelling_suggestion`.
+    ///
+    /// **It is not meaning-filtered**, deliberately: a suggestion of the wrong
+    /// meaning still makes upstream pick TS2552 over TS2304, so filtering would
+    /// narrow the set in the direction that manufactures wrong codes.
+    #[must_use]
+    pub fn names_in_scope(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+    ) -> Vec<&'a str> {
+        let _ = node_map;
+        let mut names: Vec<&'a str> = Vec::new();
+        let mut current = Some(start);
+        while let Some(node) = current {
+            if let Some(table) = self.locals.get(&node) {
+                names.extend(table.keys().copied());
+            }
+            if let Some(symbol) = self.symbol_of(node) {
+                let symbol = self.symbols.get(symbol);
+                names.extend(symbol.members.keys().copied());
+                names.extend(symbol.exports.keys().copied());
+            }
+            let _ = nodes;
+            current = nodes.parent(node);
+        }
+        names.extend(self.globals.keys().copied());
+        names
+    }
+
     /// The synthesised `undefined` symbol, if this bind created one.
     ///
     /// `None` when the program declared its own, so the checker seeds a type

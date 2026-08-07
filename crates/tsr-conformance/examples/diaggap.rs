@@ -116,6 +116,35 @@ fn main() {
     let single_total: usize = ranked.iter().map(|r| r.1).sum();
     println!("\nsingle-code total: {single_total} cases across {} codes", ranked.len());
 
+    // The same column with the EXTRA sets ignored — i.e. what the single-code
+    // ranking would read if every false positive this port emits were gone.
+    // The difference between this and the table above is the whole value of
+    // fixing the parser's over-reporting, and it is worth printing because
+    // "308 cases carry a spurious TS1005" is a population, not a conversion.
+    let mut single_ignoring_extras: BTreeMap<u32, usize> = BTreeMap::new();
+    for verdict in &verdicts {
+        let mut codes: Vec<u32> = verdict.missing.iter().map(|d| d.code).collect();
+        codes.sort_unstable();
+        codes.dedup();
+        if let [code] = codes[..] {
+            *single_ignoring_extras.entry(code).or_default() += 1;
+        }
+    }
+    let extras_free_total: usize = single_ignoring_extras.values().sum();
+    println!(
+        "\nsingle-code total IGNORING extras: {extras_free_total} cases  (vs {single_total} with \
+         extras counted) — the difference, {}, is what removing every false positive would add to \
+         the reachable set",
+        extras_free_total - single_total
+    );
+    let mut ranked_free: Vec<(u32, usize)> =
+        single_ignoring_extras.iter().map(|(&c, &n)| (c, n)).collect();
+    ranked_free.sort_by_key(|&(code, count)| (std::cmp::Reverse(count), code));
+    for (code, count) in ranked_free.iter().take(10) {
+        let with_extras = single.get(code).map_or(0, Vec::len);
+        println!("TS{code:<4}  {count:>6} ignoring extras   {with_extras:>6} counting them");
+    }
+
     // Codes this port emits where upstream does not, ranked by how many cases
     // they appear in. A false positive is a defect we own today.
     let mut extras: BTreeMap<u32, usize> = BTreeMap::new();

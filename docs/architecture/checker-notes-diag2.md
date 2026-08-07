@@ -445,3 +445,119 @@ Board at `263` passing:
 | TS6133 | 81 | reference counting, no types |
 | TS2741 / TS2353 | 38 / 37 | assignability |
 | TS2564 | 32 | the constructor disjunct — synthesised flow reference |
+
+---
+
+## 7. The third rule: TS2304, and four refusals that were each worth more than the rule
+
+`Cannot find name '{0}'.` Sized by `diaggap.rs` at **197 cases blocked on it
+alone** at 263 passing.
+
+`getResolvedSymbol` (`checker.go:13890`) resolves every identifier expression
+with `SymbolFlagsValue|SymbolFlagsExportValue`; failure lands in
+`onFailedToResolveSymbol` (`checker.go:1564`) whose **last line** is this
+diagnostic. Everything above that line is a decline, and there are ten of them.
+
+### The walk had to become general first
+
+The statement-and-module walk §2 shipped cannot reach an identifier. It is
+replaced by a recursive walk over every registered child
+([`tsr_ast::for_each_child_id`]) with a depth bound, rather than by porting
+`checkSourceElement`'s 120-arm switch. The consequence is stated at the function
+and is the load-bearing one: **a rule now sees nodes upstream's corresponding
+`checkXxx` would never be handed**, so every rule carries its own position test.
+For identifiers that test is an *allow*-list over the parent's **slot**, not its
+kind — a `PropertyAccessExpression` resolves its `expression` and never its
+`name`, and conflating those reports `Cannot find name 'length'` on every
+`a.length` in the corpus.
+
+Restructuring the walk alone moved the §6 counterfactual 183 → 185 converts with
+`WRONG` unchanged: two more classes reachable, nothing new reported.
+
+### Four measurements, each a refusal
+
+| build | CONVERTS | LOST | WRONG |
+|---|---:|---:|---:|
+| TS2304 as first written | 299 | **30** | **933** |
+| + skip *missing* identifiers (`!ast.NodeIsMissing`, `checker.go:13894`) and `arguments` | 303 | 1 | 541 |
+| + `getSpellingSuggestion` ported exactly, + `globalThis` | 305 | 1 | 428 |
+| + refuse every identifier in a file with **parse errors** | 298 | **0** | 122 |
+| + refuse inside a `with` block (TS2410, `checker.go:29344`) | **298** | **0** | **113** |
+
+Cumulative with §3 and §6, so TS2304's own share is **+113 conversions for 86
+wrong lines**, and the wrong column is 55 cases.
+
+**The spelling suggestion is the whole rule.** `onFailedToResolveSymbol` tries
+`getSuggestedSymbolForNonexistentSymbol` immediately before falling through, so
+every name with a near neighbour in scope is a **TS2552**, not a TS2304. A
+hand-rolled within-one-edit test looked adequate and
+`conformance/parserS7.6_A4.2_T1` alone produced 20 wrong lines from it: `$ERROR`
+against `Error` is one deletion plus five *case* differences, and upstream's
+distance charges 0.1 for a case difference and 2 for anything else
+(`core.go:650`-`:653`). Plain edit distance says 6; upstream's says 1.4 against a
+threshold of 3.3. `core.GetSpellingSuggestion` (`core.go:559`) is ported exactly,
+including the `max(2, 0.34·len)` length filter and the "candidates under 3
+characters only when they differ by case" rule, with two departures stated at the
+function — upstream's byte-vs-rune length comparison is a Go slip and is not
+reproduced, and the tie-break is dropped because this caller asks only whether a
+suggestion exists.
+
+**The parse-error refusal is the largest single lever and it is a new kind.**
+Upstream's recovery *is* the recovery the baselines were produced from, so a node
+it builds in a broken file is still the node the diagnostic is about. Here the
+two parsers disagree about what tree a broken file has, and reporting an
+unresolvable name on a node one parser invented is reporting about a program the
+other never saw. Refusing costs **7 conversions** and removes **306 wrong
+lines** — `jsxUnclosedParserRecovery` 21, `arrowFunctionsMissingTokens` 15,
+`parserUnterminatedGeneric2` 8, and a long tail of `parserSkippedTokens`,
+`parserErrorRecovery*` and conflict-marker cases. It is stated as a field on the
+`Checker` rather than hidden in the rule because **every future diagnostic rule
+wants it**.
+
+### The residual 86, and the reachability it costs
+
+Diffuse — the largest family is 4 lines. By owner: class and namespace scoping in
+`BindResult::resolve_name` (`staticsInConstructorBodies`,
+`initializerReferencingConstructorParameters`,
+`constructorParametersInVariableDeclarations`, `exportNestedNamespaces2`,
+`computedPropertyNamesWithStaticProperty` — ~25); the
+`getSuggestedLibForNonExistentName` family, TS2583, unported
+(`doYouNeedToChangeYourTargetLibraryES2016Plus`,
+`modularizeLibrary_ErrorFromUsingES6FeaturesWithOnlyES5Lib` — ~8); TS2552 misses
+where upstream's scope differs from ours (~6); the rest singletons.
+
+**The cost is stated in the currency that matters.** A case carrying a spurious
+diagnostic can never pass, however many rules land later, so the number to watch
+is not the wrong *lines* but the single-code reachable *set*:
+
+```
+                    passing   single-code reachable   sum
+before TS2304          263            3,285          3,548
+after  TS2304          378            3,226          3,604
+```
+
+So the rule converts 115 now and removes 59 cases from single-rule reach, for a
+net **+56** on the set of cases any one further rule could finish. That is a
+thinner margin than §3's or §6's and it is the honest way to score a rule that
+reports on a negative. Had the four refusals not been taken it would have been
+**−85** — the first build in this file that would have made the board *worse*.
+
+### The bar, and an honesty note about what it is
+
+`diaggap.rs` calls `diagnostics_suite::reported_for`, which is the suite. So the
+suite's passing count was **known before this bar was written**; the conversion
+leg below is a *confirmation*, not a forecast, and is recorded as such rather
+than dressed up. The legs that were genuinely open when it was registered are
+2–5.
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 (confirmation) | `diagnostics` passes == 378 | **378** | pass |
+| 2 | `checker_types` unchanged, byte-identical | **2,841 / 73.65%**, snapshot identical | pass |
+| 3 | cases regressed == 0 | **0** — 378 = 263 + 115 | pass |
+| 4 | own new wrong ≤ 60 cases | **55** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**Falsifier.** If `checker_types` moves at all, the general walk is being reached
+from the gradient's producer — it is a `pub fn` on the same `Checker` the
+producer builds, and nothing but discipline stops a future call site invoking it.

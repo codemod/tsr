@@ -47,9 +47,43 @@
 //! week.
 
 use tsr_ast::{ClassElement, ModifierLike, Node, NodeId, SyntaxKind};
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
+
+/// What the caller knows about a file that the tree does not say.
+///
+/// Both fields stand in for facts upstream's parser records and this port's does
+/// not — `NodeFlagsAmbient` for the first, and for the second the simple fact
+/// that upstream is comparing its *own* recovery against baselines produced by
+/// it. Each is documented at its reader; they travel together because a caller
+/// that knows one knows the other.
+#[derive(Debug, Clone, Copy)]
+pub struct FileContext {
+    /// Upstream's `node.Flags & ast.NodeFlagsAmbient` for the file: is this a
+    /// declaration file?
+    pub ambient: bool,
+    /// Did the parser report anything in this file?
+    pub has_parse_errors: bool,
+}
+
+/// The walk's stack budget, matching `tsr-binder`'s `MAX_DEPTH`.
+///
+/// Not a correctness bound: a file deeper than this loses diagnostics from the
+/// deep part, which is a missing diagnostic and therefore a *failed* case rather
+/// than a wrong one. ADR-0029's budget is what makes a fixed number necessary
+/// here at all — Go grows a goroutine's stack on demand and upstream needs no
+/// equivalent.
+const MAX_CHECK_DEPTH: u32 = 1_000;
+
+/// Children held without allocating, before falling back to a `Vec`.
+///
+/// The walk cannot borrow `self.node_map` across a `&mut self` recursion, so the
+/// child ids are collected first. Almost every node has few children; the ones
+/// that do not are statement lists and argument lists, and paying an allocation
+/// for those alone keeps the common node allocation-free.
+const INLINE_CHILDREN: usize = 8;
 
 impl Checker<'_, '_> {
     /// Report every diagnostic this port can produce for one source file.
@@ -78,25 +112,47 @@ impl Checker<'_, '_> {
     /// It was not optional: reading the unset flag instead reported TS2564 on
     /// **every property of every `declare class` in the corpus**, ~25 of the 86
     /// wrong lines that measurement produced.
-    pub fn check_source_file(&mut self, file: NodeId, in_ambient_context: bool) {
-        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
-        for statement in source.statements {
-            self.check_source_element(statement.node_id(), in_ambient_context);
-        }
+    pub fn check_source_file(&mut self, file: NodeId, context: FileContext) {
+        self.file_has_parse_errors = context.has_parse_errors;
+        self.check_node(file, context.ambient, 0);
     }
 
-    /// One statement, and the statements a module body nests inside it.
+    /// One node: its own rules, then its children.
     ///
-    /// The recursion into `ModuleDeclaration` is not decoration: a
-    /// `declare module "x" { import y = require("z"); }` puts an unresolvable
-    /// specifier two levels down, and upstream reaches it through the general
-    /// `checkSourceElement` walk. Nothing else recurses yet — a function body
-    /// cannot contain an import declaration, and `import("x")` in expression or
-    /// type position is a separate rule with its own sizing.
-    fn check_source_element(&mut self, node: Option<NodeId>, ambient: bool) {
-        let Some(node) = node else { return };
-        match self.node_map.get(node) {
-            Some(Node::ImportDeclaration(declaration)) => {
+    /// # Why a generic child walk rather than a typed `checkSourceElement`
+    ///
+    /// Upstream's `checkSourceElement` (`checker.go:2241`) is a 120-arm switch
+    /// that dispatches each kind to its own `checkXxx`, and each `checkXxx`
+    /// recurses into exactly the children that kind checks. Reproducing that
+    /// shape means writing 120 arms before the first rule beyond declarations
+    /// can fire.
+    ///
+    /// This walks every registered child via
+    /// [`tsr_ast::for_each_child_id`] and lets each rule decide, at the node it
+    /// cares about, whether it applies. The two produce the same *set of visited
+    /// nodes* for the rules ported so far; they differ in that upstream's order
+    /// is a checking order with deferred work, and this one is document order
+    /// with none. Nothing ported yet depends on either.
+    ///
+    /// The consequence to accept, and it is the one that matters: **a rule here
+    /// sees nodes upstream's corresponding `checkXxx` would never be handed**,
+    /// so every rule must carry its own position test rather than relying on the
+    /// walk to have filtered for it. [`Checker::is_value_reference`] is that test
+    /// for identifiers and it is written as an *allow*-list precisely because a
+    /// missing arm then costs silence rather than a false positive.
+    ///
+    /// `depth` is bounded for the same reason `tsr-binder`'s walk is
+    /// ([ADR-0029](../../../docs/adr/0029-stack-discipline-is-guards-plus-a-budget.md)):
+    /// the corpus contains files written to break compilers, and
+    /// `compiler/binderBinaryExpressionStress` is 4,971 operands of one
+    /// left-leaning chain.
+    fn check_node(&mut self, node: NodeId, ambient: bool, depth: u32) {
+        if depth > MAX_CHECK_DEPTH {
+            return;
+        }
+        let Some(typed) = self.node_map.get(node) else { return };
+        let ambient = match typed {
+            Node::ImportDeclaration(declaration) => {
                 // `import "x"` with no clause is a **side-effect import**, and
                 // upstream gives it its own message — `checkImportDeclaration`'s
                 // `else if` branch at `checker.go:5321`, guarded by
@@ -104,26 +160,27 @@ impl Checker<'_, '_> {
                 // true when the option is unset. Same site, same resolution,
                 // a different code.
                 let side_effect = declaration.import_clause.is_none();
-                if side_effect && !self.no_unchecked_side_effect_imports {
-                    // `checker.go:5321`'s guard: with the option explicitly
-                    // off, upstream does not resolve the specifier at all, so
-                    // there is no diagnostic of any code to report here.
-                    return;
+                // `checker.go:5321`'s guard: with the option explicitly off,
+                // upstream does not resolve the specifier at all, so there is no
+                // diagnostic of any code to report there.
+                if !side_effect || self.no_unchecked_side_effect_imports {
+                    self.check_module_specifier(
+                        node,
+                        declaration.module_specifier.and_then(|s| s.node_id()),
+                        side_effect,
+                    );
                 }
-                self.check_module_specifier(
-                    node,
-                    declaration.module_specifier.and_then(|s| s.node_id()),
-                    side_effect,
-                );
+                ambient
             }
-            Some(Node::ExportDeclaration(declaration)) => {
+            Node::ExportDeclaration(declaration) => {
                 self.check_module_specifier(
                     node,
                     declaration.module_specifier.and_then(|s| s.node_id()),
                     false,
                 );
+                ambient
             }
-            Some(Node::ImportEqualsDeclaration(declaration)) => {
+            Node::ImportEqualsDeclaration(declaration) => {
                 // Only the `require("x")` spelling names a module; `import a = b.c`
                 // is an entity-name alias and resolves through the scope.
                 if let Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) =
@@ -135,35 +192,62 @@ impl Checker<'_, '_> {
                         false,
                     );
                 }
+                ambient
             }
-            Some(Node::ClassDeclaration(declaration)) => {
+            Node::ClassDeclaration(declaration) => {
                 // `declare class C { x: number }` puts every member in an
                 // ambient context, which is where upstream's flag would already
                 // be set on the members themselves.
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
+                ambient
             }
-            Some(Node::ModuleDeclaration(declaration)) => {
-                // `declare module "m" { … }` and `declare namespace N { … }`
-                // are ambient contexts, and so is an *ambient* module's body
-                // whether or not the keyword is repeated inside it.
-                let ambient = ambient
+            Node::ClassExpression(declaration) => {
+                let ambient =
+                    ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
+                self.check_property_initialization(declaration.members, ambient);
+                ambient
+            }
+            // `declare module "m" { … }` and `declare namespace N { … }` are
+            // ambient contexts, and so is an *ambient* module's body whether or
+            // not the keyword is repeated inside it.
+            Node::ModuleDeclaration(declaration) => {
+                ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
-                    || self.is_ambient_module_node(node);
-                match declaration.body {
-                    Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
-                        for statement in block.statements {
-                            self.check_source_element(statement.node_id(), ambient);
-                        }
-                    }
-                    Some(tsr_ast::ModuleBody::ModuleDeclaration(nested)) => {
-                        self.check_source_element(nested.node_id, ambient);
-                    }
-                    None => {}
-                }
+                    || self.is_ambient_module_node(node)
             }
-            _ => {}
+            Node::VariableStatement(statement) => {
+                ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
+            }
+            Node::FunctionDeclaration(declaration) => {
+                ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+            }
+            Node::EnumDeclaration(declaration) => {
+                ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+            }
+            Node::Identifier(identifier) => {
+                self.check_value_identifier(node, identifier.text);
+                ambient
+            }
+            _ => ambient,
+        };
+        let mut children = [const { None }; INLINE_CHILDREN];
+        let mut count = 0usize;
+        let mut overflow: Vec<NodeId> = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| {
+            if count < INLINE_CHILDREN {
+                children[count] = Some(child);
+            } else {
+                overflow.push(child);
+            }
+            count += 1;
+        });
+        for child in children.into_iter().flatten() {
+            self.check_node(child, ambient, depth + 1);
+        }
+        for child in overflow {
+            self.check_node(child, ambient, depth + 1);
         }
     }
 
@@ -411,6 +495,234 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// TS2304 — `Cannot find name '{0}'.`
+    ///
+    /// `getResolvedSymbol` (`checker.go:13890`) resolves every identifier
+    /// expression with `SymbolFlagsValue|SymbolFlagsExportValue` and a
+    /// *nameNotFoundMessage*; failing to resolve lands in
+    /// `onFailedToResolveSymbol` (`checker.go:1564`), whose **last line** is this
+    /// diagnostic.
+    ///
+    /// # Everything above that last line is a decline, and there are ten
+    ///
+    /// `onFailedToResolveSymbol` runs seven `checkAndReportErrorFor…`
+    /// predicates, a missing-lib suggestion and a spelling suggestion before it
+    /// falls through, and **each of them reports a different code at the same
+    /// position** — TS2662/2663 for a missing `this.`/`super.` prefix, TS2689
+    /// for extending an interface, TS2702 for a type used as a namespace,
+    /// TS2708/2709 for a namespace used as a value or type, TS2693/2749 for a
+    /// type used as a value and the reverse, TS2583 for a name that needs a
+    /// different `lib`, TS2552 for a spelling suggestion. On top of that
+    /// `getCannotFindNameDiagnosticForName` (`checker.go:13915`) substitutes the
+    /// whole message for fourteen well-known names before resolution even
+    /// starts.
+    ///
+    /// This is the TS2307 shape again and worse: the diagnostic is the *residue*
+    /// of a decision tree, so porting it means porting the tree. What is ported
+    /// here is the subset whose declines are cheap and total:
+    ///
+    /// | declined | upstream's code |
+    /// |---|---|
+    /// | the fourteen names of `getCannotFindNameDiagnosticForName` | TS2580–TS2593 |
+    /// | the name resolves under `TYPE` or `NAMESPACE` meaning | TS2693 / TS2709 / TS2749 / TS2702 |
+    /// | any other symbol in the file is spelled within one edit | TS2552, approximated — see [`Checker::has_spelling_suggestion`] |
+    /// | the identifier is not in an allow-listed value slot | not an identifier expression at all |
+    ///
+    /// The position test is an **allow**-list ([`Checker::is_value_reference`])
+    /// rather than a deny-list, because the generic walk hands this rule every
+    /// identifier in the file — declaration names, member names, labels, type
+    /// references, import specifiers — and a missing deny-list arm is a false
+    /// positive while a missing allow-list arm is only a missed conversion.
+    fn check_value_identifier(&mut self, node: NodeId, text: &str) {
+        // A file the parser could not read cleanly has a tree this port
+        // *recovered*, and upstream recovered a different one. Reporting an
+        // unresolvable name there is reporting about a program upstream never
+        // saw — see [`crate::checker::Checker::file_has_parse_errors`]. It was
+        // the single largest family in the residual: `jsxUnclosedParserRecovery`
+        // 21 lines, `arrowFunctionsMissingTokens` 15,
+        // `parserUnterminatedGeneric2` 8, and a long tail of `parserSkippedTokens`
+        // and conflict-marker cases.
+        if self.file_has_parse_errors {
+            return;
+        }
+        if !self.is_value_reference(node) || is_specially_diagnosed_name(text) {
+            return;
+        }
+        // Inside a `with` block upstream reports TS2410 — *"All symbols in a
+        // 'with' block will have type 'any'"* — and resolves nothing
+        // (`NodeFlagsInWithStatement`, read at `checker.go:29344` and four other
+        // sites). The flag is another the parser here never sets, so the
+        // question is asked of the ancestors.
+        if self.is_inside_with_statement(node) {
+            return;
+        }
+        // `!ast.NodeIsMissing(node)` (`checker.go:13894`) — upstream does not
+        // resolve, and therefore never reports, an identifier the parser
+        // synthesised while recovering. `NodeIsMissing` is `pos == end`, and a
+        // missing identifier also carries empty text.
+        let span = self.nodes.span(node);
+        if text.is_empty() || span.start == span.end {
+            return;
+        }
+        if self
+            .binder
+            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+            .is_some()
+        {
+            return;
+        }
+        // `checkAndReportErrorForUsingTypeAsValue` / `…NamespaceAsTypeOrValue`
+        // (`checker.go:1681`, `:1643`): a name that resolves under another
+        // meaning gets a *different* code, so silence is the only sound answer
+        // until those arms are ported.
+        if self
+            .binder
+            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::TYPE)
+            .is_some()
+            || self
+                .binder
+                .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::NAMESPACE)
+                .is_some()
+        {
+            return;
+        }
+        if self.has_spelling_suggestion(node, text) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        self.report(
+            file,
+            Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
+        );
+    }
+
+    /// Would `getSuggestedSymbolForNonexistentSymbol` (`checker.go:1591`) find
+    /// something, so that upstream reports TS2552 rather than TS2304?
+    ///
+    /// The **whole** of TS2304 turns on this. `onFailedToResolveSymbol`
+    /// (`checker.go:1564`) tries a spelling suggestion immediately before its
+    /// fallthrough, so every name with a near neighbour in scope is a TS2552 and
+    /// reporting TS2304 there is a wrong code at a right position. A first
+    /// attempt used a hand-rolled within-one-edit test and
+    /// `conformance/parserS7.6_A4.2_T1` alone produced **20 wrong lines** from
+    /// it: `$ERROR` against `Error` is one deletion plus five case differences,
+    /// which upstream's weighted distance accepts and a plain edit count does
+    /// not. The algorithm is ported instead — see [`spelling_suggestion`].
+    fn has_spelling_suggestion(&self, node: NodeId, text: &str) -> bool {
+        let candidates = self.binder.names_in_scope(self.nodes, self.node_map, node);
+        spelling_suggestion(text, &candidates).is_some()
+    }
+
+    /// Is this identifier in a slot where upstream would call
+    /// `getResolvedSymbol` on it?
+    ///
+    /// An allow-list over the **parent's** shape: the identifier must be the
+    /// node sitting in one of the parent's expression-typed fields. Every arm
+    /// names a field rather than a kind, because the discriminating question is
+    /// never "what is the parent" but "which of its slots is this" — a
+    /// `PropertyAccessExpression` resolves its `expression` and never its
+    /// `name`, and conflating those reports `Cannot find name 'length'` on every
+    /// `a.length` in the corpus.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one arm per expression-bearing node kind; splitting it would \
+                  hide the exhaustiveness that is the point of the list"
+    )]
+    fn is_value_reference(&self, node: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        let Some(typed) = self.node_map.get(parent) else { return false };
+        let is = |slot: Option<NodeId>| slot == Some(node);
+        let is_any = |slots: &[Option<NodeId>]| slots.contains(&Some(node));
+        match typed {
+            Node::ExpressionStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::PropertyAccessExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::ElementAccessExpression(n) => is_any(&[
+                n.expression.and_then(|e| e.node_id()),
+                n.argument_expression.and_then(|e| e.node_id()),
+            ]),
+            Node::CallExpression(n) => {
+                is(n.expression.and_then(|e| e.node_id()))
+                    || n.arguments.iter().any(|a| a.node_id() == Some(node))
+            }
+            Node::NewExpression(n) => {
+                is(n.expression.and_then(|e| e.node_id()))
+                    || n.arguments.iter().any(|a| a.node_id() == Some(node))
+            }
+            Node::BinaryExpression(n) => {
+                is_any(&[n.left.and_then(|e| e.node_id()), n.right.and_then(|e| e.node_id())])
+            }
+            Node::PrefixUnaryExpression(n) => is(n.operand.and_then(|e| e.node_id())),
+            Node::PostfixUnaryExpression(n) => is(n.operand.and_then(|e| e.node_id())),
+            Node::ConditionalExpression(n) => is_any(&[
+                n.condition.and_then(|e| e.node_id()),
+                n.when_true.and_then(|e| e.node_id()),
+                n.when_false.and_then(|e| e.node_id()),
+            ]),
+            Node::ParenthesizedExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::ArrayLiteralExpression(n) => n.elements.iter().any(|e| e.node_id() == Some(node)),
+            // The *initialiser*, never the name — `{ a: b }` resolves `b`.
+            Node::PropertyAssignment(n) => is(n.initializer.and_then(|e| e.node_id())),
+            // `{ a }` is both a name and a reference, which is the one place a
+            // declaration name is also resolved.
+            Node::ShorthandPropertyAssignment(n) => {
+                is(n.name.node_id())
+                    || is(n.object_assignment_initializer.and_then(|e| e.node_id()))
+            }
+            Node::SpreadElement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::SpreadAssignment(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::TemplateSpan(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::TaggedTemplateExpression(n) => is(n.tag.and_then(|e| e.node_id())),
+            Node::TypeAssertion(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::AsExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::SatisfiesExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::NonNullExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::AwaitExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::YieldExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::TypeOfExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::VoidExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::DeleteExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::VariableDeclaration(n) => is(n.initializer.and_then(|e| e.node_id())),
+            Node::ParameterDeclaration(n) => is(n.initializer.and_then(|e| e.node_id())),
+            Node::PropertyDeclaration(n) => is(n.initializer.and_then(|e| e.node_id())),
+            Node::BindingElement(n) => is(n.initializer.and_then(|e| e.node_id())),
+            Node::EnumMember(n) => is(n.initializer.and_then(|e| e.node_id())),
+            Node::ReturnStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::ThrowStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::IfStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::WhileStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::DoStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::SwitchStatement(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::CaseOrDefaultClause(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::ForStatement(n) => is_any(&[
+                n.initializer.and_then(|e| e.node_id()),
+                n.condition.and_then(|e| e.node_id()),
+                n.incrementor.and_then(|e| e.node_id()),
+            ]),
+            Node::ForInOrOfStatement(n) => is_any(&[
+                n.initializer.and_then(|e| e.node_id()),
+                n.expression.and_then(|e| e.node_id()),
+            ]),
+            Node::ComputedPropertyName(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::Decorator(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::ExportAssignment(n) => is(n.expression.and_then(|e| e.node_id())),
+            Node::JsxExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            // `class C extends B` resolves `B` as a value; `implements I` does
+            // not, and the two share this node kind. The heritage clause's
+            // keyword is what separates them.
+            Node::ExpressionWithTypeArguments(n) => {
+                is(n.expression.and_then(|e| e.node_id()))
+                    && self.nodes.parent(parent).is_some_and(|clause| {
+                        matches!(
+                            self.node_map.get(clause),
+                            Some(Node::HeritageClause(heritage))
+                                if heritage.token.kind == SyntaxKind::ExtendsKeyword
+                        )
+                    })
+            }
+            _ => false,
+        }
+    }
+
     /// Append to the collection upstream keeps as `c.diagnostics`
     /// (`checker.go:661`), drained by `GetDiagnostics` (`checker.go:13951`).
     fn report(&mut self, file: NodeId, diagnostic: Diagnostic) {
@@ -459,6 +771,23 @@ impl Checker<'_, '_> {
             .flags
             .intersects(tsr_binder::SymbolFlags::VALUE_MODULE)
             .then_some(symbol)
+    }
+
+    /// `node.Flags & ast.NodeFlagsInWithStatement`, recomputed from the tree.
+    ///
+    /// The *statement* of a `with`, not its expression: `with (a) { b }`
+    /// resolves `a` normally and refuses `b`.
+    fn is_inside_with_statement(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            if let Some(Node::WithStatement(with)) = self.node_map.get(parent)
+                && with.statement.and_then(|s| s.node_id()) == Some(current)
+            {
+                return true;
+            }
+            current = parent;
+        }
+        false
     }
 
     /// `ast.GetSourceFileOfNode`, reachable from this module.
@@ -552,4 +881,163 @@ fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
     modifiers
         .iter()
         .any(|modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == keyword))
+}
+
+/// The fourteen names `getCannotFindNameDiagnosticForName` (`checker.go:13915`)
+/// substitutes a different message for.
+///
+/// Upstream picks TS2580/2581/2582/2583/2584/2591/2593 for these depending on
+/// the name and on `UsesWildcardTypes`, so reporting TS2304 for any of them is a
+/// wrong code at a right position. A refusal list, like the Node core modules
+/// above.
+fn is_specially_diagnosed_name(name: &str) -> bool {
+    matches!(
+        name,
+        // Not one of upstream's fourteen: `arguments` is *synthesised* by
+        // `resolveName`'s own `arguments` arm (`nameresolver.go`) for every
+        // function-like container, and this binder declares no such symbol. So
+        // every `arguments` reference in the corpus would resolve to nothing
+        // here and to `IArguments` upstream. `bd tsr-o9tl`; the row is 399 lines
+        // of the `.types` gradient too (STATUS §4.3).
+        "arguments"
+            // `globalThis` is a *synthesised* global upstream declares in
+            // `initializeGlobals`; this binder declares no symbol for it, so
+            // every reference would be reported. A refusal, not a resolution.
+            | "globalThis"
+            | "document"
+            | "console"
+            | "$"
+            | "beforeEach"
+            | "describe"
+            | "suite"
+            | "it"
+            | "test"
+            | "process"
+            | "require"
+            | "Buffer"
+            | "module"
+            | "NodeJS"
+            | "Bun"
+    )
+}
+
+/// `core.GetSpellingSuggestion` (`internal/core/core.go:559`) — the closest
+/// candidate to `name`, or `None` when nothing is close enough.
+///
+/// # Ported exactly, because an approximation is a wrong diagnostic
+///
+/// The distance is **not** plain Levenshtein. A case-only substitution costs
+/// `0.1` and any other substitution costs `2` (`core.go:650`-`:653`), which is
+/// what makes `$ERROR` a suggestion for `Error` — one deletion at cost 1 plus
+/// five case differences at 0.1 each — while five *character* differences would
+/// be 10 and miss by a mile. The acceptance threshold is
+/// `floor(0.4 * len) + 0.9` and the length filter is `max(2, 0.34 * len)`.
+///
+/// Two deliberate departures, both stated:
+///
+/// - Upstream compares `len(candidateName)` in **bytes** against
+///   `len(runeName)` in **runes** (`core.go:583`), a Go slip that only shows on
+///   non-ASCII names. This compares runes on both sides. The corpus case that
+///   drove this rule — `parserS7.6_A4.2_T1`, the Cyrillic alphabet — is exactly
+///   where the two differ, and matching upstream's *behaviour* there would mean
+///   reproducing the slip.
+/// - The candidate ordering tie-break (`compare(candidate, bestCandidate)`) is
+///   dropped: this caller asks only whether a suggestion exists, never which.
+///
+/// It lives here rather than in `tsr-core` — upstream's home for it — because
+/// there is one consumer. The second consumer is the scanner's regular-
+/// expression property-name suggestions (`scanner/regexp.go:955`), unported;
+/// it moves when that lands.
+fn spelling_suggestion<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    let target: Vec<char> = name.chars().collect();
+    #[allow(clippy::cast_precision_loss, reason = "identifier lengths are small")]
+    let length = target.len() as f64;
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "0.34 * a small positive length"
+    )]
+    let maximum_length_difference = usize::max(2, (length * 0.34) as usize);
+    let mut best_distance = (length * 0.4).floor() + 0.9;
+    let mut best: Option<&'a str> = None;
+
+    for candidate in candidates {
+        if candidate.is_empty() || *candidate == name {
+            continue;
+        }
+        let other: Vec<char> = candidate.chars().collect();
+        if usize::abs_diff(other.len(), target.len()) > maximum_length_difference {
+            continue;
+        }
+        // "Only consider candidates less than 3 characters long when they
+        // differ by case" (`core.go:589`).
+        if other.len() < 3 && !candidate.eq_ignore_ascii_case(name) {
+            continue;
+        }
+        if let Some(distance) = levenshtein_with_max(&target, &other, best_distance) {
+            if distance < best_distance {
+                best_distance = distance;
+            }
+            best = Some(candidate);
+        }
+    }
+    best
+}
+
+/// `core.levenshteinWithMax` (`internal/core/core.go:627`).
+///
+/// Returns `None` for upstream's `-1`: the distance exceeded `max_value` and no
+/// column can recover, so the candidate is rejected.
+fn levenshtein_with_max(s1: &[char], s2: &[char], max_value: f64) -> Option<f64> {
+    let width = s2.len() + 1;
+    let big = max_value + 0.01;
+    #[allow(clippy::cast_precision_loss, reason = "identifier lengths are small")]
+    let mut previous: Vec<f64> = (0..width).map(|i| i as f64).collect();
+    let mut current: Vec<f64> = vec![0.0; width];
+
+    for i in 1..=s1.len() {
+        #[allow(clippy::cast_precision_loss, reason = "identifier lengths are small")]
+        let row = i as f64;
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to at least 1 by the max below"
+        )]
+        let min_j = usize::max((row - max_value).ceil().max(1.0) as usize, 1);
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "clamped to s2's length by the min below"
+        )]
+        let max_j = usize::min((max_value + row).floor().max(0.0) as usize, s2.len());
+        let mut column_min = row;
+        current[0] = row;
+        for slot in current.iter_mut().take(min_j).skip(1) {
+            *slot = big;
+        }
+        for j in min_j..=max_j {
+            // A case-only difference costs 0.1; any other substitution costs 2.
+            let substitution = if s1[i - 1].to_lowercase().eq(s2[j - 1].to_lowercase()) {
+                previous[j - 1] + 0.1
+            } else {
+                previous[j - 1] + 2.0
+            };
+            let distance = if s1[i - 1] == s2[j - 1] {
+                previous[j - 1]
+            } else {
+                (previous[j] + 1.0).min((current[j - 1] + 1.0).min(substitution))
+            };
+            current[j] = distance;
+            column_min = column_min.min(distance);
+        }
+        for slot in current.iter_mut().take(s2.len() + 1).skip(max_j + 1) {
+            *slot = big;
+        }
+        if column_min > max_value {
+            return None;
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    let result = previous[s2.len()];
+    (result <= max_value).then_some(result)
 }

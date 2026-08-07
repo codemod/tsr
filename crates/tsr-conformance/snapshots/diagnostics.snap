@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 263/5488 (4.79%)
-Failed         : 5225
+Passed         : 378/5488 (6.89%)
+Failed         : 5110
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5225 failures:
+First 100 of 5110 failures:
 compiler/ArrowFunctionExpression1
   1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
 compiler/ClassDeclaration10
@@ -41,9 +41,9 @@ compiler/ClassDeclaration9
 compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
   1 missing (first TS1248 at ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts(2,16))
 compiler/ExportAssignment7
-  2 missing (first TS2309 at ExportAssignment7.ts(4,1))
+  1 missing (first TS2309 at ExportAssignment7.ts(4,1))
 compiler/ExportAssignment8
-  2 missing (first TS2309 at ExportAssignment8.ts(1,1))
+  1 missing (first TS2309 at ExportAssignment8.ts(1,1))
 compiler/FunctionDeclaration3
   2 missing (first TS2391 at FunctionDeclaration3.ts(1,10))
 compiler/FunctionDeclaration4
@@ -77,9 +77,7 @@ compiler/abstractClassUnionInstantiation
 compiler/abstractPropertyInConstructor
   13 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessInstanceMemberFromStaticMethod01
-  1 missing (first TS2662 at accessInstanceMemberFromStaticMethod01.ts(5,17))
-compiler/accessStaticMemberFromInstanceMethod01
-  1 missing (first TS2304 at accessStaticMemberFromInstanceMethod01.ts(5,17))
+  1 unexpected (first TS2304 at accessInstanceMemberFromStaticMethod01.ts(5,17)), 1 missing
 compiler/accessorBodyInTypeContext
   8 unexpected (first TS1131 at accessorBodyInTypeContext.ts(2,15)), 4 missing
 compiler/accessorDeclarationEmitVisibilityErrors
@@ -116,8 +114,6 @@ compiler/aliasUsageInOrExpression
   5 missing (first TS2352 at aliasUsageInOrExpression_main.ts(10,40))
 compiler/aliasUsageInVarAssignment
   1 missing (first TS2454 at aliasUsageInVarAssignment_main.ts(7,25))
-compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
-  1 missing (first TS2304 at aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts(2,9))
 compiler/allowImportClausesToMergeWithTypes
   1 missing (first TS2749 at index.ts(9,10))
 compiler/allowJscheckJsTypeParameterNoCrash
@@ -212,3 +208,7 @@ compiler/arrayDestructuringInSwitch2
   1 missing (first TS2488 at arrayDestructuringInSwitch2.ts(11,13))
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
+compiler/arrayFrom
+  2 missing (first TS2322 at arrayFrom.ts(20,7))
+compiler/arrayIndexWithArrayFails
+  1 missing (first TS2538 at arrayIndexWithArrayFails.ts(3,16))

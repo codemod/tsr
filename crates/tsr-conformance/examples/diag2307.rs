@@ -89,7 +89,7 @@ fn main() {
         }
         let mut ranked: Vec<(&&str, &usize)> = by_text.iter().collect();
         ranked.sort_by(|a, b| b.1.cmp(a.1));
-        for (text, count) in ranked.iter().take(70) {
+        for (text, count) in ranked.iter().take(400) {
             println!("  {count:>4}  {text}");
         }
     }
@@ -154,4 +154,4 @@ fn measure(case: &CaseEntry) -> Option<(String, Row)> {
 /// It is exact rather than approximate because no other producer in this port
 /// emits either code — the parser and binder have no notion of module
 /// resolution at all.
-const RULE_CODES: &[u32] = &[2307, 2882, 2564];
+const RULE_CODES: &[u32] = &[2307, 2882, 2564, 2304];
