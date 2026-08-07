@@ -864,6 +864,24 @@ impl Relater<'_, '_, '_> {
                 parts.push(Ternary::Unknown);
                 continue;
             };
+            // `readonly` orders the STRICT subtype relation and only that one
+            // (`relater.go:4300`–`:4308`): a readonly source property against
+            // a mutable target rejects, so `{ a } | { readonly a }` reduces to
+            // `{ readonly a }` and never by declaration order — `readonly`
+            // deliberately does not affect assignability. §14 of
+            // `checker-notes-assign.md`; `readonlyPropertySubtypeRelationDirected`
+            // is the pin.
+            if self.relation == Relation::StrictSubtype
+                && let (Some(source_property), Some(target_property)) = (
+                    self.checker.get_property_of_type(source, &name),
+                    self.checker.get_property_of_type(target, &name),
+                )
+                && self.checker.is_readonly_property(source_property)
+                && !self.checker.is_readonly_property(target_property)
+            {
+                parts.push(Ternary::NotRelated);
+                continue;
+            }
             // Row 5 of `checker-notes-assign.md` §2 (`bd tsr-4qx`): the member
             // read may be the *uninstantiated* declaration, so on a `C<number>`
             // with a member declared `a: T` this comparison would run against

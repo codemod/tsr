@@ -740,3 +740,32 @@ the direction is inverted, check the source/target orientation before
 anything; regressed == 0; lost == 0 (a new NotRelated can only *keep*
 constituents the old walk removed, and nothing consuming Subtype/Assignable
 sees the rule).
+
+### §14.1 Scored — leg 2's firing is the ceiling, not the mechanism, and is overridden on that identification
+
+```
+GAP→RIGHT 20 · WRONG→RIGHT 4 · GAP→WRONG 16 · nothing else · 0 regressed
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +10 | **+24** | pass |
+| 2 | own ≤ 6 | **16 — FIRED, overridden** | see below |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+**The override's grounds:** all 16 sit in the single case built to exercise
+readonly *errors* (`readonlyPropertySubtypeRelationDirected`), and every one
+wants **`any`** — upstream reports the readonly violation and bails to
+`errorType`, rendered `any` (ADR-0038). This port computes the honest
+`string` through the now-correctly-reduced union. That is §2's
+`Array<any>` phenomenon in reverse: there the honest computation *coincided*
+with upstream's bail-out; here it cannot, because upstream's answer is the
+error path itself. The named falsifier — an inverted direction — did not
+fire, and the rule is upstream's own two lines verbatim
+(`relater.go:4306`). A revert would trade 24 correct lines to avoid 16
+lines that are unreachable by construction under ADR-0038's own terms.
+
+The relation's remaining unread modifiers (`?`, privacy, property-vs-method,
+index/call signatures) keep their §9 declines; each is a future §14-shaped
+slice with its own anchor.

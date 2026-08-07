@@ -738,8 +738,9 @@ impl crate::checker::Checker<'_, '_> {
         // this reduction is precisely the consumer that acts on the
         // too-permissive `Related` — `{ a } | { readonly a }` removed a
         // constituent upstream's directed relation keeps
-        // (`readonlyPropertySubtypeRelationDirected`, 36 of the 46). Until
-        // the relation reads modifiers, a constituent carrying one — or
+        // (`readonlyPropertySubtypeRelationDirected`, 36 of the 46; the
+        // relation learned READONLY in §14 and that clause is gone). Until
+        // the relation reads the remaining modifiers, a constituent carrying one — or
         // carrying a generic instantiation (`NonNullable<T>` reduced to `T`)
         // — declines the whole reduction, syntactically.
         for &constituent in &constituents {
@@ -816,6 +817,9 @@ impl crate::checker::Checker<'_, '_> {
                     tsr_ast::Node::MethodDeclaration(m) => (m.modifiers, m.postfix_token),
                     _ => return false,
                 };
+                // `readonly` left this list when the relation learned it
+                // (§14) — the strict-subtype walk now orders readonly pairs
+                // itself. `?` and privacy stay: both are still unread.
                 question.is_some()
                     || modifiers.iter().any(|modifier| {
                         matches!(
@@ -823,8 +827,7 @@ impl crate::checker::Checker<'_, '_> {
                             tsr_ast::ModifierLike::Token(token)
                                 if matches!(
                                     token.kind,
-                                    tsr_ast::SyntaxKind::ReadonlyKeyword
-                                        | tsr_ast::SyntaxKind::PrivateKeyword
+                                    tsr_ast::SyntaxKind::PrivateKeyword
                                         | tsr_ast::SyntaxKind::ProtectedKeyword
                                 )
                         )

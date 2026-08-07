@@ -846,3 +846,38 @@ impl Checker<'_, '_> {
         self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE)
     }
 }
+
+impl Checker<'_, '_> {
+    /// `isReadonlySymbol` (`checker.go:13849`), reduced to the shapes this
+    /// binder represents: a property whose declaration carries a `readonly`
+    /// modifier, a get-accessor with no set-accessor, an enum member. The
+    /// `CheckFlagsReadonly`, `const`-variable and `Object.defineProperty`
+    /// arms have no counterpart here yet — each is a *missing rejection* for
+    /// the one caller acting on the positive (`relater.rs`'s strict-subtype
+    /// readonly rule, `checker-notes-assign.md` §14).
+    pub(crate) fn is_readonly_property(&self, symbol: tsr_binder::SymbolId) -> bool {
+        let data = self.binder.symbols().get(symbol);
+        if data.flags.intersects(tsr_binder::SymbolFlags::ENUM_MEMBER) {
+            return true;
+        }
+        if data.flags.intersects(tsr_binder::SymbolFlags::GET_ACCESSOR)
+            && !data.flags.intersects(tsr_binder::SymbolFlags::SET_ACCESSOR)
+        {
+            return true;
+        }
+        data.declarations.iter().any(|&declaration| {
+            let modifiers = match self.node_map.get(declaration) {
+                Some(Node::PropertySignatureDeclaration(p)) => p.modifiers,
+                Some(Node::PropertyDeclaration(p)) => p.modifiers,
+                _ => return false,
+            };
+            modifiers.iter().any(|modifier| {
+                matches!(
+                    modifier,
+                    tsr_ast::ModifierLike::Token(token)
+                        if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword
+                )
+            })
+        })
+    }
+}
