@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §17-unrefusal landing, 2026-08-07 (ninth session, continued: builds 25–60).
+Measured at the callres-§27 landing, 2026-08-07 (ninth session, continued: builds 25–61).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §17-unrefusal landing, 2026-08-07 (ninth session, continued: bu
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,580/9,538** | **37.53%** | **gradient 81.39%** — the target |
+| **`checker_types`** | **3,627/9,538** | **38.03%** | **gradient 81.64%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-389,825 / 478,954 assertion lines = 81.39%      (measured at the §17-unrefusal landing)
-  right 389,825 | gap 55,102 | wrong 23,988        right+gap+wrong = 468,915 exactly
+391,007 / 478,954 assertion lines = 81.64%      (measured at the callres-§27 landing)
+  right 391,007 | gap 53,791 | wrong 24,117        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -129,8 +129,9 @@ relater's class-pair decline) = 389,041; then + 784 (assign §17
 UN-REFUSED: the nominal class arm works — the refusal's diagnosis was
 wrong, corrected loudly; the true terminus was the array arm's
 `count <= 1` conservatism, relaxed to decidable-is-the-answer;
-`generatedContextualTyping` converted 779/900) = 389,825 exactly —
-builds 25–60. §35 records a FINDING: tsgo prints
+`generatedContextualTyping` converted 779/900) = 389,825; then + 1,182 (callres §27: the
+WRITTEN `unique symbol` type node mints per declaration, +47 cases) =
+391,007 exactly — builds 25–61. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
@@ -1053,6 +1054,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | callres-§27 landing | **81.64%** | **3,627** | **+1,182/129, +47 cases** | **Build 61: the written `unique symbol`** — `getTypeFromTypeOperatorNode`'s ESSymbol arm, one mint per node; the §26 pair's other half |
 | 2026-08-07 | §17-unrefusal landing | **81.39%** | **3,580** | **+784/7 — the mountain converted** | **Build 60: the un-refusal.** The §17 refusal's diagnosis ("prerequisite: members slice") was WRONG and a lib-less micro-probe proved it in minutes: class instances carry their member symbols; the nominal private-identity arm fires; the terminus was `check_array_literal`'s `count <= 1` gate discarding DECIDABLE multi-survivor reductions. Corrected loudly per the STATUS rules — a refusal's diagnosis is itself a claim the next probe must test |
 | 2026-08-07 | arrays-§7 landing | **81.23%** | **3,579** | **+43 net, both columns improve** | **Build 59: the contextual re-open's first slice.** The mechanism-level argument STATUS §5 demanded: `isLiteralOfContextualType` preserves only FRESHABLE literals, so a literal-free element union is context-independent and the §13 admission extends to it. The head case then named the real blocker — sibling classes with private members relate Unknown in `union_with_subtype_reduction` where upstream's check decides; the next slice is a RELATER arm, queued in arrays §7 |
 | 2026-08-07 | §38 landing | **81.22%** | **3,575** | **+81/0** | **Build 58: written tails fill** — `fillMissingTypeArguments`' written half, zero adverse |
