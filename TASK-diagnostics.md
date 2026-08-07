@@ -82,6 +82,14 @@ RANKED NEXT ITEMS, with what each is actually blocked on
      `check_used_before_assigned` and excludes **outer variables, parameters,
      aliases and binding elements** — the ninth session's named residual,
      "outer variables and assignment marking". Worth ~60 cases.
+     **ONE APPROACH ALREADY REFUSED, tenth session's last measurement.** Lifting
+     the `isOuterVariable` refusal in favour of a *syntactic* `isNeverInitialized`
+     — "no identifier of this name stands in a write position anywhere in the
+     file" — measured **+5 converts, 4 LOST, wrong 10 → 65** and was reverted.
+     The scan is not the question: upstream's `isSymbolAssignedDefinitely` reads
+     `markNodeAssignments`, which records assignments *per symbol* during the
+     bind, and a name-based scan cannot tell one `x` from another's. The build is
+     `markNodeAssignments` in the binder, not a walk in the checker.
   0b. **The rest of `extragap.rs`'s displaced column.** DONE and worth +29
      between them: TS2300 (47 displaced, +11), TS1160 (12, +12), TS1125 (86, +5),
      TS1002 (16, +1). **TS1109's 18 are the only untried remainder.** TS1005's
