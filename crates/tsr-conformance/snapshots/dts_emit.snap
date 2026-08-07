@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 223/341 (65.40%)
-Failed         : 118
+Passed         : 228/341 (66.86%)
+Failed         : 113
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,7 +12,7 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 118 failures:
+First 100 of 113 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
@@ -43,8 +43,6 @@ compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
 compiler/declarationEmitExpandoPropertyPrivateName
   emitted b.d.ts, upstream emitted no declaration file
-compiler/declarationEmitExpandoWithGenericConstraint
-  line 9: want `export declare function Point(x: number, y: number): Point;`, got `export declare const Point: (x: number, y: number) => Point;`
 compiler/declarationEmitExportAliasVisibiilityMarking
   line 1: want `import { Suit, Rank } from './Types';`, got `declare const _default: any;`
 compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
@@ -89,8 +87,6 @@ compiler/deferredLookupTypeResolution2
   line 1: want `type StringContains<S extends string, L extends string> = ({`, got `type StringContains<S extends string, L extends string> = ({ [K in S]: 'true'; } & {`
 compiler/destructuredDeclarationEmit
   line 3: want `declare const { bar: baz, bat, bam: { bork: { bar: ibar, baz: ibaz } } }: {`, got `export { baz, ibaz };`
-compiler/expandoFunctionExpressionsWithDynamicNames
-  line 1: want `export declare function expr(): void;`, got `export declare const expr: () => void;`
 compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
 compiler/importAliasFromNamespace
@@ -131,8 +127,6 @@ compiler/moduleAugmentationDeclarationEmit2
   line 1: want `declare module "./observable" {`, got `import { Observable } from "./observable";`
 compiler/moduleAugmentationExtendAmbientModule2
   line 1: want `declare module "observable" {`, got `import { Observable } from "observable";`
-compiler/moduleAugmentationGlobal4
-  line 3: want `        x: any;`, got `        x;`
 compiler/moduleAugmentationImportsAndExports1
   line 1: want `import { B } from "./f2";`, got `import { A } from "./f1";`
 compiler/moduleAugmentationImportsAndExports2
@@ -199,10 +193,6 @@ conformance/callbackTagVariadicType
   line 1: want `/**`, got `export declare const x: () => number;`
 conformance/classDoesNotDependOnPrivateMember
   line 2: want `    class C {`, got `    interface I {`
-conformance/computedPropertyNamesDeclarationEmit3_ES6
-  line 2: want `}`, got `    ["" + ""](): void;`
-conformance/computedPropertyNamesDeclarationEmit4_ES6
-  line 1: want `declare var v: {};`, got `declare var v: {`
 conformance/contextuallyTypedStringLiteralsInJsxAttributes01
   line 9: want `declare const FooComponent: (props: {`, got `declare const FooComponent: any;`
 conformance/declarationEmitThisPredicatesWithPrivateName02
@@ -213,3 +203,13 @@ conformance/declarationNotFoundPackageBundlesTypes
   line 1: want `declare const foo: any;`, got `export {};`
 conformance/exportDefaultExpressionComments
   line 1: want `/**`, got `declare const _default: any;`
+conformance/genericContextualTypes1
+  line 22: want `declare const arrayMap: <T, U>(f: (x: T) => U) => (a: T[]) => U[];`, got `declare const arrayMap: any;`
+conformance/jsDeclarationsClassStatic2
+  line 6: want `export declare namespace Foo {`, got `export {};`
+conformance/jsDeclarationsImportNamespacedType
+  line 1: want `export declare namespace Dotted {`, got `export declare var dummy: number;`
+conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
+  line 1: want `/** @type {?} */`, got `export declare const a: any;`
+conformance/jsDeclarationsTypedefDescriptionsPreserved
+  line 1: missing `/**`

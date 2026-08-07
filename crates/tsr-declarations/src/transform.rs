@@ -30,16 +30,19 @@
 //!
 //! | Upstream | Why it is out |
 //! |---|---|
-//! | `transformExpandoAssignment` and the expando block (`:2719`–`:2963`) | Needs `IsExpandoFunctionDeclaration`, which is `TS9023`; the analysis reports it, so the case is not in the target |
 //! | `transformCommonJSExport`, `visitCJSExportAssignments` (`:1326`, `:2672`) | CommonJS `module.exports =` emit. Needs the `Program` to know the module kind |
 //! | `visitThisPropertyAssignments`, `collectThisPropertyAssignments` (`:2072`, `:2163`) | JS-file only, and JSDoc-driven |
 //! | The `JSDoc*` transform arms (`:2576`–`:2632`) | JS-file only |
 //! | `CreateLateBoundIndexSignatures` in `buildClassMembers` (`:1918`) | Purely a checker product |
 //! | `getReferencedFiles` path rewriting (`:464`) | Needs the output path, which needs the `Program` |
 //!
+//! Function expandos whose host and property name are both syntactically known
+//! are handled below. Checker-only expando classification and assignments hidden
+//! in nested control flow remain outside this pass.
+//!
 //! [`EmitResolver`]: crate::EmitResolver
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use tsr_ast::{
     ClassElement, Expression, ModifierFlags, ModifierLike, NodeFlags, ParameterDeclaration,
@@ -54,13 +57,20 @@ use crate::{
     resolver::{EmitResolver, LiteralConstHost, has_modifier, is_private_member},
 };
 
+#[derive(Clone, Copy)]
+struct ExpandoMember<'a> {
+    name: &'a str,
+    initializer: Option<Expression<'a>>,
+    node_id: Option<tsr_ast::NodeId>,
+}
+
 /// Ported from `DeclarationTransformer` (`transform.go:63`).
 ///
 /// Upstream's struct has 27 fields; the ones absent here are the visitors it
 /// builds in its constructor (this port dispatches directly), the diagnostic
 /// context stack (`getSymbolAccessibilityDiagnostic`, which exists to name a
-/// *checker* error), and the expando and `CommonJS` maps listed as out of scope in
-/// the module docs.
+/// *checker* error), and the `CommonJS` maps listed as out of scope in the module
+/// docs.
 // Four `bool`s, which clippy reads as a state machine wanting to be written. It
 // is not one: they are upstream's four independent flags (`transform.go:63`),
 // they are set and restored around different scopes, and collapsing them into an
@@ -84,6 +94,9 @@ pub(crate) struct Transformer<'a, 't, R> {
     used_names: HashSet<String>,
     /// Whether declarations are nested under an ambient module/namespace.
     ambient_context: bool,
+    /// Syntactically named property assignments attached to function-valued
+    /// variables, grouped by their host binding.
+    expando_members: HashMap<String, Vec<ExpandoMember<'a>>>,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -103,6 +116,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             result_has_external_module_indicator: false,
             used_names: HashSet::new(),
             ambient_context: false,
+            expando_members: HashMap::new(),
             inference_required: Vec::new(),
         }
     }
@@ -125,6 +139,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     pub(crate) fn transform_source_file(&mut self, file: &SourceFile<'a>) -> &'a SourceFile<'a> {
         let is_module = is_external_module(file.statements);
         reserve_statement_names(file.statements, &mut self.used_names);
+        self.expando_members = collect_expando_members(file.statements, self.factory.nodes());
 
         let mut statements: Vec<Statement<'a>> = Vec::with_capacity(file.statements.len());
         for statement in file.statements {
@@ -474,6 +489,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         node: &tsr_ast::VariableStatement<'a>,
     ) -> Vec<Statement<'a>> {
         let Some(list) = node.declaration_list else { return Vec::new() };
+        if let Some(promoted) = self.promote_expando_function(node, list) {
+            return promoted;
+        }
         let flags = self.factory.flags_of(list.node_id);
         let is_const = flags.intersects(NodeFlags::CONSTANT);
 
@@ -533,6 +551,100 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         ))]
     }
 
+    fn promote_expando_function(
+        &mut self,
+        statement: &tsr_ast::VariableStatement<'a>,
+        list: &'a tsr_ast::VariableDeclarationList<'a>,
+    ) -> Option<Vec<Statement<'a>>> {
+        let [declaration] = list.declarations else { return None };
+        let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name else { return None };
+        let initializer = declaration.initializer.as_ref()?;
+        if !matches!(initializer, Expression::ArrowFunction(_) | Expression::FunctionExpression(_))
+        {
+            return None;
+        }
+        let members = self.expando_members.get(name.text)?.clone();
+        let span = self.span_of(declaration.node_id);
+        let TypeNode::FunctionTypeNode(function_type) =
+            self.ensure_type(None, Some(initializer), Freshness::Widening, declaration.node_id)?
+        else {
+            return None;
+        };
+        let modifiers = self.ensure_modifiers(statement.modifiers, statement.node_id, true, false);
+        let function = Statement::FunctionDeclaration(self.factory.alloc(
+            tsr_ast::FunctionDeclaration::new(
+                modifiers,
+                None,
+                Some(name),
+                function_type.type_parameters,
+                function_type.parameters,
+                function_type.r#type,
+                None,
+                None,
+            ),
+            SyntaxKind::FunctionDeclaration,
+            span,
+            NodeFlags::empty(),
+        ));
+
+        let mut namespace_statements = Vec::with_capacity(members.len());
+        for member in members {
+            let member_span = self.span_of(member.node_id);
+            let member_name = self.factory.identifier(member.name, member_span);
+            let member_type = self.ensure_type(
+                None,
+                member.initializer.as_ref(),
+                Freshness::Widening,
+                member.node_id,
+            );
+            let declaration = self.factory.alloc(
+                tsr_ast::VariableDeclaration::new(
+                    Some(tsr_ast::BindingName::Identifier(member_name)),
+                    None,
+                    member_type,
+                    None,
+                ),
+                SyntaxKind::VariableDeclaration,
+                member_span,
+                NodeFlags::empty(),
+            );
+            let declarations = self.factory.slice(&[declaration]);
+            let list = self.factory.alloc(
+                tsr_ast::VariableDeclarationList::new(declarations),
+                SyntaxKind::VariableDeclarationList,
+                member_span,
+                NodeFlags::empty(),
+            );
+            namespace_statements.push(Statement::VariableStatement(self.factory.alloc(
+                tsr_ast::VariableStatement::new(&[], Some(list)),
+                SyntaxKind::VariableStatement,
+                member_span,
+                NodeFlags::empty(),
+            )));
+        }
+        let namespace_statements = self.factory.slice(&namespace_statements);
+        let block = self.factory.alloc(
+            tsr_ast::ModuleBlock::new(namespace_statements),
+            SyntaxKind::ModuleBlock,
+            span,
+            NodeFlags::empty(),
+        );
+        let namespace_keyword = self.factory.token(SyntaxKind::NamespaceKeyword, span);
+        let namespace = Statement::ModuleDeclaration(self.factory.alloc(
+            tsr_ast::ModuleDeclaration::new(
+                modifiers,
+                namespace_keyword,
+                Some(tsr_ast::ModuleName::Identifier(name)),
+                Some(tsr_ast::ModuleBody::ModuleBlock(block)),
+                None,
+            ),
+            SyntaxKind::ModuleDeclaration,
+            span,
+            NodeFlags::empty(),
+        ));
+        Some(vec![function, namespace])
+    }
+
     /// Ported from `transformVariableDeclaration` (`transform.go:835`).
     fn transform_variable_declaration(
         &mut self,
@@ -541,6 +653,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     ) -> &'a tsr_ast::VariableDeclaration<'a> {
         let host = LiteralConstHost::Variable(declaration, is_const);
         let initializer = self.ensure_no_initializer(host);
+        let annotation = declaration.r#type.map(|r#type| self.transform_written_type(r#type));
         let r#type = if initializer.is_some() {
             // `ensureType`'s first branch: a literal const emits its value, not a
             // type, and emitting both would be a syntax error.
@@ -561,7 +674,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // [`crate::type_builder`].
             let _ = is_const;
             self.ensure_type(
-                declaration.r#type,
+                annotation,
                 declaration.initializer.as_ref(),
                 Freshness::Widening,
                 declaration.node_id,
@@ -573,6 +686,17 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             self.span_of(declaration.node_id),
             NodeFlags::empty(),
         )
+    }
+
+    fn transform_written_type(&mut self, r#type: TypeNode<'a>) -> TypeNode<'a> {
+        let TypeNode::TypeLiteralNode(literal) = r#type else { return r#type };
+        let members = self.visit_type_members(literal.members);
+        TypeNode::TypeLiteralNode(self.factory.alloc(
+            tsr_ast::TypeLiteralNode::new(members),
+            SyntaxKind::TypeLiteral,
+            self.span_of(literal.node_id),
+            NodeFlags::empty(),
+        ))
     }
 
     /// Ported from `transformModuleDeclaration` (`transform.go:1822`).
@@ -958,6 +1082,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         if matches!(class_member_name(member), Some(tsr_ast::PropertyName::PrivateIdentifier(_))) {
             return None;
         }
+        if class_member_name(member).is_some_and(|name| !property_name_is_nameable(name)) {
+            return None;
+        }
         let private = is_private_member(member);
 
         match member {
@@ -1136,6 +1263,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     fn visit_type_members(&mut self, members: &'a [TypeElement<'a>]) -> &'a [TypeElement<'a>] {
         let mut result = Vec::with_capacity(members.len());
         for member in members {
+            if type_element_name(member).is_some_and(|name| !property_name_is_nameable(name)) {
+                continue;
+            }
             match member {
                 TypeElement::CallSignatureDeclaration(node) => {
                     let span = self.span_of(node.node_id);
@@ -1170,12 +1300,18 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 // `transformPropertySignatureDeclaration` (`:963`).
                 TypeElement::PropertySignatureDeclaration(node) => {
                     let span = self.span_of(node.node_id);
+                    let r#type = self.ensure_type(
+                        node.r#type,
+                        node.initializer.as_ref(),
+                        Freshness::Widening,
+                        node.node_id,
+                    );
                     result.push(TypeElement::PropertySignatureDeclaration(self.factory.alloc(
                         tsr_ast::PropertySignatureDeclaration::new(
                             node.modifiers,
                             node.name,
                             node.postfix_token,
-                            node.r#type,
+                            r#type,
                             None,
                         ),
                         SyntaxKind::PropertySignature,
@@ -1511,6 +1647,67 @@ const PARAMETER_PROPERTY_MODIFIER: ModifierFlags = ModifierFlags::PUBLIC
     .union(ModifierFlags::READONLY)
     .union(ModifierFlags::OVERRIDE);
 
+fn collect_expando_members<'a>(
+    statements: &'a [Statement<'a>],
+    nodes: &tsr_ast::NodeTable,
+) -> HashMap<String, Vec<ExpandoMember<'a>>> {
+    let mut string_constants = HashMap::new();
+    for statement in statements {
+        let Statement::VariableStatement(statement) = statement else { continue };
+        let Some(list) = statement.declaration_list else { continue };
+        if !list.node_id.is_some_and(|id| nodes.flags(id).intersects(NodeFlags::CONSTANT)) {
+            continue;
+        }
+        for declaration in list.declarations {
+            let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name else { continue };
+            let Some(Expression::StringLiteral(value)) = declaration.initializer else { continue };
+            string_constants.insert(name.text, value.text);
+        }
+    }
+
+    let mut members: HashMap<String, Vec<ExpandoMember<'a>>> = HashMap::new();
+    for statement in statements {
+        let Statement::ExpressionStatement(statement) = statement else { continue };
+        let Some(Expression::BinaryExpression(binary)) = statement.expression else { continue };
+        if binary.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken) {
+            continue;
+        }
+        let Some(left) = binary.left else { continue };
+        let Some((host, name)) = expando_assignment_name(&left, &string_constants) else {
+            continue;
+        };
+        members.entry(host.to_string()).or_default().push(ExpandoMember {
+            name,
+            initializer: binary.right,
+            node_id: binary.node_id,
+        });
+    }
+    members
+}
+
+fn expando_assignment_name<'a>(
+    left: &Expression<'a>,
+    string_constants: &HashMap<&'a str, &'a str>,
+) -> Option<(&'a str, &'a str)> {
+    match left {
+        Expression::PropertyAccessExpression(access) => {
+            let Some(Expression::Identifier(host)) = access.expression else { return None };
+            let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return None };
+            Some((host.text, name.text))
+        }
+        Expression::ElementAccessExpression(access) => {
+            let Some(Expression::Identifier(host)) = access.expression else { return None };
+            let name = match access.argument_expression? {
+                Expression::StringLiteral(name) => name.text,
+                Expression::Identifier(name) => *string_constants.get(name.text)?,
+                _ => return None,
+            };
+            Some((host.text, name))
+        }
+        _ => None,
+    }
+}
+
 fn reserve_statement_names(statements: &[Statement<'_>], used: &mut HashSet<String>) {
     for statement in statements {
         let name = match statement {
@@ -1740,6 +1937,30 @@ fn class_member_name<'b, 'a>(
         ClassElement::SetAccessorDeclaration(node) => Some(&node.name),
         _ => None,
     }
+}
+
+fn type_element_name<'b, 'a>(member: &'b TypeElement<'a>) -> Option<&'b tsr_ast::PropertyName<'a>> {
+    match member {
+        TypeElement::PropertySignatureDeclaration(node) => Some(&node.name),
+        TypeElement::MethodSignatureDeclaration(node) => Some(&node.name),
+        TypeElement::GetAccessorDeclaration(node) => Some(&node.name),
+        TypeElement::SetAccessorDeclaration(node) => Some(&node.name),
+        _ => None,
+    }
+}
+
+fn property_name_is_nameable(name: &tsr_ast::PropertyName<'_>) -> bool {
+    let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else { return true };
+    matches!(
+        computed.expression,
+        Some(
+            Expression::Identifier(_)
+                | Expression::PropertyAccessExpression(_)
+                | Expression::StringLiteral(_)
+                | Expression::NumericLiteral(_)
+                | Expression::NoSubstitutionTemplateLiteral(_)
+        )
+    )
 }
 
 fn property_names_equal(

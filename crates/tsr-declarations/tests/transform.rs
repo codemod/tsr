@@ -376,6 +376,30 @@ fn function_and_method_overload_implementations_are_omitted() {
 }
 
 #[test]
+fn function_expando_assignments_become_a_function_namespace_merge() {
+    assert_emits(
+        "const key = \"X\";\nexport const fn = () => {};\nfn[key] = 0;\nfn.named = (): string => \"\";",
+        "export declare function fn(): void;\nexport declare namespace fn {\n    var X: number;\n    var named: () => string;\n}\n",
+    );
+}
+
+#[test]
+fn untyped_property_signatures_emit_as_any() {
+    assert_emits(
+        "declare global { interface Box { value; } }",
+        "declare global {\n    interface Box {\n        value: any;\n    }\n}\n",
+    );
+}
+
+#[test]
+fn non_nameable_computed_members_are_omitted() {
+    assert_emits(
+        "interface I { [\"\" + \"\"](): void; kept(): void; }\nclass C { [\"\" + \"\"]() {} kept() {} }\nvar value: { [\"\" + \"\"](): void; kept: number };",
+        "interface I {\n    kept(): void;\n}\ndeclare class C {\n    kept(): void;\n}\ndeclare var value: {\n    kept: number;\n};\n",
+    );
+}
+
+#[test]
 fn a_hash_private_member_becomes_a_single_marker() {
     // `buildClassMembers` (`:1918`): a class with any `#name` carries one
     // `#private` marker, and the members themselves are not named — emitting them
