@@ -322,6 +322,32 @@ impl<'a> Checker<'a, '_> {
         if !self.resolutions.push(symbol, PropertyName::Type) {
             return self.intrinsics.error;
         }
+        // §31 (`checker-notes-callres.md`): an `import x = require("...")`
+        // upstream never resolves — mispositioned (TS1147 territory) or
+        // genuinely unfindable (the TS2307 predicate) — reads `any` at every
+        // use site. A resolvable module this port cannot type keeps the
+        // `errorType` gap below instead.
+        if let Some(declaration) = self.declaration_of_alias_symbol(symbol)
+            && let Some(Node::ImportEqualsDeclaration(node)) = self.node_map.get(declaration)
+            && let Some(ModuleReference::ExternalModuleReference(reference)) = node.module_reference
+        {
+            // Position is IRRELEVANT to the type: upstream still resolves
+            // the require() against ambient modules inside a namespace
+            // (TS1147 is a grammar error, not a resolution bar) —
+            // `privacyGloImportParseErrors` wants `typeof errorImport` for a
+            // namespace-positioned import of a QUOTED ambient module, the
+            // §31 first pair's 4 adverse lines. Findability alone decides.
+            let unresolvable = reference
+                .expression
+                .and_then(|e| e.node_id())
+                .is_some_and(|id| self.module_specifier_unfindable(id));
+            if unresolvable {
+                let any = self.intrinsics.any;
+                let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
+                self.symbol_types.insert(symbol, any);
+                return any;
+            }
+        }
         let target = self.resolve_alias(symbol);
         // `checker.go:18612`, and the `SymbolFlags::VALUE` test is the
         // stack-overflow guard, not a nicety. It is taken over

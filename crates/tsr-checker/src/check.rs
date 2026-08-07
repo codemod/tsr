@@ -405,7 +405,7 @@ impl Checker<'_, '_> {
     /// says something else. Reporting TS2307 inside a namespace was 14 of the 60
     /// wrong lines the first counterfactual measured, all in
     /// `compiler/privacyImportParseErrors` and its sibling.
-    fn external_import_is_positioned_for_resolution(&self, declaration: NodeId) -> bool {
+    pub(crate) fn external_import_is_positioned_for_resolution(&self, declaration: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(declaration) else { return false };
         if self.nodes.kind(parent) == SyntaxKind::SourceFile {
             return true;
@@ -471,42 +471,15 @@ impl Checker<'_, '_> {
         side_effect: bool,
     ) {
         let Some(specifier) = specifier else { return };
-        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
-        let text = literal.text;
-
         if !self.external_import_is_positioned_for_resolution(declaration) {
             return;
         }
-        // `tryFindAmbientModule` (`checker.go:15154`), consulted before the host
-        // exactly as `resolveExternalModule` does.
-        if self.ambient_module_for_diagnostics(text).is_some() {
+        if !self.module_specifier_unfindable(specifier) {
             return;
         }
-        // A pattern ambient module is unported (`checker.go:15364`); declining
-        // whenever one *exists* is the sound bound, not whenever one matches.
-        if self.has_pattern_ambient_module() {
-            return;
-        }
-        if is_node_core_module(text) {
-            return;
-        }
-        if text.starts_with("@types/") {
-            return;
-        }
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
+        let text = literal.text;
         let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return };
-        // No host means no resolution was ever attempted, and "we did not look"
-        // must not read as "it is not there".
-        let Some(host) = self.module_host else { return };
-        // `resolvedModule.IsResolved()` (`checker.go:15208`). A resolution that
-        // named a file the program does not hold is upstream's TS7016 / TS6142 /
-        // TS2306 territory — a *different code at the same position* — so it
-        // must not read as "cannot find". Distinguishing that from "found
-        // nothing" is why [`crate::resolution::ModuleHost`] grew a second
-        // method; it was 15 of the 60 wrong lines the first counterfactual
-        // measured.
-        if host.module_resolution_found(importing, text) {
-            return;
-        }
         let span = self.nodes.span(specifier);
         let message = if side_effect {
             &messages::CANNOT_FIND_MODULE_OR_TYPE_DECLARATIONS_FOR_SIDE_EFFECT_IMPORT_OF_0
@@ -514,6 +487,46 @@ impl Checker<'_, '_> {
             &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS
         };
         self.report(importing, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+    /// The boolean core of the TS2307 emitter, shared with
+    /// `get_type_of_alias` (`checker-notes-callres.md` §31) so the
+    /// diagnostic and the alias's `any` read ONE calibrated answer: TRUE
+    /// only when every decline-gate passes and the host, consulted, found
+    /// nothing. Position is the caller's test.
+    pub(crate) fn module_specifier_unfindable(&mut self, specifier: NodeId) -> bool {
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else {
+            return false;
+        };
+        let text = literal.text;
+        // `tryFindAmbientModule` (`checker.go:15154`), consulted before the host
+        // exactly as `resolveExternalModule` does.
+        if self.ambient_module_for_diagnostics(text).is_some() {
+            return false;
+        }
+        // A pattern ambient module is unported (`checker.go:15364`); declining
+        // whenever one *exists* is the sound bound, not whenever one matches.
+        if self.has_pattern_ambient_module() {
+            return false;
+        }
+        if is_node_core_module(text) {
+            return false;
+        }
+        if text.starts_with("@types/") {
+            return false;
+        }
+        let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return false };
+        // No host means no resolution was ever attempted, and "we did not look"
+        // must not read as "it is not there".
+        let Some(host) = self.module_host else { return false };
+        // `resolvedModule.IsResolved()` (`checker.go:15208`). A resolution that
+        // named a file the program does not hold is upstream's TS7016 / TS6142 /
+        // TS2306 territory — a *different code at the same position* — so it
+        // must not read as "cannot find". Distinguishing that from "found
+        // nothing" is why [`crate::resolution::ModuleHost`] grew a second
+        // method; it was 15 of the 60 wrong lines the first counterfactual
+        // measured.
+        !host.module_resolution_found(importing, text)
     }
 
     /// TS2564 — `Property '{0}' has no initializer and is not definitely

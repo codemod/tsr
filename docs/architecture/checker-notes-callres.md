@@ -1438,3 +1438,41 @@ arm read that as a source `any`; a missing-receiver decline contains it
 (costing 3 lines that had ridden through empty receivers, back to GAP).
 Final pair: **+279 (G→R), ZERO adverse.** `checker_types` right 395,803 →
 **396,082 (82.70%)**.
+
+### §31 The unresolvable `require()` alias reads `any`
+
+`privacyImportParseErrors` (240 GAP want-`any`): `import m1_im3_private =
+require("m1_M3_public")` INSIDE a namespace. Upstream never resolves it —
+an import declaration in a non-ambient namespace is TS1147 territory and
+`resolveExternalModule` is never reached — so the alias's target is the
+unresolved symbol and every read prints `any`. Same rendering when the
+import is legally positioned but the module is genuinely unfindable
+(TS2307, `badExternalModuleReference`). This port answered `errorType`
+for both.
+
+**The bar.** In `get_type_of_alias`, when the alias's declaration is
+`import x = require("...")`: (1) not positioned for resolution
+(`external_import_is_positioned_for_resolution` false) → `any`; (2)
+positioned, and the TS2307 predicate's every decline-gate passes (no
+ambient module of that name, no pattern ambient module, not a Node core
+name, not `@types/`, host consulted and found nothing) → `any` — the
+predicate factored out of `check_module_specifier` so the diagnostic and
+the type read ONE calibrated answer. Everything else keeps today's
+`errorType` gap (a resolvable module this port cannot type is the port's
+gap, not upstream's `any`).
+
+**Falsifiers.** (a) If a namespace-positioned import in the corpus IS
+resolved by upstream (ambient-module context this test misses), G→W
+appears on its reads — narrow with the ambient-module test on the
+enclosing chain. (b) If the host's "found nothing" diverges from
+upstream's resolver, the §23-era 15-wrong-line class recurs — the
+`module_resolution_found` split already guards it; R→W here says it
+doesn't.
+
+**§31 score — LANDED (narrowed once).** First pair +390 G→R / 3 G→W +
+1 R→W (`privacyGloImportParseErrors`): falsifier (a) fired EXACTLY —
+upstream resolves the require() against quoted ambient modules from
+inside a namespace; TS1147 is a grammar error, not a resolution bar. The
+position disjunct was DROPPED — findability alone decides. Final pair:
+**+390 (G→R), ZERO adverse.** `checker_types` right 396,082 →
+**396,472 (82.78%)**.

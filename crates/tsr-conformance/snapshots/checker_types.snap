@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 3665/9538 (38.43%)
-Assertion lines: 396082/478954 (82.70%)  — a gradient, not a pass rate
-Failed         : 5873
+Passed         : 3681/9538 (38.59%)
+Assertion lines: 396472/478954 (82.78%)  — a gradient, not a pass rate
+Failed         : 5857
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5873 failures:
+First 100 of 5857 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -123,10 +123,6 @@ compiler/ambiguousOverload
   ambiguousOverload.ts: >foof("s", null) : error — expected >foof("s", null) : number
 compiler/ambiguousOverloadResolution
   ambiguousOverloadResolution.ts: >f(x, x) : error — expected >f(x, x) : number
-compiler/amdDependencyComment1
-  amdDependencyComment1.ts: >m1 : error — expected >m1 : any
-compiler/amdDependencyCommentName1
-  amdDependencyCommentName1.ts: >m1 : error — expected >m1 : any
 compiler/amdLikeInputDeclarationEmit
   deps/BaseClass.d.ts: >"deps/BaseClass" : error — expected >"deps/BaseClass" : typeof import("deps/BaseClass")
 compiler/anonClassDeclarationEmitIsAnon
@@ -213,3 +209,7 @@ compiler/arithmeticOnInvalidTypes2
   arithmeticOnInvalidTypes2.ts: >z1 : error — expected >z1 : any
 compiler/arityErrorRelatedSpanBindingPattern
   arityErrorRelatedSpanBindingPattern.ts: >foo : error — expected >foo : (a: any, b: any, { c }: { c: any; }) => void
+compiler/arrayAssignmentTest2
+  arrayAssignmentTest2.ts: >arr_any = function () { return null;} : () => null — expected >arr_any = function () { return null;} : () => any
+compiler/arrayAssignmentTest4
+  arrayAssignmentTest4.ts: >arr_any = function () { return null;} : () => null — expected >arr_any = function () { return null;} : () => any
