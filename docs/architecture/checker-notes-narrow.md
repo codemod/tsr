@@ -1046,3 +1046,41 @@ rose). Both sit in the residue families below.
    coding.
 3. Assignment-LHS declared-type rule and overload-failure `never` (from the
    bar's non-goals; `controlFlowIterationErrors*` ×16 residue).
+
+### §12.7 The definite-assignment-target rule — one upstream rule under two residue families
+
+Reading the §12.6 residue against upstream collapsed families 1 and 3 into a
+single rule this port never had: **a variable reference in a definite
+assignment-target position is returned at its declared type, with no flow
+analysis** — `checkIdentifier`, `checker.go:11109`: for
+`SymbolFlagsVariable` symbols, `AssignmentKindDefinite` returns `t`
+directly (`getBaseTypeOfLiteralType(t)` when the assignment is
+compound-like). The baseline shows it plainly
+(`controlFlowSelfReferentialLoop.types:160`): `AA=a : number` but
+`AA : any` — the *target* prints the declared type, and an auto-typed
+variable's declared type prints `any`; three lines later the *read*
+position of `k` prints `number`. The "self-referential `any` bail"
+hypothesis was wrong — there is no bail; the errors baseline carries only
+TS7006, none of the circularity/flow-limit diagnostics, and the wants are
+just declared types at target positions.
+
+Kind classification, ported from `getAssignmentTargetKind`
+(`internal/checker/utilities.go:90`) over `ast.GetAssignmentTarget`
+(`internal/ast/utilities.go:184`): the target walk climbs parens, array
+literals, spreads, non-null assertions, spread/shorthand/property
+assignments; a `=` or logical-assignment (`&&=`/`||=`/`??=`) binary is
+DEFINITE, other assignment operators and `++`/`--` are COMPOUND, a
+for-in/for-of initializer position is DEFINITE. Compound-like
+(`isInCompoundLikeAssignment`, `utilities.go:118`): a definite `=` whose
+right side (parens skipped) is a shift-or-higher binary — `x = x + 1`
+prints like `x += 1`, at the literal's base.
+
+**The bar**: the two §12.6-regressed cases recover
+(`controlFlowForStatementContinueIntoIncrementor1`,
+`parserForOfStatement24`); the auto-target family flips
+(`controlFlowSelfReferentialLoop`, `shorthandPropertyAssignmentsInDestructuring_ES6`);
+the iteration-errors LHS lines (`x` in `x = foo(x)`, want the declared
+union) flip. Falsifiers: (a) upstream narrows nothing at definite targets,
+so no current RIGHT line should depend on flow analysis at one — any R→W
+here means the kind walk misclassifies; (b) the existing compound behavior
+(flow, then base-of-literal) must not move — it is the §10 bar re-asserted.
