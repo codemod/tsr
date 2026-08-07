@@ -1607,3 +1607,23 @@ expression-position accesses at all. The row belongs to the type-node
 subsystems (conditional, mapped, variadic), confirming the closed
 frontier: after builds 25–47, every remaining board road enters a
 subsystem the handoff already names.
+
+### §29 A self-referential alias serves its NAME inside its own cycle
+
+`conditionalTypeDiscriminatingLargeUnionRegularTypeFetchingSpeedReasonable`
+— 2,000 gap lines in ONE case — is `type BigUnion = { name: '0'; children:
+BigUnion[] } | …`: upstream resolves object-literal member TYPES lazily, so
+the alias's RHS never forces the alias; this port's print-at-creation
+members force the cycle and the resolutions guard errors the whole alias.
+The seam that preserves the architecture: an alias mention found ON-STACK
+(a read-only `on_stack` probe — no failure marking) answers a memoized
+NAMED placeholder printing the alias's name, exactly what the member text
+needs; the outer resolution then completes and the alias's real union
+stands. Consequence accepted and stated: a DEGENERATE cycle (`type X = X`)
+now prints `X` where upstream reports circularity and answers `errorType`
+— that shape is a diagnostic's job (`bd tsr-5e7.6`), and the type answer
+this port gives is the name upstream's error message also prints.
+Falsifiers: (a) the placeholder must never carry members — a lookup
+through it would answer from nothing; (b) non-circular aliases must be
+byte-identical (the placeholder is reachable only under the alias's own
+frame).
