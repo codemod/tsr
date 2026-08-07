@@ -1728,3 +1728,11 @@ complete ONLY for its own object-literal constructions (`Anonymous` with
 unported inheritance, and a miss there stays an honest gap. Falsifier: a
 literal-receiver miss whose want is a REAL type means the literal's own
 construction dropped a member — that is a bug, not a boundary.
+
+**§34 — MEASURED ZERO AND REVERTED.** The literal-receiver property-miss
+population does not exist in the corpus's expression positions (upstream
+errors those programs and the tests avoid the shape; the funnel's 225 were
+CALLEE positions). Unlike the §12.8/§23 zero-landings, this arm interacts
+with the ADR-0038 boundary for no payoff, so it reverts rather than
+stands. The `instant.year` family belongs to the LIB-interface member
+road (incomplete-table territory), which stays gapped by design.
