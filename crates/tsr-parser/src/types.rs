@@ -501,6 +501,7 @@ impl<'a> Parser<'a> {
         let literal_start = self.pos();
         let kind = self.token.kind;
         let text = self.token_value();
+        let raw = self.token_text();
         let flags = self.token.ast_flags();
         self.next_token();
 
@@ -522,6 +523,13 @@ impl<'a> Parser<'a> {
                 SyntaxKind::BigIntLiteral,
                 literal_start,
             )),
+            SyntaxKind::NoSubstitutionTemplateLiteral => {
+                Node::NoSubstitutionTemplateLiteral(self.finish_node(
+                    NoSubstitutionTemplateLiteral::new(text, flags, flags, raw),
+                    SyntaxKind::NoSubstitutionTemplateLiteral,
+                    literal_start,
+                ))
+            }
             other => Node::KeywordExpression(self.finish_node(
                 KeywordExpression::new(other),
                 other,

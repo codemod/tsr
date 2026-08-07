@@ -1,6 +1,6 @@
 //! Parser behaviour.
 
-use tsr_ast::{Expression, ModifierLike, Statement, SyntaxKind};
+use tsr_ast::{Expression, ModifierLike, Node, Statement, SyntaxKind, TypeNode};
 use tsr_core::Arena;
 use tsr_parser::parse;
 
@@ -757,6 +757,23 @@ fn a_shebang_is_trivia_on_the_first_line_only() {
     statements(&arena, "#!/usr/bin/env node\nclass A {}");
     // Elsewhere `#` still starts a private name.
     statements(&arena, "class B { #x = 1; m() { return this.#x; } }");
+}
+
+#[test]
+fn a_no_substitution_template_type_keeps_its_literal_node() {
+    let arena = Arena::new();
+    let statements = statements(&arena, "type Plain = `plain`;");
+    let Statement::TypeAliasDeclaration(alias) = statements[0] else {
+        panic!("expected a type alias")
+    };
+    let Some(TypeNode::LiteralTypeNode(literal_type)) = alias.r#type else {
+        panic!("expected a literal type")
+    };
+    let Some(Node::NoSubstitutionTemplateLiteral(literal)) = literal_type.literal else {
+        panic!("template literal text must not be collapsed into a keyword node")
+    };
+    assert_eq!(literal.text, "plain");
+    assert_eq!(literal.raw_text, "`plain`");
 }
 
 // ---- parent assignment ----------------------------------------------------

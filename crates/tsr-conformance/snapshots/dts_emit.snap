@@ -2,12 +2,10 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 161/339 (47.49%)
+Passed         : 162/339 (47.79%)
 Failed         : 177
-Unsupported    : 1
 Skipped        : 12105 (excluded from the denominator)
 
-  1  printer: NoSubstitutionTemplateLiteral
   577  skipped: a declaration in this case needs inference (see dts_reachable_target)
   16  skipped: a unit of this case does not parse cleanly
   8418  skipped: the emit baseline has no emitted .d.ts section

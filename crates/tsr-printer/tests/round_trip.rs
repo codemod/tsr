@@ -45,6 +45,16 @@ fn a_template_keeps_its_own_delimiters() {
 }
 
 #[test]
+fn a_no_substitution_template_prints_in_an_expression() {
+    assert!(round_trips("const value = `plain`;"));
+}
+
+#[test]
+fn a_no_substitution_template_prints_in_a_literal_type() {
+    assert!(round_trips("type Plain = `plain`;"));
+}
+
+#[test]
 fn a_dotted_namespace_does_not_restate_its_header() {
     // `namespace A.B {}` nests two ModuleDeclarations; writing the inner one as a
     // statement gives `namespace A. export namespace B {}`.
