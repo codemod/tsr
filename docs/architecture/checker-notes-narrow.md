@@ -1449,3 +1449,15 @@ Falsifiers: (a) R→W where the want keeps a constituent the predicate
 filter dropped — the assignability filter over-decides; (b) losses in
 truthiness narrowing mean the new arm swallowed the CallExpression's
 default truthiness path.
+
+**§22 score — LANDED after three fired legs, all inside `getNarrowedType`'s
+exact shape.** (1) A plain assignability keep answered the wrong side of
+mutual relations — replaced with upstream's four-rung ladder
+(strictSubtype t→n / n→t, subtype t→n / n→t, `flow.go:915`), the asserted
+type winning both-ways relations. (2) A mapping that changes nothing must
+answer the ORIGINAL type — the named-alias `Union` positions. (3) The
+false branch keeps constituents the true branch mapped AWAY, not only ones
+it dropped (`{}` vs `Record<string, unknown>`). Final: **+27 WRONG→RIGHT /
+3 RIGHT→WRONG** — the three are relater precision on `Record`
+instantiations and one alias-keep, recorded. `checker_types` right
+370,173 → **370,197**.

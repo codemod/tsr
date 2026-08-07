@@ -119,6 +119,18 @@ struct FlowState {
 /// Upstream's cap (`flow.go:118`), reproduced exactly rather than rounded.
 const MAX_FLOW_DEPTH: u32 = 2_000;
 
+/// One constituent's fate under `getNarrowedTypeWorker`'s ladder
+/// (`checker-notes-narrow.md` §22).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NarrowedConstituent {
+    /// The ladder mapped it (possibly to the candidate).
+    Mapped(TypeId),
+    /// No rung fired: the true branch drops it.
+    Dropped,
+    /// A rung the relation cannot decide.
+    Undecidable,
+}
+
 bitflags::bitflags! {
     /// What is knowable about a type without narrowing it
     /// (upstream's `TypeFacts`, `checker.go`).
@@ -1884,6 +1896,15 @@ impl Checker<'_, '_> {
     ) -> TypeId {
         let Some(node) = self.node_map.get(condition) else { return t };
         match node {
+            // `narrowTypeByCallExpression` (`flow.go:444`), the
+            // identifier-predicate half — `if (isNumber(x))` narrows `x`.
+            // A call that answers no predicate falls through unchanged,
+            // which is also the truthiness answer for a call condition
+            // (upstream's dispatch reaches the call arm before any
+            // truthiness question, exactly as here).
+            Node::CallExpression(call) => {
+                self.narrow_type_by_call_expression(state, t, call, assume_true)
+            }
             // `if (x)`, `if (a.b)`, `while (o["k"])`: the reference itself as
             // the condition. Every form [`Checker::is_matching_reference`] can
             // decide belongs here — restricting it to `Identifier` is what kept
@@ -2030,6 +2051,139 @@ impl Checker<'_, '_> {
     /// concrete constituents, which is what `string | undefined` is. They are
     /// left out rather than approximated, so those two shapes answer exactly
     /// as they do today.
+    /// `narrowTypeByCallExpression` (`flow.go:444`) reduced to the
+    /// identifier-predicate half, plus `narrowTypeByTypePredicate`
+    /// (`flow.go:316`) and `getNarrowedType`'s assignability filter with
+    /// Kleene declines. See `checker-notes-narrow.md` §22.
+    fn narrow_type_by_call_expression(
+        &mut self,
+        state: &mut FlowState,
+        t: TypeId,
+        call: &tsr_ast::CallExpression<'_>,
+        assume_true: bool,
+    ) -> TypeId {
+        // `hasMatchingArgument`: some argument is the reference.
+        let matching_index = call.arguments.iter().position(|argument| {
+            tsr_ast::Node::from(*argument)
+                .node_id()
+                .is_some_and(|id| self.is_matching_reference(state, id))
+        });
+        let Some(_) = matching_index else { return t };
+        let Some(callee) = call.expression else { return t };
+        let callee_type = self.check_expression(callee);
+        if callee_type == self.intrinsics.error {
+            return t;
+        }
+        let Some(signature) = self.resolve_call_signature(callee_type, Some(call.arguments)) else {
+            return t;
+        };
+        let Some(predicate) = &signature.predicate else { return t };
+        if predicate.asserts {
+            return t;
+        }
+        let (Some(name), Some(predicate_type)) = (&predicate.parameter_name, predicate.r#type)
+        else {
+            return t;
+        };
+        // `getTypePredicateArgument`: the argument at the predicate
+        // parameter's position (recovered by name — this port's predicate
+        // carries no index).
+        let Some(index) = signature.parameters.iter().position(|parameter| parameter.name == *name)
+        else {
+            return t;
+        };
+        let Some(argument) = call.arguments.get(index) else { return t };
+        if !tsr_ast::Node::from(*argument)
+            .node_id()
+            .is_some_and(|id| self.is_matching_reference(state, id))
+        {
+            return t;
+        }
+        // `getNarrowedTypeWorker`'s per-constituent ladder (`flow.go:915`):
+        // strictSubtype(t,n) -> t; strictSubtype(n,t) -> n; subtype(t,n) -> t;
+        // subtype(n,t) -> n; else drop — the asserted type wins mutual
+        // relations (`narrowingMutualSubtypes`, the §22 bar's fired leg: a
+        // plain assignability keep answered the wrong side). Kleene: any
+        // undecidable rung declines the whole narrowing.
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let mut kept = Vec::with_capacity(constituents.len());
+        for constituent in constituents {
+            match self.narrowed_constituent(constituent, predicate_type) {
+                NarrowedConstituent::Undecidable => return t,
+                NarrowedConstituent::Mapped(mapped) => {
+                    if assume_true {
+                        kept.push(mapped);
+                    } else if mapped != constituent {
+                        // The false branch keeps what the true branch mapped
+                        // AWAY — upstream's `!isTypeSubsetOf(c, trueType)`
+                        // (`flow.go:873`): a constituent that only reached
+                        // the true side AS THE CANDIDATE is still possible
+                        // when the predicate is false
+                        // (`narrowingMutualSubtypes`' `{}` vs
+                        // `Record<string, unknown>`, the third fired leg).
+                        kept.push(constituent);
+                    }
+                }
+                NarrowedConstituent::Dropped => {
+                    if !assume_true {
+                        kept.push(constituent);
+                    }
+                }
+            }
+        }
+        if kept.is_empty() && assume_true {
+            // Upstream intersects when the filter empties and the predicate
+            // type is assignable INTO the declared — the `x is string` on an
+            // `unknown` shape. One decidable check; anything else declines.
+            return match self.relate_ternary(
+                predicate_type,
+                t,
+                crate::relater::Relation::Assignable,
+            ) {
+                crate::relater::Ternary::Related => predicate_type,
+                _ => t,
+            };
+        }
+        // Identity preservation: a mapping that changed nothing answers the
+        // ORIGINAL type — a named union alias keeps its name
+        // (`narrowingMutualSubtypes`' `Union` positions, the second fired
+        // leg), exactly as upstream's `filterType` identity short-circuit.
+        let original: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        if kept == original {
+            return t;
+        }
+        self.get_union_type(&kept)
+    }
+
+    /// One rung of `getNarrowedTypeWorker`'s ladder: `Some(Some(image))`
+    /// maps the constituent, `Some(None)` drops it, `None` is an
+    /// undecidable rung.
+    fn narrowed_constituent(
+        &mut self,
+        constituent: TypeId,
+        candidate: TypeId,
+    ) -> NarrowedConstituent {
+        use crate::relater::{Relation, Ternary};
+        for relation in [Relation::StrictSubtype, Relation::Subtype] {
+            for (source, target, image) in
+                [(constituent, candidate, constituent), (candidate, constituent, candidate)]
+            {
+                match self.relate_ternary(source, target, relation) {
+                    Ternary::Related => return NarrowedConstituent::Mapped(image),
+                    Ternary::NotRelated => {}
+                    Ternary::Unknown => return NarrowedConstituent::Undecidable,
+                }
+            }
+        }
+        NarrowedConstituent::Dropped
+    }
+
     fn narrow_type_by_equality(
         &mut self,
         t: TypeId,
