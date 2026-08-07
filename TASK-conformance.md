@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  234/341  = 68.62%  (up from 161/339)
+  dts_emit                  237/341  = 69.50%  (up from 161/339)
   dts_shape                 708/918  = 77.12%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -104,6 +104,13 @@ type members, and synthesized parameter-property fields whose closest leading
 comment contains `@internal`, while retaining the corresponding constructor
 parameters. This closed `compiler/stripInternal1`; the inline-comments case now
 reaches its later comment/layout mismatch instead of failing on extra properties.
+
+Declaration emit now opts into source-aware printing for the nearest leading
+JSDoc on statements and class/type members, deduplicating comments when several
+synthesized nodes share an original range and honoring `removeComments`. Structural
+`@overload`/`@constructor` blocks remain excluded until they can be mapped to the
+right transformed overload nodes. This closed `commentsVariableStatement1`,
+`seeTag1`, and `seeTag2` without changing declaration shape.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

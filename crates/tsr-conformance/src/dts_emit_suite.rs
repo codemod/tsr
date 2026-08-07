@@ -352,6 +352,10 @@ pub(crate) fn declaration_emit_options<'a>(
             .options
             .get("stripinternal")
             .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        remove_comments: case
+            .options
+            .get("removecomments")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
     }
 }
 

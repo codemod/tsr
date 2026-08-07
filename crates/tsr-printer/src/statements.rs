@@ -7,6 +7,7 @@ use crate::{ListFormat, Printer, quote_string};
 impl Printer<'_> {
     pub(crate) fn emit_statement(&mut self, statement: &Statement<'_>) {
         self.write_line();
+        self.emit_leading_jsdoc(statement.node_id());
         match statement {
             // Ported from `Printer.emitVariableStatement` (`internal/printer/printer.go`).
             Statement::VariableStatement(node) => {
@@ -673,6 +674,7 @@ impl Printer<'_> {
     }
 
     pub(crate) fn emit_class_element(&mut self, member: &ClassElement<'_>) {
+        self.emit_leading_jsdoc(member.node_id());
         match member {
             // Ported from `Printer.emitPropertyDeclaration` (`internal/printer/printer.go`).
             ClassElement::PropertyDeclaration(node) => {

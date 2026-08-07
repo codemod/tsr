@@ -48,6 +48,7 @@ fn emit_stripping_internal(source: &str) -> String {
         tsr_declarations::DeclarationEmitOptions {
             source_text: Some(source),
             strip_internal: true,
+            remove_comments: false,
         },
     )
     .text
@@ -466,6 +467,43 @@ fn strip_internal_removes_parameter_properties_but_keeps_parameters() {
         emit_stripping_internal(source),
         "export declare class C {\n    kept: string;\n    constructor(removed: string, kept: string);\n}"
     );
+}
+
+#[test]
+fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
+    let source = "/** value docs */\nexport const value: number = 1;\nexport class Box {\n    /** member docs */\n    member: string = \"\";\n}";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+        },
+    );
+    assert_eq!(
+        result.text,
+        "/** value docs */\nexport declare const value: number;\nexport declare class Box {\n    /** member docs */\n    member: string;\n}"
+    );
+
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: true,
+        },
+    );
+    assert!(!result.text.contains("docs"), "removeComments leaked JSDoc: {}", result.text);
 }
 
 #[test]

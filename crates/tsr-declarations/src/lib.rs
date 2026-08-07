@@ -124,6 +124,8 @@ pub struct DeclarationEmitOptions<'a> {
     pub source_text: Option<&'a str>,
     /// Remove declarations whose nearest leading comment contains `@internal`.
     pub strip_internal: bool,
+    /// Suppress comments in declaration output.
+    pub remove_comments: bool,
 }
 
 /// The kind of a preserved triple-slash declaration reference.
@@ -223,7 +225,10 @@ pub fn emit_with_references_and_options<'a>(
         (result, std::mem::take(&mut transformer.inference_required))
     };
 
-    let printed = tsr_printer::print(declaration_file, nodes);
+    let printed = match options.source_text.filter(|_| !options.remove_comments) {
+        Some(source_text) => tsr_printer::print_with_source(declaration_file, nodes, source_text),
+        None => tsr_printer::print(declaration_file, nodes),
+    };
     let mut text = render_references(references);
     text.push_str(&printed.text);
     DeclarationEmit { text, diagnostics, unsupported: printed.unsupported, inference_required }

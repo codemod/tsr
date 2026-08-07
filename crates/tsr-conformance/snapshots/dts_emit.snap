@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 234/341 (68.62%)
-Failed         : 107
+Passed         : 237/341 (69.50%)
+Failed         : 104
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,15 +12,13 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 107 failures:
+First 100 of 104 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
   line 3: want `    }`, got `        class C {`
 compiler/amdLikeInputDeclarationEmit
   line 1: missing `declare const ExtendedClass: new () => {`
-compiler/commentsVariableStatement1
-  line 1: want `/** Comment */`, got `declare var v: number;`
 compiler/conflictingDeclarationsImportFromNamespace1
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
 compiler/conflictingDeclarationsImportFromNamespace2
@@ -32,7 +30,7 @@ compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
 compiler/declarationEmitArrowFunctionNoRenaming
   line 1: want `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & {`, got `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & { [K in ReservedName]: Branding; } & {`
 compiler/declarationEmitClassAccessorsJs1
-  line 2: want `    /**`, got `    get path(): any;`
+  line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
 compiler/declarationEmitExpandoPropertyPrivateName
@@ -98,7 +96,7 @@ compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
 compiler/jsDeclarationEmitExportedClassWithExtends
   line 1: want `export * from "lit-element/lit-element.js";`, got `import { LitElement, LitElement as LitElement2 } from "lit";`
 compiler/lateBoundAssignmentCandidateJS3
-  line 3: want `    /**`, got `    prop: string;`
+  line 7: want `    protected prop: string;`, got `    prop: string;`
 compiler/letDeclarations2
   line 2: want `    let l2: number;`, got `    let l1: string;`
 compiler/libTypeScriptOverrideSimple
@@ -178,7 +176,7 @@ conformance/assignmentToVoidZero1
 conformance/callbackOnConstructor
   line 1: want `export type ValueGetter_2 = (name: string) => boolean | number | string | undefined;`, got `export declare class Preferences {`
 conformance/callbackTagVariadicType
-  line 1: want `/**`, got `export declare const x: () => number;`
+  line 1: want `/**`, got `/** @type {Foo} */`
 conformance/classDoesNotDependOnPrivateMember
   line 2: want `    class C {`, got `    interface I {`
 conformance/contextuallyTypedStringLiteralsInJsxAttributes01
@@ -190,19 +188,19 @@ conformance/declarationEmitWorkWithInlineComments
 conformance/declarationNotFoundPackageBundlesTypes
   line 1: want `declare const foo: any;`, got `export {};`
 conformance/exportDefaultExpressionComments
-  line 1: want `/**`, got `declare const _default: any;`
+  line 4: want `declare const _default: null;`, got `declare const _default: any;`
 conformance/genericContextualTypes1
   line 22: want `declare const arrayMap: <T, U>(f: (x: T) => U) => (a: T[]) => U[];`, got `declare const arrayMap: any;`
 conformance/jsDeclarationsClassStatic2
   line 6: want `export declare namespace Foo {`, got `export {};`
 conformance/jsDeclarationsImportNamespacedType
-  line 1: want `export declare namespace Dotted {`, got `export declare var dummy: number;`
+  line 1: want `export declare namespace Dotted {`, got `/** @typedef {number} Dotted.Name */`
 conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
-  line 1: want `/** @type {?} */`, got `export declare const a: any;`
+  line 2: want `export declare const a: any | null;`, got `export declare const a: any;`
 conformance/jsDeclarationsTypedefDescriptionsPreserved
   line 1: missing `/**`
 conformance/jsdocTemplateTagNameResolution
-  line 1: want `/**`, got `declare const x: {`
+  line 6: want `type Foo<T, K extends keyof T> = T[K];`, got `declare const x: {`
 conformance/legacyNodeModulesExportsSpecifierGenerationConditions
   line 1: want `export { x } from "./other.js";`, got `export declare const a: any;`
 conformance/mappedTypeErrors2
@@ -213,3 +211,5 @@ conformance/nodeModulesPackageImportsRootWildcardNode16
   emitted src/foo.d.ts, upstream emitted no declaration file
 conformance/recursiveMappedTypes
   line 1: want `export type Circular<T> = {`, got `export type Circular<T> = { [P in keyof T]: Circular<T>; };`
+conformance/recursiveTypeReferences2
+  line 1: want `/** @typedef {ReadonlyArray<Json>} JsonArray */`, got `/** @type {XMLObject<{foo:string}>} */`

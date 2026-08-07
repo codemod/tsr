@@ -110,6 +110,21 @@ pub fn print(file: &SourceFile<'_>, nodes: &tsr_ast::NodeTable) -> Printed {
     Printed { text: printer.writer.into_string(), unsupported: printer.unsupported }
 }
 
+/// Print a source file while preserving declaration-relevant leading JSDoc.
+///
+/// Ordinary round-trip printing remains comment-free. Declaration emit opts in
+/// because it carries original source ranges through its synthesized nodes.
+#[must_use]
+pub fn print_with_source(
+    file: &SourceFile<'_>,
+    nodes: &tsr_ast::NodeTable,
+    source_text: &str,
+) -> Printed {
+    let mut printer = Printer::with_source(nodes, source_text);
+    printer.emit_source_file(file);
+    Printed { text: printer.writer.into_string(), unsupported: printer.unsupported }
+}
+
 /// Ported from typescript-go's `Printer` (`internal/printer/printer.go`).
 ///
 /// Upstream's `Printer` also carries an `EmitContext`, a name generator, comment
@@ -124,6 +139,11 @@ pub(crate) struct Printer<'t> {
     /// `const`/`let` live in `NodeFlags`, not in the tree, so printing a variable
     /// statement needs the side table the parser filled in.
     nodes: &'t tsr_ast::NodeTable,
+    /// Original text for declaration-only comment retention.
+    source_text: Option<&'t str>,
+    /// Source ranges already emitted. Several synthesized declaration nodes can
+    /// share one original span, and a comment must not be duplicated for each.
+    emitted_comments: std::collections::HashSet<(usize, usize)>,
 }
 
 impl<'t> Printer<'t> {
@@ -133,6 +153,36 @@ impl<'t> Printer<'t> {
             unsupported: Vec::new(),
             last_was_numeric: false,
             nodes,
+            source_text: None,
+            emitted_comments: std::collections::HashSet::new(),
+        }
+    }
+
+    fn with_source(nodes: &'t tsr_ast::NodeTable, source_text: &'t str) -> Self {
+        let mut printer = Self::new(nodes);
+        printer.source_text = Some(source_text);
+        printer
+    }
+
+    /// Emit the nearest leading JSDoc attached to `node_id`, if any.
+    pub(crate) fn emit_leading_jsdoc(&mut self, node_id: Option<tsr_ast::NodeId>) {
+        let Some(source) = self.source_text else { return };
+        let Some(node_id) = node_id else { return };
+        let start = self.nodes.span(node_id).start as usize;
+        let Some((comment_start, comment_end)) = leading_jsdoc_range(source, start) else {
+            return;
+        };
+        if !self.emitted_comments.insert((comment_start, comment_end)) {
+            return;
+        }
+
+        let line_start = source[..comment_start].rfind(['\n', '\r']).map_or(0, |index| index + 1);
+        let margin = &source[line_start..comment_start];
+        let comment = &source[comment_start..comment_end];
+        for (index, line) in comment.lines().enumerate() {
+            let line = if index == 0 { line } else { line.strip_prefix(margin).unwrap_or(line) };
+            self.write(line);
+            self.write_line();
         }
     }
 
@@ -899,6 +949,23 @@ fn keyword_text(kind: SyntaxKind) -> Option<&'static str> {
         "Yield" => "yield",
         _ => return None,
     })
+}
+
+/// The nearest block comment before a node when it is JSDoc and separated from
+/// the node only by whitespace. A nearer line or ordinary block comment stops
+/// attachment, matching the closest-comment rule used by `stripInternal`.
+fn leading_jsdoc_range(source: &str, node_start: usize) -> Option<(usize, usize)> {
+    let prefix = &source[..node_start.min(source.len())];
+    let trimmed = prefix.trim_end_matches(char::is_whitespace);
+    if !trimmed.ends_with("*/") {
+        return None;
+    }
+    let start = trimmed.rfind("/*")?;
+    let comment = &trimmed[start..];
+    (comment.starts_with("/**")
+        && !comment.contains("@overload")
+        && !comment.contains("@constructor"))
+    .then_some((start, trimmed.len()))
 }
 
 #[cfg(test)]

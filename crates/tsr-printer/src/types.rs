@@ -306,6 +306,7 @@ impl Printer<'_> {
     }
 
     fn emit_type_element(&mut self, member: &TypeElement<'_>) {
+        self.emit_leading_jsdoc(member.node_id());
         match member {
             // Ported from `Printer.emitPropertySignature` (`internal/printer/printer.go`).
             TypeElement::PropertySignatureDeclaration(node) => {
