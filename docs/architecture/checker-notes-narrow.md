@@ -1174,3 +1174,41 @@ modifier check, the last R→W). Gains led by
 **961** (+12, the closure narrows reach TS2322's gates). The §12.6
 under-accumulation rows (`controlFlowLoopAnalysis:0:25`) remain — they were
 never this family.
+
+### §14 The too-large bail — TS2563's observable is `any`, and it is a fifth of the wrong column
+
+The wrong board's head is ONE case: `largeControlFlowGraph`, **10,001
+lines**, want `any`, got `any[]` — 29% of all remaining wrong lines. The
+mechanism is upstream's DELIBERATE give-up: 10,000 chained `data[0] = 0`
+mutations against `const data = []` (autoArrayType) make
+`getTypeAtFlowArrayMutation` recurse once per mutation
+(`flow.go:1404` → `getTypeAtFlowNode`), the depth cap trips at 2,000
+(`flow.go:118`), `flowAnalysisDisabled` sticks for the containing body
+(`checkBlock` save/restores it, `checker.go:3791`), TS2563 is reported
+once, and **every subsequent reference answers `errorType` — which
+upstream prints as `any`**.
+
+This port's cap exists (`MAX_FLOW_DEPTH`, `flow.rs:116`) but (a) never
+trips here — the walk skips ARRAY_MUTATION iteratively where upstream
+recurses — and (b) answers `errorType`, which ADR-0038 prints as `error`.
+On (b): ADR-0038's distinguishability rationale is about THIS PORT's
+failures; the too-large bail is upstream's own documented give-up whose
+observable output IS `any` (the case comment says "Check that we
+gracefully handle this"). Answering the `any` intrinsic at the bail — and
+only there — reproduces upstream's output without laundering a port gap.
+
+**The port**: (1) `FlowState` learns `is_auto_array` (declaration with no
+annotation and an empty-array-literal initializer — upstream's evolving
+trigger); (2) the catch-all's ARRAY_MUTATION skip counts one depth step for
+such references, the recursion equivalence; (3) the trip and the
+`flow_analysis_disabled` entry check answer `any`; (4) the disabled flag
+save/restores around function/module body checks as upstream's
+`checkBlock` does.
+
+**The bar**: `largeControlFlowGraph`'s 10k flip. Falsifiers: (a)
+`binaryArithmeticControlFlowGraphNotTooLarge` must NOT trip — upstream
+walks its 10k-node chain iteratively (plain assignments, no recursion) and
+computes real types; a step-counting implementation instead of a
+recursion-equivalent one fails exactly there; (b) any new wrong line in a
+case whose errors baseline lacks TS2563 means the trip fired where
+upstream's did not.
