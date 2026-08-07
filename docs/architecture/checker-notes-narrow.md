@@ -734,3 +734,19 @@ Legs: net **+6** (= the floor exactly) · own **0** (the plain-`=` falsifier
 silent) · regressed **0** · lost **0**. `get_base_type_of_literal_type`
 lands with the enum-like arm deliberately identity (its base walk lives with
 `enum_member_owners`' consumers), which is the shape §10's bar did not size.
+
+### §9.6 The retry price list, CORRECTED after sizing the flag
+
+The §9.2 list said "provenance as a FlowType flag". Sized: 18 construction
+sites plus the label merges — tractable — **but the flag alone cannot
+deliver the strict-OUTER remainder**: `capturedLetConstInLoop*`'s walk
+*reaches* the outer assignments through this port's graph (the graph has no
+function boundary), so no initial-provenance question arises there at all.
+Upstream's answer comes from `getFlowTypeOfReferenceEx`'s **flowContainer
+parameter** — the walk STOPS at the reference's control-flow container's
+start and returns the declared auto. The real price is the container-bounded
+walk: `FlowState` carries the reference's container, and the start-arm
+family answers `declared` when the start belongs to a different container.
+Whether the binder's flow graph marks container starts is the open question
+that decides the effort — check `tsr-binder`'s flow construction before
+costing.
