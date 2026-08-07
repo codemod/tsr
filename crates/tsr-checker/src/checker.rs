@@ -148,6 +148,9 @@ pub struct Checker<'a, 'n> {
     /// `d.thisType` for TYPE-POSITION `this` (`checker-notes-callres.md`
     /// §28).
     pub(crate) this_type_nodes: FxHashMap<NodeId, TypeId>,
+    /// One members-carrying qualified reference type per (namespace-site
+    /// spelling, target symbol) — `checker-notes-narrow.md` §41.
+    pub(crate) qualified_reference_types: FxHashMap<(String, SymbolId), TypeId>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -546,6 +549,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             global_this_type: None,
             unique_symbol_nodes: FxHashMap::default(),
             this_type_nodes: FxHashMap::default(),
+            qualified_reference_types: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),

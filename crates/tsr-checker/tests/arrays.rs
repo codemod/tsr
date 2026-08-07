@@ -177,10 +177,7 @@ fn a_tuple_is_not_answered_as_a_plausible_array() {
     // flattened `[string, number[]]` this test was written to forbid — so
     // the property the name pins survives with the honest answer moved
     // from a gap to the print.
-    assert_eq!(
-        type_of_annotation("var x: [string, ...number[]];"),
-        "[string, ...number[]]"
-    );
+    assert_eq!(type_of_annotation("var x: [string, ...number[]];"), "[string, ...number[]]");
 }
 
 #[test]

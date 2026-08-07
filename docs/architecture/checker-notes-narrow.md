@@ -1857,3 +1857,12 @@ mints. Falsifiers: (a) in-namespace sites keep the local unqualified
 print (the existing site test guards); (b) the §32 chain must stop firing
 for these receivers (they leave `unresolved_types`), so any want-`any`
 lines that were RIGHT through the chain get counted.
+
+**§41 score — LANDED.** **+1,016 (515 WRONG→RIGHT, 501 GAP→RIGHT) / 97
+adverse (83 G→W, 11 R→G, 3 R→W)** — 10.5:1. The conversions reach three
+standing rows at once: `underscoreTest1` gained 264 (the DOUBLE-REFUSED
+`_1` case — much of it was never a rename problem but qualified
+references without members), `temporal` 193, and the enum-literal
+families 211 (qualified enum-member references now carry their tables).
+The 97 head at union-disambiguation and clodule shapes, recorded.
+`checker_types` right 392,547 → **393,549 (82.17%)**.

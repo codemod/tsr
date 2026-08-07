@@ -962,8 +962,22 @@ impl<'a> Checker<'a, '_> {
         // W still has to *resolve* to answer at all: a name upstream cannot
         // resolve is a different bucket, and printing text for it here would be
         // inventing an export that does not exist.
-        if self.resolve_entity_name(name, SymbolFlags::TYPE).is_none() {
+        let Some(resolved) = self.resolve_entity_name(name, SymbolFlags::TYPE) else {
             return error;
+        };
+        // §41 (`checker-notes-narrow.md`): the resolved, argument-less
+        // qualified reference answers a members-CARRYING named type — the
+        // qualified print with the real lookup table. Generic references
+        // stay print-only mints.
+        if node.type_arguments.is_empty() {
+            let Some(text) = Self::entity_name_text(node.type_name) else { return error };
+            let key = (text.clone(), resolved);
+            if let Some(&existing) = self.qualified_reference_types.get(&key) {
+                return existing;
+            }
+            let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
+            self.qualified_reference_types.insert(key, minted);
+            return minted;
         }
         self.unresolved_type_reference(node)
     }
