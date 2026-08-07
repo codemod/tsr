@@ -1057,3 +1057,32 @@ GAP→RIGHT 46 · no other transition · suite +5 cases (2,869 → 2,874)
 Legs: net **+46** (≥ +10) · own **0** (≤ 6, falsifier silent) · regressed
 **0** · lost **0**. The `may_return_never` proxy held: it and the
 contextual-typing boundary are the same upstream list read off two fields.
+
+## §18 `await` — the identity-and-global-Promise slice — bar (ninth session, fifth leg)
+
+The board's `AwaitExpression / NO STEP ARM` row: **578 gap lines, want-any
+10.9%**, 138 cases, top-1 6.6% — the expression has no `check_expression` arm
+at all, so every `await e` gaps even where the operand types.
+
+**Mechanism.** `checkAwaitExpression` (`checker.go:10845`) is
+`checkAwaitedType(operandType)`; `getAwaitedTypeNoAlias`'s shapes this port
+can answer without the `then`-signature walk:
+
+- `any`/`unknown` pass through (`IsTypeAny`, and the no-effect suggestion is
+  a diagnostic, not a type change);
+- a **primitive** cannot carry a `then` member — identity, freshness kept;
+- a reference to the **global `Promise`** unwraps to its argument,
+  recursively (`Promise<Promise<T>>` → `T`) — the reverse instantiation map
+  (`type_reference_targets`) already carries the pair.
+
+Everything else — object types, unions, intersections, type parameters,
+`PromiseLike`, user thenables — declines to a gap with the awaited machinery
+as owner.
+
+**Bar:** net ≥ **+150** (~30% of the 515 non-any row: the operand share that
+is a global-Promise reference or primitive is unsized, and the row's cases
+are await-heavy library tests where Promise references dominate); own ≤
+**15** — falsifier: wrong lines where the want is not the operand's argument
+→ the unwrap fired on a non-global `Promise` symbol (shadowed or renamed);
+regressed == **0**; lost == **0** (a new expression arm can only turn gaps
+into answers on its own node; downstream composites were gaps too).
