@@ -785,3 +785,44 @@ The iteration pattern is the entry worth keeping: each measurement's
 RIGHT→WRONG head *named the next carriage slot*, and three passes converged
 112 → 7 without ever touching the conversion column (1,664 → 1,675 → 1,675).
 The carriage slots are exactly upstream's node-reuse positions.
+
+### 10.16 `bd tsr-epnz` — the alias-rename residue, sized and barred (ninth session)
+
+The §10.12 residual's naming half, re-attributed from the live dump at
+`3bfec72` rather than carried. The rename-shape probe (single-identifier
+substitution over every WRONG line) puts the buildable family at **26 lines /
+4 cases**, and it is two mechanisms:
+
+| lines | case | shape | mechanism |
+|---:|---|---|---|
+| 8 | `constEnumNoEmitReexport` | `MyConstEnum` → `MyConstEnum1` | a **default import**'s local name — `best_name`'s alias arm admits only external `import a = require`, upstream's baseline path (`nodebuilderimpl.go:1088`) passes `useOnlyExternalAliasing == false` (only hover sets the flag, `nodebuilder_hover.go:431`) |
+| 7 | `constEnumOnlyModuleMerging` | `Outer` → `O` | a **same-file `import O = Outer`** — the very form §10.9's external filter was added to exclude. Upstream admits it; what protected the §10.9 family upstream is the **per-table direct-hit priority**, which this port's walk already has |
+| 6 | `exportAssignmentEnum` | `E` → `EnumE` | the alias (external import-equals) is admitted *today* — but an enum **member type is created with `symbol: None`** (`declared.rs:1152`), so `qualified_name_at` returns the baked `E.A` untouched; the container segment never takes the §10.9 rename |
+| 5 | `importElisionEnum` | `MyEnum` → `MyEnumFromModule` | a **renamed import specifier**, excluded by the same external filter; the direct hit for `MyEnum` in the file table is a *different* symbol (the local enum), which is exactly when upstream's alias arm fires |
+
+Excluded from the family, attributed from their baselines: `Test`→`TestA` 40
+and `Item`→`Item1` 6 are **discriminated-union narrowing** (the conventions
+page's enum-literal trap, again), `DeepReadonly`→`DeepReadonlyObject` 10 is
+conditional-type evaluation. Naming converts zero of them.
+
+**Design.** (a) Replace `is_external_import_equals` in `best_name`'s alias arm
+with upstream's own exclusions at `symbolaccessibility.go:564-575` under
+`useOnlyExternalAliasing == false`: skip a candidate named `default` or
+`export=`, skip export-specifier-declared candidates, skip namespace
+re-exports. (b) Carry the member symbol on enum member types and, in
+`qualified_name_at`, rename a baked `{parent}.` prefix through `best_name` on
+the parent — the §10.9 segment rename applied to baked prefixes.
+
+**Bar, registered before any code:**
+
+1. net ≥ **+18** (~70% of 26; multi-substitution composite lines are upside).
+2. own new wrong ≤ **8**. **Falsifier, named:** RIGHT→WRONG concentrated in
+   the `privacy*` families → the same-file import-equals admission has
+   re-opened §10.9's 130-line loss; the fallback design is to admit only
+   module-boundary aliases (import clause / specifier / namespace import /
+   external import-equals), which forfeits `constEnumOnlyModuleMerging`'s 7.
+3. cases regressed == **0**.
+4. lost ≤ **3** — (b) turns a `None` symbol into `Some` on every enum-member
+   print in the corpus, and the prefix-rewrite gate (`printed` starts with
+   exactly `{parent}.`) is what keeps that from touching unrelated lines; a
+   loss above 3 says the gate leaks.
