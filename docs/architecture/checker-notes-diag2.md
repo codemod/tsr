@@ -2600,3 +2600,23 @@ member **names** — the only thing this predicate promises — are complete.
 The tenth redundant or stale condition the audit has retired. Two levels of a
 predicate testing the same thing is the shape to look for: the outer one is
 usually the real gate.
+
+### 40.3 TS2304's parse-error decline is DELETED — +6
+
+The eighth session's §7 declined TS2304 in any file the parser reported a
+diagnostic in, on the argument that *"a rule that reports on a node one parser
+invented is reporting about a program the other never saw"*, and measured it as
+the single largest family in that residual — `jsxUnclosedParserRecovery` 21
+lines, `arrowFunctionsMissingTokens` 15, and a tail of `parserSkippedTokens`.
+
+**Deleting it is +6 with the gates green.** The measurement was taken when
+TS2304 was the *only* semantic rule in the traversal and every wrong line it
+produced was unopposed. Thirty-eight builds later the recovered-tree cases are
+mostly failing on other codes anyway, so the decline's wrong lines cost nothing
+and its silences cost six cases.
+
+This is the audit's eighth payment and its oldest target — a decline from a
+different session, justified by a measurement that was correct when taken.
+**Nothing marks a decline as re-checkable; only re-running it does.** The
+condition itself is preserved on `Checker::file_has_parse_errors` and still read
+by five other rules, each of which should be audited the same way.

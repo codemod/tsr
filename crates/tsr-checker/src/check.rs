@@ -676,9 +676,6 @@ impl Checker<'_, '_> {
         // 21 lines, `arrowFunctionsMissingTokens` 15,
         // `parserUnterminatedGeneric2` 8, and a long tail of `parserSkippedTokens`
         // and conflict-marker cases.
-        if self.file_has_parse_errors {
-            return;
-        }
         if !self.is_value_reference(node) || is_specially_diagnosed_name(text) {
             return;
         }

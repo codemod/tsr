@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1070/5488 (19.50%)
-Failed         : 4418
+Passed         : 1076/5488 (19.61%)
+Failed         : 4412
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4418 failures:
+First 100 of 4412 failures:
 compiler/ClassDeclaration10
   1 missing (first TS2390 at ClassDeclaration10.ts(2,4))
 compiler/ClassDeclaration11
@@ -55,7 +55,7 @@ compiler/ParameterList5
 compiler/ParameterList6
   1 missing (first TS7006 at ParameterList6.ts(2,19))
 compiler/TransportStream
-  4 unexpected (first TS1005 at TransportStream.ts(1,2)), 3 missing
+  4 unexpected (first TS1005 at TransportStream.ts(1,2)), 2 missing
 compiler/abstractClassInLocalScopeIsAbstract
   1 missing (first TS2511 at abstractClassInLocalScopeIsAbstract.ts(4,5))
 compiler/abstractClassUnionInstantiation
@@ -121,7 +121,7 @@ compiler/ambientPropertyDeclarationInJs
 compiler/ambientStatement1
   1 missing (first TS1039 at ambientStatement1.ts(4,22))
 compiler/ambiguousGenericAssertion1
-  4 unexpected (first TS1005 at ambiguousGenericAssertion1.ts(4,16)), 2 missing
+  7 unexpected (first TS2304 at ambiguousGenericAssertion1.ts(4,12)), 1 missing
 compiler/ambiguousOverload
   2 missing (first TS2322 at ambiguousOverload.ts(5,5))
 compiler/anonymousModules
@@ -201,7 +201,7 @@ compiler/arrowFunctionWithObjectLiteralBody1
 compiler/arrowFunctionWithObjectLiteralBody2
   1 missing (first TS7006 at arrowFunctionWithObjectLiteralBody2.ts(1,9))
 compiler/arrowFunctionsMissingTokens
-  57 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 15 missing
+  72 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 14 missing
 compiler/asiAbstract
   1 missing (first TS1244 at asiAbstract.ts(3,3))
 compiler/asiAmbientFunctionDeclaration
