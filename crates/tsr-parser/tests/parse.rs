@@ -776,6 +776,15 @@ fn arrow_return_types_may_contain_brackets_and_arrows() {
 }
 
 #[test]
+fn generic_arrow_object_constraints_may_use_semicolons() {
+    let arena = Arena::new();
+    statements(
+        &arena,
+        "const f = <T extends { first: number; second: string }>(value: T) => value;",
+    );
+}
+
+#[test]
 fn decorators_in_their_several_positions() {
     let arena = Arena::new();
     statements(&arena, "@dec class A {}");
@@ -818,6 +827,17 @@ fn export_default_keeps_intervening_async_modifier() {
     assert!(function.modifiers.iter().any(
         |modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
     ));
+}
+
+#[test]
+fn export_assignment_recovery_survives_misplaced_modifiers() {
+    let arena = Arena::new();
+    for source in
+        ["declare export = value;", "export export = value;", "export declare export = value;"]
+    {
+        let parsed = statements(&arena, source);
+        assert!(matches!(parsed[0], Statement::ExportAssignment(_)), "{source}");
+    }
 }
 
 #[test]

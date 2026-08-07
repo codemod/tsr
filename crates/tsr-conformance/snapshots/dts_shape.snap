@@ -2,23 +2,23 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 625/917 (68.16%)
-Failed         : 292
-Skipped        : 11527 (excluded from the denominator)
+Passed         : 635/918 (69.17%)
+Failed         : 283
+Skipped        : 11526 (excluded from the denominator)
 
-  7  skipped: a unit of this case does not parse cleanly
+  6  skipped: a unit of this case does not parse cleanly
   8418  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 292 failures:
+First 100 of 283 failures:
 compiler/aliasInaccessibleModule2
   #2: want `  import= R`, got `    class C`
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/anonClassDeclarationEmitIsAnon
-  #0: want `var _default`, got `export=`
+  #3: want `var TimestampedUser_base`, got `class TimestampedUser`
 compiler/bindingPatternOmittedExpressionNesting
   #0: want `export{}`, got `var <pattern>`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -55,20 +55,10 @@ compiler/declarationEmitClassMemberWithComputedPropertyName
   #0: want `var k1`, got `var t1`
 compiler/declarationEmitClassMixinLocalClassDeclaration
   #5: want `var XmlElement2_base`, got `class XmlElement2`
-compiler/declarationEmitComputedNameConstEnumAlias
-  #0: want `var _default`, got `export=`
 compiler/declarationEmitComputedPropertyNameSymbol1
   emitted index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitComputedPropertyNameSymbol2
   emitted index.d.ts, upstream emitted no declaration file
-compiler/declarationEmitDefaultExport5
-  #0: want `var _default`, got `export=`
-compiler/declarationEmitDefaultExport6
-  #1: want `var _default`, got `export=`
-compiler/declarationEmitDefaultExport7
-  #0: want `class A`, got `export=`
-compiler/declarationEmitDefaultExport8
-  #2: want `var _default_1`, got `export=`
 compiler/declarationEmitDefaultExportWithStaticAssignment
   #0: want `import`, got `function Example`
 compiler/declarationEmitDestructuringArrayPattern1
@@ -88,7 +78,7 @@ compiler/declarationEmitExpandoPropertyPrivateName
 compiler/declarationEmitExpandoWithGenericConstraint
   #2: want `function Point`, got `var Point`
 compiler/declarationEmitExportAliasVisibiilityMarking
-  #0: want `import`, got `export=`
+  #0: want `import`, got `var _default`
 compiler/declarationEmitExpressionInExtends2
   #2: want `var MyClass_base`, got `class MyClass`
 compiler/declarationEmitExpressionInExtends3
@@ -107,10 +97,6 @@ compiler/declarationEmitFunctionDuplicateNamespace
   #1: want `namespace f`, got `function f`
 compiler/declarationEmitFunctionKeywordProp
   #1: want `namespace foo`, got `function bar`
-compiler/declarationEmitInferredDefaultExportType
-  #0: want `var _default`, got `export=`
-compiler/declarationEmitInferredDefaultExportType2
-  #0: want `var _default`, got `export=`
 compiler/declarationEmitInferredTypeAlias9
   #0: want `type Foo`, got `function returnSomeGlobalValue`
 compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
@@ -124,7 +110,7 @@ compiler/declarationEmitLateBoundJSAssignments
 compiler/declarationEmitLocalClassDeclarationMixin
   #2: want `var FilteredThing_base`, got `class FilteredThing`
 compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
-  #0: want `type Fns`, got `export=`
+  #0: want `type Fns`, got `var _default`
 compiler/declarationEmitMultipleComputedNamesSameDomain
   #0: want `var x`, got `class Test`
 compiler/declarationEmitNamespaceMergedWithInterfaceNestedFunction
@@ -207,9 +193,23 @@ compiler/emitClassExpressionInDeclarationFile
   #5: want `var Test_base`, got `class Test`
 compiler/enumDeclarationEmitInitializerHasImport
   #0: want `import= provider`, got `var value`
-compiler/es6ExportDefaultExpression
-  #0: want `var _default`, got `export=`
-compiler/es6ImportDefaultBindingFollowedWithNamedImport
-  #3: want `var _default`, got `export=`
 compiler/es6ImportDefaultBindingFollowedWithNamedImportDts
   #0: want `import`, got `var x1`
+compiler/es6ImportDefaultBindingFollowedWithNamespaceBindingDts
+  #0: want `import`, got `var x`
+compiler/es6ImportNameSpaceImportDts
+  #0: want `import`, got `var x`
+compiler/es6ImportNamedImportDts
+  #0: want `import`, got `var xxxx`
+compiler/expandoFunctionBlockShadowing
+  #2: missing `namespace Y`
+compiler/expandoFunctionExpressionsWithDynamicNames
+  #0: want `function expr`, got `var expr`
+compiler/expandoFunctionNestedAssigments
+  #1: want `namespace Foo`, got `var d`
+compiler/exportClassExtendingIntersection
+  #0: want `import`, got `class MyExtendedClass`
+compiler/funcdecl
+  #20: want `var withOverloadSignature`, got `function overload1`
+compiler/globalThisDeclarationEmit
+  emitted index.d.ts, upstream emitted no declaration file

@@ -6,8 +6,8 @@ Passed         : 163/342 (47.66%)
 Failed         : 179
 Skipped        : 12102 (excluded from the denominator)
 
-  578  skipped: a declaration in this case needs inference (see dts_reachable_target)
-  12  skipped: a unit of this case does not parse cleanly
+  579  skipped: a declaration in this case needs inference (see dts_reachable_target)
+  11  skipped: a unit of this case does not parse cleanly
   8418  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case

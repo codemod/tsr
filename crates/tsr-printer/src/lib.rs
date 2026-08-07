@@ -205,6 +205,18 @@ impl<'t> Printer<'t> {
         self.write(text);
     }
 
+    /// Write a decoded identifier, retaining parser-recovery identifiers whose
+    /// first character is an ASCII digit by escaping that character. The escape
+    /// decodes to the same AST text while remaining one identifier token.
+    pub(crate) fn write_identifier(&mut self, text: &str) {
+        let Some(first) = text.as_bytes().first().copied() else { return };
+        if first.is_ascii_digit() {
+            self.write(&format!("\\u{first:04x}{}", &text[1..]));
+        } else {
+            self.write(text);
+        }
+    }
+
     /// Ported from `Printer.writeSpace`.
     pub(crate) fn write_space(&mut self) {
         self.writer.write(" ");
@@ -515,7 +527,7 @@ impl<'t> Printer<'t> {
 
     pub(crate) fn emit_binding_name(&mut self, name: &tsr_ast::BindingName<'_>) {
         match name {
-            tsr_ast::BindingName::Identifier(identifier) => self.write(identifier.text),
+            tsr_ast::BindingName::Identifier(identifier) => self.write_identifier(identifier.text),
             tsr_ast::BindingName::BindingPattern(pattern) => self.emit_binding_pattern(pattern),
         }
     }

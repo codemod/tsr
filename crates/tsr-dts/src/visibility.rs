@@ -304,6 +304,34 @@ impl<'a> ReferenceCollector<'a> {
         }
     }
 
+    /// Names that become part of the synthesized `_default` declaration's type.
+    /// Unlike an ordinary initializer, a default-export expression is itself the
+    /// exported declaration, so `export default new A()` must retain `A`.
+    fn record_default_export_expression(&mut self, expression: &Expression<'a>) {
+        match expression {
+            Expression::NewExpression(new_expression) => {
+                if let Some(callee) = &new_expression.expression {
+                    self.record_entity_expression(callee);
+                }
+                for argument in new_expression.type_arguments {
+                    self.visit_node(tsr_ast::Node::from(*argument));
+                }
+            }
+            Expression::AsExpression(as_expression) => {
+                self.visit_type(as_expression.r#type);
+            }
+            Expression::SatisfiesExpression(satisfies) => {
+                self.visit_type(satisfies.r#type);
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                if let Some(inner) = &parenthesized.expression {
+                    self.record_default_export_expression(inner);
+                }
+            }
+            other => self.record_entity_expression(other),
+        }
+    }
+
     /// Record the names used by computed keys inside an emitted literal.
     ///
     /// Only the keys: `{ [u]: v }` emits `[u]` and so needs `u`, but `v` is a value
@@ -428,7 +456,7 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
     /// `export default a` emits a reference to `a`, so `a` must be emitted too.
     fn visit_export_assignment(&mut self, node: &'a tsr_ast::ExportAssignment<'a>) {
         if let Some(expression) = &node.expression {
-            self.record_entity_expression(expression);
+            self.record_default_export_expression(expression);
         }
     }
 }

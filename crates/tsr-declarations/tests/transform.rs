@@ -78,6 +78,21 @@ fn export_default_keeps_its_export_and_never_gains_declare() {
     assert!(!text.contains("declare"), "declare must not appear beside default:\n{text}");
 }
 
+#[test]
+fn default_export_expression_gets_a_collision_free_binding() {
+    let plain = emit("export default 1 + 2;");
+    assert!(plain.contains("declare const _default"), "{plain}");
+    assert!(plain.contains("export default _default;"), "{plain}");
+
+    let collision = emit("const _default: number = 1; export default 2 + 3;");
+    assert!(collision.contains("declare const _default_1"), "{collision}");
+    assert!(collision.contains("export default _default_1;"), "{collision}");
+
+    let export_equals = emit("export = { answer: 42 };");
+    assert!(export_equals.contains("declare const _default"), "{export_equals}");
+    assert!(export_equals.contains("export = _default;"), "{export_equals}");
+}
+
 // ----- namespaces, and the three-way scope-marker choice -------------------
 
 #[test]

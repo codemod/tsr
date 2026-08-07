@@ -433,6 +433,15 @@ impl<'a> Parser<'a> {
             SyntaxKind::TypeKeyword => self.parse_type_alias_declaration(start, modifiers),
             SyntaxKind::EnumKeyword => self.parse_enum_declaration(start, modifiers),
             SyntaxKind::ImportKeyword => self.parse_import_declaration(start, modifiers),
+            // Recovery for misplaced modifiers before a second `export`, such
+            // as `declare export = value` and `export declare export = value`.
+            // Upstream still builds the export-assignment node after reporting
+            // the modifier error; keeping it as an expression statement makes
+            // the recovery tree unstable under printing.
+            SyntaxKind::ExportKeyword => {
+                let export_token = self.take_token();
+                self.parse_export(start, export_token)
+            }
             // `declare global { … }` augments the global scope; `global` is a
             // contextual keyword standing in for the module name.
             SyntaxKind::NamespaceKeyword

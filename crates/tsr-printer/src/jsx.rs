@@ -119,9 +119,20 @@ impl Printer<'_> {
                             // breaks are not JavaScript string escapes. Quoting
                             // it through `quote_string` turns an actual newline
                             // into the two characters `\\n`, changing the AST.
-                            self.write_raw("=\"");
+                            // Choose the delimiter that does not occur in the
+                            // decoded value. JSX attribute entities are retained
+                            // as text by this parser, so substituting `&quot;`
+                            // would avoid a syntax error but change the AST.
+                            let quote =
+                                if literal.text.contains('"') && !literal.text.contains('\'') {
+                                    "'"
+                                } else {
+                                    "\""
+                                };
+                            self.write_raw("=");
+                            self.write_raw(quote);
                             self.write_raw(literal.text);
-                            self.write_raw("\"");
+                            self.write_raw(quote);
                         }
                         Some(JsxAttributeValue::JsxExpression(expression)) => {
                             self.write_raw("=");

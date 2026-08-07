@@ -113,13 +113,34 @@ fn recovered_constructor_syntax_keeps_its_tokens() {
 }
 
 #[test]
+fn recovered_new_type_assertion_does_not_gain_a_second_call() {
+    let output = printed("const value = new <any>Factory();");
+    assert!(output.contains("new <any>Factory()"));
+    assert!(!output.contains("Factory()()"));
+}
+
+#[test]
+fn recovered_digit_starting_identifier_is_escaped() {
+    let output = printed(r"var \u0031a;");
+    assert!(output.contains(r"var \u0031a;"));
+    assert!(round_trips(r"var \u0031a;"));
+}
+
+#[test]
 fn jsx_attribute_text_remains_raw() {
-    let source = "const view = <div title=\"line one\nline two\\\\raw\" />;";
+    let source = "const view = <div title=\"line one\nline two\\\\raw &quot;\" />;";
     assert!(round_trips_as(source, ScriptKind::Tsx));
     let parsed = ParsedFile::parse_with_script_kind(source.to_string(), ScriptKind::Tsx);
     let output = parsed.with_ast(|file| tsr_printer::print(file, parsed.nodes())).text;
     assert!(output.contains("line one\nline two\\\\raw"));
     assert!(!output.contains("line one\\nline two"));
+
+    let quoted = ParsedFile::parse_with_script_kind(
+        "const quoted = <div title='\"' />;".to_string(),
+        ScriptKind::Tsx,
+    );
+    let output = quoted.with_ast(|file| tsr_printer::print(file, quoted.nodes())).text;
+    assert!(output.contains("title='\"'"));
 }
 
 #[test]

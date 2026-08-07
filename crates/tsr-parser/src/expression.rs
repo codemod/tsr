@@ -1173,6 +1173,7 @@ impl<'a> Parser<'a> {
         };
 
         let mut depth = 0u32;
+        let mut brace_depth = 0u32;
         loop {
             let kind = self.token.kind;
             if kind == SyntaxKind::EndOfFile {
@@ -1189,13 +1190,23 @@ impl<'a> Parser<'a> {
 
             if kind == open {
                 depth += 1;
+            } else if open == SyntaxKind::LessThanToken && kind == SyntaxKind::OpenBraceToken {
+                brace_depth += 1;
+            } else if open == SyntaxKind::LessThanToken
+                && kind == SyntaxKind::CloseBraceToken
+                && brace_depth > 0
+            {
+                brace_depth -= 1;
             } else if closes > 0 {
                 if closes >= depth {
                     self.next_token();
                     return true;
                 }
                 depth -= closes;
-            } else if open == SyntaxKind::LessThanToken && kind == SyntaxKind::SemicolonToken {
+            } else if open == SyntaxKind::LessThanToken
+                && kind == SyntaxKind::SemicolonToken
+                && brace_depth == 0
+            {
                 // `<` is also a comparison operator; a statement boundary means
                 // this was never a type-parameter list. An opening brace is not
                 // such a boundary: object constraints make

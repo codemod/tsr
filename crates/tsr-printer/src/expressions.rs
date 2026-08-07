@@ -201,7 +201,15 @@ impl Printer<'_> {
                 // optional and its absence is recorded, so it must not be invented.
                 // `new C` and `new C()` parse to the same tree — both carry an
                 // empty argument list — so always emitting `()` loses nothing.
-                self.arguments(node.arguments);
+                let callee_already_carries_recovered_call = node.arguments.is_empty()
+                    && matches!(
+                        node.expression,
+                        Some(Expression::TypeAssertion(assertion))
+                            if matches!(assertion.expression, Some(Expression::CallExpression(_)))
+                    );
+                if !callee_already_carries_recovered_call {
+                    self.arguments(node.arguments);
+                }
             }
             // Ported from `Printer.emitBinaryExpression` (`internal/printer/printer.go`).
             Expression::BinaryExpression(node) => self.emit_binary_expression(node),

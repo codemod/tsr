@@ -134,6 +134,12 @@ fn a_declaration_reached_through_an_annotation_is_judged() {
 }
 
 #[test]
+fn a_class_reached_through_a_default_new_expression_is_judged() {
+    let source = "class Indirect { f = Math.random(); }\nexport default new Indirect();\n";
+    assert_eq!(codes(source), [9012, 9037]);
+}
+
+#[test]
 fn a_script_emits_everything_so_everything_is_judged() {
     // `isolatedDeclarationErrors` has no `export` at all and still errors.
     assert_eq!(codes("const a = Math.random();"), [9010]);

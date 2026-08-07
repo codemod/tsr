@@ -39,6 +39,8 @@
 //!
 //! [`EmitResolver`]: crate::EmitResolver
 
+use std::collections::HashSet;
+
 use tsr_ast::{
     ClassElement, Expression, ModifierFlags, ModifierLike, NodeFlags, ParameterDeclaration,
     SourceFile, Statement, SyntaxKind, TypeElement, TypeNode,
@@ -78,6 +80,8 @@ pub(crate) struct Transformer<'a, 't, R> {
     /// `resultHasExternalModuleIndicator`: something in the output still makes the
     /// file a module.
     result_has_external_module_indicator: bool,
+    /// Source and synthesized binding names, for `_default` collision avoidance.
+    used_names: HashSet<String>,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -95,6 +99,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             needs_scope_fix_marker: false,
             result_has_scope_marker: false,
             result_has_external_module_indicator: false,
+            used_names: HashSet::new(),
             inference_required: Vec::new(),
         }
     }
@@ -116,6 +121,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     /// rather than deleted, because the shape is what Phase 4 will fill.
     pub(crate) fn transform_source_file(&mut self, file: &SourceFile<'a>) -> &'a SourceFile<'a> {
         let is_module = is_external_module(file.statements);
+        reserve_statement_names(file.statements, &mut self.used_names);
 
         let mut statements: Vec<Statement<'a>> = Vec::with_capacity(file.statements.len());
         for statement in file.statements {
@@ -211,7 +217,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 }
                 vec![*statement]
             }
-            Statement::ExportDeclaration(_) | Statement::ExportAssignment(_) => vec![*statement],
+            Statement::ExportDeclaration(_) => vec![*statement],
+            Statement::ExportAssignment(node) => self.transform_export_assignment(node),
             Statement::FunctionDeclaration(_)
             | Statement::ModuleDeclaration(_)
             | Statement::InterfaceDeclaration(_)
@@ -225,6 +232,74 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // Statements we elide. Upstream lists these by kind; the effect is
             // that nothing with a runtime body survives.
             _ => Vec::new(),
+        }
+    }
+
+    /// Turn `export default <expression>` into the declaration form TypeScript
+    /// emits: a collision-free `_default` variable followed by a default export
+    /// of that identifier. A named identifier export already is valid declaration
+    /// syntax and needs no synthetic binding.
+    fn transform_export_assignment(
+        &mut self,
+        node: &'a tsr_ast::ExportAssignment<'a>,
+    ) -> Vec<Statement<'a>> {
+        if matches!(node.expression, Some(Expression::Identifier(_))) {
+            return vec![Statement::ExportAssignment(node)];
+        }
+
+        let span = self.span_of(node.node_id);
+        let name = self.fresh_default_export_name(span);
+        let r#type =
+            self.ensure_type(None, node.expression.as_ref(), Freshness::Widening, node.node_id);
+        let declaration = self.factory.alloc(
+            tsr_ast::VariableDeclaration::new(
+                Some(tsr_ast::BindingName::Identifier(name)),
+                None,
+                r#type,
+                None,
+            ),
+            SyntaxKind::VariableDeclaration,
+            span,
+            NodeFlags::empty(),
+        );
+        let declarations = self.factory.slice(&[declaration]);
+        let list = self.factory.alloc(
+            tsr_ast::VariableDeclarationList::new(declarations),
+            SyntaxKind::VariableDeclarationList,
+            span,
+            NodeFlags::CONST,
+        );
+        let declare = self.factory.modifier(SyntaxKind::DeclareKeyword, span);
+        let modifiers = self.factory.slice(&[declare]);
+        let variable = Statement::VariableStatement(self.factory.alloc(
+            tsr_ast::VariableStatement::new(modifiers, Some(list)),
+            SyntaxKind::VariableStatement,
+            span,
+            NodeFlags::empty(),
+        ));
+        let export = Statement::ExportAssignment(self.factory.alloc(
+            tsr_ast::ExportAssignment::new(
+                node.modifiers,
+                node.is_export_equals,
+                node.r#type,
+                Some(Expression::Identifier(name)),
+            ),
+            SyntaxKind::ExportAssignment,
+            span,
+            NodeFlags::empty(),
+        ));
+        vec![variable, export]
+    }
+
+    fn fresh_default_export_name(&mut self, span: Span) -> &'a tsr_ast::Identifier<'a> {
+        let mut suffix = 0usize;
+        loop {
+            let candidate =
+                if suffix == 0 { "_default".to_string() } else { format!("_default_{suffix}") };
+            if self.used_names.insert(candidate.clone()) {
+                return self.factory.identifier(&candidate, span);
+            }
+            suffix += 1;
         }
     }
 
@@ -1113,6 +1188,49 @@ const PARAMETER_PROPERTY_MODIFIER: ModifierFlags = ModifierFlags::PUBLIC
     .union(ModifierFlags::PROTECTED)
     .union(ModifierFlags::READONLY)
     .union(ModifierFlags::OVERRIDE);
+
+fn reserve_statement_names(statements: &[Statement<'_>], used: &mut HashSet<String>) {
+    for statement in statements {
+        let name = match statement {
+            Statement::ClassDeclaration(node) => node.name,
+            Statement::FunctionDeclaration(node) => node.name,
+            Statement::InterfaceDeclaration(node) => node.name,
+            Statement::TypeAliasDeclaration(node) => node.name,
+            Statement::EnumDeclaration(node) => node.name,
+            Statement::ImportEqualsDeclaration(node) => node.name,
+            _ => None,
+        };
+        if let Some(name) = name {
+            used.insert(name.text.to_string());
+        }
+        if let Statement::ModuleDeclaration(node) = statement
+            && let Some(tsr_ast::ModuleName::Identifier(name)) = node.name
+        {
+            used.insert(name.text.to_string());
+        }
+        if let Statement::VariableStatement(node) = statement
+            && let Some(list) = node.declaration_list
+        {
+            for declaration in list.declarations {
+                reserve_binding_name(declaration.name, used);
+            }
+        }
+    }
+}
+
+fn reserve_binding_name(name: Option<tsr_ast::BindingName<'_>>, used: &mut HashSet<String>) {
+    match name {
+        Some(tsr_ast::BindingName::Identifier(identifier)) => {
+            used.insert(identifier.text.to_string());
+        }
+        Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
+            for element in pattern.elements {
+                reserve_binding_name(element.name, used);
+            }
+        }
+        None => {}
+    }
+}
 
 /// Ported from `ast.IsExternalModuleIndicator` (`internal/ast/utilities.go:1677`).
 fn is_external_module_indicator(statement: &Statement<'_>) -> bool {
