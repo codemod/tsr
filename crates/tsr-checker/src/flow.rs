@@ -760,6 +760,46 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// `isMutableLocalVariableDeclaration` (`utilities.go:1053`), faithfully:
+    /// a `let` declaration that is neither exported nor declared at the top
+    /// level of a **global** source file.
+    ///
+    /// Deliberately *not* shared with
+    /// [`Checker::is_parameter_or_mutable_local_variable`] above, which
+    /// approximates `IsGlobalSourceFile` by refusing every file-level `let`.
+    /// That approximation is the `.types` workstream's §13 reader and moving it
+    /// moves `checker_types`; a top-level `let` in a **module** file is a
+    /// mutable local upstream and this predicate says so.
+    /// `checker-notes-diag2.md` §42 records the divergence.
+    pub(crate) fn is_mutable_local_variable_declaration(&self, declaration: NodeId) -> bool {
+        let Some(list) = self.nodes.parent(declaration) else { return false };
+        if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::LET) {
+            return false;
+        }
+        let Some(statement) = self.nodes.parent(list) else { return false };
+        let Some(Node::VariableStatement(variable)) = self.node_map.get(statement) else {
+            // Not a variable statement at all — a `for (let x …)` head, whose
+            // parent is the loop. Upstream's global test only fires for the
+            // `VariableStatement` shape, so this is a mutable local.
+            return true;
+        };
+        // `GetCombinedModifierFlags & ModifierFlagsExport`.
+        if variable.modifiers.iter().any(|modifier| {
+            tsr_ast::Node::from(*modifier)
+                .node_id()
+                .is_some_and(|id| self.nodes.kind(id) == tsr_ast::SyntaxKind::ExportKeyword)
+        }) {
+            return false;
+        }
+        // `IsGlobalSourceFile`: a source file that is **not** an external or
+        // CommonJS module. `bindSourceFileAsExternalModule` gives a module file
+        // a symbol on its `SourceFile` node and gives a script none, which is
+        // how `crate::unused` asks the same question.
+        let Some(scope) = self.nodes.parent(statement) else { return true };
+        !(self.nodes.kind(scope) == tsr_ast::SyntaxKind::SourceFile
+            && self.binder.symbol_of(scope).is_none())
+    }
+
     /// `isParameterOrMutableLocalVariable` (`utilities.go:1044`): a
     /// parameter, catch-clause variable, or `let` local. Upstream's
     /// exported/global exclusions are approximated by refusing file-level
@@ -886,7 +926,8 @@ impl Checker<'_, '_> {
         while let Some(node) = stack.pop() {
             if let Node::Identifier(identifier) = node
                 && let Some(id) = identifier.node_id
-                && self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+                && let kind = self.assignment_target_kind(id)
+                && kind != crate::expressions::AssignmentTargetKind::None
                 && let Some(symbol) = self.binder.resolve_name(
                     self.nodes,
                     self.node_map,
@@ -895,38 +936,66 @@ impl Checker<'_, '_> {
                     SymbolFlags::VALUE,
                 )
                 && self.is_parameter_or_mutable_local_variable(symbol)
-                && self.last_assignment_pos.get(&symbol) != Some(&i64::MAX)
             {
-                let referencing = self.function_or_source_file_ancestor(id);
-                let declaring = self
-                    .binder
-                    .symbols()
-                    .get(symbol)
-                    .value_declaration
-                    .and_then(|declaration| self.function_or_source_file_ancestor(declaration));
-                let pos = if referencing == declaring {
-                    self.binder
-                        .symbols()
-                        .get(symbol)
-                        .value_declaration
-                        .map_or(i64::MAX, |declaration| {
-                            self.extend_assignment_position(id, declaration)
-                        })
-                } else {
-                    i64::MAX
-                };
-                // Upstream's source-order walk overwrites, leaving the
-                // source-LAST assignment's extended position; this walk is
-                // stack-ordered, so the equivalent is the MAXIMUM — larger
-                // never wrongly reads as "past" (it can only stop the §13
-                // extension sooner than upstream would).
-                let entry = self.last_assignment_pos.entry(symbol).or_insert(0);
-                *entry = (*entry).max(pos);
+                // `hasDefiniteAssignment` is written **outside** the
+                // `lastAssignmentPos != MAX` guard upstream (`flow.go:2718`):
+                // the guard governs the position, not the flag, and a symbol
+                // already at `MAX` can still gain its first definite
+                // assignment. Splitting the two writes apart is what keeps this
+                // addition from moving `last_assignment_pos` by a single entry
+                // — `checker-notes-diag2.md` §42.
+                if kind == crate::expressions::AssignmentTargetKind::Definite {
+                    self.definitely_assigned.insert(symbol);
+                }
+                if self.last_assignment_pos.get(&symbol) != Some(&i64::MAX) {
+                    self.record_assignment_position(id, symbol);
+                }
             }
             children.clear();
             tsr_ast::push_children(node, &mut children);
             stack.extend(children.iter().copied());
         }
+    }
+
+    /// The position half of [`Checker::mark_node_assignments`]'s identifier arm
+    /// (`flow.go:2711`), unchanged from the form the `.types` workstream
+    /// measured — extracted only so the definite-assignment flag can be written
+    /// under its own condition.
+    fn record_assignment_position(&mut self, id: NodeId, symbol: SymbolId) {
+        let referencing = self.function_or_source_file_ancestor(id);
+        let declaring = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .value_declaration
+            .and_then(|declaration| self.function_or_source_file_ancestor(declaration));
+        let pos = if referencing == declaring {
+            self.binder
+                .symbols()
+                .get(symbol)
+                .value_declaration
+                .map_or(i64::MAX, |declaration| self.extend_assignment_position(id, declaration))
+        } else {
+            i64::MAX
+        };
+        // Upstream's source-order walk overwrites, leaving the
+        // source-LAST assignment's extended position; this walk is
+        // stack-ordered, so the equivalent is the MAXIMUM — larger
+        // never wrongly reads as "past" (it can only stop the §13
+        // extension sooner than upstream would).
+        let entry = self.last_assignment_pos.entry(symbol).or_insert(0);
+        *entry = (*entry).max(pos);
+    }
+
+    /// `isSymbolAssignedDefinitely` (`flow.go:2655`): is there a definite
+    /// assignment to this symbol anywhere in its root's subtree?
+    ///
+    /// The whole point of the per-symbol record. TS2454's `isNeverInitialized`
+    /// is its only consumer, and a *name*-based approximation of the same
+    /// question measured 4 lost cases (`checker-notes-diag2.md` §42).
+    pub(crate) fn is_symbol_assigned_definitely(&mut self, symbol: SymbolId) -> bool {
+        self.ensure_assignments_marked(symbol);
+        self.definitely_assigned.contains(&symbol)
     }
 
     /// `extendAssignmentPosition` (`flow.go:2752`): the assignment position,

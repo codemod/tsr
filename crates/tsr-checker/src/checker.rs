@@ -154,6 +154,18 @@ pub struct Checker<'a, 'n> {
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
+    /// Symbols the assignment walk saw in a **definite** assignment position —
+    /// upstream's `markedAssignmentSymbolLinks[symbol].hasDefiniteAssignment`
+    /// (`flow.go:2657`), the second field on the links
+    /// [`Checker::last_assignment_pos`] is the first of.
+    ///
+    /// Written by the same walk and read only by `isSymbolAssignedDefinitely`,
+    /// whose sole consumer is TS2454's `isNeverInitialized`
+    /// (`checker-notes-diag2.md` §42). Kept as its own set rather than folded
+    /// into the position map because the two are written under **different**
+    /// conditions: the position is skipped once it reads `i64::MAX`, the flag
+    /// never is.
+    pub(crate) definitely_assigned: rustc_hash::FxHashSet<SymbolId>,
     /// Converged loop-label types, keyed by (flow node, reference key).
     /// Upstream's `flowLoopCache` (`internal/checker/flow.go:1325` family).
     pub(crate) flow_loop_cache: FxHashMap<(usize, u64), TypeId>,
@@ -551,6 +563,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             this_type_nodes: FxHashMap::default(),
             qualified_reference_types: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
+            definitely_assigned: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),
             declared_types: FxHashMap::default(),

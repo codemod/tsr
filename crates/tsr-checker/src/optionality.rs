@@ -159,6 +159,26 @@ impl Checker<'_, '_> {
         self.get_union_type(&[ty, missing_or_undefined])
     }
 
+    /// [`Checker::get_optional_type`] for a consumer that never prints the
+    /// result — see [`Checker::get_union_type_unprinted`].
+    ///
+    /// Only `T | undefined` differs, and only when `T` is a named union: the
+    /// printing guard answers `errorType` there, which is what silenced TS2454
+    /// on every enum-typed declaration in the corpus
+    /// (`checker-notes-diag2.md` §42.1).
+    pub(crate) fn get_optional_type_unprinted(&mut self, ty: TypeId) -> TypeId {
+        let missing_or_undefined = self.intrinsics.undefined;
+        if ty == missing_or_undefined {
+            return ty;
+        }
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(ty).data
+            && types.first() == Some(&missing_or_undefined)
+        {
+            return ty;
+        }
+        self.get_union_type_unprinted(&[ty, missing_or_undefined])
+    }
+
     /// Ported from `isOptionalDeclaration` (`utilities.go:299`), which is
     /// `ast.HasQuestionToken`.
     ///

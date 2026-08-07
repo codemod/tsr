@@ -1107,12 +1107,31 @@ impl Checker<'_, '_> {
         }) {
             return;
         }
-        // `isOuterVariable` (`checker.go:11128`): with different containers the
-        // graph cannot be analysed from the declaration, and upstream assumes
-        // initialised. Here it is a refusal rather than an assumption, which is
-        // the same behaviour and a different reason.
-        if self.control_flow_container(node) != self.control_flow_container(declaration) {
-            return;
+        // `isOuterVariable` (`checker.go:11128`) is a disjunct of
+        // `assumeInitialized` **only when the variable is not never-initialized**:
+        // `(isOuterVariable && !isNeverInitialized)` (`checker.go:11152`). A
+        // `let x: T;` that no assignment anywhere targets is reported even from
+        // inside a nested function, and that is the whole of what §8's bound
+        // gave up.
+        //
+        // `isNeverInitialized` (`checker.go:11147`) is a `VariableDeclaration`,
+        // not a `for-in`/`for-of` head, with no initializer and no `!` — all
+        // four already established above — that
+        // `isMutableLocalVariableDeclaration` accepts and
+        // `isSymbolAssignedDefinitely` does not.
+        //
+        // The definite-assignment half is a **per-symbol** record written by
+        // `mark_node_assignments`, not a scan for the name: a syntactic
+        // "no `x` is written anywhere in this file" measured 4 lost cases and
+        // was reverted (`checker-notes-diag2.md` §42).
+        let is_outer_variable =
+            self.control_flow_container(node) != self.control_flow_container(declaration);
+        if is_outer_variable {
+            let is_never_initialized = self.is_mutable_local_variable_declaration(declaration)
+                && !self.is_symbol_assigned_definitely(symbol);
+            if !is_never_initialized {
+                return;
+            }
         }
         let declared = self.get_type_of_symbol(symbol);
         if declared == self.intrinsics.error
@@ -1123,7 +1142,7 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let initial = self.get_optional_type(declared, false);
+        let initial = self.get_optional_type_unprinted(declared);
         let flow = self.get_flow_type_of_reference_ex(node, Some(symbol), declared, Some(initial));
         if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
             return;

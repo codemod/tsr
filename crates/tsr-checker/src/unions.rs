@@ -345,7 +345,37 @@ impl Checker<'_, '_> {
         if types.iter().all(|&t| t == types[0]) {
             return types[0];
         }
-        self.union_type_worker(types, TypeFlags::empty(), None)
+        self.union_type_worker(types, TypeFlags::empty(), None, false)
+    }
+
+    /// [`Checker::get_union_type`] for a consumer that will never **print** the
+    /// result.
+    ///
+    /// The worker answers `errorType` for any union with a *named* constituent
+    /// — an enum, or a union type alias — because this port computes a type's
+    /// printed text when the type is created and upstream's `origin`
+    /// denormalisation (`checker.go:25705`) is unported, so `E | undefined`
+    /// would print `E.a | E.b | undefined`. That guard is about the **printed
+    /// line** and nothing else: upstream has no such case.
+    ///
+    /// A diagnostic that compares `(file, line, column, code)` never prints a
+    /// type, so for those consumers the guard converts a right answer into an
+    /// `errorType` that silences the rule. `check_used_before_assigned` is the
+    /// first: `var c: E;` reached `getOptionalType` and got `errorType` back on
+    /// every enum-typed case in the corpus — `checker-notes-diag2.md` §42.1.
+    ///
+    /// **How this would be shown wrong:** a caller printing a type obtained
+    /// through here would emit expanded constituents. Nothing may call it from
+    /// the query road, which is what keeps the `checker_types` gradient
+    /// unmoved.
+    pub(crate) fn get_union_type_unprinted(&mut self, types: &[TypeId]) -> TypeId {
+        if types.is_empty() {
+            return self.intrinsics.never;
+        }
+        if types.len() == 1 || types.iter().all(|&t| t == types[0]) {
+            return types[0];
+        }
+        self.union_type_worker(types, TypeFlags::empty(), None, true)
     }
 
     /// `getUnionTypeEx` with an alias (`checker.go:25628`), **minus the
@@ -379,7 +409,7 @@ impl Checker<'_, '_> {
         if types.is_empty() {
             return self.intrinsics.never;
         }
-        self.union_type_worker(types, extra_flags, Some(symbol))
+        self.union_type_worker(types, extra_flags, Some(symbol), false)
     }
 
     /// `Checker.getUnionTypeWorker` (`checker.go:25653`) at
@@ -389,6 +419,7 @@ impl Checker<'_, '_> {
         types: &[TypeId],
         extra_flags: TypeFlags,
         symbol: Option<SymbolId>,
+        unprinted: bool,
     ) -> TypeId {
         let (mut set, includes) = self.add_types_to_union(types);
 
@@ -396,7 +427,7 @@ impl Checker<'_, '_> {
         // prints unexpanded (`checker.go:25705`). Without it the constituents
         // would be printed instead — `E.A | E.B | string` where upstream writes
         // `E | string` — which is a wrong line rather than a missing one.
-        if includes.named_union {
+        if includes.named_union && !unprinted {
             return self.intrinsics.error;
         }
 

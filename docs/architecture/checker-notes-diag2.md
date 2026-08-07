@@ -2745,3 +2745,198 @@ merge only changes which declarations contributed it, not what it is.
 
 **+1**, and the sixteenth payment. Third instance of §37.2's shape: a decline
 borrowed from a sibling that was answering a different question.
+
+---
+
+## 42. `isNeverInitialized` — the outer-variable refusal, lifted on a per-symbol assignment record
+
+§8 bounded TS2454 by *requiring the shape in which the unported half cannot be
+consulted*: the reference's control-flow container had to **be** the
+declaration's, so `isOuterVariable` was false and `isNeverInitialized` — the sole
+consumer of `isSymbolAssignedDefinitely` — was never reached. That bound is the
+last one on the rule, and `extragap.rs` at `HEAD` prices what is behind it:
+
+```
+  code   displaced   invented   sole obstacle
+TS2454           1         28             56
+```
+
+56 cases blocked on TS2454 alone against 28 invented lines, so the balance of the
+row is on the **missing** side — the direction the §8 bound fails in, by
+construction.
+
+### The approach that is already refused, and why this one is different
+
+The tenth session's last measurement lifted the same refusal in favour of a
+*syntactic* `isNeverInitialized` — "no identifier of this name stands in a write
+position anywhere in the file" — and measured **+5 converts, 4 LOST, wrong
+10 → 65**. It was reverted. A name-based scan cannot tell one `x` from another's,
+and TS2454 is a rule whose losses come from over-reporting.
+
+Upstream does not scan names. `isSymbolAssignedDefinitely` (`flow.go:2655`) reads
+`markedAssignmentSymbolLinks`, populated by `markNodeAssignments`
+(`flow.go:2703`), which resolves **each assignment target to its symbol** during
+one walk per function-or-source-file root.
+
+### The half that is already built, and the half that is one field
+
+`markNodeAssignments` **is ported** — `crate::flow::mark_node_assignments`
+(`flow.rs:882`), built by the `.types` workstream for §13's past-last-assignment
+extension. It records `last_assignment_pos` per symbol, with the same
+`i64::MAX`-for-nested-functions rule and the same `extendAssignmentPosition`
+walk.
+
+What it does not record is upstream's **second** field on the same links:
+
+```go
+if assignmentKind == AssignmentKindDefinite {
+    links.hasDefiniteAssignment = true
+}
+```
+
+So this build is one set, one predicate and one changed disjunct:
+
+1. `Checker::definitely_assigned`, a `SymbolId` set written by the existing walk;
+2. `is_symbol_assigned_definitely` / `is_mutable_local_variable_declaration`;
+3. `check_used_before_assigned`'s container equality becomes upstream's
+   `isOuterVariable && !isNeverInitialized`.
+
+**`last_assignment_pos` is not touched.** The definite flag is written from the
+same identifier arm, but *outside* the `!= Some(&i64::MAX)` guard, which is where
+upstream writes it — that guard governs the position, not the flag. Anything that
+moved `last_assignment_pos` would move `checker_types`, which leg 2 watches.
+
+### One deliberate divergence, named before it is measured
+
+`isMutableLocalVariableDeclaration` (`utilities.go:1053`) excludes a `let` whose
+variable statement sits in a **global** source file — `IsGlobalSourceFile`, which
+is *"a source file that is not an external or CommonJS module"*. The port's
+`is_parameter_or_mutable_local_variable` (`flow.rs:787`) excludes every
+file-level `let`, module or not. That predicate belongs to the `.types`
+workstream's §13 reader and changing it would move `checker_types`, so this build
+writes its **own** faithful `is_mutable_local_variable_declaration` and leaves the
+flow one alone. The two now disagree on one population — a top-level `let` in a
+module file — and this paragraph exists so the next session does not read the
+duplication as an accident.
+
+### The bar, registered before the code
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1118** (baseline at `HEAD`). Forecast **+15 to +40** — the sole-obstacle row is 56 and no rule has ever converted its whole row |
+| 2 | `checker_types` **byte-identical** — 3,645 / 9,538, 82.44%, snapshot unchanged |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2454]` |
+| 4 | TS2454's own WRONG ≤ **60**, from the baseline **29** |
+| 5 | every other snapshot unchanged |
+
+Baseline for leg 3/4, `diag2307.rs` isolated to 2454 at `HEAD`:
+**CONVERTS 252 · LOST 0 · STILL SHORT 89 · RIGHT 3,652 · WRONG 29.**
+
+**Falsifier.** If the new arm reports on outer references to variables that *are*
+assigned — the exact failure the syntactic scan produced — WRONG climbs past 60
+and the per-symbol record is not doing the work the name scan could not. That
+would mean the assignment walk's symbol resolution disagrees with the rule's, and
+the answer would be to read the top row of the wrong column rather than to
+re-tighten the container test.
+
+### Scored — **+7**, and the arm's own yield was **+1**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | `diagnostics` passes > 1,118 | **1,125 / 5,488 = 20.50%** | pass |
+| 2 | `checker_types` byte-identical | **3,645 / 9,538, 82.44%**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | TS2454's own WRONG ≤ 60 | **30**, from 29 | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2454: **CONVERTS 252 → 259 · RIGHT 3,652 → 3,793 ·
+WRONG 29 → 30 · LOST 0.**
+
+**The forecast was wrong in an instructive direction.** The bar said +15 to +40
+for the outer-variable arm and the arm converted **one**. The reason is that the
+capability was **already half-built somewhere else**: the flow walk's START arm
+(`flow.rs:422`, `checker-notes-narrow.md` §9.7) had ported
+`assumeInitialized = isOuterVariable && !isNeverInitialized` *inside the flow
+graph* — a never-assigned outer `let` already returns the substituted initial
+type there. So the rule's container test was refusing references the flow was
+prepared to answer, and lifting it found almost nothing new because the same
+question had been asked twice.
+
+> **A refusal whose stated blocker is "the machinery is unported" is worth
+> re-greping before it is worth building.** `markNodeAssignments` was ported
+> eight builds ago by the parallel workstream and this file's handoff still
+> named it as the missing piece. The cost of not checking was most of a build;
+> the cost of checking would have been one grep, the same price §5's import-alias
+> re-check paid.
+
+The +1 is kept: it is upstream's disjunct, it costs nothing, and it is what makes
+`isSymbolAssignedDefinitely` a real function rather than a stub. The seven that
+moved the suite came from reading the *missing* column instead — §42.1.
+
+### 42.1 The named-union printing guard was silencing the rule — **+7**
+
+`diagmissing.rs` (new instrument, below) prints the lines the baseline records
+and the port does not, restricted to cases that code alone blocks. TS2454's list
+opened with two 60-line cases, `arithmeticOperatorWithEnum` and its `…Union`
+twin, and a decline trace over one of them read:
+
+```
+ 60 flow-error   initial_err=true declared=E
+ 40 report
+```
+
+`var c: E;` — every enum-typed declaration in the corpus. `get_optional_type(E)`
+builds `E | undefined`, and `union_type_worker` answers **`errorType`** for any
+union with a *named* constituent (`unions.rs:396`):
+
+> *"Upstream would build a denormalised `origin` here so the named union prints
+> unexpanded (`checker.go:25705`). Without it the constituents would be printed
+> instead — `E.a | E.b | string` where upstream writes `E | string` — which is a
+> wrong line rather than a missing one."*
+
+Every word of that is true **about printing**, which is the whole of what it is
+defending. Upstream has no such case at all; it is a deviation this port took to
+protect the `.types` gradient, and it was written where every consumer pays it.
+
+**A diagnostic that compares `(file, line, column, code)` never prints a type.**
+So the guard turns a right answer into an `errorType` that silences the rule, for
+a cost that consumer cannot incur. `get_union_type_unprinted` /
+`get_optional_type_unprinted` are the same worker with the print guard off, and
+`check_used_before_assigned` is their only caller — nothing on the query road may
+call them, which is what keeps leg 2 green.
+
+**+7 cases, +141 right lines, +1 wrong.** Fourth instance of §37.2's shape and
+the sharpest yet: a decline that is a correct sentence about a *different*
+question than the one the caller is asking. The three before it borrowed a
+sibling's justification; this one was written for a real reason and then applied
+to consumers that reason cannot reach.
+
+### 42.2 The `declared == errorType` decline — REFUSED, and it is upstream's
+
+The next family in `diagmissing.rs`'s list is eight cases, one line each —
+`moduleAugmentation*` (7) plus `augmentExportEquals5` — and all eight decline at
+`declared == self.intrinsics.error`: `let x: SomeImportedType;` whose annotation
+this port cannot resolve.
+
+**Deleting the decline is refused, on faithfulness rather than on a number.**
+`errorType` upstream carries `TypeFlagsAny`, so `assumeInitialized`'s
+`t.flags&(TypeFlagsAnyOrUnknown|TypeFlagsVoid) != 0` disjunct (`checker.go:11156`)
+fires and upstream reports **nothing** for a variable whose declared type is an
+error. The port's decline is that disjunct. It is also not *reachable* to fix
+from here: `get_optional_type_unprinted(errorType)` is `errorType` again, because
+`includes.error` wins over everything in `union_type_worker`, so there is no
+initial type to run the flow with.
+
+These eight cases are blocked on the annotation resolving at all, which is a
+`checker_types` question with an owner. Recorded so the next session does not
+re-derive it from the same list.
+
+### The instruments this build added
+
+| instrument | answers |
+|---|---|
+| `examples/diagmissing.rs` | **the missing half of one code.** `diagmissing -- 2454` prints every baseline line of that code the port does not emit, restricted to the cases the code alone blocks — so each case printed is exactly one conversion. `diaggap.rs` ranks codes and `extragap.rs` splits the *extra* column; neither says **which lines** are absent, and an under-reporting rule is diagnosed by reading them |
+| `examples/diagcase.rs` | one case's expected and actual diagnostics side by side, through the suite's own `reported_for` |
+
+Together they are the missing-side twin of `extragap.rs`, and §42.1 is what they
+found in their first hour.
