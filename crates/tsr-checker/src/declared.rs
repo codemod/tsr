@@ -1258,7 +1258,7 @@ impl<'a> Checker<'a, '_> {
     /// slice and nothing here depends on them, because no relation is computed
     /// yet — a type this port cannot look inside is still the right answer to
     /// "what type is this".
-    fn get_declared_type_of_class_or_interface(&mut self, symbol: SymbolId) -> TypeId {
+    pub(crate) fn get_declared_type_of_class_or_interface(&mut self, symbol: SymbolId) -> TypeId {
         self.new_named_type(symbol, TypeFlags::OBJECT, true)
     }
 

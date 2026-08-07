@@ -1842,3 +1842,33 @@ That two rules this far apart — an arity check and a type check — share one 
 and one verdict function is the shape §25's correction bought: once the relation
 answers *"cannot decide"* honestly, a consumer needs no bound of its own beyond
 the ones about its **inputs**.
+
+---
+
+## 27. TS2420 / TS2430 — heritage conformance, +9 for 16 wrong
+
+```
+CONVERTS 928 -> 937  (+9)     LOST 0      RIGHT 38      WRONG 16
+```
+
+`checkClassDeclaration`'s `implements` loop and `checkInterfaceDeclaration`'s
+`extends` loop, both of which run `checkTypeAssignableTo(typeWithThis,
+baseWithThis, node.Name())`. Error node the **name**:
+`declareClassInterfaceImplementation.ts(5,15)` is the `Buffer`.
+
+**No new machinery.** The declared type of a class or interface has existed since
+`crate::declared`; the verdict is §25's `relate_ternary`. What was missing until
+§25 is the reason these two rows had never been attempted: a conformance check is
+the purest consumer that acts on a negative — a class satisfying its interface is
+the *normal* case, so under the binary relation **every undecidable pair would
+have been an error on correct code**.
+
+One decline was worth 4 of the first measurement's 20 wrong lines: a **merged**
+declaration — two `interface I` bodies, or an interface merged with a class —
+assembles its member table from several declarations, and upstream's merge is not
+this port's for private and inherited members
+(`mergedInterfacesWithInheritedPrivates3`,
+`implementingAnInterfaceExtendingClassWithPrivates2`,
+`interfacePropertiesWithSameName3`, `interfaceDeclaration3`).
+
+Ratio 0.56, inside the project's 0.47–1.03 refusal band.

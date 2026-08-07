@@ -208,6 +208,7 @@ impl Checker<'_, '_> {
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
+                self.check_heritage_conformance(node);
                 ambient
             }
             Node::ClassExpression(declaration) => {
@@ -232,6 +233,10 @@ impl Checker<'_, '_> {
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_implicit_any_parameters(node, ambient);
+                ambient
+            }
+            Node::InterfaceDeclaration(_) => {
+                self.check_heritage_conformance(node);
                 ambient
             }
             Node::EnumDeclaration(declaration) => {
