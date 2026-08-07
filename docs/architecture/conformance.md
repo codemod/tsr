@@ -54,6 +54,24 @@ visible by inspection. See [scanner.md](scanner.md). `parser_typescript` then fo
 an exponential blowup in arrow-function lookahead that ran the parser to 16 GB; see
 [parser.md](parser.md).
 
+### Parser inputs are program inputs
+
+`parser_typescript` does not parse every `@filename` fixture indiscriminately.
+It prepares the same compilation as the file-loader suites: virtual
+`tsconfig.json`/`jsconfig.json` files are parsed, test directives are layered over
+their options, config roots are intersected with declared units, and the loader
+walks imports and references from those roots. The suite judges only the source
+files that walk reaches.
+
+This is a semantic harness decision, not an optimization. A `.js` fixture may be
+an intentionally unread resolution candidate when `allowJs` is off, while another
+case may enable `allowJs` only inside its virtual tsconfig. Looking only at file
+extensions or top-level directives makes the first a false failure and the second
+a false pass. JSX mode for JavaScript-family inputs likewise comes from the merged
+compiler options, not the extension alone. The shared preparation lives in
+`src/trace_case.rs`; the parser suite and its failure-bucketing diagnostic both use
+it so their populations cannot drift.
+
 ### Driving the scanner without a parser
 
 `scanner_clean_files` cannot use a bare `while scan()` loop: templates and regular

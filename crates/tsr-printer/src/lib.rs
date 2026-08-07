@@ -272,6 +272,19 @@ impl<'t> Printer<'t> {
         format: ListFormat,
         mut emit: impl FnMut(&mut Self, &T),
     ) {
+        self.emit_list_with_trailing_delimiter(children, format, false, &mut emit);
+    }
+
+    /// Emit a list, optionally retaining a syntactically significant final
+    /// delimiter. Array elisions need this: `[value, ]` is only a trailing
+    /// comma, while `[value, ,]` contains an omitted element.
+    pub(crate) fn emit_list_with_trailing_delimiter<T>(
+        &mut self,
+        children: &[T],
+        format: ListFormat,
+        trailing_delimiter: bool,
+        mut emit: impl FnMut(&mut Self, &T),
+    ) {
         if children.is_empty() && format.contains(ListFormat::OPTIONAL_IF_EMPTY) {
             return;
         }
@@ -299,7 +312,7 @@ impl<'t> Printer<'t> {
                 self.write_space();
             }
         } else {
-            self.emit_list_items(children, format, &mut emit);
+            self.emit_list_items(children, format, trailing_delimiter, &mut emit);
         }
         if let Some(close) = format.closing_bracket() {
             self.write_punctuation(close);
@@ -322,6 +335,7 @@ impl<'t> Printer<'t> {
         &mut self,
         children: &[T],
         format: ListFormat,
+        trailing_delimiter: bool,
         emit: &mut impl FnMut(&mut Self, &T),
     ) {
         if children.is_empty() {
@@ -346,6 +360,10 @@ impl<'t> Printer<'t> {
                 }
             }
             emit(self, child);
+        }
+
+        if trailing_delimiter {
+            self.write_delimiter(format);
         }
 
         if format.contains(ListFormat::INDENTED) {

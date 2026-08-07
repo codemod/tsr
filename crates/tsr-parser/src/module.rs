@@ -225,26 +225,23 @@ impl<'a> Parser<'a> {
                 SyntaxKind::DefaultKeyword,
                 tsr_core::Span::new(default_start, self.pos()),
             );
-            // `export default @dec class {}` — decorators sit between.
-            if self.at(SyntaxKind::AtToken) {
-                let mut modifiers =
-                    vec![ModifierLike::Token(export_token), ModifierLike::Token(default_token)];
-                modifiers.extend(self.parse_modifiers());
-                return self.parse_declaration_after_modifiers(start, &modifiers);
-            }
+            // `export default @dec class {}` and `export default async
+            // function`: decorators and contextual modifiers sit between the
+            // default modifier and the declaration keyword.
             if matches!(
                 self.token.kind,
-                SyntaxKind::ClassKeyword
+                SyntaxKind::AtToken
+                    | SyntaxKind::ClassKeyword
                     | SyntaxKind::FunctionKeyword
                     | SyntaxKind::AbstractKeyword
                     | SyntaxKind::InterfaceKeyword
                     | SyntaxKind::EnumKeyword
                     | SyntaxKind::AsyncKeyword
             ) {
-                return self.parse_declaration_after_modifiers(
-                    start,
-                    &[ModifierLike::Token(export_token), ModifierLike::Token(default_token)],
-                );
+                let mut modifiers =
+                    vec![ModifierLike::Token(export_token), ModifierLike::Token(default_token)];
+                modifiers.extend(self.parse_modifiers());
+                return self.parse_declaration_after_modifiers(start, &modifiers);
             }
             let expression = self.parse_assignment_expression();
             self.parse_semicolon();
@@ -491,6 +488,36 @@ impl<'a> Parser<'a> {
         }
         let start = self.pos();
         let token = self.take_token();
+        Some(self.parse_import_attributes_body(start, token))
+    }
+
+    /// `, { with: { "resolution-mode": "import" } }` in an import type.
+    ///
+    /// Ported from the import-type branch at `internal/parser/parser.go:3047`
+    /// and `parseImportAttributes` at `parser.go:3085` in the pinned
+    /// typescript-go source.
+    pub(crate) fn parse_import_type_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
+        if !self.eat(SyntaxKind::CommaToken) {
+            return None;
+        }
+        let start = self.pos();
+        self.expect(SyntaxKind::OpenBraceToken);
+        if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
+            return None;
+        }
+        let token = self.take_token();
+        self.expect(SyntaxKind::ColonToken);
+        let attributes = self.parse_import_attributes_body(start, token);
+        self.eat(SyntaxKind::CommaToken);
+        self.expect(SyntaxKind::CloseBraceToken);
+        Some(attributes)
+    }
+
+    fn parse_import_attributes_body(
+        &mut self,
+        start: u32,
+        token: &'a Token<'a>,
+    ) -> &'a ImportAttributes<'a> {
         self.expect(SyntaxKind::OpenBraceToken);
 
         let mut elements = Vec::new();
@@ -526,11 +553,11 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::CloseBraceToken);
 
         let elements = self.arena.alloc_slice(&elements);
-        Some(self.finish_node(
+        self.finish_node(
             ImportAttributes::new(token, elements, false),
             SyntaxKind::ImportAttributes,
             start,
-        ))
+        )
     }
 
     /// An import/export name, which may be a string: `export { a as "b" }`.

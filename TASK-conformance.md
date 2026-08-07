@@ -1,5 +1,21 @@
 THIS FILE IS THE NON-CHECKER, NON-DIAGNOSTICS CONFORMANCE WORKSTREAM'S HANDOFF.
 
+CURRENT PROGRESS (2026-08-07)
+
+  parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
+  dts_reachable_target     497/1,162 = 42.77%  (up from 495)
+  dts_emit                  163/342  = 47.66%  (up from 161/339)
+  dts_shape                 625/917  = 68.16%  (up from 618/912)
+  printer_round_trip    11,746/11,777 = 99.74%
+
+The parser clean-file milestone is complete. Its harness now prepares virtual
+tsconfig/jsconfig files and walks actual program roots and dependencies, so the
+100% result does not come from skipping JavaScript roots whose `allowJs` setting
+lives in config. The first printer pass preserved typed tagged templates, import
+type attributes, trailing array elisions, JSX attribute raw text, and escaped
+private identifiers. The remaining printer failures are concentrated in JSDoc
+comment retention, malformed-syntax recovery trees, and a few precedence cases.
+
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
 remaining parser, conformance-harness, declaration-transform, and printer work

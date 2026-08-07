@@ -450,13 +450,21 @@ impl<'a> Parser<'a> {
                 }
                 // `f<T>(x)`. `<` is also less-than, so the type arguments are
                 // only accepted when a call follows them.
-                SyntaxKind::LessThanToken => {
+                SyntaxKind::LessThanToken | SyntaxKind::LessThanLessThanToken => {
                     // `f<T>(x)` is a generic call. `f<T>` alone is an
                     // *instantiation expression*, legal since TS 4.7 — but `a < b
                     // > c` is a comparison, so the type arguments only stand
                     // without a call when what follows cannot continue an
                     // expression.
                     let Some(type_arguments) = self.try_parse(|p| {
+                        // `f<<T>() => U>(g)` starts a generic call whose first
+                        // type argument is a generic arrow. The scanner sees
+                        // the adjacent opening brackets as `<<`; split them
+                        // only inside the speculative parse so a real shift
+                        // expression still rewinds intact.
+                        if p.at(SyntaxKind::LessThanLessThanToken) {
+                            p.rescan_less_than();
+                        }
                         let arguments = p.parse_type_arguments_for_call()?;
                         (p.at(SyntaxKind::OpenParenToken) || p.at_instantiation_terminator())
                             .then_some(arguments)
@@ -486,8 +494,20 @@ impl<'a> Parser<'a> {
                 // the tag, not a separate expression.
                 SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
                     let template = self.parse_template_literal();
+                    let (tag, type_arguments) = match expression {
+                        Expression::ExpressionWithTypeArguments(instantiation) => (
+                            instantiation.expression.unwrap_or(expression),
+                            instantiation.type_arguments,
+                        ),
+                        _ => (expression, &[] as &[TypeNode<'a>]),
+                    };
                     let node = self.finish_node(
-                        TaggedTemplateExpression::new(Some(expression), None, &[], Some(template)),
+                        TaggedTemplateExpression::new(
+                            Some(tag),
+                            None,
+                            type_arguments,
+                            Some(template),
+                        ),
                         SyntaxKind::TaggedTemplateExpression,
                         start,
                     );
@@ -622,7 +642,7 @@ impl<'a> Parser<'a> {
                 Expression::StringLiteral(node)
             }
             SyntaxKind::PrivateIdentifier => {
-                let text = self.token_value();
+                let text = self.private_identifier_text();
                 self.next_token();
                 let node = self.finish_node(
                     PrivateIdentifier::new(text),
@@ -1175,11 +1195,11 @@ impl<'a> Parser<'a> {
                     return true;
                 }
                 depth -= closes;
-            } else if open == SyntaxKind::LessThanToken
-                && matches!(kind, SyntaxKind::SemicolonToken | SyntaxKind::OpenBraceToken)
-            {
+            } else if open == SyntaxKind::LessThanToken && kind == SyntaxKind::SemicolonToken {
                 // `<` is also a comparison operator; a statement boundary means
-                // this was never a type-parameter list.
+                // this was never a type-parameter list. An opening brace is not
+                // such a boundary: object constraints make
+                // `<T extends { key: value }>(x: T) => x` a generic arrow.
                 return false;
             }
             self.next_token();
@@ -1340,6 +1360,64 @@ impl<'a> Parser<'a> {
                     );
                     expression = Expression::CallExpression(node);
                 }
+                SyntaxKind::ExclamationToken if !self.token.has_preceding_line_break() => {
+                    self.next_token();
+                    let node = self.finish_node(
+                        NonNullExpression::new(Some(expression)),
+                        SyntaxKind::NonNullExpression,
+                        start,
+                    );
+                    expression = Expression::NonNullExpression(node);
+                }
+                SyntaxKind::LessThanToken => {
+                    let Some(type_arguments) =
+                        self.try_parse(Parser::parse_type_arguments_for_call)
+                    else {
+                        break;
+                    };
+                    let type_arguments = self.arena.alloc_slice(&type_arguments);
+                    if self.at(SyntaxKind::OpenParenToken) {
+                        let arguments = self.parse_arguments();
+                        let arguments = self.arena.alloc_slice(&arguments);
+                        let node = self.finish_node(
+                            CallExpression::new(Some(expression), None, type_arguments, arguments),
+                            SyntaxKind::CallExpression,
+                            start,
+                        );
+                        expression = Expression::CallExpression(node);
+                    } else {
+                        let node = self.finish_node(
+                            ExpressionWithTypeArguments::new(Some(expression), type_arguments),
+                            SyntaxKind::ExpressionWithTypeArguments,
+                            start,
+                        );
+                        expression = Expression::ExpressionWithTypeArguments(node);
+                    }
+                }
+                SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
+                    let template = self.parse_template_literal();
+                    // Type arguments belong to the tagged-template node, not
+                    // to an `ExpressionWithTypeArguments` wrapper around its
+                    // tag (`parseMemberExpressionRest` upstream).
+                    let (tag, type_arguments) = match expression {
+                        Expression::ExpressionWithTypeArguments(instantiation) => (
+                            instantiation.expression.unwrap_or(expression),
+                            instantiation.type_arguments,
+                        ),
+                        _ => (expression, &[] as &[TypeNode<'a>]),
+                    };
+                    let node = self.finish_node(
+                        TaggedTemplateExpression::new(
+                            Some(tag),
+                            None,
+                            type_arguments,
+                            Some(template),
+                        ),
+                        SyntaxKind::TaggedTemplateExpression,
+                        start,
+                    );
+                    expression = Expression::TaggedTemplateExpression(node);
+                }
                 // Deliberately not `[`: an unparenthesised decorator takes a
                 // dotted name with an optional call, so in `@dec ["1"]() {}` the
                 // brackets are the *member's* computed name. Use `@(a["b"])` for
@@ -1461,7 +1539,7 @@ impl<'a> Parser<'a> {
     fn parse_member_name(&mut self) -> MemberName<'a> {
         if self.at(SyntaxKind::PrivateIdentifier) {
             let start = self.pos();
-            let text = self.token_value();
+            let text = self.private_identifier_text();
             self.next_token();
             let node = self.finish_node(
                 PrivateIdentifier::new(text),
@@ -1507,7 +1585,7 @@ impl<'a> Parser<'a> {
                 PropertyName::ComputedPropertyName(node)
             }
             SyntaxKind::PrivateIdentifier => {
-                let text = self.token_value();
+                let text = self.private_identifier_text();
                 self.next_token();
                 let node = self.finish_node(
                     PrivateIdentifier::new(text),
@@ -1518,6 +1596,14 @@ impl<'a> Parser<'a> {
             }
             _ => PropertyName::Identifier(self.parse_identifier()),
         }
+    }
+
+    /// The scanner's decoded value for an escaped private name excludes the
+    /// leading `#`, while the AST invariant (and ordinary unescaped token value)
+    /// includes it.
+    fn private_identifier_text(&self) -> &'a str {
+        let text = self.token_value();
+        if text.starts_with('#') { text } else { self.arena.alloc_str(&format!("#{text}")) }
     }
 
     /// Parse a binding name: an identifier or a destructuring pattern.

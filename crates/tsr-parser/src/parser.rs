@@ -171,6 +171,13 @@ pub struct Parser<'a> {
     /// the loop header malformed. A counter rather than a bool because the
     /// restriction nests: `for ((a in b);;)` re-enables it inside the parens.
     pub(crate) no_in: u32,
+    /// Non-zero while a nested type may not consume a conditional `extends`.
+    ///
+    /// The extends-side of a conditional type uses this to resolve
+    /// `infer U extends T ? X : Y`: there `extends T` constrains `U`, while in
+    /// `(infer U extends T ? X : Y)` it belongs to the parenthesized
+    /// conditional type.
+    pub(crate) disallow_conditional_types: u32,
     /// JSDoc comments, keyed by the node they document.
     ///
     /// A side table rather than a field on each node, per ADR-0003: JSDoc is
@@ -276,6 +283,7 @@ impl<'a> Parser<'a> {
             nodes,
             node_map,
             no_in: 0,
+            disallow_conditional_types: 0,
             jsdoc: Vec::new(),
             parse_jsdoc: options.jsdoc,
             assign_parents: options.parents,

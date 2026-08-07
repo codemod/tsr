@@ -2,17 +2,17 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 163/341 (47.80%)
-Failed         : 178
-Skipped        : 12103 (excluded from the denominator)
+Passed         : 163/342 (47.66%)
+Failed         : 179
+Skipped        : 12102 (excluded from the denominator)
 
-  577  skipped: a declaration in this case needs inference (see dts_reachable_target)
-  14  skipped: a unit of this case does not parse cleanly
+  578  skipped: a declaration in this case needs inference (see dts_reachable_target)
+  12  skipped: a unit of this case does not parse cleanly
   8418  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 178 failures:
+First 100 of 179 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
@@ -79,6 +79,8 @@ compiler/declarationEmitExportAliasVisibiilityMarking
   line 1: want `type Suit = 'Hearts' | 'Spades' | 'Clubs' | 'Diamonds';`, got `type Suit = "Hearts" | "Spades" | "Clubs" | "Diamonds";`
 compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
   emitted b.d.ts, upstream emitted no declaration file
+compiler/declarationEmitHigherOrderRetainedGenerics
+  line 44: want `    readonly productMany: <R, O, E, A>(self: Kind<F, R, O, E, A>, collection: Iterable<Kind<F, R, O, E, A>>) => Kind<F, R, O, E, [A, ...Array<A>]>;`, got `    readonly productMany: <R, O, E, A>(self: Kind<F, R, O, E, A>, collection: Iterable<Kind<F, R, O, E, A> >) => Kind<F, R, O, E, [A, ...Array<A>]>;`
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
@@ -211,5 +213,3 @@ compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   line 1: want `export * from "./account";`, got `export declare const func: any;`
 compiler/moduleDetectionIsolatedModulesCjsFileScope
   line 1: want `export {};`, got `declare const a = 2;`
-compiler/moduleLocalImportNotIncorrectlyRedirected
-  line 1: want `import { Position } from './utilities/positioning';`, got `export {};`

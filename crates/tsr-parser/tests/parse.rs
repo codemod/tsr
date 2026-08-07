@@ -10,7 +10,11 @@ fn statements<'a>(arena: &'a Arena, source: &'a str) -> &'a [Statement<'a>] {
     assert!(
         result.diagnostics.is_empty(),
         "unexpected diagnostics for {source:?}: {:?}",
-        result.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+        result
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.code(), diagnostic.span, diagnostic.text(),))
+            .collect::<Vec<_>>()
     );
     result.source_file.statements
 }
@@ -83,6 +87,20 @@ fn subtraction_is_left_associative() {
 fn call_and_member_chains() {
     let arena = Arena::new();
     statements(&arena, "a.b.c(1)[2]!.d?.e?.(3); new this.#fieldFunc();");
+}
+
+#[test]
+fn escaped_private_identifiers_keep_their_hash() {
+    let arena = Arena::new();
+    let parsed = statements(&arena, r"class C { #\u0078 = 1; read() { return this.#\u{78}; } }");
+    let Statement::ClassDeclaration(class) = parsed[0] else { panic!("expected class") };
+    let tsr_ast::ClassElement::PropertyDeclaration(property) = class.members[0] else {
+        panic!("expected property")
+    };
+    let tsr_ast::PropertyName::PrivateIdentifier(name) = property.name else {
+        panic!("expected private name")
+    };
+    assert_eq!(name.text, "#x");
 }
 
 #[test]
@@ -518,6 +536,50 @@ fn conditional_and_infer_types() {
           extends?: string | string[] }
     ";
     assert_eq!(statements(&arena, source).len(), 4);
+    statements(
+        &arena,
+        "type InferConditional<T> = T extends (infer U extends number ? 1 : 0) ? U : never;",
+    );
+    statements(&arena, "type ConstrainedInfer<T> = T extends infer U extends number ? U : never;");
+    statements(
+        &arena,
+        "type MappedInfer<T> = T extends { [P in infer U extends keyof T ? 1 : 0]: 1 } ? 1 : 0;",
+    );
+    statements(
+        &arena,
+        "type MappedConstrained<T> = T extends { [P in infer U extends keyof T]: 1 } ? 1 : 0;\
+         type RemappedInfer<T> = T extends { [P in keyof T as infer U extends P ? 1 : 0]: 1 } ? 1 : 0;",
+    );
+    statements(
+        &arena,
+        "type X10<T> = T extends (infer U extends number ? 1 : 0) ? 1 : 0;
+         type X11<T> = T extends ((infer U) extends number ? 1 : 0) ? 1 : 0;
+         type X12<T> = T extends (infer U extends number) ? 1 : 0;
+         type X13<T> = T extends infer U extends number ? 1 : 0;
+         type X14<T> = T extends keyof infer U extends number ? 1 : 0;
+         type X15<T> = T extends { [P in infer U extends keyof T ? 1 : 0]: 1 } ? 1 : 0;
+         type X16<T> = T extends { [P in infer U extends keyof T]: 1 } ? 1 : 0;
+         type X17<T> = T extends { [P in keyof T as infer U extends P ? 1 : 0]: 1 } ? 1 : 0;
+         type X18<T> = T extends { [P in keyof T as infer U extends P]: 1 } ? 1 : 0;",
+    );
+    statements(
+        &arena,
+        "type Equal<A, B> = (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2 ? true : false;",
+    );
+    statements(&arena, "type Nested<T, X, Y> = T extends Array<X extends Y ? 1 : 0> ? 1 : 0;");
+}
+
+#[test]
+fn generic_arrows_with_union_and_object_constraints() {
+    let arena = Arena::new();
+    statements(&arena, "const f = <T extends First | Second>(x: T) => x;");
+    statements(&arena, "const g = <T extends { common: number, other: number }>(x: T) => x;");
+}
+
+#[test]
+fn adjacent_generic_call_signatures_use_asi() {
+    let arena = Arena::new();
+    statements(&arena, "type Overloads = { <A>(): A\n<B extends { value: A }>(): B };");
 }
 
 #[test]
@@ -654,6 +716,11 @@ fn import_types() {
     let arena = Arena::new();
     statements(&arena, "const a: import('mod').Type = x;");
     statements(&arena, "let b: import('mod').Ns.Type<string>;");
+    statements(
+        &arena,
+        r#"type C = import("mod", { with: { "resolution-mode": "import" } }).Type;"#,
+    );
+    statements(&arena, r#"type D = import("mod", { assert: { type: "json", }, }).Type;"#);
 }
 
 // ---- long-tail syntax -----------------------------------------------------
@@ -693,6 +760,9 @@ fn shift_tokens_are_split_where_brackets_are_expected() {
     statements(&arena, "const a = <K extends Key<U>>(k: K) => k;");
     statements(&arena, "type B = ReturnType<<T>(x: T) => number>;");
     statements(&arena, "type C = Map<string, Array<number>>;");
+    statements(&arena, "function foo<T>(_x: T) {} const d = foo<<T>(x: T) => number>(() => 1);");
+    // A failed generic-call speculation must restore the original `<<` token.
+    statements(&arena, "const shifted = left << right;");
 }
 
 #[test]
@@ -711,9 +781,43 @@ fn decorators_in_their_several_positions() {
     statements(&arena, "@dec class A {}");
     statements(&arena, "@((t, c) => {}) class B {}");
     statements(&arena, "class C { @(x['y']) m() {} }");
+    statements(&arena, "@x! class E {}");
+    statements(&arena, "@x!.y class F {}");
+    statements(&arena, "@g<number>() class G {}");
+    statements(&arena, "@x`` class H {}");
+    let typed = statements(&arena, "@tag<number>`` class Typed {}");
+    let Statement::ClassDeclaration(class) = typed[0] else { panic!("expected class") };
+    let Some(ModifierLike::Decorator(decorator)) = class.modifiers.first() else {
+        panic!("expected decorator")
+    };
+    let Some(tsr_ast::LeftHandSideExpression::TaggedTemplateExpression(tagged)) =
+        decorator.expression
+    else {
+        panic!("expected typed tagged template")
+    };
+    assert_eq!(tagged.type_arguments.len(), 1);
+    assert!(matches!(tagged.tag, Some(Expression::Identifier(_))));
     // `[` after an unparenthesised decorator is the *member's* computed name.
     statements(&arena, "class D { @dec ['1']() {} }");
     statements(&arena, "export default @dec class {}");
+}
+
+#[test]
+fn export_default_keeps_intervening_async_modifier() {
+    let arena = Arena::new();
+    let parsed = statements(&arena, "export default async function f() {}");
+    let Statement::FunctionDeclaration(function) = parsed[0] else {
+        panic!("expected a function declaration")
+    };
+    assert!(function.modifiers.iter().any(
+        |modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::ExportKeyword)
+    ));
+    assert!(function.modifiers.iter().any(
+        |modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::DefaultKeyword)
+    ));
+    assert!(function.modifiers.iter().any(
+        |modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
+    ));
 }
 
 #[test]

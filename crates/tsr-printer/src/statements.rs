@@ -505,7 +505,14 @@ impl Printer<'_> {
         let Some(attributes) = attributes else { return };
         self.write(" ");
         self.emit_token_node(attributes.token);
-        self.write(" {");
+        self.write(" ");
+        self.import_attributes_body(attributes);
+    }
+
+    /// Emit the `{ key: value }` shared by declaration and import-type
+    /// attribute syntax.
+    pub(crate) fn import_attributes_body(&mut self, attributes: &tsr_ast::ImportAttributes<'_>) {
+        self.write("{");
         for (index, attribute) in attributes.attributes.iter().enumerate() {
             if index > 0 {
                 self.write(",");
@@ -705,8 +712,16 @@ impl Printer<'_> {
             // Ported from `Printer.emitConstructor` (`internal/printer/printer.go`).
             ClassElement::ConstructorDeclaration(node) => {
                 self.emit_modifier_list(node.modifiers);
+                if node.asterisk_token.is_some() {
+                    self.write("*");
+                }
                 self.write("constructor");
+                self.emit_type_parameters(node.type_parameters);
                 self.emit_parameters(node.parameters);
+                if let Some(r#type) = &node.r#type {
+                    self.write(": ");
+                    self.emit_type_node(r#type);
+                }
                 self.function_body(node.body.as_ref());
             }
             // Ported from `Printer.emitGetAccessorDeclaration` (`internal/printer/printer.go`).

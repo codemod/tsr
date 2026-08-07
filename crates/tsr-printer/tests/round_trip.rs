@@ -35,6 +35,7 @@ fn a_private_name_is_not_prefixed_twice() {
     assert!(printed("class C { #a = 1; }").contains("#a"));
     assert!(!printed("class C { #a = 1; }").contains("##"));
     assert!(round_trips("class C { #a = 1; m() { return this.#a; } }"));
+    assert!(round_trips(r"class Escaped { #\u0078 = 1; m() { return this.#x; } }"));
 }
 
 #[test]
@@ -79,6 +80,14 @@ fn import_attributes_survive() {
 }
 
 #[test]
+fn import_type_attributes_survive() {
+    let source = r#"type T = import("m", { with: { "resolution-mode": "import" } }).Value;"#;
+    assert!(round_trips(source));
+    let output = printed(source);
+    assert!(output.contains(r#", { with: { "resolution-mode": "import" } })"#));
+}
+
+#[test]
 fn an_object_binding_pattern_stays_an_object() {
     // `BindingPattern.kind` is the opening bracket, not the pattern's kind.
     assert!(printed("const { a } = o;").contains('{'));
@@ -89,6 +98,28 @@ fn an_object_binding_pattern_stays_an_object() {
 fn tokens_that_would_merge_are_separated() {
     assert!(round_trips("const a = 1 + +2;"));
     assert!(round_trips("const a = 1 - -2;"));
+}
+
+#[test]
+fn a_trailing_array_elision_remains_an_element() {
+    assert!(round_trips("const a = [,]; const b = [1,,]; const c = [1,,,];"));
+    assert!(printed("const a = [1,,];").contains("[1, ,]"));
+}
+
+#[test]
+fn recovered_constructor_syntax_keeps_its_tokens() {
+    assert!(round_trips("class C { constructor<>() {} }"));
+    assert!(round_trips("class D { *constructor() {} }"));
+}
+
+#[test]
+fn jsx_attribute_text_remains_raw() {
+    let source = "const view = <div title=\"line one\nline two\\\\raw\" />;";
+    assert!(round_trips_as(source, ScriptKind::Tsx));
+    let parsed = ParsedFile::parse_with_script_kind(source.to_string(), ScriptKind::Tsx);
+    let output = parsed.with_ast(|file| tsr_printer::print(file, parsed.nodes())).text;
+    assert!(output.contains("line one\nline two\\\\raw"));
+    assert!(!output.contains("line one\\nline two"));
 }
 
 #[test]

@@ -23,7 +23,7 @@ impl<'a> Parser<'a> {
         if !self.eat(SyntaxKind::ColonToken) {
             return None;
         }
-        Some(self.parse_type_or_type_predicate())
+        Some(self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate))
     }
 
     /// A type, or a type predicate if one is in position.
@@ -150,11 +150,14 @@ impl<'a> Parser<'a> {
         // `extends` here is only a conditional type at the top level of a type;
         // inside a type parameter list it constrains, and that caller does not
         // route through here.
-        if !self.at(SyntaxKind::ExtendsKeyword) || self.token.has_preceding_line_break() {
+        if self.disallow_conditional_types > 0
+            || !self.at(SyntaxKind::ExtendsKeyword)
+            || self.token.has_preceding_line_break()
+        {
             return check;
         }
         self.next_token();
-        let extends = self.parse_union_type();
+        let extends = self.with_conditional_types_disallowed(Parser::parse_type);
         self.expect(SyntaxKind::QuestionToken);
         let true_type = self.parse_type();
         self.expect(SyntaxKind::ColonToken);
@@ -199,18 +202,38 @@ impl<'a> Parser<'a> {
     fn parse_intersection_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
         self.eat(SyntaxKind::AmpersandToken);
-        let first = self.parse_postfix_type();
+        let first = self.parse_type_operator_or_higher();
         if !self.at(SyntaxKind::AmpersandToken) {
             return first;
         }
         let mut types = vec![first];
         while self.eat(SyntaxKind::AmpersandToken) {
-            types.push(self.parse_postfix_type());
+            types.push(self.parse_type_operator_or_higher());
         }
         let types = self.arena.alloc_slice(&types);
         let node =
             self.finish_node(IntersectionTypeNode::new(types), SyntaxKind::IntersectionType, start);
         TypeNode::IntersectionTypeNode(node)
+    }
+
+    /// Parse the operator-precedence type layer.
+    ///
+    /// Ported from TypeScript's `parseTypeOperatorOrHigher` in
+    /// `src/compiler/parser.ts`: a conditional-type restriction applies to an
+    /// immediately nested `infer`, but ordinary nested type references restore
+    /// conditional types inside their own type arguments.
+    fn parse_type_operator_or_higher(&mut self) -> TypeNode<'a> {
+        if matches!(
+            self.token.kind,
+            SyntaxKind::InferKeyword
+                | SyntaxKind::KeyOfKeyword
+                | SyntaxKind::ReadonlyKeyword
+                | SyntaxKind::UniqueKeyword
+        ) {
+            self.parse_postfix_type()
+        } else {
+            self.with_conditional_types_allowed(Parser::parse_postfix_type)
+        }
     }
 
     /// `T[]` and `T[K]`, which share a prefix.
@@ -267,7 +290,11 @@ impl<'a> Parser<'a> {
                     return self.missing_type();
                 }
                 self.next_token();
-                let inner = self.parse_type();
+                // Parentheses create a fresh conditional-type grammar context:
+                // `T extends (infer U extends number ? 1 : 0) ? ...` parses the
+                // inner `extends` as a conditional even though the outer
+                // extends-side otherwise disallows conditional types.
+                let inner = self.with_conditional_types_allowed(Parser::parse_type);
                 self.expect(SyntaxKind::CloseParenToken);
                 let node = self.finish_node(
                     ParenthesizedTypeNode::new(Some(inner)),
@@ -294,7 +321,8 @@ impl<'a> Parser<'a> {
                 let type_parameters = self.parse_type_parameters();
                 let parameters = self.parse_parameter_list();
                 self.expect(SyntaxKind::EqualsGreaterThanToken);
-                let return_type = self.parse_type_or_type_predicate();
+                let return_type =
+                    self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate);
                 let type_parameters = self.arena.alloc_slice(&type_parameters);
                 let parameters = self.arena.alloc_slice(&parameters);
                 let node = self.finish_node(
@@ -323,16 +351,23 @@ impl<'a> Parser<'a> {
                 self.next_token();
                 self.expect(SyntaxKind::OpenParenToken);
                 let argument = self.parse_type();
+                let attributes = self.parse_import_type_attributes();
                 self.expect(SyntaxKind::CloseParenToken);
                 let qualifier = if self.eat(SyntaxKind::DotToken) {
                     Some(self.parse_entity_name())
                 } else {
                     None
                 };
-                let type_arguments = self.parse_type_arguments();
+                let type_arguments = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
-                    ImportTypeNode::new(false, Some(argument), None, qualifier, type_arguments),
+                    ImportTypeNode::new(
+                        false,
+                        Some(argument),
+                        attributes,
+                        qualifier,
+                        type_arguments,
+                    ),
                     SyntaxKind::ImportType,
                     start,
                 );
@@ -365,7 +400,7 @@ impl<'a> Parser<'a> {
                 }
                 let name = self.parse_entity_name();
                 // `typeof foo<T>` — an instantiation expression in type position.
-                let type_arguments = self.parse_type_arguments();
+                let type_arguments = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     TypeQueryNode::new(Some(name), type_arguments),
@@ -382,8 +417,13 @@ impl<'a> Parser<'a> {
                 // binds tighter than the enclosing conditional's `extends`, so it
                 // is parsed here rather than left to `parse_conditional_type`.
                 let constraint = if self.at(SyntaxKind::ExtendsKeyword) {
-                    self.next_token();
-                    Some(self.parse_union_type())
+                    let already_disallowed = self.disallow_conditional_types > 0;
+                    self.try_parse(|p| {
+                        p.next_token();
+                        let constraint = p.with_conditional_types_disallowed(Parser::parse_type);
+                        (already_disallowed || !p.at(SyntaxKind::QuestionToken))
+                            .then_some(constraint)
+                    })
                 } else {
                     None
                 };
@@ -435,7 +475,7 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::Identifier => {
                 let name = self.parse_entity_name();
-                let type_arguments = self.parse_type_arguments();
+                let type_arguments = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     TypeReferenceNode::new(Some(name), type_arguments),
@@ -447,7 +487,7 @@ impl<'a> Parser<'a> {
             // A contextual keyword can name a type: `require.I`, `type`, `module`.
             kind if crate::statement::is_contextual_keyword(kind) => {
                 let name = self.parse_entity_name();
-                let type_arguments = self.parse_type_arguments();
+                let type_arguments = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
                 let node = self.finish_node(
                     TypeReferenceNode::new(Some(name), type_arguments),
@@ -461,6 +501,21 @@ impl<'a> Parser<'a> {
                 self.missing_type()
             }
         }
+    }
+
+    fn with_conditional_types_disallowed<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) -> T {
+        self.disallow_conditional_types += 1;
+        let result = parse(self);
+        self.disallow_conditional_types -= 1;
+        result
+    }
+
+    fn with_conditional_types_allowed<T>(&mut self, parse: impl FnOnce(&mut Self) -> T) -> T {
+        let saved = self.disallow_conditional_types;
+        self.disallow_conditional_types = 0;
+        let result = parse(self);
+        self.disallow_conditional_types = saved;
+        result
     }
 
     /// `(a: T) => R` and `<T>(a: T) => R`, when the lookahead confirms one.
@@ -481,7 +536,7 @@ impl<'a> Parser<'a> {
         let (type_parameters, parameters) = parsed;
         self.expect(SyntaxKind::EqualsGreaterThanToken);
         // `(x: T) => x is U` is a predicate, same as a function's return type.
-        let return_type = self.parse_type_or_type_predicate();
+        let return_type = self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate);
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let parameters = self.arena.alloc_slice(&parameters);
         let node = self.finish_node(
@@ -744,15 +799,18 @@ impl<'a> Parser<'a> {
         let parameter_start = self.pos();
         let name = self.parse_identifier();
         self.expect(SyntaxKind::InKeyword);
-        let constraint = self.parse_type();
+        let constraint = self.with_conditional_types_allowed(Parser::parse_type);
         let parameter = self.finish_node(
             TypeParameterDeclaration::new(&[], Some(name), Some(constraint), None, None),
             SyntaxKind::TypeParameter,
             parameter_start,
         );
         // `as U` renames the key.
-        let name_type =
-            if self.eat(SyntaxKind::AsKeyword) { Some(self.parse_type()) } else { None };
+        let name_type = if self.eat(SyntaxKind::AsKeyword) {
+            Some(self.with_conditional_types_allowed(Parser::parse_type))
+        } else {
+            None
+        };
         self.expect(SyntaxKind::CloseBracketToken);
 
         let question = if matches!(self.token.kind, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
@@ -1055,6 +1113,11 @@ impl<'a> Parser<'a> {
         }
         self.next_token();
         Some(arguments)
+    }
+
+    /// `<A, B>` after a type reference, if present.
+    fn parse_type_arguments_of_type_reference(&mut self) -> Vec<TypeNode<'a>> {
+        if self.token.has_preceding_line_break() { Vec::new() } else { self.parse_type_arguments() }
     }
 
     /// `<A, B>` after a type reference, if present.

@@ -1,4 +1,4 @@
-//! `cargo run -p tsr-conformance --bin coverage`
+//! `cargo run -p tsr-conformance --bin coverage [suite ...]`
 //!
 //! Runs every suite over the corpus, prints a summary, and writes the committed
 //! snapshots under `crates/tsr-conformance/snapshots/`.
@@ -109,7 +109,8 @@ fn main() -> Result<()> {
     let snapshot_dir = root.join("crates/tsr-conformance/snapshots");
     std::fs::create_dir_all(&snapshot_dir).context("creating snapshot directory")?;
 
-    let suites: Vec<Box<dyn Suite + Sync>> = vec![
+    let requested: std::collections::BTreeSet<String> = std::env::args().skip(1).collect();
+    let mut suites: Vec<Box<dyn Suite + Sync>> = vec![
         Box::new(CorpusIngest),
         Box::new(BaselineResolution),
         Box::new(ParserReachable),
@@ -127,6 +128,15 @@ fn main() -> Result<()> {
         Box::new(CheckerTypes),
         Box::new(Diagnostics),
     ];
+    if !requested.is_empty() {
+        let known: std::collections::BTreeSet<_> =
+            suites.iter().map(|suite| suite.name().to_string()).collect();
+        let unknown: Vec<_> = requested.difference(&known).cloned().collect();
+        if !unknown.is_empty() {
+            bail!("unknown suite(s): {}", unknown.join(", "));
+        }
+        suites.retain(|suite| requested.contains(suite.name()));
+    }
 
     let mut rows = Vec::new();
     for suite in &suites {

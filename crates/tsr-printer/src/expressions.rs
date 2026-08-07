@@ -136,9 +136,12 @@ impl Printer<'_> {
             }
             // Ported from `Printer.emitArrayLiteralExpression` (`internal/printer/printer.go`).
             Expression::ArrayLiteralExpression(node) => {
-                self.emit_list(
+                let ends_in_elision =
+                    matches!(node.elements.last(), Some(Expression::OmittedExpression(_)));
+                self.emit_list_with_trailing_delimiter(
                     node.elements,
                     ListFormat::ARRAY_LITERAL_EXPRESSION_ELEMENTS,
+                    ends_in_elision,
                     |printer, element| printer.emit_expression(element),
                 );
             }

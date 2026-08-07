@@ -6,12 +6,18 @@
 
 use std::collections::BTreeMap;
 
-use tsr_conformance::{Corpus, repo_root};
+use tsr_conformance::{
+    Corpus, repo_root,
+    trace_case::{CompilationSetup, prepare_compilation},
+};
 
 fn main() {
     let root = repo_root();
     let corpus = Corpus::from_repo_root(&root);
-    let cases = corpus.discover().expect("discover");
+    let mut cases = corpus.discover().expect("discover");
+    if let Some(filter) = std::env::args().nth(1) {
+        cases.retain(|case| case.name.contains(&filter));
+    }
 
     let mut buckets: BTreeMap<String, (usize, Vec<String>)> = BTreeMap::new();
     let mut failed = 0usize;
@@ -25,37 +31,33 @@ fn main() {
             Ok(None) => {}
             _ => continue,
         }
-        let Ok(test_case) = case.load() else { continue };
+        let CompilationSetup::Ready(prepared) = prepare_compilation(case) else { continue };
+        let arena = tsr_core::Arena::new();
+        let loaded = tsr_compiler::FileLoader::load(
+            &arena,
+            &prepared.host,
+            tsr_compiler::LoadOptions {
+                compiler_options: prepared.options,
+                root_file_names: prepared.root_file_names,
+                default_library_path: String::new(),
+            },
+        );
 
         let mut case_failed = false;
-        for file in &test_case.files {
-            if !file.name.to_ascii_lowercase().ends_with(".ts")
-                && !file.name.to_ascii_lowercase().ends_with(".tsx")
-                && !file.name.to_ascii_lowercase().ends_with(".js")
-                && !file.name.to_ascii_lowercase().ends_with(".jsx")
-                && !file.name.to_ascii_lowercase().ends_with(".mts")
-                && !file.name.to_ascii_lowercase().ends_with(".cts")
-                && !file.name.to_ascii_lowercase().ends_with(".mjs")
-                && !file.name.to_ascii_lowercase().ends_with(".cjs")
-            {
+        for file in loaded.files.iter().skip(loaded.lib_file_count) {
+            if file.text().contains('\u{FFFD}') {
                 continue;
             }
-            if file.content.contains('\u{FFFD}') {
-                continue;
-            }
-            let arena = tsr_core::Arena::new();
-            let script_kind = tsr_parser::ScriptKind::from_file_name(&file.name);
-            let result = tsr_parser::parse_with_script_kind(&arena, &file.content, script_kind);
-            if let Some(first) = result.diagnostics.first() {
+            if let Some(first) = file.diagnostics().first() {
                 case_failed = true;
                 let start = first.span.start as usize;
-                let lo = file.content[..start.min(file.content.len())]
+                let lo = file.text()[..start.min(file.text().len())]
                     .char_indices()
                     .rev()
                     .nth(40)
                     .map_or(0, |(i, _)| i);
-                let hi = (start + 25).min(file.content.len());
-                let snippet = file.content[lo..hi].replace('\n', "\\n");
+                let hi = (start + 25).min(file.text().len());
+                let snippet = file.text()[lo..hi].replace('\n', "\\n");
                 let key = format!("TS{} {}", first.message.code(), first.text());
                 let entry = buckets.entry(key).or_insert((0, Vec::new()));
                 entry.0 += 1;

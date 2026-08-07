@@ -13,7 +13,7 @@
 
 use tsr_ast::{Expression, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxChild};
 
-use crate::{Printer, quote_string};
+use crate::Printer;
 
 impl Printer<'_> {
     /// Whether this expression is JSX, and print it if so.
@@ -115,9 +115,13 @@ impl Printer<'_> {
                         // and inventing `={true}` would add nodes to the tree.
                         None => {}
                         Some(JsxAttributeValue::StringLiteral(literal)) => {
-                            self.write_raw("=");
-                            let quoted = quote_string(literal.text);
-                            self.write_raw(&quoted);
+                            // JSX attribute text is raw: backslashes and line
+                            // breaks are not JavaScript string escapes. Quoting
+                            // it through `quote_string` turns an actual newline
+                            // into the two characters `\\n`, changing the AST.
+                            self.write_raw("=\"");
+                            self.write_raw(literal.text);
+                            self.write_raw("\"");
                         }
                         Some(JsxAttributeValue::JsxExpression(expression)) => {
                             self.write_raw("=");

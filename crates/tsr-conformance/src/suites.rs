@@ -7,6 +7,7 @@
 use crate::{
     corpus::CaseEntry,
     suite::{Outcome, Suite},
+    trace_case::{CompilationSetup, prepare_compilation},
 };
 
 /// Can every case be read and split into units?
@@ -129,29 +130,40 @@ impl Suite for Parser {
             Ok(None) => {}
         }
 
-        let parsed = match case.load() {
-            Ok(parsed) => parsed,
-            Err(err) => return Outcome::Failed { reason: format!("{err:#}") },
+        let prepared = match prepare_compilation(case) {
+            CompilationSetup::Ready(prepared) => prepared,
+            CompilationSetup::Skip(reason) => return Outcome::Skipped { reason },
         };
+        let arena = tsr_core::Arena::new();
+        let loaded = tsr_compiler::FileLoader::load(
+            &arena,
+            &prepared.host,
+            tsr_compiler::LoadOptions {
+                compiler_options: prepared.options,
+                root_file_names: prepared.root_file_names.clone(),
+                default_library_path: String::new(),
+            },
+        );
+        if !prepared.root_file_names.is_empty() && loaded.files.len() == loaded.lib_file_count {
+            return Outcome::Failed {
+                reason: format!(
+                    "program has {} root file(s), but the loader reached no source files",
+                    prepared.root_file_names.len()
+                ),
+            };
+        }
 
-        for file in &parsed.files {
-            if !crate::scanner_suite::is_typescript_unit(&file.name) {
-                continue;
-            }
+        for file in loaded.files.iter().skip(loaded.lib_file_count) {
             // Encoding is the file loader's job, not the parser's.
-            if file.content.contains('\u{FFFD}') {
+            if file.text().contains('\u{FFFD}') {
                 continue;
             }
-            let arena = tsr_core::Arena::new();
-            // `.tsx` reads `<` as JSX; `.ts` reads it as a type assertion.
-            let script_kind = tsr_parser::ScriptKind::from_file_name(&file.name);
-            let result = tsr_parser::parse_with_script_kind(&arena, &file.content, script_kind);
-            if let Some(first) = result.diagnostics.first() {
+            if let Some(first) = file.diagnostics().first() {
                 return Outcome::Failed {
                     reason: format!(
                         "{}: {} diagnostic(s), first is TS{} at {:?}: {}",
-                        file.name,
-                        result.diagnostics.len(),
+                        file.file_name(),
+                        file.diagnostics().len(),
                         first.message.code(),
                         first.span,
                         first.text()

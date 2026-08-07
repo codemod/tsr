@@ -273,6 +273,13 @@ impl Printer<'_> {
                 if let Some(argument) = &import.argument {
                     self.emit_type_node(argument);
                 }
+                if let Some(attributes) = import.attributes {
+                    self.write(", { ");
+                    self.emit_token_node(attributes.token);
+                    self.write(": ");
+                    self.import_attributes_body(attributes);
+                    self.write(" }");
+                }
                 self.write(")");
                 if let Some(qualifier) = &import.qualifier {
                     self.write(".");
