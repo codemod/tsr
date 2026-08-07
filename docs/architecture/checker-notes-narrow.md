@@ -1094,3 +1094,23 @@ compound behavior did not move. The remaining iteration-family residue:
 overload-failure `never` (`foo(x) : never` on converged union arguments —
 a callres question, not a flow one) and the §12.6 under-accumulation lines
 (`narrowingPastLastAssignment`, `controlFlowLoopAnalysis:0:25`).
+
+### §12.8 The empty-so-far re-entry — upstream restarts, this port answered `never`
+
+`getTypeAtFlowLoopLabel`'s on-stack check is conditional upstream:
+`if loopInfo.key == key && len(loopInfo.types) != 0` (`flow.go:1347`), with
+the comment spelling out why — an empty in-process list happens when "the
+back edge of the outer loop reaches an inner loop that is already being
+analyzed", and the correct move is to **restart the inner loop's analysis**,
+which terminates because a loop junction's first antecedent is always the
+non-looping path. This port's §12 arm returned `never, incomplete` for the
+empty case — a placeholder upstream never produces.
+
+**The bar**: the §12.6 under-accumulation lines move
+(`narrowingPastLastAssignment` want `string | number`,
+`controlFlowLoopAnalysis:0:25` want `number | undefined`,
+`nestedLoopTypeGuards:0:22` want the full declared union — nested-loop
+shapes all). Falsifiers: (a) non-termination — a hang or stack blowout in
+the conformance run means the restart's termination argument does not
+transfer to this port's walk and the change reverts whole; (b) any
+RIGHT→WRONG outside nested-loop cases.
