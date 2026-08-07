@@ -3121,3 +3121,54 @@ parameter has no annotation, so the written-syntax test excludes it for free. Th
 explicit predicate was deleted rather than left as dead code, with a paragraph at
 the call site saying why the family is still refused without one — because a
 refusal that survives only as an absence is one nobody can find later.
+
+### A figure that appears twice in one file will disagree with itself
+
+`STATUS.md` §1 states the gradient in two places twenty lines apart: a table row,
+and a fenced block giving the `right / gap / wrong` triple. Two builds landed
+with the table updated and the block not, so the section said **347,530** and
+**347,384** at once, and the second number carried a stale `gap` and `wrong`
+beside it.
+
+Nobody read it wrong, because a consistency pass caught it first. That is luck.
+
+> **Duplication of a number across a document is a defect with a delay fuse.**
+> Every edit updates the copy the editor is looking at. The rule this project
+> already runs on — *every number carries the commit it was measured at* — does
+> not help here, because both copies looked equally authoritative and neither
+> carried a commit.
+
+Two cheap defences, and the second is the one that scales:
+
+- **Re-derive both copies from the same run**, never one from the other. The
+  arithmetic check when they disagree is free and immediately diagnostic: here
+  `347,384 + 32 + 114 = 347,530` named both missing builds in one line.
+- **Prefer one copy.** A second statement of the same number is not redundancy,
+  it is a second thing to maintain. Where a document genuinely needs the figure
+  twice, the derived one should say what it is derived from.
+
+### The instrument that answers a standing question is usually built for something else
+
+This session opened by recording a discrepancy in `STATUS.md` §1 — the port's
+`right + gap + wrong` fell **9,145 short** of the corpus denominator, because the
+three figures came from three instruments that do not share one. It was written
+up as an open question and explicitly costed: *"worth a future session's first
+hour."*
+
+It was settled the same session, in about ten minutes, and not by anyone
+scheduling it. A build two items later needed a single-pass verdict per line for
+an unrelated bar leg (`gap→wrong == 0`, which no existing instrument could
+report), so `verdictdump.rs` was written for that. Once it existed, the standing
+question was one command: the triple sums to 468,915 and the corpus is 478,954,
+so the residue is **10,039 unaligned lines** — the baseline and this port
+disagree about the *expression*, so no comparison of answers is meaningful.
+
+> **Standing questions are answered by noticing, not by scheduling.** A backlog
+> of "worth a session's first hour" probes is a backlog of things that were too
+> expensive when they were filed; the cost that matters is what they cost *after*
+> the next unrelated instrument lands. When a new probe is built, the cheap move
+> is to re-read the open questions and ask which of them it now answers for free.
+
+The corollary for how instruments get written: `verdictdump.rs` reports **every**
+verdict rather than the one its bar needed. That generality cost nothing at the
+time and is the entire reason it could answer a question it was not built for.
