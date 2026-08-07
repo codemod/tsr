@@ -282,3 +282,28 @@ sizing:
    trap, hit again and caught by the bar in one measurement.
 
 `bd tsr-fpti` keeps the corrected diagnosis; nothing further is claimed.
+
+## `bd tsr-fpti` re-probed at HEAD (ninth session) — the family decomposes to owners, none of them this item
+
+Sized fresh from the `verdictdump` at `594973e`: gap lines whose wanted type
+mentions `Component`/`JSX.`/`Element` are **960 in 135 cases** (was "1,955 +
+96 wrong over 220" when filed — the element arm and the naming family
+harvested the head), top case 9%. `jsxfeas.rs` re-run classifies the
+element/fragment half at **438**, and the buckets have flipped since the
+seventh session: the "declared type prints bare `Element`" bucket — the 759
+that built the element arm — is **gone**. What remains, each with its owner:
+
+| lines | shard | owner, and why it is not buildable here |
+|---:|---|---|
+| 256 | element gaps wanting `any`, `JSX` does not resolve | **ceiling.** Upstream's `checkJsxElement` returns `getJsxElementTypeAt` = `errorType` when there is no namespace (`jsx.go:74`, `:1303`), rendered `any` by ADR-0038. The one honest-`any` escape is **fragments only** — `checkJsxFragment` converts `errorType` → `anyType` explicitly (`jsx.go:123`) — and the corpus has **zero** fragment gap lines wanting `any` (measured, this session). Computing `any` for the element lines would reproduce a rendered `errorType`, which ADR-0038 forbids |
+| 132 + 22 | want `JSX.Element`/other, `JSX` does not resolve | `declare global` augmentation in the **binder** — the fifth session's named blocker, still standing |
+| 28 | `JSX` resolves, no `Element` export | upstream `errorType` again — ceiling |
+| ~100+ | custom-pragma factories (`dom.JSX.Element`, `predom.JSX.Element`, `JSXInternal.*`; head case `inlineJsxFactoryDeclarationsLocalTypes` 86) | per-file `@jsx` pragma namespace resolution (`getJsxNamespace(location)`) plus `import("…")`-form naming — `bd tsr-xpb8`'s modulespecifiers family |
+| ~46+ | composite prints embedding `JSX.Element` (`() => JSX.Element`, props signatures) | the composite-print seam's remaining shards |
+| rest | class instance typing through heritage (`this.props`, `React.StatelessComponent<T>`) | refused at `7299a14` with its numbers (+10 vs ≥55, reverted) — the blocking cause is the written type **argument** types (tsx `P`/`S` interfaces whose members gap), i.e. downstream of the members workstream |
+
+**Conclusion: `bd tsr-fpti` holds no buildable item.** The probe cost two
+instrument re-runs and settles what the heritage-shard refusal left open —
+the family's residue is ceiling + two named subsystem blockers, and it should
+not return to a board until global augmentation or the pragma machinery
+exists.
