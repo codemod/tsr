@@ -769,7 +769,8 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     // nor the `number` intrinsic, which is the same gap the `a[i]` lookup side
     // takes, so the two cannot disagree.
     assert_eq!(type_of_declaration("declare const x: { m(): void };", "x"), "{ m(): void; }");
-    assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "{ (): void; }");
+    // The single call-signature member collapses to the arrow form (§10.15).
+    assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "() => void");
     assert_eq!(
         type_of_declaration("declare const x: { [k: string]: string };", "x"),
         "{ [k: string]: string; }"

@@ -50,7 +50,7 @@ fn compose_braces(
         let arrow = arrow.replace("abstract new ", "new ");
         match arrow.rfind(") => ") {
             Some(at) => {
-                out.push_str(&arrow[..at + 1]);
+                out.push_str(&arrow[..=at]);
                 out.push_str(": ");
                 out.push_str(&arrow[at + 5..]);
             }

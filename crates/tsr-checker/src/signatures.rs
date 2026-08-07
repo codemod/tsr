@@ -1117,9 +1117,46 @@ impl<'a> Checker<'a, '_> {
     /// unions in `<T extends [number] | [string]>` and rest-parameter
     /// annotations, 9 lines — belongs to `bd tsr-5o2`, which now carries this
     /// measurement.
-    fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
-        let _ = &self;
-        Self::type_query_written_text(annotation)
+    pub(crate) fn written_annotation_text(&mut self, annotation: TypeNode<'a>) -> Option<String> {
+        if let Some(text) = Self::type_query_written_text(annotation) {
+            return Some(text);
+        }
+        // **The single-member literal carriage** (`bd tsr-d4li`,
+        // `checker-notes-modobj.md` §10.15): a parameter *written*
+        // `{ (n: number): string; }` keeps that braces text through node reuse
+        // upstream, while the same type freshly rendered collapses to the
+        // arrow form. The collapse without this carriage lost 112 right lines
+        // and was reverted (`dbc1ae9`); the carriage is the normalized member
+        // rendering, not the raw source, because upstream re-prints the reused
+        // node. Only the single-member call/construct shape is carried — the
+        // one shape whose baked text now differs from its written spelling.
+        // The array-of-literal spelling, `{ (…): string; }[]`, carries the
+        // same way: the element's braces plus `[]` (no parentheses — the
+        // braces form never needs them in postfix position).
+        if let TypeNode::ArrayTypeNode(array) = annotation {
+            let element = array.element_type?;
+            if matches!(element, TypeNode::TypeLiteralNode(_)) {
+                let inner = self.written_annotation_text(element)?;
+                return Some(format!("{inner}[]"));
+            }
+            return None;
+        }
+        let TypeNode::TypeLiteralNode(literal) = annotation else { return None };
+        if let [
+            tsr_ast::TypeElement::CallSignatureDeclaration(_)
+            | tsr_ast::TypeElement::ConstructSignatureDeclaration(_),
+        ] = literal.members
+        {
+            let member_id = match literal.members[0] {
+                tsr_ast::TypeElement::CallSignatureDeclaration(member) => member.node_id,
+                tsr_ast::TypeElement::ConstructSignatureDeclaration(member) => member.node_id,
+                _ => unreachable!(),
+            }?;
+            let signature = self.get_signature_from_declaration(member_id)?;
+            let text = crate::objects::signature_member_text(self, &signature);
+            return Some(format!("{{ {text}; }}"));
+        }
+        None
     }
 
     /// The written text of a `typeof x` annotation, for the node-reuse rule on

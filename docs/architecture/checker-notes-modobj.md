@@ -758,3 +758,30 @@ only for `TypeQueryNode`, widened to `TypeLiteralNode` with the *normalized*
 braces rendering). The wider written-reuse refusal (`tsr-a2c`, 9.1 per
 gained) priced raw blanket reuse, not this narrow carriage; a fresh
 counterfactual must price the narrow form before anyone builds it.
+
+### 10.16 `tsr-d4li` shipped — the collapse WITH written carriage, three slots
+
+The rebuild of the reverted §10.15, per `bd tsr-d4li`'s spec. The collapse
+(`get_type_from_type_literal`'s single-member intercept) plus **written
+carriage at three slots**, each found by its own measurement's residual:
+parameter annotations (112 → 55), property annotations (55 → 25), and
+array-of-literal annotations (25 → **7**). `verdictdump` against the twin's
+dump:
+
+```
+right  352,611 -> 352,727   net +1,668     WRONG→RIGHT 1,675, RIGHT→WRONG 7
+wrong  36,883  -> 36,767    −1,666         GAP→WRONG 2, GAP→RIGHT 6
+cases   2,793  ->  2,841    +48, 0 regressed
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +800 | **+1,668** | pass |
+| 2 | own ≤ 40 | **≤9** | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost ≤ 10 (209 watched) | **7** (`narrowByInstanceof` 6 + `typeAliases` 1 — remaining written slots this carriage does not reach) | pass |
+
+The iteration pattern is the entry worth keeping: each measurement's
+RIGHT→WRONG head *named the next carriage slot*, and three passes converged
+112 → 7 without ever touching the conversion column (1,664 → 1,675 → 1,675).
+The carriage slots are exactly upstream's node-reuse positions.

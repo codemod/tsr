@@ -273,6 +273,37 @@ impl<'a> Checker<'a, '_> {
     /// is known, and not in the shared renderer.
     fn get_type_from_type_literal(&mut self, node: &tsr_ast::TypeLiteralNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
+        // **The single-signature collapse** (`checker-notes-modobj.md` §10.15,
+        // `bd tsr-d4li`): upstream renders an anonymous type whose only member
+        // is one call or construct signature as the arrow form —
+        // `{ new (): Base }` prints `new () => Base`. Sized at 1,093 root
+        // converts / 0 root at-risk. The 209-line embedded population is held
+        // by the written carriage in `written_annotation_text`: a parameter
+        // *written* with this literal keeps its braces text through node
+        // reuse, which is what the first build of this collapse lacked when
+        // its leg 4 fired at 112 and it was reverted (`dbc1ae9`).
+        if let [
+            tsr_ast::TypeElement::CallSignatureDeclaration(_)
+            | tsr_ast::TypeElement::ConstructSignatureDeclaration(_),
+        ] = node.members
+        {
+            let member_id = match node.members[0] {
+                tsr_ast::TypeElement::CallSignatureDeclaration(member) => member.node_id,
+                tsr_ast::TypeElement::ConstructSignatureDeclaration(member) => member.node_id,
+                _ => unreachable!(),
+            };
+            let Some(member_id) = member_id else { return error };
+            let Some(signature) = self.get_signature_from_declaration(member_id) else {
+                return error;
+            };
+            let text = self.signature_to_string(&signature);
+            let Some(symbol) = node.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                return error;
+            };
+            let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
+            self.signature_types.insert(built, vec![signature]);
+            return built;
+        }
         let mut signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
@@ -341,11 +372,22 @@ impl<'a> Checker<'a, '_> {
             let readonly = property.modifiers.iter().any(|modifier| {
                 matches!(modifier, tsr_ast::ModifierLike::Token(m) if m.kind == SyntaxKind::ReadonlyKeyword)
             });
+            // A property *written* with a single-member literal keeps its
+            // braces text, the same carriage the parameter slot takes —
+            // `bd tsr-d4li`; the second measurement's 55 residual losses were
+            // exactly this slot. Restricted to the literal shape so nothing
+            // else changes spelling here.
+            let printed = match annotation {
+                tsr_ast::TypeNode::TypeLiteralNode(_) | tsr_ast::TypeNode::ArrayTypeNode(_) => self
+                    .written_annotation_text(annotation)
+                    .unwrap_or_else(|| self.type_to_string(member_type)),
+                _ => self.type_to_string(member_type),
+            };
             properties.push(crate::objects::Member::Property {
                 name: name.text.to_string(),
                 optional,
                 readonly,
-                printed: self.type_to_string(member_type),
+                printed,
             });
         }
         signatures.append(&mut indexes);

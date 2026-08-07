@@ -80,11 +80,14 @@ fn type_of_last_annotation(source: &str) -> String {
 
 #[test]
 fn a_construct_signature_member_prints_its_new_prefix() {
-    // `{ new (): c1; }` is recorded 18 times in the baselines.
-    assert_eq!(
-        type_of_last_annotation("interface c1 {}\nvar x: { new (): c1 };"),
-        "{ new (): c1; }"
-    );
+    // A SINGLE construct-signature member collapses to the constructor arrow
+    // form (§10.15, `bd tsr-d4li`). The previous expectation cited "recorded
+    // 18 times in the baselines" — checked: those records are `.symbols`/
+    // `.js`/source echoes, never a `.types` answer, while
+    // `comparisonOperatorWithNoRelationshipObjectsOnCallSignature.types:40`
+    // records `>b1 : new () => Base` for a written `{ new (): Base }`. The
+    // fifteenth intuition-adjacent fixture to come due.
+    assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: { new (): c1 };"), "new () => c1");
     // With parameters, and beside a property — the member ordering rule already
     // in force puts signatures first.
     assert_eq!(
@@ -95,7 +98,8 @@ fn a_construct_signature_member_prints_its_new_prefix() {
 
 #[test]
 fn a_call_signature_member_prints_without_one() {
-    assert_eq!(type_of_last_annotation("var x: { (): string };"), "{ (): string; }");
+    // The single call-signature member collapses too — same rule, no `new`.
+    assert_eq!(type_of_last_annotation("var x: { (): string };"), "() => string");
     // Two call signatures in one literal, the shape `>foo : { (): string;
     // (): string; }` records.
     assert_eq!(
@@ -130,15 +134,17 @@ fn a_call_signature_member_prints_without_one() {
 #[test]
 fn the_construct_type_node_and_the_construct_member_share_a_prefix_not_a_renderer() {
     assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: new () => c1;"), "new () => c1");
-    // The member: same `new `, colon not arrow.
+    // The single-member literal collapses to the same arrow form (§10.15);
+    // the colon spelling survives only beside another member.
+    assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: { new (): c1 };"), "new () => c1");
     assert_eq!(
-        type_of_last_annotation("interface c1 {}\nvar x: { new (): c1 };"),
-        "{ new (): c1; }"
+        type_of_last_annotation("interface c1 {}\nvar x: { new (): c1; p: string };"),
+        "{ new (): c1; p: string; }"
     );
     // The function type node, so the `new` above is asserted to come from the
     // construct-ness and not from the position.
     assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: () => c1;"), "() => c1");
-    assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: { (): c1 };"), "{ (): c1; }");
+    assert_eq!(type_of_last_annotation("interface c1 {}\nvar x: { (): c1 };"), "() => c1");
 }
 
 #[test]
@@ -153,7 +159,7 @@ fn a_literal_with_a_member_this_port_cannot_render_still_gaps() {
     assert_eq!(type_of_last_annotation("var x: { (): keyof string };"), "error");
     assert_eq!(
         type_of_last_annotation("var x: { new (): unknownThing };"),
-        "{ new (): unknownThing; }"
+        "new () => unknownThing"
     );
 }
 
