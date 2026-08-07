@@ -1804,3 +1804,14 @@ signature's shape, counted by the measure.
 
 **§38 score — LANDED.** **+81 GAP→RIGHT, ZERO adverse.** `checker_types`
 right 388,917 → **388,998 (81.22%)**.
+
+### §39 `this` in a plain function is `any` without `noImplicitThis`
+
+`controlFlowCaching`'s 250 want-`any` gaps: `this` inside a plain function
+(no `this` parameter, no enclosing class) — upstream reports TS2683 only
+under `noImplicitThis` and answers `any` either way
+(`tryGetThisTypeAtEx`'s fallthrough, `checker.go:12146` region). The
+plain-function opaque arm answered `errorType`; it now answers `any` — the
+boundary chain's shape again, though here the `any` is upstream's typed
+answer, not an error rendering. Falsifier: class-adjacent shapes must not
+route here (the arm sits exactly where the old error sat).
