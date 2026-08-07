@@ -128,6 +128,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
 
         let mut statements: Vec<Statement<'a>> = Vec::with_capacity(file.statements.len());
         for statement in file.statements {
+            if is_function_overload_implementation(statement, file.statements) {
+                continue;
+            }
             for result in self.visit_statement(statement, true) {
                 if is_external_module_indicator(&result) {
                     self.result_has_external_module_indicator = true;
@@ -476,7 +479,30 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
 
         let mut declarations = Vec::with_capacity(list.declarations.len());
         for declaration in list.declarations {
-            declarations.push(self.transform_variable_declaration(declaration, is_const));
+            if declaration.name.is_some_and(|name| !binding_name_has_bindings(name)) {
+                continue;
+            }
+            if declaration.name.is_some_and(binding_name_contains_initializer) {
+                let mut names = Vec::new();
+                collect_binding_identifiers(declaration.name, &mut names);
+                for name in names {
+                    let span = self.span_of(name.node_id);
+                    let r#type = self.factory.keyword_type(SyntaxKind::AnyKeyword, span);
+                    declarations.push(self.factory.alloc(
+                        tsr_ast::VariableDeclaration::new(
+                            Some(tsr_ast::BindingName::Identifier(name)),
+                            None,
+                            Some(r#type),
+                            None,
+                        ),
+                        SyntaxKind::VariableDeclaration,
+                        span,
+                        NodeFlags::empty(),
+                    ));
+                }
+            } else {
+                declarations.push(self.transform_variable_declaration(declaration, is_const));
+            }
         }
         if declarations.is_empty() {
             return Vec::new();
@@ -573,6 +599,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
                 let mut statements = Vec::with_capacity(block.statements.len());
                 for statement in block.statements {
+                    if is_function_overload_implementation(statement, block.statements) {
+                        continue;
+                    }
                     for result in self.visit_statement(statement, false) {
                         if is_scope_marker(&result) {
                             self.result_has_scope_marker = true;
@@ -741,16 +770,27 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             {
                 continue;
             }
-            if let ClassElement::MethodDeclaration(method) = member
-                && is_private_member(member)
-            {
+            if let ClassElement::MethodDeclaration(method) = member {
                 let is_static = has_modifier(method.modifiers, SyntaxKind::StaticKeyword);
-                if private_method_markers.iter().any(|(seen_static, seen_name)| {
-                    *seen_static == is_static && property_names_equal(seen_name, &method.name)
-                }) {
+                let has_overload = node.members.iter().any(|candidate| {
+                    let ClassElement::MethodDeclaration(candidate) = candidate else {
+                        return false;
+                    };
+                    candidate.body.is_none()
+                        && has_modifier(candidate.modifiers, SyntaxKind::StaticKeyword) == is_static
+                        && property_names_equal(&candidate.name, &method.name)
+                });
+                if method.body.is_some() && has_overload {
                     continue;
                 }
-                private_method_markers.push((is_static, method.name));
+                if is_private_member(member) {
+                    if private_method_markers.iter().any(|(seen_static, seen_name)| {
+                        *seen_static == is_static && property_names_equal(seen_name, &method.name)
+                    }) {
+                        continue;
+                    }
+                    private_method_markers.push((is_static, method.name));
+                }
             }
             if let Some(member) = self.visit_class_element(member) {
                 members.push(member);
@@ -1514,6 +1554,41 @@ fn reserve_binding_name(name: Option<tsr_ast::BindingName<'_>>, used: &mut HashS
     }
 }
 
+fn binding_name_has_bindings(name: tsr_ast::BindingName<'_>) -> bool {
+    match name {
+        tsr_ast::BindingName::Identifier(_) => true,
+        tsr_ast::BindingName::BindingPattern(pattern) => pattern
+            .elements
+            .iter()
+            .any(|element| element.name.is_some_and(binding_name_has_bindings)),
+    }
+}
+
+fn binding_name_contains_initializer(name: tsr_ast::BindingName<'_>) -> bool {
+    match name {
+        tsr_ast::BindingName::Identifier(_) => false,
+        tsr_ast::BindingName::BindingPattern(pattern) => pattern.elements.iter().any(|element| {
+            element.initializer.is_some()
+                || element.name.is_some_and(binding_name_contains_initializer)
+        }),
+    }
+}
+
+fn collect_binding_identifiers<'a>(
+    name: Option<tsr_ast::BindingName<'a>>,
+    output: &mut Vec<&'a tsr_ast::Identifier<'a>>,
+) {
+    match name {
+        Some(tsr_ast::BindingName::Identifier(identifier)) => output.push(identifier),
+        Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
+            for element in pattern.elements {
+                collect_binding_identifiers(element.name, output);
+            }
+        }
+        None => {}
+    }
+}
+
 /// Ported from `ast.IsExternalModuleIndicator` (`internal/ast/utilities.go:1677`).
 fn is_external_module_indicator(statement: &Statement<'_>) -> bool {
     matches!(
@@ -1699,4 +1774,21 @@ fn property_names_equal(
 
 fn is_entity_name_expression(expression: &Expression<'_>) -> bool {
     matches!(expression, Expression::Identifier(_) | Expression::PropertyAccessExpression(_))
+}
+
+fn is_function_overload_implementation(
+    statement: &Statement<'_>,
+    siblings: &[Statement<'_>],
+) -> bool {
+    let Statement::FunctionDeclaration(function) = statement else { return false };
+    let Some(name) = function.name else { return false };
+    function.body.is_some()
+        && siblings.iter().any(|candidate| {
+            matches!(
+                candidate,
+                Statement::FunctionDeclaration(candidate)
+                    if candidate.body.is_none()
+                        && candidate.name.is_some_and(|candidate| candidate.text == name.text)
+            )
+        })
 }

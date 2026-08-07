@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 680/918 (74.07%)
-Failed         : 238
+Passed         : 701/918 (76.36%)
+Failed         : 217
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,13 +12,11 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 238 failures:
+First 100 of 217 failures:
 compiler/aliasInaccessibleModule2
   #2: want `  import= R`, got `    class C`
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
-compiler/bindingPatternOmittedExpressionNesting
-  #0: want `export{}`, got `var <pattern>`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
   #0: want `interface Pretty`, got `var A_base`
 compiler/conflictingDeclarationsImportFromNamespace1
@@ -27,8 +25,6 @@ compiler/conflictingDeclarationsImportFromNamespace2
   #0: want `export=`, got `var pick`
 compiler/declFileImportModuleWithExportAssignment
   #0: want `import= a1`, got `var a`
-compiler/declFileTypeofFunction
-  #2: want `function g`, got `function f`
 compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
   #8: want `        class W`, got `        namespace A`
 compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
@@ -47,16 +43,6 @@ compiler/declarationEmitComputedPropertyNameSymbol2
   emitted index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitDefaultExportWithStaticAssignment
   #0: want `import`, got `function Example`
-compiler/declarationEmitDestructuringArrayPattern1
-  #3: want `var a`, got `var <pattern>`
-compiler/declarationEmitDestructuringArrayPattern2
-  #1: want `var x11, y11`, got `var <pattern>`
-compiler/declarationEmitDestructuringObjectLiteralPattern
-  #7: want `function f15`, got `var <pattern>`
-compiler/declarationEmitDestructuringObjectLiteralPattern1
-  #6: extra `var <pattern>`
-compiler/declarationEmitDestructuringOptionalBindingParametersInOverloads
-  #1: want `function foo2`, got `function foo`
 compiler/declarationEmitEnumReferenceViaImportEquals
   #0: want `import`, got `class Test`
 compiler/declarationEmitExpandoPropertyPrivateName
@@ -167,8 +153,6 @@ compiler/expandoFunctionNestedAssigments
   #1: want `namespace Foo`, got `var d`
 compiler/exportClassExtendingIntersection
   #0: want `import`, got `var MyExtendedClass_base`
-compiler/funcdecl
-  #20: want `var withOverloadSignature`, got `function overload1`
 compiler/globalThisDeclarationEmit
   emitted index.d.ts, upstream emitted no declaration file
 compiler/importAliasFromNamespace
@@ -213,3 +197,19 @@ compiler/jsDeclarationsGlobalFileConstFunction
   #1: want `function SomeConstructor2`, got `var SomeConstructor2`
 compiler/jsDeclarationsGlobalFileConstFunctionNamed
   #1: want `function SomeConstructor2`, got `var SomeConstructor2`
+compiler/jsDeclarationsInheritedTypes
+  #0: want `type A`, got `class C1`
+compiler/jsDocDeclarationEmitDoesNotUseNodeModulesPathWithoutError
+  #0: want `type LionRequestInit`, got `class NewAjax`
+compiler/jsExportAssignmentNonMutableLocation
+  #0: want `var _exports`, got `var customSymbol`
+compiler/jsFileAlternativeUseOfOverloadTag
+  #2: want `type callback`, got `var example3`
+compiler/jsFileFunctionOverloads
+  #1: want `function getTypeName`, got `var identity`
+compiler/jsFileFunctionOverloads2
+  #1: want `function getTypeName`, got `var identity`
+compiler/jsxDeclarationsWithEsModuleInteropNoCrash
+  #0: want `import`, got `function Foo`
+compiler/lateBoundAssignmentCandidateJS2
+  #0: want `var prop`, got `class foo1`

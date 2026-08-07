@@ -352,6 +352,30 @@ fn expression_class_base_is_hoisted_to_a_named_declaration() {
 }
 
 #[test]
+fn empty_binding_patterns_emit_no_declaration() {
+    assert_emits(
+        "var {} = { value: 1 };\nvar [, []] = [1, []];\nvar { value } = { value: 1 };",
+        "declare var { value }: {\n    value: number;\n};\n",
+    );
+}
+
+#[test]
+fn binding_patterns_with_defaults_are_flattened_to_names() {
+    assert_emits(
+        "var [first = 0, nested = [1], { value: renamed = 2 }] = source;",
+        "declare var first: any, nested: any, renamed: any;\n",
+    );
+}
+
+#[test]
+fn function_and_method_overload_implementations_are_omitted() {
+    assert_emits(
+        "export function f(value: string): string;\nexport function f(value: number): number;\nexport function f(value: string | number) { return value; }\nexport class C { method(value: string): string; method(value: number): number; method(value: string | number) { return value; } }",
+        "export declare function f(value: string): string;\nexport declare function f(value: number): number;\nexport declare class C {\n    method(value: string): string;\n    method(value: number): number;\n}\n",
+    );
+}
+
+#[test]
 fn a_hash_private_member_becomes_a_single_marker() {
     // `buildClassMembers` (`:1918`): a class with any `#name` carries one
     // `#private` marker, and the members themselves are not named — emitting them

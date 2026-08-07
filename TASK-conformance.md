@@ -5,8 +5,8 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  215/341  = 63.05%  (up from 161/339)
-  dts_shape                 680/918  = 74.07%  (up from 618/912)
+  dts_emit                  223/341  = 65.40%  (up from 161/339)
+  dts_shape                 701/918  = 76.36%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -67,6 +67,13 @@ declarations and referenced from the rewritten `extends` clause; their type stay
 `any` when checker inference is required and the existing diagnostic remains.
 That restores the declaration structure in another eighteen `dts_shape` cases
 without changing the checker-free `dts_emit` denominator.
+
+Empty binding patterns are now elided, and patterns containing defaulted binding
+elements flatten to their bound names when declaration syntax cannot retain the
+initializer. Function and method overload implementations are omitted whenever a
+same-named signature sibling exists, including inside namespaces and classes.
+Those sibling-list fixes raised `dts_emit` by eight and `dts_shape` by twenty-one
+from the previous checkpoint.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
