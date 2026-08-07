@@ -1909,3 +1909,14 @@ constructor-INTERFACE type, so the road is `get_signature_of_named_type`'s
 construct half, not the class arm. The fill stays (it is the class-side
 twin of §38 and upstream-true); the 261-line row's next probe is the
 constructor-interface signature's decline, recorded as the sizing.
+
+### §44 All-defaulted generic construct signatures instantiate at `new`
+
+The §43-relocated road: `get_signature_of_named_type` declines every
+generic candidate, and the modern lib's typed-array constructors are
+generic-with-defaults (`new <T extends ArrayBufferLike = ArrayBuffer>`).
+The §38 fill applies: a candidate whose type parameters are ALL defaulted
+instantiates its return with the default map and joins as concrete; any
+undefaulted parameter keeps the decline. Falsifier: defaults mentioning
+sibling parameters instantiate against the filled prefix or decline —
+the §38 twins.
