@@ -713,3 +713,25 @@ A forecast delivered to the line, twice in one session (design P did it at
 2,990): both times because the counterfactual **was** the build — the probe's
 `compose()` and the checker's twin are the same function, and the self-check
 leg is what proved it before either ran.
+
+### 10.15 The single-signature type-literal collapse — sized, bar, and the regex that lied once
+
+Splitting the post-naming wrong bucket surfaced `want `new () => Base` got
+`{ (new )(): Base; }`` — upstream's node builder collapses an anonymous type
+whose only member is one call or construct signature to the arrow form
+(`typeToTypeNodeWorker`'s single-signature branch), and this port prints the
+written braces. Sized over the full dump, **after a first regex over-matched
+multi-member literals and read 4,647 at risk — the corrected single-member
+test reads**:
+
+```
+  CONVERTS  1,093   (223 call + 870 construct)
+  AT RISK       0   (no right line prints a single-member single-signature braces form)
+```
+
+**Bar:** net ≥ +800 (~75%); own new wrong ≤ 40 (the change is a re-spelling
+of computed types — gap cannot move; the risk is churn, not manufacture);
+regressed == 0; lost ≤ 5. Falsifier: losses concentrated in `.d.ts`-heavy
+cases → upstream keeps the braces form for a *written* literal in some
+position this dump's want-side cannot distinguish — stop and split by
+position before overriding.
