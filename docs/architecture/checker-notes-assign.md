@@ -805,3 +805,19 @@ Legs: net **+18** (≥ +10) · own **0** · regressed **0** · lost **0**. The
 nineteenth stand-in fixture came due (`relater.rs`'s row-2 pin now reads
 `Related` under assignability). Row 2 of §2 is half-retired; the §9 decline
 keeps only privacy.
+
+## §16 Privacy enters the relation — bar (ninth session, third verse)
+
+`propertyRelatedTo`'s first switch (`relater.go`): **private** on either side
+relates only when both symbols share one `ValueDeclaration` — an identity
+test this port can make exactly; a **protected source** against a public
+target rejects; a **protected target** needs `isValidOverrideOf`, which is
+unported — that pair answers `Unknown`, so any reduction touching it
+declines whole through the §9 gate. With all three arms in, the §9 syntactic
+decline **deletes entirely** — its last clause was privacy.
+
+**Bar:** net ≥ **+5** (the privacy-declined population is small by
+construction — it exists only where a class type reaches a union reduction);
+own ≤ **6** — falsifier: wrong lines where two same-class-instance unions
+reduce → the class-pair decline in `union_with_subtype_reduction` must still
+be reached, check ordering; regressed == 0; lost == 0.
