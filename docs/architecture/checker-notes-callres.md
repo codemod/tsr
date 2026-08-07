@@ -1103,3 +1103,31 @@ GAP→RIGHT 240 · WRONG→RIGHT 5 · GAP→WRONG 6 · nothing else · suite +22
 +22 whole cases from one expression arm — the await-heavy suites
 (`await_unaryExpression_*`, `asyncMultiFile`, `awaitedType` families) carry
 many near-finished baselines, the same concentration §15.1 saw.
+
+## §19 The `_1` rename, enclosing-scope half — bar (ninth session)
+
+The `_1` family (STATUS's ninth-session row: 625 wrong lines) splits by
+collision scope, measured from the dump: **322 within-print** (two sibling
+signatures in one composite — needs a per-composite naming pass, not this
+build) and **303 enclosing-scope** — a standalone signature print whose type
+parameter collides with a type parameter of an enclosing declaration at the
+reference site, which upstream renames `X_1` (`typeParameterToName`'s
+by-text cache). Of the 303, **222 are byte-exact rename-only misses**: `got`
+equals `want` with `X_1 → X` substituted.
+
+**Design.** In `signature_to_string_at`: collect type-parameter names
+declared by ancestors of the reference site — **excluding the signature's
+own declaration**, which is the identity test that keeps `foo`'s own line
+from renaming `foo`'s own `T` — and rename each colliding signature
+parameter to the first free `X_n`, substituting token-wise across the
+rendered parameter list, constraints, parameter texts and return. Blanket
+token substitution is exactly right *for the byte-exact population by
+construction of the counterfactual*; where it is not (a nested same-name
+declaration, a property named `X`), the line falls outside the 222 and the
+bar's leg 2 prices it.
+
+**Bar:** net ≥ **+150** (~70% of 222); own ≤ **20** — falsifier: RIGHT→WRONG
+lines whose print holds a property or nested parameter named like a type
+parameter → the token substitution is reaching value positions, gate on the
+shape before widening anything; regressed == 0; lost == 0 (a rename cannot
+un-compute a type; `type_to_string_at` still falls back to the baked text).
