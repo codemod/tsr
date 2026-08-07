@@ -1736,3 +1736,17 @@ CALLEE positions). Unlike the §12.8/§23 zero-landings, this arm interacts
 with the ADR-0038 boundary for no payoff, so it reverts rather than
 stands. The `instant.year` family belongs to the LIB-interface member
 road (incomplete-table territory), which stays gapped by design.
+
+### §35 FINDING — the want-`error` population is real, and §31 trades against it
+
+`parsingDeepParenthensizedExpression`'s baseline prints ` : error` on 324
+lines — **typescript-go itself renders `errorType` as `error` in (at
+least) JS comma/assignment chains**, refining ADR-0038's premise that it
+always prints `any`. Consequence already visible in the ledger: before
+§31 those lines were RIGHT (our honest `error` MATCHED); the §31 chain's
+JS-inclusive gate converts them to `any` and they are the standing 182+
+R→W residue this one case carries. The trade was measured (+1,500 JS
+gains elsewhere vs this case) and stands, but the finding matters for the
+NEXT session: want-`error` lines are matchable output, and a per-case
+count of them (grep the baselines) belongs in any future gate argument
+about JS files.
