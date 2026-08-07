@@ -262,3 +262,23 @@ walk and arity check will decline a share); own new wrong ≤ 10; regressed
 == 0; lost ≤ 3. Falsifier: losses → the gate is firing outside heritage
 positions (`ExpressionWithTypeArguments` appears in `implements` too, where
 the same rule holds — but check that first).
+
+### The heritage shard's bar FIRED on both sides — REFUSED with its numbers
+
+Built to the bar above and measured: **+10 converts against a ≥ 55 floor, 5
+lost, 2 gap→wrong — reverted.** Two findings, each a correction to the
+sizing:
+
+1. **The gate over-fires**: `ExpressionWithTypeArguments` is also TS 4.7's
+   *instantiation expression* (`Box<number>` in value position,
+   `instanceofOnInstantiationExpression`), where upstream keeps
+   `typeof Box`. A correct gate needs the `HeritageClause` ancestor.
+2. **The 108-line population does not convert from resolution**: most of its
+   lines decline in the arm (the written type *arguments* themselves gap —
+   the tsx `P`/`S` argument types are interfaces whose members gap), so the
+   line stays `typeof …` wrong either way. The row's blocking cause is the
+   argument types, not the reference shape — a population identified by the
+   shape of the answer, misattributed to a mechanism, this project's oldest
+   trap, hit again and caught by the bar in one measurement.
+
+`bd tsr-fpti` keeps the corrected diagnosis; nothing further is claimed.
