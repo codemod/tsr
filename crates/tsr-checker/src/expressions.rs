@@ -1096,6 +1096,29 @@ impl Checker<'_, '_> {
         bump(&COUNTERS.new_expressions);
         let Some(callee) = node.expression else { return error };
         let callee_type = self.check_expression(callee);
+        // §25 (`checker-notes-callres.md`): construction through a
+        // §31-provenance callee — upstream's TS2304 `errorType` — answers
+        // `any`, the chain's sixth hop, behind the same gates.
+        if callee_type == self.intrinsics.any
+            && let tsr_ast::Expression::Identifier(identifier) = callee
+            && let Some(id) = identifier.node_id
+            && self
+                .binder
+                .resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    identifier.text,
+                    SymbolFlags::VALUE
+                        | SymbolFlags::TYPE
+                        | SymbolFlags::NAMESPACE
+                        | SymbolFlags::ALIAS,
+                )
+                .is_none()
+            && !self.file_has_import_machinery(id)
+        {
+            return self.intrinsics.any;
+        }
         // The callee's type is the class's *static* side, which
         // `getTypeOfFuncClassEnumModule` gives as an anonymous type carrying the
         // class symbol. Reaching the symbol through the type rather than through

@@ -1327,3 +1327,7 @@ The chain's sixth hop: `new Unresolved()` — upstream's callee is TS2304's
 The admission mirrors §24's identifier test and §23's receiver test at the
 NEW-expression entry; the same file gates apply. Falsifier: inherited from
 the chain.
+
+**§25 score — LANDED.** **+680 (676 G→R, 4 W→R) / 7 GAP→WRONG** — near
+clean; the seven are augmentation/decorator shapes. `checker_types` right
+387,098 → **387,778 (80.96%)**.
