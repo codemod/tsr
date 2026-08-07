@@ -147,7 +147,7 @@ impl Checker<'_, '_> {
 
     /// Whether the node's source file carries any import/export declaration
     /// — the §31 gate's structural half (`checker-notes-narrow.md`).
-    fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
+    pub(crate) fn file_has_import_machinery(&mut self, node: NodeId) -> bool {
         let mut root = node;
         while let Some(parent) = self.nodes.parent(root) {
             root = parent;

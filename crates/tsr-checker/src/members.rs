@@ -343,6 +343,16 @@ impl Checker<'_, '_> {
         if receiver_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
+        // §32 (`checker-notes-narrow.md`): a receiver minted for an
+        // UNRESOLVED type reference is upstream's `errorType`, and member
+        // access through it answers the same — printed `any`. The §31
+        // structural gate applies: in an import-machinery file the mint may
+        // be the PORT's resolution miss.
+        if self.unresolved_types.contains(&receiver_type)
+            && node_id.is_some_and(|id| !self.file_has_import_machinery(id))
+        {
+            return self.intrinsics.any;
+        }
         // No explicit test for an `errorType` receiver: it is an intrinsic and
         // never carries a members table, so the lookup below misses and answers
         // `errorType` anyway. An earlier draft guarded it and no mutation could

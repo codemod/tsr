@@ -157,6 +157,14 @@ impl Checker<'_, '_> {
         if object_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
+        // §32: an element access through a minted unresolved receiver —
+        // upstream's `errorType` — answers `any`, the same one hop as the
+        // property twin, behind the same §31 structural gate.
+        if self.unresolved_types.contains(&object_type)
+            && node.node_id.is_some_and(|id| !self.file_has_import_machinery(id))
+        {
+            return self.intrinsics.any;
+        }
         let Some(name) = self.property_name_from_index(index_type) else {
             // Not a literal, so it names no property. `getIndexedAccessType`
             // falls to the index signatures (`checker.go:21902`).

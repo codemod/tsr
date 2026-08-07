@@ -1694,3 +1694,13 @@ already carries the identity; the arm is one membership test in the
 property/element lookups. Falsifier: the set must never admit a type this
 port MINTED for any other reason — `is_error` identity discipline already
 polices that.
+
+**§32 score — LANDED.** **+4,263 (4,247 G→R, 16 W→R) / 496 GAP→WRONG**,
+8.6:1. The 496 head at `exportDefaultInterface`-shaped files: the mint
+there is the PORT's own miss (`export default interface` is an
+InterfaceDeclaration carrying modifiers, invisible to the §31 file gate
+which looks for ExportDeclaration nodes) — a binder/resolution gap
+recorded as its own future rule, same class as §31's accepted residue.
+`checker_types` right 380,563 → **384,826 (80.35%)**, gap 65,508 →
+**60,765** — the fourth consecutive thousand-line build; the port crossed
+80%.

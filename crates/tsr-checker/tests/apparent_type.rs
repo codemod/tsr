@@ -83,13 +83,15 @@ function g<U extends Shape>(u: U) { return u.name; }";
     assert_eq!(type_of_access(absent, "u", "name"), "string");
 }
 
-/// A constraint that itself gaps leaves the parameter alone rather than
-/// reading members off `errorType` — the whole-construct refusal rule.
+/// §32 changed this fixture's first half: a constraint minted for an
+/// UNRESOLVED reference is upstream's `errorType`, and member access
+/// through it answers `any` — upstream's own baseline shape. The resolved
+/// half keeps pinning that a REAL constraint reads its members.
 #[test]
 fn a_gapping_constraint_leaves_the_parameter_a_gap() {
     let source = "interface Shape { name: string; }
 function f<T extends Unresolved>(t: T) { return t.name; }
 function g<U extends Shape>(u: U) { return u.name; }";
-    assert_eq!(type_of_access(source, "t", "name"), "error");
+    assert_eq!(type_of_access(source, "t", "name"), "any");
     assert_eq!(type_of_access(source, "u", "name"), "string");
 }
