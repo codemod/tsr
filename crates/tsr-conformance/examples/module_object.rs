@@ -277,6 +277,9 @@ struct CaseReport {
     /// Unspellable lines where ≥ 2 distinct in-scope alias names reach the
     /// line's module — the chain-choice rule decides, not mere reachability.
     ambiguous_choice: usize,
+    /// The export= chain counterfactual (`mock_export_equals_chain`), per seed.
+    exporteq: BTreeMap<&'static str, usize>,
+    exporteq_lines: BTreeMap<String, usize>,
 }
 
 /// `rank_board::row_key` (`examples/rank_board.rs:145`), verbatim.
@@ -464,6 +467,32 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                     position,
                     alias_module_symbol(&program, bound, nodes, node_map, symbol),
                 );
+                // The export= chain counterfactual, per SEED (declaration-name
+                // lines only — members and cascade are not priced here).
+                if target == NsTarget::ExportEqualsStillError
+                    && let Some(AliasTarget::File(m) | AliasTarget::Ambient(m)) =
+                        seed_module.get(&position).cloned().flatten()
+                {
+                    let alias_name = bound.symbols().get(symbol).name;
+                    let want = wants.get(&position).map_or("", String::as_str);
+                    let (outcome, example) = mock_export_equals_chain(
+                        &mut mock_checker,
+                        bound,
+                        nodes,
+                        node_map,
+                        m,
+                        alias_name,
+                        want,
+                        error,
+                    );
+                    *report.exporteq.entry(outcome).or_default() += 1;
+                    if !example.is_empty() {
+                        *report
+                            .exporteq_lines
+                            .entry(format!("{outcome:<28} {example}  [{}]", report.name))
+                            .or_default() += 1;
+                    }
+                }
                 pending.push((position, form, row_key(reason), alias, module_name, target));
             }
         }
@@ -857,6 +886,91 @@ fn mock_namespace(
     (kind, Some(module_name))
 }
 
+/// **The `export =` chain, mocked past today's refusal** — the counterfactual
+/// for the three-arm build the with-lib run exposed (714 `still error` lines):
+///
+/// 1. `getTargetOfExportAssignment`: the `export =` symbol's declaration is an
+///    `ExportAssignment` whose expression names the real target — resolve it
+///    where it is written (`checker.go:14889`, `getTargetOfAliasLikeExpression`).
+/// 2. `resolveExternalModuleSymbol` (`checker.go:15556`) hands that target to
+///    the importing alias.
+/// 3. The RENAME: the target prints under its own name (`typeof __React`);
+///    upstream prints the innermost accessible alias (`typeof React`), which
+///    for a seed's declaration-name line is the seed's own alias.
+///
+/// Returns `(outcome, example)`.
+fn mock_export_equals_chain(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    bound: &tsr_binder::BindResult<'_>,
+    nodes: &tsr_ast::NodeTable,
+    node_map: &tsr_ast::NodeMap<'_>,
+    module: tsr_binder::SymbolId,
+    alias: &str,
+    want: &str,
+    error: tsr_checker::TypeId,
+) -> (&'static str, String) {
+    let Some(&assignment_symbol) = bound.symbols().get(module).exports.get("export=") else {
+        return ("no export=", String::new());
+    };
+    let Some(&declaration) =
+        bound.symbols().get(assignment_symbol).declarations.first()
+    else {
+        return ("export= symbol has no declaration", String::new());
+    };
+    let Some(Node::ExportAssignment(assignment)) = node_map.get(declaration) else {
+        return ("export= declaration is not an ExportAssignment", String::new());
+    };
+    let Some(tsr_ast::Expression::Identifier(target_name)) = assignment.expression else {
+        return ("export= expression is not an identifier", String::new());
+    };
+    let Some(id) = target_name.node_id else {
+        return ("identifier has no id", String::new());
+    };
+    let Some(resolved) = bound.resolve_name(
+        nodes,
+        node_map,
+        id,
+        target_name.text,
+        SymbolFlags::NAMESPACE | SymbolFlags::TYPE | SymbolFlags::VALUE,
+    ) else {
+        return ("export= target does not resolve", String::new());
+    };
+    let resolved = bound.merged_symbol(resolved);
+    let answer = checker.get_type_of_symbol(resolved);
+    if answer == error {
+        return ("target resolves, its own type still errors", String::new());
+    }
+    let text = checker.type_to_string(answer);
+    if text == want {
+        return ("CONVERTS as-is", format!("want `{want}`"));
+    }
+    let renamed = replace_token(&text, target_name.text, alias);
+    if renamed == want {
+        ("CONVERTS with the RENAME", format!("`{text}` -> `{renamed}`"))
+    } else {
+        ("would print WRONG", format!("want `{want}`, got `{text}` / renamed `{renamed}`"))
+    }
+}
+
+/// Whole-token replacement — `examples/qualnamep.rs`'s `replace_token`,
+/// reproduced (an example cannot import another example).
+fn replace_token(text: &str, token: &str, with: &str) -> String {
+    let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$' || c == '.';
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(offset) = rest.find(token) {
+        let before = &rest[..offset];
+        let after = &rest[offset + token.len()..];
+        let ok = before.chars().next_back().is_none_or(|c| !ident(c))
+            && after.chars().next().is_none_or(|c| !ident(c));
+        out.push_str(before);
+        out.push_str(if ok { with } else { token });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The **ambient** module a specifier names — `tryFindAmbientModule`
 /// (`checker.go:15533`). Upstream keys ambient modules under the *quoted*
 /// name; this binder stores the literal's text unquoted (`module_name`,
@@ -1143,6 +1257,8 @@ fn report(reports: &[CaseReport]) {
     let mut forecast: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut forecast_lines: BTreeMap<String, usize> = BTreeMap::new();
     let (mut import_form_alias_in_scope, mut ambiguous_choice) = (0usize, 0usize);
+    let mut exporteq: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut exporteq_lines: BTreeMap<String, usize> = BTreeMap::new();
 
     for case in reports {
         for (&outcome, &count) in &case.forecast {
@@ -1153,6 +1269,12 @@ fn report(reports: &[CaseReport]) {
         }
         import_form_alias_in_scope += case.import_form_alias_in_scope;
         ambiguous_choice += case.ambiguous_choice;
+        for (&outcome, &count) in &case.exporteq {
+            *exporteq.entry(outcome).or_default() += count;
+        }
+        for (line, &count) in &case.exporteq_lines {
+            *exporteq_lines.entry(line.clone()).or_default() += count;
+        }
         for (&mock, &count) in &case.seam_worst {
             *seam_worst.entry(mock).or_default() += count;
         }
@@ -1276,6 +1398,17 @@ fn report(reports: &[CaseReport]) {
     ranked.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
     for (line, count) in ranked.iter().take(40) {
         println!("{count:>9}  {}", truncate(line, 150));
+    }
+
+    println!("\n=== THE EXPORT= CHAIN, mocked per seed (decl-name lines only) ===");
+    for (outcome, count) in &exporteq {
+        println!("{count:>9}  {outcome}");
+    }
+    let mut ranked: Vec<(&String, &usize)> = exporteq_lines.iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+    println!();
+    for (line, count) in ranked.iter().take(25) {
+        println!("{count:>9}  {}", truncate(line, 140));
     }
 
     println!("\n=== what upstream prints, UNSPELLABLE half (top 25) ===");

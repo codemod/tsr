@@ -522,6 +522,62 @@ fn symbol_aliased_in_scope<'a>(
     })
 }
 
+/// The name upstream's `getAccessibleSymbolChain` scope walk would print for
+/// `symbol` at `site` — **the innermost table wins**, and within a table the
+/// direct hit is checked before the aliases (`trySymbolTable`,
+/// `symbolaccessibility.go:543` then `:562`). `Ok(name)` — which may be the
+/// symbol's own name (direct hit) or an alias's; `Err(true)` = a table held
+/// ≥2 distinct alias names (the chain-choice rule would decide); `Err(false)`
+/// = no table in scope reaches the symbol at all.
+fn best_name<'a>(
+    program: &tsr_compiler::Program<'a>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    site: NodeId,
+    symbol: SymbolId,
+) -> Result<&'a str, bool> {
+    let own = binder.symbols().get(symbol).name;
+    let mut tables: Vec<&tsr_binder::SymbolTable<'a>> = Vec::new();
+    let mut current = Some(site);
+    while let Some(node) = current {
+        if let Some(locals) = binder.locals(node) {
+            tables.push(locals);
+        }
+        current = nodes.parent(node);
+    }
+    tables.push(binder.globals());
+    for table in tables {
+        // Direct: the table holds the symbol under its own name.
+        if let Some(&hit) = table.get(own)
+            && binder.merged_symbol(hit) == binder.merged_symbol(symbol)
+        {
+            return Ok(own);
+        }
+        // Aliases: any entry resolving to the symbol.
+        let mut found: Option<&'a str> = None;
+        for (&name, &candidate) in table.iter() {
+            if !binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
+                continue;
+            }
+            if alias_target(program, binder, nodes, map, candidate)
+                != Some(binder.merged_symbol(symbol))
+            {
+                continue;
+            }
+            match found {
+                Some(existing) if existing == name => {}
+                Some(_) => return Err(true),
+                None => found = Some(name),
+            }
+        }
+        if let Some(name) = found {
+            return Ok(name);
+        }
+    }
+    Err(false)
+}
+
 /// The unique in-scope alias name for `container` at `site` — the probe-side
 /// reduction of `Checker::module_name_at`. `Ok(name)`; `Err(true)` when ≥2
 /// distinct names reach it (ambiguous); `Err(false)` when none does.
@@ -736,6 +792,10 @@ struct Report {
     /// CONVERTS / WOULD-WRONG / AT RISK / NO-OP / GAP.
     arm_outcomes: BTreeMap<(&'static str, &'static str), usize>,
     arm_lines: BTreeMap<String, usize>,
+    /// The RENAME design — `best_name`'s innermost-table walk producing a
+    /// DIFFERENT name than the symbol's own, over every strict-gate line.
+    rename_outcomes: BTreeMap<&'static str, usize>,
+    rename_lines: BTreeMap<String, usize>,
     /// The FILE half, split by what the baseline wants: `import(` — needs the
     /// `modulespecifiers` package — versus anything else, which an accessible
     /// **alias** could in principle spell without one.
@@ -806,6 +866,9 @@ impl Report {
         for (&key, n) in &other.arm_outcomes {
             *self.arm_outcomes.entry(key).or_default() += n;
         }
+        for (&key, n) in &other.rename_outcomes {
+            *self.rename_outcomes.entry(key).or_default() += n;
+        }
         for (target, source) in [
             (&mut self.converts_lines, &other.converts_lines),
             (&mut self.converts_cases, &other.converts_cases),
@@ -820,6 +883,7 @@ impl Report {
             (&mut self.cp4_audit, &other.cp4_audit),
             (&mut self.cp6_unmerged_lines, &other.cp6_unmerged_lines),
             (&mut self.arm_lines, &other.arm_lines),
+            (&mut self.rename_lines, &other.rename_lines),
             (&mut self.file_lines, &other.file_lines),
         ] {
             for (key, n) in source {
@@ -968,6 +1032,33 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 if let Some((prefix, suffix)) = split_around_name(&printed, name) {
                     if is_gap {
                         report.gap_reached += 1;
+                    }
+                    // The RENAME design — the innermost-table walk of
+                    // `getAccessibleSymbolChain` producing a *different* name
+                    // than the symbol's own (an inner alias shadowing an outer
+                    // direct hit). Priced over every strict-gate line, because
+                    // its at-risk population is every RIGHT line whose bare
+                    // name upstream also chose.
+                    if !is_gap
+                        && let Ok(better) = best_name(&program, bound, nodes, map, id, symbol)
+                        && better != name
+                    {
+                        let forecast = format!("{prefix}{better}{suffix}");
+                        let outcome = if is_right {
+                            "AT RISK"
+                        } else if forecast == wanted {
+                            "CONVERTS"
+                        } else {
+                            "WOULD-WRONG"
+                        };
+                        *report.rename_outcomes.entry(outcome).or_default() += 1;
+                        *report
+                            .rename_lines
+                            .entry(format!(
+                                "{outcome:<11} want `{wanted}`, `{printed}` -> `{forecast}`  [{}]",
+                                case.name
+                            ))
+                            .or_default() += 1;
                     }
                     let meaning = SymbolFlags::TYPE | SymbolFlags::VALUE;
                     let has_container = bound.symbols().get(symbol).parent.is_some();
@@ -1370,6 +1461,12 @@ fn main() {
         println!("  {arm:<16} {outcome:<12} {n:>7}");
     }
     print_map("container-qualifier forecast, verbatim", &report.arm_lines, 60);
+
+    println!("\n## The RENAME design — best_name differs from the symbol's own\n");
+    for (outcome, n) in &report.rename_outcomes {
+        println!("  {outcome:<12} {n:>7}");
+    }
+    print_map("rename forecast, verbatim", &report.rename_lines, 40);
     println!("\n## bd tsr-xpb8 — the FILE half, by what the baseline wants\n");
     println!(
         "  want contains `import(`  (modulespecifiers only)        {:>7}",

@@ -518,3 +518,53 @@ declines on ambiguity rather than falling through to `import("…")` — so the
 checker gained the tri-state `module_alias_at` and `module_name_at` became a
 one-line wrapper. The 38 converting cases and +4 finished say the wiring is
 the probe's.
+
+### 10.8 The `export =` chain — sized, and its bar
+
+The with-lib probe's 714 `export = X, still error` lines decompose into a
+three-arm build, priced per **seed** (declaration-name lines; members and
+cascade are unpriced upside) by `mock_export_equals_chain` in
+`module_object.rs`, and by the RENAME column in `qualnamep.rs`:
+
+```
+  101  CONVERTS as-is                  (target's type text already IS the want)
+  201  CONVERTS with the RENAME        (typeof __React -> typeof React)
+   23  would print WRONG
+   68  target resolves, its own type still errors     downstream, no claim
+   20  non-identifier / non-assignment export= shapes  declined
+```
+
+The arms:
+
+1. **`getTargetOfExportAssignment`** (`checker.go:14889`): `resolve_alias`
+   gains the `ExportAssignment` arm — resolve the assignment's *identifier*
+   expression where it is written; every other expression shape declines.
+2. **`resolveExternalModuleSymbol` follows through**: `module_object_of`'s
+   deliberate export= decline reverses — the naming constraint that justified
+   it is answered by arm 3.
+3. **The RENAME** — `best_name`, the innermost-table walk of
+   `getAccessibleSymbolChain` (direct hit before aliases, per table,
+   innermost first): a type whose symbol's bare name is shadowed by an inner
+   alias prints the alias's name. **Measured over every strict-gate line in
+   the corpus: the rename changes ZERO currently-printed lines** — its whole
+   population is today's gaps, so its at-risk column is 0 by measurement,
+   not by argument.
+
+**The bar, registered before any checker code:**
+
+- **Leg 1 — net ≥ +230.** Rule: ~75% of the 302 seed converts; the discount
+  owns probe-vs-checker drift (meaning flags in the assignment resolution,
+  `resolve_alias` shape coverage).
+- **Leg 2 — mechanism-own new wrong ≤ 46**, global Δwrong beside it. Rule:
+  2× the counterfactual's 23.
+- **Leg 3 — cases regressed == 0.**
+- **Leg 4 — lost (RIGHT→WRONG) ≤ 10.** The rename measured 0 at risk; the
+  margin owns site-less `type_to_string` callers printing the baked
+  `__React` text where the site-aware path renames — mixed renderings of one
+  type are the named hazard.
+
+Falsifiers, ordered: (1) lost > 10 → find the site-less caller leaking the
+baked name; (2) net far below 230 → the assignment resolution's meaning
+flags — upstream resolves with all meanings, compare on
+`es6ExportEqualsInterop`; (3) new wrong far above 46 concentrated in member
+reads → the cascade is minting, read the owners before reverting.
