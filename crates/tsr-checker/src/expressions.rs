@@ -16,6 +16,15 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
+/// `AssignmentKind` (`internal/checker/utilities.go`): how a reference is
+/// written, which decides whether `checkIdentifier` narrows it at all.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AssignmentTargetKind {
+    None,
+    Definite,
+    Compound,
+}
+
 impl Checker<'_, '_> {
     /// The type of an expression.
     ///
@@ -129,18 +138,39 @@ impl Checker<'_, '_> {
                         // does not ask.
                         if self.is_narrowable_symbol(symbol) {
                             let node_id = node.node_id.expect("checked above");
-                            let flowed =
-                                self.get_flow_type_of_reference(node_id, Some(symbol), declared);
-                            // `checker.go:11196`: the TARGET of a compound
-                            // assignment reads at the literal's base — `x |= …`
-                            // sees `boolean`, not the narrowed `true`
-                            // (`bitwiseCompoundAssignmentOperators.types`;
-                            // `checker-notes-narrow.md` §10). Plain `=` targets
-                            // are untouched, which is the bar's falsifier.
-                            if self.is_compound_assignment_target(node_id) {
-                                self.get_base_type_of_literal_type(flowed)
-                            } else {
-                                flowed
+                            match self.assignment_target_kind(node_id) {
+                                // `checker.go:11109`: a variable in a definite
+                                // assignment-target position is returned at its
+                                // DECLARED type — no flow analysis. This is what
+                                // makes `x` in `x = foo(x)` print the full
+                                // declared union, and an auto-typed target print
+                                // `any` (`controlFlowSelfReferentialLoop.types:160`;
+                                // `checker-notes-narrow.md` §12.7). A
+                                // compound-like assignment (`x = x + 1`) reads at
+                                // the literal's base, exactly as `x += 1` would.
+                                AssignmentTargetKind::Definite => {
+                                    if self.is_in_compound_like_assignment(node_id) {
+                                        self.get_base_type_of_literal_type(declared)
+                                    } else {
+                                        declared
+                                    }
+                                }
+                                // `checker.go:11196`: the TARGET of a compound
+                                // assignment reads at the literal's base — `x |= …`
+                                // sees `boolean`, not the narrowed `true`
+                                // (`bitwiseCompoundAssignmentOperators.types`;
+                                // `checker-notes-narrow.md` §10).
+                                AssignmentTargetKind::Compound => {
+                                    let flowed = self.get_flow_type_of_reference(
+                                        node_id,
+                                        Some(symbol),
+                                        declared,
+                                    );
+                                    self.get_base_type_of_literal_type(flowed)
+                                }
+                                AssignmentTargetKind::None => {
+                                    self.get_flow_type_of_reference(node_id, Some(symbol), declared)
+                                }
                             }
                         } else {
                             declared
@@ -1149,35 +1179,142 @@ fn negate_number_text(normalised: &str) -> Option<String> {
 }
 
 impl Checker<'_, '_> {
-    /// Whether this identifier is the left-hand side of a COMPOUND assignment
-    /// — `getAssignmentTargetKind`'s compound half, reduced to the one
-    /// consumer at `checker.go:11196`.
-    fn is_compound_assignment_target(&self, id: NodeId) -> bool {
-        let Some(parent) = self.nodes.parent(id) else { return false };
-        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
+    /// The assignment-target walk plus kind classification —
+    /// `ast.GetAssignmentTarget` (`internal/ast/utilities.go:184`) and
+    /// `getAssignmentTargetKind` (`internal/checker/utilities.go:90`). A `=`
+    /// or logical-assignment binary and a for-in/for-of initializer position
+    /// are DEFINITE; other assignment operators and `++`/`--` are COMPOUND.
+    /// The walk climbs parentheses, array literals, spreads, non-null
+    /// assertions, and the object-literal assignment shapes, so destructuring
+    /// targets classify the same as direct ones.
+    fn assignment_target_kind(&self, id: NodeId) -> AssignmentTargetKind {
+        self.assignment_target(id).map_or(AssignmentTargetKind::None, |target| {
+            match self.node_map.get(target) {
+                Some(Node::BinaryExpression(binary)) => {
+                    match binary.operator_token.map(|token| token.kind) {
+                        Some(
+                            SyntaxKind::EqualsToken
+                            | SyntaxKind::AmpersandAmpersandEqualsToken
+                            | SyntaxKind::BarBarEqualsToken
+                            | SyntaxKind::QuestionQuestionEqualsToken,
+                        ) => AssignmentTargetKind::Definite,
+                        _ => AssignmentTargetKind::Compound,
+                    }
+                }
+                Some(Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_)) => {
+                    AssignmentTargetKind::Compound
+                }
+                Some(Node::ForInOrOfStatement(_)) => AssignmentTargetKind::Definite,
+                _ => AssignmentTargetKind::None,
+            }
+        })
+    }
+
+    /// The `BinaryExpression`, unary increment/decrement, or
+    /// for-in/for-of statement that references `id` as an assignment target —
+    /// `ast.GetAssignmentTarget` (`internal/ast/utilities.go:184`).
+    fn assignment_target(&self, id: NodeId) -> Option<NodeId> {
+        let mut current = id;
+        loop {
+            let parent = self.nodes.parent(current)?;
+            match self.node_map.get(parent)? {
+                Node::BinaryExpression(binary) => {
+                    let is_assignment = binary.operator_token.is_some_and(|token| {
+                        matches!(
+                            token.kind,
+                            SyntaxKind::EqualsToken
+                                | SyntaxKind::PlusEqualsToken
+                                | SyntaxKind::MinusEqualsToken
+                                | SyntaxKind::AsteriskEqualsToken
+                                | SyntaxKind::AsteriskAsteriskEqualsToken
+                                | SyntaxKind::SlashEqualsToken
+                                | SyntaxKind::PercentEqualsToken
+                                | SyntaxKind::LessThanLessThanEqualsToken
+                                | SyntaxKind::GreaterThanGreaterThanEqualsToken
+                                | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+                                | SyntaxKind::AmpersandEqualsToken
+                                | SyntaxKind::BarEqualsToken
+                                | SyntaxKind::CaretEqualsToken
+                                | SyntaxKind::AmpersandAmpersandEqualsToken
+                                | SyntaxKind::BarBarEqualsToken
+                                | SyntaxKind::QuestionQuestionEqualsToken
+                        )
+                    });
+                    let left = binary.left.and_then(|l| Node::from(l).node_id());
+                    return (is_assignment && left == Some(current)).then_some(parent);
+                }
+                Node::PrefixUnaryExpression(unary) => {
+                    return matches!(
+                        unary.operator.kind,
+                        SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken
+                    )
+                    .then_some(parent);
+                }
+                Node::PostfixUnaryExpression(unary) => {
+                    return matches!(
+                        unary.operator.kind,
+                        SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken
+                    )
+                    .then_some(parent);
+                }
+                Node::ForInOrOfStatement(statement) => {
+                    let initializer = statement.initializer.and_then(|i| Node::from(i).node_id());
+                    return (initializer == Some(current)).then_some(parent);
+                }
+                Node::ParenthesizedExpression(_)
+                | Node::ArrayLiteralExpression(_)
+                | Node::SpreadElement(_)
+                | Node::NonNullExpression(_) => current = parent,
+                // The object-literal assignment shapes hop to the literal
+                // itself, whose parent the next iteration classifies.
+                Node::SpreadAssignment(_) => current = self.nodes.parent(parent)?,
+                Node::ShorthandPropertyAssignment(shorthand) => {
+                    if Node::from(shorthand.name).node_id() != Some(current) {
+                        return None;
+                    }
+                    current = self.nodes.parent(parent)?;
+                }
+                Node::PropertyAssignment(property) => {
+                    if Node::from(property.name).node_id() == Some(current) {
+                        return None;
+                    }
+                    current = self.nodes.parent(parent)?;
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// `isInCompoundLikeAssignment` (`internal/checker/utilities.go:118`): a
+    /// definite `=` whose right side (parentheses skipped) is a
+    /// shift-or-higher binary — `x = x + 1` reads its target like `x += 1`.
+    fn is_in_compound_like_assignment(&self, id: NodeId) -> bool {
+        let Some(target) = self.assignment_target(id) else { return false };
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(target) else {
             return false;
         };
-        if binary.left.and_then(|l| Node::from(l).node_id()) != Some(id) {
+        if binary.operator_token.map(|token| token.kind) != Some(SyntaxKind::EqualsToken) {
             return false;
         }
-        binary.operator_token.is_some_and(|token| {
+        let mut right = binary.right;
+        while let Some(Expression::ParenthesizedExpression(inner)) = right {
+            right = inner.expression;
+        }
+        let Some(Expression::BinaryExpression(inner)) = right else { return false };
+        // `isShiftOperatorOrHigher`: shift, additive, multiplicative,
+        // exponentiation.
+        inner.operator_token.is_some_and(|token| {
             matches!(
                 token.kind,
-                SyntaxKind::PlusEqualsToken
-                    | SyntaxKind::MinusEqualsToken
-                    | SyntaxKind::AsteriskEqualsToken
-                    | SyntaxKind::AsteriskAsteriskEqualsToken
-                    | SyntaxKind::SlashEqualsToken
-                    | SyntaxKind::PercentEqualsToken
-                    | SyntaxKind::LessThanLessThanEqualsToken
-                    | SyntaxKind::GreaterThanGreaterThanEqualsToken
-                    | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
-                    | SyntaxKind::AmpersandEqualsToken
-                    | SyntaxKind::BarEqualsToken
-                    | SyntaxKind::CaretEqualsToken
-                    | SyntaxKind::AmpersandAmpersandEqualsToken
-                    | SyntaxKind::BarBarEqualsToken
-                    | SyntaxKind::QuestionQuestionEqualsToken
+                SyntaxKind::LessThanLessThanToken
+                    | SyntaxKind::GreaterThanGreaterThanToken
+                    | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
+                    | SyntaxKind::PlusToken
+                    | SyntaxKind::MinusToken
+                    | SyntaxKind::AsteriskToken
+                    | SyntaxKind::SlashToken
+                    | SyntaxKind::PercentToken
+                    | SyntaxKind::AsteriskAsteriskToken
             )
         })
     }

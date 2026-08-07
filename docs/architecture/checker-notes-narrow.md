@@ -1084,3 +1084,13 @@ union) flip. Falsifiers: (a) upstream narrows nothing at definite targets,
 so no current RIGHT line should depend on flow analysis at one — any R→W
 here means the kind walk misclassifies; (b) the existing compound behavior
 (flow, then base-of-literal) must not move — it is the §10 bar re-asserted.
+
+**§12.7 score — LANDED, the session's cleanest sweep.** **+692 WRONG→RIGHT,
++2 GAP→RIGHT, ZERO adverse transitions.** `checker_types` 74.48% → **74.62%**,
+right 356,716 → **357,410**, cases 3,041 → **3,064** — both §12.6-regressed
+cases recovered, net +21 cases over the pre-§12.6 board. Both falsifiers
+held: no RIGHT line depended on flow analysis at a definite target, and the
+compound behavior did not move. The remaining iteration-family residue:
+overload-failure `never` (`foo(x) : never` on converged union arguments —
+a callres question, not a flow one) and the §12.6 under-accumulation lines
+(`narrowingPastLastAssignment`, `controlFlowLoopAnalysis:0:25`).
