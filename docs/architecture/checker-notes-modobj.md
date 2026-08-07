@@ -735,3 +735,26 @@ regressed == 0; lost ≤ 5. Falsifier: losses concentrated in `.d.ts`-heavy
 cases → upstream keeps the braces form for a *written* literal in some
 position this dump's want-side cannot distinguish — stop and split by
 position before overriding.
+
+#### §10.15 scored — the bar's falsifier fired verbatim, and the build is REVERTED
+
+Measured: WRONG→RIGHT 1,664 — **and RIGHT→WRONG 112 against a ≤ 5 leg**.
+The losses read exactly like the registered falsifier said they would:
+`(fn: { (n: number): string; }, …) => string` right today, the collapse
+rewrote the *embedded written* literal to the arrow form
+(`compiler/anonterface`, `functionLiterals`, `generatedContextualTyping`).
+**Upstream's collapse is a node-builder behaviour applied where the type is
+being freshly rendered; a literal *written* in a parameter slot keeps its
+written braces through node reuse** (`tryReuseExistingTypeNode`), and a
+type-creation rewrite cannot make that distinction. Reverted whole, the
+project's rule — the 1,664 are not a trade against 112 manufactured losses
+of a *positional* rule the build cannot express.
+
+What survives: the sizing (1,093 root-position converts, at-risk 0 **for
+root positions**), and the design requirement the failure names — the
+collapse belongs at print time with written-node carriage for embedded
+literal annotations (the `Parameter::written_text` mechanism, today carried
+only for `TypeQueryNode`, widened to `TypeLiteralNode` with the *normalized*
+braces rendering). The wider written-reuse refusal (`tsr-a2c`, 9.1 per
+gained) priced raw blanket reuse, not this narrow carriage; a fresh
+counterfactual must price the narrow form before anyone builds it.
