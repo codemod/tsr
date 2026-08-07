@@ -280,6 +280,40 @@ score = (reachable / effort) x feasibility
 | ~~165~~ | **template literal types / `TemplateExpression` — REFUSED with a ratio, fifth session** (`checker-notes-tmplexpr.md`). The old grounds ("the cheap leg is not separable") were re-tested on the fresh 1,890 row and are now measured: the cheap leg alone converts 446 against 590 new wrong (**0.76 per wrong**), the folder-plus-fallback design 515 against 521 (**0.99**). Both are worse than every refusal on this page. The legs **interleave** — 151 lines want `string` exactly where the folder fires | 1,036 | 3 | 0.15 | refused |
 | ~~165~~ | ~~**template literal types.**~~ Refused once: the cheap leg is **not separable**, because upstream's `evaluate` is a syntactic folder consulting no types. Kept on the list because the row survived the session unchanged. | 1,237 | 3 | 0.40 | `declared.rs` |
 
+### 4.2a What is actually left, after a session that emptied most of §4.2
+
+Six of the rows above are struck through and §4.3 lost two more, so the scored
+list no longer reads as a board. Stated plainly, at `a57a04b`:
+
+**Live and scoreable**
+
+| lines | item | note |
+|---:|---|---|
+| 658 / ~460 reachable | overload selection's own gates | score ~41; effort 5. Two of its largest gates are this session's own refusals working as designed |
+| 2,276 / ~1,833 | the **callee-type** family — `callee type is not an object type` 1,398 + `identifier: symbol types as a non-object` 878 | **never split**; the largest unexplored gate in the call funnel. A probe is the next move, not a build |
+| 494 | inference finds **no candidate at all** | surfaced by `infergen.rs` this session and *not* the priority lattice (refused at ~17). Unsized |
+| 399 | `arguments` | §4.3 — three mechanisms wearing one spelling, needs the split first |
+
+**Small, owned, and honest about being small**: accessors 78 (`bd tsr-32y`),
+computed names 219, design P's outer symbol chain 13, discriminated-union
+narrowing on `switch` (`bd tsr-5kii`, **unsized** — do not quote the 20 that
+exposed it), the value-name convertible bucket 70 (a *lower* bound).
+
+**Refused, each with its number** — §5. Do not re-derive: inference's remaining
+legs (~17), the ternary as an item (0 marginal), template literals (0.76 / 0.99),
+`removeSubtypes` (1.03), contextual typing (86% entangled, reproduced a **third**
+time this session *after* three call-resolution builds), JSX (blocked on
+`declare global` augmentation).
+
+> **The honest read: no single item on this list is worth more than a few hundred
+> lines, and §4.4's conclusion has now been paid for twice over.** The two builds
+> that moved this session (+3,590, +2,973) did not come from this table at all —
+> they came from re-measuring a refusal that had stood for four cycles on a cost
+> belonging to a different design. **The highest-expected-value move available is
+> not the top row of §4.2; it is re-measuring §5.** Two of the entries there are
+> older than four builds, and the last three sessions have retired more gradient
+> by re-reading refusals than by ranking rows.
+
 ### 4.3 Measurement first — cheap probes that unlock a score
 
 None of these can be scored yet, and each is one probe. **Quoting any of these
