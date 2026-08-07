@@ -2508,3 +2508,48 @@ case without putting any of the 45 lines back.
 > over-approximating. This one tested "is there a guard naming this?" when the
 > question was "is there a guard naming this **that I cannot follow**?" — and the
 > second is barely more code.
+
+### 38.2 The class static side, when the class has no base — +4
+
+```
+diagnostics 1,063 -> 1,067   (+4)
+```
+
+§35's argument applied once more. `get_property_of_anonymous_symbol` names
+exactly one inheritance gap for a `typeof C` receiver —
+`getBaseConstructorTypeOfClass` — and **a class that extends nothing cannot reach
+it**. So a non-generic class with no heritage clause has a complete static table,
+and `C.missing` is a genuine TS2339.
+
+That is the third shape §35's reading unlocked (namespace, enum, base-less
+class), for the same nine-line condition each time. **The completeness predicate
+should be read as a list of mechanisms and checked shape by shape**, which is
+what its own header claims and what nothing had done until §35.
+
+---
+
+## 39. Where the audit ends
+
+Every decline this session wrote has now been re-run against the compiler that
+exists at the end of it. Seven moved, six were confirmed exact, and the totals
+are **+18 cases for no new machinery at all**:
+
+| moved | audited to |
+|---|---:|
+| §16's unnarrowed-reference (deleted) | +6 |
+| §35's `Anonymous` receivers (namespace, enum) | +24 |
+| §38.2's `Anonymous` receivers (base-less class) | +4 |
+| §21's dotted-name receiver (deleted) | +2 |
+| §18's contextual-typing positions (widened) | +2 |
+| §37.2's borrowed `.js` declines (deleted) | +3 |
+| §38.1's TS2454 guard (narrowed, not removed) | +1 |
+
+Confirmed exact and left alone: the index-signature and computed-name conditions,
+the enum veto (now a measured no-op), the optional-chain decline,
+`implicit_any`'s `.js` decline (measured, unlike §37.2's), the `unknown` veto, the
+empty-target and object-literal-versus-union declines.
+
+**The procedure, for the next session:** disable one condition, run coverage,
+keep or revert. Run it after any build that changes what the port can *decide* —
+§25 (`relate_ternary`) and §35 (`Anonymous` completeness) each silently
+invalidated gates written before them.

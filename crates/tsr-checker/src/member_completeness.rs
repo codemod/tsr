@@ -81,12 +81,26 @@ impl Checker<'_, '_> {
             TypeData::Anonymous { symbol, .. } => {
                 let symbol = *symbol;
                 let flags = self.binder.symbols().get(symbol).flags;
-                if !flags.intersects(SymbolFlags::MODULE.union(SymbolFlags::ENUM))
-                    || flags.intersects(SymbolFlags::CLASS)
+                if flags.intersects(SymbolFlags::MODULE.union(SymbolFlags::ENUM))
+                    && !flags.intersects(SymbolFlags::CLASS)
                 {
+                    return true;
+                }
+                // A **class** static side is decidable too when the class has no
+                // base — `getBaseConstructorTypeOfClass` is the only gap
+                // `get_property_of_anonymous_symbol` names for it, and a class
+                // that extends nothing cannot reach it.
+                if !flags.intersects(SymbolFlags::CLASS) {
                     return false;
                 }
-                return true;
+                let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
+                return declarations.iter().all(|declaration| {
+                    matches!(
+                        self.node_map.get(*declaration),
+                        Some(Node::ClassDeclaration(class))
+                            if class.type_parameters.is_empty() && class.heritage_clauses.is_empty()
+                    )
+                });
             }
             _ => return false,
         };
