@@ -517,6 +517,12 @@ impl Relater<'_, '_, '_> {
             Some(false) => return Ternary::NotRelated,
             None => {}
         }
+        // §17 (`checker-notes-assign.md`): both-own-private class pairs are
+        // nominal — NotRelated by the private-identity rule, decided from
+        // syntax.
+        if let Some(answer) = self.checker.nominal_class_pair_verdict(source, target) {
+            return if answer { Ternary::Related } else { Ternary::NotRelated };
+        }
         let composite = TypeFlags::UNION.union(TypeFlags::INTERSECTION);
         let s = self.checker.type_of(source).flags;
         let t = self.checker.type_of(target).flags;

@@ -794,6 +794,79 @@ impl crate::checker::Checker<'_, '_> {
         Some(self.get_union_type(&kept))
     }
 
+    /// The §17 nominal verdict (`checker-notes-assign.md`): `Some(false)`
+    /// when two class instances with DIFFERENT symbols each declare an OWN
+    /// privacy marker (or one does and neither has heritage); `None` — no
+    /// claim — everywhere else.
+    pub(crate) fn nominal_class_pair_verdict(
+        &self,
+        source: crate::types::TypeId,
+        target: crate::types::TypeId,
+    ) -> Option<bool> {
+        let source_symbol = self.class_instance_symbol(source)?;
+        let target_symbol = self.class_instance_symbol(target)?;
+        if self.binder.merged_symbol(source_symbol) == self.binder.merged_symbol(target_symbol) {
+            return None;
+        }
+        let (source_private, source_heritage) = self.class_privacy_and_heritage(source_symbol)?;
+        let (target_private, target_heritage) = self.class_privacy_and_heritage(target_symbol)?;
+        if source_private && target_private {
+            return Some(false);
+        }
+        if (source_heritage || target_heritage) && (source_private || target_private) {
+            return None;
+        }
+        if source_private || target_private {
+            return Some(false);
+        }
+        None
+    }
+
+    /// `(declares_own_privacy, has_heritage)` for a class symbol, from its
+    /// declaration's syntax.
+    fn class_privacy_and_heritage(&self, symbol: tsr_binder::SymbolId) -> Option<(bool, bool)> {
+        let declaration = self.binder.symbols().get(symbol).value_declaration?;
+        let Some(tsr_ast::Node::ClassDeclaration(class)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let has_heritage = !class.heritage_clauses.is_empty();
+        let has_privacy = class.members.iter().any(|member| {
+            let node = tsr_ast::Node::from(*member);
+            let Some(id) = node.node_id() else { return false };
+            if let Some(tsr_ast::Node::PropertyDeclaration(property)) = self.node_map.get(id) {
+                if matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_)) {
+                    return true;
+                }
+                return property.modifiers.iter().any(|modifier| {
+                    tsr_ast::Node::from(*modifier).node_id().is_some_and(|m| {
+                        matches!(
+                            self.nodes.kind(m),
+                            tsr_ast::SyntaxKind::PrivateKeyword
+                                | tsr_ast::SyntaxKind::ProtectedKeyword
+                        )
+                    })
+                });
+            }
+            false
+        });
+        Some((has_privacy, has_heritage))
+    }
+
+    /// `is_class_instance` with the symbol kept.
+    fn class_instance_symbol(&self, id: crate::types::TypeId) -> Option<tsr_binder::SymbolId> {
+        let symbol = match &self.store.get(id).data {
+            crate::types::TypeData::Named { members: Some(symbol), .. }
+            | crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            _ => self.type_reference_targets.get(&id).map(|(symbol, _)| *symbol),
+        }?;
+        self.binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(tsr_binder::SymbolFlags::CLASS)
+            .then_some(symbol)
+    }
+
     /// Whether a type is a class **instance** type — the shape upstream's
     /// `removeSubtypes` guards with `ObjectFlagsClass`.
     fn is_class_instance(&self, id: crate::types::TypeId) -> bool {

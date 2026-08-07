@@ -144,12 +144,14 @@ impl Checker<'_, '_> {
                     return error;
                 }
                 match self.union_with_subtype_reduction(&elements) {
-                    Some(subtype_reduced)
-                        if self.object_constituent_count(subtype_reduced) <= 1 =>
-                    {
-                        subtype_reduced
-                    }
-                    _ => return error,
+                    // A DECIDABLE reduction is the answer whatever survives —
+                    // the old `count <= 1` gate was §13's conservatism, and
+                    // it rejected upstream's own multi-survivor unions
+                    // (`(Derived1 | Derived2)[]`, the §7/§17 investigation's
+                    // terminus: the reducer decided all along and the ARRAY
+                    // arm threw the answer away). Undecidable stays a gap.
+                    Some(subtype_reduced) => subtype_reduced,
+                    None => return error,
                 }
             } else {
                 reduced

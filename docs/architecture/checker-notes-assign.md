@@ -859,3 +859,17 @@ to read — the same missing-members fact that makes the relater answer
 Unknown is what starves the syntactic shortcut. The prerequisite is
 `bd tsr-4sc.7`'s class members slice, full stop; recorded so the next
 session builds THAT and not a third variant of this.
+
+**§17 — UN-REFUSED and LANDED, the diagnosis corrected loudly.** The
+refusal's "prerequisite is the members slice" was WRONG: class instances
+DO carry `Named { members: Some }` (a lib-less probe verified member
+access through them), the nominal arm fires, and the true terminus was
+`check_array_literal`'s `count <= 1` gate throwing away DECIDABLE
+multi-survivor reductions. With the arm re-applied and the gate relaxed
+to "decidable is the answer": **+784 (760 G→R, 24 W→R) / 7 G→W** —
+`generatedContextualTyping` converted 779 of its 900. Three lessons in
+one: a refusal's diagnosis is itself a claim the next probe must test;
+the lib-less micro-probe found in minutes what the corpus measurement
+mis-attributed; and a conservatism gate can survive long past the
+machinery that justified it. `checker_types` right 389,041 → **389,825
+(81.39%)**.
