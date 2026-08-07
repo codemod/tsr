@@ -36,6 +36,47 @@ fn emit(source: &str) -> String {
     result.text
 }
 
+#[test]
+fn preserved_references_precede_declarations_in_source_order() {
+    use tsr_declarations::{
+        DeclarationReference, DeclarationReferenceKind, DeclarationResolutionMode,
+    };
+
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, "export const x: number = 1;");
+    let mut nodes = parsed.nodes;
+    let references = [
+        DeclarationReference {
+            kind: DeclarationReferenceKind::Lib,
+            file_name: "dom".into(),
+            resolution_mode: DeclarationResolutionMode::None,
+            position: 20,
+        },
+        DeclarationReference {
+            kind: DeclarationReferenceKind::Path,
+            file_name: "a&b.ts".into(),
+            resolution_mode: DeclarationResolutionMode::None,
+            position: 10,
+        },
+        DeclarationReference {
+            kind: DeclarationReferenceKind::Types,
+            file_name: "node".into(),
+            resolution_mode: DeclarationResolutionMode::Require,
+            position: 30,
+        },
+    ];
+    let result =
+        tsr_declarations::emit_with_references(&arena, &mut nodes, parsed.source_file, &references);
+
+    assert_eq!(
+        result.text,
+        "/// <reference path=\"a&amp;b.d.ts\" preserve=\"true\" />\n\
+         /// <reference lib=\"dom\" preserve=\"true\" />\n\
+         /// <reference types=\"node\" resolution-mode=\"require\" preserve=\"true\" />\n\
+         export declare const x: number;"
+    );
+}
+
 /// Assert the emitted text exactly, so spacing and ordering are covered too.
 #[track_caller]
 fn assert_emits(source: &str, expected: &str) {

@@ -109,8 +109,14 @@ impl Suite for DtsEmit {
                     reason: "a unit of this case does not parse cleanly".into(),
                 };
             }
+            let references = declaration_references(&parsed.file_references);
             let mut nodes = parsed.nodes;
-            let result = tsr_declarations::emit(&arena, &mut nodes, parsed.source_file);
+            let result = tsr_declarations::emit_with_references(
+                &arena,
+                &mut nodes,
+                parsed.source_file,
+                &references,
+            );
             if !result.diagnostics.is_empty() {
                 return Outcome::Skipped {
                     reason: "a declaration in this case needs inference (see dts_reachable_target)"
@@ -287,9 +293,52 @@ pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
     if !parsed.diagnostics.is_empty() {
         return false;
     }
+    let references = declaration_references(&parsed.file_references);
     let mut nodes = parsed.nodes;
-    let result = tsr_declarations::emit(&arena, &mut nodes, parsed.source_file);
+    let result =
+        tsr_declarations::emit_with_references(&arena, &mut nodes, parsed.source_file, &references);
     result.unsupported.is_empty() && !result.text.trim().is_empty()
+}
+
+pub(crate) fn declaration_references(
+    references: &tsr_parser::FileReferences,
+) -> Vec<tsr_declarations::DeclarationReference> {
+    use tsr_declarations::{
+        DeclarationReference, DeclarationReferenceKind, DeclarationResolutionMode,
+    };
+
+    let resolution_mode = |mode| match mode {
+        tsr_parser::ResolutionMode::None => DeclarationResolutionMode::None,
+        tsr_parser::ResolutionMode::CommonJS => DeclarationResolutionMode::Require,
+        tsr_parser::ResolutionMode::ESNext => DeclarationResolutionMode::Import,
+    };
+    let convert = |reference: &tsr_parser::FileReference, kind| DeclarationReference {
+        kind,
+        file_name: reference.file_name.clone(),
+        resolution_mode: resolution_mode(reference.resolution_mode),
+        position: reference.span.start,
+    };
+
+    references
+        .referenced_files
+        .iter()
+        .filter(|reference| reference.preserve)
+        .map(|reference| convert(reference, DeclarationReferenceKind::Path))
+        .chain(
+            references
+                .type_reference_directives
+                .iter()
+                .filter(|reference| reference.preserve)
+                .map(|reference| convert(reference, DeclarationReferenceKind::Types)),
+        )
+        .chain(
+            references
+                .lib_reference_directives
+                .iter()
+                .filter(|reference| reference.preserve)
+                .map(|reference| convert(reference, DeclarationReferenceKind::Lib)),
+        )
+        .collect()
 }
 
 #[cfg(test)]

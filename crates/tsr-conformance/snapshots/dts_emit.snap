@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 193/341 (56.60%)
-Failed         : 148
+Passed         : 195/341 (57.18%)
+Failed         : 146
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,7 +12,7 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 148 failures:
+First 100 of 146 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
@@ -124,7 +124,7 @@ compiler/expandoFunctionExpressionsWithDynamicNames
 compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
 compiler/importAliasFromNamespace
-  line 1: want `/// <reference path="internal.d.ts" preserve="true" />`, got `declare namespace SomeOther.Thing {`
+  line 1: want `/// <reference path="internal.d.ts" preserve="true" />`, got `/// <reference path="./internal.d.ts" preserve="true" />`
 compiler/importedAliasedConditionalTypeInstantiation
   line 1: want `export type Handler<TEvent = any, TResult = any> = (`, got `export {};`
 compiler/internalAliasWithDottedNameEmit
@@ -157,8 +157,6 @@ compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 1: want `export declare const thing: {`, got `export declare const thing: { [K in keyof number[] as Exclude<K, "length">]: (number[])[K]; };`
 compiler/methodSignatureDeclarationEmit1
   line 4: want `}`, got `    foo(a: any): void;`
-compiler/missingImportAfterModuleImport
-  line 1: want `/// <reference path="missingImportAfterModuleImport_0.d.ts" preserve="true" />`, got `import SubModule = require('SubModule');`
 compiler/moduleAugmentationDeclarationEmit1
   line 1: want `declare module "./observable" {`, got `import { Observable } from "./observable";`
 compiler/moduleAugmentationDeclarationEmit2
@@ -184,7 +182,7 @@ compiler/moduleDetectionIsolatedModulesCjsFileScope
 compiler/moduleLocalImportNotIncorrectlyRedirected
   line 1: want `import { Position } from './utilities/positioning';`, got `export {};`
 compiler/moduleSymbolMerging
-  line 1: want `/// <reference path="A.d.ts" preserve="true" />`, got `declare namespace A {`
+  line 2: want `declare namespace A { }`, got `declare namespace A {`
 compiler/noEmitOnError
   line 2: missing ``
 compiler/noImplicitAnyDestructuringInPrivateMethod
@@ -213,3 +211,5 @@ compiler/privacyInterfaceExtendsClauseDeclFile
   line 6: want `    export interface publicInterfaceImplementingPublicInterfaceInModule extends publicInterfaceInPublicModule {`, got `    interface privateInterfaceImplementingPublicInterfaceInModule extends publicInterfaceInPublicModule {`
 compiler/privacyTypeParametersOfClassDeclFile
   line 11: want `export declare class publicClassWithPublicTypeParametersWithoutExtends<T> {`, got `declare class privateClassWithPrivateTypeParameters<T extends privateClass> {`
+compiler/privacyTypeParametersOfInterfaceDeclFile
+  line 25: want `export interface publicInterfaceWithPublicTypeParametersWithoutExtends<T> {`, got `interface privateInterfaceWithPrivateTypeParameters<T extends privateClass> {`

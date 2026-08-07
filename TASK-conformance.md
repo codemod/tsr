@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  193/341  = 56.60%  (up from 161/339)
+  dts_emit                  195/341  = 57.18%  (up from 161/339)
   dts_shape                 657/918  = 71.57%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -46,6 +46,12 @@ kept uninitialized ambient enum members uninitialized, stripped `override` from
 interface method signatures, and lowered `import defer` to an ordinary import in
 declaration output. Together these raised `dts_emit` by another 10 cases, again
 without changing declaration shape or printer round-trip.
+
+Preserved triple-slash `path`, `types`, and `lib` references now precede emitted
+declarations in their original mixed-kind order. Path references are rewritten
+to declaration suffixes, resolution modes are retained, and attribute values are
+escaped. This closed another two byte-exact cases without changing declaration
+shape or printer round-trip.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
@@ -189,7 +195,6 @@ difference and address exact-text families independently:
 
   - preserve JSDoc and declaration comments with source-node attachment;
   - preserve original quote style for module specifiers and literal types;
-  - emit triple-slash reference directives in upstream order;
   - reproduce blank lines, multiline empty lists, indentation, and statement
     separators exactly;
   - preserve literal spelling when upstream reuses source text;

@@ -113,6 +113,41 @@ pub struct DeclarationEmit {
     pub inference_required: Vec<Span>,
 }
 
+/// The kind of a preserved triple-slash declaration reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclarationReferenceKind {
+    /// `/// <reference path="…" />`.
+    Path,
+    /// `/// <reference types="…" />`.
+    Types,
+    /// `/// <reference lib="…" />`.
+    Lib,
+}
+
+/// A `types` reference's optional module-resolution phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeclarationResolutionMode {
+    /// No `resolution-mode` attribute.
+    None,
+    /// `resolution-mode="require"`.
+    Require,
+    /// `resolution-mode="import"`.
+    Import,
+}
+
+/// A triple-slash reference to preserve in declaration output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclarationReference {
+    /// Reference kind and attribute name.
+    pub kind: DeclarationReferenceKind,
+    /// Referenced path, package, or library.
+    pub file_name: String,
+    /// Optional resolution phase for `types` references.
+    pub resolution_mode: DeclarationResolutionMode,
+    /// Byte position in the source preamble, used to restore mixed-kind order.
+    pub position: u32,
+}
+
 /// Emit the `.d.ts` text for one parsed file.
 ///
 /// `nodes` is taken by `&mut` because the transform synthesizes nodes — a
@@ -125,6 +160,17 @@ pub fn emit<'a>(
     nodes: &mut NodeTable,
     file: &'a SourceFile<'a>,
 ) -> DeclarationEmit {
+    emit_with_references(arena, nodes, file, &[])
+}
+
+/// Emit declarations and prepend explicitly preserved triple-slash references.
+#[must_use]
+pub fn emit_with_references<'a>(
+    arena: &'a Arena,
+    nodes: &mut NodeTable,
+    file: &'a SourceFile<'a>,
+    references: &[DeclarationReference],
+) -> DeclarationEmit {
     let diagnostics = tsr_dts::analyze(file, nodes);
     let resolver = SyntacticResolver::new(file);
 
@@ -136,10 +182,63 @@ pub fn emit<'a>(
     };
 
     let printed = tsr_printer::print(declaration_file, nodes);
-    DeclarationEmit {
-        text: printed.text,
-        diagnostics,
-        unsupported: printed.unsupported,
-        inference_required,
+    let mut text = render_references(references);
+    text.push_str(&printed.text);
+    DeclarationEmit { text, diagnostics, unsupported: printed.unsupported, inference_required }
+}
+
+fn render_references(references: &[DeclarationReference]) -> String {
+    let mut references = references.to_vec();
+    references.sort_by_key(|reference| reference.position);
+    let mut output = String::new();
+    for reference in references {
+        let attribute = match reference.kind {
+            DeclarationReferenceKind::Path => "path",
+            DeclarationReferenceKind::Types => "types",
+            DeclarationReferenceKind::Lib => "lib",
+        };
+        let file_name = if reference.kind == DeclarationReferenceKind::Path {
+            declaration_reference_name(&reference.file_name)
+        } else {
+            reference.file_name
+        };
+        output.push_str("/// <reference ");
+        output.push_str(attribute);
+        output.push_str("=\"");
+        output.push_str(&escape_reference_attribute(&file_name));
+        output.push('"');
+        match reference.resolution_mode {
+            DeclarationResolutionMode::None => {}
+            DeclarationResolutionMode::Require => {
+                output.push_str(" resolution-mode=\"require\"");
+            }
+            DeclarationResolutionMode::Import => {
+                output.push_str(" resolution-mode=\"import\"");
+            }
+        }
+        output.push_str(" preserve=\"true\" />\n");
     }
+    output
+}
+
+fn declaration_reference_name(name: &str) -> String {
+    for (source, declaration) in [
+        (".mts", ".d.mts"),
+        (".cts", ".d.cts"),
+        (".mjs", ".d.mts"),
+        (".cjs", ".d.cts"),
+        (".tsx", ".d.ts"),
+        (".jsx", ".d.ts"),
+        (".ts", ".d.ts"),
+        (".js", ".d.ts"),
+    ] {
+        if let Some(stem) = name.strip_suffix(source) {
+            return format!("{stem}{declaration}");
+        }
+    }
+    name.to_string()
+}
+
+fn escape_reference_attribute(value: &str) -> String {
+    value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
 }
