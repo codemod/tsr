@@ -1717,3 +1717,14 @@ gaps — no Window interface is modeled.
 
 **§33 score — LANDED.** **+378 (376 G→R, 2 W→R) / 24 GAP→WRONG** (JSDoc
 contextual shapes). `checker_types` right 388,155 → **388,533 (81.12%)**.
+
+### §34 A property miss on a COMPLETE members table answers TS2339's `any`
+
+`instant.year` (Temporal's Instant genuinely lacks `year`): upstream
+reports TS2339 and answers `errorType` — printed `any`. The seventh
+boundary hop, with the discriminator stated: this port's member tables are
+complete ONLY for its own object-literal constructions (`Anonymous` with
+`OBJECT_LITERAL`-symbol members); an interface/class table may be missing
+unported inheritance, and a miss there stays an honest gap. Falsifier: a
+literal-receiver miss whose want is a REAL type means the literal's own
+construction dropped a member — that is a bug, not a boundary.
