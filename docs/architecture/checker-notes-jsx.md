@@ -339,3 +339,17 @@ The `tsr-fpti` heritage refusal stands untouched for the tsx population —
 this branch's ancestor gate is what the refused checker-side gate lacked,
 and the argument-gap fall-through is what keeps the tsx lines exactly where
 they were.
+
+## The export-assignment name — the heritage compensation's sibling — bar (ninth session)
+
+`export = C1` / `export default Foo` record the class name's **declared**
+type — `>C1 : C1`, `>Foo : Foo<T>` for a generic (its own parameters) — not
+`typeof C1` (`exportNonVisibleType`, `exportAssignmentGenericType`,
+`es6ExportEqualsInterop`; ~22 wrong lines, 4 finishes). The same
+producer-side compensation shape as the heritage branch, keyed on an
+`ExportAssignment` parent and a successful TYPE-meaning resolution — a `var`
+or function on the right resolves only as a VALUE and keeps its value type,
+which is the bar's falsifier.
+
+**Bar:** net ≥ **+14**; own ≤ **8** — falsifier: losses on `export =` of
+values → the TYPE-meaning gate leaks; regressed == 0; lost == 0.
