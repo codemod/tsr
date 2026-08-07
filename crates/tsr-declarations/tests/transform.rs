@@ -73,7 +73,7 @@ fn preserved_references_precede_declarations_in_source_order() {
         },
         DeclarationReference {
             kind: DeclarationReferenceKind::Path,
-            file_name: "a&b.ts".into(),
+            file_name: "./a&b.ts".into(),
             resolution_mode: DeclarationResolutionMode::None,
             position: 10,
         },
@@ -189,6 +189,18 @@ fn a_namespace_body_survives() {
     assert_emits(
         "namespace M {\n    export interface I {\n        a: number;\n    }\n}",
         "declare namespace M {\n    interface I {\n        a: number;\n    }\n}",
+    );
+}
+
+#[test]
+fn source_namespace_elides_private_aliases_after_member_transformation() {
+    assert_emits(
+        "namespace N {\n    import Internal = M.Internal;\n    export class C { private value: Internal.Value; }\n}",
+        "declare namespace N {\n    class C {\n        private value;\n    }\n}",
+    );
+    assert_emits(
+        "namespace N {\n    import Internal = M.Internal;\n    export interface I { value: Internal.Value; }\n}",
+        "declare namespace N {\n    import Internal = M.Internal;\n    interface I {\n        value: Internal.Value;\n    }\n}",
     );
 }
 

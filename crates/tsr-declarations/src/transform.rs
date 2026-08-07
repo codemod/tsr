@@ -815,6 +815,22 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         statements.push(result);
                     }
                 }
+                // A source namespace is a module scope: only exported members and
+                // the declarations their emitted syntax references survive. Run
+                // this after transformation so a type erased from a private class
+                // member cannot keep a private import alias alive.
+                if !enters_ambient {
+                    let visible = tsr_dts::visibility::visible_module_members(&statements);
+                    statements.retain(|statement| {
+                        visible.contains(statement.node_id())
+                            || matches!(
+                                statement,
+                                Statement::ExportDeclaration(_) | Statement::ExportAssignment(_)
+                            )
+                    });
+                    self.needs_scope_fix_marker = statements.iter().any(needs_scope_marker);
+                    self.result_has_scope_marker = statements.iter().any(is_scope_marker);
+                }
                 // "If it was `declare`'d everything is implicitly exported
                 // already, ignore late printed privates" (`transform.go:1846`).
                 // Without this the transform appends an `export {}` inside every

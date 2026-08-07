@@ -72,8 +72,6 @@ impl Visible {
 /// Compute the visible set for a file.
 #[must_use]
 pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
-    let by_name = index_by_name(file.statements);
-
     // A *script* — no imports, no exports — emits every top-level declaration,
     // because there is no export list to be reachable from. `isolatedDeclarationErrors`
     // is exactly this shape: not one `export` in the file, and upstream still
@@ -83,10 +81,23 @@ pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
         return Visible { ids };
     }
 
+    visible_module_members(file.statements)
+}
+
+/// Compute declarations reachable from the exports of a module-like statement list.
+///
+/// Unlike a source file, a namespace body is always a module scope even when it
+/// contains no import/export syntax at the outer file level. Declaration emit
+/// uses this after transforming the body so dependencies erased from private
+/// members no longer keep private aliases alive.
+#[must_use]
+pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
+    let by_name = index_by_name(statements);
+
     let mut visible: FxHashSet<NodeId> = FxHashSet::default();
     let mut queue: Vec<&Statement<'a>> = Vec::new();
 
-    for statement in file.statements {
+    for statement in statements {
         // In an external module, `declare global` and string-named ambient
         // modules are augmentations. They contribute declarations by side effect
         // even though they carry no `export` modifier, and their bodies can make

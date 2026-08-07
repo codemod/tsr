@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 239/341 (70.09%)
-Failed         : 102
+Passed         : 246/341 (72.14%)
+Failed         : 95
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,21 +12,14 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 102 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
-compiler/aliasInaccessibleModule2
-  line 3: want `    }`, got `        class C {`
 compiler/amdLikeInputDeclarationEmit
   line 1: missing `declare const ExtendedClass: new () => {`
 compiler/conflictingDeclarationsImportFromNamespace1
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
 compiler/conflictingDeclarationsImportFromNamespace2
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
-compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
-  line 6: want `    class W implements X.A.C.Z {`, got `    namespace A {`
-compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
-  line 10: want `}`, got `    namespace A {`
 compiler/declarationEmitArrowFunctionNoRenaming
   line 1: want `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & {`, got `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & { [K in ReservedName]: Branding; } & {`
 compiler/declarationEmitClassAccessorsJs1
@@ -68,7 +61,7 @@ compiler/declarationsForFileShadowingGlobalNoError
 compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
   line 3: want `export declare const updateIfChanged: <T>(t: T) => (<K extends Key<T>>(key: K) => (<K_1 extends Key<Value<K, T>>>(key: K_1) => (<K_2 extends Key<Value<K_1, Value<K, T>>>>(key: K_2) => (<K_3 extends Key<Value<K_2, Value<K_1, Value<K, T>>>>>(key: K_3) => (<K_4 extends Key<Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>(key: K_4) => (<K_5 extends Key<Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>(key: K_5) => (<K_6 extends Key<Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>(key: K_6) => (<K_7 extends Key<Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>(key: K_7) => (<K_8 extends Key<Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>(key: K_8) => (<K_9 extends Key<Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>(key: K_9) => (<K_10 extends Key<Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>>(key: K_10) => /*elided*/ any & {`, got `export declare const updateIfChanged: any;`
 compiler/declareDottedModuleName
-  line 2: want `}`, got `    namespace P.Q {`
+  line 4: want `    namespace R.S { }`, got `    namespace R.S {`
 compiler/declareFileExportAssignmentWithVarFromVariableStatement
   line 10: want `declare var m2: {`, got `declare var x: number, m2: {`
 compiler/deferredLookupTypeResolution2
@@ -77,12 +70,8 @@ compiler/destructuredDeclarationEmit
   line 3: want `declare const { bar: baz, bat, bam: { bork: { bar: ibar, baz: ibaz } } }: {`, got `export { baz, ibaz };`
 compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
-compiler/importAliasFromNamespace
-  line 1: want `/// <reference path="internal.d.ts" preserve="true" />`, got `/// <reference path="./internal.d.ts" preserve="true" />`
 compiler/importedAliasedConditionalTypeInstantiation
   line 1: want `export type Handler<TEvent = any, TResult = any> = (`, got `export {};`
-compiler/internalAliasWithDottedNameEmit
-  line 5: want `}`, got `    import g = b.c;`
 compiler/isolatedDeclarationErrorsDefault
   emitted a.d.ts, upstream emitted no declaration file
 compiler/isolatedDeclarationsAddUndefined
@@ -95,8 +84,6 @@ compiler/jsDeclarationEmitExportedClassWithExtends
   line 1: want `export * from "lit-element/lit-element.js";`, got `import { LitElement, LitElement as LitElement2 } from "lit";`
 compiler/lateBoundAssignmentCandidateJS3
   line 7: want `    protected prop: string;`, got `    prop: string;`
-compiler/letDeclarations2
-  line 2: want `    let l2: number;`, got `    let l1: string;`
 compiler/libTypeScriptOverrideSimple
   line 1: want `interface ABC { abc: string }`, got `declare const a: ABC;`
 compiler/libTypeScriptSubfileResolving
@@ -150,11 +137,11 @@ compiler/paramterDestrcuturingDeclaration
 compiler/parenthesisDoesNotBlockAliasSymbolCreation
   line 1: want `export type InvalidKeys<K extends string | number | symbol> = {`, got `export type InvalidKeys<K extends string | number | symbol> = { [P in K]?: never; };`
 compiler/privacyClassExtendsClauseDeclFile
-  line 7: want `    export class publicClassExtendingPublicClassInModule extends publicClassInPublicModule {`, got `    class privateClassExtendingPublicClassInModule extends publicClassInPublicModule {`
+  line 34: want `export declare class publicClassExtendingPublicClass extends publicClass {`, got `declare class privateClassExtendingPrivateClassInModule extends privateClass {`
 compiler/privacyClassImplementsClauseDeclFile
-  line 6: want `    export class publicClassImplementingPublicInterfaceInModule implements publicInterfaceInPublicModule {`, got `    class privateClassImplementingPublicInterfaceInModule implements publicInterfaceInPublicModule {`
+  line 33: want `export declare class publicClassImplementingPublicInterface implements publicInterface {`, got `declare class privateClassImplementingPrivateInterfaceInModule implements privateInterface {`
 compiler/privacyInterfaceExtendsClauseDeclFile
-  line 6: want `    export interface publicInterfaceImplementingPublicInterfaceInModule extends publicInterfaceInPublicModule {`, got `    interface privateInterfaceImplementingPublicInterfaceInModule extends publicInterfaceInPublicModule {`
+  line 33: want `export interface publicInterfaceImplementingPublicInterface extends publicInterface {`, got `interface privateInterfaceImplementingPrivateInterfaceInModule extends privateInterface {`
 compiler/privacyTypeParametersOfClassDeclFile
   line 11: want `export declare class publicClassWithPublicTypeParametersWithoutExtends<T> {`, got `declare class privateClassWithPrivateTypeParameters<T extends privateClass> {`
 compiler/privacyTypeParametersOfInterfaceDeclFile
@@ -175,8 +162,6 @@ conformance/callbackOnConstructor
   line 1: want `export type ValueGetter_2 = (name: string) => boolean | number | string | undefined;`, got `export declare class Preferences {`
 conformance/callbackTagVariadicType
   line 1: want `/**`, got `/** @type {Foo} */`
-conformance/classDoesNotDependOnPrivateMember
-  line 2: want `    class C {`, got `    interface I {`
 conformance/contextuallyTypedStringLiteralsInJsxAttributes01
   line 9: want `declare const FooComponent: (props: {`, got `declare const FooComponent: any;`
 conformance/declarationEmitThisPredicatesWithPrivateName02
@@ -213,3 +198,7 @@ conformance/typeFromPropertyAssignment39
   line 1: want `declare const foo: {`, got `declare const foo: {};`
 conformance/typedefOnSemicolonClassElement
   line 1: want `export type A = string;`, got `export declare class Preferences {`
+conformance/varianceAnnotationsWithCircularlyReferencesError
+  line 1: want `type T1<in , > = T1;`, got `type T1<in in> = T1;`
+conformance/weakTypesAndLiterals01
+  line 11: want `declare const f: (arg: LiteralsOrWeakTypes) => "A" | "B" | WeakTypes;`, got `declare const f: any;`

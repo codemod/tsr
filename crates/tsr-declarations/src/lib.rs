@@ -271,6 +271,10 @@ fn render_references(references: &[DeclarationReference]) -> String {
 }
 
 fn declaration_reference_name(name: &str) -> String {
+    // Declaration references are written relative to the emitted file's
+    // directory. typescript-go normalizes an explicit same-directory `./`
+    // prefix away before replacing the source extension.
+    let name = name.strip_prefix("./").unwrap_or(name);
     for (source, declaration) in [
         (".mts", ".d.mts"),
         (".cts", ".d.cts"),

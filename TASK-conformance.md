@@ -5,8 +5,8 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  239/341  = 70.09%  (up from 161/339)
-  dts_shape                 708/918  = 77.12%  (up from 618/912)
+  dts_emit                  246/341  = 72.14%  (up from 161/339)
+  dts_shape                 723/918  = 78.76%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -124,6 +124,14 @@ const-object string and template literal types reuse source spelling, standalone
 literal-const values canonicalize to double quotes, and prefixed bigint syntax
 widens according to its operand. Together these close
 `compiler/isolatedDeclarationsLiterals` without changing declaration shape.
+
+Non-ambient namespace bodies now run export reachability after declaration
+transformation. Private types erased from class members therefore stop retaining
+private aliases and declarations, while types still present in exported members
+continue pulling their dependencies into the namespace. Preserved declaration
+references also normalize an explicit same-directory `./` prefix. This closes
+fifteen declaration-shape cases and seven byte-exact cases without changing any
+suite population.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

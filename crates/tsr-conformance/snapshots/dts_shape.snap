@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 708/918 (77.12%)
-Failed         : 210
+Passed         : 723/918 (78.76%)
+Failed         : 195
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,9 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 210 failures:
-compiler/aliasInaccessibleModule2
-  #2: want `  import= R`, got `    class C`
+First 100 of 195 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -25,12 +23,8 @@ compiler/conflictingDeclarationsImportFromNamespace2
   #0: want `export=`, got `var pick`
 compiler/declFileImportModuleWithExportAssignment
   #0: want `import= a1`, got `var a`
-compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
-  #8: want `        class W`, got `        namespace A`
-compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
-  #13: extra `        namespace A`
-compiler/declInput4
-  #1: want `  class E`, got `  class C`
+compiler/declFileInternalAliases
+  #3: want `  import= x`, got `  var d`
 compiler/declarationEmitAliasFromIndirectFile
   #0: want `var _default`, got `import`
 compiler/declarationEmitAliasInlineing
@@ -43,6 +37,8 @@ compiler/declarationEmitComputedPropertyNameSymbol2
   emitted index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitDefaultExportWithStaticAssignment
   #0: want `import`, got `function Example`
+compiler/declarationEmitDestructuringPrivacyError
+  #1: want `  class c`, got `  var <pattern>`
 compiler/declarationEmitEnumReferenceViaImportEquals
   #0: want `import`, got `class Test`
 compiler/declarationEmitExpandoPropertyPrivateName
@@ -109,6 +105,8 @@ compiler/declarationEmitTransitiveImportOfHtmlDeclarationItem
   #0: want `import`, got `function func`
 compiler/declarationEmitTypeAliasWithTypeParameters5
   #2: want `export{}`, got `function foo`
+compiler/declarationFunctionTypeNonlocalShouldNotBeAnError
+  #1: want `  function bar`, got `  var obj`
 compiler/declarationMapsMultifile
   #1: missing `import`
 compiler/declarationsForFileShadowingGlobalNoError
@@ -117,8 +115,6 @@ compiler/declarationsForIndirectTypeAliasReference
   #0: want `import`, got `export{}`
 compiler/declarationsIndirectGeneratedAliasReference
   #0: want `import`, got `var MyComp`
-compiler/declareDottedModuleName
-  #1: want `namespace M`, got `  namespace P`
 compiler/declareFileExportAssignmentWithVarFromVariableStatement
   #3: want `var m2`, got `var x, m2`
 compiler/defaultDeclarationEmitDefaultImport
@@ -127,8 +123,6 @@ compiler/defaultDeclarationEmitShadowedNamedCorrectly
   #0: want `import`, got `interface Things`
 compiler/destructuredDeclarationEmit
   #2: want `var <pattern>`, got `export{}`
-compiler/duplicateIdentifiersAcrossFileBoundaries
-  #8: extra `    var t`
 compiler/enumDeclarationEmitInitializerHasImport
   #0: want `import= provider`, got `var value`
 compiler/es6ImportDefaultBindingFollowedWithNamedImportDts
@@ -145,8 +139,6 @@ compiler/exportClassExtendingIntersection
   #0: want `import`, got `var MyExtendedClass_base`
 compiler/globalThisDeclarationEmit
   emitted index.d.ts, upstream emitted no declaration file
-compiler/importAliasFromNamespace
-  #2: want `    class Foo`, got `    import= Internal`
 compiler/importDecl
   #0: want `import= m4`, got `var x4`
 compiler/importTypeGenericArrowTypeParenthesized
@@ -155,22 +147,16 @@ compiler/importedAliasedConditionalTypeInstantiation
   #0: want `type Handler`, got `export{}`
 compiler/inferredReturnTypeIncorrectReuse1
   #2: want `var out`, got `var t`
-compiler/internalAliasClassInsideLocalModuleWithExport
-  #6: want `var d`, got `    var cReturnVal`
 compiler/internalAliasClassInsideLocalModuleWithoutExport
-  #6: extra `    var cReturnVal`
+  #4: want `    import= c`, got `    var cProp`
 compiler/internalAliasClassInsideTopLevelModuleWithoutExport
   #2: want `import= xc`, got `var cProp`
+compiler/internalAliasFunction
+  #3: want `  import= b`, got `  var bVal`
 compiler/internalAliasFunctionInsideLocalModuleWithoutExport
-  #4: want `  var bVal2`, got `  var bVal`
+  #3: want `  import= b`, got `  var bVal2`
 compiler/internalAliasFunctionInsideTopLevelModuleWithoutExport
   #2: want `import= b`, got `var bVal`
-compiler/internalAliasVar
-  #3: want `  var bVal`, got `  import= b`
-compiler/internalAliasWithDottedNameEmit
-  #7: extra `      import= g`
-compiler/intrinsics
-  #3: want `class Foo`, got `  interface __proto__`
 compiler/isolatedDeclarationErrorsDefault
   emitted a.d.ts, upstream emitted no declaration file
 compiler/isolatedDeclarationsAddUndefined
@@ -203,8 +189,6 @@ compiler/jsxDeclarationsWithEsModuleInteropNoCrash
   #0: want `import`, got `function Foo`
 compiler/lateBoundAssignmentCandidateJS2
   #0: want `var prop`, got `class foo1`
-compiler/letDeclarations2
-  #1: want `  var l2`, got `  var l1`
 compiler/libTypeScriptOverrideSimple
   #0: want `interface ABC`, got `var a`
 compiler/libTypeScriptSubfileResolving
@@ -213,3 +197,19 @@ compiler/moduleAugmentationDeclarationEmit1
   #0: want `module "./observable"`, got `import`
 compiler/moduleAugmentationDeclarationEmit2
   #0: want `module "./observable"`, got `import`
+compiler/moduleAugmentationExtendAmbientModule2
+  #0: want `module "observable"`, got `import`
+compiler/moduleAugmentationImportsAndExports1
+  #1: want `module "./f1"`, got `import`
+compiler/moduleAugmentationImportsAndExports2
+  #0: want `namespace N`, got `import`
+compiler/moduleAugmentationImportsAndExports3
+  #0: want `namespace N`, got `import`
+compiler/moduleAugmentationImportsAndExports5
+  #1: want `namespace N`, got `import`
+compiler/moduleAugmentationImportsAndExports6
+  #1: want `namespace N`, got `import`
+compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
+  #0: want `export{}`, got `namespace global`
+compiler/moduleDetectionIsolatedModulesCjsFileScope
+  #0: want `export{}`, got `var a`
