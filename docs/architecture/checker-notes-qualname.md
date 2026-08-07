@@ -1373,3 +1373,53 @@ Two things are conceded rather than absorbed:
 
 Neither is a reason to hold the build; both are reasons the next session should
 not have to rediscover them.
+
+
+## 12. CORRECTION — the "alias naming" residue was misattributed, and it is narrowing
+
+§9.3 and §9.5 both attributed the largest downstream family in the design-W
+residual — **20 lines in `{enum,stringEnum}LiteralTypes1,2`** — to *"the missing
+`alias_symbol_for_type_node` call on the type-reference arm"*, and §9.3's
+closing note filed it as an item on that basis.
+
+**That attribution is wrong.** Checked against the baseline before anything was
+built, which is the only reason it cost a grep instead of a build.
+`conformance/enumLiteralTypes1.types:361` records:
+
+```
+function f20(x: Item) {
+>x : Item                                  <- the parameter, and we agree here
+    switch (x.kind) {
+        case Choice.Yes: return x.a;
+>x : { kind: Choice.Yes; a: string; }      <- INSIDE the case arm
+```
+
+Upstream is not naming the alias differently. It is **narrowing a discriminated
+union by a `switch` on its discriminant property**, and printing the narrowed
+constituent. This port prints `Item` in the case arm because it does not narrow
+there — `narrowTypeByDiscriminant` / the switch-on-discriminant arm of the flow
+walk. The alias-symbol machinery is *already called* on the three sites in
+`declared.rs` that need it, and adding a fourth call would convert **none** of
+these 20 lines.
+
+Two consequences, and the second is the one worth carrying:
+
+1. The item is re-filed as **discriminated-union narrowing on `switch`**, which
+   is a `flow.rs` item and not a naming one. It is not sized; nobody should
+   quote 20 as its population, because 20 is what *this build's residual*
+   exposed, not what the mechanism owns.
+2. **This is the seventh recorded stale-or-wrong prerequisite in this
+   repository, and the first written in the same session it misled** — by an
+   agent, in a residual analysis, three hours old. Every prior instance was a
+   comment that had *decayed*; this one was never true.
+
+> **A residual analysis is a diagnosis, and a diagnosis is a hypothesis.** The
+> residual dump gives you the *lines*; the mechanism you name beside them is
+> inference, and it inherits none of the dump's authority. `docs/conventions.md`
+> already says a prerequisite stated in a comment is a hypothesis — the same
+> applies to an attribution stated in a findings page, including one written
+> minutes ago by whoever is still in the room.
+
+The rule that caught it is this project's own and needs no amendment: **tests —
+and attributions — come from baselines, never intuition.** One `sed` over
+`enumLiteralTypes1.types` was the whole cost.

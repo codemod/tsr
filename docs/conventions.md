@@ -3016,3 +3016,51 @@ resolution half sat unbuilt, and the agent found it by **grepping the
 declaration rather than trusting the sentence** — this document's standing rule,
 now on its sixth recorded instance. The comment is gone, removed by the build it
 had been discouraging.
+
+### A residual analysis is a diagnosis, and a diagnosis is a hypothesis
+
+The qualified-naming build's residual named its largest downstream family —
+20 lines in `{enum,stringEnum}LiteralTypes1,2` — as *"the missing
+`alias_symbol_for_type_node` call on the type-reference arm"*, and filed it as an
+item on that basis. The next thing anyone would have done is add that call.
+
+One `sed` over the baseline says otherwise. `conformance/enumLiteralTypes1.types:361`:
+
+```
+function f20(x: Item) {
+>x : Item                                  <- the parameter, and the port agrees here
+    switch (x.kind) {
+        case Choice.Yes: return x.a;
+>x : { kind: Choice.Yes; a: string; }      <- INSIDE the case arm
+```
+
+Upstream is not naming the alias differently. It is **narrowing a discriminated
+union by a `switch` on its discriminant** and printing the narrowed constituent.
+The alias-symbol machinery is already called at every `declared.rs` site that
+needs it, and a fourth call converts **zero** of those 20 lines. The item is
+`flow.rs`, not naming.
+
+This is the **seventh** recorded stale-or-wrong prerequisite in this repository
+and the first that was **never true** — every earlier one was a comment that had
+decayed over hundreds of commits. This one was three hours old, written in the
+same session it misled, by an agent that had just done excellent measured work
+everywhere else on the page.
+
+> **The residual dump gives you the LINES. The mechanism you name beside them is
+> inference, and it inherits none of the dump's authority.** A `wrongdelta`
+> total is measured; *"these 20 are alias naming"* is a guess wearing the
+> measurement's clothes, and it is the more dangerous of the two precisely
+> because it arrives attached to a real number in a page full of real numbers.
+
+This document already says *a prerequisite stated in a comment is a hypothesis*,
+and *a passing ratio is permission to ship, not permission to stop reading*. The
+missing clause is that **reading the residual produces claims that need checking
+like any other** — including, and especially, when the reader is whoever is still
+in the room and the ink is wet.
+
+The check is the project's existing rule pointed one step earlier: **attributions
+come from baselines, never intuition.** Five test expectations have been written
+from intuition here and all five were wrong; this is the same error moved from
+the test to the diagnosis, where it is cheaper to make and more expensive to
+catch — a wrong test fails, a wrong attribution just quietly sends the next
+session to the wrong file.
