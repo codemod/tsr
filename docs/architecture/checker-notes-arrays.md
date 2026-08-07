@@ -736,3 +736,8 @@ spreads, iterables, and strings stay declines (error whole, the status
 quo). Falsifier: contextual/tuple positions where upstream spreads
 per-element — those want tuples, and an `Array<T>` answer there is wrong;
 counted by the measure.
+
+**§6 score — LANDED.** **+85 GAP→RIGHT / 22 GAP→WRONG** — the 22 are the
+falsifier's own population (contextual and tuple spread positions wanting
+per-element results), measured and accepted. `checker_types` right
+372,144 → **372,229**.

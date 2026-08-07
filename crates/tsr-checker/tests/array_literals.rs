@@ -178,9 +178,11 @@ fn an_element_this_port_cannot_type_makes_the_literal_a_gap() {
 
 #[test]
 fn a_spread_or_an_omitted_element_makes_the_literal_a_gap() {
-    // A spread needs the iterated type; an omission needs the tuple element
-    // flags. Neither is an array of what the other elements happen to be.
-    assert_eq!(type_of_initialiser("const a = [...[1]];"), "error");
+    // The spread half came due (the twenty-sixth stand-in): the §6 arm
+    // (`checker-notes-arrays.md`) spreads an `Array<T>` operand as `T`, so
+    // `[...[1]]` is `number[]` — upstream's own answer. An omission still
+    // needs the tuple element flags and stays a gap.
+    assert_eq!(type_of_initialiser("const a = [...[1]];"), "number[]");
     assert_eq!(type_of_initialiser("const a = [1, , 2];"), "error");
 }
 

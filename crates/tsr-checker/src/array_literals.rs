@@ -82,7 +82,19 @@ impl Checker<'_, '_> {
             // `number[][]` instead of a gap. That pair of mutations *was* applied
             // together and turns `a_spread_or_an_omitted_element_makes_the_literal_a_gap`
             // red, so the test is real rather than decorative.
-            if matches!(element, Expression::SpreadElement(_) | Expression::OmittedExpression(_)) {
+            if let Expression::SpreadElement(spread) = element {
+                // `getSpreadElementType`'s array half
+                // (`checker-notes-arrays.md` §6): `...xs` over `Array<T>`
+                // contributes `T`. Every other spread shape declines whole.
+                let Some(operand) = spread.expression else { return error };
+                let operand_type = self.check_expression(operand);
+                let Some(element_type) = self.array_spread_element_type(operand_type) else {
+                    return error;
+                };
+                elements.push(element_type);
+                continue;
+            }
+            if matches!(element, Expression::OmittedExpression(_)) {
                 return error;
             }
             let element_type = self.check_expression_for_mutable_location(*element);
@@ -138,6 +150,21 @@ impl Checker<'_, '_> {
 
         let Some(target) = self.global_type_symbol("Array") else { return error };
         self.create_type_reference(target, vec![element_type])
+    }
+
+    /// The element type an array spread contributes — `Array<T>` only
+    /// (`checker-notes-arrays.md` §6); `None` declines.
+    fn array_spread_element_type(&mut self, operand: TypeId) -> Option<TypeId> {
+        if operand == self.intrinsics.error {
+            return None;
+        }
+        let (target, arguments) = self.type_reference_targets.get(&operand)?.clone();
+        if arguments.len() != 1 {
+            return None;
+        }
+        let array = self.global_type_symbol("Array")?;
+        (self.binder.merged_symbol(target) == self.binder.merged_symbol(array))
+            .then(|| arguments[0])
     }
 
     /// How many of a type's union constituents are object types — or 1 for a
