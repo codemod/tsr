@@ -150,7 +150,7 @@ impl<'a> Parser<'a> {
         // `extends` here is only a conditional type at the top level of a type;
         // inside a type parameter list it constrains, and that caller does not
         // route through here.
-        if !self.at(SyntaxKind::ExtendsKeyword) {
+        if !self.at(SyntaxKind::ExtendsKeyword) || self.token.has_preceding_line_break() {
             return check;
         }
         self.next_token();

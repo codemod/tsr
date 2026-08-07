@@ -2,11 +2,11 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 621/913 (68.02%)
+Passed         : 622/914 (68.05%)
 Failed         : 292
-Skipped        : 11531 (excluded from the denominator)
+Skipped        : 11530 (excluded from the denominator)
 
-  9  skipped: a unit of this case does not parse cleanly
+  8  skipped: a unit of this case does not parse cleanly
   8418  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 parser_typescript Summary:
 What a pass means: a file TypeScript reports no errors for parses with no diagnostics
-Passed         : 5014/5031 (99.66%)
-Failed         : 17
+Passed         : 5016/5031 (99.70%)
+Failed         : 15
 Skipped        : 7413 (excluded from the denominator)
 
   757  skipped: configuration-varied baselines; needs per-configuration runs
@@ -11,8 +11,6 @@ Skipped        : 7413 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case, so there is nothing to judge against
   500  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 
-compiler/conditionalTypesASI
-  conditionalTypesASI.ts: 2 diagnostic(s), first is TS1110 at 68..69: Type expected.
 compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused
   declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: 5 diagnostic(s), first is TS1005 at 338..339: '>' expected.
 compiler/declarationEmitHigherOrderRetainedGenerics
@@ -29,8 +27,6 @@ compiler/parseGenericArrowRatherThanLeftShift
   parseGenericArrowRatherThanLeftShift.ts: 6 diagnostic(s), first is TS1005 at 112..113: ')' expected.
 compiler/reactImportDropped
   src/modules/navigation/NavigationView.js: 4 diagnostic(s), first is TS1005 at 136..142: '>' expected.
-conformance/autoAccessor10
-  autoAccessor10.ts: 2 diagnostic(s), first is TS1012 at 252..272: Unexpected token.
 conformance/esDecorators-decoratorExpression.2
   esDecorators-decoratorExpression.2.ts: 14 diagnostic(s), first is TS1109 at 156..157: Expression expected.
 conformance/inferTypesWithExtends1

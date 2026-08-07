@@ -2,13 +2,13 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8302/8469 (98.03%)
+Passed         : 8304/8471 (98.03%)
 Failed         : 167
-Skipped        : 3975 (excluded from the denominator)
+Skipped        : 3973 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
   673  skipped: the baseline names no symbols in any unit we bind
-  531  skipped: the parser reports errors for this file
+  529  skipped: the parser reports errors for this file
   924  skipped: upstream recorded no .symbols baseline
   450  skipped: upstream records a known divergence from TypeScript (.diff baseline)
 

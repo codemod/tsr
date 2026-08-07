@@ -86,6 +86,7 @@ impl<'a> Parser<'a> {
             | SyntaxKind::BigIntLiteral
             | SyntaxKind::StringLiteral
             | SyntaxKind::NoSubstitutionTemplateLiteral
+            | SyntaxKind::PrivateIdentifier
             | SyntaxKind::TemplateHead
             | SyntaxKind::OpenParenToken
             | SyntaxKind::OpenBracketToken
@@ -100,8 +101,8 @@ impl<'a> Parser<'a> {
             | SyntaxKind::SlashEqualsToken
             | SyntaxKind::LessThanToken
             | SyntaxKind::DotDotDotToken => true,
-            // `@` (decorators) and `#` (private names) are not parsed yet. Claiming
-            // them here would produce a node covering no text.
+            // `@` is parsed only where decorators are legal. Claiming it as an
+            // expression start would produce a node covering no text.
             kind => kind.is_keyword(),
         }
     }
@@ -619,6 +620,16 @@ impl<'a> Parser<'a> {
                     start,
                 );
                 Expression::StringLiteral(node)
+            }
+            SyntaxKind::PrivateIdentifier => {
+                let text = self.token_value();
+                self.next_token();
+                let node = self.finish_node(
+                    PrivateIdentifier::new(text),
+                    SyntaxKind::PrivateIdentifier,
+                    start,
+                );
+                Expression::PrivateIdentifier(node)
             }
             SyntaxKind::NoSubstitutionTemplateLiteral => {
                 let raw = self.token_text();

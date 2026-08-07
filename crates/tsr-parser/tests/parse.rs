@@ -514,8 +514,10 @@ fn conditional_and_infer_types() {
         type A = T extends U ? 'y' : 'n';
         type B<T> = T extends Array<infer E> ? E : never;
         type C = A extends B ? C extends D ? 1 : 2 : 3;
+        interface D { a?: number
+          extends?: string | string[] }
     ";
-    assert_eq!(statements(&arena, source).len(), 3);
+    assert_eq!(statements(&arena, source).len(), 4);
 }
 
 #[test]
@@ -766,7 +768,7 @@ fn a_shebang_is_trivia_on_the_first_line_only() {
     let arena = Arena::new();
     statements(&arena, "#!/usr/bin/env node\nclass A {}");
     // Elsewhere `#` still starts a private name.
-    statements(&arena, "class B { #x = 1; m() { return this.#x; } }");
+    statements(&arena, "class B { #x = 1; m() { return this.#x; } static { #x in B; } }");
 }
 
 #[test]
