@@ -177,6 +177,8 @@ impl Checker<'_, '_> {
             Expression::NewExpression(node) => self.check_new_expression(node),
             // `checkYieldExpression` (`checker.go:10952`).
             Expression::YieldExpression(node) => self.check_yield_expression(node),
+            // `checkAwaitExpression` (`checker.go:10845`).
+            Expression::AwaitExpression(node) => self.check_await_expression(node),
             // `checkTaggedTemplateExpression` (`checker.go:10034`) — see
             // [`crate::calls`], which owns signature resolution.
             Expression::TaggedTemplateExpression(node) => {
@@ -969,6 +971,46 @@ impl Checker<'_, '_> {
     /// `getIterationTypesOfGeneratorFunctionReturnType` — note this is *not*
     /// `any`, since `Generator<number>`'s next type is `unknown`), and any
     /// contextualisable container.
+    /// Ported from `Checker.checkAwaitExpression` (`checker.go:10845`) —
+    /// `checkAwaitedType` of the operand, reduced to the shapes decidable
+    /// without the `then`-signature walk (`checker-notes-callres.md` §18):
+    /// `any`/`unknown` pass through, a primitive is its own awaited type
+    /// (nothing to carry a `then` member), and a reference to the **global**
+    /// `Promise` unwraps to its argument, recursively. Everything else —
+    /// unions, object types, type parameters, `PromiseLike`, user thenables —
+    /// stays a gap with `getAwaitedTypeNoAlias` (`checker.go`) as the named
+    /// owner. The grammar check and the "no effect" suggestion are
+    /// diagnostics and out of scope here.
+    fn check_await_expression(&mut self, node: &tsr_ast::AwaitExpression<'_>) -> TypeId {
+        let error = self.intrinsics.error;
+        let Some(operand) = node.expression else { return error };
+        let operand_type = self.check_expression(operand);
+        if operand_type == error {
+            return error;
+        }
+        self.awaited_type_minimal(operand_type).unwrap_or(error)
+    }
+
+    /// The §18 slice of `getAwaitedTypeNoAlias`. `None` is a gap, never `any`.
+    fn awaited_type_minimal(&mut self, id: TypeId) -> Option<TypeId> {
+        let flags = self.store.get(id).flags;
+        if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
+            return Some(id);
+        }
+        if flags.intersects(TypeFlags::PRIMITIVE) {
+            return Some(id);
+        }
+        if let Some((target, arguments)) = self.type_reference_targets.get(&id)
+            && arguments.len() == 1
+            && Some(self.binder.merged_symbol(*target))
+                == self.global_type_symbol("Promise").map(|s| self.binder.merged_symbol(s))
+        {
+            let argument = arguments[0];
+            return self.awaited_type_minimal(argument);
+        }
+        None
+    }
+
     fn check_yield_expression(&mut self, node: &tsr_ast::YieldExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         let any = self.intrinsics.any;

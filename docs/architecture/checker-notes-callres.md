@@ -1086,3 +1086,20 @@ are await-heavy library tests where Promise references dominate); own ≤
 → the unwrap fired on a non-global `Promise` symbol (shadowed or renamed);
 regressed == **0**; lost == **0** (a new expression arm can only turn gaps
 into answers on its own node; downstream composites were gaps too).
+
+### §18.1 Scored — every leg passed, and the row's cases were await-dense
+
+```
+GAP→RIGHT 240 · WRONG→RIGHT 5 · GAP→WRONG 6 · nothing else · suite +22 cases (2,874 → 2,896)
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +150 | **+245** | pass |
+| 2 | own ≤ 15 | **6** — 2 are a non-global thenable (`Windows.Foundation.IPromise`) surfacing through a downstream consumer, 4 are the `any` pass-through on operands another mechanism mistyped (`unionTypeInference`'s `Awaited<T>` conditional instantiations) | pass — the named falsifier (unwrap firing on a shadowed `Promise`) did not fire |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
++22 whole cases from one expression arm — the await-heavy suites
+(`await_unaryExpression_*`, `asyncMultiFile`, `awaitedType` families) carry
+many near-finished baselines, the same concentration §15.1 saw.

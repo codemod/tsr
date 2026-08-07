@@ -249,3 +249,23 @@ fn a_generator_declaration_infers_generator_of_its_yields() {
         "error"
     );
 }
+
+#[test]
+fn await_unwraps_the_global_promise_and_passes_primitives_through() {
+    // `checkAwaitExpression` (`checker.go:10845`) through §18's slice:
+    // `conformance/await_unaryExpression_es6_3.types` records primitives
+    // passing through, and any `.types` baseline with `await p` on a
+    // `Promise<T>` records `T`.
+    assert_eq!(
+        type_of_declaration_with_promise(
+            "declare var p: Promise<number>;\nasync function f() { const x = await p; return; }",
+            "f"
+        ),
+        "() => Promise<void>"
+    );
+    // `await 1` is `1` — a primitive is its own awaited type, freshness kept.
+    assert_eq!(
+        type_of_declaration_with_promise("async function f() { return await 1; }", "f"),
+        "() => Promise<number>"
+    );
+}
