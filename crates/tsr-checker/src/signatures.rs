@@ -679,7 +679,9 @@ impl<'a> Checker<'a, '_> {
             // `checker-notes-callres.md` §15 carries the bar and the declined
             // shapes: `yield*`, ≥2 distinct operands, valued returns, async
             // generators, non-declarations.
-            if is_async || self.nodes.kind(declaration) != SyntaxKind::FunctionDeclaration {
+            if is_async
+                || !self.declaration_takes_no_contextual_return(declaration, may_return_never)
+            {
                 return None;
             }
             let Body::Block(block) = body else { return None };
@@ -765,7 +767,7 @@ impl<'a> Checker<'a, '_> {
         // what makes this slice sound. `checker-notes-callres.md` §14 sized
         // it at 174 lines / 0 want-any and carries the bar.
         if is_async {
-            if self.nodes.kind(declaration) != SyntaxKind::FunctionDeclaration {
+            if !self.declaration_takes_no_contextual_return(declaration, may_return_never) {
                 return None;
             }
             let Body::Block(block) = body else { return None };
@@ -1069,6 +1071,28 @@ impl<'a> Checker<'a, '_> {
             stack.extend(children.iter().copied());
         }
         found
+    }
+
+    /// Whether this function-like declaration can never take a **contextual
+    /// return type** — the soundness gate of the §14/§15/§17 inference arms.
+    ///
+    /// Contextual typing reaches function expressions, arrows and
+    /// object-literal methods
+    /// (`getContextualSignatureForFunctionLikeDeclaration`,
+    /// `checker.go:29711`). A function **declaration** and a **class** method
+    /// are not in that list; an object-literal method is, and it is exactly
+    /// the shape `may_return_never` already discriminates — the two facts are
+    /// the same upstream boundary read off two fields.
+    fn declaration_takes_no_contextual_return(
+        &self,
+        declaration: NodeId,
+        may_return_never: bool,
+    ) -> bool {
+        match self.nodes.kind(declaration) {
+            SyntaxKind::FunctionDeclaration => true,
+            SyntaxKind::MethodDeclaration => !may_return_never,
+            _ => false,
+        }
     }
 
     /// Every `yield` expression belonging to `owner`, as `(delegates,

@@ -1047,3 +1047,13 @@ cheaply); the bar is conservative and the pair decides.
 **Bar:** net ≥ **+10**; own ≤ **6** — falsifier: wrong lines in
 object-literal-method positions → the `may_return_never` proxy is not the
 contextual-typing boundary this section assumed; regressed == 0; lost == 0.
+
+### §17.1 Scored — clean on every leg
+
+```
+GAP→RIGHT 46 · no other transition · suite +5 cases (2,869 → 2,874)
+```
+
+Legs: net **+46** (≥ +10) · own **0** (≤ 6, falsifier silent) · regressed
+**0** · lost **0**. The `may_return_never` proxy held: it and the
+contextual-typing boundary are the same upstream list read off two fields.
