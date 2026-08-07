@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
+Measured at **`097d6bc`**, 2026-08-07 (ninth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,15 +40,20 @@ Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,841/9,538** | **29.79%** | **gradient 73.65%** — the target |
+| **`checker_types`** | **2,852/9,538** | **29.90%** | **gradient 73.81%** — the target |
 | `diagnostics` | **717/5,488** | **13.06%** | **the check traversal landed, eighth session** — 80 → 717 across eighteen codes, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-352,727 / 478,954 assertion lines = 73.65%      (measured at 1b02597, seventh session)
-  right 352,727 | gap 79,421 | wrong 36,767        right+gap+wrong = 468,915 exactly
+353,526 / 478,954 assertion lines = 73.81%      (measured at 097d6bc, ninth session)
+  right 353,526 | gap 79,211 | wrong 36,178        right+gap+wrong = 468,915 exactly
 ```
+
+**The ninth session's chain, every figure from one `verdictdump` pair per
+build:** 352,727 + 246 (empty literal non-strict) + 377 (alias rename, split
+filter) + 176 (async `Promise<void>`) = 353,526 exactly — no alignment drift
+this time.
 
 **Re-taken from one `verdictdump.rs` run at `9fe8056`**, and the arithmetic
 check against the sixth session's triple names the session's six checker
