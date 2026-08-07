@@ -96,3 +96,4 @@
 {"id":"int-53ac89ab","kind":"field_change","created_at":"2026-08-06T22:48:30.542230159Z","actor":"mo","issue_id":"tsr-84iz","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Landed: net +206, 0 lost, 12.9x. Leg 3 vacuous (0<0), reported. Gradient 70.81% -> 70.85%."}}
 {"id":"int-124a4f7c","kind":"field_change","created_at":"2026-08-06T23:06:02.534227824Z","actor":"mo","issue_id":"tsr-4sa","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Closed"}}
 {"id":"int-96f16863","kind":"field_change","created_at":"2026-08-06T23:22:33.607218818Z","actor":"mo","issue_id":"tsr-7wkn","extra":{"field":"priority","new_value":"1","old_value":"2"}}
+{"id":"int-d8789e6b","kind":"field_change","created_at":"2026-08-06T23:56:23.195879928Z","actor":"mo","issue_id":"tsr-kmzf","extra":{"field":"status","new_value":"closed","old_value":"open"}}
