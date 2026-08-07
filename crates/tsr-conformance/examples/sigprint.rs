@@ -66,12 +66,11 @@ fn compose(
             out.push_str(&parameter.name);
             if let Some(constraint) = parameter.constraint {
                 out.push_str(" extends ");
-                match &parameter.written_constraint {
-                    Some(written) => out.push_str(written),
-                    None => {
-                        let text = render(checker, constraint, site);
-                        out.push_str(&text);
-                    }
+                if let Some(written) = &parameter.written_constraint {
+                    out.push_str(written);
+                } else {
+                    let text = render(checker, constraint, site);
+                    out.push_str(&text);
                 }
             }
             if let Some(default) = parameter.default {
@@ -94,21 +93,19 @@ fn compose(
         }
         out.push_str(&parameter.name);
         out.push_str(if parameter.optional { "?: " } else { ": " });
-        match &parameter.written_text {
-            Some(written) => out.push_str(written),
-            None => {
-                let text = render(checker, parameter.r#type, site);
-                out.push_str(&text);
-            }
+        if let Some(written) = &parameter.written_text {
+            out.push_str(written);
+        } else {
+            let text = render(checker, parameter.r#type, site);
+            out.push_str(&text);
         }
     }
     out.push_str(") => ");
-    match &signature.written_return {
-        Some(written) => out.push_str(written),
-        None => {
-            let text = render(checker, signature.r#type, site);
-            out.push_str(&text);
-        }
+    if let Some(written) = &signature.written_return {
+        out.push_str(written);
+    } else {
+        let text = render(checker, signature.r#type, site);
+        out.push_str(&text);
     }
     out
 }
