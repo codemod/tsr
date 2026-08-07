@@ -50,10 +50,13 @@ type) referenced inside a CLOSURE — upstream cannot track the assignment
 across the function boundary and answers the declared auto → `any` (an
 HONEST any, the anySignature precedent; write the ADR-0038 argument from
 checker.go's auto-type conversion before building). Our flow narrows to the
-initial `undefined` instead. The fix shape: in get_flow_type_of_reference
-(flow.rs), when the reference's containing function differs from the
-declaration's and the declared type is the no-annotation auto shape, answer
-`any` rather than walking the flow. Size with a counterfactual on the 548
+initial `undefined` instead. READ checker.go:11120-11175 FIRST — the real
+decision table is twelve clauses (isOuterVariable, isNeverInitialized,
+assumeInitialized, the flow-container EXTENSION loop for const/past-last-
+assignment captures, and the auto->undefined initialType), and the sketch
+"different container -> any" is NOT it: a never-initialized outer `let x;`
+keeps initialType undefined and the `any` arrives through the evolving-type
+conversion, not the container test. Size with a counterfactual on the 548
 first; bar before code; the falsifier is losses in NON-closure references.
 
 TRAPS PAID FOR THIS SESSION, do not repay:
