@@ -576,7 +576,7 @@ impl<'t> Printer<'t> {
             // `PrivateIdentifier.text` already carries its `#`.
             tsr_ast::PropertyName::PrivateIdentifier(identifier) => self.write(identifier.text),
             tsr_ast::PropertyName::StringLiteral(literal) => {
-                let quoted = quote_string(literal.text);
+                let quoted = quote_string(literal.text, literal.token_flags);
                 self.write(&quoted);
             }
             tsr_ast::PropertyName::NumericLiteral(literal) => self.write(literal.text),
@@ -666,12 +666,16 @@ fn would_merge(last: char, next: char, last_was_numeric: bool) -> bool {
 }
 
 /// Re-quote a decoded string value.
-pub(crate) fn quote_string(value: &str) -> String {
+pub(crate) fn quote_string(value: &str, flags: tsr_ast::TokenFlags) -> String {
+    let quote = if flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) { '\'' } else { '"' };
     let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
+    out.push(quote);
     for character in value.chars() {
         match character {
-            '"' => out.push_str("\\\""),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
@@ -687,7 +691,7 @@ pub(crate) fn quote_string(value: &str) -> String {
             c => out.push(c),
         }
     }
-    out.push('"');
+    out.push(quote);
     out
 }
 
@@ -878,6 +882,7 @@ fn keyword_text(kind: SyntaxKind) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tsr_ast::TokenFlags;
 
     #[test]
     fn adjacent_words_are_separated() {
@@ -904,12 +909,13 @@ mod tests {
     #[test]
     fn a_string_is_requoted_from_its_decoded_value() {
         // The scanner hands back the decoded value, so the printer owns escaping.
-        assert_eq!(quote_string(r#"a"b"#), r#""a\"b""#);
-        assert_eq!(quote_string("a\\b"), r#""a\\b""#);
-        assert_eq!(quote_string("a\nb"), r#""a\nb""#);
+        assert_eq!(quote_string(r#"a"b"#, TokenFlags::empty()), r#""a\"b""#);
+        assert_eq!(quote_string("a\\b", TokenFlags::empty()), r#""a\\b""#);
+        assert_eq!(quote_string("a\nb", TokenFlags::empty()), r#""a\nb""#);
+        assert_eq!(quote_string("a'b", TokenFlags::SINGLE_QUOTE), r#"'a\'b'"#);
         // U+2028 is a line terminator in JavaScript, so it cannot be left bare
         // inside a string literal even though it is printable.
-        assert_eq!(quote_string("\u{2028}"), r#""\u2028""#);
+        assert_eq!(quote_string("\u{2028}", TokenFlags::empty()), r#""\u2028""#);
     }
 
     #[test]

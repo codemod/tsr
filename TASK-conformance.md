@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  171/341  = 50.15%  (up from 161/339)
+  dts_emit                  183/341  = 53.67%  (up from 161/339)
   dts_shape                 657/918  = 71.57%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -32,6 +32,12 @@ initializers, kept module/global augmentations and their imports, and retained
 every declaration participating in a merged symbol. After that pass the live
 shape residue is 227 wrong-kind/name/order, 26 extra, and 15 missing; parser skips
 remain 6 source units and 8 upstream declaration baselines.
+
+The scanner/AST/printer pipeline now also carries upstream's `SingleQuote` token
+flag. Reused module names, property names, and literal types therefore preserve
+their source delimiter instead of being unconditionally rewritten with double
+quotes. This raised byte-exact `dts_emit` by another 12 cases without changing
+declaration shape or printer round-trip.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

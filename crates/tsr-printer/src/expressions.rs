@@ -88,7 +88,7 @@ impl Printer<'_> {
             }
             // Ported from `Printer.emitStringLiteral` (`internal/printer/printer.go`).
             Expression::StringLiteral(node) => {
-                let text = quote_string(node.text);
+                let text = quote_string(node.text, node.token_flags);
                 self.write(&text);
             }
             // Ported from `Printer.emitRegularExpressionLiteral` (`internal/printer/printer.go`).

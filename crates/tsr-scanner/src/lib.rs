@@ -788,6 +788,9 @@ impl<'a> Scanner<'a> {
 
     fn scan_string(&mut self, flags: &mut TokenFlags) -> SyntaxKind {
         let quote = self.bump().expect("caller checked");
+        if quote == '\'' {
+            *flags |= TokenFlags::SINGLE_QUOTE;
+        }
         let start = self.pos;
         let mut decoded: Option<String> = None;
 

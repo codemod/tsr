@@ -117,6 +117,8 @@ bitflags! {
         const CONTAINS_INVALID_ESCAPE = 1 << 11;
         /// Leading `*` on a JSDoc continuation line was skipped before this token.
         const PRECEDING_JSDOC_LEADING_ASTERISKS = 1 << 15;
+        /// String literal was delimited by single quotes.
+        const SINGLE_QUOTE = 1 << 16;
         /// The preceding JSDoc comment mentions `@deprecated`.
         const PRECEDING_JSDOC_WITH_DEPRECATED = 1 << 17;
         /// The preceding JSDoc comment mentions `@see`, `@link`, `@linkcode`, or

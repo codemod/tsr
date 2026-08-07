@@ -297,7 +297,7 @@ impl Printer<'_> {
                 match &node.name {
                     Some(tsr_ast::ModuleName::Identifier(name)) => self.write(name.text),
                     Some(tsr_ast::ModuleName::StringLiteral(literal)) => {
-                        let quoted = quote_string(literal.text);
+                        let quoted = quote_string(literal.text, literal.token_flags);
                         self.write(&quoted);
                     }
                     None => {}
@@ -521,7 +521,7 @@ impl Printer<'_> {
             match &attribute.name {
                 Some(tsr_ast::ImportAttributeName::Identifier(name)) => self.write(name.text),
                 Some(tsr_ast::ImportAttributeName::StringLiteral(literal)) => {
-                    let quoted = quote_string(literal.text);
+                    let quoted = quote_string(literal.text, literal.token_flags);
                     self.write(&quoted);
                 }
                 None => {}
@@ -557,7 +557,7 @@ impl Printer<'_> {
                 match &inner.name {
                     Some(tsr_ast::ModuleName::Identifier(name)) => self.write(name.text),
                     Some(tsr_ast::ModuleName::StringLiteral(literal)) => {
-                        let quoted = crate::quote_string(literal.text);
+                        let quoted = crate::quote_string(literal.text, literal.token_flags);
                         self.write(&quoted);
                     }
                     None => {}
@@ -666,7 +666,7 @@ impl Printer<'_> {
         match name {
             tsr_ast::ModuleExportName::Identifier(identifier) => self.write(identifier.text),
             tsr_ast::ModuleExportName::StringLiteral(literal) => {
-                let quoted = quote_string(literal.text);
+                let quoted = quote_string(literal.text, literal.token_flags);
                 self.write(&quoted);
             }
         }

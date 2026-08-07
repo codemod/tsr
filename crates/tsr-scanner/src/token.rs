@@ -34,6 +34,8 @@ bitflags::bitflags! {
         const CONTAINS_SEPARATOR = 1 << 9;
         /// Leading `*` on a JSDoc continuation line was skipped before this token.
         const PRECEDING_JSDOC_LEADING_ASTERISKS = 1 << 15;
+        /// A string literal was delimited by single quotes.
+        const SINGLE_QUOTE = 1 << 16;
         /// The preceding JSDoc comment mentions `@deprecated`.
         ///
         /// Found by a cheap substring scan during trivia, not by parsing: it lets
@@ -117,6 +119,7 @@ mod tests {
         assert_eq!(TokenFlags::OCTAL_SPECIFIER.bits(), Ast::OCTAL_SPECIFIER.bits());
         assert_eq!(TokenFlags::CONTAINS_SEPARATOR.bits(), Ast::CONTAINS_SEPARATOR.bits());
         assert_eq!(TokenFlags::UNICODE_ESCAPE.bits(), Ast::UNICODE_ESCAPE.bits());
+        assert_eq!(TokenFlags::SINGLE_QUOTE.bits(), Ast::SINGLE_QUOTE.bits());
         assert_eq!(TokenFlags::PRECEDING_JSDOC_COMMENT.bits(), Ast::PRECEDING_JSDOC_COMMENT.bits());
         assert_eq!(
             TokenFlags::PRECEDING_JSDOC_LEADING_ASTERISKS.bits(),
