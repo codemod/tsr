@@ -2184,6 +2184,33 @@ impl Checker<'_, '_> {
         NarrowedConstituent::Dropped
     }
 
+    /// Whether an interface/type-literal declaration lists a call or
+    /// construct signature member (`checker-notes-narrow.md` §23).
+    fn declaration_has_call_signature_member(&self, declaration: NodeId) -> bool {
+        let Some(node) = self.node_map.get(declaration) else { return false };
+        match node {
+            Node::InterfaceDeclaration(interface) => interface.members.iter().any(|member| {
+                tsr_ast::Node::from(*member).node_id().is_some_and(|id| {
+                    matches!(
+                        self.nodes.kind(id),
+                        tsr_ast::SyntaxKind::CallSignature
+                            | tsr_ast::SyntaxKind::ConstructSignature
+                    )
+                })
+            }),
+            Node::TypeLiteralNode(literal) => literal.members.iter().any(|member| {
+                tsr_ast::Node::from(*member).node_id().is_some_and(|id| {
+                    matches!(
+                        self.nodes.kind(id),
+                        tsr_ast::SyntaxKind::CallSignature
+                            | tsr_ast::SyntaxKind::ConstructSignature
+                    )
+                })
+            }),
+            _ => false,
+        }
+    }
+
     fn narrow_type_by_equality(
         &mut self,
         t: TypeId,
@@ -2665,7 +2692,18 @@ impl Checker<'_, '_> {
                         both
                     }
                 }
-                TypeData::Named { members: Some(_), .. } => object_strict,
+                // A named interface WITH call/construct signatures is
+                // `typeof === "function"` — the lib's `Function` interface
+                // is the head case (`checker-notes-narrow.md` §23). The
+                // members field is a symbol; the signature question is asked
+                // of its declarations' member lists.
+                TypeData::Named { members: Some(symbol), .. } => {
+                    let has_call_signature =
+                        self.binder.symbols().get(*symbol).declarations.iter().any(
+                            |&declaration| self.declaration_has_call_signature_member(declaration),
+                        );
+                    if has_call_signature { function_strict } else { object_strict }
+                }
                 _ => both,
             };
         }

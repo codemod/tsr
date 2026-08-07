@@ -1476,3 +1476,12 @@ call/construct signature (a METHOD prints its name first, so the prefix
 test separates them). Falsifier: interfaces with methods but no call
 signatures must stay object-facts (`typeGuardsInFunctionAndModuleBlock`'s
 object narrows).
+
+**§23 score — LANDED AT ZERO.** The declaration-based call-signature test
+measured **byte-identical**: the residue's `Function` constituents evidently
+reach the facts question as `Named { members: None }` (the lazily
+unresolved form, which keeps the undecidable-both default) — the arm is
+upstream-anchored and correct but corpus-unreachable today. It stays, per
+the §12.8 precedent, and becomes observable the moment the annotation
+path carries its member symbol. The §16 typeof-granularity row stays open
+with this negative recorded against it.
