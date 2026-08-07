@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`9fe8056`**, 2026-08-07 (seventh session).
+Measured at **`0796633`**, 2026-08-07 (seventh session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -46,13 +46,13 @@ Measured at **`9fe8056`**, 2026-08-07 (seventh session).
 ### `checker_types`, the number the project is steered by
 
 ```
-349,542 / 478,954 assertion lines = 72.98%      (measured at 9fe8056, seventh session)
-  right 349,542 | gap 79,429 | wrong 39,944        right+gap+wrong = 468,915 exactly
+349,553 / 478,954 assertion lines = 72.98%      (measured at 0796633, seventh session)
+  right 349,553 | gap 79,429 | wrong 39,933        right+gap+wrong = 468,915 exactly
 ```
 
 **Re-taken from one `verdictdump.rs` run at `9fe8056`**, and the arithmetic
 check against the sixth session's triple names the session's six checker
-builds: 347,530 + 128 + 293 + 297 + 58 + 83 + 1,153 = 349,542.
+builds: 347,530 + 128 + 293 + 297 + 58 + 83 + 1,153 + 11 = 349,553.
 
 **Re-taken, not carried.** This block read `347,384 / 81,977 / 39,554` for two
 builds after those numbers stopped being true — the namespace deletion (+32) and
