@@ -1180,3 +1180,28 @@ print-time territory.
 `U` → the two members share one written declaration (a merged or aliased
 signature printed twice), identity not collision — check before widening;
 regressed == 0; lost == 0.
+
+### §20.1 REFUSED and reverted — the discriminator is the print CONTEXT, and no join can see it
+
+Two placements, both measured, both reverted:
+
+1. **The shared join** (`render_object_type`): **149 RIGHT→WRONG.** The
+   corpus pins that a WRITTEN composite keeps its sibling names verbatim —
+   `declarationEmitTypeParameterNameReusedInOverloads` records
+   `{ new <T extends Derived>(a: T): T; new <T extends Base>(a: T): T; }`,
+   both `T` — the node-reuse family (`tsr-5o2`) at the composite scale.
+2. **The synthesized joins only** (the overloaded-function arm in
+   `symbols.rs`, the instantiated re-render in `inference.rs`): **net −645.**
+   Written overload lists printed through `typeof`-expansion and instantiated
+   members ALSO keep written names in the corpus's majority.
+
+So the `<U>; <U_1>` population (322 lines) is discriminated by something no
+join can read off member text lists: upstream's builder renames only where
+the surrounding **print context** has already claimed the name by identity —
+the same per-print naming context §19 approximated positionally for the
+enclosing-scope half, but here the claimant is inside the composite churn
+itself (the `IPromise` head's `then` overloads rename; the construct-pair
+does not; both are written sibling overloads). **Finding the true
+discriminator needs a per-line study of the two head families side by side
+before any third placement is attempted** — filed as the §20 residue, and
+the two measured placements are what the next attempt must not repeat.
