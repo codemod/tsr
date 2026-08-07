@@ -385,3 +385,88 @@ turning out to be a case whose baseline is upstream's *bail-out* rather than its
 computation. For the stale refusal: `type_to_string_at` not being the printer on
 some path a real build would take — the probe uses the producer's own printer,
 so that is unlikely but it is the falsifier.
+
+## The `resolveUntypedCall` item — the ADR-0038 objection, answered from upstream
+
+The split above sizes this at **213 forecast conversions** (own-node floor
+**107**) against **13 forecast wrong**, after one positional refusal. Before any
+bar, the objection that decides whether the item may exist at all:
+
+> **ADR-0038 forbids rendering `errorType` as `any`.** Answering `any` for a call
+> whose callee is `any` looks like exactly that, and the ADR is the reason this
+> port prints `error` rather than `any` in the first place.
+
+**It is not that, and upstream settles it in two adjacent lines** —
+`checker.go:1042` and `:1043`:
+
+```go
+c.anySignature     = c.newSignature(..., c.anyType,   ...)   // :1042
+c.unknownSignature = c.newSignature(..., c.errorType, ...)   // :1043
+```
+
+Upstream keeps two signatures for two different situations and gives them
+**different return types**. `resolveUntypedCall` (`checker.go:9902`) returns
+`anySignature`, whose type is `anyType` — created at `checker.go:975` as a
+distinct intrinsic from `errorType` at `:979`. The *error* path is a separate
+function, `resolveErrorCall` (`checker.go:9923`), and it returns
+`unknownSignature`, i.e. `errorType`.
+
+So the thing ADR-0038 is about — a computation that **failed** being rendered as
+`any` — is `unknownSignature`'s path, and this item is not on it. A call through
+an `any` callee is a computation that **succeeded**: TS 1.0 spec §4.12, quoted in
+upstream's own comment above `isUntypedFunctionCall` (`checker.go:9931`), says
+such a call *is* an untyped call and its type *is* `any`.
+
+This is the same argument `STATUS.md` §2 already accepted once, and it is worth
+noting that it was accepted there **against** the ceiling's interest: `Array<any>`'s
+instantiated index signature honestly computes `any` on 10,000
+`largeControlFlowGraph` accesses, and that finding is what collapsed the ceiling
+estimate from ~26,000 to 2,202. The rule that emerged is the one applied here —
+**a coincidence between an honest `any` and upstream's `any` is a match, not a
+ceiling line.**
+
+The ADR is **not amended**: it is immutable once merged (`docs/conventions.md`),
+its decision is unchanged, and nothing here contradicts it. This section records
+that the objection was raised, checked against upstream, and answered.
+
+### The bar, registered before any code
+
+**Population.** The 226 lines `calleegap.rs` classifies as an `any` callee after
+refusing the unannotated-parameter origin — 213 forecast converts, 13 forecast
+wrong, own-node 107/8.
+
+**The positional refusal, and why it is a rule rather than a trade.** An
+unannotated parameter types as `any` *here* and is **contextually typed**
+upstream, so upstream's answer for such a call is the contextual parameter type,
+not `any`. Answering `any` there is a **wrong rule**: it is not that the trade is
+bad, it is that this port would be asserting something upstream never computes.
+That is `STATUS.md` §5's 2,082-line contextual-typing refusal arriving through a
+new door. Measured, refusing it removes **64 of 77 misses for 36 conversions**.
+
+```
+1  net floor        gained >= 100
+2  lost             lost <= 5      and every loss diagnosed, not priced
+3  case regression  cases regressed == 0
+4  gap->wrong       new wrong attributable to the `any`-callee arm <= 20
+                    global Δwrong REPORTED beside it, not gated
+```
+
+**Why each number.** Leg 1's 100 sits just under the **own-node floor of 107** —
+the part of the forecast that does not depend on cascade — rather than at a
+fraction of the 213, because a floor set on the cascade-inclusive figure would be
+a bet on cascade repeating. Leg 2 is absolute-ish rather than a ratio because
+this arm fires on a **position** (every call whose callee types as `any`) and
+those lines gap today; a *right* line changing means the arm pre-empted a path
+that currently succeeds, which is a defect and not a trade. Leg 4 is written
+against **the mechanism's own** new wrong, with the global figure reported
+beside it — `docs/conventions.md`'s post-W rule, because an absolute on the
+global total tightens as the build works. 20 is 1.5× the forecast 13, for the
+own-node/cascade modelling gap.
+
+**Falsifiers, both named in advance.**
+1. **47% of the forecast is one case** — `compiler/duplicateLocalVariable1`, 107
+   of the 121 in the largest bucket. If `net − that case < 50`, this is a
+   one-case build and must be reported as one whatever leg 1 reads.
+2. **If new wrong is far above 13, the unannotated-parameter refusal is not
+   firing.** Check that before re-reading anything else; it is the difference
+   between 213/13 and 249/77.
