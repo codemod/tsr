@@ -193,3 +193,33 @@ should not be picked until one of those moves. The want-`any` 284 are a
 trap besides: upstream's `any` is the *no-namespace-in-scope* fallback, and
 this port cannot distinguish "absent upstream" from "invisible to us"
 until the same augmentation machinery exists.
+
+## The blocker measurement was stale, and the element arm's bar (seventh session)
+
+This page's "46% cannot resolve the `JSX` namespace" was measured **before
+the `/.lib` mount** (`93b540a`) — react.d.ts declares a *plain global*
+`namespace JSX` and simply never loaded. Re-run at `94cc971`:
+
+```
+  759  want JSX.Element  | declared type prints `Element`      <- the item
+  410  `JSX` does not resolve (256 want any + 132 + 22)        <- the real residual
+   28  want any          | JSX resolves, no `Element` export
+    2  want any          | declared type prints `Element`
+```
+
+The dominant bucket is now the whole mechanism: **the element type resolves
+and computes; no expression arm asks for it.** The build is one arm —
+`checkJsxElement` (`jsx.go:72`) → `getJsxElementTypeAt` (`:1275`): a
+`JsxElement` / `JsxSelfClosingElement` / `JsxFragment` expression answers the
+declared type of the in-scope `JSX` namespace's `Element` export. The
+qualifier (`JSX.Element`, never bare `Element`) is design P's existing
+`symbol_chain` on a plain-namespace parent — no new naming machinery.
+
+**Bar, registered before the arm:** net ≥ +500 (66% of the 759, discount
+owned by needs-qualification behaviour at tsx sites being unmeasured); own
+new wrong ≤ 30 (2× the measured 2 want-any lines plus margin for the
+`no-Element-export` and unresolved buckets, which must stay gaps); cases
+regressed == 0; lost ≤ 5 (the arm is additive on kinds with no arm today).
+Falsifier: if new wrong lands in `want any` JSX lines, the 256-line
+unresolved bucket is being answered instead of refused — the arm must gap
+when `JSX` or `Element` is absent, not answer `error`-adjacent text.
