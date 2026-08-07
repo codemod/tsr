@@ -545,6 +545,13 @@ impl<'a> Checker<'a, '_> {
             // `getTargetOfAliasLikeExpression` handles more; each unported
             // shape is a miss, never a wrong target).
             SyntaxKind::ExportAssignment => return self.export_assignment_target(declaration),
+            // `getTargetOfImportClause` (`checker.go:14528`) →
+            // `getTargetOfModuleDefault` (`:14536`), the PLAIN half only: the
+            // module's real `default` export. The synthetic default
+            // (`canHaveSyntheticDefault`, interop) and the `module.exports`
+            // arm are not ported — each such miss stays a gap
+            // (`checker-notes-modobj.md` §10.11).
+            SyntaxKind::ImportClause => return self.import_clause_default_target(declaration),
             _ => {}
         }
         // `getTargetOfNamespaceImport` (`checker.go:14724`) and
@@ -691,9 +698,33 @@ impl<'a> Checker<'a, '_> {
                     Some(Node::ExportAssignment(node))
                         if matches!(node.expression, Some(tsr_ast::Expression::Identifier(_)))
                 ),
+                // `KindImportClause` needs `Name() != nil` — a bare
+                // `import "m"` declares nothing.
+                SyntaxKind::ImportClause => matches!(
+                    self.node_map.get(declaration),
+                    Some(Node::ImportClause(node)) if node.name.is_some()
+                ),
                 _ => false,
             }
         })
+    }
+
+    /// `getTargetOfModuleDefault` (`checker.go:14536`), the plain half: the
+    /// module's real `default` export, resolved through one more alias hop
+    /// when `export default x` names a local.
+    fn import_clause_default_target(&mut self, declaration: NodeId) -> Option<SymbolId> {
+        let parent = self.nodes.parent(declaration)?;
+        let Node::ImportDeclaration(import) = self.node_map.get(parent)? else {
+            return None;
+        };
+        let specifier = import.module_specifier?.node_id()?;
+        let module = self.resolve_external_module_name(declaration, specifier)?;
+        let &default = self.binder.symbols().get(module).exports.get("default")?;
+        let default = self.binder.merged_symbol(default);
+        if self.binder.symbols().get(default).flags.intersects(SymbolFlags::ALIAS) {
+            return self.resolve_alias(default);
+        }
+        Some(default)
     }
 
     /// `getTargetOfExportAssignment` (`checker.go:14889`) for the identifier

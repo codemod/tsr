@@ -524,7 +524,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         };
         let Some(module) = module else {
             let printed = self.type_to_string(id);
-            return Some(self.qualified_name_at(id, printed, reference));
+            return self.qualified_name_at(id, printed, reference);
         };
         self.module_name_at(module, reference).map(|name| format!("typeof {name}"))
     }
@@ -557,15 +557,22 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// renderings is a different and much worse design — measured in §10 at
     /// 3,859 conversions against **717** lines lost, 5.4:1 against this
     /// mechanism's 213:1 — and it is deliberately not built here.
-    fn qualified_name_at(&mut self, id: TypeId, printed: String, reference: NodeId) -> String {
+    fn qualified_name_at(
+        &mut self,
+        id: TypeId,
+        printed: String,
+        reference: NodeId,
+    ) -> Option<String> {
         let symbol = match &self.store.get(id).data {
             crate::types::TypeData::Named { members, .. } => *members,
             crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
             _ => None,
         };
-        let Some(symbol) = symbol else { return printed };
+        let Some(symbol) = symbol else { return Some(printed) };
         let name = self.binder.symbols().get(symbol).name;
-        let Some(suffix_at) = Self::split_around_name(&printed, name) else { return printed };
+        let Some(suffix_at) = Self::split_around_name(&printed, name) else {
+            return Some(printed);
+        };
         // The RENAME (`checker-notes-modobj.md` §10.8): the innermost
         // accessible name for the symbol may be an *alias's* — `typeof React`
         // for a type whose symbol is the global `__React`, because the file's
@@ -580,18 +587,27 @@ impl<'a, 'n> Checker<'a, 'n> {
             out.push_str(&printed[..suffix_at - name.len()]);
             out.push_str(better);
             out.push_str(&printed[suffix_at..]);
-            return out;
+            return Some(out);
+        }
+        // A symbol literally named `default` — a default export reached with
+        // no accessible alias. Upstream NEVER prints `default` as a name
+        // (`getNameOfSymbolAsWritten` substitutes the binding); with no
+        // better name in scope, the honest answer is a gap, not
+        // `typeof default` — 40 such lines were minted and reverted by this
+        // refusal (`checker-notes-modobj.md` §10.11).
+        if name == "default" {
+            return None;
         }
         let Some(qualifier) =
             self.symbol_chain(symbol, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)
         else {
-            return printed;
+            return Some(printed);
         };
         let mut out = String::with_capacity(printed.len() + qualifier.len());
         out.push_str(&printed[..suffix_at - name.len()]);
         out.push_str(&qualifier);
         out.push_str(&printed[suffix_at - name.len()..]);
-        out
+        Some(out)
     }
 
     /// Where `name` sits in `printed`, if `printed` is that name possibly under

@@ -637,3 +637,34 @@ item and stays declined.
 lost ≤ 5. Falsifier: if new wrong concentrates in `want any` lines, the
 missing half is the *synthetic* default — decline it positionally rather
 than approximating.
+
+### 10.12 §10.11 scored — the arm landed with its own refusal
+
+`import d from "m"` resolves the module's real `default` export
+(`getTargetOfModuleDefault`, `checker.go:14536`, the plain half only —
+synthetic default and `module.exports` stay declined). The first measurement
+minted 67 new wrong, over the ≤ 40 leg, and 40 of them printed **`default`
+as a name** — a print upstream never produces (`getNameOfSymbolAsWritten`
+substitutes the binding). The refusal — a symbol named `default` with no
+better name in scope renders a gap — turned those 40 into gaps AND cleaned
+**67 pre-existing wrongs** of the same shape.
+
+Final, `verdictdump` against §10.10's dump:
+
+```
+right  348,306 -> 348,389   +83     GAP→RIGHT 85, RIGHT→GAP 2
+gap    ±(net +107 −)                WRONG→GAP 67
+wrong  39,689  -> 39,651    −38     GAP→WRONG 29, RIGHT→WRONG 0
+cases   2,762  ->  2,767    +5, 0 regressed
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +65 | **+83** | pass |
+| 2 | own ≤ 40 | **29** (global **−38**) | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost ≤ 5 | **2** (both RIGHT→GAP, cases where the baseline itself carries a `default`-rooted text) | pass |
+
+The 29 residual: re-export renames (`MyConstEnum1` — export-specifier
+aliasing, outside the `useOnlyExternalAliasing` rename), `types.A`
+qualifier-through-default families, ADR-0039 `any` baselines, narrowing.
