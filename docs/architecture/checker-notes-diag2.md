@@ -1470,3 +1470,56 @@ be one.
 | an `ExpressionWithTypeArguments` outside a heritage clause | that syntax is also an **instantiation expression** (`f<number>`), a value position with nothing to do with this rule |
 
 The single residual wrong line is `genericTypeReferenceWithoutTypeArgument2`.
+
+---
+
+## 20. TS2554 / TS2555 — call arity, +6 for **zero** wrong
+
+```
+CONVERTS 887 -> 893  (+6)     LOST 0      RIGHT 42      WRONG 0
+```
+
+§19's trick again: `getMinArgumentCount` and `getParameterCount` are asked of a
+`Signature` upstream, but both are properties of the **parameter list** — the
+minimum is the index of the first parameter that is optional, defaulted or rest,
+and the maximum is the list's length. So the rule reads the declaration.
+
+What cannot be read syntactically is *which* signature a call resolves to, so it
+is confined to a callee naming a symbol with exactly one function declaration
+**with a body**. An overload set is `checker-notes-callres.md`'s row.
+
+### The 24-line wrong column was three facts, and the first is the whole rule
+
+The first measurement read **2 converts against 24 wrong**. Sixteen of the 24
+were one line of upstream:
+
+```go
+case len(args) < minCount:
+    // too short: put the error span on the call expression, not any of the args
+    NewDiagnosticForNode(errorNode, ...)          // checker.go:9770
+default:
+    pos := args[maxCount].Pos()                   // checker.go:9804
+```
+
+**The error node is not the same for the two directions.** Too few arguments
+reports on the callee; too many reports on the *first excess argument*.
+`functionCall6.ts` records both in one file — `(5,1)` on the `foo` of `foo()`,
+and `(4,12)` on the `'bar'` of `foo('foo', 'bar')`. A rule that reports both at
+the callee gets the too-few half right, which is exactly enough to look correct
+while being wrong on the other half.
+
+The other two, each with its case:
+
+- **A `void` parameter may be omitted.** `getMinArgumentCountEx`
+  (`relater.go:1737`) walks back from the minimum and drops every trailing
+  parameter whose type contains `void`. `conformance/callWithMissingVoid` is 4
+  lines of nothing else. Asked here of the *annotation* rather than of the type,
+  which covers `void` and `T | void` and declines an alias or an instantiated
+  type parameter — and a decline **raises** the minimum, so the shapes it does
+  not cover are named rather than assumed.
+- **A written type-argument list is declined.** `f < A, B > 7` is a call here and
+  a comparison chain upstream (`conformance/grammarAmbiguities`), and a generic
+  call's resolution is not the one this rule models. Declining it converted that
+  case rather than merely silencing it.
+
+After the three: **zero wrong lines over 42 right ones.**

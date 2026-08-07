@@ -322,6 +322,10 @@ impl Checker<'_, '_> {
                 self.check_implicit_any_parameters(node, ambient);
                 ambient
             }
+            Node::CallExpression(_) => {
+                self.check_call_arity(node);
+                ambient
+            }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
                 self.check_type_argument_arity(node);
                 ambient
