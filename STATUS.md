@@ -41,7 +41,7 @@ Measured at the §29 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,233/9,538** | **33.90%** | **gradient 78.19%** — the target |
-| `diagnostics` | **1,076/5,488** | **19.61%** | **tenth session, +359** — 717 → 1,076 across forty builds and nine measured refusals; the running total is 80 → 1,076, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
+| `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 

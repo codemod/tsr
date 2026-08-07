@@ -64,7 +64,6 @@ impl Checker<'_, '_> {
             return;
         }
         if self.is_a_universal_object_member(name.text)
-            || self.receiver_is_declared_in_a_lib(receiver_type)
             || self.other_side_of_class_has(receiver_type, name.text)
         {
             return;
@@ -186,31 +185,6 @@ impl Checker<'_, '_> {
             }
         }
         false
-    }
-
-    /// Was the receiver's type declared in a bundled `lib.*.d.ts`?
-    ///
-    /// `reportNonexistentProperty` substitutes **TS2550**
-    /// (`Property_0_does_not_exist_on_type_1_Do_you_need_to_change_your_target_library`)
-    /// when the name exists in a *newer* library than the one configured, and
-    /// **TS2812** when it is a DOM name and `lib.dom` is absent. Modelling either
-    /// needs a per-lib version table this port does not have.
-    ///
-    /// What it does have is the set of files it is *checking*
-    /// ([`Checker::set_checked_files`]): the libs are in the program and are
-    /// never walked, so a declaration outside that set is a library
-    /// declaration. Every one of `doYouNeedToChangeYourTargetLibraryES2016Plus` (4 lines),
-    /// `missingDomElements` (3) and
-    /// `modularizeLibrary_ErrorFromUsingES6FeaturesWithOnlyES5Lib` (1) is a lib
-    /// receiver, and all eight are one of those two codes upstream. **A silence
-    /// here, and it comes back with a lib-version table.**
-    fn receiver_is_declared_in_a_lib(&mut self, receiver: TypeId) -> bool {
-        let Some(symbol) = self.owning_symbol_of(receiver) else { return false };
-        let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
-        declarations.iter().any(|declaration| {
-            self.source_file_of_for_diagnostics(*declaration)
-                .is_none_or(|file| !self.checked_files.contains(&file))
-        })
     }
 
     /// Is `name` declared on the class's *other* side?

@@ -2620,3 +2620,20 @@ different session, justified by a measurement that was correct when taken.
 **Nothing marks a decline as re-checkable; only re-running it does.** The
 condition itself is preserved on `Checker::file_has_parse_errors` and still read
 by five other rules, each of which should be audited the same way.
+
+### 40.4 TS2339's lib-receiver decline is DELETED — +2
+
+§21 declined a receiver whose type was declared outside the program's own files,
+because TS2550 and TS2812 replace TS2339 for a lib type and neither is
+modellable. Measured then at 8 lines across three cases.
+
+**Deleting it is +2.** Those three cases fail on other codes now; what the
+decline was still costing was every *correct* TS2339 on a lib-declared receiver —
+and `Checker::set_checked_files`, added in §21 solely to make the question
+answerable, is now unused by any rule. It stays on the checker because the
+question it answers is a real one that TS2550 will need.
+
+The audit's eleventh payment, and the second whose target was a decline drawn
+around a **different code's** territory rather than around this port's
+incompleteness. Those are the ones that go stale fastest: the other code's
+population moves and nothing tells the decline.
