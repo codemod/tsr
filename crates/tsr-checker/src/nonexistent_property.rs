@@ -65,8 +65,31 @@ impl Checker<'_, '_> {
         }
         if self.is_a_universal_object_member(name.text)
             || self.receiver_is_declared_in_a_lib(receiver_type)
-            || self.nonexistent_property_has_another_code(receiver_type, name.text)
+            || self.other_side_of_class_has(receiver_type, name.text)
         {
+            return;
+        }
+        // `reportNonexistentProperty`'s suggestion arm: a near-miss member name
+        // is **TS2551**, not TS2339. §33 made the same move for TS2304/TS2552 —
+        // the spelling algorithm is already exact, so reporting the code it
+        // selects costs one message.
+        let candidates = self.property_names_of(receiver_type);
+        if let Some(suggestion) = crate::check::spelling_suggestion(
+            name.text,
+            &candidates.iter().map(String::as_str).collect::<Vec<_>>(),
+        ) {
+            let suggestion = suggestion.to_string();
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+            let span = self.nodes.span(name_id);
+            let printed = self.type_to_string(receiver_type);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
+                    span,
+                    [name.text.to_string(), printed, suggestion],
+                ),
+            );
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
@@ -131,31 +154,6 @@ impl Checker<'_, '_> {
             }
             _ => true,
         }
-    }
-
-    /// The arms of `reportNonexistentProperty` that reach a **different code**
-    /// at the same position.
-    ///
-    /// §9 recorded that these "were not the problem" — they cost a handful of
-    /// lines against 254 — and that is a statement about the previous bound, not
-    /// a licence to skip them. Under the suite's exact-multiset rule a wrong
-    /// code at a right position fails its case exactly as a missing diagnostic
-    /// does.
-    ///
-    /// | arm | upstream's code |
-    /// |---|---|
-    /// | the name exists on the *other* side of the class — an instance member reached through `typeof C`, or a static through an instance | TS2576 / TS2339-with-suggestion |
-    /// | a near-miss name exists on the type | TS2551 `Property_0_does_not_exist_on_type_1_Did_you_mean_2` |
-    ///
-    /// The `lib`-version arm (TS2550) and the DOM arm (TS2812) need a library
-    /// version and a DOM table this port does not model; both are silences.
-    fn nonexistent_property_has_another_code(&mut self, receiver: TypeId, name: &str) -> bool {
-        if self.property_names_of(receiver).iter().any(|candidate| {
-            crate::check::spelling_suggestion(name, &[candidate.as_str()]).is_some()
-        }) {
-            return true;
-        }
-        self.other_side_of_class_has(receiver, name)
     }
 
     /// Is `name` a member every object type has anyway?

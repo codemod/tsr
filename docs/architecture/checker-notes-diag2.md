@@ -2553,3 +2553,23 @@ empty-target and object-literal-versus-union declines.
 keep or revert. Run it after any build that changes what the port can *decide* —
 §25 (`relate_ternary`) and §35 (`Anonymous` completeness) each silently
 invalidated gates written before them.
+
+---
+
+## 40. TS2551 — the property suggestion, +2
+
+```
+diagnostics 1,067 -> 1,069   (+2)
+```
+
+`reportNonexistentProperty`'s suggestion arm: a near-miss **member** name is
+TS2551, not TS2339. §21 computed the suggestion in order to *decline*, exactly as
+§7 had for TS2304 before §33 turned that into a report. The same move, the same
+reason: the spelling algorithm is already exact, so reporting the code it selects
+costs one message and converts its own row.
+
+Two of the three "different code at the same position" arms §21 listed are now
+reports rather than silences — TS2551 here, and the static-member arm stays a
+decline because TS2576 needs a `typeof` distinction this port does not draw at
+that site. The lib arms (TS2550, TS2812) remain silences for want of a
+lib-version table.
