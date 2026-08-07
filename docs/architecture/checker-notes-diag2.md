@@ -1020,3 +1020,64 @@ syntax in JS files.
 **`diagnostics` closes the session at 717/5,488 = 13.06%, from 80/5,488 =
 1.46% — 8.96×.** Nine builds, two refusals, `checker_types` byte-identical
 throughout.
+
+---
+
+## 15. `checkUnusedIdentifiers` — noUnusedLocals / noUnusedParameters
+
+The tenth session's first build, and the item the ninth session's handoff named
+as *"the safest large item left"* — **because its blast radius is confined to
+cases that SET the option**. 302 of the corpus's case files write
+`@noUnusedLocals` or `@noUnusedParameters`; every other case is untouched by
+construction, so the wrong-line risk is bounded by that set rather than by the
+corpus.
+
+### The board row
+
+`diaggap.rs` at `6b363e3`: **TS6133 80** cases blocked on it alone, **TS6196 32**,
+and the ceiling column reads TS6133 98 cases containing it. Neither figure had
+been counterfactualled before this build (the handoff says so explicitly).
+
+### What is ported
+
+`checkUnusedIdentifiers` (`checker.go:7046`) and the four workers it dispatches
+to: `checkUnusedLocalsAndParameters` (`:7140`), `checkUnusedClassMembers`
+(`:7115`), `checkUnusedTypeParameters` (`:7290`), `checkUnusedInferTypeParameter`
+(`:7283`). Seven codes: TS6133, TS6138, TS6192, TS6196, TS6198, TS6199, TS6205.
+
+### The prerequisite the handoff named, and the shape it actually took
+
+Upstream's `isReferenced` reads `symbolReferenceLinks[symbol].referenceKinds`,
+written from exactly one place — the `SymbolReferenced` callback the checker
+hands its `binder.NameResolver` (`checker.go:1499`). Every `resolveName` during a
+type check marks. **This port has no type check to hang that on**, so reference
+marking is its own pass over the file's identifiers.
+
+The pass is deliberately an **over**-approximation, and the asymmetry is the
+whole design: a symbol marked that upstream would not mark costs a *missing*
+diagnostic; a symbol left unmarked costs a *wrong* one, which fails its own case
+and can break a passing case as well. So the pass marks every identifier that is
+not provably a declaration name or a member-access name, resolving it under all
+three meanings and recording each that hits.
+
+Private class members cannot be marked that way — `this.x` resolves through a
+type, and this port's check traversal computes none. They are marked **by name**:
+any member-name text occurring anywhere in the file counts as a reference. Same
+asymmetry, same direction.
+
+### The bar, registered before the code
+
+| leg | registered |
+|---|---|
+| 1 | `LOST == 0` — no case that passes today may fail |
+| 2 | `checker_types` byte-identical (this touches no type) |
+| 3 | own new WRONG ≤ 40 lines |
+| 4 | CONVERTS ≥ 40 |
+| 5 | every other snapshot unchanged |
+
+Falsifiers named in advance: (a) if the corpus's unused cases turn out to need
+the *suggestion* channel rather than the error channel, the whole row is
+unreachable and the build is reverted; (b) if reference marking by
+over-approximation marks so much that CONVERTS lands under 40, the row is
+refused with that number and the marking pass is not "tightened" — tightening it
+is what produces wrong diagnostics.
