@@ -557,7 +557,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// renderings is a different and much worse design — measured in §10 at
     /// 3,859 conversions against **717** lines lost, 5.4:1 against this
     /// mechanism's 213:1 — and it is deliberately not built here.
-    fn qualified_name_at(&self, id: TypeId, printed: String, reference: NodeId) -> String {
+    fn qualified_name_at(&mut self, id: TypeId, printed: String, reference: NodeId) -> String {
         let symbol = match &self.store.get(id).data {
             crate::types::TypeData::Named { members, .. } => *members,
             crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
@@ -621,12 +621,19 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///
     /// # What it refuses, and why a refusal beats a wrong name
     ///
-    /// - **An external-module container.** Upstream does not print a dotted
-    ///   name through one; it calls `getSpecifierForModuleSymbol`
-    ///   (`internal/checker/nodebuilderimpl.go:1104`) and emits an import
-    ///   specifier. Printing the file symbol's own name would emit a stripped
-    ///   file path, which is exactly what got `bd tsr-6ph` refused twice at 2.1
-    ///   and 2.5 wrong per right. Measured: **1,094** lines, left bare.
+    /// - **An external-module container with no route to a name.** Upstream
+    ///   prints one through `getSpecifierForModuleSymbol`
+    ///   (`internal/checker/nodebuilderimpl.go:1104`). Since the
+    ///   container-qualifier slice (`checker-notes-modobj.md` §10.6) this port
+    ///   answers two of its shapes — a unique in-scope alias of the container
+    ///   ([`Checker::module_name_at`]), and an **ambient** container, whose
+    ///   specifier is exact (`nodebuilderimpl.go:1260`) — after
+    ///   `trySymbolTable`'s direct arm (`symbolaccessibility.go:535`): an
+    ///   in-scope alias naming the symbol *itself* makes the bare name
+    ///   accessible and stops the chain, which is what keeps the
+    ///   `moduleAugmentation` right-lines right (16 at risk without it, 3
+    ///   with, for 0 conversions). A *file* container with no alias still
+    ///   declines: only the `modulespecifiers` package could spell it.
     /// - **No container at all** — `Symbol.parent` unset, which is what the
     ///   binder records for a namespace *local* rather than an export. Upstream
     ///   agrees: `getParentOfSymbol` answers nil and the fallback loop
@@ -639,7 +646,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///   them is a line that is wrong today and stays wrong, so the omission
     ///   costs conversions rather than manufacturing losses.
     fn symbol_chain(
-        &self,
+        &mut self,
         symbol: SymbolId,
         reference: NodeId,
         meaning: SymbolFlags,
@@ -656,6 +663,27 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
         let parent = self.binder.merged_symbol(self.binder.symbols().get(symbol).parent?);
         if self.is_module_symbol(parent) || self.is_ambient_module(parent) {
+            // `trySymbolTable`'s direct arm: the bare name is accessible
+            // through an alias, so no qualifier may fire.
+            if self.alias_in_scope_for(symbol, reference) {
+                return None;
+            }
+            // `getAccessibleSymbolChain`'s alias arm for the *container*,
+            // including its ambiguity refusal (`checker-notes-nameres.md` §14):
+            // an ambiguous container declines outright — upstream picked some
+            // alias there, so the `import("…")` form would be a shape upstream
+            // did not print.
+            match self.module_alias_at(parent, reference) {
+                Ok(alias) => return Some(format!("{alias}.")),
+                Err(true) => return None,
+                Err(false) => {}
+            }
+            // The ambient branch of `getSpecifierForModuleSymbol`
+            // (`nodebuilderimpl.go:1260`): the specifier IS the module's name.
+            if self.is_ambient_module(parent) && !self.is_module_symbol(parent) {
+                let module_name = self.binder.symbols().get(parent).name;
+                return Some(format!("import(\"{module_name}\")."));
+            }
             return None;
         }
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
@@ -740,6 +768,16 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// `None` when there is none, or when there is more than one — see
     /// [`Checker::type_to_string_at`] for why more-than-one is not a tie-break.
     fn module_name_at(&mut self, module: SymbolId, reference: NodeId) -> Option<&'a str> {
+        self.module_alias_at(module, reference).ok()
+    }
+
+    /// [`Checker::module_name_at`]'s tri-state worker: `Ok(name)` for the
+    /// unique in-scope alias, `Err(true)` for **ambiguity** (≥2 distinct
+    /// names), `Err(false)` for none at all. [`Checker::symbol_chain`] needs
+    /// the distinction — an ambiguous container means upstream picked *some*
+    /// alias, so falling through to the `import("…")` form would print a shape
+    /// upstream did not; only a container no alias reaches may take it.
+    fn module_alias_at(&mut self, module: SymbolId, reference: NodeId) -> Result<&'a str, bool> {
         let mut candidates: Vec<SymbolId> = Vec::new();
         let mut current = Some(reference);
         while let Some(node) = current {
@@ -769,11 +807,34 @@ impl<'a, 'n> Checker<'a, 'n> {
                 // The same alias reached twice through two scopes is one alias,
                 // and a name colliding with itself is not ambiguity.
                 Some(existing) if existing == name => {}
-                Some(_) => return None,
+                Some(_) => return Err(true),
                 None => found = Some(name),
             }
         }
-        found
+        found.ok_or(false)
+    }
+
+    /// Whether any in-scope alias resolves to `target` itself at `reference` —
+    /// `trySymbolTable`'s direct arm (`symbolaccessibility.go:535`), reduced to
+    /// existence: when it holds, the bare name is accessible and
+    /// [`Checker::symbol_chain`] must not qualify. Same scope walk as
+    /// [`Checker::module_name_at`], different comparison target.
+    fn alias_in_scope_for(&mut self, target: SymbolId, reference: NodeId) -> bool {
+        let target = self.binder.merged_symbol(target);
+        let mut candidates: Vec<SymbolId> = Vec::new();
+        let mut current = Some(reference);
+        while let Some(node) = current {
+            if let Some(locals) = self.binder.locals(node) {
+                candidates.extend(locals.values().copied());
+            }
+            current = self.nodes.parent(node);
+        }
+        candidates.extend(self.binder.globals().values().copied());
+        candidates.into_iter().any(|candidate| {
+            self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
+                && self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
+                    == Some(target)
+        })
     }
 
     /// Whether a type is `errorType` itself, by identity.

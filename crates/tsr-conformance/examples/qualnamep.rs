@@ -315,9 +315,9 @@ fn is_ambient_only<'a>(
 /// The module specifier of a namespace-shaped alias declaration.
 /// `examples/module_object.rs`'s `module_specifier`, reduced to the three
 /// namespace shapes (an example cannot import another example).
-fn namespace_alias_specifier<'a>(
+fn namespace_alias_specifier(
     nodes: &NodeTable,
-    map: &NodeMap<'a>,
+    map: &NodeMap<'_>,
     declaration: NodeId,
 ) -> Option<String> {
     let literal = |expression: Option<tsr_ast::Expression<'_>>| match expression {
@@ -370,11 +370,8 @@ fn namespace_alias_target<'a>(
     // File resolution, the same reduction `module_object.rs` uses.
     let containing = program.source_files().iter().find(|file| file.contains(declaration))?;
     let directory = containing.file_name().rsplit_once('/').map_or("", |(head, _)| head);
-    let joined = if directory.is_empty() {
-        specifier.clone()
-    } else {
-        format!("{directory}/{specifier}")
-    };
+    let joined =
+        if directory.is_empty() { specifier.clone() } else { format!("{directory}/{specifier}") };
     let extensions =
         ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", "/index.ts", "/index.d.ts"];
     for base in [joined.as_str(), specifier.as_str()] {
@@ -406,16 +403,16 @@ fn alias_target<'a>(
     map: &NodeMap<'a>,
     symbol: SymbolId,
 ) -> Option<SymbolId> {
-    if let Some(module) = namespace_alias_target(program, binder, nodes, map, symbol) {
-        return Some(module);
-    }
-    let &declaration = binder.symbols().get(symbol).declarations.first()?;
     fn export_name(name: tsr_ast::ModuleExportName<'_>) -> &str {
         match name {
             tsr_ast::ModuleExportName::Identifier(identifier) => identifier.text,
             tsr_ast::ModuleExportName::StringLiteral(string) => string.text,
         }
     }
+    if let Some(module) = namespace_alias_target(program, binder, nodes, map, symbol) {
+        return Some(module);
+    }
+    let &declaration = binder.symbols().get(symbol).declarations.first()?;
     let member: &str = match map.get(declaration)? {
         Node::ImportSpecifier(node) => match node.property_name {
             Some(property) => export_name(property),
@@ -566,6 +563,7 @@ fn container_alias_at<'a>(
 /// `getSymbolChain` (`nodebuilderimpl.go:1087`), reduced to the arms a build
 /// would write. Returns the dotted qualifier *prefix* — `Ok("M.")`, `Ok("A.B.")`
 /// — or the reason there is none.
+#[allow(clippy::too_many_arguments)]
 fn symbol_chain<'a>(
     program: &tsr_compiler::Program<'a>,
     binder: &tsr_binder::BindResult<'a>,

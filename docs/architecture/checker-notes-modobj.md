@@ -484,3 +484,37 @@ Falsifiers, ordered:
 3. **New wrong concentrated in composite prints** → the mechanism reached
    wider than the strict gate, in which case conversions should have too;
    read both columns before reverting anything.
+
+### 10.7 §10.6 scored — all four legs pass, and the at-risk column was exact
+
+Measured with `verdictdump.rs` against the slice-1 dump (same commit, no
+checker change between):
+
+```
+right  347,658 -> 347,951   +293      WRONG→RIGHT 296, RIGHT→WRONG 3
+gap     81,355 ->  81,355   ±0        structural: the slice is a renaming
+wrong   39,902 ->  39,609   −293      GAP→WRONG 0
+cases    2,750 ->   2,754   finished +4, regressed 0
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +80 | **+293** | pass — 283% of the strict forecast; the composite-print upside named in the registration |
+| 2 | own new wrong ≤ 22, global beside | **3 own · global −293** | pass |
+| 3 | cases regressed == 0 | **0** (all 3 lost lines sit in already-failing cases) | pass |
+| 4 | lost ≤ 6 | **3** | pass |
+
+The three RIGHT→WRONG lines are **the exact three lines, in the exact three
+cases, the counterfactual's AT-RISK column named in advance**
+(`declarationEmitCrossFileImportTypeOfAmbientModule`,
+`moduleAugmentationInAmbientModule1`, `…5`). A forecast landing on its named
+losses is the strongest evidence available that the model models the
+mechanism; they are conceded, and they belong to the `moduleAugmentation`
+containment edge the direct-alias guard cannot see.
+
+One divergence from the probe found *during* the build rather than after:
+`module_name_at` conflates "no alias" with "ambiguous", and the sized design
+declines on ambiguity rather than falling through to `import("…")` — so the
+checker gained the tri-state `module_alias_at` and `module_name_at` became a
+one-line wrapper. The 38 converting cases and +4 finished say the wiring is
+the probe's.

@@ -279,3 +279,73 @@ fn an_ambient_module_named_by_two_aliases_is_still_a_gap() {
     assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "error");
     assert_eq!(rendered_at(&fixture, "b", SyntaxKind::ImportEqualsDeclaration), "error");
 }
+
+/// Render the type of the variable named `variable`, through the rendering
+/// path, at the variable's own declaration — the position the `.types`
+/// baseline records for a `var x = …` line.
+fn variable_rendered_at(fixture: &Fixture<'_>, variable: &str) -> String {
+    let host: Option<&dyn ModuleHost> = Some(&fixture.host);
+    let mut checker =
+        Checker::with_module_host(&fixture.bound, &fixture.nodes, &fixture.node_map, host);
+    let declaration = (0..u32::try_from(fixture.nodes.len()).expect("fits"))
+        .map(NodeId::new)
+        .filter(|&id| fixture.nodes.kind(id) == SyntaxKind::VariableDeclaration)
+        .find(|&id| {
+            fixture
+                .bound
+                .symbol_of(id)
+                .is_some_and(|s| fixture.bound.symbols().get(s).name == variable)
+        })
+        .unwrap_or_else(|| panic!("no variable named `{variable}`"));
+    let symbol = fixture.bound.symbol_of(declaration).expect("bound");
+    let id = checker.get_type_of_symbol(symbol);
+    checker.type_to_string_at(id, declaration).unwrap_or_else(|| "error".to_string())
+}
+
+#[test]
+fn a_member_of_an_ambient_module_qualifies_with_the_container_alias() {
+    // The container-qualifier slice's alias arm
+    // (`checker-notes-modobj.md` §10.6). Pinned to
+    // `compiler/privacyTopLevelAmbientExternalModuleImportWithoutExport.types:24-25`:
+    //
+    // ```text
+    // var privateUse_im_private_mi_private = new im_private_mi_private.c_private();
+    // >privateUse_im_private_mi_private : im_private_mi_private.c_private
+    // ```
+    //
+    // The class's bare name does not resolve at the site; its container is the
+    // ambient module; the unique in-scope alias `a` names that container.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("decl", "declare module 'm' { export class c_private { baz: string } }\n"),
+            ("core", "import a = require(\"m\");\nvar use = new a.c_private();\n"),
+        ],
+    );
+    assert_eq!(variable_rendered_at(&fixture, "use"), "a.c_private");
+}
+
+#[test]
+fn a_member_of_an_ambient_module_with_no_alias_prints_the_import_form() {
+    // The ambient-import arm — `getSpecifierForModuleSymbol`'s exact branch
+    // (`nodebuilderimpl.go:1260`). Pinned to
+    // `compiler/privacyCannotNameVarTypeDeclFile.types`, which records
+    // `import("GlobalWidgets").Widget3` for a widget reached through a
+    // *different* file's import than the reference site's own. Reduced here:
+    // the value's type crosses files, and at the referencing site no alias of
+    // `GlobalWidgets` is in scope.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("decl", "declare module 'GlobalWidgets' { export class Widget3 { name: string } }\n"),
+            (
+                "exporter",
+                "import Widgets = require(\"GlobalWidgets\");\nexport var w3 = new Widgets.Widget3();\n",
+            ),
+            ("core", "import exporter = require(\"./exporter\");\nvar w = exporter.w3;\n"),
+        ],
+    );
+    assert_eq!(variable_rendered_at(&fixture, "w"), "import(\"GlobalWidgets\").Widget3");
+}
