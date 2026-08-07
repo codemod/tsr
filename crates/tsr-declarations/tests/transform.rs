@@ -50,6 +50,7 @@ fn emit_stripping_internal(source: &str) -> String {
             strip_internal: true,
             remove_comments: false,
             strict_null_checks: false,
+            source_map_url: None,
         },
     )
     .text
@@ -113,6 +114,7 @@ fn emit_with_source(source: &str) -> String {
             strip_internal: false,
             remove_comments: false,
             strict_null_checks: false,
+            source_map_url: None,
         },
     )
     .text
@@ -189,6 +191,7 @@ fn strict_null_checks_controls_null_widening() {
                 strip_internal: false,
                 remove_comments: false,
                 strict_null_checks,
+                source_map_url: None,
             },
         )
         .text
@@ -375,6 +378,28 @@ fn a_source_declare_modifier_is_dropped_inside_a_namespace_body() {
         "export namespace M { export declare var v: number; export var w: string; }",
         "export declare namespace M {\n    var v: number;\n    var w: string;\n}",
     );
+}
+
+#[test]
+fn a_declaration_map_url_is_appended_after_the_output() {
+    let arena = Arena::new();
+    let source = "export const a: number = 1;";
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: true,
+            source_map_url: Some("a.d.ts.map"),
+        },
+    );
+    assert_eq!(result.text, "export declare const a: number;\n//# sourceMappingURL=a.d.ts.map");
 }
 
 #[test]
@@ -622,6 +647,7 @@ fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
             strip_internal: false,
             remove_comments: false,
             strict_null_checks: false,
+            source_map_url: None,
         },
     );
     assert_eq!(
@@ -641,6 +667,7 @@ fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
             strip_internal: false,
             remove_comments: true,
             strict_null_checks: false,
+            source_map_url: None,
         },
     );
     assert!(!result.text.contains("docs"), "removeComments leaked JSDoc: {}", result.text);
@@ -661,6 +688,7 @@ fn literal_declarations_preserve_context_and_widen_negative_bigints() {
             strip_internal: false,
             remove_comments: false,
             strict_null_checks: false,
+            source_map_url: None,
         },
     );
     assert_eq!(

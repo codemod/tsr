@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 272/341 (79.77%)
-Failed         : 69
+Passed         : 273/341 (80.06%)
+Failed         : 68
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -50,8 +50,6 @@ compiler/declarationEmitScopeConsistency3
   line 1: want `export declare const g: (v: "outer") => () => "inner";`, got `export declare const g: any;`
 compiler/declarationEmitTypeParameterNameShadowedInternally
   line 1: want `export declare const foo: <T>(x: T) => <T_1>(y: T_1) => readonly [T, T_1];`, got `export declare const foo: any;`
-compiler/declarationMaps
-  line 16: missing `//# sourceMappingURL=declarationMaps.d.ts.map`
 compiler/declarationsForFileShadowingGlobalNoError
   line 1: want `import { DOMNode } from './dom';`, got `export declare const mixin: any;`
 compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams

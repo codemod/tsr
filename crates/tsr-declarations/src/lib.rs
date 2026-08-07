@@ -128,6 +128,10 @@ pub struct DeclarationEmitOptions<'a> {
     pub remove_comments: bool,
     /// Preserve `null` as a literal type instead of widening it to `any`.
     pub strict_null_checks: bool,
+    /// Append a `//# sourceMappingURL=` directive naming this file's
+    /// declaration map. The map itself is not produced — only the reference
+    /// `declarationMap` makes upstream write at the end of the `.d.ts`.
+    pub source_map_url: Option<&'a str>,
 }
 
 /// The kind of a preserved triple-slash declaration reference.
@@ -233,6 +237,13 @@ pub fn emit_with_references_and_options<'a>(
     };
     let mut text = render_references(references);
     text.push_str(&printed.text);
+    if let Some(url) = options.source_map_url {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str("//# sourceMappingURL=");
+        text.push_str(url);
+    }
     DeclarationEmit { text, diagnostics, unsupported: printed.unsupported, inference_required }
 }
 

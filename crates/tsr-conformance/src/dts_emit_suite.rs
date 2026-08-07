@@ -111,12 +111,25 @@ impl Suite for DtsEmit {
             }
             let references = declaration_references(&parsed.file_references);
             let mut nodes = parsed.nodes;
+            // The URL is relative to the declaration file, so only the final
+            // path component is named.
+            let declaration_file = declaration_name(&unit.name);
+            let map_base = declaration_file.rsplit('/').next().unwrap_or(&declaration_file);
+            let map_url = format!("{map_base}.map");
+            let mut options = declaration_emit_options(&parsed_case, &unit.content);
+            if parsed_case
+                .options
+                .get("declarationmap")
+                .is_some_and(|value| value.eq_ignore_ascii_case("true"))
+            {
+                options.source_map_url = Some(&map_url);
+            }
             let result = tsr_declarations::emit_with_references_and_options(
                 &arena,
                 &mut nodes,
                 parsed.source_file,
                 &references,
-                declaration_emit_options(&parsed_case, &unit.content),
+                options,
             );
             if !result.diagnostics.is_empty() {
                 return Outcome::Skipped {
@@ -361,6 +374,7 @@ pub(crate) fn declaration_emit_options<'a>(
             .get("strictnullchecks")
             .or_else(|| case.options.get("strict"))
             .is_none_or(|value| value.eq_ignore_ascii_case("true")),
+        source_map_url: None,
     }
 }
 

@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  272/341  = 79.77%  (up from 161/339)
+  dts_emit                  273/341  = 80.06%  (up from 161/339)
   dts_shape                 743/918  = 80.94%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -167,7 +167,9 @@ type-literal bodies are unaffected. This closes two more byte-exact cases
 
 A source-written `declare` modifier is now masked off declarations whose parent
 is not the source file, matching `ensureModifierFlags`; four transform arms had
-hardcoded file-level modifier context (`privacyVarDeclFile`).
+hardcoded file-level modifier context (`privacyVarDeclFile`). `declarationMap`
+now appends the trailing `//# sourceMappingURL=` comment — the map itself is not
+needed for byte-exact output (`declarationMaps`).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
