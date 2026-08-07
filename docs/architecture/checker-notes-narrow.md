@@ -1651,3 +1651,21 @@ prints `typeof M`) — the modobj workstream's row. NOT built in this
 continuation: cross-file resolution plus the print-form question deserve a
 fresh context, and the split above is the probe the next session starts
 from. No bar is registered; nothing here is refused.
+
+### §31 An unresolved free name answers upstream's `any`
+
+The gap board's third mountain range: `parserRealSource*` (~9,000 lines
+with downstream) initializes from names declared in `///<reference>` files
+the corpus deliberately does not load — `ASTFlags.Writeable` wants `any`
+because upstream reports TS2304 and answers `errorType`, printed `any`.
+The §14/§27 boundary argument's third application: this is upstream's own
+deliberate error-answer. One arm: `checkIdentifier`'s unresolved exit
+(`getResolvedSymbol`'s `unknownSymbol` → `errorType`) answers the `any`
+intrinsic instead of this port's `error`.
+
+**The risk is the largest of the three applications and is stated
+plainly:** everywhere THIS PORT's resolver misses but upstream's resolves
+(unported scoping, import forms), an honest gap becomes a wrong `any`. The
+falsifier is the measure itself — a net-negative or wrong-heavy pair
+refuses the arm whole, and a partial gate (e.g. only when no import/export
+machinery is in scope) is the fallback to price.
