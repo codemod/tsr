@@ -285,10 +285,20 @@ impl Checker<'_, '_> {
                 self.check_parameter_property_position(node, parameter.modifiers);
                 ambient
             }
+            Node::VariableDeclaration(declaration) => {
+                self.check_variable_like_declaration(node, declaration, ambient);
+                ambient
+            }
             Node::BinaryExpression(binary)
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::CommaToken) =>
             {
                 self.check_comma_left(node, binary.left.and_then(|left| left.node_id()));
+                ambient
+            }
+            Node::BinaryExpression(binary)
+                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken) =>
+            {
+                self.check_assignment_operator(binary, ambient);
                 ambient
             }
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {

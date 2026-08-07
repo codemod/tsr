@@ -1161,3 +1161,104 @@ unused. **Filed rather than approximated** — the fix is a parser-side pragma
 table, not a heuristic over comment text, and two cases do not buy a heuristic.
 The other two are `typeGuardNarrowsIndexedAccessOfKnownProperty9`, a private
 member reached through a shape the by-name marking does not see.
+
+---
+
+## 16. TS2322 — the board's top row, opened at 15% of it
+
+ADR-0040 decision (3), and the row every handoff since the eighth session has
+named as the largest single thing on the `diagnostics` board: **544 cases blocked
+on TS2322 and nothing else.** This build takes 29 of them, and the interesting
+product is not the 29 — it is the **five measured declines** that got the wrong
+column from 988 lines to 28 without losing a single case.
+
+### The comparison does not include the message
+
+`diagnostics` compares `(file, line, column, code)`. TS2322's two type arguments
+— the whole of `Type 'X' is not assignable to type 'Y'` — are **not compared**.
+That detaches this rule from type printing entirely, which is why a row that
+looks like it needs the whole checker needs only the *predicate* and the
+*position*.
+
+### The five declines, each with the number that bought it
+
+| # | build | CONVERTS | LOST | RIGHT | WRONG |
+|---|---|---:|---:|---:|---:|
+| 0 | assignment arm, gated on `error`/`any`/`unknown` only | 100 | **29** | 947 | **988** |
+| 1 | + primitives-only gate | 21 | 5 | 191 | 172 |
+| 2 | + declared type, `const`, multi-declaration, access targets | 19 | 1 | 168 | 40 |
+| 3 | + auto-typed and enum declines | 19 | **0** | 149 | 20 |
+| 4 | + the variable-declaration anchor | 32 | 0 | 208 | 44 |
+| 5 | + the unnarrowed-reference decline | **29** | **0** | 186 | **28** |
+
+**Build 0 is the number this section exists for.** Gated on nothing but the
+error type, this port's relation disagreed with upstream *almost exactly half the
+time* — 947 right against 988 wrong. That is `checker_types`' 26% non-gradient
+arriving as diagnostics, and it is the direct measurement of a thing the project
+had only ever asserted: **an incomplete relation is not a relation that reports
+less, it is one that reports wrongly.** `arr_i1 = arr_c1` where `C1 implements
+I1` is assignable upstream and not here, and every structural row behaves the
+same way.
+
+1. **Primitives only.** The gate admits a type whose assignability is settled by
+   its flags — primitive, literal, or a union of those — and nothing that needs a
+   members table, a signature list or an instantiation. That is the part of the
+   relation this port has finished, and confining the rule to it is what turned
+   988 wrong lines into 172.
+2. **The declared type, not the flow type.** `checkIdentifier`
+   (`checker.go:11109`) returns early with the declared type at a definite
+   assignment target. Reading the flow type instead was 16 wrong lines in
+   `controlFlowNoImplicitAny` alone: `let x;` narrows to `undefined` before its
+   first assignment, so `x = 1` read as *number not assignable to undefined*.
+3. **`const`, accessors, multi-declaration.** Assigning to a `const` is TS2588 —
+   a *different code at the same position*, which fails the case either way. A
+   `set` accessor whose parameter type differs from its getter's return type
+   makes the write type the setter's (`divergentAccessorsTypes2`), so property
+   and element access targets are declined whole. Two declarations of one name
+   merge their types and this port's merge is not upstream's
+   (`duplicateLocalVariable1`).
+4. **Auto-typed declarations and enums.** `let x;` *and* `let x = undefined;`
+   both get upstream's auto type, which `convertAutoToAny` makes `any`; this port
+   answers `undefined`. That is the same divergence
+   `checker-notes-narrow.md` §9.1 measured from the `.types` side and **refused
+   there** — so it is declined here rather than worked around, and the refusal
+   keeps one owner. Enums were 11 wrong lines and the build's only remaining
+   loss: `isTypeRelatedTo`'s enum arms and `numberAssignableToEnum`'s numeric
+   widening are unported.
+5. **The unnarrowed reference.** Narrowing only ever applies to a *reference*, so
+   a union still standing at a reference in an assignment position is the exact
+   shape in which an unported narrowing mechanism shows up. `controlFlowAliasing`
+   (13 lines, aliased conditional expressions) and `inferTypePredicates` (5,
+   inferred type predicates) are the whole family. Restricting the decline to
+   references rather than to every union source is worth **7 conversions** —
+   `var x: number = f()` returning a union is a real error and no narrowing was
+   ever going to touch it.
+
+### The bar
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | `LOST == 0` | **0** | pass |
+| 2 | `checker_types` byte-identical | **2,963 / 31.07% / 74.19%** | pass |
+| 3 | own new WRONG ≤ 40 | **28** | pass |
+| 4 | CONVERTS ≥ 20 | **29** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**`diagnostics` 832/5,488 = 15.16% → 861/5,488 = 15.69%.**
+
+### What is left on the row, priced
+
+- **9 of the 28 residual wrong lines are `@ts-expect-error` / `@ts-ignore`
+  suppression**, which is a *program-level* filter
+  (`compiler/program.go:1386`, `getDiagnosticsWithPrecedingDirectives`) and not
+  this rule's business at all. It is the next build, because it pays for every
+  rule at once rather than for this one.
+- **TS2741 / TS2739 / TS2740.** When the relation fails because the source is
+  *missing properties* of the target, upstream reports one of those instead
+  (`assignmentCompat1`). TS2741 alone is 38 cases on the board. That is the
+  natural next slice, and it is gated on the same members table the primitives
+  gate is declining today.
+- **The other anchors.** `checkReturnStatement` reports at the *return statement*
+  (`arrayAssignmentTest1.ts(6,16)` is the `return`, not the expression), and
+  parameter defaults, property declarations and object-literal members each have
+  one. Every anchor is worth its own measurement against this gate.

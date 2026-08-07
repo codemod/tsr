@@ -100,6 +100,7 @@
 
 pub mod array_literals;
 pub mod assertions;
+pub mod assignreport;
 pub mod binary;
 pub mod calls;
 pub mod check;
