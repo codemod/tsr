@@ -797,10 +797,7 @@ impl<'a> Scanner<'a> {
                 // `s.error` reports at `s.pos` with length zero
                 // (`scanner.go:413`) — the same correction the template arm
                 // needed, at the two sites `scanner.go:1613` and `:1630`.
-                self.error(
-                    &messages::UNTERMINATED_STRING_LITERAL,
-                    Span::new(self.pos, self.pos),
-                );
+                self.error(&messages::UNTERMINATED_STRING_LITERAL, Span::new(self.pos, self.pos));
                 break;
             };
             if ch == quote {
@@ -816,10 +813,7 @@ impl<'a> Scanner<'a> {
                 // `s.error` reports at `s.pos` with length zero
                 // (`scanner.go:413`) — the same correction the template arm
                 // needed, at the two sites `scanner.go:1613` and `:1630`.
-                self.error(
-                    &messages::UNTERMINATED_STRING_LITERAL,
-                    Span::new(self.pos, self.pos),
-                );
+                self.error(&messages::UNTERMINATED_STRING_LITERAL, Span::new(self.pos, self.pos));
                 break;
             }
             if ch == '\\' {

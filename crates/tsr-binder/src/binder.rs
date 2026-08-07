@@ -3062,6 +3062,18 @@ impl<'a, 'n> Binder<'a, 'n> {
 
     /// Create a symbol for `node` if it declares one.
     fn declare(&mut self, node: Node<'a>, id: NodeId) -> Option<SymbolId> {
+        // **Here, not at the one `declare_into` call that used to record it.**
+        // `GetNameOfDeclaration` (`binder.go:245`) is what every redeclaration
+        // diagnostic is positioned at, and `declare` reaches `declare_into`
+        // through eight call sites — the module-member path among them. Only one
+        // recorded the name, so a duplicate `class` inside a `namespace`
+        // reported on the `class` keyword while the same class at file scope
+        // reported on its name. `extragap.rs` reads that as **47 displaced
+        // TS2300 lines**, which is what a position bug looks like from the
+        // outside: the same code most-missing and most-extra in the same files.
+        if let Some(name_node) = name_node_of(node) {
+            self.name_nodes.insert(id, name_node);
+        }
         // In a JavaScript file an assignment to a property can *be* a
         // declaration. Checked before anything else, because the node kinds
         // involved — a binary expression — declare nothing otherwise.

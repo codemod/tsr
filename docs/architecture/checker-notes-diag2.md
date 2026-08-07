@@ -2093,3 +2093,34 @@ Fixed together: **+1 case** on `diagnostics` (977) and **+5 lines** on
 `checker_types` (3,074 / 74.66%), which is the first time a `diagnostics` build
 has moved the other workstream's number. Every parser and scanner suite is
 byte-identical: `parser_typescript` 5,001/5,031, `scanner_clean_files` 5,031.
+
+### 30.2 TS2300 — the second position bug, and the same instrument found it
+
+```
+diagnostics 977 -> 988   (+11)     binder_symbols 8,293/8,460 unchanged
+```
+
+`extragap.rs` read TS2300 as **47 displaced / 47 invented / 38 sole obstacle**.
+The displaced half was one omission: `declare` reaches `declare_into` through
+**eight** call sites — the module-member path among them — and only *one*
+recorded the declaration's name node. So a duplicate `class` inside a `namespace`
+reported on the `class` keyword while the same class at file scope reported on
+its name:
+
+```
+genericClassesRedeclaration.ts(16,11)   upstream — the name
+genericClassesRedeclaration.ts(16,5)    this port — the keyword
+```
+
+`GetNameOfDeclaration` (`binder.go:245`) is what *every* redeclaration
+diagnostic is positioned at, so the record belongs in `declare` itself, before
+any of the eight paths. Eleven cases, and `binder_symbols` is unchanged —
+positions are not part of that suite's comparison, which is why the defect
+survived two sessions at 98.03%.
+
+> **Both of this session's position bugs were invisible to every instrument
+> except `extragap.rs`.** A code that is simultaneously the most-missing and the
+> most-extra in the same files is not an incomplete rule; `diaggap.rs` printed
+> "TS1160 12 cases" and "TS2300 32 cases" in its false-positive list for two
+> sessions with no way to say so. **+23 cases for two arguments and one moved
+> statement.**
