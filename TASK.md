@@ -28,10 +28,13 @@ WHAT THE SESSION OPENED, in value order:
   3. HALF DONE (callres §19.1, +151/0): the enclosing-scope half landed —
      two scope rules learned from losses (shadowing chains keep the written
      name; computed names and heritage clauses sit outside their class's
-     param scope). REMAINING: the within-print half, 322 lines — sibling
-     signatures in ONE composite text; the design is a per-composite naming
-     pass over the member loop (objects.rs signature_member_text), reusing
-     signatures.rs's apply_renames.
+     param scope). REMAINING: the within-print half, 322 lines — REFUSED TWICE
+     (callres §20.1: 149 lost at the shared join, −645 at the synthesized
+     joins). Written composites keep sibling names verbatim
+     (declarationEmitTypeParameterNameReusedInOverloads) while the IPromise
+     head renames; the discriminator is the print context's identity claims.
+     Prerequisite: a per-line study of the two head families side by side.
+     Do NOT attempt a third join placement.
   4. tsr-5o2 (written-annotation reuse in signature prints) surfaced 4 more
      lines in §11.2 — its row keeps growing as aggregates land.
   5. DONE same session, all three verses (assign notes §14/§15/§16):
