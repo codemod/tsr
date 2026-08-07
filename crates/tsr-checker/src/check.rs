@@ -368,6 +368,7 @@ impl Checker<'_, '_> {
             }
             _ => ambient,
         };
+        self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
         self.register_for_unused_check(node);
         let mut children = [const { None }; INLINE_CHILDREN];

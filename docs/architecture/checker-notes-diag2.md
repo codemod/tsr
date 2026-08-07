@@ -3312,3 +3312,126 @@ source is still a pair this port cannot ask about.
 widening — most likely standing in for `getWidenedType` as well, which is a
 different function and is also unported. That would be a decline to re-derive
 rather than to delete, and the wrong column's top row would name which.
+
+---
+
+## 47. TS2872 / TS2873 — `checkTruthinessOfType`, a rule with no types in it
+
+`diaggap.rs` at `HEAD`: **TS2872 15 cases would convert alone** (35 contain it),
+TS2873 **6**. Both come out of one function, `checkTruthinessOfType`
+(`checker.go:12865`):
+
+```go
+if t.flags&TypeFlagsVoid != 0 { … return t }
+semantics := c.getSyntacticTruthySemantics(node)
+if semantics != PredicateSemanticsSometimes {
+    c.error(node, IfElse(semantics == Always, This_kind_of_expression_is_always_truthy, …_falsy))
+}
+```
+
+and `getSyntacticTruthySemantics` (`checker.go:12886`) reads **node kinds and
+literal text**. There is no relation, no members table, no inference and — apart
+from one identifier case — no type at all. §14's ordering rule says a rule that
+reports on a syntactic fact has no incompleteness to leak, and this is the purest
+instance of it since TS2369.
+
+The predicate, arm for arm:
+
+| shape | semantics |
+|---|---|
+| numeric literal, text neither `0` nor `1` | Always (`while (0)` and `while (1)` are deliberately allowed) |
+| array literal, arrow, bigint literal, class expression, function expression, JSX element or self-closing element, object literal, regex literal | Always |
+| `void …`, `null` | Never |
+| string or no-substitution template, non-empty | Always; empty → Never |
+| conditional expression | the **union** of both branches' semantics — `Always \| Never` is `Sometimes`, which is why `c ? 1 : 0` is silent |
+| identifier resolving to `undefined` | Never |
+| anything else | Sometimes |
+
+### The six sites, and why the site list is the rule
+
+Truthiness is *tested* at seven syntactic positions and upstream calls
+`checkTruthinessExpression` at each: `if` (`checker.go:3804`), `do` (`:3950`),
+`while` (`:3955`), a `for` statement's condition (`:3974`), a conditional
+expression's condition (`:10936`), the operand of `!` (`:10888`), and the **left
+operand of `&&` or `||`** (`:12356`, and only for `IsLogicalBinaryOperator`, so
+`??` is excluded).
+
+§15's trap — *"a register site inside a conditional is a precondition of the
+rule"* — applies directly: the site list **is** the rule here, since the
+predicate itself is context-free. A missing site is a missing diagnostic; an
+extra site is a wrong one.
+
+### TS1345 is ported with it and expected to convert nothing
+
+`An expression of type 'void' cannot be tested for truthiness` has **no row at
+all** in `diaggap.rs`. It is ported anyway because it is the same function's
+early return, and because leaving it out would let a `void` expression fall
+through to the syntactic arm. Its cost is bounded by the number of `void`-typed
+conditions in the corpus, and if it produces wrong lines it is declined on its
+own.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,154**. Forecast **+10 to +21** — the two rows are 15 and 6 and a syntactic rule has hit its row before (§10: 40 for 40) |
+| 2 | `checker_types` pass count unchanged at **3,660** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2872, 2873, 1345]` |
+| 4 | own WRONG ≤ **10**. §10 and §11 shipped syntactic rules at literally zero and this one has one type test in it |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column is not near zero, the defect is the **site
+list** and not the predicate — the predicate is a table of node kinds and cannot
+be half-right. The wrong lines would then all share a position shape (a `??`
+left operand, a `for` header, a nested conditional) and name the site directly.
+
+### Scored — **+21**, the top of the forecast, and a scanner fact worth 3 lines
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,154, forecast +10 to +21 | **1,175 / 5,488 = 21.41%** | pass, at the top |
+| 2 | `checker_types` pass count 3,660 | **3,660 / 82.64%** | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 10 | **4** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2872, 2873, 1345]`: **CONVERTS 23 · RIGHT 196 · WRONG 4 ·
+LOST 0.** TS1345 converted nothing, as forecast, and produced no wrong line
+either.
+
+**The forecast was 15 + 6 = 21 and the measurement is 23 conversions.** A row is
+usually a ceiling; here two rules from one function each finished cases the other
+was also blocking, so the union beats the sum of the columns. That is the
+opposite of §2's warning about the single-code column, and it happens for the
+same reason: the column says which code blocks a case, and a case blocked by
+*both* TS2872 and TS2873 appears in neither row.
+
+### The two wrong families, and both were positions
+
+**`if (0.0) { }` — three lines, and the cause is in the scanner.** Upstream's
+predicate is `node.Text() == "0" || node.Text() == "1"`, and a `NumericLiteral`'s
+`Text` is the scanner's **normalised value**, not the written spelling: `0.0`,
+`0x0` and `0e5` all read `"0"`. This port keeps the source text on the node, so
+the literal comparison read `"0.0" != "0"` and reported `if (0.0)` as always
+truthy. Comparing the *value* is the port of the same sentence and removed all
+three.
+
+> Fourth time this session that a faithful-looking transcription was answering a
+> different question than upstream's: `is_error` vs `== errorType` (§43), a
+> printing guard on a non-printing consumer (§42.1), a decline copied with its
+> conclusion (§45), and now a literal's text against a literal's value.
+
+**The remaining four are one error-span rule, and it is not this rule's.**
+All four are `generatedContextualTyping`'s
+`function named() { … } || undefined`, where upstream underlines **`named`** and
+this port underlines `function`. That is `GetErrorRangeForNode`
+(`scanner.go:2588`), which maps a node to the span its diagnostic is reported
+at — for a `FunctionExpression`, `ClassExpression`, `VariableDeclaration`,
+`PropertyDeclaration`, `EnumMember`, `ModuleDeclaration` and a dozen more, the
+span is **the declaration's name**.
+
+**This port has no such mapping.** Every `report` call site passes
+`self.nodes.span(node)` directly, and the rules that are positionally right are
+right because they were each written to pass the name node themselves (§43's
+TS2564 passes `property.name`; §30's TS2300 build was this same defect found one
+call site at a time). Doing it centrally is §48.
