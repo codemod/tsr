@@ -2270,3 +2270,31 @@ suggestion arm, and a primitive type *keyword* in a value position is TS2693.
 `primitiveTypeAssignment` were the family. Those names resolve to no symbol here
 because they are **keywords rather than globals**, so the existing "resolves as a
 TYPE" decline never saw them — and the same decline now protects TS2304 as well.
+
+
+### 33.1 TS2300's `export =` position — REFUSED at a net −3, and the probe could not see it
+
+`duplicateExportAssignments` records `foo5.ts(4,10)` — the **expression** of
+`export = x`, not the `export` at column 1 — so `name_node_of` should have an
+`ExportAssignment` arm returning `n.expression`. Adding it measured, in
+`diag2307.rs` with `RULE_CODES = [2300]`:
+
+```
+CONVERTS 28 -> 30     LOST 0     WRONG 61 -> 44
+```
+
+and the suite went **1,022 → 1,019**.
+
+> **The counterfactual cannot see a position change.** Its *before* side removes
+> the code entirely, so it compares "no TS2300" against "TS2300 at the new
+> position" — and a case that was passing with TS2300 at the **old** position
+> appears in neither column. Every measurement in this file up to §30 was of a
+> rule being *added*, where before-is-absent is exactly right; a rule being
+> *moved* needs a before that keeps the old behaviour, which `diag2307.rs` has no
+> way to express.
+
+Reverted. The arm is almost certainly correct for `export =` itself and there is
+some other consumer of the declaration-start position that pays for it; finding
+it needs a probe that diffs the suite's pass set across a commit rather than
+across a code list. **That probe is the prerequisite for any further position
+work**, and §30's three position fixes were lucky to be additive.

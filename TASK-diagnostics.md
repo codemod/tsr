@@ -91,6 +91,12 @@ RANKED NEXT ITEMS, with what each is actually blocked on
      `markNodeAssignments`, which records assignments *per symbol* during the
      bind, and a name-based scan cannot tell one `x` from another's. The build is
      `markNodeAssignments` in the binder, not a walk in the checker.
+  0a2. **BUILD A PASS-SET DIFF PROBE BEFORE ANY MORE POSITION WORK.**
+     `diag2307.rs`'s *before* side removes a code entirely, so it cannot see a
+     rule being **moved**: TS2300's `export =` arm measured +2 converts / −17
+     wrong in the probe and **−3 on the suite** (§33.1). What is needed is a
+     probe that diffs the suite's pass set across two builds, not across a code
+     list. §30's three position fixes were additive and got away with it.
   0b. **The rest of `extragap.rs`'s displaced column.** DONE and worth +29
      between them: TS2300 (47 displaced, +11), TS1160 (12, +12), TS1125 (86, +5),
      TS1002 (16, +1). **TS1109's 18 are the only untried remainder.** TS1005's
