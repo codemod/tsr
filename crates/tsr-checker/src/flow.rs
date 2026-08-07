@@ -531,6 +531,19 @@ impl Checker<'_, '_> {
             }
             return None;
         }
+        // `flow.go:229`: a COMPOUND assignment does not narrow — the walk
+        // skips its effect and answers the antecedent's type at the
+        // literal's base. `a += anyExpr` leaves a narrowed `number` intact;
+        // computing the `+=` result here was §15's 968 confident wrongs
+        // (`binaryArithmeticControlFlowGraphNotTooLarge`).
+        if self.assignment_target_kind(node) == crate::expressions::AssignmentTargetKind::Compound {
+            let antecedent = self.binder.flow().antecedent(flow)?;
+            let prior = self.get_type_at_flow_node(state, antecedent);
+            return Some(FlowType {
+                t: self.get_base_type_of_literal_type(prior.t),
+                incomplete: prior.incomplete,
+            });
+        }
         if state.is_auto {
             // `flow.go:232`. Upstream then asks whether the assigned type is
             // assignable to the declared one and falls back to `any[]`; the
@@ -1016,6 +1029,18 @@ impl Checker<'_, '_> {
         let Some(Node::VariableDeclaration(node)) = self.node_map.get(declaration) else {
             return false;
         };
+        // A catch-clause variable is `unknown`/`any` by DECLARATION KIND, not
+        // an evolving auto — before this gate the §15 compound skip walked
+        // through to a START whose auto-initial `undefined` was
+        // typeof-narrowed to `never` (`useUnknownInCatchVariables01`, the
+        // §15 bar's fired leg).
+        if self
+            .nodes
+            .parent(declaration)
+            .is_some_and(|parent| self.nodes.kind(parent) == tsr_ast::SyntaxKind::CatchClause)
+        {
+            return false;
+        }
         // A binding pattern is excluded upstream: `let { a } = x` declares
         // through the pattern and the auto reduction never applies.
         if !matches!(node.name, Some(tsr_ast::BindingName::Identifier(_))) {

@@ -1324,7 +1324,7 @@ impl Checker<'_, '_> {
     /// else — including enum-like, whose base walk lives elsewhere — returns
     /// unchanged, which preserves current behaviour for the shapes §10's bar
     /// did not size.
-    fn get_base_type_of_literal_type(&mut self, id: TypeId) -> TypeId {
+    pub(crate) fn get_base_type_of_literal_type(&mut self, id: TypeId) -> TypeId {
         let flags = self.store.get(id).flags;
         if flags.intersects(TypeFlags::ENUM_LIKE) {
             return id;

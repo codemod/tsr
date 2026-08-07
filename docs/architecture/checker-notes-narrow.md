@@ -1242,3 +1242,17 @@ board row shrinks accordingly. Falsifiers: (a) losses in the §10 compound
 population (`bitwiseCompoundAssignmentOperators`) mean the reference-side
 base rule and this walk-side skip disagree; (b) losses where want IS the
 compound result mean upstream's skip is narrower than the arm ported.
+
+**§15 score — LANDED.** First pair: +1,111 W→R / 12 adverse; the fired leg
+decoded as CATCH VARIABLES misclassified auto (`is_auto_typed_declaration`
+now excludes catch clauses — a catch `e` is `unknown`/`any` by declaration
+kind, and the §15 skip had walked through to an auto-initial `undefined`
+that typeof-narrowing killed to `never`). Final pair vs pre-§15:
+**+1,147 (1,119 W→R, 28 G→R) / 5 adverse** — 3 in
+`parserUsingConstructorAsIdentifier` are the DOCUMENTED `noImplicitAny`-off
+limitation (`bd tsr-4sc.11`: no compiler options plumbed; the old arm's
+accidental `any` masked it), 2 in `narrowByBooleanComparison` moved
+GAP→WRONG (`error`→`any`, one step nearer the `number | undefined` want).
+`checker_types` right 367,576 → **368,720**, wrong 24,326 → **23,212**.
+`controlFlowSelfReferentialLoop` gained 131 — the §12.7 residue's md5
+compound chains were this same rule.
