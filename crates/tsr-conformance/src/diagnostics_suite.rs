@@ -280,6 +280,23 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         test.options.get("nounusedparameters").is_some_and(|v| v.eq_ignore_ascii_case("true")),
     );
 
+    // `set_checked_files` before the first `check_source_file`, because the set
+    // is a property of the program: a rule that asks "is this declaration in a
+    // library" would otherwise get an answer that depends on how far the loop
+    // below had got.
+    let mut own_files = Vec::new();
+    for unit in &test.files {
+        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        if let Some(file) = program.source_file(&unit.name)
+            && let Some(id) = file.source_file().node_id
+        {
+            own_files.push(id);
+        }
+    }
+    checker.set_checked_files(own_files);
+
     let mut units = Vec::new();
     for unit in &test.files {
         if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {

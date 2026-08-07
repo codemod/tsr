@@ -322,6 +322,10 @@ impl Checker<'_, '_> {
                 self.check_implicit_any_parameters(node, ambient);
                 ambient
             }
+            Node::PropertyAccessExpression(_) => {
+                self.check_nonexistent_property(node, ambient);
+                ambient
+            }
             Node::CallExpression(_) => {
                 self.check_call_arity(node);
                 ambient
@@ -1997,7 +2001,7 @@ fn is_specially_diagnosed_name(name: &str) -> bool {
 /// there is one consumer. The second consumer is the scanner's regular-
 /// expression property-name suggestions (`scanner/regexp.go:955`), unported;
 /// it moves when that lands.
-fn spelling_suggestion<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
+pub(crate) fn spelling_suggestion<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
     let target: Vec<char> = name.chars().collect();
     #[allow(clippy::cast_precision_loss, reason = "identifier lengths are small")]
     let length = target.len() as f64;

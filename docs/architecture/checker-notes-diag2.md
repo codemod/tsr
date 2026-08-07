@@ -1523,3 +1523,80 @@ The other two, each with its case:
   case rather than merely silencing it.
 
 After the three: **zero wrong lines over 42 right ones.**
+
+---
+
+## 21. TS2339 — the §9 refusal RETIRED, on the condition §9 named
+
+```
+CONVERTS 893 -> 904  (+11)     LOST 0      RIGHT 62      WRONG 11
+```
+
+§9 built this rule, measured **2 conversions against 254 wrong lines**, and
+refused it. The refusal was right and it carried its own retirement condition:
+
+> An absent property and an unbuilt members table are the same `None`, and no
+> predicate over the *type* separates them. […] What would make this win: a
+> members table that knows whether it is **complete**.
+
+**11 conversions for 11 wrong lines** — 1.00 gained per wrong, against §9's
+0.008. Two orders of magnitude, and the difference is one idea.
+
+### The idea: ask the walk, not the type
+
+`Named { members: Some(_) }` is a flag, and §9 is correct that no flag can
+answer this. [`crate::member_completeness`] answers it by **re-walking the graph
+`get_property_of_type` walks** and returning `false` the moment the walk reaches
+anything this port resolves lazily, partially, or not at all. Completeness is a
+property of the traversal that produced the answer, not of the type the answer
+came from — which is precisely what §9 discovered and did not act on.
+
+The conditions are not a heuristic. They are §9's own wrong column read back:
+
+| answers `false` | §9's residual case |
+|---|---|
+| an instantiated reference, or an owner declaring type parameters | `longObjectInstantiationChain1`/`3` (13 each), `genericDefaults` (9) |
+| a base `base_symbols_of` cannot follow | `mixinAccessModifiers` (9), `classExtendingClassLikeType` |
+| a declaration that is not a class or interface | `conditionalTypes1` (8), `mappedTypes6` |
+| an index signature on the declaration | every receiver where all names are legal |
+| a member with a computed name | late binding, unported |
+| a revisited symbol | `recursiveIntersectionTypes` |
+
+`base_symbols_of`'s existing contract — *"any base that cannot be followed makes
+the whole lookup a miss"* — is the load-bearing half, and it was already written
+and already documented. **The subsystem §9 said this needed turned out to be
+half-built, in a function whose doc comment had said so for two sessions.**
+
+### The second gate: the type can be complete and still be the wrong type
+
+Completeness is about the *table*. It says nothing about whether the receiver's
+type is the one upstream computed, and the first measurement's **7 losses** were
+all that second question:
+
+- **`Object` and `Function`.** `addInheritedMembers` layers the global `Object`'s
+  members under every object type, and `Function`'s under anything with a call
+  signature. `i.toString()` is legal on an interface that declares no
+  `toString`. Seven losses — `objectMembersOnTypes`,
+  `classAppearsToHaveMembersOfObject`, `objectTypePropertyAccess`,
+  `fluentClasses`, three `objectTypeWith*Signature*` — and **losses, not merely
+  wrong lines**, because those cases pass today.
+- **Library receivers.** TS2550 and TS2812 replace TS2339 for a lib type, and
+  neither is modellable without a lib-version table. `Checker::set_checked_files`
+  (new) gives the checker the program's *own* file set, so "declared in a
+  library" is answerable at all — the libs are in the program and are never
+  walked. Eight lines across three cases.
+- **Narrowed and inferred receivers.** A call receiver (`fluentClasses`'
+  polymorphic `this`), a dotted name (`narrowingOfDottedNames`), and an
+  identifier whose flow type differs from its declared type
+  (`controlFlowInstanceof`, `typePredicateInLoop`) are all declined. `this` is
+  **not** — `thisBinding` and `statics` are conversions.
+
+### The residual 11, priced
+
+Five are the *opposite* narrowing failure and cannot be gated by comparing
+declared against flow type: upstream narrows `target` to a subclass and finds
+the member, this port does not narrow and reports. The gate catches "we narrowed
+and upstream did not"; there is no cheap predicate for "upstream narrowed and we
+did not" short of the narrowing itself. Three are `missingDomElements`, whose
+receiver is a locally declared `interface Element` that upstream recognises as a
+DOM name. Three are class-side and protected-member shapes.

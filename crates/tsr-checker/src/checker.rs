@@ -272,6 +272,16 @@ pub struct Checker<'a, 'n> {
     /// `reportUnused` (`checker.go:7092`) asks for it at a node the walk has
     /// already left.
     pub(crate) file_is_ambient: bool,
+    /// The source files this program is *checking*, as opposed to the ones it
+    /// merely holds.
+    ///
+    /// Upstream needs no equivalent: it has the `Program`, and
+    /// `SkipTypeChecking` answers from the file's path and options. Here the
+    /// checker is handed one file at a time and cannot see the list, so the
+    /// caller supplies it — and the distinction is load-bearing for any rule
+    /// that must not report about a **library** type. See
+    /// [`Checker::set_checked_files`].
+    pub(crate) checked_files: rustc_hash::FxHashSet<NodeId>,
     /// Blocks that have already reported
     /// `Statements are not allowed in ambient contexts`.
     ///
@@ -505,6 +515,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unused_check_nodes: Vec::new(),
             referenced_member_names: crate::unused::MemberNames::default(),
             file_is_ambient: false,
+            checked_files: rustc_hash::FxHashSet::default(),
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
@@ -579,6 +590,23 @@ impl<'a, 'n> Checker<'a, 'n> {
     pub fn set_no_unused(&mut self, locals: bool, parameters: bool) {
         self.no_unused_locals = locals;
         self.no_unused_parameters = parameters;
+    }
+
+    /// Declare which files this program checks, before checking any of them.
+    ///
+    /// The bundled `lib.*.d.ts` are in the program and are never walked
+    /// (`diagnostics_suite::from_check_traversal` says so and says why), so a
+    /// declaration in a file outside this set is a **library** declaration.
+    /// `crate::nonexistent_property` needs that distinction: upstream reports
+    /// TS2550 / TS2812 rather than TS2339 for a missing member of a lib type,
+    /// and this port models neither.
+    ///
+    /// It must be called **before** the first `check_source_file`, because the
+    /// set is a property of the program and not of the file being walked —
+    /// deriving it from the files walked so far would make the answer depend on
+    /// the order.
+    pub fn set_checked_files(&mut self, files: impl IntoIterator<Item = NodeId>) {
+        self.checked_files = files.into_iter().collect();
     }
 
     /// Set `noImplicitAny` from a case's compiler options.
