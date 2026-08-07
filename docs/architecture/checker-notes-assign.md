@@ -612,3 +612,20 @@ type. Yields and array literals stay declined with their owners.
 `@overload` cases (`overloadTag1` was 10 of §10.1's 44; if those lines came
 from THIS consumer the JSDoc signature family must be excluded, not traded);
 regressed == 0; lost == 0.
+
+### §11.1 REFUSED and reverted — the falsifier fired and its exclusion has an unbuilt prerequisite
+
+Measured alone: **+86 / 26 own wrong** — leg 2 at 3.3× its ceiling. The named
+falsifier fired first in the list: **JS `@overload` is 10 of the 26**
+(`overloadTag1`), and the bar's own instruction was *exclude, not trade*. The
+exclusion does not exist to write: `NodeFlags::JAVASCRIPT_FILE` is declared
+and **set by nothing** — the same declared-but-never-set trap TASK.md
+registers for `NodeFlags::AMBIENT` (`tsr-2564`'s 86-wrong first measurement),
+found before it cost a build this time. The rest: switch-case narrowing 4
+(`tsr-5kii`, unported — the default arm's un-narrowed `string` collapses the
+literal aggregate), written-param prints 5, accessor/field flow 2.
+
+**The consumer returns to the board with its prerequisite named: a parser
+that sets `JAVASCRIPT_FILE`, or any node→file-kind route the checker can
+read.** With that flag real, re-run this §'s measurement; without it, 10 of
+the wrongs are unremovable by design.
