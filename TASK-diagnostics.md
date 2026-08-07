@@ -74,11 +74,26 @@ RANKED NEXT ITEMS, with what each is actually blocked on
      conversions, 24 cases) and TS2367 (no-overlap comparison, 23) remain; TS2367
      needs `isTypeComparableTo`, a fourth `Relation` that does not exist, TS2352
      does not.
-  0a. **The rest of `extragap.rs`'s displaced column.** TS1005 has **241
-     displaced** lines, TS1125 86, TS1109 18, TS1002 16 (DONE, +1), TS2300 47.
-     Every one of those is a position, not a rule, and TS1160 says what a
-     position is worth. TS2300 also carries **38 sole-obstacle cases**.
-  0b. **More definite negatives the relater declines to give** (§29). It answers
+  0a. **TS2454's row is on the MISSING side, and that is now measured — the
+     best-priced single build left on this page.** Its extras are closed (114 →
+     10 wrong lines across three declines) and *none of the three converted a
+     single case*. `extragap.rs` says **66 cases have TS2454 as their sole
+     obstacle**, so ~60 are missing diagnostics. The bound is documented at
+     `check_used_before_assigned` and excludes **outer variables, parameters,
+     aliases and binding elements** — the ninth session's named residual,
+     "outer variables and assignment marking". Worth ~60 cases.
+  0b. **The rest of `extragap.rs`'s displaced column.** DONE and worth +29
+     between them: TS2300 (47 displaced, +11), TS1160 (12, +12), TS1125 (86, +5),
+     TS1002 (16, +1). **TS1109's 18 are the only untried remainder.** TS1005's
+     **241 displaced are NOT this shape** — JSX and conflict-marker parser
+     *recovery* differences, 32 lines at one EOF position in
+     `jsxUnclosedParserRecovery` alone; that is a parser project, not a position,
+     and this line exists so nobody re-derives it. A measured negative beside it:
+     the `s.pos` correction does **not** generalise to the unterminated *regex*
+     and *JSX string* sites — applying it there cost 2 cases and was reverted.
+     The rule is "report where upstream's call reports", not "the scanner always
+     reports at `pos`".
+  0c. **More definite negatives the relater declines to give** (§29). It answers
      `Unknown` for any pair it did not reach structurally, and two of those are
      decidable from flags alone: an object source against a primitive target, and
      a primitive source against a target requiring a property. Both are asked in
