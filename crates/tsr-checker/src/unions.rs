@@ -692,3 +692,157 @@ impl Checker<'_, '_> {
             .then(a.cmp(&b))
     }
 }
+
+impl crate::checker::Checker<'_, '_> {
+    /// A union reduced with `UnionReductionSubtype`, or `None` where the
+    /// reduction is not decidable — `checker-notes-assign.md` §9.
+    ///
+    /// Upstream's `removeSubtypes` removes a constituent when
+    /// `isTypeRelatedTo(source, target, strictSubtypeRelation)` holds. This
+    /// port runs the same test through [`Ternary`] and **declines whole** on:
+    ///
+    /// - any pair reading [`Ternary::Unknown`] — the population whose wrong
+    ///   removals priced `tsr-eak`'s 1.03 refusal;
+    /// - a `Related` pair of two class instances — upstream additionally
+    ///   requires `isTypeDerivedFrom` there (the `ObjectFlagsClass` caveat in
+    ///   the `removeSubtypes` loop), which is unported;
+    /// - a type-parameter constituent — upstream tests it against the union
+    ///   of the *others* (the union-constraint branch), not pairwise.
+    ///
+    /// The key-property and `hasEmptyObject` branches upstream carries are
+    /// performance, not semantics: primitives are strict subtypes only of
+    /// empty object shapes, and the pairwise walk reaches those through the
+    /// ordinary relation.
+    pub(crate) fn union_with_subtype_reduction(
+        &mut self,
+        types: &[crate::types::TypeId],
+    ) -> Option<crate::types::TypeId> {
+        use crate::relater::Ternary;
+        let literal = self.get_union_type(types);
+        let constituents = match &self.store.get(literal).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            // Zero or one constituent after literal reduction: nothing a
+            // subtype pass could remove.
+            _ => return Some(literal),
+        };
+        if constituents
+            .iter()
+            .any(|&c| self.store.get(c).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER))
+        {
+            return None;
+        }
+        // The first measurement fired the §9 bar's leg 2 at 46 and its named
+        // falsifier was exact: `properties_related_to`'s own doc says
+        // `readonly`, optionality and the other modifiers are "not compared
+        // at all … the one place this function can be too permissive", and
+        // this reduction is precisely the consumer that acts on the
+        // too-permissive `Related` — `{ a } | { readonly a }` removed a
+        // constituent upstream's directed relation keeps
+        // (`readonlyPropertySubtypeRelationDirected`, 36 of the 46). Until
+        // the relation reads modifiers, a constituent carrying one — or
+        // carrying a generic instantiation (`NonNullable<T>` reduced to `T`)
+        // — declines the whole reduction, syntactically.
+        for &constituent in &constituents {
+            if self.has_modifier_bearing_members(constituent) {
+                return None;
+            }
+            if let Some((_, arguments)) = self.type_reference_targets.get(&constituent)
+                && arguments.iter().any(|&a| {
+                    self.store.get(a).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                })
+            {
+                return None;
+            }
+        }
+        // Iterate exactly as upstream does — from the end, re-testing against
+        // the surviving list — so removal order cannot differ.
+        let mut kept = constituents;
+        let mut i = kept.len();
+        while i > 0 {
+            i -= 1;
+            let source = kept[i];
+            let mut remove = false;
+            for &target in &kept {
+                if target == source {
+                    continue;
+                }
+                match self.relate_ternary(source, target, crate::relater::Relation::StrictSubtype) {
+                    Ternary::Unknown => return None,
+                    Ternary::Related => {
+                        if self.is_class_instance(source) && self.is_class_instance(target) {
+                            return None;
+                        }
+                        remove = true;
+                        break;
+                    }
+                    Ternary::NotRelated => {}
+                }
+            }
+            if remove {
+                kept.remove(i);
+            }
+        }
+        Some(self.get_union_type(&kept))
+    }
+
+    /// Whether any member the relation would compare carries a modifier the
+    /// relation does not read — `readonly`, `?`, or a `private`/`protected`
+    /// keyword on its declaration. The §9 reduction's syntactic decline.
+    fn has_modifier_bearing_members(&self, id: crate::types::TypeId) -> bool {
+        let symbol = match &self.store.get(id).data {
+            crate::types::TypeData::Named { members: Some(symbol), .. }
+            | crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
+            _ => match self.type_reference_targets.get(&id) {
+                Some((symbol, _)) => *symbol,
+                None => return false,
+            },
+        };
+        let members = &self.binder.symbols().get(symbol).members;
+        members.values().any(|&member| {
+            self.binder.symbols().get(member).declarations.iter().any(|&declaration| {
+                let Some(node) = self.node_map.get(declaration) else { return false };
+                #[allow(
+                    clippy::match_same_arms,
+                    reason = "four member node kinds bind four distinct payload \
+                              types to one (modifiers, postfix) shape; the arms \
+                              cannot or-pattern across types"
+                )]
+                let (modifiers, question) = match node {
+                    tsr_ast::Node::PropertySignatureDeclaration(p) => {
+                        (p.modifiers, p.postfix_token)
+                    }
+                    tsr_ast::Node::PropertyDeclaration(p) => (p.modifiers, p.postfix_token),
+                    tsr_ast::Node::MethodSignatureDeclaration(m) => (m.modifiers, m.postfix_token),
+                    tsr_ast::Node::MethodDeclaration(m) => (m.modifiers, m.postfix_token),
+                    _ => return false,
+                };
+                question.is_some()
+                    || modifiers.iter().any(|modifier| {
+                        matches!(
+                            modifier,
+                            tsr_ast::ModifierLike::Token(token)
+                                if matches!(
+                                    token.kind,
+                                    tsr_ast::SyntaxKind::ReadonlyKeyword
+                                        | tsr_ast::SyntaxKind::PrivateKeyword
+                                        | tsr_ast::SyntaxKind::ProtectedKeyword
+                                )
+                        )
+                    })
+            })
+        })
+    }
+
+    /// Whether a type is a class **instance** type — the shape upstream's
+    /// `removeSubtypes` guards with `ObjectFlagsClass`.
+    fn is_class_instance(&self, id: crate::types::TypeId) -> bool {
+        let symbol = match &self.store.get(id).data {
+            crate::types::TypeData::Named { members: Some(symbol), .. }
+            | crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            _ => self.type_reference_targets.get(&id).map(|(symbol, _)| *symbol),
+        };
+        symbol.is_some_and(|s| {
+            self.binder.symbols().get(s).flags.intersects(tsr_binder::SymbolFlags::CLASS)
+        })
+    }
+}

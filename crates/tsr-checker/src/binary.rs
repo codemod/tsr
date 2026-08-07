@@ -345,13 +345,34 @@ impl Checker<'_, '_> {
             self.get_regular_type_of_literal_type(right),
         ];
         let any = self.intrinsics.any;
-        let agnostic = regular[0] == regular[1]
-            || pair.contains(&any)
-            || pair.iter().all(|&id| self.is_subtype_reduction_free(id));
-        if !agnostic {
+        if regular[0] == regular[1] || pair.contains(&any) {
+            return self.get_union_type(&pair);
+        }
+        // A NON-identical pair touching a type parameter or `unknown`
+        // declines: upstream's `GetNonNullableType` wraps a type parameter in
+        // the `NonNullable<T>` alias (`x || error()` wants `NonNullable<T>`,
+        // reached upstream by reducing `NonNullable<T> | never`) and maps
+        // `unknown` to `{}` — neither shape exists here. The identity path
+        // above stays open (`u || u : U` — §9's third measurement lost 11
+        // such lines to a gate placed too early), and the union collapse
+        // means the test must run on the PAIR: `never` on the right vanishes
+        // inside `get_union_type` before any later gate could see the
+        // type parameter (§9's fourth measurement, 4 lines).
+        let undecidable = TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN;
+        if pair.iter().any(|&id| {
+            self.store.get(id).flags.intersects(undecidable)
+                || self.type_reference_targets.get(&id).is_some_and(|(_, arguments)| {
+                    arguments.iter().any(|&a| self.store.get(a).flags.intersects(undecidable))
+                })
+        }) {
             return error;
         }
-        self.get_union_type(&pair)
+        if pair.iter().all(|&id| self.is_subtype_reduction_free(id)) {
+            return self.get_union_type(&pair);
+        }
+        // The non-agnostic pairs run the decidability-gated `removeSubtypes`
+        // (`checker-notes-assign.md` §9); an undecidable pair stays a gap.
+        self.union_with_subtype_reduction(&pair).unwrap_or(error)
     }
 
     /// `removeDefinitelyFalsyTypes` (`checker.go:29106`) — `filterType` by

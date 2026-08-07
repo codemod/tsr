@@ -522,3 +522,39 @@ removed one → the strict-subtype relation answered `Related` where
 upstream's does not, an unsoundness the `Unknown` gate failed to catch —
 read those lines before touching anything else; regressed == **0**;
 lost == **0**.
+
+### §9.1 Scored — the falsifier fired exactly as named, three narrowings later every leg passes
+
+Five measurements. **First:** +116 / **46 own wrong** — leg 2 fired 2.3× its
+ceiling and the named falsifier was verbatim: `{ a } | { readonly a }`
+removed a constituent upstream's *directed* strict-subtype keeps
+(`readonlyPropertySubtypeRelationDirected`, 36 of 46), because
+`properties_related_to`'s own doc says modifiers are "not compared at all …
+the one place this function can be too permissive" — a confident
+mis-`Related` the `Unknown` gate structurally cannot catch. **Second:** the
+syntactic modifier decline (any constituent with a `readonly`/`?`/
+`private`/`protected` member, or generic reference arguments) cut it to 8 —
+all `NonNullable<T>`/`unknown → {}` shapes in the `??`/`||` arms' own
+`get_non_nullable_type` model. **Third:** a decline placed ahead of both
+operators **lost 11 identity-pair lines and regressed a case** (leg 4/3,
+honoured immediately): `u || u : U` needs the identity path open. **Fourth:**
+scoping to `??` left 4 — `x || error()`: the `never` right vanishes inside
+`get_union_type` *before* any later gate can see the type parameter, so the
+test must run on the pair. **Fifth:**
+
+```
+GAP→RIGHT 67 · WRONG→RIGHT 45 · NOTHING ELSE · 0 regressed · suite +1 case
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +100 | **+112** | pass |
+| 2 | own ≤ 20 | **0** | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+**What survives of `tsr-eak`:** the refusal's 1.03 was real and its cause is
+now *located* — the relation's unread modifiers — rather than diffuse. The
+reduction ships for the population where the relation is trustworthy, and
+the modifier-bearing population returns to the board owned by
+`properties_related_to`, not by `removeSubtypes`.

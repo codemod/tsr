@@ -100,12 +100,18 @@ fn an_object_branch_is_a_gap_because_subtype_reduction_would_collapse_it() {
     // `string`. So it never exercised the mechanism its own comment named, and
     // would have passed under an implementation that simply refused every
     // object-typed branch. Repaired after that was measured rather than noticed.
+    // **The fifteenth unported-stand-in fixture to come due, and this one
+    // asserted the mechanism itself.** Until the ninth session this read
+    // `error`; the decidability-gated `removeSubtypes`
+    // (`checker-notes-assign.md` §9) now removes `D` — a strict subtype of
+    // `B` — exactly as upstream's `UnionReductionSubtype` does, and the
+    // conditional answers the reduced union.
     assert_eq!(
         type_of_last(
             "var c: boolean;\ninterface B { a: string; }\ninterface D extends B { b: string; }\n\
              var p: D;\nvar q: B;\nconst x = c ? p : q;"
         ),
-        "error"
+        "B"
     );
     // Two identical object types need no reduction — dedup alone answers `A`.
     // This assertion read `error` until the ninth session and its own comment

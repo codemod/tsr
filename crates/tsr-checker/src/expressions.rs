@@ -735,13 +735,15 @@ impl Checker<'_, '_> {
             self.get_regular_type_of_literal_type(branches[1]),
         ];
         let any = self.intrinsics.any;
-        if regular[0] == regular[1] || branches.contains(&any) {
+        if regular[0] == regular[1]
+            || branches.contains(&any)
+            || branches.iter().all(|&branch| self.is_subtype_reduction_free(branch))
+        {
             return self.get_union_type(&branches);
         }
-        if branches.iter().any(|&branch| !self.is_subtype_reduction_free(branch)) {
-            return error;
-        }
-        self.get_union_type(&branches)
+        // The non-agnostic pairs run the decidability-gated `removeSubtypes`
+        // (`checker-notes-assign.md` §9); an undecidable pair stays a gap.
+        self.union_with_subtype_reduction(&branches).unwrap_or(error)
     }
 
     /// Whether `UnionReductionLiteral` and `UnionReductionSubtype` must agree for
