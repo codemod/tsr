@@ -558,3 +558,22 @@ now *located* — the relation's unread modifiers — rather than diffuse. The
 reduction ships for the population where the relation is trustworthy, and
 the modifier-bearing population returns to the board owned by
 `properties_related_to`, not by `removeSubtypes`.
+
+## §10 Three more consumers for the §9 reduction — bar (ninth session)
+
+The mechanism is proven (§9.1: five measurements, final zero own-wrong); this
+wires it where the same aggregate declines today, all population-unsized:
+
+1. the **multi-distinct return aggregate** (`return_type_from_body`'s ≥2 arm,
+   `tsr-4sc.9`'s 81-line family);
+2. the **multi-type yield aggregate** (§15's ≥2 decline);
+3. the **two-object array literal** (`check_array_literal`'s
+   `object_constituent_count > 1` decline — upstream reduces the element
+   union with `UnionReductionSubtype` at `checker.go:8096`, which is the
+   exact call this replaces).
+
+**Bar:** net ≥ **+30**; own ≤ **10** — falsifier: wrong lines in the array
+row whose want keeps two same-printing constituents → object-literal types
+are never interned and the reduction collapsed two distinct types that print
+alike, which is the §9 identity test doing exactly what `check_array_literal`'s
+doc warns about — read those before anything; regressed == 0; lost == 0.
