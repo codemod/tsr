@@ -126,7 +126,9 @@ fn a_receiver_this_port_could_not_type_is_still_a_gap() {
     // `anyType` and `errorType` carry `ANY` in this port, and one of them cannot
     // reach the arm. Documented rather than tested, on the same rule as the
     // `{ a = 1 }` guard in `objects.rs`.
-    assert_eq!(type_of_last("var u: Unresolved;\nconst x = u[0];"), "error");
+    // §32: the minted unresolved receiver is upstream's `errorType`, and
+    // `u[0]` through it answers `any` — upstream's baseline shape.
+    assert_eq!(type_of_last("var u: Unresolved;\nconst x = u[0];"), "any");
 }
 
 #[test]
@@ -160,13 +162,13 @@ fn an_implicit_any_parameter_receiver_works_for_property_access_too() {
 
 #[test]
 fn a_property_access_on_an_untypeable_receiver_is_still_a_gap() {
-    // Upstream guards this INSIDE the `isAnyLike` branch —
-    // `if c.isErrorType(apparentType) { return c.errorType }` (`checker.go:11318`)
-    // — because `errorType` is any-like there too. This port gets it from the
-    // identity test: `errorType` is a different type carrying the same `ANY`
-    // flag, so it cannot match. A `TypeFlags::ANY` test here would answer `any`
-    // for every gap in the corpus and look like a large win.
-    assert_eq!(type_of_last("var u: Unresolved;\nconst x = u.b;"), "error");
+    // §32 split this fixture's world in two: a receiver minted for an
+    // UNRESOLVED reference answers `any` (upstream's own errorType
+    // observable — the identity-vs-flag discipline the original comment
+    // defended still holds; the `unresolved_types` SET is the identity),
+    // while a receiver that gaps for any other reason still takes the
+    // access with it (the object-literal case below pins that).
+    assert_eq!(type_of_last("var u: Unresolved;\nconst x = u.b;"), "any");
 }
 
 #[test]
