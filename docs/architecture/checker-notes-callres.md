@@ -1295,3 +1295,11 @@ both compilers, and a call through it is an untyped call. Falsifier: the
 248-line lesson's population (unported-mechanism `any`s) must not re-enter
 — the receiver test reaches only the §31/§32 provenances and written-any
 receivers, never an `any` this port computed FOR the callee itself.
+
+**§23 score — LANDED.** **+1,424 (1,400 G→R, 24 W→R) / 452 GAP→WRONG,
+zero RIGHT losses** after the fired leg (an `any` RECEIVER admits only
+outside JS files; minted-unresolved receivers admit everywhere). The 452
+are receiver-`any` positions where upstream's machinery types what this
+port's cannot — the same accepted class as §31/§32's residues, headed by
+lib-method chains (`arrayconcat`). `checker_types` right 384,826 →
+**386,250 (80.65%)**.

@@ -1070,7 +1070,27 @@ impl Checker<'_, '_> {
         // So the test is not "is the type `any`" but "did the source **say**
         // `any`". That is the only form in which this port's `any` and
         // upstream's are the same claim.
-        self.any_is_written_in_an_annotation(callee)
+        if self.any_is_written_in_an_annotation(callee) {
+            return true;
+        }
+        // §23 (`checker-notes-callres.md`): a property/element access whose
+        // RECEIVER is `any` or a minted unresolved is `any` in both
+        // compilers, and a call through it is an untyped call.
+        let receiver = match callee {
+            Expression::PropertyAccessExpression(access) => access.expression,
+            Expression::ElementAccessExpression(access) => access.expression,
+            _ => None,
+        };
+        let Some(receiver) = receiver else { return false };
+        let receiver_type = self.check_expression(receiver);
+        if self.unresolved_types.contains(&receiver_type) {
+            return true;
+        }
+        // An `any` receiver admits only outside JS files — the AMD/require
+        // shapes type through machinery upstream has and this port lacks
+        // (`amdLikeInputDeclarationEmit`, the §23 bar's fired leg).
+        receiver_type == self.intrinsics.any
+            && receiver.node_id().is_some_and(|id| !self.in_js_file(id))
     }
 
     /// Whether the callee's `any` was **written** in the source, rather than
