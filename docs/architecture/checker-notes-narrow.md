@@ -2083,3 +2083,28 @@ falsifier fired. The switch form's population is real
 `arrayDestructuringInSwitch` cases). `checker_types` right 395,771 →
 **395,797 (82.64%)**. Residue unchanged: the tuple-parameter dependent case
 (`checker.go:13806`), else-chain accumulation across clauses.
+
+## §50.2 — the projected type re-enters the ordinary walk
+
+Upstream `checkIdentifier` uses `getNarrowedTypeOfSymbol`'s answer as the
+DECLARED type for the reference's own flow analysis — the pseudo-walk and
+the ordinary walk COMPOSE (`checker.go:13751` feeding the normal
+`getFlowTypeOfReference`). This port returned the projection directly, so
+`f23`'s `if (payload)` truthiness never applied on top of the switch's
+sibling narrowing: want `number`, printed `number | undefined` (8 WRONG
+lines in `dependentDestructuredVariables`).
+
+**The bar.** In the `AssignmentTargetKind::None` arm, on a §50 hit, call
+`get_flow_type_of_reference(node_id, Some(symbol), narrowed)` instead of
+returning `narrowed`.
+
+**Falsifiers.** (a) If the ordinary walk's declared-type plumbing assumes
+the symbol's cached declared type and re-widens, the §50 wins revert to
+their old prints — R→G/R→W on the §50-won lines. (b) If double-narrowing
+mis-composes (the equality arm firing again on an already-filtered
+projection), R→W appears in the equality cases.
+
+**§50.2 score — LANDED.** **+6 (6 W→R), ZERO adverse.** Neither falsifier
+fired — the ordinary walk composes cleanly on top of the projection.
+(A first draft of this score guessed +10 before the run; corrected to the
+measured +6.) `checker_types` right 395,797 → **395,803 (82.64%)**.

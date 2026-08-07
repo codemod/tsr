@@ -354,17 +354,13 @@ impl Checker<'_, '_> {
                                     // dependent destructured local narrows
                                     // its PARENT at the use site and
                                     // re-projects.
-                                    if let Some(narrowed) =
-                                        self.dependent_destructured_type(symbol, node_id)
-                                    {
-                                        narrowed
-                                    } else {
-                                        self.get_flow_type_of_reference(
-                                            node_id,
-                                            Some(symbol),
-                                            declared,
-                                        )
-                                    }
+                                    // §50.2: the projection is the DECLARED
+                                    // type of the ordinary walk — the two
+                                    // walks compose (`checker.go:13751`).
+                                    let start = self
+                                        .dependent_destructured_type(symbol, node_id)
+                                        .unwrap_or(declared);
+                                    self.get_flow_type_of_reference(node_id, Some(symbol), start)
                                 }
                             }
                         } else {
