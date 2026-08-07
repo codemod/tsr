@@ -1069,11 +1069,12 @@ fn an_annotated_this_parameter_is_what_this_types_as() {
         type_of_nested_declaration("class C { m() { const x = this; return x; } }", "x"),
         "this"
     );
-    // An **unannotated** `this` parameter is deliberately not answered: its type
-    // would be the implicit `any`, which is a claim rather than a computation.
+    // §39: an unannotated `this` parameter is the implicit `any` — now the
+    // same fallthrough answer a plain function's `this` takes, and
+    // upstream's.
     assert_eq!(
         type_of_nested_declaration("function f(this) { const x = this; return x; }", "x"),
-        "error"
+        "any"
     );
 }
 
