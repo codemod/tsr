@@ -223,7 +223,17 @@ impl Checker<'_, '_> {
                         // does not ask.
                         if self.is_narrowable_symbol(symbol) {
                             let node_id = node.node_id.expect("checked above");
-                            match self.assignment_target_kind(node_id) {
+                            let target_kind = self.assignment_target_kind(node_id);
+                            // `checker.go:11096`: assigning to a readonly
+                            // symbol reports and answers `errorType` — whose
+                            // observable is `any` (the §14/§27 boundary
+                            // argument, `checker-notes-narrow.md`).
+                            if target_kind != AssignmentTargetKind::None
+                                && self.is_readonly_symbol(symbol)
+                            {
+                                return self.intrinsics.any;
+                            }
+                            match target_kind {
                                 // `checker.go:11109`: a variable in a definite
                                 // assignment-target position is returned at its
                                 // DECLARED type — no flow analysis. This is what

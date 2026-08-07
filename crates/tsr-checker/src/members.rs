@@ -98,6 +98,35 @@ impl Checker<'_, '_> {
         if stripped == error {
             return error;
         }
+        // `isAssignmentToReadonlyEntity` (`checker.go:11377`): a readonly
+        // property as an assignment target answers upstream's `errorType`,
+        // printed `any` (`checker-notes-narrow.md` §27).
+        if node
+            .node_id
+            .is_some_and(|id| {
+                self.assignment_target_kind(id)
+                    != crate::expressions::AssignmentTargetKind::None
+            })
+            // Upstream's constructor exception: `this.x = …` inside a
+            // constructor assigns a readonly property legally
+            // (`isAssignmentToReadonlyEntity`'s same-class carve-out —
+            // approximated as this-receiver-in-constructor, the §27 bar's
+            // fired leg).
+            && !(matches!(
+                receiver,
+                tsr_ast::Expression::KeywordExpression(keyword)
+                    if keyword.kind == tsr_ast::SyntaxKind::ThisKeyword
+            ) && node.node_id.is_some_and(|id| {
+                self.control_flow_container(id).is_some_and(|container| {
+                    self.nodes.kind(container) == tsr_ast::SyntaxKind::Constructor
+                })
+            }))
+            && self
+                .get_property_of_type(stripped, name)
+                .is_some_and(|property| self.is_readonly_symbol(property))
+        {
+            return self.intrinsics.any;
+        }
         let result = self.access_member_lookup(stripped, name, node.node_id);
         if result == error {
             return error;

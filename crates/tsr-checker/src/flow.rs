@@ -719,6 +719,37 @@ impl Checker<'_, '_> {
 
     /// `isConstantVariable` (`utilities.go:1040`): a variable whose
     /// declaration list carries `const`.
+    /// `isReadonlySymbol` (`checker.go:13849`), the four decidable arms:
+    /// const variable, enum member, readonly-modifier property, get-only
+    /// accessor. The `CheckFlagsReadonly` and `Object.defineProperty` arms
+    /// are unported (`checker-notes-narrow.md` §27).
+    pub(crate) fn is_readonly_symbol(&self, symbol: SymbolId) -> bool {
+        let record = self.binder.symbols().get(symbol);
+        let flags = record.flags;
+        if flags.intersects(SymbolFlags::ENUM_MEMBER) {
+            return true;
+        }
+        if flags.intersects(SymbolFlags::GET_ACCESSOR)
+            && !flags.intersects(SymbolFlags::SET_ACCESSOR)
+        {
+            return true;
+        }
+        if flags.intersects(SymbolFlags::VARIABLE) && self.is_constant_variable(symbol) {
+            return true;
+        }
+        if flags.intersects(SymbolFlags::PROPERTY)
+            && let Some(declaration) = record.value_declaration
+            && let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration)
+        {
+            return property.modifiers.iter().any(|modifier| {
+                tsr_ast::Node::from(*modifier)
+                    .node_id()
+                    .is_some_and(|id| self.nodes.kind(id) == tsr_ast::SyntaxKind::ReadonlyKeyword)
+            });
+        }
+        false
+    }
+
     fn is_constant_variable(&self, symbol: SymbolId) -> bool {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;

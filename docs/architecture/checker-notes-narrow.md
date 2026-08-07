@@ -1568,3 +1568,11 @@ both target sites. Falsifiers: (a) readonly READS must not move — the arm
 is gated on assignment-target kind; (b) `Object.defineProperty` and
 check-flags readonly (upstream's other two arms) stay unported and their
 lines stay as they are.
+
+**§27 score — LANDED.** First pair +156/10; the fired leg was upstream's
+CONSTRUCTOR EXCEPTION (`this.x = …` inside the declaring constructor
+assigns a readonly property legally — `constructorWithParameterProperties…`
+named it). Gated: **+155 WRONG→RIGHT, ZERO adverse.** `checker_types`
+right 372,229 → **372,384**. Heads converted whole:
+`constDeclarations-access2–5`, `assignToEnum`,
+`externalModuleImmutableBindings`.
