@@ -124,10 +124,7 @@ fn an_unrenderable_index_signature_gaps_the_whole_literal() {
     // computable non-union key — `symbol` now renders as written, while the
     // lookup gate stays intrinsic-only (a print the lookup cannot serve gaps
     // the access, never wrongs it).
-    assert_eq!(
-        type_of_annotation("var x: { [k: symbol]: number };"),
-        "{ [k: symbol]: number; }"
-    );
+    assert_eq!(type_of_annotation("var x: { [k: symbol]: number };"), "{ [k: symbol]: number; }");
     // A UNION key still declines whole — upstream splits it into two infos.
     assert_eq!(type_of_annotation("var x: { [k: string | number]: keyof T };"), "error");
     // A value type that is itself a gap.

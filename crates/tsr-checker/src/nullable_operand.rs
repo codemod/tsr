@@ -56,8 +56,10 @@ impl Checker<'_, '_> {
         for operand in [left, right] {
             let Some(id) = operand.node_id() else { continue };
             let ty = self.check_expression(operand);
-            let flags = self.type_of(ty).flags;
-            if !flags.intersects(TypeFlags::NULLABLE) {
+            // `getTypeFacts(t, IsUndefinedOrNull)` (`checker.go:7425`): the
+            // type **may be** nullish, which for a union is any constituent.
+            let (maybe_null, maybe_undefined) = self.nullish_facts(ty);
+            if !maybe_null && !maybe_undefined {
                 continue;
             }
             // **This code is chosen by the node, not by the type.**
@@ -68,21 +70,95 @@ impl Checker<'_, '_> {
             // TS2532 with the same *facts*. `var x: typeof undefined; t < x`
             // is upstream's TS18048 and was 64 wrong lines of this rule —
             // `checker-notes-diag2.md` §50.3.
-            let printed = match self.node_map.get(id) {
-                _ if self.nodes.kind(id) == SyntaxKind::NullKeyword => "null",
-                Some(Node::Identifier(identifier)) if identifier.text == "undefined" => "undefined",
-                _ => continue,
+            let written = match self.node_map.get(id) {
+                _ if self.nodes.kind(id) == SyntaxKind::NullKeyword => Some("null"),
+                Some(Node::Identifier(identifier)) if identifier.text == "undefined" => {
+                    Some("undefined")
+                }
+                _ => None,
             };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
             let span = self.error_span(id);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::THE_VALUE_0_CANNOT_BE_USED_HERE,
-                    span,
-                    [printed.to_string()],
+            if let Some(written) = written {
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::THE_VALUE_0_CANNOT_BE_USED_HERE,
+                        span,
+                        [written.to_string()],
+                    ),
+                );
+                continue;
+            }
+            // The other five branches. `entityNameToString` gives the printed
+            // name for an identifier or a dotted name; anything else takes the
+            // `Object is possibly …` twin at the same position with the same
+            // facts (`checker.go:7455`, `checker-notes-diag2.md` §51).
+            let named = self.operand_entity_name_text(id).filter(|text| text.len() < 100);
+            match (named, maybe_null, maybe_undefined) {
+                (Some(text), true, true) => self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::_0_IS_POSSIBLY_NULL_OR_UNDEFINED,
+                        span,
+                        [text],
+                    ),
                 ),
-            );
+                (Some(text), false, true) => self.report(
+                    file,
+                    Diagnostic::with_args(&messages::_0_IS_POSSIBLY_UNDEFINED, span, [text]),
+                ),
+                (Some(text), true, false) => self.report(
+                    file,
+                    Diagnostic::with_args(&messages::_0_IS_POSSIBLY_NULL, span, [text]),
+                ),
+                (None, true, true) => self.report(
+                    file,
+                    Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_NULL_OR_UNDEFINED, span),
+                ),
+                (None, false, true) => self
+                    .report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_UNDEFINED, span)),
+                (None, true, false) => {
+                    self.report(file, Diagnostic::new(&messages::OBJECT_IS_POSSIBLY_NULL, span));
+                }
+                (_, false, false) => {}
+            }
+        }
+    }
+
+    /// `getTypeFacts(t, TypeFactsIsUndefinedOrNull)` reduced to the two bits
+    /// the reporter branches on — union-aware, since that is the whole of what
+    /// "may be" means here.
+    fn nullish_facts(&self, ty: TypeId) -> (bool, bool) {
+        let of = |checker: &Self, id: TypeId| {
+            let flags = checker.type_of(id).flags;
+            (flags.contains(TypeFlags::NULL), flags.contains(TypeFlags::UNDEFINED))
+        };
+        let (mut null, mut undefined) = of(self, ty);
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(ty).data {
+            for &constituent in types {
+                let (n, u) = of(self, constituent);
+                null |= n;
+                undefined |= u;
+            }
+        }
+        (null, undefined)
+    }
+
+    /// `entityNameToString` (`checker.go`), for the shapes an operand takes:
+    /// an identifier, or a dotted name of identifiers.
+    fn operand_entity_name_text(&self, node: NodeId) -> Option<String> {
+        match self.node_map.get(node)? {
+            Node::Identifier(identifier) => Some(identifier.text.to_string()),
+            Node::PropertyAccessExpression(access) => {
+                let target = self.operand_entity_name_text(access.expression?.node_id()?)?;
+                let member = match access.name? {
+                    tsr_ast::MemberName::Identifier(identifier) => identifier.text,
+                    tsr_ast::MemberName::PrivateIdentifier(private) => private.text,
+                };
+                Some(format!("{target}.{member}"))
+            }
+            _ => None,
         }
     }
 

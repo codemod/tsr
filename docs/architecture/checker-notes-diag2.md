@@ -3791,3 +3791,86 @@ lost. It also names the next rule exactly: the same function's other four
 messages (**TS18048** 7 cases, **TS18049** 3, **TS2532** 3) are the same facts
 test with a different branch, and `getTypeFacts` is what stands between here and
 them.
+
+---
+
+## 51. `reportObjectPossiblyNullOrUndefinedError`'s other five messages
+
+§50.3 established that `checkNonNullType`'s reporter picks its **message** from
+the node and its **branch** from the type's facts. TS18050 is one of six:
+
+| node | facts | code |
+|---|---|---|
+| `null` keyword | — | **TS18050** `The value 'null' cannot be used here.` |
+| identifier spelled `undefined` | — | **TS18050** `The value 'undefined' cannot be used here.` |
+| any other entity name, <100 chars | undefined only | **TS18048** `'{0}' is possibly 'undefined'.` |
+| " | null and undefined | **TS18049** `'{0}' is possibly 'null' or 'undefined'.` |
+| " | null only | **TS18047** `'{0}' is possibly 'null'.` |
+| not an entity name | undefined / both / null | **TS2532 / TS2533 / TS2531** |
+
+`diaggap.rs`: TS18048 **7** cases, TS18049 **3**, TS2532 **3**.
+
+### The population is much larger than TS18050's, and so is the exposure
+
+TS18050's gate is *"the type **is** `null` or `undefined`"* — a flag equality,
+with nothing between the declaration and the answer. These five ask *"the type
+**may be** `null` or `undefined`"*, which is a question about the **narrowed**
+type at the reference, and every narrowing this port does not perform leaves
+`undefined` alive. §16's `controlFlowAliasing` decline and §8's TS2454 residual
+are both that same population seen from other rules.
+
+So this build is expected to need declines that §32's did not, and the honest
+statement of its scope is: **the same six sites, the same facts test, and a
+guard against the narrowing gap.**
+
+### The one deliberate narrowing of scope
+
+Upstream calls `checkNonNullType` from dozens of places — property access,
+element access, call targets, `in`, `instanceof`, spread. This rule fires only
+at the **binary operand** sites `crate::nullable_operand` already visits. That is
+silence elsewhere, never a wrong answer, and it keeps the measurement about the
+message split rather than about a site sweep.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,183**. Forecast **+2 to +10** of the 13 |
+| 2 | `checker_types` pass count unchanged at **3,681** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [18047, 18048, 18049, 2531, 2532, 2533]` |
+| 4 | own WRONG ≤ **40**, and **isolated** rather than read off a truncated list (§50's correction) |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column is dominated by references upstream narrowed —
+guarded by `if (x)`, by an early return, by a discriminant — the rule is
+measuring this port's flow gap rather than upstream's facts, and the decline is
+the one §8 already wrote: a reference a condition on the same name dominates.
+
+### Scored — **+1**, and the exposure the section predicted did not arrive
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,183, forecast +2 to +10 | **1,184 / 5,488 = 21.57%** | **fired — below the forecast** |
+| 2 | `checker_types` pass count unchanged | **3,682 / 82.80%** (the parallel workstream's, unchanged by this edit — `checker_types.snap` is byte-identical) | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 40, isolated | **2** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[18047, 18048, 18049, 2531, 2532, 2533]`: **CONVERTS 1 ·
+RIGHT 77 · WRONG 2 · LOST 0.**
+
+**The section's own risk assessment was wrong in the safe direction, and that is
+worth recording.** It predicted that asking *"may be nullish"* rather than *"is
+nullish"* would expose the rule to every narrowing this port does not perform,
+and named §16's and §8's populations. Two wrong lines arrived —
+`narrowingPastLastAssignment` and `jsxEsprimaFbTestSuite`, one each — because the
+**site restriction does the work the decline would have**: a binary operand is
+rarely the place a narrowed reference is read, and the narrowing-heavy
+populations reach `checkNonNullType` through property access and call targets
+instead.
+
+**77 right lines for 1 conversion** is the §2 ratio again, from the other side:
+the rows were 7 + 3 + 3 = 13 cases and the twelve that did not convert are
+`STILL SHORT` — they need the *other* call sites, not a better facts test. That
+is the item this build hands on: `checkNonNullType` at property access, element
+access and call targets, where the same six messages already work.
