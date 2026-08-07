@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the callres-§24 landing, 2026-08-07 (ninth session, continued: builds 25–52).
+Measured at the callres-§25 landing, 2026-08-07 (ninth session, continued: builds 25–53).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the callres-§24 landing, 2026-08-07 (ninth session, continued: buil
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,559/9,538** | **37.31%** | **gradient 80.82%** — the target |
+| **`checker_types`** | **3,565/9,538** | **37.38%** | **gradient 80.96%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-387,098 / 478,954 assertion lines = 80.82%      (measured at the callres-§24 landing)
-  right 387,098 | gap 57,914 | wrong 23,903        right+gap+wrong = 468,915 exactly
+387,778 / 478,954 assertion lines = 80.96%      (measured at the callres-§25 landing)
+  right 387,778 | gap 57,231 | wrong 23,906        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -113,7 +113,8 @@ and element access through minted unresolved receivers answer upstream's
 untyped calls through §31/§32-provenance receivers, zero RIGHT losses,
 +25 cases) = 386,250; then + 848 net (callres §24:
 unresolved-identifier callees and `super()` → `void`, +106 cases) =
-387,098 exactly — builds 25–52.
+387,098; then + 680 (callres §25: `new`
+through unresolveds, near clean) = 387,778 exactly — builds 25–53.
 
 **CORRECTED, and said so:** this chain sat at 369,673 for five builds while
 the table above moved to 77.29% — the very "figure that appears twice will
@@ -1033,6 +1034,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | callres-§25 landing | **80.96%** | **3,565** | **+680/7** | **Build 53: `new Unresolved()` — the sixth hop, near clean** |
 | 2026-08-07 | callres-§24 landing | **80.82%** | **3,559** | **+856/162, +106 cases** | **Build 52: the chain's fifth hop.** §31-provenance IDENTIFIER callees are untyped calls; `super(...)` is `void`. The `f()` stand-in fixtures re-anchored to `satisfies` — their premise became upstream-true |
 | 2026-08-07 | callres-§23 landing | **80.64%** | **3,453** | **+1,424/452, 0 R→W** | **Build 51: `any.m()` is an untyped call.** The written-annotation gate learned the §31/§32 provenances; JS-file receivers stay declined (the fired leg) |
 | 2026-08-07 | §32 landing | **80.35%** | **3,428** | **+4,263/496 — ACROSS 80%** | **Build 50: one hop further.** Access through `tsr-eep`'s minted unresolved receivers is upstream's `errorType` access — `any` — at both access forms, behind the §31 structural gate. The 496 adverse are the port's own `export default interface` binder miss (invisible to the file gate, recorded as a future rule). Three fixtures updated to the minted-vs-otherwise split |
