@@ -529,7 +529,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 }
                 result
             }
-            Statement::ClassDeclaration(node) => self.transform_class_declaration(node),
+            Statement::ClassDeclaration(node) => {
+                self.transform_class_declaration(node, parent_is_file)
+            }
             Statement::EnumDeclaration(node) => {
                 // `transformEnumDeclaration` (`:2262`): every member's initializer
                 // is rewritten to its constant value, and dropped when there is
@@ -564,8 +566,12 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     NodeFlags::empty(),
                 ))]
             }
-            Statement::VariableStatement(node) => self.transform_variable_statement(node),
-            Statement::ModuleDeclaration(node) => self.transform_module_declaration(node),
+            Statement::VariableStatement(node) => {
+                self.transform_variable_statement(node, parent_is_file)
+            }
+            Statement::ModuleDeclaration(node) => {
+                self.transform_module_declaration(node, parent_is_file)
+            }
             // `transformTopLevelDeclaration`'s default arm panics upstream,
             // because its dispatch has already filtered the kinds. Here the caller
             // is the same dispatch, so this is equally unreachable — and eliding
@@ -578,9 +584,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     fn transform_variable_statement(
         &mut self,
         node: &tsr_ast::VariableStatement<'a>,
+        parent_is_file: bool,
     ) -> Vec<Statement<'a>> {
         let Some(list) = node.declaration_list else { return Vec::new() };
-        if let Some(promoted) = self.promote_expando_function(node, list) {
+        if let Some(promoted) = self.promote_expando_function(node, list, parent_is_file) {
             return promoted;
         }
         let flags = self.factory.flags_of(list.node_id);
@@ -618,7 +625,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
         let declarations = self.factory.slice(&declarations);
 
-        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, true, false);
+        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
         // Upstream rewrites a `using`/`await using` list to `const`, because
         // neither keyword is legal in a `.d.ts`. `NodeFlags` are what the printer
         // reads for the keyword, so the rewrite is a flag change on a new list
@@ -646,6 +653,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         &mut self,
         statement: &tsr_ast::VariableStatement<'a>,
         list: &'a tsr_ast::VariableDeclarationList<'a>,
+        parent_is_file: bool,
     ) -> Option<Vec<Statement<'a>>> {
         let [declaration] = list.declarations else { return None };
         let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name else { return None };
@@ -664,7 +672,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         else {
             return None;
         };
-        let modifiers = self.ensure_modifiers(statement.modifiers, statement.node_id, true, false);
+        let modifiers =
+            self.ensure_modifiers(statement.modifiers, statement.node_id, parent_is_file, false);
         let function = Statement::FunctionDeclaration(self.factory.alloc(
             tsr_ast::FunctionDeclaration::new(
                 modifiers,
@@ -862,8 +871,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     fn transform_module_declaration(
         &mut self,
         node: &tsr_ast::ModuleDeclaration<'a>,
+        parent_is_file: bool,
     ) -> Vec<Statement<'a>> {
-        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, true, false);
+        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
         let saved_declare = std::mem::replace(&mut self.needs_declare, false);
         let enters_ambient = self.ambient_context
             || self.factory.flags_of(node.node_id).contains(NodeFlags::AMBIENT)
@@ -949,7 +959,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // transformed in place and keeps its own header, which is what the
             // printer expects (`docs/architecture/printer.md`).
             Some(tsr_ast::ModuleBody::ModuleDeclaration(inner)) => {
-                let inner = self.transform_module_declaration(inner);
+                let inner = self.transform_module_declaration(inner, false);
                 match inner.into_iter().next() {
                     Some(Statement::ModuleDeclaration(inner)) => {
                         Some(tsr_ast::ModuleBody::ModuleDeclaration(inner))
@@ -1003,8 +1013,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     fn transform_class_declaration(
         &mut self,
         node: &tsr_ast::ClassDeclaration<'a>,
+        parent_is_file: bool,
     ) -> Vec<Statement<'a>> {
-        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, true, false);
+        let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
         let (base_variable, heritage_clauses) = self.rewrite_class_base(node);
         let mut members: Vec<ClassElement<'a>> = Vec::with_capacity(node.members.len());
 

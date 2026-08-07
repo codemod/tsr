@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  271/341  = 79.47%  (up from 161/339)
+  dts_emit                  272/341  = 79.77%  (up from 161/339)
   dts_shape                 743/918  = 80.94%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -164,6 +164,10 @@ block's source braces shared a line, even if the body's statements were filtered
 away; source-multiline empty bodies stay multiline, and empty interface or
 type-literal bodies are unaffected. This closes two more byte-exact cases
 (`declareDottedModuleName`, `moduleSymbolMerging`).
+
+A source-written `declare` modifier is now masked off declarations whose parent
+is not the source file, matching `ensureModifierFlags`; four transform arms had
+hardcoded file-level modifier context (`privacyVarDeclFile`).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

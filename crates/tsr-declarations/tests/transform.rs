@@ -367,6 +367,17 @@ fn an_empty_namespace_body_keeps_its_source_brace_layout() {
 }
 
 #[test]
+fn a_source_declare_modifier_is_dropped_inside_a_namespace_body() {
+    // `ensureModifierFlags` (`transform.go:2333`): `declare` is masked out
+    // whenever the parent is not the source file — the enclosing namespace's
+    // own `declare` already covers its body.
+    assert_emits(
+        "export namespace M { export declare var v: number; export var w: string; }",
+        "export declare namespace M {\n    var v: number;\n    var w: string;\n}",
+    );
+}
+
+#[test]
 fn a_deferred_import_becomes_an_ordinary_declaration_import() {
     assert_emits(
         "import defer * as ns from \"./m.js\";\nexport type T = ns.Value;\n",
