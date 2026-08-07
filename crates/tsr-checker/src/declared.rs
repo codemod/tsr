@@ -109,6 +109,25 @@ impl<'a> Checker<'a, '_> {
                 self.unique_symbol_nodes.insert(id, minted);
                 minted
             }
+            // §28 (`checker-notes-callres.md`): `this` in type position is
+            // the enclosing class/interface declaration's one `this` type.
+            TypeNode::ThisTypeNode(node) => {
+                let Some(id) = node.node_id else { return self.intrinsics.error };
+                let mut current = self.nodes.parent(id);
+                while let Some(parent) = current {
+                    if matches!(self.nodes.kind(parent), SyntaxKind::InterfaceDeclaration) {
+                        if let Some(&existing) = self.this_type_nodes.get(&parent) {
+                            return existing;
+                        }
+                        let minted =
+                            self.store.new_named(TypeFlags::OBJECT, "this".to_string(), None);
+                        self.this_type_nodes.insert(parent, minted);
+                        return minted;
+                    }
+                    current = self.nodes.parent(parent);
+                }
+                self.intrinsics.error
+            }
             _ => self.intrinsics.error,
         }
     }

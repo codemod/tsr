@@ -144,6 +144,10 @@ pub struct Checker<'a, 'n> {
     /// One `unique symbol` per WRITTEN `unique symbol` type node
     /// (`checker-notes-callres.md` §27).
     pub(crate) unique_symbol_nodes: FxHashMap<NodeId, TypeId>,
+    /// One `this` type per class/interface declaration — upstream's
+    /// `d.thisType` for TYPE-POSITION `this` (`checker-notes-callres.md`
+    /// §28).
+    pub(crate) this_type_nodes: FxHashMap<NodeId, TypeId>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -541,6 +545,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             file_import_machinery: FxHashMap::default(),
             global_this_type: None,
             unique_symbol_nodes: FxHashMap::default(),
+            this_type_nodes: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),

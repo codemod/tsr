@@ -1375,3 +1375,13 @@ answering the literal `this` at a call result would be a wrong line.
 Falsifier: (a) receivers' member lines whose want instantiates `this`
 (generic reference positions) — counted; (b) the call gate must not
 disturb non-`this` signatures.
+
+**§28 score — LANDED at the second variant.** V1 (classes+interfaces, with
+the call gate) read +467/241 including 28 R→G — the gate broke calls that
+answered through the written-return road, and the class arm shadowed the
+existing class-`this` machinery. V2 — INTERFACES only, no call gate:
+**+343 (341 G→R, 2 W→R) / 122 GAP→WRONG, zero RIGHT losses.** The 122
+head at lib `concat`-style signatures whose call results print the
+literal `this` where upstream instantiates to the receiver — the priced
+receiver-instantiation residue. `checker_types` right 391,007 →
+**391,350 (81.71%)**.
