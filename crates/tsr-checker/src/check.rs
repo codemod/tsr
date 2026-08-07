@@ -2299,6 +2299,7 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::AmpersandToken
             | SyntaxKind::BarToken
             | SyntaxKind::CaretToken
+            | SyntaxKind::PlusToken
     )
 }
 

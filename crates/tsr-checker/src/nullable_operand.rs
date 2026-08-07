@@ -8,13 +8,17 @@
 //! Error node the **operand**: `binaryArithmatic1.ts(1,13)` is the `null` of
 //! `var v = 4 | null;`.
 //!
-//! # `+` is excluded, and it is the only interesting decision here
+//! # `+` was excluded on an argument, and the measurement overturned it
 //!
-//! Every other arithmetic and bitwise operator takes numeric operands and
-//! nothing else. `+` is overloaded with string concatenation, so its operand
-//! check runs after `checkBinaryLikeExpression` has decided which overload
-//! applies — a different arm with a different message set. Declining it costs
-//! whatever `+` cases exist and cannot produce a wrong one.
+//! §32 declined `+` because it is overloaded with string concatenation, so its
+//! operand check runs after `checkBinaryLikeExpression` has chosen an overload —
+//! a different arm with a different message set. That reasoning is sound about
+//! *upstream's control flow* and wrong about the outcome: `null` and `undefined`
+//! are not string-like either, so the `+` arm reaches the same TS18050. Adding
+//! it is **+3 cases** (§40.5) with the gates green.
+//!
+//! An argument from upstream's structure is not a measurement. This one survived
+//! because it was never run.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
@@ -74,5 +78,6 @@ fn is_numeric_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::AmpersandToken
             | SyntaxKind::BarToken
             | SyntaxKind::CaretToken
+            | SyntaxKind::PlusToken
     )
 }

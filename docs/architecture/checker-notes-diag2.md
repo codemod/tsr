@@ -2637,3 +2637,17 @@ The audit's eleventh payment, and the second whose target was a decline drawn
 around a **different code's** territory rather than around this port's
 incompleteness. Those are the ones that go stale fastest: the other code's
 population moves and nothing tells the decline.
+
+### 40.5 `+` belongs in TS18050 after all — +3
+
+§32 excluded `+` from the numeric-operator set because it is overloaded with
+string concatenation and upstream's operand check for it runs after the overload
+is chosen. **That is sound about upstream's control flow and wrong about the
+outcome**: `null` and `undefined` are not string-like either, so the `+` arm
+reaches the same TS18050. Adding it is +3.
+
+The twelfth payment, and the first whose target was not a stale measurement but
+an **argument that was never measured at all**. §32 wrote "declining it costs
+whatever `+` cases exist and cannot produce a wrong one" — true, and it cost
+three. *An argument from upstream's structure is not a measurement*, and this
+file has now been caught making that substitution once.
