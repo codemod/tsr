@@ -5,8 +5,8 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  228/341  = 66.86%  (up from 161/339)
-  dts_shape                 703/918  = 76.58%  (up from 618/912)
+  dts_emit                  229/341  = 67.16%  (up from 161/339)
+  dts_shape                 708/918  = 77.12%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -81,6 +81,14 @@ namespace, including constant computed property names. Untyped property
 signatures emit `any`, while computed members whose name cannot be represented in
 a declaration are omitted from classes, interfaces, and written type literals.
 This pass added five byte-exact cases and two declaration-shape cases.
+
+Function declarations now receive the same syntax-visible expando namespace,
+including empty namespaces for non-nameable late-bound keys. Named default-export
+functions are lowered to a declaration/namespace merge followed by `export
+default`, keeping the result parseable. This closed five more declaration-shape
+cases. Public optional parameter properties now retain their implicit `undefined`
+in both the synthesized property and constructor parameter, adding one byte-exact
+case without changing private isolated-declaration output.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

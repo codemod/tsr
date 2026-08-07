@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 703/918 (76.58%)
-Failed         : 215
+Passed         : 708/918 (77.12%)
+Failed         : 210
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 215 failures:
+First 100 of 210 failures:
 compiler/aliasInaccessibleModule2
   #2: want `  import= R`, got `    class C`
 compiler/amdLikeInputDeclarationEmit
@@ -58,19 +58,15 @@ compiler/declarationEmitForDefaultExportClassExtendingExpression01
 compiler/declarationEmitForModuleImportingModuleAugmentationRetainsImport
   #0: want `import`, got `class ParentThing`
 compiler/declarationEmitFunctionDuplicateNamespace
-  #1: want `namespace f`, got `function f`
+  #4: extra `namespace f`
 compiler/declarationEmitFunctionKeywordProp
-  #1: want `namespace foo`, got `function bar`
+  #2: want `  var _a`, got `  var null`
 compiler/declarationEmitInferredTypeAlias9
   #0: want `type Foo`, got `function returnSomeGlobalValue`
 compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
   #0: want `import`, got `var middleware`
-compiler/declarationEmitLateBoundAssignments
-  #1: missing `namespace foo`
 compiler/declarationEmitLateBoundAssignments2
-  the emitted .d.ts does not reparse
-compiler/declarationEmitLateBoundJSAssignments
-  #1: missing `namespace foo`
+  #7: want `function decl4`, got `namespace decl3`
 compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
   #0: want `type Fns`, got `var _default`
 compiler/declarationEmitMultipleComputedNamesSameDomain
@@ -143,8 +139,6 @@ compiler/es6ImportNameSpaceImportDts
   #0: want `import`, got `var x`
 compiler/es6ImportNamedImportDts
   #0: want `import`, got `var xxxx`
-compiler/expandoFunctionBlockShadowing
-  #2: missing `namespace Y`
 compiler/expandoFunctionNestedAssigments
   #1: want `namespace Foo`, got `var d`
 compiler/exportClassExtendingIntersection
@@ -209,7 +203,13 @@ compiler/jsxDeclarationsWithEsModuleInteropNoCrash
   #0: want `import`, got `function Foo`
 compiler/lateBoundAssignmentCandidateJS2
   #0: want `var prop`, got `class foo1`
-compiler/lateBoundFunctionMemberAssignmentDeclarations
-  #1: missing `namespace foo`
 compiler/letDeclarations2
   #1: want `  var l2`, got `  var l1`
+compiler/libTypeScriptOverrideSimple
+  #0: want `interface ABC`, got `var a`
+compiler/libTypeScriptSubfileResolving
+  #0: extra `var a`
+compiler/moduleAugmentationDeclarationEmit1
+  #0: want `module "./observable"`, got `import`
+compiler/moduleAugmentationDeclarationEmit2
+  #0: want `module "./observable"`, got `import`

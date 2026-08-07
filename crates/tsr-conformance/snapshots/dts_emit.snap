@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 228/341 (66.86%)
-Failed         : 113
+Passed         : 229/341 (67.16%)
+Failed         : 112
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,7 +12,7 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 113 failures:
+First 100 of 112 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
@@ -61,8 +61,6 @@ compiler/declarationEmitNonExportedBindingPattern
   line 1: want `declare const { foo }: {`, got `export type AliasType = typeof foo;`
 compiler/declarationEmitObjectLiteralAccessors1
   line 1: want `export declare const obj1: {`, got `export declare const obj1: any;`
-compiler/declarationEmitParameterProperty
-  line 2: want `    bar?: string | undefined;`, got `    bar?: string;`
 compiler/declarationEmitPrivatePromiseLikeInterface
   emitted Api.d.ts, upstream emitted no declaration file
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
@@ -213,3 +211,5 @@ conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
   line 1: want `/** @type {?} */`, got `export declare const a: any;`
 conformance/jsDeclarationsTypedefDescriptionsPreserved
   line 1: missing `/**`
+conformance/jsdocTemplateTagNameResolution
+  line 1: want `/**`, got `declare const x: {`

@@ -59,7 +59,10 @@ use crate::{
 
 #[derive(Clone, Copy)]
 struct ExpandoMember<'a> {
-    name: &'a str,
+    /// The declaration-space name when the computed key can be represented as
+    /// an identifier. A late-bound assignment still creates the function's
+    /// namespace when this is `None`, but contributes no namespace member.
+    name: Option<&'a str>,
     initializer: Option<Expression<'a>>,
     node_id: Option<tsr_ast::NodeId>,
 }
@@ -417,12 +420,25 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
             Statement::FunctionDeclaration(node) => {
                 // `transformFunctionDeclaration` (`:1805`).
-                let modifiers =
-                    self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
+                let expando_members =
+                    node.name.and_then(|name| self.expando_members.get(name.text).cloned());
+                let rewrites_default = expando_members.is_some()
+                    && has_modifier(node.modifiers, SyntaxKind::DefaultKeyword);
+                let modifiers = if rewrites_default {
+                    let span = self.span_of(node.node_id);
+                    let flags = (modifiers::modifier_flags(node.modifiers)
+                        & !(ModifierFlags::EXPORT | ModifierFlags::DEFAULT))
+                        | ModifierFlags::AMBIENT;
+                    let created =
+                        modifiers::create_modifiers_from_flags(&mut self.factory, flags, span);
+                    self.factory.slice(&created)
+                } else {
+                    self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false)
+                };
                 let parameters = self.update_param_list(node.parameters, false);
                 let return_type =
                     self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id);
-                vec![Statement::FunctionDeclaration(self.factory.alloc(
+                let function = Statement::FunctionDeclaration(self.factory.alloc(
                     tsr_ast::FunctionDeclaration::new(
                         modifiers,
                         None,
@@ -436,7 +452,32 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     SyntaxKind::FunctionDeclaration,
                     self.span_of(node.node_id),
                     NodeFlags::empty(),
-                ))]
+                ));
+                let mut result = vec![function];
+                if let Some(name) = node.name
+                    && let Some(members) = expando_members
+                {
+                    result.push(self.create_expando_namespace(
+                        name,
+                        modifiers,
+                        self.span_of(node.node_id),
+                        &members,
+                    ));
+                    if rewrites_default {
+                        result.push(Statement::ExportAssignment(self.factory.alloc(
+                            tsr_ast::ExportAssignment::new(
+                                &[],
+                                false,
+                                None,
+                                Some(Expression::Identifier(name)),
+                            ),
+                            SyntaxKind::ExportAssignment,
+                            self.span_of(node.node_id),
+                            NodeFlags::empty(),
+                        )));
+                    }
+                }
+                result
             }
             Statement::ClassDeclaration(node) => self.transform_class_declaration(node),
             Statement::EnumDeclaration(node) => {
@@ -564,6 +605,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             return None;
         }
         let members = self.expando_members.get(name.text)?.clone();
+        if members.iter().any(|member| member.name.is_none()) {
+            return None;
+        }
         let span = self.span_of(declaration.node_id);
         let TypeNode::FunctionTypeNode(function_type) =
             self.ensure_type(None, Some(initializer), Freshness::Widening, declaration.node_id)?
@@ -587,10 +631,22 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             NodeFlags::empty(),
         ));
 
+        let namespace = self.create_expando_namespace(name, modifiers, span, &members);
+        Some(vec![function, namespace])
+    }
+
+    fn create_expando_namespace(
+        &mut self,
+        name: &'a tsr_ast::Identifier<'a>,
+        modifiers: &'a [ModifierLike<'a>],
+        span: Span,
+        members: &[ExpandoMember<'a>],
+    ) -> Statement<'a> {
         let mut namespace_statements = Vec::with_capacity(members.len());
         for member in members {
+            let Some(name) = member.name else { continue };
             let member_span = self.span_of(member.node_id);
-            let member_name = self.factory.identifier(member.name, member_span);
+            let member_name = self.factory.identifier(name, member_span);
             let member_type = self.ensure_type(
                 None,
                 member.initializer.as_ref(),
@@ -630,7 +686,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             NodeFlags::empty(),
         );
         let namespace_keyword = self.factory.token(SyntaxKind::NamespaceKeyword, span);
-        let namespace = Statement::ModuleDeclaration(self.factory.alloc(
+        Statement::ModuleDeclaration(self.factory.alloc(
             tsr_ast::ModuleDeclaration::new(
                 modifiers,
                 namespace_keyword,
@@ -641,8 +697,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             SyntaxKind::ModuleDeclaration,
             span,
             NodeFlags::empty(),
-        ));
-        Some(vec![function, namespace])
+        ))
     }
 
     /// Ported from `transformVariableDeclaration` (`transform.go:835`).
@@ -1050,7 +1105,15 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let r#type = if has_modifier(parameter.modifiers, SyntaxKind::PrivateKeyword) {
             None
         } else {
-            self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id)
+            self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id).map(
+                |r#type| {
+                    if parameter.question_token.is_some() {
+                        self.include_undefined_type(r#type, span)
+                    } else {
+                        r#type
+                    }
+                },
+            )
         };
         Some(ClassElement::PropertyDeclaration(self.factory.alloc(
             tsr_ast::PropertyDeclaration::new(
@@ -1420,6 +1483,27 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         )
     }
 
+    fn include_undefined_type(&mut self, r#type: TypeNode<'a>, span: Span) -> TypeNode<'a> {
+        let already_includes_undefined = match r#type {
+            TypeNode::KeywordTypeNode(keyword) => keyword.kind == SyntaxKind::UndefinedKeyword,
+            TypeNode::UnionTypeNode(union) => union.types.iter().any(|member| {
+                matches!(member, TypeNode::KeywordTypeNode(keyword) if keyword.kind == SyntaxKind::UndefinedKeyword)
+            }),
+            _ => false,
+        };
+        if already_includes_undefined {
+            return r#type;
+        }
+        let undefined = self.factory.keyword_type(SyntaxKind::UndefinedKeyword, span);
+        let types = self.factory.slice(&[r#type, undefined]);
+        TypeNode::UnionTypeNode(self.factory.alloc(
+            tsr_ast::UnionTypeNode::new(types),
+            SyntaxKind::UnionType,
+            span,
+            NodeFlags::empty(),
+        ))
+    }
+
     /// Ported from `updateAccessorParamList` (`transform.go:1031`).
     fn update_accessor_param_list(
         &mut self,
@@ -1477,8 +1561,19 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         };
         // `ensureType(p, /*ignorePrivate*/ true)`: a parameter property's type is
         // visible even when the property is private.
-        let r#type =
-            self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id);
+        let r#type = self
+            .ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id)
+            .map(|r#type| {
+                if parameter.question_token.is_some()
+                    && modifiers::modifier_flags(parameter.modifiers)
+                        .intersects(PARAMETER_PROPERTY_MODIFIER)
+                    && !has_modifier(parameter.modifiers, SyntaxKind::PrivateKeyword)
+                {
+                    self.include_undefined_type(r#type, span)
+                } else {
+                    r#type
+                }
+            });
         self.factory.alloc(
             ParameterDeclaration::new(
                 &[],
@@ -1688,24 +1783,31 @@ fn collect_expando_members<'a>(
 fn expando_assignment_name<'a>(
     left: &Expression<'a>,
     string_constants: &HashMap<&'a str, &'a str>,
-) -> Option<(&'a str, &'a str)> {
+) -> Option<(&'a str, Option<&'a str>)> {
     match left {
         Expression::PropertyAccessExpression(access) => {
             let Some(Expression::Identifier(host)) = access.expression else { return None };
             let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return None };
-            Some((host.text, name.text))
+            Some((host.text, Some(name.text)))
         }
         Expression::ElementAccessExpression(access) => {
             let Some(Expression::Identifier(host)) = access.expression else { return None };
-            let name = match access.argument_expression? {
-                Expression::StringLiteral(name) => name.text,
-                Expression::Identifier(name) => *string_constants.get(name.text)?,
-                _ => return None,
+            let name = match access.argument_expression {
+                Some(Expression::StringLiteral(name)) => Some(name.text),
+                Some(Expression::Identifier(name)) => string_constants.get(name.text).copied(),
+                _ => None,
             };
-            Some((host.text, name))
+            Some((host.text, name.filter(|name| is_identifier_text(name))))
         }
         _ => None,
     }
+}
+
+fn is_identifier_text(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else { return false };
+    (first.is_ascii_alphabetic() || first == '_' || first == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
 fn reserve_statement_names(statements: &[Statement<'_>], used: &mut HashSet<String>) {

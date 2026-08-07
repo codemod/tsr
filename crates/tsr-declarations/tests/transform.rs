@@ -384,6 +384,22 @@ fn function_expando_assignments_become_a_function_namespace_merge() {
 }
 
 #[test]
+fn declared_function_expandos_emit_a_namespace_and_skip_non_identifier_keys() {
+    assert_emits(
+        "const key = \"named\";\nexport function fn() {}\nfn.direct = 1;\nfn[key] = \"ok\";\nfn[\"not-nameable\"] = true;\nfn[42] = false;",
+        "export declare function fn(): void;\nexport declare namespace fn {\n    var direct: number;\n    var named: string;\n}\n",
+    );
+}
+
+#[test]
+fn default_function_expandos_use_a_trailing_default_export() {
+    assert_emits(
+        "export default function fn(): string { return \"ok\"; }\nfn.value = 1;",
+        "declare function fn(): string;\ndeclare namespace fn {\n    var value: number;\n}\nexport default fn;\n",
+    );
+}
+
+#[test]
 fn untyped_property_signatures_emit_as_any() {
     assert_emits(
         "declare global { interface Box { value; } }",
@@ -417,6 +433,14 @@ fn a_parameter_property_becomes_a_property() {
     assert_emits(
         "export class C {\n    constructor(public a: number, private b: string) {}\n}",
         "export declare class C {\n    a: number;\n    private b;\n    constructor(a: number, b: string);\n}",
+    );
+}
+
+#[test]
+fn an_optional_parameter_property_includes_undefined_in_its_property_type() {
+    assert_emits(
+        "export class C { constructor(public value?: string, public already?: number | undefined) {} }",
+        "export declare class C {\n    value?: string | undefined;\n    already?: number | undefined;\n    constructor(value?: string | undefined, already?: number | undefined);\n}\n",
     );
 }
 
