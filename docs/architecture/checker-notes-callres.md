@@ -1331,3 +1331,14 @@ the chain.
 **§25 score — LANDED.** **+680 (676 G→R, 4 W→R) / 7 GAP→WRONG** — near
 clean; the seven are augmentation/decorator shapes. `checker_types` right
 387,098 → **387,778 (80.96%)**.
+
+### §26 The unique-symbol mint
+
+The 291-line priced row (`uniqueSymbols` et al.): `Symbol()` in a valid
+`unique symbol` declaration position answers a FRESH `unique symbol` type
+(`getESSymbolLikeTypeForNode`, `checker.go:22982`) — one distinct type per
+site (`new_named` per call, printing `unique symbol`), which is exactly
+what the existing positional gate detected and refused to fake as
+`symbol`. The gate's error becomes the mint. Falsifier: `typeof s`
+positions print `typeof s` — node-reuse territory; if those dominate the
+adverse, the mint narrows to declaration lines only.
