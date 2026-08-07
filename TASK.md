@@ -59,16 +59,17 @@ pollution) and the discriminator studied. The binder's per-container START
 nodes turned out to BE upstream's flowContainer bound. Remainder: the
 ever-assigned scan's granularity, small, owned in §9.8.
 
-THE NEXT SUBSYSTEM, from the closing W1' board: the LOOP FIXPOINT
-(upstream's incomplete-types iteration, getTypeAtFlowLoopLabel). The
-`intrinsic -> intrinsic` W1' row is 5,016 lines / 99 finishes across 768
-cases; its two ceiling heads (binaryArithmetic 1,232, selfReferentialLoop
-145) leave a ~3,600-line diffuse tail that every earlier residual attributed
-to loop-label handling (e7a65fb's 260, §9.2's leak, capturedLet). The
-current loop-label arm's shape and upstream's protocol (cache the incomplete
-result, iterate to fixpoint, the evolving-type interaction) is the study;
-this is subsystem-scale — one session's whole deliverable, per STATUS §4.4's
-standing rule.
+THE NEXT SUBSYSTEM: the LOOP FIXPOINT — now with a VALIDATED port sketch
+and a first refused cycle (narrow notes §12/§12.1). The protocol port
+(flow_loop_cache, in-process stack, first-antecedent rule, shared_flows
+truncation per back edge) ran WITHOUT cache poisoning and measured +241
+gained; it was reverted on three named defects that are the session's work
+plan: (1) the depth-cap interaction (196 losses in ONE pathological case —
+the cap must exclude loop-stack depth as upstream's does); (2) incomplete-
+union semantics in the condition/assignment arms (they treat provisional
+inputs as final and drop the | undefined completing pass); (3) the
+self-referential family wants upstream's `any` bail, not the honest union.
+One session, whole deliverable, per STATUS §4.4.
 
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
