@@ -1907,3 +1907,29 @@ narrow: widening it is a one-line change once generic bases can be instantiated,
 and the alternative — deleting a correct rule because its gate has not caught up —
 is how a port loses work it has already done. The zero is here so nobody prices
 it as a conversion later.
+
+---
+
+## 28. TS2411 — the index constraint, +2 for 1 wrong
+
+```
+CONVERTS 947 -> 949  (+2)     LOST 0      RIGHT 15      WRONG 1
+```
+
+`checkIndexConstraints` (`checker.go`): every **named** property of a type
+carrying an index signature must be assignable to that signature's type. Error
+node the property's own name — `classIndexer3.ts(9,5)` is the `y` of
+`y: string;` in a class extending one that declares `[s: string]: number`.
+
+The signature is found by **walking**, not by asking the type, and that is the
+whole of what made the row reachable: `classIndexer3`'s constraining signature is
+on the *base* and the offending property is on the derived class. This port has
+no resolved index-signature table, so the walk mirrors `crate::members`' — own
+declarations, then the `extends` chain, with `base_symbols_of`'s *"any base I
+cannot follow makes the whole answer a miss"* contract doing the safety work for
+the third rule in a row.
+
+A **numeric** index signature constrains only numerically-named properties
+(`isNumericLiteralName`), which is what keeps `y: string` legal beside
+`[n: number]: number`; a template-literal or union index parameter is
+`getIndexInfosOfType` and is declined.

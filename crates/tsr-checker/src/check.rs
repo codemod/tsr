@@ -210,6 +210,7 @@ impl Checker<'_, '_> {
                 self.check_property_initialization(declaration.members, ambient);
                 self.check_heritage_conformance(node);
                 self.check_property_overrides(node);
+                self.check_index_constraints(node);
                 ambient
             }
             Node::ClassExpression(declaration) => {
@@ -238,6 +239,7 @@ impl Checker<'_, '_> {
             }
             Node::InterfaceDeclaration(_) => {
                 self.check_heritage_conformance(node);
+                self.check_index_constraints(node);
                 ambient
             }
             Node::EnumDeclaration(declaration) => {

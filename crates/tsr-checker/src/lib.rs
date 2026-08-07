@@ -115,6 +115,7 @@ pub mod flow;
 pub mod function_types;
 pub mod heritage_conformance;
 pub mod implicit_any;
+pub mod index_constraint;
 pub mod index_signatures;
 pub mod indexed;
 pub mod inference;
