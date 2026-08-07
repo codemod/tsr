@@ -181,7 +181,52 @@ first time, and it is the largest thing on this page.
   `UnionType`, `IntersectionType`. Both change the board's rows and neither
   changes the compiler.
 
-## 7. How I would know I was wrong
+## 7. The row split — `fnsiggap.rs`, same session
+
+§3 named the `FunctionDeclaration` self-loop row as the strongest unowned
+candidate and said the next step was a split, not an arm. Taken immediately,
+because a row is not a mechanism:
+
+```
+population 2,943   (C1 reproduces cyclegap.rs exactly)
+
+  1,016  34.5%  downstream: a parameter gaps                    net 1,010
+    985  33.5%  downstream: a returned expression gaps          net   969
+    605  20.6%  WIRING: no return statement at all              net   574
+    205   7.0%  WIRING: every parameter and every return types  net   205
+    132   4.5%  downstream: a parameter AND a return gap         net   131
+```
+
+**72.5% of the row is downstream and is not an item.** It belongs to its inputs,
+which is `retgap.rs`'s conclusion about the *other* `FunctionDeclaration` row
+reproduced on this one (`checker-notes-callres.md` §12). The buckets are ordered
+downstream-first by construction (C2), so this split **under**-reports the cheap
+answer — the safe direction.
+
+**What is left is 810 lines, 779 net**, and it is four mechanisms, not one:
+
+| lines | form | the inferred return is |
+|---:|---|---|
+| 366 | plain | the body's type |
+| 228 | `async` | `Promise<T>` |
+| 173 | generator | `Generator<…>` |
+| 43 | `async` generator | `AsyncGenerator<…>` |
+
+548 of the 810 take **no parameters at all**, which caps how much of the build
+is parameter handling.
+
+The row also splits **1,475 own-node / 1,468 reached after ≥1 step**, so half of
+it converts only through the cascade — a caveat that travels with any forecast,
+in both directions: those lines cannot be claimed by an arm that fixes only the
+own-node case, and they may also be reached by mechanisms other than this one.
+
+**This is a real but small item: ~779 net, ≈0.16 gradient points at 100%
+conversion, and no build has ever converted 100%.** Recording it at that size is
+the point — §3 called it "the strongest unowned candidate", and the split shows
+that the strongest unowned candidate on this board is worth under two tenths of
+a point. That is §4.4's conclusion arriving through yet another door.
+
+## 8. How I would know I was wrong
 
 - **C2 is the falsifier for the whole page.** The walk is copied from
   `depend.rs`; if the cycle and depth-cap counts ever stop reproducing it
