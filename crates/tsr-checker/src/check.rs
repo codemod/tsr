@@ -285,6 +285,11 @@ impl Checker<'_, '_> {
             }
             Node::ParameterDeclaration(parameter) => {
                 self.check_parameter_property_position(node, parameter.modifiers);
+                self.check_annotated_initializer(node, ambient);
+                ambient
+            }
+            Node::PropertyDeclaration(_) => {
+                self.check_annotated_initializer(node, ambient);
                 ambient
             }
             Node::VariableDeclaration(declaration) => {

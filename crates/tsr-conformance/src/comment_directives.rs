@@ -84,11 +84,41 @@ pub fn directives_in(source: &str) -> Vec<CommentDirective> {
 }
 
 /// Is the comment at `[pos, end)` a directive?
-fn directive_of(source: &str, pos: usize, end: usize) -> Option<CommentDirective> {
-    let text = source.get(pos..end)?;
-    let body = text.strip_prefix("//").or_else(|| text.strip_prefix("/*"))?;
-    let body = body.trim_start_matches(['*', ' ', '\t']);
-    let body = body.strip_prefix('@')?;
+///
+/// `processCommentDirective` (`scanner.go:972`), including the detail that
+/// decides where the diagnostic goes: for a **block** comment the recorded
+/// position is `lastLineStart` — the start of the comment's *last* line, not the
+/// `/*` (`scanner.go:674`). So
+///
+/// ```text
+/// /*
+///  @ts-expect-error */
+/// var x: number = 'nope';
+/// ```
+///
+/// records the directive on the second line, which is what makes the backward
+/// scan reach it from the third; and `ts-expect-error.ts(11,1)` puts TS2578 at
+/// **column 1** for a one-line block comment whose `@` is at column 4. Reading
+/// the `/*` as the position instead loses the first fact and the second.
+fn directive_of(source: &str, comment_start: usize, end: usize) -> Option<CommentDirective> {
+    let text = source.get(comment_start..end)?;
+    let multiline = text.starts_with("/*");
+    let start = if multiline {
+        // `lastLineStart`: the byte after the comment's final line break, or the
+        // comment's own start when it has none.
+        text.rfind('\n').map_or(comment_start, |index| comment_start + index + 1)
+    } else {
+        comment_start
+    };
+    let body = source.get(start..end)?;
+    let body = if multiline {
+        // "Skip whitespace, then combinations of / and *" (`scanner.go:975`).
+        body.trim_start_matches([' ', '\t']).trim_start_matches(['/', '*'])
+    } else {
+        // "Skip opening //, then another / if present" (`scanner.go:986`).
+        body.strip_prefix("//")?.trim_start_matches('/')
+    };
+    let body = body.trim_start_matches([' ', '\t']).strip_prefix('@')?;
     let expects_error = if body.starts_with("ts-expect-error") {
         true
     } else if body.starts_with("ts-ignore") {
@@ -98,10 +128,10 @@ fn directive_of(source: &str, pos: usize, end: usize) -> Option<CommentDirective
     };
     Some(CommentDirective {
         span: Span::new(
-            u32::try_from(pos).unwrap_or(u32::MAX),
+            u32::try_from(start).unwrap_or(u32::MAX),
             u32::try_from(end).unwrap_or(u32::MAX),
         ),
-        line: line_of(source, pos),
+        line: line_of(source, start),
         expects_error,
     })
 }
@@ -186,7 +216,11 @@ fn is_comment_or_blank_line(source: &str, starts: &[usize], line: u32) -> bool {
     let rest = &source[start..];
     let rest = rest.split('\n').next().unwrap_or(rest);
     let trimmed = rest.trim_start();
-    trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*")
+    // `//` **only**, and deliberately: `isCommentOrBlankLine` (`program.go:1445`)
+    // does not recognise `/*`, so a block comment between a directive and a
+    // diagnostic stops the backward scan. Accepting `/*` here made the scan run
+    // past lines upstream stops at.
+    trimmed.is_empty() || trimmed.starts_with("//")
 }
 
 #[cfg(test)]
@@ -226,6 +260,21 @@ mod tests {
         let (_, unused) = filter(source, &entries, &directives);
         assert_eq!(unused.len(), 1);
         assert_eq!(unused[0].message.code(), 2578);
+    }
+
+    #[test]
+    fn a_block_comment_directive_is_recorded_on_its_last_line() {
+        // `scanner.go:674` passes `lastLineStart`, not the `/*`. Without it the
+        // directive lands two lines above the diagnostic with a non-comment line
+        // in between, and `conformance/ts-expect-error` keeps three wrong lines.
+        let source = "/*\n @ts-expect-error */\nvar x: number = 'nope';\n";
+        let directives = directives_in(source);
+        assert_eq!(directives.len(), 1, "{directives:?}");
+        assert_eq!(directives[0].line, 1);
+        let entries = [(2u32, "the TS2322")];
+        let (kept, unused) = filter(source, &entries, &directives);
+        assert!(kept.is_empty());
+        assert!(unused.is_empty());
     }
 
     #[test]

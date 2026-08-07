@@ -1386,3 +1386,52 @@ parameter it has.
 upstream and is a refusal rather than a bound — it comes back when JSDoc types
 are parsed. **The whole wrong column went to zero on one condition**, which is
 the cleanest signal in this file that a residual had a single owner.
+
+### 16.2 Two more anchors and two corrections — +5 right, −8 wrong, +0 cases
+
+```
+CONVERTS 35 (unchanged)   LOST 0   RIGHT 214 -> 219   WRONG 27 -> 24
+```
+
+**A build with a zero in the case column, kept anyway**, and the reason is worth
+stating: `diagnostics` counts *cases*, and a case fails on the first difference
+in either direction. A wrong line removed from a case that still fails for six
+other reasons moves no number today and moves one the moment those six land.
+Recording only the case delta would file this as worthless.
+
+- **Property declarations and parameter defaults.** The same shape as the
+  variable arm — a written annotation and an initialiser, reported at the
+  declaration. An **optional** parameter is declined: its default is compared
+  against the type with `undefined` stripped (`checker.go:9993`) and this port
+  does not strip it.
+- **`.js` files, for the three declaration anchors only.** A JS declaration's
+  type comes from JSDoc, which this port does not parse — `typeFromJSInitializer4`
+  was 5 wrong lines and every one was that. Declining `.js` for the *assignment*
+  arm as well removes 5 more wrong lines and **costs 4 conversions**
+  (`checkJsFiles1`–`4`), so the decline is drawn at the declaration anchors and
+  the assignment arm keeps JS. That asymmetry is measured, not principled, and it
+  disappears when JSDoc types are parsed.
+
+#### The comment-directive correction: `lastLineStart`, not the `/*`
+
+§17 shipped with three wrong lines left in `conformance/ts-expect-error`, and the
+cause was one argument. `processCommentDirective` (`scanner.go:674`) is called
+with **`lastLineStart`** for a block comment — the start of the comment's *last*
+line — not with the `/*`:
+
+```text
+/*
+ @ts-expect-error */
+var x: number = 'nope';
+```
+
+records the directive on line 2, which is what lets the backward scan reach it
+from line 3. Reading the `/*` as the position puts it on line 1, and the scan
+stops at line 2 because a line beginning `@ts-expect-error` is neither blank nor
+a comment. The same argument fixes the *reported* position:
+`ts-expect-error.ts(11,1)` puts TS2578 at column 1 for a one-line block comment
+whose `@` sits at column 4.
+
+Second correction in the same place: `isCommentOrBlankLine` (`program.go:1445`)
+recognises `//` and **not** `/*`. §17's version accepted both, so its backward
+scan ran past lines upstream stops at. Both are now tests.

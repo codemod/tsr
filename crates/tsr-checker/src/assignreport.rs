@@ -101,13 +101,61 @@ impl<'a> Checker<'a, '_> {
         declaration: &tsr_ast::VariableDeclaration<'a>,
         ambient: bool,
     ) {
-        if ambient || self.file_has_parse_errors {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let (Some(annotation), Some(initializer)) = (declaration.r#type, declaration.initializer)
         else {
             return;
         };
+        let target = self.get_type_from_type_node(annotation);
+        let source = self.check_expression(initializer);
+        let Some(initializer_id) = initializer.node_id() else { return };
+        if !self.assignability_is_decidable(source, target)
+            || self.source_is_an_unnarrowed_reference(initializer_id, source)
+            || self.is_type_assignable_to(source, target)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+                span,
+                [source_text, target_text],
+            ),
+        );
+    }
+
+    /// `checkVariableLikeDeclaration`'s other two callers: a **property
+    /// declaration** and a **parameter default**.
+    ///
+    /// Both are the same shape as the variable arm — a written annotation and an
+    /// initialiser — and both report at the declaration node. They are separate
+    /// only because the node kinds are, and each carries one decline the
+    /// variable arm does not need: a property declaration with a `declare` or
+    /// `abstract` modifier has no initialiser to check, and an **optional**
+    /// parameter's default is compared against the type *without* `undefined`
+    /// (`checker.go:9993`), which this port does not strip.
+    pub(crate) fn check_annotated_initializer(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let (annotation, initializer) = match self.node_map.get(node) {
+            Some(Node::PropertyDeclaration(property)) => (property.r#type, property.initializer),
+            Some(Node::ParameterDeclaration(parameter)) => {
+                if parameter.question_token.is_some() || parameter.dot_dot_dot_token.is_some() {
+                    return;
+                }
+                (parameter.r#type, parameter.initializer)
+            }
+            _ => return,
+        };
+        let (Some(annotation), Some(initializer)) = (annotation, initializer) else { return };
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
@@ -142,7 +190,7 @@ impl<'a> Checker<'a, '_> {
     /// from the very returns being checked, so a mismatch against it is not a
     /// diagnostic upstream would ever report.
     pub(crate) fn check_return_statement(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(Node::ReturnStatement(statement)) = self.node_map.get(node) else { return };
