@@ -1814,3 +1814,31 @@ Diffuse: nothing above 5 lines per case. `assignmentCompatWithDiscriminatedUnion
 5, `typeFromJSInitializer4` 4 (JSDoc — declining `.js` here costs 4 conversions
 for 5 wrong lines and is therefore not drawn), `controlFlowNoImplicitAny` 4,
 `widenedTypes` 3, `tryCatchFinallyControlFlow` 3, and a tail of 2s.
+
+---
+
+## 26. TS2345 — argument assignability, +11 for 8 wrong
+
+```
+CONVERTS 917 -> 928  (+11)     LOST 0      RIGHT 20      WRONG 8
+```
+
+The board's third row (114 cases), opened with **no new machinery at all**: the
+signature comes from §20's `sole_signature_arity` gate — one callee, one
+non-generic function declaration with a body — and the verdict comes from §25's
+`relate_ternary`. Error node the **argument**:
+`arrayAssignmentTest3.ts(12,16)` is the `null` of `new a(null, 7, …)`.
+
+Two declines the arity rule did not need:
+
+- **A generic callee, whole.** Its parameter types are written in terms of type
+  parameters that inference substitutes, and inference is
+  `checker-notes-infer2.md`'s refused row. Comparing an argument against an
+  uninstantiated `T` is a confident wrong answer, not a gap.
+- **Everything at or after a rest parameter.** A rest parameter's annotation is
+  the *array*, so position `i` stops naming parameter `i`.
+
+That two rules this far apart — an arity check and a type check — share one gate
+and one verdict function is the shape §25's correction bought: once the relation
+answers *"cannot decide"* honestly, a consumer needs no bound of its own beyond
+the ones about its **inputs**.

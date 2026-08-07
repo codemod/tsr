@@ -453,6 +453,38 @@ impl<'a> Checker<'a, '_> {
         Some(first.0)
     }
 
+    /// TS2345 at an argument position — the same verdict machinery as
+    /// [`Checker::report_assignability_failure`] with a different code and no
+    /// TS2741 arm (an argument's missing property is elaborated differently
+    /// upstream).
+    pub(crate) fn report_argument_failure(&mut self, at: NodeId, source: TypeId, target: TypeId) {
+        if self.nodes.kind(at) == SyntaxKind::ObjectLiteralExpression
+            && self.type_of(target).flags.contains(TypeFlags::UNION)
+        {
+            return;
+        }
+        if !self.pair_is_reportable(source, target) {
+            return;
+        }
+        if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+            != crate::relater::Ternary::NotRelated
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        let source_text = self.type_to_string(source);
+        let target_text = self.type_to_string(target);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
+                span,
+                [source_text, target_text],
+            ),
+        );
+    }
+
     /// Report the assignability failure at `span`, choosing the code the way
     /// upstream's relation does: a single absent required property is TS2741 and
     /// everything else this port will speak about is TS2322.
@@ -555,7 +587,7 @@ impl<'a> Checker<'a, '_> {
     ///
     /// The enum veto stays where it was, in
     /// [`Checker::assignability_is_decidable`]'s successor below.
-    fn pair_is_reportable(&mut self, source: TypeId, target: TypeId) -> bool {
+    pub(crate) fn pair_is_reportable(&mut self, source: TypeId, target: TypeId) -> bool {
         let intrinsics = self.intrinsics();
         let (error, unknown, any) = (intrinsics.error, intrinsics.unknown, intrinsics.any);
         for side in [source, target] {
@@ -580,7 +612,11 @@ impl<'a> Checker<'a, '_> {
     /// already reduced. Restricting the decline to references rather than to
     /// every union source is worth 7 conversions: `var x: number = f()` returning
     /// a union is a real error and no narrowing was ever going to touch it.
-    fn source_is_an_unnarrowed_reference(&self, expression: NodeId, source: TypeId) -> bool {
+    pub(crate) fn source_is_an_unnarrowed_reference(
+        &self,
+        expression: NodeId,
+        source: TypeId,
+    ) -> bool {
         matches!(
             self.nodes.kind(expression),
             SyntaxKind::Identifier

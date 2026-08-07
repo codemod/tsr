@@ -25,7 +25,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// The argument-count check for one call expression.
     pub(crate) fn check_call_arity(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
@@ -52,6 +52,12 @@ impl Checker<'_, '_> {
             return;
         }
         let arguments = call.arguments.len();
+        // The argument *types* are checked at the same gate as the count,
+        // because both need the same thing: exactly one signature, known from
+        // the declaration. `checkApplicableSignature` (`checker.go`) runs after
+        // arity and only for a candidate that survived it, so the ordering here
+        // is upstream's too.
+        self.check_argument_types(call, callee);
         let Some((minimum, maximum)) = self.sole_signature_arity(callee) else { return };
         let unbounded = maximum.is_none();
         if arguments >= minimum && maximum.is_none_or(|maximum| arguments <= maximum) {
@@ -84,6 +90,41 @@ impl Checker<'_, '_> {
             _ => minimum.to_string(),
         };
         self.report(file, Diagnostic::with_args(message, span, [range, arguments.to_string()]));
+    }
+
+    /// TS2345 — `Argument of type '{0}' is not assignable to parameter of type
+    /// '{1}'.`
+    ///
+    /// `checkApplicableSignature` → `getSignatureApplicabilityError`
+    /// (`checker.go`), error node the **argument**:
+    /// `arrayAssignmentTest3.ts(12,16)` is the `null` of `new a(null, 7, …)`.
+    ///
+    /// # The same two ideas as everything that has worked here
+    ///
+    /// The signature comes from the *declaration* — one callee, one
+    /// non-generic function, written annotations — which is
+    /// [`Checker::sole_signature_arity`]'s gate reused. The verdict comes from
+    /// `relate_ternary`, so an undecidable pair is a silence rather than an
+    /// error (§25). Nothing else is needed: TS2345's message arguments are not
+    /// compared by the suite.
+    ///
+    /// A **generic** callee is declined whole. Its parameter types are written
+    /// in terms of type parameters that inference substitutes, and this port's
+    /// inference is `checker-notes-infer2.md`'s refused row — comparing an
+    /// argument against an uninstantiated `T` is a confident wrong answer.
+    fn check_argument_types(&mut self, call: &tsr_ast::CallExpression<'_>, callee: NodeId) {
+        let Some(parameters) = self.sole_signature_parameters(callee) else { return };
+        for (index, argument) in call.arguments.iter().enumerate() {
+            let Some(parameter) = parameters.get(index) else { break };
+            let Some(annotation) = *parameter else { continue };
+            let Some(argument_id) = argument.node_id() else { continue };
+            let target = self.get_type_from_type_node(annotation);
+            let source = self.check_expression(*argument);
+            if self.source_is_an_unnarrowed_reference(argument_id, source) {
+                continue;
+            }
+            self.report_argument_failure(argument_id, source, target);
+        }
     }
 
     /// `getErrorNodeForCallNode` (`checker.go:9843`).
@@ -188,6 +229,49 @@ impl Checker<'_, '_> {
             }),
             _ => false,
         }
+    }
+
+    /// The written parameter annotations of the sole signature a callee names,
+    /// in order — `None` where [`Checker::sole_signature_arity`] declines, or
+    /// where the function is generic.
+    fn sole_signature_parameters(
+        &mut self,
+        callee: NodeId,
+    ) -> Option<Vec<Option<tsr_ast::TypeNode<'a>>>> {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return None };
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            callee,
+            identifier.text,
+            SymbolFlags::VALUE,
+        )?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(SymbolFlags::FUNCTION) || entry.declarations.len() != 1 {
+            return None;
+        }
+        let Some(Node::FunctionDeclaration(declaration)) = self.node_map.get(entry.declarations[0])
+        else {
+            return None;
+        };
+        declaration.body?;
+        // Inference is `checker-notes-infer2.md`'s refused row; an argument
+        // compared against an uninstantiated `T` is a confident wrong answer.
+        if !declaration.type_parameters.is_empty() {
+            return None;
+        }
+        Some(
+            declaration
+                .parameters
+                .iter()
+                .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
+                // A rest parameter's annotation is the *array*, not the element,
+                // so position `i` no longer names parameter `i`.
+                .take_while(|parameter| parameter.dot_dot_dot_token.is_none())
+                .map(|parameter| parameter.r#type)
+                .collect(),
+        )
     }
 
     /// Is this the `this` parameter — the one that is a type annotation wearing
