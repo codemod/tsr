@@ -2487,3 +2487,24 @@ checks were written for a call syntax and are really about a **signature
 source**, and this is the second source wired in. The third, a method on an
 instance, arrives with the class-side completeness work rather than with any
 change here.
+
+### 38.1 TS2454's guard narrowed rather than removed — +1, and §37's refusal answered
+
+```
+diagnostics 1,062 -> 1,063   (+1)
+```
+
+§37 refused removing the guarded-reference decline: +2 cases for 45 wrong lines
+is buying the suite number with unfaithfulness, and it named the right fix as
+*"a narrower guard, not no guard"*. This is that guard.
+
+The condition must now both **name** the reference and **contain one of the two
+narrowing mechanisms this port does not model** — a call (a user-defined type
+predicate) or an `instanceof`. Requiring the mechanism as well as the name is
+what stops it declining a TS2454 upstream really does report, and it recovers a
+case without putting any of the 45 lines back.
+
+> A decline that over-approximates is worth auditing for *which half* is
+> over-approximating. This one tested "is there a guard naming this?" when the
+> question was "is there a guard naming this **that I cannot follow**?" — and the
+> second is barely more code.

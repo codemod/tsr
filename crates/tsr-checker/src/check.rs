@@ -1203,8 +1203,14 @@ impl Checker<'_, '_> {
                 }
                 _ => None,
             };
+            // The condition must both name the reference **and** contain one of
+            // the two narrowing mechanisms this port does not model — a call
+            // (a user-defined type predicate) or an `instanceof`. Requiring the
+            // mechanism as well as the name is what keeps the guard from
+            // declining a TS2454 upstream really does report.
             if let Some(condition) = condition
                 && self.subtree_mentions(condition, text, 0)
+                && self.subtree_has_unported_narrowing(condition, 0)
             {
                 return true;
             }
@@ -1212,6 +1218,24 @@ impl Checker<'_, '_> {
             at = self.nodes.parent(current);
         }
         false
+    }
+
+    /// Does the subtree contain a call or an `instanceof` — the two narrowing
+    /// mechanisms `crate::flow` does not model?
+    fn subtree_has_unported_narrowing(&self, node: NodeId, depth: u32) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let Some(typed) = self.node_map.get(node) else { return false };
+        if matches!(typed, Node::CallExpression(_))
+            || matches!(typed, Node::BinaryExpression(binary)
+                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::InstanceOfKeyword))
+        {
+            return true;
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        children.into_iter().any(|child| self.subtree_has_unported_narrowing(child, depth + 1))
     }
 
     /// Does the subtree rooted at `node` contain an identifier spelled `text`?
