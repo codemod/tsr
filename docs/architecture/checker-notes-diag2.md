@@ -2152,3 +2152,27 @@ sites are done, and TS1005's 241 are *not* this shape — they are JSX and
 conflict-marker parser **recovery** differences (32 lines at one EOF position in
 `jsxUnclosedParserRecovery` alone), which is a parser project rather than a
 position. TS1109's 18 are the only untried remainder.
+
+### 30.4 TS2454's extras closed — 55 wrong lines to 10, and where the row actually is
+
+A **destructuring** target is a definite assignment, and
+`is_definite_assignment_target` only knew the `x = 1` spelling. `accessKind`
+(`ast.go:1426`) already answers for every spelling — `({ x } = obj)`,
+`[x] = arr`, `({ a: x } = obj)` — and `crate::unused` had ported it whole for its
+own reasons (§15's `isUse` gate). Reusing it here is the same question asked
+once: `shorthandPropertyAssignmentsInDestructuring_ES6`,
+`destructuringAssignmentWithDefault2`, `destructuringAssignment_private` and
+`noUnusedLocals_destructuringAssignment` were 12 wrong lines and all four are
+that shape.
+
+```
+TS2454   WRONG 114 -> 55 -> 10     LOST 0     CONVERTS unchanged at 238
+```
+
+**Zero conversions from either decline, and that locates the row.**
+`extragap.rs` says 66 cases have TS2454 as their *sole* obstacle; only ten wrong
+lines remain, so ~60 of those are on the **missing** side. The rule's bound is
+documented at `check_used_before_assigned` and excludes outer variables,
+parameters, aliases and binding elements — the ninth session's named residual,
+*"outer variables and assignment marking"*. **That, not the extras, is what the
+row is worth**, and this is the measurement that says so.

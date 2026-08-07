@@ -788,7 +788,7 @@ impl Checker<'_, '_> {
     }
 
     /// `IsWriteOnlyAccess` (`ast.go:1264`) — `accessKind(node) == Write`.
-    fn is_write_only_access(&self, node: NodeId) -> bool {
+    pub(crate) fn is_write_only_access(&self, node: NodeId) -> bool {
         self.access_kind(node) == AccessKind::Write
     }
 

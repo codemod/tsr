@@ -979,6 +979,18 @@ impl Checker<'_, '_> {
         if self.is_definite_assignment_target(node) {
             return;
         }
+        // A **destructuring** target is a definite assignment too, and
+        // `is_definite_assignment_target` only knows the `x = 1` spelling.
+        // `accessKind` (`ast.go:1426`) already answers for every spelling —
+        // `({ x } = obj)`, `[x] = arr`, `({ a: x } = obj)` — and
+        // `crate::unused` ported it whole for its own reasons. Reusing it here
+        // is the same question asked once: `shorthandPropertyAssignmentsInDestructuring_ES6`,
+        // `destructuringAssignmentWithDefault2`, `destructuringAssignment_private`
+        // and `noUnusedLocals_destructuringAssignment` were 12 of this rule's
+        // remaining wrong lines and all four are that shape.
+        if self.is_write_only_access(node) {
+            return;
+        }
         if self.is_inside_with_statement(node) || self.is_in_type_query_or_type_node(node) {
             return;
         }
