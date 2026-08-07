@@ -1158,3 +1158,25 @@ WRONG→RIGHT 151 · nothing else at all · 0 regressed · +9 cases (2,944 → 2
 The within-print half (322, sibling signatures in one composite) stays open
 with its own design named: a per-composite naming pass over the member loop,
 not this site walk.
+
+## §20 The `_1` rename, within-print half — bar (ninth session)
+
+§19's sibling: **322 lines** where two signature members of ONE composite
+declare the same type-parameter name and upstream renames the second-and-on
+(`{ <U>(…): IPromise<U>; <U_1>(…): IPromise<U_1>; … }` — the by-identity
+cache again, two distinct `U` params in one print). Head:
+`underscoreTest1` 100, `typeParametersAreIdenticalToThemselves` 25.
+
+**Design.** `render_object_type` is the one join both compose sites feed;
+the pass walks members in order, parses each signature member's declared
+`<…>` list *from this renderer's own output* (a format this crate controls),
+renames collisions against the names earlier members claimed — same
+`apply_renames`, same first-free `X_n` — and claims the final names.
+Signature members only; property members holding function types are §19's
+print-time territory.
+
+**Bar:** net ≥ **+200** (~62% of 322; the underscore head is one case at
+31%); own ≤ **20** — falsifier: wrong lines whose want keeps BOTH members'
+`U` → the two members share one written declaration (a merged or aliased
+signature printed twice), identity not collision — check before widening;
+regressed == 0; lost == 0.
