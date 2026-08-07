@@ -50,17 +50,14 @@ type) referenced inside a CLOSURE — upstream cannot track the assignment
 across the function boundary and answers the declared auto → `any` (an
 HONEST any, the anySignature precedent; write the ADR-0038 argument from
 checker.go's auto-type conversion before building). Our flow narrows to the
-initial `undefined` instead. BUILT ONCE AND REFUSED (narrow notes
-§9.1/§9.2): the mechanism is checker.go:11182's two exits (convertAutoToAny
-+ the used-before-assigned declared-auto return), the counterfactual split
-is 276 same-container / 316 outer (closuregap.rs), and the sentinel-re-walk
-implementation measured +989 and was reverted on 79 losses, 7 regressions
-and CACHE POLLUTION (a second walk over write-through caches is unsound).
-Price list for the retry, in order: (1) study the deleteOperator1-style
-want-undefined population against the want-any one — the discriminator is
-var/let/strict/mutability, unknown; (2) provenance as a provenance flag on
-FlowType threaded through every arm, never a re-walk; (3) the loop-label
-merge handling. The +989 is real and waiting.
+initial `undefined` instead. CLOSED (narrow notes §9.1–§9.8): the
+family landed as three sound arms — the non-strict auto initial (+1,016),
+the compound-assignment target (+6), and the outer auto reference (+42,
+four measurements teaching isNeverInitialized / mutable-local / var-vs-let
+as ported clauses) — after the sentinel form was refused (+989, cache
+pollution) and the discriminator studied. The binder's per-container START
+nodes turned out to BE upstream's flowContainer bound. Remainder: the
+ever-assigned scan's granularity, small, owned in §9.8.
 
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
