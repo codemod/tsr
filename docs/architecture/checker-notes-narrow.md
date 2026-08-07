@@ -815,3 +815,35 @@ shared ASCII-only `is_identifier_text` said no. A local Unicode
 approximation (alphabetic/alphanumeric classes) fixed the split without
 touching the shared helper's other consumers. Final: **WRONG→RIGHT 58,
 nothing else, +9 cases.** Legs: +58 (≥ +6) · 0 own · 0 · 0.
+
+## §12 The loop fixpoint — bar (ninth session, the subsystem)
+
+`getTypeAtFlowLoopLabel` (`flow.go:1325`), the arm every residual since
+`e7a65fb` has named. Today a `LOOP_LABEL` falls to the catch-all and follows
+ONE antecedent — the entry path — so assignments inside a loop are invisible
+at and after the junction. The port, faithful:
+
+- `flow_loop_cache: (FlowId, key) → TypeId` and `flow_loop_stack:
+  Vec<(key, types-so-far)>` on the Checker; key = the symbol when the
+  reference has one, else the reference node (upstream's `refKey`, reduced
+  to the shapes this port narrows);
+- cached → return; on-stack with non-empty types → the literal union so
+  far, `incomplete: true` (nested-loop restart works because the FIRST
+  antecedent is always the non-looping path);
+- back-edge walks push the stack entry and **truncate `shared_flows` after
+  each** — upstream nils `flowTypeCache` for the same reason, and §9.2's
+  cache poisoning is the recorded price of skipping this;
+- `subtypeReduction` (a foreign type injected by `instanceof`/predicates)
+  routes through the §9 decidability-gated reduction; an undecidable union
+  falls back to the DECLARED type — today's unnarrowed answer, the safe
+  direction;
+- an incomplete first antecedent makes the result incomplete and uncached.
+
+**Bar:** net ≥ **+150** (the W1' diffuse tail is unsized); own ≤ **40** —
+falsifier: wrong lines in loop cases wanting the declared union where the
+fixpoint produced something narrower → an assignment arm this port lacks is
+being fixpointed over, read the residual before widening; regressed == 0;
+lost ≤ **10** (the entry-only behaviour today can be RIGHT by accident where
+the loop body's assignments would widen — those flips are the one loss shape
+this arm can produce legitimately, and above 10 they say the union model is
+wrong).
