@@ -1485,3 +1485,24 @@ upstream-anchored and correct but corpus-unreachable today. It stays, per
 the §12.8 precedent, and becomes observable the moment the annotation
 path carries its member symbol. The §16 typeof-granularity row stays open
 with this negative recorded against it.
+
+### §24 Template expressions — `string`, the literal fold, and three declines
+
+`rank_board`'s fresh TERMINAL列 puts `TemplateExpression` at 961 gap lines
+(177 cases, 53.7% top-10). `checkTemplateExpression` (`checker.go:7976`):
+spans check; if the whole template EVALUATES (all parts compile-time
+strings/numbers) the answer is the folded FRESH string literal; else
+`string` — unless a const context, a template-literal context (element
+access argument), or a template-literal contextual type asks for
+`getTemplateLiteralType`. Ported: the spans, the fold when every span's
+type is a string/number LITERAL (the type's data carries the printed
+value, which IS upstream's evaluated text for these two kinds), `string`
+otherwise; declined to gaps: const contexts (`as const` ancestry), element-
+access argument position, and folds over any other literal kind (enum
+members carry no value here). The contextual template-literal-type
+position cannot be seen without contextual typing and is measured rather
+than guessed. Falsifiers: (a) folded literals must match upstream's
+evaluator byte-for-byte — number rendering divergence shows here first;
+(b) want-template-literal-type lines turning WRONG (the contextual blind
+spot) get counted and, if material, gate the whole arm on
+provably-uncontextual positions like arrays §13 did.
