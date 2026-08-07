@@ -5,9 +5,9 @@ checker-notes-callres.md §14–§18. The last ~600 lines of docs/conventions.md
 still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 2,942/9,538 (30.85%) · 355,065/478,954 = 74.13% · gap 77,766
-  · wrong 36,084. Ninth session: +2,338 lines, +101 cases, 0 lost,
-  0 regressed, across twelve bar-scored builds, two measured refusals, and
+  checker_types 2,942/9,538 (30.85%) · 355,098/478,954 = 74.14% · gap 77,733
+  · wrong 36,084. Ninth session: +2,371 lines, +101 cases, 0 lost,
+  0 regressed, across thirteen bar-scored builds, two measured refusals, and
   one infrastructure fix. Arithmetic chain in §1.
 
 THE METHOD, twelve-for-twelve: counterfactual/probe sizing → bar in docs
@@ -18,12 +18,10 @@ loudly on independent evidence (§8.1, §12.1). Read residuals even when the
 ratio passes — §16.1 caught two latent wrong-rules inside a passing bar.
 
 WHAT THE SESSION OPENED, in value order:
-  1. The §9 reduction has ONE unwired consumer left: the two-object ARRAY
-     LITERAL (checker-notes-assign.md §10.1) — blocked on object-literal
-     member freshness (upstream keeps `{ x: true }` literal members where
-     this port widens; `arrayBestCommonTypes` is the head). Locate the
-     divergence in members.rs/objects.rs first; it also owns 3 of §10.1's
-     wrongs on its own.
+  1. DONE same session (§13.1, +33): the array consumer landed gated on the
+     provably-uncontextual position. The annotated positions stay gaps —
+     their members keep literals under contextual typing
+     (isLiteralOfContextualType), which is that refused subsystem's row.
   2. tsr-5kii (switch-case narrowing) now has a measured cost: 4 wrong lines
      minted per §11.2 measurement through un-narrowed aggregate inputs, plus
      its own unsized row. Probe first; the equality-narrowing machinery in
@@ -36,8 +34,13 @@ WHAT THE SESSION OPENED, in value order:
      lines in §11.2 — its row keeps growing as aggregates land.
   5. The modifier-bearing population of removeSubtypes returns to the board
      owned by properties_related_to (readonly/optional/private unread —
-     §9.1). Teaching the relation modifiers converts that population AND
-     tightens narrowing.
+     §9.1). Teaching the relation READONLY alone is the first slice: the
+     direction is pinned by readonlyPropertySubtypeRelationDirected
+     (`{ a }` <: `{ readonly a }`, never the reverse, for the subtype
+     relations only), the declarations carry the modifier syntactically, and
+     landing it deletes the §9 syntactic decline's readonly half. Mind that
+     readonly participates ONLY in Subtype/StrictSubtype upstream — the
+     assignable relation ignores it.
 
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
