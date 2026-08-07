@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the arrays-§6 landing, 2026-08-07 (ninth session, continued: builds 25–45).
+Measured at the §27 landing, 2026-08-07 (ninth session, continued: builds 25–46).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the arrays-§6 landing, 2026-08-07 (ninth session, continued: builds
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,228/9,538** | **33.84%** | **gradient 77.72%** — the target |
+| **`checker_types`** | **3,232/9,538** | **33.89%** | **gradient 77.75%** — the target |
 | `diagnostics` | **1,070/5,488** | **19.50%** | **tenth session, +353** — 717 → 1,070 across thirty-nine builds and nine measured refusals; the running total is 80 → 1,070, 13.4×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-372,229 / 478,954 assertion lines = 77.72%      (measured at the arrays-§6 landing)
-  right 372,229 | gap 74,218 | wrong 22,468        right+gap+wrong = 468,915 exactly
+372,384 / 478,954 assertion lines = 77.75%      (measured at the §27 landing)
+  right 372,384 | gap 74,218 | wrong 22,313        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -97,7 +97,10 @@ stand-ins came due; +79 cases) = 371,539; then + 438 (§25: `void` is
 assertions as the non-nullable remainder; the empty-remainder refinement
 measured and refused at +102/147) = 372,144; then + 85 (arrays §6: spreads
 contribute `Array<T>`'s element type; the twenty-sixth stand-in came due)
-= 372,229 exactly — builds 25–45.
+= 372,229; then + 155 (§27: readonly
+assignment targets answer upstream's `any` — the §14 boundary argument's
+second application; the constructor exception was the fired leg) = 372,384
+exactly — builds 25–46.
 
 **CORRECTED, and said so:** this chain sat at 369,673 for five builds while
 the table above moved to 77.29% — the very "figure that appears twice will
@@ -1017,6 +1020,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §27 landing | **77.75%** | **3,232** | **+155/0** | **Build 46: readonly assignment targets.** `M.x = 1` on an exported const answers upstream's TS2540 `errorType`, printed `any` — the §14 boundary argument's second application, at both target sites (`checker.go:11096`/`:11377`). Fired leg: the constructor exception (`this.x` readonly assignments in the declaring constructor are legal). Zero adverse after the gate |
 | 2026-08-07 | arrays-§6 landing | **77.72%** | **3,228** | **+85/22** | **Build 45: array spreads.** `getSpreadElementType`'s `Array<T>` half; the 22 adverse are the falsifier's own tuple/contextual population, counted and accepted |
 | 2026-08-07 | §26 landing | **77.70%** | **3,228** | **+167/82** | **Build 44: `x!`.** The non-nullable remainder; the `null!`-keeps-null refinement was measured BOTH ways and refused (+102/147 vs +167/82). The 82 are chain-interplay and `null!` families, both variants' numbers recorded |
 | 2026-08-07 | §25 landing | **77.66%** | **3,228** | **+438/5, +26 cases** | **Build 43: `void` and `delete`.** Two one-line rules off the fresh TERMINAL board (`undefined`/`boolean`); 26 cases finished |
