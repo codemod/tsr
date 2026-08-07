@@ -338,6 +338,13 @@ impl Checker<'_, '_> {
         if types.len() == 1 {
             return types[0];
         }
+        // `T | T` is `T` by identity for ANY `T` — including a named union,
+        // which the worker below would otherwise expand and then decline for
+        // want of upstream's `origin` denormalisation
+        // (`checker-notes-arrays.md` §5, `enumLiteralsSubtypeReduction`).
+        if types.iter().all(|&t| t == types[0]) {
+            return types[0];
+        }
         self.union_type_worker(types, TypeFlags::empty(), None)
     }
 

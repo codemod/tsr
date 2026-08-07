@@ -715,3 +715,13 @@ happens.
 outside identical-input unions — the path must trigger only when every
 input `TypeId` is equal; (b) the named-union decline for genuinely mixed
 inputs must stay (its falsifier population: `E | string` prints).
+
+**§5 score — LANDED.** **+526 WRONG→RIGHT / 2 GAP→WRONG** — the 2 are
+`nullIsSubtypeOfEverythingButUndefined`'s `union(null, null)` under
+non-strict, where the empties-set decline used to answer `error` and
+identity now answers `null` against a want of widened `any`: the
+null-widening intrinsic gap (`with_module_host`'s recorded divergence),
+surfaced one step closer, not a new mechanism. `checker_types` right
+368,720 → **369,246**, wrong 23,212 → **22,688**. The case's residual line
+is the return aggregate's fall-through `| undefined`, a different (priced)
+mechanism.
