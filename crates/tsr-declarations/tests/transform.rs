@@ -437,10 +437,38 @@ fn a_parameter_property_becomes_a_property() {
 }
 
 #[test]
+fn destructured_parameter_properties_are_flattened_when_types_are_syntactic() {
+    assert_emits(
+        "export class C { constructor(public [[x], { value: [y] }, [...rest]]: any[]) {} }",
+        "export declare class C {\n    x: any;\n    y: any;\n    rest: any;\n    constructor([[x], { value: [y] }, [...rest]]: any[]);\n}\n",
+    );
+    assert_emits(
+        "export class C { constructor(public [x, y]: string[]) {} }",
+        "export declare class C {\n    x: string;\n    y: string;\n    constructor([x, y]: string[]);\n}\n",
+    );
+    assert_emits(
+        "type Tuple = [string, number]; type Object = { value: boolean }; export class C { constructor(public [text, count]: Tuple, public { value }: Object) {} }",
+        "type Tuple = [string, number];\ntype Object = {\n    value: boolean;\n};\nexport declare class C {\n    text: string;\n    count: number;\n    value: boolean;\n    constructor([text, count]: Tuple, { value }: Object);\n}\nexport {};\n",
+    );
+}
+
+#[test]
 fn an_optional_parameter_property_includes_undefined_in_its_property_type() {
     assert_emits(
         "export class C { constructor(public value?: string, public already?: number | undefined) {} }",
         "export declare class C {\n    value?: string | undefined;\n    already?: number | undefined;\n    constructor(value?: string | undefined, already?: number | undefined);\n}\n",
+    );
+}
+
+#[test]
+fn destructured_parameter_defaults_are_removed_recursively() {
+    assert_emits(
+        "export function f({ default: renamed = {}, nested: [value = 1] }: Options): void {}",
+        "export declare function f({ default: renamed, nested: [value] }: Options): void;\n",
+    );
+    assert_emits(
+        "export const f = ({ default: renamed = {}, nested: [value = 1], }: Options): void => {};",
+        "export declare const f: ({ default: renamed, nested: [value], }: Options) => void;\n",
     );
 }
 

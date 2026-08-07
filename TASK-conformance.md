@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  229/341  = 67.16%  (up from 161/339)
+  dts_emit                  233/341  = 68.33%  (up from 161/339)
   dts_shape                 708/918  = 77.12%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -89,6 +89,14 @@ default`, keeping the result parseable. This closed five more declaration-shape
 cases. Public optional parameter properties now retain their implicit `undefined`
 in both the synthesized property and constructor parameter, adding one byte-exact
 case without changing private isolated-declaration output.
+
+Declaration parameters now recursively remove binding-element defaults while
+preserving the source pattern's trailing comma as an explicit AST flag carried
+through transformed nodes and the shared list printer. Destructured constructor
+parameter properties flatten to their bound names when their element types are
+written directly or reachable through a non-generic top-level tuple/object alias.
+These syntax-only passes added four byte-exact declaration cases without changing
+the declaration denominator, parser clean-file result, or printer round trip.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

@@ -100,6 +100,9 @@ pub(crate) struct Transformer<'a, 't, R> {
     /// Syntactically named property assignments attached to function-valued
     /// variables, grouped by their host binding.
     expando_members: HashMap<String, Vec<ExpandoMember<'a>>>,
+    /// Non-generic top-level aliases whose written target can be followed
+    /// without checker inference.
+    type_aliases: HashMap<String, TypeNode<'a>>,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -120,6 +123,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             used_names: HashSet::new(),
             ambient_context: false,
             expando_members: HashMap::new(),
+            type_aliases: HashMap::new(),
             inference_required: Vec::new(),
         }
     }
@@ -143,6 +147,17 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let is_module = is_external_module(file.statements);
         reserve_statement_names(file.statements, &mut self.used_names);
         self.expando_members = collect_expando_members(file.statements, self.factory.nodes());
+        self.type_aliases = file
+            .statements
+            .iter()
+            .filter_map(|statement| {
+                let Statement::TypeAliasDeclaration(alias) = statement else { return None };
+                if !alias.type_parameters.is_empty() {
+                    return None;
+                }
+                Some((alias.name?.text.to_string(), alias.r#type?))
+            })
+            .collect();
 
         let mut statements: Vec<Statement<'a>> = Vec::with_capacity(file.statements.len());
         for statement in file.statements {
@@ -906,9 +921,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 if modifiers::modifier_flags(parameter.modifiers)
                     .intersects(PARAMETER_PROPERTY_MODIFIER)
                 {
-                    if let Some(property) = self.parameter_property(parameter) {
-                        members.push(property);
-                    }
+                    members.extend(self.parameter_properties(parameter));
                 }
             }
         }
@@ -1084,17 +1097,12 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
     }
 
-    /// The property a parameter property declares, from `buildClassMembers`.
-    fn parameter_property(
+    /// The properties a parameter property declares, from `buildClassMembers`.
+    fn parameter_properties(
         &mut self,
         parameter: &'a ParameterDeclaration<'a>,
-    ) -> Option<ClassElement<'a>> {
-        let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else {
-            // A destructured parameter property is an error upstream too; it emits
-            // something approximate through `walkBindingPattern`, which is not
-            // reproduced.
-            return None;
-        };
+    ) -> Vec<ClassElement<'a>> {
+        let Some(name) = parameter.name else { return Vec::new() };
         let span = self.span_of(parameter.node_id);
         let modifiers = self.ensure_modifiers(parameter.modifiers, parameter.node_id, false, false);
         // `ensureType(param, /*ignorePrivate*/ false)` (`transform.go:1933`). The
@@ -1102,7 +1110,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         // the constructor parameter it came from keeps one — `ensureParameter`
         // passes `ignorePrivate: true` for exactly that reason. Emitting the type
         // in both places leaks a private member's shape, and parses.
-        let r#type = if has_modifier(parameter.modifiers, SyntaxKind::PrivateKeyword) {
+        let private = has_modifier(parameter.modifiers, SyntaxKind::PrivateKeyword);
+        let r#type = if private {
             None
         } else {
             self.ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id).map(
@@ -1115,18 +1124,115 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 },
             )
         };
-        Some(ClassElement::PropertyDeclaration(self.factory.alloc(
-            tsr_ast::PropertyDeclaration::new(
+        let mut properties = Vec::new();
+        self.collect_parameter_properties(
+            name,
+            r#type,
+            private,
+            modifiers,
+            parameter.question_token,
+            &mut properties,
+        );
+        properties
+    }
+
+    fn collect_parameter_properties(
+        &mut self,
+        name: tsr_ast::BindingName<'a>,
+        r#type: Option<TypeNode<'a>>,
+        private: bool,
+        modifiers: &'a [ModifierLike<'a>],
+        question_token: Option<&'a tsr_ast::Token<'a>>,
+        properties: &mut Vec<ClassElement<'a>>,
+    ) {
+        let tsr_ast::BindingName::BindingPattern(pattern) = name else {
+            let tsr_ast::BindingName::Identifier(name) = name else { return };
+            if r#type.is_none() && !private {
+                return;
+            }
+            let span = self.span_of(name.node_id);
+            properties.push(ClassElement::PropertyDeclaration(self.factory.alloc(
+                tsr_ast::PropertyDeclaration::new(
+                    modifiers,
+                    tsr_ast::PropertyName::Identifier(name),
+                    question_token,
+                    r#type,
+                    None,
+                ),
+                SyntaxKind::PropertyDeclaration,
+                span,
+                NodeFlags::empty(),
+            )));
+            return;
+        };
+
+        let pattern_kind =
+            pattern.node_id.map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
+        for (index, element) in pattern.elements.iter().enumerate() {
+            let Some(element_name) = element.name else { continue };
+            let element_type = if private {
+                None
+            } else {
+                self.destructured_element_type(r#type, pattern_kind, index, element)
+            };
+            self.collect_parameter_properties(
+                element_name,
+                element_type,
+                private,
                 modifiers,
-                tsr_ast::PropertyName::Identifier(name),
-                parameter.question_token,
-                r#type,
                 None,
-            ),
-            SyntaxKind::PropertyDeclaration,
-            span,
-            NodeFlags::empty(),
-        )))
+                properties,
+            );
+        }
+    }
+
+    fn destructured_element_type(
+        &self,
+        parent: Option<TypeNode<'a>>,
+        pattern_kind: SyntaxKind,
+        index: usize,
+        element: &'a tsr_ast::BindingElement<'a>,
+    ) -> Option<TypeNode<'a>> {
+        let parent = self.resolve_syntactic_type_alias(parent?);
+        if matches!(parent, TypeNode::KeywordTypeNode(keyword) if keyword.kind == SyntaxKind::AnyKeyword)
+        {
+            return Some(parent);
+        }
+        if pattern_kind == SyntaxKind::ArrayBindingPattern {
+            return match parent {
+                TypeNode::ArrayTypeNode(array) => array.element_type,
+                TypeNode::TupleTypeNode(tuple) => tuple.elements.get(index).copied(),
+                _ => None,
+            };
+        }
+
+        let TypeNode::TypeLiteralNode(literal) = parent else { return None };
+        let key = element.property_name.or_else(|| match element.name {
+            Some(tsr_ast::BindingName::Identifier(identifier)) => {
+                Some(tsr_ast::PropertyName::Identifier(identifier))
+            }
+            _ => None,
+        })?;
+        literal.members.iter().find_map(|member| {
+            let TypeElement::PropertySignatureDeclaration(property) = member else { return None };
+            if property_names_equal(&property.name, &key) { property.r#type } else { None }
+        })
+    }
+
+    fn resolve_syntactic_type_alias(&self, mut r#type: TypeNode<'a>) -> TypeNode<'a> {
+        for _ in 0..16 {
+            let TypeNode::TypeReferenceNode(reference) = r#type else { break };
+            if !reference.type_arguments.is_empty() {
+                break;
+            }
+            let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else { break };
+            let Some(alias) = self.type_aliases.get(name.text).copied() else { break };
+            if alias.node_id() == r#type.node_id() {
+                break;
+            }
+            r#type = alias;
+        }
+        r#type
     }
 
     /// Ported from the class-member arms of `visitDeclarationSubtree`
@@ -1550,6 +1656,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         parameter: &'a ParameterDeclaration<'a>,
     ) -> &'a ParameterDeclaration<'a> {
         let span = self.span_of(parameter.node_id);
+        let name = parameter.name.map(|name| self.strip_binding_initializers(name));
         let question = if self.resolver.is_optional_parameter(parameter) {
             Some(
                 parameter
@@ -1578,7 +1685,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             ParameterDeclaration::new(
                 &[],
                 parameter.dot_dot_dot_token,
-                parameter.name,
+                name,
                 question,
                 r#type,
                 None,
@@ -1587,6 +1694,40 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             span,
             NodeFlags::empty(),
         )
+    }
+
+    fn strip_binding_initializers(
+        &mut self,
+        name: tsr_ast::BindingName<'a>,
+    ) -> tsr_ast::BindingName<'a> {
+        let tsr_ast::BindingName::BindingPattern(pattern) = name else { return name };
+        if !binding_name_contains_initializer(name) {
+            return name;
+        }
+        let mut elements = Vec::with_capacity(pattern.elements.len());
+        for element in pattern.elements {
+            let nested = element.name.map(|name| self.strip_binding_initializers(name));
+            elements.push(self.factory.alloc(
+                tsr_ast::BindingElement::new(
+                    element.dot_dot_dot_token,
+                    element.property_name,
+                    nested,
+                    None,
+                ),
+                SyntaxKind::BindingElement,
+                self.span_of(element.node_id),
+                NodeFlags::empty(),
+            ));
+        }
+        let elements = self.factory.slice(&elements);
+        let kind = pattern.node_id.map_or(pattern.kind.kind, |id| self.factory.nodes().kind(id));
+        let flags = self.factory.flags_of(pattern.node_id) & NodeFlags::HAS_TRAILING_COMMA;
+        tsr_ast::BindingName::BindingPattern(self.factory.alloc(
+            tsr_ast::BindingPattern::new(pattern.kind, elements),
+            kind,
+            self.span_of(pattern.node_id),
+            flags,
+        ))
     }
 
     /// Ported from `ensureType` (`transform.go:1629`), for a declaration whose

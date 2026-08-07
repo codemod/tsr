@@ -376,12 +376,82 @@ fn function_type<'a>(
     span: Span,
 ) -> Option<TypeNode<'a>> {
     let return_type = return_type?;
+    let parameters = declaration_parameters(factory, parameters);
     Some(TypeNode::FunctionTypeNode(factory.alloc(
         tsr_ast::FunctionTypeNode::new(type_parameters, parameters, Some(return_type), &[], None),
         SyntaxKind::FunctionType,
         span,
         NodeFlags::empty(),
     )))
+}
+
+fn declaration_parameters<'a>(
+    factory: &mut Factory<'a, '_>,
+    parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
+) -> &'a [&'a tsr_ast::ParameterDeclaration<'a>] {
+    let mut result = Vec::with_capacity(parameters.len());
+    for parameter in parameters {
+        let span = factory.span_of(parameter.node_id);
+        let name = parameter.name.map(|name| strip_binding_initializers(factory, name));
+        let question_token =
+            if parameter.question_token.is_some() || parameter.initializer.is_some() {
+                Some(
+                    parameter
+                        .question_token
+                        .unwrap_or_else(|| factory.token(SyntaxKind::QuestionToken, span)),
+                )
+            } else {
+                None
+            };
+        result.push(factory.alloc(
+            tsr_ast::ParameterDeclaration::new(
+                &[],
+                parameter.dot_dot_dot_token,
+                name,
+                question_token,
+                parameter.r#type,
+                None,
+            ),
+            SyntaxKind::Parameter,
+            span,
+            NodeFlags::empty(),
+        ));
+    }
+    factory.slice(&result)
+}
+
+fn strip_binding_initializers<'a>(
+    factory: &mut Factory<'a, '_>,
+    name: tsr_ast::BindingName<'a>,
+) -> tsr_ast::BindingName<'a> {
+    let tsr_ast::BindingName::BindingPattern(pattern) = name else { return name };
+    let mut elements = Vec::with_capacity(pattern.elements.len());
+    for element in pattern.elements {
+        let nested = element.name.map(|name| strip_binding_initializers(factory, name));
+        let span = factory.span_of(element.node_id);
+        elements.push(factory.alloc(
+            tsr_ast::BindingElement::new(
+                element.dot_dot_dot_token,
+                element.property_name,
+                nested,
+                None,
+            ),
+            SyntaxKind::BindingElement,
+            span,
+            NodeFlags::empty(),
+        ));
+    }
+    let elements = factory.slice(&elements);
+    let kind = pattern.node_id.map_or(pattern.kind.kind, |id| factory.nodes().kind(id));
+    let span = factory.span_of(pattern.node_id);
+    let flags = pattern.node_id.map_or(NodeFlags::empty(), |id| factory.nodes().flags(id))
+        & NodeFlags::HAS_TRAILING_COMMA;
+    tsr_ast::BindingName::BindingPattern(factory.alloc(
+        tsr_ast::BindingPattern::new(pattern.kind, elements),
+        kind,
+        span,
+        flags,
+    ))
 }
 
 fn arrow_return_type<'a>(

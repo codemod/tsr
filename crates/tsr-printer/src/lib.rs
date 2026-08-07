@@ -559,9 +559,15 @@ impl<'t> Printer<'t> {
             (ListFormat::ARRAY_BINDING_PATTERN_ELEMENTS, "[", "]")
         };
         self.write_punctuation(open);
-        self.emit_list(pattern.elements, format, |printer, element| {
-            printer.emit_binding_element(element);
+        let trailing_comma = pattern.node_id.is_some_and(|id| {
+            self.nodes.flags(id).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA)
         });
+        self.emit_list_with_trailing_delimiter(
+            pattern.elements,
+            format,
+            trailing_comma,
+            |printer, element| printer.emit_binding_element(element),
+        );
         self.write_punctuation(close);
     }
 

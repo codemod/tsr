@@ -1631,6 +1631,7 @@ impl<'a> Parser<'a> {
         let kind_token = self.alloc_token(SyntaxKind::OpenBracketToken, self.token.span);
         self.expect(SyntaxKind::OpenBracketToken);
         let mut elements = Vec::new();
+        let mut has_trailing_comma = false;
         while !self.at(SyntaxKind::CloseBracketToken) && !self.at(SyntaxKind::EndOfFile) {
             if self.at(SyntaxKind::CommaToken) {
                 // A hole, `[, a]`. Upstream's `parseArrayBindingElement`
@@ -1649,19 +1650,29 @@ impl<'a> Parser<'a> {
                 );
                 elements.push(hole);
                 self.next_token();
+                has_trailing_comma = self.at(SyntaxKind::CloseBracketToken);
                 continue;
             }
             elements.push(self.parse_binding_element());
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }
+            has_trailing_comma = self.at(SyntaxKind::CloseBracketToken);
         }
         self.expect(SyntaxKind::CloseBracketToken);
         let elements = self.arena.alloc_slice(&elements);
-        let node = self.finish_node(
+        let end = self.node_end();
+        let flags = if has_trailing_comma {
+            tsr_ast::NodeFlags::HAS_TRAILING_COMMA
+        } else {
+            tsr_ast::NodeFlags::empty()
+        };
+        let node = self.finish_node_with_flags(
             BindingPattern::new(kind_token, elements),
             SyntaxKind::ArrayBindingPattern,
             start,
+            end,
+            flags,
         );
         BindingName::BindingPattern(node)
     }
@@ -1671,22 +1682,32 @@ impl<'a> Parser<'a> {
         let kind_token = self.alloc_token(SyntaxKind::OpenBraceToken, self.token.span);
         self.expect(SyntaxKind::OpenBraceToken);
         let mut elements = Vec::new();
+        let mut has_trailing_comma = false;
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFile) {
             let before = self.pos();
             elements.push(self.parse_binding_element());
             if !self.eat(SyntaxKind::CommaToken) {
                 break;
             }
+            has_trailing_comma = self.at(SyntaxKind::CloseBraceToken);
             if self.pos() == before {
                 break;
             }
         }
         self.expect(SyntaxKind::CloseBraceToken);
         let elements = self.arena.alloc_slice(&elements);
-        let node = self.finish_node(
+        let end = self.node_end();
+        let flags = if has_trailing_comma {
+            tsr_ast::NodeFlags::HAS_TRAILING_COMMA
+        } else {
+            tsr_ast::NodeFlags::empty()
+        };
+        let node = self.finish_node_with_flags(
             BindingPattern::new(kind_token, elements),
             SyntaxKind::ObjectBindingPattern,
             start,
+            end,
+            flags,
         );
         BindingName::BindingPattern(node)
     }

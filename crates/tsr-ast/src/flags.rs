@@ -77,6 +77,11 @@ bitflags! {
         /// Node was transformed during parsing, so its source text no longer
         /// matches the AST naively.
         const REPARSER_TRANSFORMED_LITERAL = 1 << 28;
+        /// A list-like node was written with a comma before its closing token.
+        ///
+        /// Upstream stores this on `NodeArray.HasTrailingComma`; this AST keeps
+        /// child slices plain, so the enclosing node carries the same fact.
+        const HAS_TRAILING_COMMA = 1 << 29;
 
         /// Any block-scoped declaration form.
         const BLOCK_SCOPED = Self::LET.bits() | Self::CONST.bits() | Self::USING.bits();

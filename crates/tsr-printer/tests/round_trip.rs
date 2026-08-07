@@ -107,6 +107,14 @@ fn an_object_binding_pattern_stays_an_object() {
 }
 
 #[test]
+fn binding_pattern_trailing_commas_are_preserved() {
+    let output = printed("const { a, } = object; const [b,] = array;");
+    assert!(output.contains("{ a, }"), "{output}");
+    assert!(output.contains("[b,]"), "{output}");
+    assert!(round_trips("const { a, } = object; const [b,] = array;"));
+}
+
+#[test]
 fn tokens_that_would_merge_are_separated() {
     assert!(round_trips("const a = 1 + +2;"));
     assert!(round_trips("const a = 1 - -2;"));
