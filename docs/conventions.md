@@ -3289,14 +3289,42 @@ ast-grep scan -r /tmp/callsite.yml vendor/typescript-go/internal/checker/checker
 > true negative, and a true negative is exactly the kind of finding this project
 > acts on — refusals get written from zeros.
 
-### And the case for reading past the function you asked for
+### Reading past the function you asked for — use `-A` / `-B` / `-C`
 
-The precise tool has one cost worth naming. Reading `resolveUntypedCall` with a
-guessed `sed` range overshot its end — and the overshoot is how `resolveErrorCall`
-and `unknownSignature` were found on the next screen, which became the whole
-ADR-0038 argument that unblocked a build. A pattern match would have returned
-exactly the function requested and missed the neighbour.
+`ast-grep` takes grep's context flags, verified on the exact case that made this
+matter:
 
-> **Use `outline` for shape, then a pattern for the body — and then read what is
-> next to it.** The neighbour is where the distinction you did not know you
-> needed usually lives.
+```sh
+ast-grep run -p 'func (c *Checker) resolveUntypedCall($$$) $$$ {$$$}' \
+  -l go -A 12 vendor/typescript-go/internal/checker/checker.go
+```
+
+returns the function **plus** `resolveErrorCall`, `unknownSignature`, the TS 1.0
+spec comment and `isUntypedFunctionCall` — every piece of the ADR-0038 argument
+that unblocked a build, in one deterministic command. `-B n` gives preceding
+context, `-C n` both sides. All three checked.
+
+> **The neighbour is where the distinction you did not know you needed usually
+> lives** — `anySignature` vs `unknownSignature` sat two lines apart and decided
+> whether an item could exist at all. Ask for it explicitly with `-A`; do not
+> rely on an imprecise read to stumble over it.
+
+#### CORRECTED, minutes after this section was committed
+
+The paragraph above originally read:
+
+> *"The precise tool has one cost worth naming … a pattern match would have
+> returned exactly the function requested and missed the neighbour."*
+
+**That was wrong, and it was wrong in a way worth recording rather than quietly
+fixing.** The tool has the feature; I had not looked for it. Having just found a
+real trap in `ast-grep`, I wrote a *second* limitation from memory instead of
+checking — and the invented limitation happened to justify the sloppier method I
+had actually used all session.
+
+> **A tool's limitation is a claim about the tool, and claims get checked.** This
+> document already says *a prerequisite stated in a comment is a hypothesis*;
+> the same applies to *"the tool cannot do X"*, and it applies most strongly when
+> the limitation conveniently excuses what you already did. Three unmeasured
+> claims were caught in this session, all of them flattering the author's own
+> process. This is the fourth.
