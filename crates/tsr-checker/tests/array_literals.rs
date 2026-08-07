@@ -54,10 +54,48 @@ fn type_of_initialiser(source: &str) -> String {
 #[test]
 fn an_empty_array_literal_is_never_and_not_a_special_case_of_nothing() {
     // `implicitNeverType` under `strictNullChecks` (`checker.go:8098`), which
-    // this crate assumes on; the corpus splits 461 `never[]` to 297
+    // the harness defaults on; the corpus splits 461 `never[]` to 297
     // `undefined[]` on exactly that option. The cheapest test that separates a
     // real implementation from one that only handles the non-empty path.
     assert_eq!(type_of_initialiser("const a = [];"), "never[]");
+}
+
+#[test]
+fn an_empty_array_literal_is_undefined_when_strict_null_checks_is_off() {
+    // The other branch of `checker.go:8098` — `undefinedWideningType`. From
+    // `typedArrays.types:177` (a non-strict case): `>[] : undefined[]`. The
+    // 212-line `undefined[] -> never[]` W2 row, ninth session.
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut node_map = NodeMap::new();
+    let options = tsr_parser::ParseOptions::default();
+    let lib = tsr_parser::parse_into(&arena, LIB, options, &mut nodes, &mut node_map);
+    let source = "const a = [];";
+    let file = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
+    let bound = tsr_binder::bind_into(
+        tsr_binder::BindResult::empty(),
+        lib.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
+    );
+    let bound = tsr_binder::bind_into(
+        bound,
+        file.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &nodes, &node_map);
+    checker.set_strict_null_checks(false);
+    let Statement::VariableStatement(statement) = file.source_file.statements[0] else {
+        panic!("the fixture must start with a variable statement");
+    };
+    let initialiser = statement
+        .declaration_list
+        .and_then(|list| list.declarations.first().copied())
+        .and_then(|declaration| declaration.initializer)
+        .expect("an initialiser");
+    let id = checker.check_expression(initialiser);
+    assert_eq!(checker.type_to_string(id), "undefined[]");
 }
 
 #[test]
