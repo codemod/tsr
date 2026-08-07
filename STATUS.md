@@ -41,7 +41,7 @@ Measured at **`225451f`**, 2026-08-07 (ninth session).
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,043/9,538** | **31.90%** | **gradient 74.46%** — the target |
-| `diagnostics` | **893/5,488** | **16.27%** | **tenth session, +176** — 717 → 893 across seven more builds; the running total is 80 → 893, 11.2× |
+| `diagnostics` | **910/5,488** | **16.58%** | **tenth session, +193** — 717 → 910 across ten builds and three measured refusals; the running total is 80 → 910, 11.4× |
 
 ### `checker_types`, the number the project is steered by
 
@@ -213,10 +213,14 @@ them (the parallel `.types` workstream's 3,043 / 74.46% is theirs).
 | `a071849` | `noImplicitAny` parameters — TS7006 / TS7019 | +7 | **0** |
 | `8ba72f9` | TS2322 property/parameter anchors; directive position corrected | +0 | 24 |
 | `50bc406` | TS2314 / TS2707 — type-argument arity | +12 | **1** |
-| `HEAD` | TS2554 / TS2555 — call arity | +6 | **0** |
+| `50bc406` | TS2554 / TS2555 — call arity | +6 | **0** |
+| `~` | **TS2339 — §9's refusal retired** on the completeness walk | +12 | 11 |
+| `~` | TS2741 — built on the same walk, **REFUSED** at 1 for 8 | 0 | — |
+| `HEAD` | TS2353 — excess properties | +6 | **0** |
+| `~` | TS2403 — built, **REFUSED** at 6 losses (`isTypeIdenticalTo` unported) | 0 | — |
 
-**The session was asked for 50% and 50% is not reachable from here, which is a
-measurement rather than an opinion.** `diaggap.rs`'s single-code column — the
+**The session was asked for 50%. It is not reachable from here, and the session
+measured that three separate ways rather than asserting it once.** `diaggap.rs`'s single-code column — the
 only forecastable one — sums to **3,217 cases** at the session's open. 50% of the
 suite is 2,744 passing, so reaching it means converting essentially *every*
 single-code row plus a share of the multi-code tail. The column's head is
@@ -224,6 +228,36 @@ TS2322 at 510 and TS2339 at 143, and both need the members-table subsystem §5
 refuses; TS2345/2741/2353/2411/2430/2416/2420 (≈370 more) need the same. The
 honest ceiling for a session that does not build that subsystem is the long tail,
 and the long tail is what this session spent itself on.
+
+
+### The three measurements that price 50%, and the second is the surprising one
+
+1. **The column's arithmetic.** `diaggap.rs`'s single-code column — the only
+   forecastable one — sums to **3,217 cases**. 50% of the suite is 2,744
+   passing. Reaching it means converting essentially every single-code row, and
+   the head is TS2322 511 + TS2339 131 + TS2345 114 + TS2741 41, all behind the
+   relation and the members table.
+
+2. **A row's population is a ceiling for the *code*, not for a *rule*, and the
+   gap is wider than this project had assumed.** The session built the members
+   subsystem the ninth session's handoff named as the prerequisite
+   (`crate::member_completeness`) and then ran three rules on it. TS2339's row
+   was 143 cases and the rule converted **12**; TS2741's was 40 and it converted
+   **1**; TS2353's was 37 and it converted **6**. The `STILL SHORT` column says
+   why — 22, 15 and 2 cases respectively gain a *correct* diagnostic of that code
+   and still fail, because a case that gets object types wrong usually does so
+   several times and in several ways. **The single-code column measures which
+   code a case is blocked on, not how many of that code it needs.**
+
+3. **Two more rows are behind a function that does not exist.** TS2403 was built
+   and refused at six losses because `isTypeIdenticalTo` is unported and
+   `TypeId` equality is not a stand-in for it (§24). TS2320, TS2717 and TS2394
+   sit on the same predicate — ~70 cases behind one relation *mode*.
+
+So the honest forecast is not "50% with more rules". It is: the relation and the
+members table together are worth on the order of 800–1,000 cases, which lands the
+suite near **30%**, and the remainder is a long tail of rows worth 10–30 cases
+each. That is a multi-session number and it is now a costed one.
 
 **What the session establishes for the next one, in one number.** The first
 TS2322 build was gated on nothing but the error type and measured **947 right
@@ -695,6 +729,33 @@ its whole deliverable and accept that it converts nothing until finished.
 ## 5. Refused, with the number that refused it
 
 ### New this session, `diagnostics`
+
+- **TS2741 — REFUSED at 1 conversion for 8 wrong lines** (`checker-notes-diag2.md`
+  §22), 0.125 per wrong against a band of 0.47–1.03. **Not a machinery failure**:
+  41 right lines and 15 cases that gain a correct TS2741 and still fail. The
+  switch is a named constant rather than a deletion. Four residual owners: the
+  binder's numeric-name normalisation, private-identifier keys, an inherited
+  modifier, and narrowing.
+- **TS2403 — REFUSED at 6 losses** (§24). `isTypeIdenticalTo` is unported and
+  **`TypeId` equality is not a stand-in for it**: two `{}` type literals mint two
+  anonymous types, so a variable redeclared with the *same* annotation read as a
+  different type on six cases that pass. ~70 cases (TS2403 30, TS2320 14, TS2717,
+  TS2394 13) sit behind that one relation mode.
+- **`SymbolFlags::OPTIONAL` is declared in `tsr-binder` and set by nothing** —
+  the third writerless flag this project has stepped on, after
+  `NodeFlags::AMBIENT` (eighth session) and `NodeFlags::JAVASCRIPT_FILE` (ninth).
+  Optionality is read off the declaration's `?` in `crate::member_completeness`;
+  the flag itself needs the binder.
+
+### Retired this session, with the number that retired it
+
+- **TS2339's refusal (§9, "2 conversions for 254 wrong lines") is RETIRED.**
+  §9 named its own condition — *"a members table that knows whether it is
+  complete"* — and `crate::member_completeness` is it, by asking the **walk**
+  rather than the type. **12 conversions for 11 wrong lines**, 1.09 per wrong
+  against §9's 0.008. The load-bearing half turned out to be already written:
+  `members::base_symbols_of`'s contract, *"any base that cannot be followed makes
+  the whole lookup a miss"*, had been documented for two sessions.
 
 - **TS2322 on anything but a primitive-shaped pair — REFUSED at 988 wrong lines
   against 947 right** (`checker-notes-diag2.md` §16, build 0). Gated on nothing

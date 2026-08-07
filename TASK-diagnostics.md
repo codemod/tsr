@@ -13,20 +13,27 @@ FIRST: git pull. Then read, in this order:
   there is a build or a refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    893/5,488 = 16.27%   (was 717 = 13.06%; running total 80 → 893)
+  diagnostics    910/5,488 = 16.58%   (was 717 = 13.06%; running total 80 → 910)
   checker_types  3,043/9,538 · 74.46% gradient — the other workstream's
 
 WHAT THE SESSION WAS ASKED FOR, AND WHAT IT MEASURED
   The instruction was "do not stop until 50%". **50% is not reachable by adding
   rules, and this is now a measured statement rather than an opinion.**
-  `diaggap.rs`'s single-code column — the only forecastable one — sums to 3,217
-  cases. 50% of the suite is 2,744 passing. So reaching it means converting
-  essentially every single-code row *plus* a share of the multi-code tail, and
-  the column's head is TS2322 510 + TS2339 143 + the
-  TS2345/2741/2353/2411/2430/2416/2420 family ≈370 — **all of them behind one
-  subsystem**: a resolved members table and a structural relation. A session that
-  does not build that subsystem is working the long tail, and the long tail is
-  what this one spent itself on (+176 across seven builds, 0 lost).
+  Measured three ways, not asserted once. (1) `diaggap.rs`'s single-code column
+  sums to 3,217 cases and 50% of the suite is 2,744 passing, so it means
+  converting essentially every row. (2) **The session then built the members
+  subsystem the ninth handoff named as the prerequisite** — `member_completeness`
+  — and ran three rules on it: TS2339's 143-case row converted **12**, TS2741's
+  40-case row **1**, TS2353's 37-case row **6**. The `STILL SHORT` column says
+  why: 22, 15 and 2 cases gain a *correct* diagnostic of that code and still
+  fail. **The single-code column measures which code a case is blocked on, not
+  how many of that code it needs** — this project had been reading it as the
+  latter. (3) TS2403 and ~70 cases with it are behind `isTypeIdenticalTo`, a
+  relation mode that does not exist (§24).
+
+  The costed forecast: the relation and the members table together are worth on
+  the order of 800–1,000 cases, landing the suite near **30%**; the rest is a
+  long tail of rows worth 10–30 cases each. That is a multi-session number.
 
 THE NUMBER THE NEXT SESSION SHOULD START FROM
   The first TS2322 build was gated on nothing but the error type and measured
@@ -47,27 +54,31 @@ THE INSTRUMENTS — use them, do not rebuild them
                          reported_for`, so probe and build cannot diverge.
 
 RANKED NEXT ITEMS, with what each is actually blocked on
-  1. TS2741 / TS2739 / TS2740 — 40 cases, and the *right* next slice. When the
-     relation fails because the source is **missing properties**, upstream
-     reports one of these instead of TS2322 (`assignmentCompat1`). It needs one
-     thing this port has no API for: **enumerate a type's properties**.
-     `members.rs` exposes `get_property_of_type` and nothing that lists them.
-     Building that list is the first step into the members subsystem, and it is
-     the step that also retires the 988-wrong refusal above.
-  2. TS2322's remaining anchors — object-literal property assignments, JSX
+  1. **`isTypeIdenticalTo` — the relation in identity mode.** `crate::relater`
+     has assignability and subtype and no identity. It is a relater build rather
+     than a diagnostics one and it is the best-priced item on this page: TS2403
+     30 cases, TS2320 14, TS2717 and TS2394 13 each — **~70 cases behind one
+     function**, and §24 is the measurement that says interning cannot stand in
+     for it.
+  2. **TS2741's four residual owners** (§22). The machinery is built and switched
+     off behind `REPORT_MISSING_REQUIRED_PROPERTY`; the blockers are the binder's
+     numeric-name normalisation, private-identifier table keys, an unread
+     inherited modifier, and narrowing. Turning the constant back on is the whole
+     of the code change.
+  3. TS2322's remaining anchors — object-literal property assignments, JSX
      attributes, `as`/`satisfies`. Each is worth its own measurement against the
      existing gate in `assignreport.rs`, which is proven at 0 lost.
-  3. TS2304 residual 81 and TS2454 residual 62 — the two largest non-relation
+  4. TS2304 residual 86 and TS2454 residual 62 — the two largest non-relation
      rows. Diffuse; the ninth session's notes name TS2583 lib suggestions and
      class/namespace scope divergences in `resolve_name` as the owners.
-  4. The strict-mode binder family — TS1212 (22 cases) and TS1100 (11).
+  5. The strict-mode binder family — TS1212 (22 cases) and TS1100 (11).
      `checkStrictModeIdentifier` / `checkStrictModeEvalOrArguments` are
      **unported in `tsr-binder`** and the crate's own module header says so.
      Needs compiler options plumbed into `tsr_binder::bind`, which nothing does
      today.
-  5. TS7031 / TS7005 / TS7008 / TS7010 — the rest of the `noImplicitAny` family.
+  6. TS7031 / TS7005 / TS7008 / TS7010 — the rest of the `noImplicitAny` family.
      Same option gate as `implicit_any.rs`, so the same bounded blast radius.
-  6. The extras column: 36 cases blocked by an unexpected diagnostic **alone**
+  7. The extras column: 36 cases blocked by an unexpected diagnostic **alone**
      and 586 by both. Removing a false positive can only help, and it is the one
      kind of work that cannot produce a new wrong line.
 
@@ -97,6 +108,15 @@ TRAPS PAID FOR THIS SESSION, do not repay
     28 wrong lines in one measurement, 15 of them on one line of source.
   - **TS2322's message arguments are not compared.** The suite compares
     `(file, line, column, code)`. Nothing in that family needs type printing.
+  - **Interning is not an identity relation** (§24). Two `{}` type literals are
+    two anonymous types; `TypeId` equality models `isTypeIdenticalTo` for
+    primitives, literals and named references and for nothing structural.
+  - **`SymbolFlags::OPTIONAL` is declared and set by nothing** — the third
+    writerless flag, after `NodeFlags::AMBIENT` and `NodeFlags::JAVASCRIPT_FILE`.
+    Read optionality off the declaration's `?`.
+  - **A rule's yield is not its row.** TS2339 converted 12 of 143, TS2741 1 of
+    40, TS2353 6 of 37. Check `STILL SHORT` before pricing anything from
+    `diaggap.rs`.
 
 THE LOOP THAT WORKED SEVEN TIMES
   diaggap.rs for the size -> isolate the codes in diag2307.rs's RULE_CODES ->
