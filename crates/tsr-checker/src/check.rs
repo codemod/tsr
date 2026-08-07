@@ -582,14 +582,22 @@ impl Checker<'_, '_> {
             // `IsIdentifier || IsPrivateIdentifier || IsComputedPropertyName`
             // (`checker.go:4944`). A string- or number-named property is
             // skipped by upstream too.
-            let name = match property.name {
-                tsr_ast::PropertyName::Identifier(identifier) => identifier.text,
-                _ => continue,
-            };
+            // The three accepted kinds, not one: a string- or number-named
+            // property is what the `None` arm is for. §43 records the two that
+            // were being swept up with it.
+            let Some(name) = declaration_name_to_string(property.name) else { continue };
             let Some(id) = property.node_id else { continue };
             let Some(symbol) = self.binder.symbol_of(id) else { continue };
             let declared = self.get_type_of_symbol(symbol);
-            if declared == self.intrinsics.error
+            // `t.flags&TypeFlagsAnyOrUnknown` (`checker.go:4946`) — and
+            // `errorType` carries `TypeFlagsAny` upstream, so the error arm is
+            // that disjunct rather than an extra one. `Checker::is_error` and
+            // not `== intrinsics.error`: an unresolved type REFERENCE mints a
+            // `Named` carrying the written text and answers `is_error`
+            // (`Checker::unresolved_types`), and `class C { [e]: Type }` with
+            // neither name declared is exactly that shape — §43's first wrong
+            // line.
+            if self.is_error(declared)
                 || declared == self.intrinsics.any
                 || declared == self.intrinsics.unknown
                 || self.contains_undefined_type(declared)
@@ -604,7 +612,7 @@ impl Checker<'_, '_> {
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_HAS_NO_INITIALIZER_AND_IS_NOT_DEFINITELY_ASSIGNED_IN_THE_CONSTRUCTOR,
                     span,
-                    [name.to_string()],
+                    [name],
                 ),
             );
         }
@@ -2497,4 +2505,56 @@ fn levenshtein_with_max(s1: &[char], s2: &[char], max_value: f64) -> Option<f64>
     }
     let result = previous[s2.len()];
     (result <= max_value).then_some(result)
+}
+
+/// The written form of a name, a dotted name or a literal — the shapes a
+/// computed property name is spelled with in practice.
+///
+/// A free function because it reads only the tree it is handed: the checker's
+/// state has no part in spelling a name back out. See
+/// [`declaration_name_to_string`].
+fn entity_text_of(expression: tsr_ast::Expression<'_>) -> Option<String> {
+    match expression {
+        tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
+        tsr_ast::Expression::StringLiteral(literal) => Some(format!("\"{}\"", literal.text)),
+        tsr_ast::Expression::NumericLiteral(literal) => Some(literal.text.to_string()),
+        tsr_ast::Expression::PropertyAccessExpression(access) => {
+            let target = entity_text_of(access.expression?)?;
+            let member = match access.name? {
+                tsr_ast::MemberName::Identifier(identifier) => identifier.text,
+                tsr_ast::MemberName::PrivateIdentifier(private) => private.text,
+            };
+            Some(format!("{target}.{member}"))
+        }
+        _ => None,
+    }
+}
+
+/// `scanner.DeclarationNameToString` (`internal/scanner/utilities.go`),
+/// restricted to the three name kinds `checkPropertyInitialization`
+/// accepts — `None` **is** the gate for the other kinds, so the caller
+/// reads it as `IsIdentifier || IsPrivateIdentifier ||
+/// IsComputedPropertyName` (`checker.go:4944`).
+///
+/// Upstream reads the node's **source text**. This checker holds spans and
+/// no file text (ADR-0034 puts one `NodeTable` across a program and the
+/// text stays with the `SourceFile`), so a computed name is reconstructed
+/// from the tree. That is safe here and only here: the `diagnostics` suite
+/// compares `(file, line, column, code)` and never the arguments. A shape
+/// the reconstruction does not cover prints `(Missing)`, which is
+/// upstream's own answer for a name node with an empty span.
+///
+/// A free function: spelling a name back out reads only the tree.
+/// See `docs/architecture/checker-notes-diag2.md` §43.
+fn declaration_name_to_string(name: tsr_ast::PropertyName<'_>) -> Option<String> {
+    match name {
+        tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text.to_string()),
+        // The parser keeps the `#` in the text, as upstream's scanner does.
+        tsr_ast::PropertyName::PrivateIdentifier(private) => Some(private.text.to_string()),
+        tsr_ast::PropertyName::ComputedPropertyName(computed) => Some(format!(
+            "[{}]",
+            computed.expression.and_then(entity_text_of).unwrap_or_else(|| "(Missing)".to_string())
+        )),
+        _ => None,
+    }
 }

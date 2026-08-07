@@ -2940,3 +2940,125 @@ re-derive it from the same list.
 
 Together they are the missing-side twin of `extragap.rs`, and §42.1 is what they
 found in their first hour.
+
+---
+
+## 43. TS2564's name arm — the two kinds §6 quoted and did not port
+
+`diagmissing.rs` on 2564 reads **41 cases blocked on it alone, 72 lines**, and
+the case names are a family before any code is read:
+`parserComputedPropertyName28/29/31`, `symbolProperty6`, `parserSymbolProperty5`,
+`instanceMemberWithComputedPropertyName2`, `privateNameDeclaration`,
+`privateNameNestedClassNameConflict`, `uniqueSymbols`,
+`uniqueSymbolsDeclarations`, `classIndexer2`, `symbolDeclarationEmit1`.
+
+`checkPropertyInitialization` (`checker.go:4944`) gates on
+
+```go
+if ast.IsIdentifier(propName) || ast.IsPrivateIdentifier(propName) || ast.IsComputedPropertyName(propName) {
+```
+
+and `check_property_initialization`'s comment **quotes that line** and then
+matches `PropertyName::Identifier` alone:
+
+```rust
+// `IsIdentifier || IsPrivateIdentifier || IsComputedPropertyName`
+// (`checker.go:4944`). A string- or number-named property is
+// skipped by upstream too.
+let name = match property.name {
+    tsr_ast::PropertyName::Identifier(identifier) => identifier.text,
+    _ => continue,
+};
+```
+
+The comment is right and the code implements a third of it. The `_ => continue`
+was reaching for the *string/number* exclusion the comment's second sentence
+names, and swept the other two accepted kinds up with it. **Third instance this
+session of a decline that is a correct sentence about a different question**
+(§42.1, §41.3, §37.2) and the first where the correct sentence is sitting
+directly above the wrong code.
+
+### What the arm needs that the identifier arm did not
+
+Only the message argument. `scanner.DeclarationNameToString` reads the node's
+**source text**, and this checker has spans but no file text — ADR-0034 puts one
+`NodeTable` across a program and the text stays with the `SourceFile` the
+checker is not given. The argument is reconstructed from the tree instead:
+`#x` for a private identifier, and the bracketed entity name for a computed one
+where the expression is a name, a dotted name or a literal.
+
+**This is safe to approximate and would not be safe to guess at**: the
+`diagnostics` suite compares `(file, line, column, code)` and never the
+arguments (§8's trap list). The reconstruction exists so the message is not
+nonsense to a human reader, not because anything measures it. A computed name
+whose expression is none of those shapes prints `(Missing)`, which is
+upstream's own answer for a name node with an empty span.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,125**. Forecast **+6 to +15** of the 41 — the family above is ~13 cases and no rule has converted its whole row |
+| 2 | `checker_types` byte-identical — 3,659 / 9,538, 82.62% |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2564]` |
+| 4 | TS2564's own WRONG ≤ **1.5×** its baseline |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** A computed property name that upstream *late-binds* to a known
+member has a symbol whose type this port may compute differently; if the wrong
+column fills with `uniqueSymbol*` lines the arm is reporting on properties whose
+type upstream resolves and this port does not, and the answer is a decline on
+the computed kind rather than on the whole arm.
+
+### Scored — **+14**, and the error test was wrong in the same function
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | `diagnostics` passes > 1,125 | **1,139 / 5,488 = 20.75%** | pass |
+| 2 | `checker_types` byte-identical | **3,659 / 9,538, 82.62%**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | TS2564's own WRONG ≤ 1.5× baseline (6 → ≤9) | **4**, *below* the baseline | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2564: **CONVERTS 214 → 228 · RIGHT 1,208 → 1,241 ·
+WRONG 6 → 4 · LOST 0.**
+
+**The wrong column went *down* while the rule's reach went up**, which is not
+something the arm itself could do. The two accepted name kinds landed at 8 wrong
+lines, and reading the top row named a second defect in the same three lines of
+code: the type test was `declared == self.intrinsics.error`, and this port has
+**two** error types. An unresolved type *reference* mints a
+`TypeData::Named` carrying the written text and is recorded in
+`Checker::unresolved_types` — `Checker::is_error` is the predicate, identity is
+not. `class C { [e]: Type }` with neither name declared reached the rule with a
+`Named` type that is not `intrinsics.error`, and so did two cases that were
+already reporting wrongly before this build.
+
+Switching to `is_error` is also the *faithful* reading: upstream has one
+`errorType` and it carries `TypeFlagsAny`, so `checker.go:4946`'s
+`t.flags&TypeFlagsAnyOrUnknown` **is** the error test. The port had written it as
+an extra disjunct and then compared the wrong way.
+
+> **`== self.intrinsics.error` is to `is_error` what `is_type_assignable_to` was
+> to `relate_ternary`** (§25): a narrower question than the one the rule means,
+> spelled so it looks like the right one. Both cost wrong lines in the
+> over-reporting direction, and both are greppable. There are **31** other
+> `== self.intrinsics.error` tests in the checker and each is a question about
+> whether identity or `is_error` was meant.
+
+### The parse-error gate — measured on the suite and REFUSED at −1
+
+The four surviving wrong lines are all parser *recovery* shapes:
+`class C2 extends { foo: string; } { }` (twice, `classExtendsEveryObjectType`),
+`[public x: string]: string` in a class body, and `setFoo(#foo: string)`. The
+standard gate this module uses everywhere else removes all four:
+
+| | CONVERTS | WRONG | suite |
+|---|---:|---:|---:|
+| no `file_has_parse_errors` gate | 228 | 4 | **1,139** |
+| with the gate | 227 | 0 | 1,138 |
+
+**A zero wrong column is not the objective.** The four lines sit in cases that
+fail for other reasons, so removing them converts nothing, and the gate costs a
+real conversion. Same result as §40.3, which *deleted* TS2304's parse-error
+decline for +6 — the gate is worth measuring per rule and is not a house style.
