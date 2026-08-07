@@ -335,9 +335,22 @@ impl Checker<'_, '_> {
                         // `IArguments` in every function), and a JS/JSX file
                         // resolves through machinery with known port gaps —
                         // both stay honest gaps.
+                        // §33: `globalThis` mints its own type; members
+                        // resolve through the merged globals table.
+                        if node.text == "globalThis" {
+                            if let Some(existing) = self.global_this_type {
+                                return existing;
+                            }
+                            let minted = self.store.new_named(
+                                TypeFlags::OBJECT,
+                                "typeof globalThis".to_string(),
+                                None,
+                            );
+                            self.global_this_type = Some(minted);
+                            return minted;
+                        }
                         if anywhere.is_some()
                             || node.text == "arguments"
-                            || node.text == "globalThis"
                             || self.file_has_import_machinery(id)
                         {
                             self.intrinsics.error

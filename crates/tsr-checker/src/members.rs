@@ -343,6 +343,13 @@ impl Checker<'_, '_> {
         if receiver_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
+        // §33: `globalThis.x` reads the merged globals table.
+        if Some(receiver_type) == self.global_this_type {
+            return match self.binder.global(name) {
+                Some(symbol) => self.get_type_of_symbol(symbol),
+                None => error,
+            };
+        }
         // §32 (`checker-notes-narrow.md`): a receiver minted for an
         // UNRESOLVED type reference is upstream's `errorType`, and member
         // access through it answers the same — printed `any`. The §31

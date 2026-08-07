@@ -139,6 +139,8 @@ pub struct Checker<'a, 'n> {
     /// Per-file memo: does the file contain import/export machinery? The
     /// §31 gate (`checker-notes-narrow.md`).
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
+    /// The memoized `typeof globalThis` type (`checker-notes-narrow.md` §33).
+    pub(crate) global_this_type: Option<TypeId>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -534,6 +536,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_regular: FxHashMap::default(),
             alias_placeholders: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
+            global_this_type: None,
             assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),

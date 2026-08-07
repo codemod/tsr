@@ -1714,3 +1714,6 @@ through it looks the name up in the binder's merged globals table — the
 same table `resolveNameHelper`'s fallthrough already ends at. Misses gap.
 Falsifier: `Window & typeof globalThis` positions (DOM-flavored) stay
 gaps — no Window interface is modeled.
+
+**§33 score — LANDED.** **+378 (376 G→R, 2 W→R) / 24 GAP→WRONG** (JSDoc
+contextual shapes). `checker_types` right 388,155 → **388,533 (81.12%)**.

@@ -265,6 +265,13 @@ impl<'a> BindResult<'a> {
         self.fallthrough_flow.get(&clause).copied()
     }
 
+    /// A name in the merged GLOBALS table — the §33 `globalThis` member
+    /// road (`checker-notes-narrow.md`).
+    #[must_use]
+    pub fn global(&self, name: &str) -> Option<SymbolId> {
+        self.globals.get(name).copied().map(|found| self.merged_symbol(found))
+    }
+
     /// Look a name up in `container`'s own scope, without walking outward.
     #[must_use]
     pub fn lookup_local(&self, container: NodeId, name: &str) -> Option<SymbolId> {
