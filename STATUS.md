@@ -81,7 +81,21 @@ call chains through the property-access chain's own strip/mark functions;
 the twenty-third stand-in came due) = 369,540; then + 133 net (§18: the enum
 member's fresh→regular back-link — the relater was comparing interned
 lookalikes; enum equality narrowing and assignment reduction now decide) =
-369,673 exactly.
+369,673; then + 370 net (§19: an un-annotated rest
+parameter is `any[]` — one arm, +32 cases; the 6 adverse are `tsr-5o2`'s
+node-reuse row) = 370,043; then + 103 (§20: nullable initializers widen to
+`any` with `strictNullChecks` off — the fired leg taught the strict gate) =
+370,146; then + 27 net (§21: strict catch variables are `unknown`, the
+fourth per-case option) = 370,173; then + 24 net (§22 narrow: predicate
+narrowing at call conditions, `getNarrowedTypeWorker`'s exact four-rung
+ladder after three fired legs) + 0 (§23: call-signature function facts,
+measured zero, recorded per the §12.8 precedent) = 370,197 exactly —
+builds 25–41.
+
+**CORRECTED, and said so:** this chain sat at 369,673 for five builds while
+the table above moved to 77.29% — the very "figure that appears twice will
+disagree with itself" failure this section warns about, caused by
+non-asserting edit scripts (the §21 build's lesson applied to STATUS itself).
 
 **The ninth session's chain, every figure from one `verdictdump` pair per
 build:** 352,727 + 246 (empty literal non-strict) + 377 (alias rename, split
