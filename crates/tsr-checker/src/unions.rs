@@ -818,20 +818,20 @@ impl crate::checker::Checker<'_, '_> {
                     _ => return false,
                 };
                 // `readonly` left this list when the relation learned it
-                // (§14) — the strict-subtype walk now orders readonly pairs
-                // itself. `?` and privacy stay: both are still unread.
-                question.is_some()
-                    || modifiers.iter().any(|modifier| {
-                        matches!(
-                            modifier,
-                            tsr_ast::ModifierLike::Token(token)
-                                if matches!(
-                                    token.kind,
-                                    tsr_ast::SyntaxKind::PrivateKeyword
-                                        | tsr_ast::SyntaxKind::ProtectedKeyword
-                                )
-                        )
-                    })
+                // (§14), `?` when §15 taught the absent-property arm to read
+                // it. Privacy stays: still unread.
+                let _ = question;
+                modifiers.iter().any(|modifier| {
+                    matches!(
+                        modifier,
+                        tsr_ast::ModifierLike::Token(token)
+                            if matches!(
+                                token.kind,
+                                tsr_ast::SyntaxKind::PrivateKeyword
+                                    | tsr_ast::SyntaxKind::ProtectedKeyword
+                            )
+                    )
+                })
             })
         })
     }

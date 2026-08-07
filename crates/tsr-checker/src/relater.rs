@@ -854,16 +854,48 @@ impl Relater<'_, '_, '_> {
                 self.checker.get_type_of_property_of_type(target, &name),
                 self.checker.get_type_of_property_of_type(source, &name),
             ) else {
-                // Row 2 of `checker-notes-assign.md` §2. A target property with
-                // no source counterpart is a rejection *only if the target
-                // property is required*, and optionality is not read here — so
-                // `{ x } -> { x, y?: number }` must not be reported as a
-                // rejection. A target property whose own type does not compute
-                // is row 2's twin: the requirement itself is unknown.
+                // Row 2 of `checker-notes-assign.md` §2, half-answered by §15:
+                // a target property with no source counterpart is fine when
+                // the target property is OPTIONAL — under assignability
+                // always, under the subtype relations only for an
+                // object-literal source (`requireOptionalProperties`,
+                // upstream `propertiesRelatedTo`; interface-backed sources
+                // must still match optionals or subtype reduction loses its
+                // order). Optionality reads the declaration's postfix `?`,
+                // never `SymbolFlags::OPTIONAL`, which this binder does not
+                // write (the `acdeed5` trap). Everything else stays row 2's
+                // `Unknown`.
+                if self.checker.get_type_of_property_of_type(source, &name).is_none()
+                    && self
+                        .checker
+                        .get_property_of_type(target, &name)
+                        .is_some_and(|p| self.checker.property_is_optional(p))
+                    && (self.relation == Relation::Assignable
+                        || self.checker.is_object_literal_type(source))
+                {
+                    parts.push(Ternary::Related);
+                    continue;
+                }
                 reasons::note(reasons::Site::AbsentProperty);
                 parts.push(Ternary::Unknown);
                 continue;
             };
+            // A source-OPTIONAL property against a REQUIRED target member
+            // rejects in every relation but comparability
+            // (`propertyRelatedTo`, the 1.0-spec §3.8.3 clause: "if M is a
+            // required property, N is also a required property") —
+            // `{ p?: number }` is not related to `{ p: any }`, which is what
+            // keeps `Contextual | Ellement` un-reduced
+            // (`nonContextuallyTypedLogicalOr`, §15.1's two wrong lines).
+            if let (Some(source_property), Some(target_property)) = (
+                self.checker.get_property_of_type(source, &name),
+                self.checker.get_property_of_type(target, &name),
+            ) && self.checker.property_is_optional(source_property)
+                && !self.checker.property_is_optional(target_property)
+            {
+                parts.push(Ternary::NotRelated);
+                continue;
+            }
             // `readonly` orders the STRICT subtype relation and only that one
             // (`relater.go:4300`–`:4308`): a readonly source property against
             // a mutable target rejects, so `{ a } | { readonly a }` reduces to

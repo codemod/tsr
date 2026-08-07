@@ -463,17 +463,17 @@ fn a_property_that_decidably_mismatches_is_not_related() {
     );
 }
 
-/// **Row 2 of §2.** A target property the source lacks is a rejection only if
-/// that property is *required*, and optionality is not read here — so this is
-/// the canonical "answered `false` without knowing" site.
-///
-/// Reddened by: restoring the `return false` in `properties_related_to`'s
-/// absent-property arm.
+/// **Row 2 of §2 — half-retired by §15, the nineteenth stand-in to come
+/// due.** Optionality is now read off the declaration's postfix `?`: an
+/// optional target property missing from the source is `Related` under
+/// assignability, exactly as upstream's `propertiesRelatedTo` skips it.
+/// The subtype relations still require it from interface-backed sources
+/// (`requireOptionalProperties`), which keeps reduction ordered.
 #[test]
 fn an_absent_property_that_may_be_optional_is_unknown() {
     assert_eq!(
         verdict("let a: { x: string }; let b: { x: string, y?: number };"),
-        tsr_checker::relater::Ternary::Unknown
+        tsr_checker::relater::Ternary::Related
     );
 }
 

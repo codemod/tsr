@@ -786,3 +786,22 @@ With the arm in, the §9 decline drops its `?` clause.
 **Bar:** net ≥ **+10**; own ≤ **8** — falsifier: wrong lines where an
 interface-backed source was skipped past a required-optional target → the
 object-literal-source test leaks; regressed == 0; lost == 0.
+
+### §15.1 Scored — the falsifier's shape appeared, was traced to the DUAL rule, and both lines converted
+
+First measurement: +14 / 2 wrong — and the 2 (`nonContextuallyTypedLogicalOr`,
+`Contextual | Ellement` reduced where upstream keeps both) wore the
+falsifier's shape. Traced: not the object-literal-source test leaking — the
+**dual** optionality rule was missing: a source-OPTIONAL property against a
+REQUIRED target member rejects in every relation but comparability
+(`propertyRelatedTo`, the 1.0-spec §3.8.3 clause — `{ p?: number }` is not
+related to `{ p: any }`). With it:
+
+```
+GAP→RIGHT 16 · WRONG→RIGHT 2 · nothing else · 0 regressed · +2 cases (2,942 → 2,944)
+```
+
+Legs: net **+18** (≥ +10) · own **0** · regressed **0** · lost **0**. The
+nineteenth stand-in fixture came due (`relater.rs`'s row-2 pin now reads
+`Related` under assignability). Row 2 of §2 is half-retired; the §9 decline
+keeps only privacy.

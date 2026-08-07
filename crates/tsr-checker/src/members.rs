@@ -881,3 +881,35 @@ impl Checker<'_, '_> {
         })
     }
 }
+
+impl Checker<'_, '_> {
+    /// Whether a property's declaration carries the postfix `?` — the
+    /// optionality test that reads syntax, because this binder never writes
+    /// `SymbolFlags::OPTIONAL` (the `acdeed5` trap, which once collapsed
+    /// optional-property else-branches to `never` through the flag).
+    pub(crate) fn property_is_optional(&self, symbol: tsr_binder::SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            match self.node_map.get(declaration) {
+                Some(Node::PropertySignatureDeclaration(p)) => p.postfix_token.is_some(),
+                Some(Node::PropertyDeclaration(p)) => p.postfix_token.is_some(),
+                Some(Node::MethodSignatureDeclaration(m)) => m.postfix_token.is_some(),
+                Some(Node::MethodDeclaration(m)) => m.postfix_token.is_some(),
+                _ => false,
+            }
+        })
+    }
+
+    /// Whether a type is an **object-literal** type — the source shape that
+    /// relaxes `requireOptionalProperties` in the subtype relations
+    /// (`checker-notes-assign.md` §15). The test is the symbol's declaration
+    /// kind, which is how the type was built (`check_object_literal`).
+    pub(crate) fn is_object_literal_type(&self, id: crate::types::TypeId) -> bool {
+        let symbol = match &self.store.get(id).data {
+            crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
+            _ => return false,
+        };
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            self.nodes.kind(declaration) == tsr_ast::SyntaxKind::ObjectLiteralExpression
+        })
+    }
+}
