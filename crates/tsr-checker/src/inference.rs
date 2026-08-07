@@ -624,6 +624,20 @@ impl Checker<'_, '_> {
         if self.signature_types.contains_key(&id) {
             return self.instantiate_signature_type(id, map, parameters, names);
         }
+        // Arm 6 (§37, `checker-notes-narrow.md`): a tuple carries its element
+        // ids in `tuple_element_lists`, so it substitutes element-wise and
+        // re-mints through the same constructor.
+        if let Some((elements, readonly)) = self.tuple_element_lists.get(&id).cloned() {
+            let mut substituted = Vec::with_capacity(elements.len());
+            for element in elements {
+                let image = self.instantiate_type(element, map, parameters, names);
+                if image == error {
+                    return error;
+                }
+                substituted.push(image);
+            }
+            return self.create_tuple_type(substituted, readonly);
+        }
         error
     }
 

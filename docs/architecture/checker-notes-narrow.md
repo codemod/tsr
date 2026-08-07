@@ -1785,3 +1785,8 @@ what lets `<A, B = A>(a?: A, b?: B) => [A, B]` calls answer
 (`genericDefaults`' f04 family, ~380 lines in that case alone).
 Falsifier: named/modifier tuple forms whose mint refuses stay declines —
 the arm reads only what the list holds.
+
+**§37 score — LANDED.** **+236 GAP→RIGHT / 32 G→W + 1 R→W** — the adverse
+are default-shape edges inside the same two cases (`genericDefaults` deep
+forms, its Js twin) and one binding-pattern inference line.
+`checker_types` right 388,682 → **388,917 (81.20%)**.
