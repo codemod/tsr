@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,645/9,538** | **38.22%** | **gradient 82.44%** — the target (builds 25–72) |
+| **`checker_types`** | **3,656/9,538** | **38.33%** | **gradient 82.47%** — the target (builds 25–73) |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
@@ -154,8 +154,9 @@ answer, typed arrays whole) = 394,726; then + 46 (§46: generic alias
 references carry their body's members — the chain case's bulk needs
 member-signature inference, named) = 394,770; then + 66 (callres §29:
 `this`-minted call results answer the receiver — `getThisTypeArgument`'s
-rule; the derived-through-base polymorphic half recorded) = 394,836
-exactly — builds 25–72. §35 records a FINDING: tsgo prints
+rule; the derived-through-base polymorphic half recorded) = 394,836; then + 149 (§48: plain binding-
+pattern parameters render — the token-kind trap fired a second time and
+the pair caught it; +11 cases) = 394,985 exactly — builds 25–73. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
