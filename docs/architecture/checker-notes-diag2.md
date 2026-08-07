@@ -2465,3 +2465,25 @@ Three cases, and the shape is worth more than the three: a decline copied from a
 sibling rule carries the sibling's justification, not its own, and nothing in the
 code says which is which. The audit catches it; a reviewer reading either file in
 isolation would not.
+
+---
+
+## 38. Namespace-member callees — a measured zero, kept
+
+```
+diagnostics 1,062 (unchanged)     LOST 0     WRONG 0
+```
+
+§20's and §26's gate resolved a callee only as a **bare identifier**. It now also
+resolves a **property access**, through the receiver's type and only where
+[`Checker::declared_members_are_complete`] certifies that table — which §35 made
+true for a namespace or enum receiver. `N.f(…)` is therefore reachable now;
+`obj.method(…)` on a class instance still is not, because a class's table is
+certified complete only when nothing inherits.
+
+**Zero cases.** Kept for §27.1's reason — the *rule* is right and only its reach
+is short — and because the shape it removes is the one §34 named: these two
+checks were written for a call syntax and are really about a **signature
+source**, and this is the second source wired in. The third, a method on an
+instance, arrives with the class-side completeness work rather than with any
+change here.

@@ -430,7 +430,7 @@ impl<'a> Checker<'a, '_> {
 
     /// [`Checker::check_expression`] reached from a [`NodeId`] — ADR-0013's
     /// read-drop-recurse, as [`crate::index_constraint`] does for type nodes.
-    fn check_expression_at_node(&mut self, node: NodeId) -> TypeId {
+    pub(crate) fn check_expression_at_node(&mut self, node: NodeId) -> TypeId {
         let error = self.intrinsics().error;
         let Some(typed) = self.node_map.get(node) else { return error };
         let Ok(expression) = tsr_ast::Expression::try_from(typed) else { return error };

@@ -20,7 +20,7 @@
 //! row.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -236,6 +236,47 @@ impl<'a> Checker<'a, '_> {
         Some(self.get_type_from_type_node(typed))
     }
 
+    /// The symbol a callee names, for the two shapes whose signature this
+    /// module can reach.
+    ///
+    /// A bare identifier resolves through the scope. A **property access**
+    /// resolves through the receiver's type, and is admitted only where
+    /// [`Checker::declared_members_are_complete`] certifies that table — which
+    /// §35 made true for a namespace or enum receiver, so `N.f(…)` is now
+    /// reachable and `obj.method(…)` on a class still is not (its table is
+    /// complete only when nothing inherits, and a method call's receiver is
+    /// usually an instance).
+    fn callee_symbol(&mut self, callee: NodeId) -> Option<SymbolId> {
+        match self.node_map.get(callee)? {
+            Node::Identifier(identifier) => {
+                let text = identifier.text;
+                let symbol = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    callee,
+                    text,
+                    SymbolFlags::VALUE,
+                )?;
+                Some(self.binder.merged_symbol(symbol))
+            }
+            Node::PropertyAccessExpression(access) => {
+                if access.question_dot_token.is_some() {
+                    return None;
+                }
+                let receiver = access.expression?.node_id()?;
+                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+                let name = name.text;
+                let receiver_type = self.check_expression_at_node(receiver);
+                if !self.declared_members_are_complete(receiver_type) {
+                    return None;
+                }
+                let symbol = self.get_property_of_type(receiver_type, name)?;
+                Some(self.binder.merged_symbol(symbol))
+            }
+            _ => None,
+        }
+    }
+
     /// `getErrorNodeForCallNode` (`checker.go:9843`).
     fn call_error_node(&self, callee: NodeId) -> NodeId {
         match self.node_map.get(callee) {
@@ -259,16 +300,8 @@ impl<'a> Checker<'a, '_> {
     /// - **not a function or method declaration** — a class is a construct
     ///   signature, a variable holds a function *type* whose parameter list is
     ///   not on the declaration.
-    fn sole_signature_arity(&self, callee: NodeId) -> Option<(usize, Option<usize>)> {
-        let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return None };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            callee,
-            identifier.text,
-            SymbolFlags::VALUE,
-        )?;
-        let symbol = self.binder.merged_symbol(symbol);
+    fn sole_signature_arity(&mut self, callee: NodeId) -> Option<(usize, Option<usize>)> {
+        let symbol = self.callee_symbol(callee)?;
         let entry = self.binder.symbols().get(symbol);
         if !entry.flags.intersects(SymbolFlags::FUNCTION) || entry.declarations.len() != 1 {
             return None;
@@ -347,15 +380,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         callee: NodeId,
     ) -> Option<Vec<Option<tsr_ast::TypeNode<'a>>>> {
-        let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return None };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            callee,
-            identifier.text,
-            SymbolFlags::VALUE,
-        )?;
-        let symbol = self.binder.merged_symbol(symbol);
+        let symbol = self.callee_symbol(callee)?;
         let entry = self.binder.symbols().get(symbol);
         if !entry.flags.intersects(SymbolFlags::FUNCTION) || entry.declarations.len() != 1 {
             return None;
