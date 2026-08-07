@@ -428,3 +428,59 @@ container kind, and refusing for both requires knowing an accessible alias
 exists for the *symbol itself* — which is precisely the next mechanism, not a
 guard to improvise here. The 328 sit in the wrong bucket with their owners
 named, and §10.6 prices converting them.
+
+### 10.6 The container-qualifier slice — sized, and its bar
+
+The 328 named-owner lines §10.5 left in the wrong bucket, priced as a design
+in `qualnamep.rs`'s chain model (same strict gate as design P, so the columns
+are comparable). Three arms, in upstream's order inside `getSymbolChain`'s
+module-container stop:
+
+1. **the direct-alias guard** — `trySymbolTable`'s first arm
+   (`symbolaccessibility.go:535`): an in-scope alias resolving to the symbol
+   *itself* makes the bare name accessible; no qualifier may fire. Not a
+   conversion arm — it is what keeps right lines right: registered without it,
+   the ambient-import arm read **16 AT RISK** (`typeof Observable` right today
+   through `import { Observable } from "observable"`); with it, **3**, at a
+   cost of **0** conversions;
+2. **the container-alias arm** — a unique in-scope alias names the container
+   (`Checker::module_name_at`, already shipped, including its ambiguity
+   refusal): qualifier `im_private_mi_private.`;
+3. **the ambient-import arm** — no alias, ambient container: qualifier
+   `import("x").`, exact per `nodebuilderimpl.go:1260`.
+
+Measured at `f62582e`, strict gate, whole-string forecasts:
+
+```
+  alias           CONVERTS 31   WOULD-WRONG 6   AT RISK 0
+  ambient-import  CONVERTS 73   WOULD-WRONG 2   AT RISK 3
+  direct-alias guard: 13 declines, all of them would-be AT RISK, 0 conversions lost
+```
+
+The remaining 3 AT RISK are `moduleAugmentationInAmbientModule*` edges where
+upstream keeps a bare name this model cannot justify; they are accepted and
+counted in leg 4.
+
+**The bar, registered before any checker code:**
+
+- **Leg 1 — net ≥ +80.** Rule: ~75% of the 104 strict whole-string converts;
+  the discount owns probe-vs-checker model drift (the probe's alias walk is a
+  reduction of `module_name_at`, not the function itself). Composite prints
+  are upside on top, exactly as W's were.
+- **Leg 2 — mechanism-own new wrong ≤ 22**, global Δwrong beside it. Rule:
+  2× the counterfactual's 8+3.
+- **Leg 3 — cases regressed == 0.**
+- **Leg 4 — lost (RIGHT→WRONG) ≤ 6.** Rule: 2× the measured at-risk 3.
+
+Falsifiers, ordered:
+
+1. **RIGHT→WRONG far above 6** → the checker's `module_name_at` or
+   `resolve_alias` reaches differently than the probe's reductions (merged
+   symbols, scope order) — diff the two on the first failing case before
+   touching anything else.
+2. **Net far below 80** → the direct-alias guard is over-firing, because the
+   checker's `resolve_alias` follows shapes the probe's `alias_target` does
+   not — count its firings on the privacy cases, which must all convert.
+3. **New wrong concentrated in composite prints** → the mechanism reached
+   wider than the strict gate, in which case conversions should have too;
+   read both columns before reverting anything.

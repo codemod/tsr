@@ -236,14 +236,26 @@ enum Decline {
     NoContainer,
     /// The container is an external module — `getSpecifierForModuleSymbol`.
     ///
-    /// `bd tsr-xpb8`'s split: for an **ambient** module (`declare module "x"`,
-    /// `IsAmbientModuleSymbolName` = the name starts and ends with a quote,
-    /// `ast/utilities.go:1656`) the specifier is exact and free
-    /// (`nodebuilderimpl.go:1260`), so `qualifier` carries the full forecast
-    /// prefix — `import("x").N.` — accumulated on unwind. For a real **file**
-    /// module it is `None`: that half needs the whole `modulespecifiers`
-    /// package.
-    ExternalModule { qualifier: Option<String> },
+    /// `qualifier` carries the forecast prefix the **container-qualifier
+    /// design** would print, accumulated on unwind, tagged with which arm
+    /// produced it:
+    ///
+    /// - `"alias"` — a unique in-scope alias names the container
+    ///   (`getAccessibleSymbolChain`'s alias arm; the machinery is the shipped
+    ///   `Checker::module_name_at`), qualifier `m4.`;
+    /// - `"ambient-import"` — no alias, but the container is an ambient
+    ///   `declare module "x"`, whose specifier is exact and free
+    ///   (`nodebuilderimpl.go:1260`), qualifier `import("x").`.
+    ///
+    /// `None` — a file module with no unique alias: only the
+    /// `modulespecifiers` package could spell it, and the design declines.
+    ExternalModule { qualifier: Option<(&'static str, String)> },
+    /// An in-scope alias resolves to the **symbol itself** —
+    /// `trySymbolTable`'s direct arm (`symbolaccessibility.go:535`): the bare
+    /// name is accessible, so no qualifier may fire. The guard that owns the
+    /// ambient-import arm's would-be AT-RISK lines (`typeof Observable` right
+    /// today via `import { Observable } from "observable"`).
+    SymbolAliasedInScope,
     /// The container is not a namespace: a class's static side, an enum, an
     /// interface's members table. `getQualifiedLeftMeaning` asks for
     /// `SymbolFlagsNamespace` (`nodebuilderimpl.go:1111`).
@@ -257,11 +269,17 @@ impl Decline {
         match self {
             Decline::NoQualifierNeeded => "no qualifier needed (needsQualification = false)",
             Decline::NoContainer => "no container — Symbol.Parent unset (a namespace LOCAL)",
+            Decline::ExternalModule { qualifier: Some(("alias", _)) } => {
+                "container is an external module with a UNIQUE IN-SCOPE ALIAS"
+            }
             Decline::ExternalModule { qualifier: Some(_) } => {
-                "container is an AMBIENT module — specifier is the quoted name (effort 1)"
+                "container is an AMBIENT module, no alias — import(\"x\") is exact"
             }
             Decline::ExternalModule { qualifier: None } => {
-                "container is a FILE module — needs the modulespecifiers package"
+                "container is a FILE module, no unique alias — needs modulespecifiers"
+            }
+            Decline::SymbolAliasedInScope => {
+                "an in-scope alias names the symbol ITSELF — bare name accessible"
             }
             Decline::ContainerNotANamespace => "container is not a namespace",
             Decline::TooDeep => "chain cap",
@@ -269,10 +287,287 @@ impl Decline {
     }
 }
 
+/// Whether an external-module symbol is **ambient** — `declare module "x"`
+/// with no source-file declaration. Upstream tests the *quoted symbol name*
+/// (`ast/utilities.go:1656`); this binder stores the literal's text unquoted
+/// (`module_name`, `crates/tsr-binder/src/binder.rs:4091`), so the test here
+/// is the declaration's shape — a first run keyed on the quotes read a false 0.
+fn is_ambient_only<'a>(
+    binder: &tsr_binder::BindResult<'a>,
+    map: &NodeMap<'a>,
+    symbol: SymbolId,
+) -> bool {
+    let entry = binder.symbols().get(symbol);
+    let has_file = entry
+        .declarations
+        .iter()
+        .any(|&declaration| matches!(map.get(declaration), Some(Node::SourceFile(_))));
+    !has_file
+        && entry.declarations.iter().any(|&declaration| {
+            matches!(
+                map.get(declaration),
+                Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+            )
+        })
+}
+
+/// The module specifier of a namespace-shaped alias declaration.
+/// `examples/module_object.rs`'s `module_specifier`, reduced to the three
+/// namespace shapes (an example cannot import another example).
+fn namespace_alias_specifier<'a>(
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    declaration: NodeId,
+) -> Option<String> {
+    let literal = |expression: Option<tsr_ast::Expression<'_>>| match expression {
+        Some(tsr_ast::Expression::StringLiteral(string)) => Some(string.text.to_string()),
+        _ => None,
+    };
+    match map.get(declaration)? {
+        Node::ImportEqualsDeclaration(node) => match node.module_reference {
+            Some(tsr_ast::ModuleReference::ExternalModuleReference(reference)) => {
+                literal(reference.expression)
+            }
+            _ => None,
+        },
+        Node::NamespaceImport(_) => {
+            let mut current = nodes.parent(declaration);
+            while let Some(id) = current {
+                if let Some(Node::ImportDeclaration(import)) = map.get(id) {
+                    return literal(import.module_specifier);
+                }
+                current = nodes.parent(id);
+            }
+            None
+        }
+        Node::NamespaceExport(_) => {
+            let mut current = nodes.parent(declaration);
+            while let Some(id) = current {
+                if let Some(Node::ExportDeclaration(export)) = map.get(id) {
+                    return literal(export.module_specifier);
+                }
+                current = nodes.parent(id);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// The module symbol a **namespace-shaped** alias names — the target file's
+/// root symbol, or the ambient `declare module` symbol. `None` for every
+/// other alias shape or an unresolvable specifier.
+fn namespace_alias_target<'a>(
+    program: &tsr_compiler::Program<'a>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    symbol: SymbolId,
+) -> Option<SymbolId> {
+    let &declaration = binder.symbols().get(symbol).declarations.first()?;
+    let specifier = namespace_alias_specifier(nodes, map, declaration)?;
+    // File resolution, the same reduction `module_object.rs` uses.
+    let containing = program.source_files().iter().find(|file| file.contains(declaration))?;
+    let directory = containing.file_name().rsplit_once('/').map_or("", |(head, _)| head);
+    let joined = if directory.is_empty() {
+        specifier.clone()
+    } else {
+        format!("{directory}/{specifier}")
+    };
+    let extensions =
+        ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", "/index.ts", "/index.d.ts"];
+    for base in [joined.as_str(), specifier.as_str()] {
+        for extension in extensions {
+            let candidate = format!("{base}{extension}");
+            if let Some(file) =
+                program.source_files().iter().find(|file| file.file_name() == candidate)
+                && let Some(root) = file.source_file().node_id
+                && let Some(module) = binder.symbol_of(root)
+            {
+                return Some(binder.merged_symbol(module));
+            }
+        }
+    }
+    // The ambient fallback, as the checker's `ambient_module` does it.
+    let &ambient = binder.globals().get(specifier.as_str())?;
+    let ambient = binder.merged_symbol(ambient);
+    is_ambient_only(binder, map, ambient).then_some(ambient)
+}
+
+/// The symbol an alias of any shape names: a namespace-shaped alias names its
+/// module; an import/export **specifier** or default-import clause names the
+/// target module's export of that name. `None` for shapes this reduction does
+/// not follow.
+fn alias_target<'a>(
+    program: &tsr_compiler::Program<'a>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    symbol: SymbolId,
+) -> Option<SymbolId> {
+    if let Some(module) = namespace_alias_target(program, binder, nodes, map, symbol) {
+        return Some(module);
+    }
+    let &declaration = binder.symbols().get(symbol).declarations.first()?;
+    fn export_name(name: tsr_ast::ModuleExportName<'_>) -> &str {
+        match name {
+            tsr_ast::ModuleExportName::Identifier(identifier) => identifier.text,
+            tsr_ast::ModuleExportName::StringLiteral(string) => string.text,
+        }
+    }
+    let member: &str = match map.get(declaration)? {
+        Node::ImportSpecifier(node) => match node.property_name {
+            Some(property) => export_name(property),
+            None => node.name.map(|name| name.text)?,
+        },
+        Node::ImportClause(_) => "default",
+        Node::ExportSpecifier(node) => node.property_name.or(node.name).map(export_name)?,
+        _ => return None,
+    };
+    // The containing module, through the same reduction the namespace shapes
+    // use: give the specifier walk a NamespaceImport-like anchor by resolving
+    // from the declaration itself.
+    let specifier = {
+        let mut current = nodes.parent(declaration);
+        let mut found = None;
+        while let Some(id) = current {
+            match map.get(id) {
+                Some(Node::ImportDeclaration(import)) => {
+                    found = match import.module_specifier {
+                        Some(tsr_ast::Expression::StringLiteral(string)) => {
+                            Some(string.text.to_string())
+                        }
+                        _ => None,
+                    };
+                    break;
+                }
+                Some(Node::ExportDeclaration(export)) => {
+                    found = match export.module_specifier {
+                        Some(tsr_ast::Expression::StringLiteral(string)) => {
+                            Some(string.text.to_string())
+                        }
+                        _ => None,
+                    };
+                    break;
+                }
+                _ => {}
+            }
+            current = nodes.parent(id);
+        }
+        found?
+    };
+    let module = resolve_module_of(program, binder, nodes, map, declaration, &specifier)?;
+    let &target = binder.symbols().get(module).exports.get(member)?;
+    Some(binder.merged_symbol(target))
+}
+
+/// Resolve a specifier from `declaration`'s file — a program file's root
+/// symbol, or the ambient `declare module`.
+fn resolve_module_of<'a>(
+    program: &tsr_compiler::Program<'a>,
+    binder: &tsr_binder::BindResult<'a>,
+    _nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    declaration: NodeId,
+    specifier: &str,
+) -> Option<SymbolId> {
+    let containing = program.source_files().iter().find(|file| file.contains(declaration))?;
+    let directory = containing.file_name().rsplit_once('/').map_or("", |(head, _)| head);
+    let joined = if directory.is_empty() {
+        specifier.to_string()
+    } else {
+        format!("{directory}/{specifier}")
+    };
+    let extensions =
+        ["", ".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", "/index.ts", "/index.d.ts"];
+    for base in [joined.as_str(), specifier] {
+        for extension in extensions {
+            let candidate = format!("{base}{extension}");
+            if let Some(file) =
+                program.source_files().iter().find(|file| file.file_name() == candidate)
+                && let Some(root) = file.source_file().node_id
+                && let Some(module) = binder.symbol_of(root)
+            {
+                return Some(binder.merged_symbol(module));
+            }
+        }
+    }
+    let &ambient = binder.globals().get(specifier)?;
+    let ambient = binder.merged_symbol(ambient);
+    is_ambient_only(binder, map, ambient).then_some(ambient)
+}
+
+/// Whether any in-scope alias resolves to the **symbol itself** at `site`.
+fn symbol_aliased_in_scope<'a>(
+    program: &tsr_compiler::Program<'a>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    site: NodeId,
+    symbol: SymbolId,
+) -> bool {
+    let mut current = Some(site);
+    while let Some(node) = current {
+        if let Some(locals) = binder.locals(node)
+            && locals.values().any(|&candidate| {
+                binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
+                    && alias_target(program, binder, nodes, map, candidate) == Some(symbol)
+            })
+        {
+            return true;
+        }
+        current = nodes.parent(node);
+    }
+    binder.globals().values().any(|&candidate| {
+        binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
+            && alias_target(program, binder, nodes, map, candidate) == Some(symbol)
+    })
+}
+
+/// The unique in-scope alias name for `container` at `site` — the probe-side
+/// reduction of `Checker::module_name_at`. `Ok(name)`; `Err(true)` when ≥2
+/// distinct names reach it (ambiguous); `Err(false)` when none does.
+fn container_alias_at<'a>(
+    program: &tsr_compiler::Program<'a>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    site: NodeId,
+    container: SymbolId,
+) -> Result<&'a str, bool> {
+    let mut candidates: Vec<SymbolId> = Vec::new();
+    let mut current = Some(site);
+    while let Some(node) = current {
+        if let Some(locals) = binder.locals(node) {
+            candidates.extend(locals.values().copied());
+        }
+        current = nodes.parent(node);
+    }
+    candidates.extend(binder.globals().values().copied());
+    let mut found: Option<&'a str> = None;
+    for candidate in candidates {
+        if !binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
+            continue;
+        }
+        if namespace_alias_target(program, binder, nodes, map, candidate) != Some(container) {
+            continue;
+        }
+        let name = binder.symbols().get(candidate).name;
+        match found {
+            Some(existing) if existing == name => {}
+            Some(_) => return Err(true),
+            None => found = Some(name),
+        }
+    }
+    found.ok_or(false)
+}
+
 /// `getSymbolChain` (`nodebuilderimpl.go:1087`), reduced to the arms a build
 /// would write. Returns the dotted qualifier *prefix* — `Ok("M.")`, `Ok("A.B.")`
 /// — or the reason there is none.
 fn symbol_chain<'a>(
+    program: &tsr_compiler::Program<'a>,
     binder: &tsr_binder::BindResult<'a>,
     nodes: &NodeTable,
     map: &NodeMap<'a>,
@@ -294,31 +589,26 @@ fn symbol_chain<'a>(
         return Err(Decline::NoContainer);
     };
     if is_external_module(binder, map, parent) {
-        // `bd tsr-xpb8`: split the stop by which branch of
-        // `getSpecifierForModuleSymbol` it would take. Ambient — no source-file
-        // declaration, and the declaration is `declare module "x"`
-        // (`nodebuilderimpl.go:1260`, `ast/utilities.go:1656`) — is exact: the
-        // printed root is `import("x")`. Upstream tests the *quoted symbol
-        // name*; this binder stores the literal's text unquoted (`module_name`,
-        // `crates/tsr-binder/src/binder.rs:4091`), so the test here is the
-        // declaration's shape — a first run keyed on the quotes read a false 0.
-        let parent_symbol = binder.symbols().get(parent);
-        let has_file = parent_symbol
-            .declarations
-            .iter()
-            .any(|&declaration| matches!(map.get(declaration), Some(Node::SourceFile(_))));
-        let ambient = !has_file
-            && parent_symbol.declarations.iter().any(|&declaration| {
-                matches!(
-                    map.get(declaration),
-                    Some(Node::ModuleDeclaration(module))
-                        if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
-                )
-            });
-        let name = parent_symbol.name;
-        return Err(Decline::ExternalModule {
-            qualifier: ambient.then(|| format!("import(\"{name}\").")),
-        });
+        // `trySymbolTable`'s direct arm first: an in-scope alias naming the
+        // symbol ITSELF makes the bare name accessible, and no qualifier may
+        // fire — this is what keeps the moduleAugmentation right-lines right.
+        if symbol_aliased_in_scope(program, binder, nodes, map, site, symbol) {
+            return Err(Decline::SymbolAliasedInScope);
+        }
+        // The container-qualifier design's two arms, in upstream's order:
+        // `getAccessibleSymbolChain` first (an alias in scope), the
+        // `ImportTypeNode` specifier second — exact only for an ambient module.
+        let arm = match container_alias_at(program, binder, nodes, map, site, parent) {
+            Ok(alias) => Some(("alias", format!("{alias}."))),
+            // Ambiguity keeps the shipped refusal: no guess, no import-form
+            // fallback either, since upstream would have picked an alias.
+            Err(true) => None,
+            Err(false) => is_ambient_only(binder, map, parent).then(|| {
+                let name = binder.symbols().get(parent).name;
+                ("ambient-import", format!("import(\"{name}\")."))
+            }),
+        };
+        return Err(Decline::ExternalModule { qualifier: arm });
     }
     if !binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
         return Err(Decline::ContainerNotANamespace);
@@ -326,16 +616,19 @@ fn symbol_chain<'a>(
     let parent_name = binder.symbols().get(parent).name;
     // `getQualifiedLeftMeaning(meaning)` is `SymbolFlagsNamespace`
     // (`nodebuilderimpl.go:1111`).
-    match symbol_chain(binder, nodes, map, parent, site, SymbolFlags::NAMESPACE, depth + 1) {
+    match symbol_chain(program, binder, nodes, map, parent, site, SymbolFlags::NAMESPACE, depth + 1)
+    {
         Ok(prefix) => Ok(format!("{prefix}{parent_name}.")),
         // The parent itself does not need qualifying: the chain stops there,
         // which is the recursion's base case and not a decline.
         Err(Decline::NoQualifierNeeded) => Ok(format!("{parent_name}.")),
-        // An ambient-module stop above extends its forecast prefix on unwind,
-        // so the top-level caller holds `import("x").N.` for the whole chain.
-        Err(Decline::ExternalModule { qualifier: Some(prefix) }) => Err(Decline::ExternalModule {
-            qualifier: Some(format!("{prefix}{parent_name}.")),
-        }),
+        // A module-container stop above extends its forecast prefix on unwind,
+        // so the top-level caller holds e.g. `import("x").N.` or `m4.N.`.
+        Err(Decline::ExternalModule { qualifier: Some((arm, prefix)) }) => {
+            Err(Decline::ExternalModule {
+                qualifier: Some((arm, format!("{prefix}{parent_name}."))),
+            })
+        }
         Err(other) => Err(other),
     }
 }
@@ -440,12 +733,11 @@ struct Report {
     families: BTreeMap<(String, &'static str), usize>,
     declines: BTreeMap<&'static str, usize>,
 
-    // --- bd tsr-xpb8: the AMBIENT half's counterfactual, same pass ----------
-    amb_converts: usize,
-    amb_churn: usize,
-    amb_at_risk: usize,
-    amb_gap: usize,
-    amb_lines: BTreeMap<String, usize>,
+    // --- the container-qualifier design's counterfactual, same pass ---------
+    /// `(arm, outcome)` — the alias arm and the ambient-import arm, each with
+    /// CONVERTS / WOULD-WRONG / AT RISK / NO-OP / GAP.
+    arm_outcomes: BTreeMap<(&'static str, &'static str), usize>,
+    arm_lines: BTreeMap<String, usize>,
     /// The FILE half, split by what the baseline wants: `import(` — needs the
     /// `modulespecifiers` package — versus anything else, which an accessible
     /// **alias** could in principle spell without one.
@@ -502,10 +794,6 @@ impl Report {
             (&mut self.cp6_unmerged, other.cp6_unmerged),
             (&mut self.cp7_right_dotted, other.cp7_right_dotted),
             (&mut self.gap_reached, other.gap_reached),
-            (&mut self.amb_converts, other.amb_converts),
-            (&mut self.amb_churn, other.amb_churn),
-            (&mut self.amb_at_risk, other.amb_at_risk),
-            (&mut self.amb_gap, other.amb_gap),
             (&mut self.file_want_import, other.file_want_import),
             (&mut self.file_want_other, other.file_want_other),
         ] {
@@ -516,6 +804,9 @@ impl Report {
         }
         for (key, n) in &other.families {
             *self.families.entry(key.clone()).or_default() += n;
+        }
+        for (&key, n) in &other.arm_outcomes {
+            *self.arm_outcomes.entry(key).or_default() += n;
         }
         for (target, source) in [
             (&mut self.converts_lines, &other.converts_lines),
@@ -530,7 +821,7 @@ impl Report {
             (&mut self.cp4_hits, &other.cp4_hits),
             (&mut self.cp4_audit, &other.cp4_audit),
             (&mut self.cp6_unmerged_lines, &other.cp6_unmerged_lines),
-            (&mut self.amb_lines, &other.amb_lines),
+            (&mut self.arm_lines, &other.arm_lines),
             (&mut self.file_lines, &other.file_lines),
         ] {
             for (key, n) in source {
@@ -682,35 +973,34 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     }
                     let meaning = SymbolFlags::TYPE | SymbolFlags::VALUE;
                     let has_container = bound.symbols().get(symbol).parent.is_some();
-                    match symbol_chain(bound, nodes, map, symbol, id, meaning, 0) {
+                    match symbol_chain(&program, bound, nodes, map, symbol, id, meaning, 0) {
                         Err(reason) => {
                             *report.declines.entry(reason.label()).or_default() += 1;
-                            // `bd tsr-xpb8` — the ambient half, priced in the
-                            // same pass: the forecast is exact, so CONVERTS /
-                            // WOULD-WRONG / AT-RISK all come from one string.
-                            if let Decline::ExternalModule { qualifier: Some(ref qualifier) } =
-                                reason
+                            // The container-qualifier design, priced in the
+                            // same pass: the forecast is a whole string, so
+                            // CONVERTS / WOULD-WRONG / AT-RISK all come from
+                            // one comparison.
+                            if let Decline::ExternalModule {
+                                qualifier: Some((arm, ref qualifier)),
+                            } = reason
                             {
                                 let forecast = format!("{prefix}{qualifier}{name}{suffix}");
                                 let outcome = if forecast == printed {
                                     "NO-OP"
                                 } else if is_right {
-                                    report.amb_at_risk += 1;
                                     "AT RISK"
                                 } else if is_gap {
-                                    report.amb_gap += 1;
                                     "GAP"
                                 } else if forecast == wanted {
-                                    report.amb_converts += 1;
                                     "CONVERTS"
                                 } else {
-                                    report.amb_churn += 1;
                                     "WOULD-WRONG"
                                 };
+                                *report.arm_outcomes.entry((arm, outcome)).or_default() += 1;
                                 *report
-                                    .amb_lines
+                                    .arm_lines
                                     .entry(format!(
-                                        "{outcome:<11} want `{wanted}`, `{printed}` -> `{forecast}`  [{}]",
+                                        "{arm:<14} {outcome:<11} want `{wanted}`, `{printed}` -> `{forecast}`  [{}]",
                                         case.name
                                     ))
                                     .or_default() += 1;
@@ -895,6 +1185,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     continue;
                 };
                 let Ok(qualifier) = symbol_chain(
+                    &program,
                     bound,
                     nodes,
                     map,
@@ -1076,15 +1367,20 @@ fn main() {
     }
     println!("  -- total {total}");
 
-    println!("\n## bd tsr-xpb8 — the AMBIENT half's counterfactual (exact forecast)\n");
-    println!("  CONVERTS      wrong today, forecast IS the baseline's   {:>7}", report.amb_converts);
-    println!("  WOULD-WRONG   wrong today, forecast still not right     {:>7}", report.amb_churn);
-    println!("  AT RISK       RIGHT today, forecast changes the text    {:>7}", report.amb_at_risk);
-    println!("  GAP           port answers error, forecast untestable   {:>7}", report.amb_gap);
-    print_map("bd tsr-xpb8 — ambient forecast, verbatim", &report.amb_lines, 40);
+    println!("\n## The container-qualifier design — per arm, per outcome\n");
+    for ((arm, outcome), n) in &report.arm_outcomes {
+        println!("  {arm:<16} {outcome:<12} {n:>7}");
+    }
+    print_map("container-qualifier forecast, verbatim", &report.arm_lines, 60);
     println!("\n## bd tsr-xpb8 — the FILE half, by what the baseline wants\n");
-    println!("  want contains `import(`  (modulespecifiers only)        {:>7}", report.file_want_import);
-    println!("  want is anything else    (an alias might spell it)      {:>7}", report.file_want_other);
+    println!(
+        "  want contains `import(`  (modulespecifiers only)        {:>7}",
+        report.file_want_import
+    );
+    println!(
+        "  want is anything else    (an alias might spell it)      {:>7}",
+        report.file_want_other
+    );
     print_map("bd tsr-xpb8 — FILE half, verbatim", &report.file_lines, 50);
 
     print_map(
