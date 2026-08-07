@@ -645,3 +645,28 @@ The +989 stays on the table with its price list: the discriminator study,
 the loop-label handling, and the `FlowType` provenance flag. Nothing about
 the §9.1 derivation of upstream's exits is retracted — `checker.go:11182`'s
 two exits are the mechanism; the port's implementation shape is what failed.
+
+### §9.3 The discriminator study — paid, and the rule is strictness × container
+
+Profiling the reverted build's loss cases against its win cases by case
+options (`@strict`) and declaration keyword:
+
+```
+LOST (want undefined):  strict/var 13 · strict/let 4 · strict/other 3 — ALL STRICT
+WON  (want any):        nonstrict 74 · strict 53 (the strict wins are OUTER/loop-capture shapes)
+```
+
+**The rule the corpus draws:** a never-assigned auto reference answers
+`undefined` under **strict, same-container** (keep the current behaviour —
+the reverted build's losses were exactly these), and `any` under
+**non-strict** (any container) or **outer/captured** (any strictness —
+`capturedLetConstInLoop*` is strict and wants `any`). §9.1's exit-reading
+was right about the mechanism and wrong to apply it strictness-blind.
+
+Retry shape, cheaper than the §9.2 price list where it can be: the
+NON-STRICT same-container arm may fall out of the *initial type* alone
+(non-strict auto initial = `any`, no provenance needed — but the mixed-
+assignment union behaviour under that initial is unmeasured, so it needs its
+own counterfactual); the OUTER arm still needs the container test; and any
+provenance-dependent remainder keeps §9.2's FlowType-flag requirement. Loop-label
+handling unchanged as a cost.
