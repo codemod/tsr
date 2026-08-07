@@ -745,3 +745,427 @@ over:
 > cannot serve both.
 
 That correction is the property of `docs/conventions.md`, not of this page.
+
+---
+
+# 10. Design P, RE-SIZED post-W — and the bar it is registered under
+
+**2026-08-07, seventh session, measured at `d9a730b` by the new
+`crates/tsr-conformance/examples/qualnamep.rs`. No compiler code was changed;
+this is a measurement.** Reproduce:
+
+```
+cargo run --release -p tsr-conformance --example qualnamep
+```
+
+§8's *"What must not be rebuilt"* sequenced this: *"Sequence: W first, then
+re-measure P against whatever W leaves."* W landed. This is the re-measure, and
+**every number §8 and §5 carried for P is superseded** — the conversion column
+because it was cycle 20b's, the at-risk column because it was taken before W
+existed, and, it turns out, because **the at-risk column was also computed with
+the wrong predicate**. See §10.4.
+
+```
+                                  CONVERTS   CHURN   AT RISK   net    gained/lost
+P, strict — the design 20b built     2,990     450        14  +2,976        213.6
+P, loose  — a FULLY qualifying
+            node builder             3,859     846       717  +3,142          5.4
+```
+
+**The refusal is dead by two orders of magnitude.** The number that killed
+design P was **3,202 lines lost**. It is **14**.
+
+## 10.1 Why P needed a new instrument rather than a fourth column on `qualname.rs`
+
+`qualname.rs` prices the **resolution** half. Designs W and R fire on a *gap*
+line — a qualified reference this port answers `errorType` for — so their
+CONVERTS column is gap→right and their target population is a `depend.rs` gap
+bucket.
+
+**Design P cannot convert a gap line at all**, and the run confirms it: the
+strict path reached **0** gap lines, which is the construction claim measured
+rather than asserted. A line printing `error` names no symbol, so there is
+nothing to qualify. P's arithmetic is therefore completely different:
+
+| column | what it counts | who owns the cost |
+|---|---|---|
+| **CONVERTS** | wrong today, P's text **is** the baseline's | the gain |
+| **CHURN** | wrong today, P changes it, still not the baseline's | **free** — wrong before, wrong after |
+| **AT RISK** | **right today**, P changes the text | the loss, and it is `lost`, not `new wrong` |
+
+The consequence that shapes the bar: **P's gains and P's losses come out of the
+same predicate.** For W the at-risk column was a side condition that read zero by
+two independent measurements, which is why `lost == 0` was a meaningful leg
+there. Here a loss is a *trade*, not proof of a wrong rule, and §8's bar shape
+cannot be inherited. `docs/conventions.md`: *"is a loss here evidence of a bad
+trade, or evidence of a wrong rule? They deserve different bars, and the same
+number can be either depending on the mechanism."*
+
+### The model, and the two arms declined rather than approximated
+
+`symbol_chain` is `getSymbolChain` (`internal/checker/nodebuilderimpl.go:1087`)
+reduced to the arms a build would write: stop when `needsQualification`
+(`nodebuilderimpl.go:1094`) says no, otherwise go up to the container and recurse
+with `getQualifiedLeftMeaning` (`nodebuilderimpl.go:1111`).
+
+The container is `getContainersOfSymbol` (`symbolaccessibility.go:280`), whose
+first and normal answer is `getParentOfSymbol` (`checker.go:14365`) — i.e.
+`Symbol.Parent`. **This probe uses `Symbol::parent`, and `qualname.rs` used an
+AST walk to the nearest enclosing `ModuleDeclaration`.** The two differ exactly on
+a *non-exported local* of a namespace, which upstream gives no container and
+therefore never qualifies: **229 lines**, reported as their own decline bucket.
+
+Declined, each as its own bucket rather than as a silently missing conversion:
+
+```
+  44,982  no qualifier needed — needsQualification = false. NOT a shortfall
+   1,094  the container is an external module — getSpecifierForModuleSymbol
+          (nodebuilderimpl.go:1104) prints an import specifier, not a dotted
+          name. bd tsr-4jk's family, refused on naming grounds in
+          checker-notes-novaldecl.md
+     229  no container — Symbol.Parent unset (a namespace LOCAL)
+```
+
+`getWithAlternativeContainers` (`symbolaccessibility.go:117`) is also not
+modelled. It can only *add* chains, so both columns are floors in the same
+direction — but §10.3 shows it is where 64% of the churn lives, which makes it
+the named cap on P rather than a rounding error.
+
+## 10.2 The columns, with the top-1 share of every bucket
+
+```
+aligned lines:  right 344,411   gap 82,871   wrong 41,619
+```
+
+The `right` figure reconciles with `STATUS.md` §1's **344,411** exactly, which is
+the cheapest available check that this run and the published gradient are the
+same compiler.
+
+| bucket | lines | cases | top-1 case | share |
+|---|---:|---:|---|---:|
+| **CONVERTS** | **2,990** | 174 | `compiler/temporal` **1,916** | **64.1%** |
+| CHURN | 450 | 38 | `compiler/privacyImport` 108 | 24.0% |
+| **AT RISK** | **14** | 10 | `declFileWithInternalModuleNameConflictsInExtendsClause1` 2 | 14.3% |
+| loose CONVERTS | 3,859 | — | `compiler/temporal` (line) 276 | 7.2% |
+| loose AT RISK | 717 | 119 | `compiler/privacyImportParseErrors` 54 | 7.5% |
+
+**Reported first, before anything else, because it is the number that most
+constrains the bar: the CONVERTS column is 64.1% one case**, over the 50% this
+project reads a bucket against, and the same objection that cut `bd tsr-jle` from
+11,008 to 1,004 and the `BinaryExpression` arithmetic row to nothing.
+
+It is not the same *kind* of one-case bucket, and the difference is checkable.
+`compiler/temporal` sets `// @lib: …,esnext.temporal,…`, so its 1,916 lines are
+`Temporal.ZonedDateTime`, `Temporal.PlainDate` and friends — **a lib namespace,
+the sub-family §6 already measured W handling at 281 conversions and zero wrong**.
+They are genuine conversions of a real construct, not `largeControlFlowGraph`'s
+ADR-0038 ceiling artefacts. But one case is one case, and a bar that a single
+case can satisfy alone has not measured the mechanism. §10.5's fourth leg exists
+for exactly that.
+
+**Outside the top-1 case the item is 1,074 conversions against the same 14 lines
+at risk — 77:1.** That is the number to argue about.
+
+The at-risk column, in full, because at 14 lines it fits:
+
+```
+  2  typeof A    -> typeof X.A         [declFileWithInternalModuleNameConflictsInExtendsClause1]
+  2  typeof A    -> typeof X.A         [declFileWithInternalModuleNameConflictsInExtendsClause3]
+  2  typeof N    -> typeof M.N         [importAliasWithDottedName]
+  1  Point       -> clodule.Point      [importAliasIdentifiers]
+  1  Point       -> fundule.Point      [importAliasIdentifiers]
+  1  typeof B    -> typeof A.B         [interMixingModulesInterfaces4]
+  1  typeof B    -> typeof A.B         [interMixingModulesInterfaces5]
+  1  typeof Bar  -> typeof Foo3.Bar    [moduleAndInterfaceWithSameName]
+  1  typeof M    -> typeof A.M         [moduleSharesNameWithImportDeclarationInsideIt5]
+  1  typeof eM   -> typeof eaM.eM      [compiler/giant]
+  1  typeof undefined -> typeof ns.undefined  [typeNamedUndefined2]
+```
+
+12 of the 14 are `typeof` positions and 10 of those are references written
+**inside** the container they would qualify — §10.3.
+
+## 10.3 The sub-family split, and both positional refusals priced
+
+The `bd tsr-4sa` move. In the W build the INSIDE refusal was **kept** at 1.2
+conversions destroyed per wrong line removed, and the ENUM refusal was
+**declined** at 11.8:1.
+
+| sub-family | CONVERTS | AT RISK | CHURN |
+|---|---:|---:|---:|
+| interface · **lib** · outside · 1 seg · bare name | **1,988** | **0** | **0** |
+| class · user · outside · 1 seg · `typeof` | 432 | 0 | 237 |
+| interface · user · outside · 1 seg · type arguments | 137 | 0 | 34 |
+| class · user · outside · 1 seg · bare name | 112 | 0 | 142 |
+| namespace · user · outside · 1 seg · `typeof` | 102 | **2** | 11 |
+| enum · user · outside · 1 seg · `typeof` | 49 | 0 | 2 |
+| namespace · **lib** · outside · 1 seg · `typeof` | 46 | **0** | **0** |
+| namespace · user · **INSIDE** · 1 seg · `typeof` | 21 | **10** | 7 |
+| class · user · **INSIDE** · 1 seg · `typeof` | 14 | 0 | 1 |
+| interface · user · **INSIDE** · 1 seg · bare name | 0 | **2** | 0 |
+| *(11 further rows, none above 18 conversions)* | 89 | 0 | 16 |
+
+Aggregated, the three refusals that could be written:
+
+```
+  refuse INSIDE the container   costs   40 conversions,  removes 12 losses   3.3 : 1
+  refuse `typeof` positions     costs  705 conversions,  removes 12 losses  58.8 : 1
+  the lib rows alone           2,034 conversions,  0 at risk, 0 churn
+```
+
+**Both refusals are DECLINED, and the INSIDE one is declined on principle before
+its trade is read** — which is the `bd tsr-4sa` test `docs/conventions.md` states:
+*a principled positional refusal is one where upstream refuses at the same
+position.*
+
+For design **W** the INSIDE refusal was principled, and §6 proved it from
+upstream: inside `namespace M`, `I` is in scope, so `needsQualification`
+(`symbolaccessibility.go:688`) answers *no qualifier needed* and the written text
+`M.I` is over-qualified by construction. **For design P that same argument runs
+the other way.** `needsQualification` is not a rule P must be taught — it *is*
+P's stop condition, already inside the model and already firing 44,982 times.
+The 40 conversions in the INSIDE rows are the cases where the site is lexically
+inside the container's declaration and the name **still** does not resolve to
+that symbol — merged declarations, shadowing, a namespace re-opened. Upstream
+qualifies those, because `someSymbolTableInScope` found no table holding the
+symbol itself. A positional INSIDE refusal for P would refuse a shape upstream
+admits, which is precisely why §9.5 declined the enum refusal.
+
+And the trade agrees: 3.3:1 is **2.7× worse than the only positional refusal this
+board has kept**.
+
+The `typeof` refusal is declined on its number alone — 58.8:1, five times worse
+than the 11.8:1 §9.5 declined.
+
+**The lib rows are the finding.** 2,034 conversions, zero at risk, zero churn:
+`Temporal`, `Intl`. The same clean sub-family W found, arriving through the other
+half of the mechanism.
+
+### The churn head names the one arm that caps P
+
+450 churn lines cost nothing — those lines are wrong before and wrong after — but
+they are the only place P's *ceiling* is visible, and 288 of them (64%) are one
+family:
+
+```
+  10  want `typeof glo_im1_private.c1`, `typeof c1` -> `typeof glo_M1_public.c1`   [privacyImport]
+  10  want `typeof m1_im1_private.c1`,  `typeof c1` -> `typeof m1_M1_public.c1`    [privacyImport]
+  ...  108 privacyImport + 108 privacyImportParseErrors + 36 + 36 privacyGloImport*
+```
+
+**P reaches the *declaring* container; upstream reaches an *alias* container.**
+That is `getWithAlternativeContainers` (`symbolaccessibility.go:117`), declined by
+construction in §10.1. It converts nothing today and it would convert those 288
+if built — a separate, sized, named item rather than a defect in this one.
+
+## 10.4 CP6 fired, and the finding is that §5's published **36 is wrong**
+
+Seven controls, values fixed before the run.
+
+| control | expected | measured | |
+|---|---|---:|---|
+| CP1 — a type parameter is qualified (`nodebuilderimpl.go:1069`) | 0 | **0** | PASS |
+| CP2 — chain built past its stop condition (`nodebuilderimpl.go:1094`) | 0 | **0** | PASS |
+| CP3 — buckets sum to the strict gate hits | exact | **2,990 + 450 + 14 = 3,454** | PASS |
+| CP4 — conversions in §9.3's named residual cases | ≥ 13 | **21** | PASS |
+| CP5 — at-risk in `conformance/parserRealSource10` | 0 | **0** | PASS |
+| **CP6 — at-risk under `qualname.rs`'s container definition** | **≥ 36** | **23** | **FIRED** |
+| CP7 — right lines printing a dotted namespace name | > 0 | **11,654** | PASS |
+| — gap lines the strict path reached | 0 | **0** | PASS |
+
+CP6's premise was arithmetic and looked unfalsifiable: W added right lines and
+removed none (`lost == 0`, §9), so a population defined over right lines cannot
+shrink. It shrank.
+
+**Hypothesis one, the instrument, is where it went — and the specific defect is
+in `qualname.rs`, not here.** Measured rather than argued: `qualnamep.rs`
+recomputes CP6 a second time with `qualname.rs`'s own comparison, a raw symbol-id
+identity test, and reads **exactly 36**. The two instruments agree line for line.
+The 13-line difference is one clause:
+
+> `needs_qualification` here compares **merged** symbols. Upstream's
+> `needsQualification` calls `symbolFromSymbolTable := c.getMergedSymbol(res)`
+> (`symbolaccessibility.go:696`) **before** the identity test at
+> `symbolaccessibility.go:702`. `qualname.rs` omits the merge, so a name that
+> resolves to a symbol which *merges into* the one being printed is scored as
+> needing a qualifier. It does not.
+
+The 13 lines it drops are, in full, merged declarations:
+
+```
+  Point : typeof Point   [ClassAndModuleWithSameNameAndCommonRoot, …ES6]
+  Point : Point          [ModuleAndClassWithSameNameAndCommonRoot,
+                          AmbientModuleAndAmbientWithSameNameAndCommonRoot,
+                          AmbientModuleAndNonAmbientClassWithSameNameAndCommonRoot]
+  Y : typeof Y           [ClassAndModuleWithSameNameAndCommonRoot, …ES6,
+                          ModuleAndClassWithSameNameAndCommonRoot]
+  Utils : typeof Utils   [TwoInternalModulesWithTheSameNameAndSameCommonRoot, …]
+  Model / PeopleAtWork   [emitMemberAccessExpression]
+```
+
+**§5 described these lines and mis-read them.** Its text says the 36 are *"A
+class and a namespace sharing a name, or a name declared twice at different
+depths — the merged-declaration cases."* That description is correct and it is
+the description of the lines that **should not have been in the bucket**: the
+merge is what makes the bare name right.
+
+> **Correcting the record, as this project's third rule requires.** §5's
+> *"P — the symbol chain, strict bound: 36"* over-counts by 13. **The pre-W
+> strict at-risk was 23**, under the same AST-walk container. Under upstream's
+> own container (`Symbol.Parent`) the post-W figure is **14**. Neither correction
+> changes any verdict on this page — §5's 36 was quoted to show P was *no longer*
+> refused on cost, and 23 argues that harder — but the number is wrong and a
+> future session comparing against it would be comparing against a predicate
+> upstream does not have.
+
+CP4 also read low on its first run, at 12 against ≥ 13, and **the defect was
+mine**: §9.3 truncates a case name to `variableDeclaratorResolved…` and this
+probe's subject list expanded it to `…ModuleName`, which is not a corpus case.
+The case is `variableDeclaratorResolvedDuringContextualTyping` and it converts 9.
+The registered value was not restated; only the subject list was corrected, and
+the run then read 21. It is worth recording that §9.3's own block sums to
+**12** (3+2+2+2+1+2) while §9.6's prose says **13** — a one-line inconsistency
+inside the previous section, noted rather than silently reconciled.
+
+CP4 also says something §9.3's hand attribution got wrong. Of the seven cases it
+named, **three convert (declFileGenericType 8, variableDeclarator… 9,
+genericClassesInModule 4) and four convert nothing**; `typeNamedUndefined2`
+contributes an at-risk line rather than a conversion. The shape §9.3 named is
+reproduced verbatim — `want Foo.B<Foo.A>, printed B<Foo.A> -> Foo.B<Foo.A>` — so
+the mechanism is the one it saw. Its per-case split was a reading, and §9.3 has
+already been corrected once for that same reason.
+
+## 10.5 THE BAR — registered before any code
+
+The shape is chosen from how **this** mechanism fails, not from what §8 used, and
+§8's shape is explicitly not inherited:
+
+- W's failure mode was *manufacturing a specific wrong answer* on a population
+  whose at-risk column was **0 by two independent measurements**, so any loss was
+  a wrong rule and an absolute `lost == 0` was the right leg.
+- **P's at-risk column is non-zero by design.** The 14 lines are real merged
+  declarations and alias containers where upstream genuinely names something
+  else. A loss here is a **trade**, and a trade must be priced as a ratio.
+- **P is text-only.** It changes the name a type prints under, not the type. It
+  therefore has **no downstream unlock at all** — which is the single fact that
+  makes the leg §9.6 could not write, writable here.
+
+> ### Registered, before any checker code is changed
+>
+> ```
+> 1  net floor        gained − lost ≥ 800
+> 2  trade            gained / lost ≥ 20        AND  lost ≤ 45
+> 3  case regression  cases regressed ≤ 3       AND  cases gaining ≥ 60
+> 4  gap→wrong        lines entering the wrong set FROM GAP == 0
+>                     lines entering the wrong set FROM RIGHT ≤ 45
+> ```
+
+**Why each number is that number** — stated so the bar stays re-evaluable against
+the population that actually turns up, which is the clause that made §9.6's
+override an arithmetic check rather than a judgement call.
+
+**Leg 1, `gained − lost ≥ 800`.** The forecast net is 2,976, and 64.1% of it is
+one case. The floor is deliberately **not** a fraction of the whole forecast:
+it is `0.75 × (forecast converts − top-1 case) = 0.75 × 1,074 = 806`, rounded to
+800. The rule is *"the mechanism must clear its bar on the corpus minus its
+largest case, with a quarter held back for modelling error"*. If the realised
+top-1 share differs, re-evaluate the floor with the same expression.
+
+Unlike W's, **this forecast is a point estimate and not a floor.** §8's
+`gained ≥ 900` was set at 53% of 1,702 because 1,302 lines had been excluded as
+unscorable and might convert — and they did, at 211%. Here the strict gate *is*
+the design; there is no unscored bucket; and the loose column is a **different
+design** rather than a hidden reserve. Do not expect a 211% again, and do not
+excuse a shortfall by pointing at the loose column.
+
+**Leg 2, `gained / lost ≥ 20` AND `lost ≤ 45`.** The forecast ratio is 213:1. The
+board's *best kept* trade among positional refusals is 1.2:1 and its worst
+refusal is 0.37 gained per wrong; 20 is an order of magnitude above anything ever
+kept here and an order of magnitude below the forecast, so it detects a
+mechanism that is an order of magnitude wronger than modelled without punishing
+ordinary drift. The absolute companion exists because a ratio alone passes a
+build that loses 140 while gaining 2,900. **45 is 3 × the forecast 14**, and the
+3 is not free: it is sized as `(the AST-walk figure 23 ÷ the Symbol.Parent figure
+14) = 1.6`, doubled, to cover the unmodelled `getWithAlternativeContainers` arm —
+which §10.3 measures at 288 churn lines and which can only *add* chains. If it is
+built as part of this arm, re-derive the leg; do not carry 45 across.
+
+**Leg 3, `cases regressed ≤ 3` AND `cases gaining ≥ 60`.** Not `== 0`, and the
+reason is exactly the reason §8 could write `== 0`: there, 0 cases were at risk.
+Here 10 are, at 1–2 lines each, so `== 0` would be a leg the build cannot meet
+while being correct — the failure §9.6 spent a section on. 3 is chosen because a
+regression in more than 3 of the 10 measured cases means the arm is firing
+outside the population this probe found.
+
+`cases gaining ≥ 60` is the leg that exists **because CONVERTS is 64% one case**,
+and it is the only leg `compiler/temporal` cannot satisfy alone. 174 converting
+cases are forecast; 60 is 34% of them, below the midpoint of the observed 15–57%
+band. **A build that clears legs 1, 2 and 4 and fails this one has converted one
+case and must be reported as having done so.**
+
+**Leg 4, the gap→wrong leg, and this is the one `docs/conventions.md` just
+bought.** The rule that entry states is *"write the absolute against the
+mechanism's own new wrong, and report the downstream bucket beside it as its own
+number"*. For design P those two numbers are separable **exactly**, and one of
+them is pinned at zero by construction rather than by estimate:
+
+- **Downstream (gap→wrong) is expected to be `0`.** P is a renaming. It cannot
+  make a gap line computable, and the probe measures that claim rather than
+  asserting it: the strict path reached **0** gap lines. A non-zero reading is
+  not a bad trade and not a tuning question — it is the finding that **the build
+  changed resolution as well as printing**, i.e. that it is not the mechanism
+  registered here. That is the diagnosis a `wrongdelta` total could not deliver
+  for W, and the reason 84 could not be told from 37.
+- **The mechanism's own new wrong is `right → wrong`, and it is the same 14
+  lines leg 2 already bounds**, so the leg carries the same 45 rather than a
+  second, differently-derived number.
+
+Verify both with `wrongdelta.rs` diffed line by line at both ends, as §9 did:
+partition the lines that *enter* the wrong set by whether they were `error` or
+right beforehand. **`Δwrong` should be strongly negative — about −2,976** —
+which is a sharper signal than any absolute, and is available here only because
+P converts out of the wrong bucket rather than out of the gap bucket.
+
+### How you would know this bar is wrong
+
+- **`compiler/temporal` fails to convert for a lib-loading reason and takes 64%
+  of the forecast with it.** Leg 1 is sized to survive that and leg 3 is sized to
+  detect the inverse. If both fire together, the item is a one-case item and
+  should be re-scored, not re-tuned.
+- **The 450 churn lines land on the alias container and become losses instead.**
+  They are wrong today so they cannot lose, but they say P picks a container
+  upstream does not. If a build models `getWithAlternativeContainers`, every
+  number on this page is a different mechanism's.
+- **The strict gate is doing more work than the design.** §5 records that
+  removing it makes the bound read 5,543 instead of 36. The gate is in the
+  instrument because the gate is the design; a build that qualifies names inside
+  composite renderings is measuring the **loose** column — 3,859 converts against
+  **717 lost, 5.4:1** — and that design is *not* registered here and is not
+  covered by any leg above.
+- **`Symbol.Parent` is not `getContainersOfSymbol`.** 229 lines were declined for
+  having no container. Upstream's fallback loop (`symbolaccessibility.go:288`
+  onward) recovers containers for external-module children, which is the arm this
+  probe declines wholesale at 1,094 lines. Both are floors in the same direction,
+  so the CONVERTS column is a floor — but the AT-RISK column is a floor too, and
+  that is the direction that flatters the design.
+
+## 10.6 The verdict
+
+**Design P is WORTH BUILDING post-W, and it is the top of the board.** Net
+forecast **+2,976** against a measured **14** lines at risk in 10 cases — a
+mechanism refused for four cycles on a 3,202-line loss that no longer exists,
+whose named cause was fixed at `3b7fa44` and whose at-risk column has now been
+measured at 14 with CP5 reading 0 in the very case that supplied 481 of the
+original 3,202.
+
+Recorded against it, because the honest report is not the flattering one:
+
+1. **64.1% of the conversions are `compiler/temporal`.** Outside it the item is
+   1,074 lines — still the third-largest thing on §4.2, still 77:1, but a
+   different-sized item from 2,990. **Do not quote 2,990 without the 64.1%.**
+2. **The forecast is a point estimate, not a floor.** W's 211% will not repeat.
+3. **`qualname.rs`'s published 36 is wrong and is corrected here to 23** — §10.4.
+   Anyone re-deriving P's at-risk column must use the merged comparison.
+4. **No positional refusal is recommended**, and the INSIDE one is declined on
+   principle rather than on trade — the mirror image of §6, and for the same
+   upstream reason read the other way round.

@@ -204,6 +204,169 @@ const FLAG_DECIDABLE: TypeFlags = TypeFlags::ANY
     .union(TypeFlags::NEVER)
     .union(TypeFlags::NON_PRIMITIVE);
 
+/// **Measurement only** — which of the sites in
+/// `docs/architecture/checker-notes-assign.md` §2 produced an
+/// [`Ternary::Unknown`].
+///
+/// `calls.rs`'s `undecidable_pair` counter says *that* a pair was refused; it
+/// cannot say *which* of the six sites refused it, and that split is what
+/// decides which one is worth porting next. This module is the split. It is
+/// modelled on [`crate::calls::counters`]: off unless [`reasons::enable`] has
+/// been called, relaxed atomics when on, and **no arm classifies differently**
+/// with it enabled.
+///
+/// # Attributing a mask to a caller
+///
+/// One top-level [`Checker::relate_ternary`] walk can fire several sites — the
+/// Kleene combinators collect parts — so a walk's reason is a **set**, recorded
+/// as a bitmask. [`reasons::last_unknown`] holds the mask of the most recent
+/// top-level walk that *returned* `Unknown`; a caller that refuses a pair (as
+/// `choose_overload` does, returning immediately) reads it straight after.
+///
+/// Re-entrancy is handled by saving and restoring the in-flight mask around the
+/// walk, so a nested `relate_ternary` reached through
+/// `get_type_of_property_of_type` cannot erase its caller's accumulated set.
+pub mod reasons {
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+
+    /// A site that answers [`super::Ternary::Unknown`], numbered by the row of
+    /// `checker-notes-assign.md` §2 it implements where there is one.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum Site {
+        /// Row 1 — `property_names_of` answered `None`: a base type this port
+        /// cannot follow, so the target's inherited requirements are unknown.
+        UnfollowableBase = 0,
+        /// Row 2 — a target property with no source counterpart (which may be
+        /// optional upstream), or whose own type does not compute.
+        AbsentProperty = 1,
+        /// Row 3 — an object type that never reached the structural arm because
+        /// it has no members table: a function type, an index-signature-only
+        /// type, `typeof C`.
+        NoMembersTable = 2,
+        /// Row 4 — [`super::MAX_DEPTH`].
+        DepthCap = 3,
+        /// Row 5 — a member type that is still a type parameter (`bd tsr-4qx`).
+        GenericMember = 4,
+        /// Row 6 — either side carries call, construct or index signatures.
+        SignatureBearing = 5,
+        /// **Not one of the six.** A side carries a flag with no simple arm —
+        /// an enum, a `unique symbol`, a type parameter, a conditional. The
+        /// flag histogram says which; see [`flag_histogram`].
+        UnportedFlag = 6,
+        /// **Not one of the six.** A type whose flags say union or intersection
+        /// while its data says otherwise; nothing was compared.
+        CompositeShape = 7,
+    }
+
+    /// How many sites there are.
+    pub const SITES: usize = 8;
+
+    static ON: AtomicBool = AtomicBool::new(false);
+    #[allow(clippy::declare_interior_mutable_const)]
+    const ZERO: AtomicU64 = AtomicU64::new(0);
+    static TOTALS: [AtomicU64; SITES] = [ZERO; SITES];
+    static FLAGS: [AtomicU64; 32] = [ZERO; 32];
+    static CURRENT: AtomicU32 = AtomicU32::new(0);
+    static LAST_UNKNOWN: AtomicU32 = AtomicU32::new(0);
+    static UNKNOWN_WALKS: AtomicU64 = AtomicU64::new(0);
+
+    /// Turn counting on for this process.
+    pub fn enable() {
+        ON.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether counting is on.
+    #[must_use]
+    pub fn enabled() -> bool {
+        ON.load(Ordering::Relaxed)
+    }
+
+    /// Record that `site` fired in the walk in flight.
+    pub(crate) fn note(site: Site) {
+        if !enabled() {
+            return;
+        }
+        TOTALS[site as usize].fetch_add(1, Ordering::Relaxed);
+        CURRENT.fetch_or(1 << (site as u32), Ordering::Relaxed);
+    }
+
+    /// Record the raw [`super::TypeFlags`] bits of a side that
+    /// [`Site::UnportedFlag`] refused.
+    pub(crate) fn note_flags(bits: u32) {
+        if !enabled() {
+            return;
+        }
+        for (bit, slot) in FLAGS.iter().enumerate() {
+            if bits & (1 << bit) != 0 {
+                slot.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Start a top-level walk, returning the mask to restore.
+    pub(crate) fn begin() -> u32 {
+        if !enabled() {
+            return 0;
+        }
+        CURRENT.swap(0, Ordering::Relaxed)
+    }
+
+    /// End a top-level walk that answered `unknown`, restoring `outer`.
+    pub(crate) fn finish(outer: u32, unknown: bool) {
+        if !enabled() {
+            return;
+        }
+        let mine = CURRENT.swap(outer | CURRENT.load(Ordering::Relaxed), Ordering::Relaxed);
+        if unknown {
+            LAST_UNKNOWN.store(mine, Ordering::Relaxed);
+            UNKNOWN_WALKS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// The mask of the last top-level walk that returned `Unknown`.
+    #[must_use]
+    pub fn last_unknown() -> u32 {
+        LAST_UNKNOWN.load(Ordering::Relaxed)
+    }
+
+    /// How many top-level walks have returned `Unknown` — a control: a caller
+    /// attributing [`last_unknown`] to itself wants to know that exactly one
+    /// walk went `Unknown` while it ran.
+    #[must_use]
+    pub fn unknown_walks() -> u64 {
+        UNKNOWN_WALKS.load(Ordering::Relaxed)
+    }
+
+    /// Every site's firing count, in [`Site`] order.
+    #[must_use]
+    pub fn totals() -> [u64; SITES] {
+        std::array::from_fn(|index| TOTALS[index].load(Ordering::Relaxed))
+    }
+
+    /// How often each `TypeFlags` bit appeared on a side refused by
+    /// [`Site::UnportedFlag`].
+    #[must_use]
+    pub fn flag_histogram() -> [u64; 32] {
+        std::array::from_fn(|index| FLAGS[index].load(Ordering::Relaxed))
+    }
+
+    /// The labels for [`totals`], in the same order.
+    #[must_use]
+    pub fn labels() -> [&'static str; SITES] {
+        [
+            "row 1  unfollowable base",
+            "row 2  absent / uncomputed property",
+            "row 3  no members table",
+            "row 4  depth cap",
+            "row 5  generic member type",
+            "row 6  signature-bearing",
+            "  --   unported flag (not one of the six)",
+            "  --   composite shape mismatch (not one of the six)",
+        ]
+    }
+}
+
 /// The relation being checked.
 ///
 /// Upstream's `*Relation` (`internal/checker/relater.go`), which is both the
@@ -328,7 +491,11 @@ impl Checker<'_, '_> {
     ) -> Ternary {
         let mut relater =
             Relater { checker: self, relation, results: FxHashMap::default(), depth: 0 };
-        relater.is_related_to(source, target)
+        // Measurement only; a no-op unless `reasons::enable` was called.
+        let outer = reasons::begin();
+        let answer = relater.is_related_to(source, target);
+        reasons::finish(outer, answer == Ternary::Unknown);
+        answer
     }
 }
 
@@ -374,6 +541,21 @@ impl Relater<'_, '_, '_> {
         if self.flag_decidable(source) && self.flag_decidable(target) {
             Ternary::NotRelated
         } else {
+            // Measurement only: say which of the two shapes above it was, per
+            // undecidable side. An object type here is one with no members
+            // table (row 3); anything else carries a flag with no simple arm.
+            for side in [source, target] {
+                if self.flag_decidable(side) {
+                    continue;
+                }
+                let flags = self.checker.type_of(side).flags;
+                if flags.intersects(TypeFlags::OBJECT) {
+                    reasons::note(reasons::Site::NoMembersTable);
+                } else {
+                    reasons::note(reasons::Site::UnportedFlag);
+                    reasons::note_flags(flags.bits());
+                }
+            }
             Ternary::Unknown
         }
     }
@@ -540,6 +722,7 @@ impl Relater<'_, '_, '_> {
             // up at a depth cap is the plainest case of "not computed" on this
             // page, and reporting it as a rejection is what row 4 of
             // `checker-notes-assign.md` §2 objects to.
+            reasons::note(reasons::Site::DepthCap);
             return Ternary::Unknown;
         }
         // Park the pair as *assumed related* before recursing. This is what
@@ -605,6 +788,7 @@ impl Relater<'_, '_, '_> {
             // would produce a confident answer from a comparison that ignored
             // the members that distinguish the two types.
             if self.signature_bearing(source) || self.signature_bearing(target) {
+                reasons::note(reasons::Site::SignatureBearing);
                 return Ternary::Unknown;
             }
             return self.properties_related_to(source, target);
@@ -612,6 +796,7 @@ impl Relater<'_, '_, '_> {
         // Reached only by a type whose *flags* say union or intersection while
         // its data says otherwise, which `is_related_to`'s gate lets through.
         // Nothing was compared, so nothing was decided.
+        reasons::note(reasons::Site::CompositeShape);
         Ternary::Unknown
     }
 
@@ -646,6 +831,7 @@ impl Relater<'_, '_, '_> {
             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
             // requirements could not be *enumerated*, so no verdict about them
             // is available in either direction.
+            reasons::note(reasons::Site::UnfollowableBase);
             return Ternary::Unknown;
         };
         let mut parts = Vec::with_capacity(names.len());
@@ -674,6 +860,7 @@ impl Relater<'_, '_, '_> {
                 // `{ x } -> { x, y?: number }` must not be reported as a
                 // rejection. A target property whose own type does not compute
                 // is row 2's twin: the requirement itself is unknown.
+                reasons::note(reasons::Site::AbsentProperty);
                 parts.push(Ternary::Unknown);
                 continue;
             };
@@ -686,6 +873,7 @@ impl Relater<'_, '_, '_> {
             if self.checker.type_of(target_type).flags.intersects(unresolved)
                 || self.checker.type_of(source_type).flags.intersects(unresolved)
             {
+                reasons::note(reasons::Site::GenericMember);
                 parts.push(Ternary::Unknown);
                 continue;
             }
