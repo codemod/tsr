@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §22 landing, 2026-08-07 (ninth session, continued: builds 25–35).
+Measured at the §18 landing, 2026-08-07 (ninth session, continued: builds 25–36).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §22 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,084/9,538** | **32.33%** | **gradient 77.16%** — the target |
+| **`checker_types`** | **3,086/9,538** | **32.35%** | **gradient 77.18%** — the target |
 | `diagnostics` | **993/5,488** | **18.09%** | **tenth session, +276** — 717 → 993 across twenty-two builds and four measured refusals; the running total is 80 → 993, 12.4× |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-369,540 / 478,954 assertion lines = 77.16%      (measured at the §22 landing)
-  right 369,540 | gap 76,780 | wrong 22,595        right+gap+wrong = 468,915 exactly
+369,673 / 478,954 assertion lines = 77.18%      (measured at the §18 landing)
+  right 369,673 | gap 76,780 | wrong 22,462        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -78,7 +78,10 @@ honoured, 27 more wrongs converted to honest gaps) = 369,354; then + 72 (§17: p
 falls back to the string index signature; `@noUncheckedIndexedAccess`
 plumbed as the third per-case option) = 369,426; then + 114 (§22 callres: optional
 call chains through the property-access chain's own strip/mark functions;
-the twenty-third stand-in came due) = 369,540 exactly.
+the twenty-third stand-in came due) = 369,540; then + 133 net (§18: the enum
+member's fresh→regular back-link — the relater was comparing interned
+lookalikes; enum equality narrowing and assignment reduction now decide) =
+369,673 exactly.
 
 **The ninth session's chain, every figure from one `verdictdump` pair per
 build:** 352,727 + 246 (empty literal non-strict) + 377 (alias rename, split
@@ -993,6 +996,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §18 landing | **77.18%** | **3,086** | **+142/9** | **Build 36: the enum member's regular twin.** `Choice.One → Choice` answered Unknown because `get_regular_type_of_literal_type` interned a LOOKALIKE of the union's constituent — upstream's `freshType`/`regularType` are two pointers on one type object, and the port's equivalent is a back-link recorded at the single member-type creation site. One fired leg: one-constituent unions (the one-member-enum deviation) decline assignment reduction. The fix's reach: enum equality narrowing and reduction decide corpus-wide, not just the 120-line head case |
 | 2026-08-07 | §22 landing | **77.16%** | **3,084** | **+114/23** | **Build 35: optional call chains.** `checkCallChain`'s boundary — the callee strips its nullable half via `getOptionalExpressionType`/`checkNonNullType`, resolution runs on the remainder, `propagateOptionalTypeMarker` re-unions. The 23 adverse are named and owned elsewhere: closure callees this port does not flow-narrow (§13 residue — the marker fires where upstream's narrowing already removed `undefined`), and `deleteChain`'s inner-link marker mechanics. A gate-report correction also landed this block: the §17 commit claimed clippy ok while the lib-test target was red — rtk masks exit codes (now in memory + verified by `grep -c` since) |
 | 2026-08-07 | §17 landing | **77.13%** | **3,084** | **+72/2, +4 cases** | **Build 34: the string-index fallback.** `checkPropertyAccessExpressionOrQualifiedName`'s `prop == nil` path — a property miss on a receiver with an applicable string index signature answers the index value type. Fired leg: `@noUncheckedIndexedAccess` (adds `\| undefined`) plumbed as a real per-case option |
 | 2026-08-07 | §16 landing | **77.12%** | **3,080** | **+108/6, 27 W→G** | **Build 33: SWITCH_CLAUSE.** `getTypeAtSwitchClause`'s two matching arms with Kleene declines. The build's transferable lesson repeated §12.5's: the first pair read +14/17 and ONE trace print named it — the clause node's `kind` token is `CaseKeyword`, not the node kind, so every witness read as default and every case narrowed to `never`. Second leg: JSDoc parenthesized casts don't narrow (paren skip declines in JS files — the JS trap's fourth appearance). Priced residue: typeof-facts granularity for `function`/`object`, type-parameter narrowing, the 1,298-line discriminant-property row |
