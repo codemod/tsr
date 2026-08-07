@@ -834,3 +834,60 @@ reader, and the reader count is upstream's ~40.
 | 3 | cases regressed == 0 | **0** — 676 = 651 + 25 | pass |
 | 4 | own new wrong == **0** | **0** | pass |
 | 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+---
+
+## 12. `checkGrammarStatementInAmbientContext` — TS1036 and TS1183, +24 for zero wrong
+
+The guard §11 had to reproduce as a refusal, ported instead
+(`grammarchecks.go:2047`). It is the short-circuit thirteen of upstream's
+`checkXxxStatement` functions are written around —
+`if !c.checkGrammarStatementInAmbientContext(node) { … }` — so it returns whether
+it reported, and the break/continue rule now runs behind it rather than
+declining.
+
+```
+CONVERTS 596 -> 620   (+24)      LOST 0      WRONG 206 -> 206   (+0)
+```
+
+### The state is the rule, and its key is not what it looks like
+
+Upstream keeps one bit, `hasReportedStatementInAmbientContext`. In the TS1183
+branch it hangs on the **node**; in the TS1036 branch it hangs on the node's
+**parent**. Same field, two keys — and that is load-bearing, not incidental: a
+method body in an ambient class reports TS1183 *for the block*, which flags the
+block, and every statement inside then finds its parent already flagged and stays
+silent.
+
+Keying the two branches separately produced this rule's single wrong line —
+`conformance/initializersInDeclarations`, where upstream records TS1183 at the
+body (6,16) and **nothing** at the `return` inside it, and this port added a
+TS1036 at (7,3). One `insert` moved the residual to zero.
+
+Under the suite's exact-multiset comparison the "report once per block" bit is
+not an optimisation: reporting three times for `declare module "m" { a; b; c; }`
+fails the case exactly as reporting none does.
+
+### A convention this workstream had already adopted, found in upstream
+
+`grammarErrorOnFirstToken` and `grammarErrorOnNode` (`grammarchecks.go:19`,
+`:38`) both open with `if !c.hasParseDiagnostics(sourceFile)`. **Upstream
+suppresses every grammar diagnostic in a file that failed to parse**, which is
+exactly the refusal §7 introduced for TS2304 and justified on this port's
+recovery differing from upstream's. The refusal is therefore *faithful* for the
+grammar family rather than a deviation from it — a rare case of a bound invented
+here turning out to be upstream's own rule, and worth recording because the
+reasoning that produced it was completely different.
+
+### The bar
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 (confirmation) | `diagnostics` passes == 700 | **700/5,488 = 12.76%** | pass |
+| 2 | `checker_types` unchanged, byte-identical | **2,841 / 73.65%**, identical | pass |
+| 3 | cases regressed == 0 | **0** — 700 = 676 + 24 | pass |
+| 4 | own new wrong == **0** | **0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**`diagnostics` closes the session at 700/5,488 = 12.76%, from 80/5,488 =
+1.46%.** Eight builds, one refusal, `checker_types` byte-identical throughout.

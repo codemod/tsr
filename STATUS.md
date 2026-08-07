@@ -41,7 +41,7 @@ Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **2,841/9,538** | **29.79%** | **gradient 73.65%** — the target |
-| `diagnostics` | **676/5,488** | **12.32%** | **the check traversal landed, eighth session** — 80 → 676 across eleven codes, see below |
+| `diagnostics` | **700/5,488** | **12.76%** | **the check traversal landed, eighth session** — 80 → 700 across thirteen codes, see below |
 
 ### `checker_types`, the number the project is steered by
 
@@ -150,7 +150,8 @@ consumer. Three rules on top of it, each bar-scored:
 | `7fab616` | TS2304 — `Cannot find name` | +115 |
 | `1591c55` | TS2454 — used before being assigned | +233 |
 | `12533e9` | TS2369 + TS2695 — two **syntactic** rules | +40 for **0** wrong |
-| this commit | `checkGrammarBreakOrContinueStatement` — TS1104/5/7, TS1115/6 | +25 for **0** wrong |
+| `60aae99` | `checkGrammarBreakOrContinueStatement` — TS1104/5/7, TS1115/6 | +25 for **0** wrong |
+| this commit | `checkGrammarStatementInAmbientContext` — TS1036, TS1183 | +24 for **0** wrong |
 
 `docs/architecture/checker-notes-diag2.md` carries the reasoning, the gates per
 rule and the refusals. **`checker_types` is byte-identical across all of them**: the traversal is a second road and no query-path call site invokes it.

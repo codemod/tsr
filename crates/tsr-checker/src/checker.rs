@@ -243,6 +243,16 @@ pub struct Checker<'a, 'n> {
     /// (`checker.go:12534`) — so unset is `false` and the comma-operator
     /// diagnostic is on by default.
     pub(crate) allow_unreachable_code: bool,
+    /// Blocks that have already reported
+    /// `Statements are not allowed in ambient contexts`.
+    ///
+    /// Upstream's `hasReportedStatementInAmbientContext`, a bit on the *block's*
+    /// node links (`grammarchecks.go:2062`). It exists so
+    /// `declare module "m" { a; b; c; }` reports once rather than three times,
+    /// and under the `diagnostics` suite's exact-multiset comparison reporting
+    /// three fails the case as surely as reporting none — so it is part of the
+    /// rule, not an optimisation.
+    pub(crate) ambient_statement_reported: rustc_hash::FxHashSet<NodeId>,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -451,6 +461,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_property_initialization: true,
             file_has_parse_errors: false,
             allow_unreachable_code: false,
+            ambient_statement_reported: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),

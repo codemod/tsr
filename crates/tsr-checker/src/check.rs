@@ -227,21 +227,50 @@ impl Checker<'_, '_> {
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::BreakStatement(statement) => {
-                self.check_break_or_continue(
-                    node,
-                    true,
-                    statement.label.map(|label| label.text),
-                    ambient,
-                );
+                if !self.check_grammar_statement_in_ambient_context(node, ambient) {
+                    self.check_break_or_continue(
+                        node,
+                        true,
+                        statement.label.map(|label| label.text),
+                        ambient,
+                    );
+                }
                 ambient
             }
             Node::ContinueStatement(statement) => {
-                self.check_break_or_continue(
-                    node,
-                    false,
-                    statement.label.map(|label| label.text),
-                    ambient,
-                );
+                if !self.check_grammar_statement_in_ambient_context(node, ambient) {
+                    self.check_break_or_continue(
+                        node,
+                        false,
+                        statement.label.map(|label| label.text),
+                        ambient,
+                    );
+                }
+                ambient
+            }
+            // The remaining twelve statement kinds whose upstream `checkXxx`
+            // calls `checkGrammarStatementInAmbientContext` — `checker.go`
+            // lines 2382, 2384, 3788, 3803, 3948, 3954, 3960, 4095, 4157, 4173,
+            // 4211, 4227, 4236 and 7331. `checkBlock` calls it only for a
+            // `Block`, never a `ModuleBlock` (`checker.go:3786`), and a
+            // `VariableStatement` is deliberately absent: `declare var x` is
+            // legal in an ambient context and upstream never asks.
+            Node::Block(_)
+            | Node::IfStatement(_)
+            | Node::DoStatement(_)
+            | Node::WhileStatement(_)
+            | Node::ForStatement(_)
+            | Node::ForInOrOfStatement(_)
+            | Node::ReturnStatement(_)
+            | Node::WithStatement(_)
+            | Node::SwitchStatement(_)
+            | Node::LabeledStatement(_)
+            | Node::ThrowStatement(_)
+            | Node::TryStatement(_)
+            | Node::ExpressionStatement(_)
+            | Node::EmptyStatement(_)
+            | Node::DebuggerStatement(_) => {
+                self.check_grammar_statement_in_ambient_context(node, ambient);
                 ambient
             }
             Node::ParameterDeclaration(parameter) => {
@@ -1302,6 +1331,64 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.nodes.span(node);
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// `checkGrammarStatementInAmbientContext` (`grammarchecks.go:2047`) —
+    /// TS1036 and TS1183.
+    ///
+    /// | code | message | when |
+    /// |---|---|---|
+    /// | TS1183 | `An implementation cannot be declared in ambient contexts.` | the statement's parent is function-like or an accessor |
+    /// | TS1036 | `Statements are not allowed in ambient contexts.` | the parent is a `Block`, `ModuleBlock` or `SourceFile`, **once per parent** |
+    ///
+    /// Returns whether it reported, because thirteen of upstream's
+    /// `checkXxxStatement` functions are written as
+    /// `if !c.checkGrammarStatementInAmbientContext(node) { … }` — the report is
+    /// a short-circuit, not an addition, and §11's two wrong lines came from not
+    /// having it.
+    ///
+    /// **"Once per parent" is the whole of the state.** Upstream keeps
+    /// `hasReportedStatementInAmbientContext` on the *block's* node links so a
+    /// `declare module "m" { a; b; c; }` reports once rather than three times.
+    /// Under exact-multiset comparison reporting three would fail the case as
+    /// surely as reporting none, so the set below is load-bearing rather than an
+    /// optimisation.
+    fn check_grammar_statement_in_ambient_context(&mut self, node: NodeId, ambient: bool) -> bool {
+        if !ambient || self.file_has_parse_errors {
+            return false;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        // **The flag is keyed on the node here and on the *parent* below, and
+        // it is the same field upstream** (`links.hasReportedStatementInAmbientContext`,
+        // `grammarchecks.go:2051` and `:2064`). That is not a detail: a method
+        // body in an ambient class reports TS1183 *for the block*, and the
+        // statements inside it then find the block already flagged and stay
+        // silent. Keying the two branches separately reported both, which was
+        // this rule's one wrong line — `initializersInDeclarations`, where
+        // upstream records TS1183 at the body and nothing at the `return`.
+        if self.is_function_like_or_static_block(parent)
+            || matches!(self.nodes.kind(parent), SyntaxKind::GetAccessor | SyntaxKind::SetAccessor)
+        {
+            if self.ambient_statement_reported.insert(node) {
+                self.report_grammar(
+                    node,
+                    &messages::AN_IMPLEMENTATION_CANNOT_BE_DECLARED_IN_AMBIENT_CONTEXTS,
+                );
+                return true;
+            }
+            return false;
+        }
+        if matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::Block | SyntaxKind::ModuleBlock | SyntaxKind::SourceFile
+        ) && self.ambient_statement_reported.insert(parent)
+        {
+            self.report_grammar(node, &messages::STATEMENTS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS);
+            return true;
+        }
+        // "We must be parented by a statement. If so, there's no need to report
+        // the error as our parent will have already done it."
+        false
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`
