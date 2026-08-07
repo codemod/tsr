@@ -749,3 +749,11 @@ node's OWN assertion line — `...xs : number[]` prints the operand's type
 verbatim (`checkSpreadExpression`, `checker.go` — `checkExpression(node.
 Expression())` is the whole of it), and `check_expression` had no arm.
 Falsifier: none beyond the measure; the rule has no alternative.
+
+**§6.1 REFUSED at +23/388.** The spread's own line converts, but every
+CALL whose argument list contains a now-typing spread stops gapping and
+answers through selection machinery that cannot see spread arity — 388
+confident wrongs across decorator/binding/argument cases against 23
+gains. The arm reverts whole; the row stays TERMINAL with this number
+recorded. The prerequisite is spread-aware call resolution, not the
+expression arm.
