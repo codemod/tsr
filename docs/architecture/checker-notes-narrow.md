@@ -1882,3 +1882,11 @@ was RIGHT with its qualified spelling turned wrong. The prerequisite is
 qualified-text carriage through `get_instantiated_type_reference` (the
 reference renderer would need a per-site name override, the same design
 §41 used for the argument-less case). Recorded with the number.
+
+**§42 v2 — LANDED small.** The per-site qualified text plus a
+`type_reference_targets` registration (the design the v1 refusal named):
+**+4 (3 W→R, 1 G→R), 18 WRONG→GAP, zero adverse.** The generic qualified
+population's prints were already served by the mints; the registration's
+value is structural (the seam now sees these references) and its measured
+conversion today is small. `checker_types` right 393,549 → **393,553
+(82.18%)**.

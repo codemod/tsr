@@ -979,6 +979,33 @@ impl<'a> Checker<'a, '_> {
             self.qualified_reference_types.insert(key, minted);
             return minted;
         }
+        // §42 v2 (`checker-notes-narrow.md`): the GENERIC qualified
+        // reference builds arity-checked arguments, prints the QUALIFIED
+        // spelling, and registers in `type_reference_targets` so the
+        // tsr-4qx seam and instantiation both see a real reference.
+        let parameters = self.local_type_parameters_of(resolved).len();
+        if parameters > 0 && node.type_arguments.len() == parameters {
+            let mut arguments = Vec::with_capacity(parameters);
+            for argument in node.type_arguments {
+                let image = self.get_type_from_type_node(*argument);
+                if image == error {
+                    return error;
+                }
+                arguments.push(image);
+            }
+            let Some(base) = Self::entity_name_text(node.type_name) else { return error };
+            let printed_arguments: Vec<String> =
+                arguments.iter().map(|&a| self.type_to_string(a)).collect();
+            let text = format!("{base}<{}>", printed_arguments.join(", "));
+            let key = (text.clone(), resolved);
+            if let Some(&existing) = self.qualified_reference_types.get(&key) {
+                return existing;
+            }
+            let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
+            self.qualified_reference_types.insert(key, minted);
+            self.type_reference_targets.insert(minted, (resolved, arguments));
+            return minted;
+        }
         self.unresolved_type_reference(node)
     }
 
