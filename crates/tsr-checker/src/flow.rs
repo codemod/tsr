@@ -102,6 +102,10 @@ struct FlowState {
     /// declaration's — upstream's `isOuterVariable`, deciding the START arm's
     /// answer (`checker-notes-narrow.md` §9.7).
     outer_reference: bool,
+    /// The container bound the walk may not leave — upstream's
+    /// `flowContainer`, possibly extended outward by the §13 loop
+    /// (`checker.go:11139`). `None` bounds nothing beyond the graph itself.
+    flow_container: Option<NodeId>,
     /// Where this invocation's entries in `shared_flows` begin.
     shared_flow_start: usize,
     /// Recursion depth, against the 2,000 cap.
@@ -281,6 +285,7 @@ impl Checker<'_, '_> {
             },
             is_auto,
             outer_reference: self.is_outer_reference(reference, symbol),
+            flow_container: self.extended_flow_container(reference, symbol),
             shared_flow_start: self.shared_flows.len(),
             depth: 0,
         };
@@ -362,6 +367,23 @@ impl Checker<'_, '_> {
                 // measurement: 24 such losses), while an assigned-elsewhere
                 // capture takes the declared auto → `any`
                 // (`capturedLetConstInLoop*`).
+                // §13: a closure START whose container is not the walk's
+                // bound continues from the closure's creation site in the
+                // enclosing container (`flow.go:187`). The container payload
+                // exists only for function expressions, arrows, and
+                // object/class-expression methods (`binder.rs:903`), and the
+                // bound was extended in `extended_flow_container` only for
+                // constants and past-last-assignment mutables — everything
+                // else stops here exactly as before.
+                if let Some(container) = binder.flow().node(flow)
+                    && state.flow_container.is_some()
+                    && state.flow_container != Some(container)
+                    && state.symbol.is_some()
+                    && let Some(outer) = binder.flow_of(container)
+                {
+                    flow = outer;
+                    continue;
+                }
                 if state.outer_reference
                     && (state.symbol.is_some_and(|s| self.symbol_has_any_assignment(s))
                         // `isNeverInitialized` requires a mutable LOCAL
@@ -592,6 +614,256 @@ impl Checker<'_, '_> {
         self.symbol_assignment_scan.insert(symbol, answer);
         answer
     }
+    /// The walk's container bound, extended outward for constants and
+    /// past-last-assignment mutables — `checkIdentifier`'s loop,
+    /// `checker.go:11139`, and the §13 build. The default bound is the
+    /// reference's own control-flow container, which stops the walk exactly
+    /// where the pre-§13 START arm stopped it.
+    fn extended_flow_container(
+        &mut self,
+        reference: NodeId,
+        symbol: Option<SymbolId>,
+    ) -> Option<NodeId> {
+        let mut container = self.control_flow_container(reference)?;
+        let Some(symbol) = symbol else { return Some(container) };
+        let declaration_container = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .value_declaration
+            .and_then(|declaration| self.control_flow_container(declaration));
+        while Some(container) != declaration_container
+            && matches!(
+                self.nodes.kind(container),
+                tsr_ast::SyntaxKind::FunctionExpression
+                    | tsr_ast::SyntaxKind::ArrowFunction
+                    | tsr_ast::SyntaxKind::MethodDeclaration
+                    | tsr_ast::SyntaxKind::GetAccessor
+                    | tsr_ast::SyntaxKind::SetAccessor
+            )
+            && (self.is_constant_variable(symbol)
+                || self.is_parameter_or_mutable_local_variable(symbol)
+                    && self.is_past_last_assignment(symbol, reference))
+        {
+            container = self.control_flow_container(container)?;
+        }
+        Some(container)
+    }
+
+    /// `isConstantVariable` (`utilities.go:1040`): a variable whose
+    /// declaration list carries `const`.
+    fn is_constant_variable(&self, symbol: SymbolId) -> bool {
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        self.nodes.parent(declaration).is_some_and(|list| {
+            self.nodes.kind(list) == tsr_ast::SyntaxKind::VariableDeclarationList
+                && self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST)
+        })
+    }
+
+    /// `isParameterOrMutableLocalVariable` (`utilities.go:1044`): a
+    /// parameter, catch-clause variable, or `let` local. Upstream's
+    /// exported/global exclusions are approximated by refusing file-level
+    /// `let`s outright — conservative: the §13 extension stops earlier.
+    fn is_parameter_or_mutable_local_variable(&self, symbol: SymbolId) -> bool {
+        let Some(mut declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        // `GetRootDeclaration`: climb out of binding patterns.
+        while let Some(parent) = self.nodes.parent(declaration) {
+            if matches!(
+                self.nodes.kind(parent),
+                tsr_ast::SyntaxKind::BindingElement
+                    | tsr_ast::SyntaxKind::ObjectBindingPattern
+                    | tsr_ast::SyntaxKind::ArrayBindingPattern
+                    | tsr_ast::SyntaxKind::Parameter
+            ) {
+                declaration = parent;
+            } else {
+                break;
+            }
+        }
+        match self.nodes.kind(declaration) {
+            tsr_ast::SyntaxKind::Parameter => true,
+            tsr_ast::SyntaxKind::VariableDeclaration => {
+                let Some(list) = self.nodes.parent(declaration) else { return false };
+                if self.nodes.kind(list) == tsr_ast::SyntaxKind::CatchClause {
+                    return true;
+                }
+                if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::LET) {
+                    return false;
+                }
+                // Upstream's exclusions: exported (`export let x` in a
+                // namespace stays wide — `narrowingPastLastAssignment`'s
+                // namespace block, the §13 measurement's last line) and
+                // global (file-level).
+                let Some(statement) = self.nodes.parent(list) else { return false };
+                if let Some(Node::VariableStatement(variable)) = self.node_map.get(statement)
+                    && variable.modifiers.iter().any(|modifier| {
+                        tsr_ast::Node::from(*modifier).node_id().is_some_and(|id| {
+                            self.nodes.kind(id) == tsr_ast::SyntaxKind::ExportKeyword
+                        })
+                    })
+                {
+                    return false;
+                }
+                self.nodes
+                    .parent(statement)
+                    .is_some_and(|scope| self.nodes.kind(scope) != tsr_ast::SyntaxKind::SourceFile)
+            }
+            _ => false,
+        }
+    }
+
+    /// `isPastLastAssignment` (`flow.go:2668`): never assigned (0) or last
+    /// assigned before the reference.
+    fn is_past_last_assignment(&mut self, symbol: SymbolId, location: NodeId) -> bool {
+        self.ensure_assignments_marked(symbol);
+        let pos = self.last_assignment_pos.get(&symbol).copied().unwrap_or(0);
+        pos == 0 || pos < i64::from(self.nodes.span(location).start)
+    }
+
+    /// `ensureAssignmentsMarked` (`flow.go:2674`): one marking walk per
+    /// enclosing function/source-file root.
+    fn ensure_assignments_marked(&mut self, symbol: SymbolId) {
+        if self.last_assignment_pos.contains_key(&symbol) {
+            return;
+        }
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return;
+        };
+        let Some(root) = self.function_or_source_file_ancestor(declaration) else { return };
+        if self.assignments_marked.contains(&root) {
+            return;
+        }
+        // `hasParentWithAssignmentsMarked`: an already-marked ancestor's walk
+        // covered this root's subtree.
+        let mut ancestor = self.nodes.parent(root);
+        while let Some(id) = ancestor {
+            if self.assignments_marked.contains(&id) {
+                self.assignments_marked.insert(root);
+                return;
+            }
+            ancestor = self.nodes.parent(id);
+        }
+        self.assignments_marked.insert(root);
+        self.mark_node_assignments(root);
+    }
+
+    /// The nearest function-like or source-file ancestor (inclusive walk from
+    /// the parent) — upstream's `ast.IsFunctionOrSourceFile` `FindAncestor`.
+    fn function_or_source_file_ancestor(&self, node: NodeId) -> Option<NodeId> {
+        let mut current = Some(node);
+        while let Some(id) = current {
+            if matches!(
+                self.nodes.kind(id),
+                tsr_ast::SyntaxKind::FunctionDeclaration
+                    | tsr_ast::SyntaxKind::FunctionExpression
+                    | tsr_ast::SyntaxKind::ArrowFunction
+                    | tsr_ast::SyntaxKind::MethodDeclaration
+                    | tsr_ast::SyntaxKind::GetAccessor
+                    | tsr_ast::SyntaxKind::SetAccessor
+                    | tsr_ast::SyntaxKind::Constructor
+                    | tsr_ast::SyntaxKind::SourceFile
+            ) {
+                return Some(id);
+            }
+            current = self.nodes.parent(id);
+        }
+        None
+    }
+
+    /// `markNodeAssignments` (`flow.go:2698`): record the last assignment
+    /// position for every parameter/mutable-local assigned under `root` —
+    /// `i64::MAX` when the assignment sits in a nested function. The export-
+    /// specifier arm is unported (value re-exports of mutable locals), which
+    /// under-reports `MAX` — conservative for §13's *reader*, which then
+    /// extends when upstream would not; the bar's falsifier (a) watches the
+    /// population where that could bite.
+    fn mark_node_assignments(&mut self, root: NodeId) {
+        let Some(root_node) = self.node_map.get(root) else { return };
+        let mut stack = vec![root_node];
+        let mut children = Vec::new();
+        while let Some(node) = stack.pop() {
+            if let Node::Identifier(identifier) = node
+                && let Some(id) = identifier.node_id
+                && self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+                && let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                )
+                && self.is_parameter_or_mutable_local_variable(symbol)
+                && self.last_assignment_pos.get(&symbol) != Some(&i64::MAX)
+            {
+                let referencing = self.function_or_source_file_ancestor(id);
+                let declaring = self
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .value_declaration
+                    .and_then(|declaration| self.function_or_source_file_ancestor(declaration));
+                let pos = if referencing == declaring {
+                    self.binder
+                        .symbols()
+                        .get(symbol)
+                        .value_declaration
+                        .map_or(i64::MAX, |declaration| {
+                            self.extend_assignment_position(id, declaration)
+                        })
+                } else {
+                    i64::MAX
+                };
+                // Upstream's source-order walk overwrites, leaving the
+                // source-LAST assignment's extended position; this walk is
+                // stack-ordered, so the equivalent is the MAXIMUM — larger
+                // never wrongly reads as "past" (it can only stop the §13
+                // extension sooner than upstream would).
+                let entry = self.last_assignment_pos.entry(symbol).or_insert(0);
+                *entry = (*entry).max(pos);
+            }
+            children.clear();
+            tsr_ast::push_children(node, &mut children);
+            stack.extend(children.iter().copied());
+        }
+    }
+
+    /// `extendAssignmentPosition` (`flow.go:2752`): the assignment position,
+    /// stretched to the end of any compound statement between it and the
+    /// declaration — conservatism in place of flow analysis.
+    fn extend_assignment_position(&self, node: NodeId, declaration: NodeId) -> i64 {
+        let declaration_pos = self.nodes.span(declaration).start;
+        let mut pos = i64::from(self.nodes.span(node).start);
+        let mut current = Some(node);
+        while let Some(id) = current {
+            if self.nodes.span(id).start <= declaration_pos {
+                break;
+            }
+            if matches!(
+                self.nodes.kind(id),
+                tsr_ast::SyntaxKind::VariableStatement
+                    | tsr_ast::SyntaxKind::ExpressionStatement
+                    | tsr_ast::SyntaxKind::IfStatement
+                    | tsr_ast::SyntaxKind::DoStatement
+                    | tsr_ast::SyntaxKind::WhileStatement
+                    | tsr_ast::SyntaxKind::ForStatement
+                    | tsr_ast::SyntaxKind::ForInStatement
+                    | tsr_ast::SyntaxKind::ForOfStatement
+                    | tsr_ast::SyntaxKind::WithStatement
+                    | tsr_ast::SyntaxKind::SwitchStatement
+                    | tsr_ast::SyntaxKind::TryStatement
+                    | tsr_ast::SyntaxKind::ClassDeclaration
+            ) {
+                pos = i64::from(self.nodes.span(id).end);
+            }
+            current = self.nodes.parent(id);
+        }
+        pos
+    }
+
     /// Whether the symbol's value declaration sits at file level — its
     /// control-flow container is the `SourceFile`. The §9.7 outer split's
     /// second disjunct.

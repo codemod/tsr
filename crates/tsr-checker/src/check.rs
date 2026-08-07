@@ -1074,7 +1074,7 @@ impl Checker<'_, '_> {
 
     /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing
     /// function, module block, source file or property declaration.
-    fn control_flow_container(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn control_flow_container(&self, node: NodeId) -> Option<NodeId> {
         let mut current = self.nodes.parent(node);
         while let Some(id) = current {
             if matches!(

@@ -1160,3 +1160,17 @@ mean the walk-out and the §9.7 stop-heuristics disagree about who owns a
 line — narrow to `isConstantVariable` only and re-measure before arguing;
 (b) a hang means the walk-out loops through a cycle of creation sites the
 binder graph permits and upstream's does not.
+
+**§13 score — LANDED.** **+89 (53 WRONG→RIGHT, 36 GAP→RIGHT), zero adverse
+after two fired legs were honoured in-build**: (1) the marking walk is
+stack-ordered, not source-ordered, so "overwrite" recorded the source-FIRST
+assignment — replaced with the MAXIMUM extended position (larger never
+wrongly reads as past; 3 R→W → 1); (2) the export exclusion —
+`export let x` in a namespace stays wide (`isMutableLocalVariableDeclaration`'s
+modifier check, the last R→W). Gains led by
+`constLocalsInFunctionExpressions` (26), `narrowingPastLastAssignment` (15),
+`gettersAndSetters` (13), `implicitConstParameters` (9). `checker_types`
+74.64% → **74.66%**, cases 3,069 → **3,074**; diagnostics rode along 949 →
+**961** (+12, the closure narrows reach TS2322's gates). The §12.6
+under-accumulation rows (`controlFlowLoopAnalysis:0:25`) remain — they were
+never this family.

@@ -125,6 +125,13 @@ pub struct Checker<'a, 'n> {
     /// ever-assigned memo (`checker-notes-narrow.md` §9.7), read by the flow
     /// START arm's outer-reference split.
     pub(crate) symbol_assignment_scan: FxHashMap<SymbolId, bool>,
+    /// Last assignment position per parameter/mutable-local, `i64::MAX` for
+    /// nested-function assignments — upstream's `markedAssignmentSymbolLinks`
+    /// (`flow.go:2668` family). 0 means "never assigned".
+    pub(crate) last_assignment_pos: FxHashMap<SymbolId, i64>,
+    /// Function/source-file roots whose assignments have been marked —
+    /// `NodeCheckFlagsAssignmentsMarked`.
+    pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
     /// Converged loop-label types, keyed by (flow node, reference key).
     /// Upstream's `flowLoopCache` (`internal/checker/flow.go:1325` family).
     pub(crate) flow_loop_cache: FxHashMap<(usize, u64), TypeId>,
@@ -501,6 +508,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             diagnostics: Vec::new(),
             symbol_types,
             symbol_assignment_scan: FxHashMap::default(),
+            last_assignment_pos: FxHashMap::default(),
+            assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),
             declared_types: FxHashMap::default(),

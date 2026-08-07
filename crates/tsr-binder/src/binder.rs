@@ -964,7 +964,19 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// deserves an entry.
     fn record_flow(&mut self, node: Node<'a>, id: NodeId) {
         match node {
-            Node::Identifier(_) | Node::MetaProperty(_) | Node::BindingElement(_) => {
+            // Identifiers and binding elements read narrowing. The closure
+            // kinds record the flow AT their creation site — what the
+            // checker's §13 START walk-out continues from
+            // (`container.FlowNodeData().FlowNode`, upstream `flow.go:187`);
+            // this runs before the container push, so it is the OUTER flow.
+            Node::Identifier(_)
+            | Node::MetaProperty(_)
+            | Node::BindingElement(_)
+            | Node::FunctionExpression(_)
+            | Node::ArrowFunction(_)
+            | Node::MethodDeclaration(_)
+            | Node::GetAccessorDeclaration(_)
+            | Node::SetAccessorDeclaration(_) => {
                 self.node_flow[id.index()] = Some(self.current_flow);
             }
             Node::KeywordExpression(keyword) => match keyword.kind {

@@ -19,7 +19,7 @@ use crate::{
 /// `AssignmentKind` (`internal/checker/utilities.go`): how a reference is
 /// written, which decides whether `checkIdentifier` narrows it at all.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum AssignmentTargetKind {
+pub(crate) enum AssignmentTargetKind {
     None,
     Definite,
     Compound,
@@ -1187,7 +1187,7 @@ impl Checker<'_, '_> {
     /// The walk climbs parentheses, array literals, spreads, non-null
     /// assertions, and the object-literal assignment shapes, so destructuring
     /// targets classify the same as direct ones.
-    fn assignment_target_kind(&self, id: NodeId) -> AssignmentTargetKind {
+    pub(crate) fn assignment_target_kind(&self, id: NodeId) -> AssignmentTargetKind {
         self.assignment_target(id).map_or(AssignmentTargetKind::None, |target| {
             match self.node_map.get(target) {
                 Some(Node::BinaryExpression(binary)) => {
