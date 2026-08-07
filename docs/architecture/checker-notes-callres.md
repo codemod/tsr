@@ -1272,3 +1272,13 @@ markers (the propagated-marker mechanics between chain links, pre-existing
 in the property-access half). Both were GAPs that became answers whose
 wrongness is owned upstream of the arm. `checker_types` right 369,426 →
 **369,540**.
+
+### §22.1 REFUSED: the stripped-callee print is not a uniform rule
+
+A one-line re-cache printing chain callees at their stripped type flipped
+`controlFlowOptionalChain`'s six `f : fn` lines right and **59
+`callChain.3` lines wrong** — chain-LINK callees (`a?.b()`) print WITH
+their undefined half in the baselines while some chain-ROOT identifier
+callees print without. The discriminator is a print-context question this
+measurement does not decide; reverted whole. The six lines stay wrong
+with this number recorded against the next attempt.
