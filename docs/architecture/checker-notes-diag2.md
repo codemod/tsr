@@ -1081,3 +1081,83 @@ unreachable and the build is reverted; (b) if reference marking by
 over-approximation marks so much that CONVERTS lands under 40, the row is
 refused with that number and the marking pass is not "tightened" — tightening it
 is what produces wrong diagnostics.
+
+### Scored — every leg passed, and the largest wrong family was one guard
+
+```
+CONVERTS 717 -> 832  (+115)     LOST 0      RIGHT 295     WRONG 11
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | `LOST == 0` | **0** | pass |
+| 2 | `checker_types` byte-identical | **2,963 / 31.07% / 74.19%**, identical | pass |
+| 3 | own new WRONG ≤ 40 | **11** | pass |
+| 4 | CONVERTS ≥ 40 | **115** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**`diagnostics` 717/5,488 = 13.06% → 832/5,488 = 15.16%.**
+
+#### The 108-line guard: `checkSourceFile` registers a *module*, not a file
+
+The first measurement read **158 wrong, 3 lost, 21 converts** — a failed bar on
+three legs at once. One line explains 108 of the 158 and all three losses:
+
+```go
+if ast.IsExternalOrCommonJSModule(sourceFile) {
+    c.checkExternalModuleExports(sourceFile.AsNode())
+    c.registerForUnusedIdentifiersCheck(sourceFile.AsNode())   // checker.go:2210
+}
+```
+
+The register sits **inside** the module test. A script's top level is the global
+scope; its `class`, `function` and `namespace` declarations are not locals and
+can never be unused. Without the guard this port reported every top-level
+declaration of every script in the unused corpus — `unusedClassesinNamespace1`,
+`unusedFunctionsinNamespaces1`–`6`, `unusedInterfaceinNamespace1`–`3` and the
+rest, all of which then *converted* once the guard was in.
+
+> A register site inside a conditional is a **precondition of the rule**, not
+> plumbing. Reading `registerForUnusedIdentifiersCheck(sourceFile)` as "the file
+> participates" rather than "an external module participates" is the same class
+> of error as §14's `Pos()`/`End()` transliteration: the code was copied and the
+> question it was answering was not.
+
+The port asks the question through `bindSourceFileAsExternalModule`
+(`binder.go:2591`), which gives a module file a symbol on its `SourceFile` node
+and gives a script none — so `binder.symbol_of(file).is_some()` **is**
+`IsExternalOrCommonJSModule`, and no second module-indicator scan was written.
+
+#### `isUse` — the second measurement, +14 for −2 wrong
+
+`getResolvedSymbol` (`checker.go:13896`) resolves with
+`isUse: !ast.IsWriteOnlyAccess(node)`, and `resolveNameHelper`
+(`nameresolver.go:314`) marks **only when `isUse`**. So `y = 1` is not a
+reference to `y`. `unusedLocalsInMethod3` is the whole argument in three lines:
+
+```ts
+var x, y;
+y = 1;
+```
+
+upstream reports **TS6199 `All variables are unused`** — `y` included. Without
+the gate this port marked `y`, fell out of the all-unused grouping, and reported
+TS6133 on `x` alone: a wrong code at a wrong position from one missing predicate.
+`accessKind` (`ast.go:1426`) is ported arm for arm rather than approximated,
+because its `PropertyAssignment` arm *reverses* the outer kind — `({ x: y } =
+obj)` reads `x` and writes `y` — and no approximation gets that from the shape.
+
+**This is the one place the module marks less than the naive reading**, and it is
+therefore the one place it can produce a wrong diagnostic. It is here because
+upstream says so, and it was measured before it was kept: +14 converts, −2 wrong.
+
+#### The residual 11, and why it is not tightened
+
+Nine of the eleven are **two** cases, `conformance/inlineJsxAndJsxFragPragma` and
+`compiler/jsxFragmentFactoryNoUnusedLocals`, and one cause: a `/** @jsx h */`
+pragma makes `h` the JSX factory, which is a reference upstream resolves through
+`checkJsxOpeningLikeElement`. This port records no pragmas, so the import reads
+unused. **Filed rather than approximated** — the fix is a parser-side pragma
+table, not a heuristic over comment text, and two cases do not buy a heuristic.
+The other two are `typeGuardNarrowsIndexedAccessOfKnownProperty9`, a private
+member reached through a shape the by-name marking does not see.

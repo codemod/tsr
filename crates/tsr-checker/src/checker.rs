@@ -247,6 +247,27 @@ pub struct Checker<'a, 'n> {
     /// (`checker.go:12534`) — so unset is `false` and the comma-operator
     /// diagnostic is on by default.
     pub(crate) allow_unreachable_code: bool,
+    /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
+    /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
+    /// unused-identifier family off for every case that does not ask for it.
+    pub(crate) no_unused_locals: bool,
+    /// `compilerOptions.noUnusedParameters` (`checker.go:7109`).
+    pub(crate) no_unused_parameters: bool,
+    /// Upstream's `symbolReferenceLinks[symbol].referenceKinds`
+    /// (`types.go:164`), rebuilt by [`crate::unused`]'s marking pass because
+    /// this port has no type check to hang the resolver callback on.
+    pub(crate) symbol_reference_kinds: FxHashMap<tsr_binder::SymbolId, tsr_binder::SymbolFlags>,
+    /// Upstream's `links.identifierCheckNodes` (`checker.go:7043`).
+    pub(crate) unused_check_nodes: Vec<NodeId>,
+    /// Every member name the file mentions, for the by-name stand-in
+    /// `markPropertyAsReferenced` needs — see [`crate::unused`].
+    pub(crate) referenced_member_names: crate::unused::MemberNames,
+    /// Is the file currently being walked a declaration file?
+    ///
+    /// The file half of `NodeFlagsAmbient`, kept on the checker because
+    /// `reportUnused` (`checker.go:7092`) asks for it at a node the walk has
+    /// already left.
+    pub(crate) file_is_ambient: bool,
     /// Blocks that have already reported
     /// `Statements are not allowed in ambient contexts`.
     ///
@@ -473,6 +494,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_property_initialization: true,
             file_has_parse_errors: false,
             allow_unreachable_code: false,
+            no_unused_locals: false,
+            no_unused_parameters: false,
+            symbol_reference_kinds: FxHashMap::default(),
+            unused_check_nodes: Vec::new(),
+            referenced_member_names: crate::unused::MemberNames::default(),
+            file_is_ambient: false,
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
@@ -536,6 +563,17 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// `false` and the comma-operator diagnostic fires.
     pub fn set_allow_unreachable_code(&mut self, on: bool) {
         self.allow_unreachable_code = on;
+    }
+
+    /// Set `noUnusedLocals` / `noUnusedParameters` from a case's compiler
+    /// options.
+    ///
+    /// Both read as `IsTrue()` upstream (`checker.go:7104`), so unset is off and
+    /// [`crate::unused`] produces nothing at all — which is what bounds that
+    /// family's blast radius to the cases that opt in.
+    pub fn set_no_unused(&mut self, locals: bool, parameters: bool) {
+        self.no_unused_locals = locals;
+        self.no_unused_parameters = parameters;
     }
 
     /// The well-known types.

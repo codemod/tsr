@@ -114,7 +114,14 @@ impl Checker<'_, '_> {
     /// wrong lines that measurement produced.
     pub fn check_source_file(&mut self, file: NodeId, context: FileContext) {
         self.file_has_parse_errors = context.has_parse_errors;
+        self.file_is_ambient = context.ambient;
+        self.reset_unused_state();
         self.check_node(file, context.ambient, 0);
+        // `checkSourceFile` (`checker.go:2220`) runs the unused-identifier pass
+        // *after* the file's own check, because it reads reference marks the
+        // check produces. Here the marks come from the walk that just finished,
+        // so the ordering constraint is the same one.
+        self.check_unused_identifiers();
     }
 
     /// One node: its own rules, then its children.
@@ -291,10 +298,13 @@ impl Checker<'_, '_> {
             Node::Identifier(identifier) => {
                 self.check_value_identifier(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
+                self.mark_identifier_reference(node, identifier.text);
                 ambient
             }
             _ => ambient,
         };
+        self.note_member_name_at(node);
+        self.register_for_unused_check(node);
         let mut children = [const { None }; INLINE_CHILDREN];
         let mut count = 0usize;
         let mut overflow: Vec<NodeId> = Vec::new();
@@ -1729,7 +1739,7 @@ impl Checker<'_, '_> {
 
     /// Append to the collection upstream keeps as `c.diagnostics`
     /// (`checker.go:661`), drained by `GetDiagnostics` (`checker.go:13951`).
-    fn report(&mut self, file: NodeId, diagnostic: Diagnostic) {
+    pub(crate) fn report(&mut self, file: NodeId, diagnostic: Diagnostic) {
         self.diagnostics.push((file, diagnostic));
     }
 
@@ -1795,7 +1805,7 @@ impl Checker<'_, '_> {
     }
 
     /// `ast.GetSourceFileOfNode`, reachable from this module.
-    fn source_file_of_for_diagnostics(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn source_file_of_for_diagnostics(&self, node: NodeId) -> Option<NodeId> {
         let mut current = node;
         loop {
             if self.nodes.kind(current) == SyntaxKind::SourceFile {

@@ -127,6 +127,7 @@ pub mod signatures;
 pub mod symbols;
 pub mod types;
 pub mod unions;
+pub mod unused;
 
 pub use checker::Checker;
 pub use flags::TypeFlags;
