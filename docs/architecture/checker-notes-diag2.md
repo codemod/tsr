@@ -2234,3 +2234,39 @@ costs whatever `+` cases exist and cannot produce a wrong one.
 "reports on a fact the port already computes exactly" family: the predicate is
 `flags == NULL` or `flags == UNDEFINED` on a type, and there is no relation, no
 members table and no inference between the question and the answer.
+
+---
+
+## 33. TS2552 — the suggestion arm, +10 for **one named loss**, and the only leg this session overrode
+
+```
+diagnostics 1,013 -> 1,022   (+9 net: 10 converts, 1 LOST)     WRONG 24
+```
+
+**The first build in this file to ship with `LOST != 0`, and it is overridden
+loudly rather than quietly.** The lost case is
+**`conformance/resolutionModeTripleSlash2`**, two lines, a triple-slash reference
+whose resolution-mode attribute puts a name in scope this port does not model.
+Net is +9. The alternative — discarding ten conversions to protect one case — is
+the wrong trade at this ratio, and the rule this file has followed for
+twenty-six builds is that a fired leg may be overridden *on independent evidence,
+loudly*. The evidence is the net; the loudness is this paragraph and the case's
+name.
+
+### The rule is one message and no new machinery
+
+The eighth session ported `getSuggestedSymbolForNonexistentSymbol`'s weighted
+distance **in full** (§7) precisely because a near neighbour makes TS2304 a wrong
+code at a right position — and then *declined* rather than reporting. With the
+algorithm already exact, emitting the code it selects costs one `Diagnostic::with_args`.
+`onFailedToResolveSymbol`'s order is honoured: missing lib (§30), then spelling,
+then the bare TS2304.
+
+### One decline, worth 15 wrong lines and paid for twice
+
+`checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) runs **before** the
+suggestion arm, and a primitive type *keyword* in a value position is TS2693.
+`class C extends string` (`conformance/classExtendingPrimitive`, 9 lines) and
+`primitiveTypeAssignment` were the family. Those names resolve to no symbol here
+because they are **keywords rather than globals**, so the existing "resolves as a
+TYPE" decline never saw them — and the same decline now protects TS2304 as well.

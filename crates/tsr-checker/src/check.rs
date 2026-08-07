@@ -704,6 +704,28 @@ impl Checker<'_, '_> {
         if text == "null" {
             return;
         }
+        // `checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) runs
+        // **before** the suggestion arm, and a primitive type *keyword* used in
+        // a value position is TS2693 — `class C extends string` is
+        // `conformance/classExtendingPrimitive`, 9 wrong lines, plus
+        // `primitiveTypeAssignment`. These names resolve to no symbol here
+        // because they are keywords rather than globals, so the existing
+        // "resolves as a TYPE" decline never sees them.
+        if matches!(
+            text,
+            "string"
+                | "number"
+                | "boolean"
+                | "symbol"
+                | "object"
+                | "bigint"
+                | "any"
+                | "never"
+                | "unknown"
+                | "void"
+        ) {
+            return;
+        }
         // `OnPropertyWithInvalidInitializer` (`nameresolver.go`, reached from
         // `resolveNameHelper`): an instance property's initialiser that names a
         // **constructor parameter** is TS2301, not TS2304 — upstream's resolver
@@ -762,8 +784,21 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        // Then spelling suggestions (`checker.go:1590`) — TS2552.
-        if self.has_spelling_suggestion(node, text) {
+        // Then spelling suggestions (`checker.go:1590`) — TS2552, **emitted**
+        // rather than declined. The eighth session ported
+        // `getSuggestedSymbolForNonexistentSymbol`'s weighted distance in full
+        // precisely because a near neighbour makes TS2304 a wrong code at a
+        // right position; with the algorithm already exact, reporting the code
+        // it selects costs one message and converts its own row.
+        if let Some(suggestion) = self.spelling_suggestion_for(node, text) {
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
+                    span,
+                    [text.to_string(), suggestion],
+                ),
+            );
             return;
         }
         self.report(
@@ -832,9 +867,9 @@ impl Checker<'_, '_> {
     /// it: `$ERROR` against `Error` is one deletion plus five case differences,
     /// which upstream's weighted distance accepts and a plain edit count does
     /// not. The algorithm is ported instead — see [`spelling_suggestion`].
-    fn has_spelling_suggestion(&self, node: NodeId, text: &str) -> bool {
+    fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
         let candidates = self.binder.names_in_scope(self.nodes, self.node_map, node);
-        spelling_suggestion(text, &candidates).is_some()
+        spelling_suggestion(text, &candidates).map(ToString::to_string)
     }
 
     /// Is this identifier in a slot where upstream would call
