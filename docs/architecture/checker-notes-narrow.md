@@ -1551,3 +1551,20 @@ operand on an empty remainder (the `null!` shape) read +102/147 — worse
 both ways — so the plain remainder stands and the 82 stay owned by the
 chain-interplay and `null!` families with both variants' numbers recorded.
 `checker_types` right 371,977 → **372,144**.
+
+### §27 Assigning to a readonly entity answers upstream's `any`
+
+The `any ← number` board row's heads (`constDeclarations-access*`,
+`externalModuleImmutableBindings`, ~200 lines): `M.x = 1` against an
+exported `const` reports TS2540/TS2588 and **returns `errorType`** —
+`checkIdentifier` (`checker.go:11096`) for direct references,
+`isAssignmentToReadonlyEntity` (`checker.go:11377`) for property targets —
+and the baselines render it `any`. The §14 boundary argument applies
+verbatim: this is upstream's own deliberate error-answer, and its
+observable IS `any`; ADR-0038's `error` printing is for THIS port's
+failures. Ported: `isReadonlySymbol`'s four decidable arms (const
+variable, enum member, readonly-modifier property, get-only accessor) at
+both target sites. Falsifiers: (a) readonly READS must not move — the arm
+is gated on assignment-target kind; (b) `Object.defineProperty` and
+check-flags readonly (upstream's other two arms) stay unported and their
+lines stay as they are.
