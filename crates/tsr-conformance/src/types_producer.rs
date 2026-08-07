@@ -459,6 +459,37 @@ pub fn type_id_at_location<'a>(
         }
     }
 
+    // **An export-assignment's exported NAME records its declared type** —
+    // `export = C1` records `>C1 : C1`, and a generic `export = Foo` records
+    // `Foo<T>` with its own parameters (`exportNonVisibleType`,
+    // `exportAssignmentGenericType`). The heritage compensation's sibling,
+    // keyed the same way; a `var` or function on the right resolves only as
+    // a VALUE and falls through to its value type
+    // (`checker-notes-jsx.md`, the export-assignment bar).
+    if let Some(parent) = nodes.parent(id)
+        && nodes.kind(parent) == SyntaxKind::ExportAssignment
+        && nodes.kind(id) == SyntaxKind::Identifier
+        && let Some(Node::Identifier(name)) = map.get(id)
+        && let Some(symbol) =
+            binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
+        // The VALUE resolution must not reach a DIFFERENT symbol: a class
+        // carries both meanings in one symbol (fine), an interface-only name
+        // has no value meaning at all (fine — `importNonExportedMember*`'s
+        // 27 lines, which an equality gate dropped), and `export = Math`
+        // (a local namespace value) beside the GLOBAL `Math` interface
+        // resolves two different symbols — the one shape that declines, the
+        // bar's falsifier from the first measurement.
+        && !matches!(
+            binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::VALUE),
+            Some(value) if value != symbol
+        )
+    {
+        let declared = checker.get_declared_type_of_symbol(symbol);
+        if declared != error {
+            return declared;
+        }
+    }
+
     // **The left of a qualified name in type position prints `any`.**
     //
     // `A` in `function test(a: A.Outer)` records `>A : any` upstream, and the

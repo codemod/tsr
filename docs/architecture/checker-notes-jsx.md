@@ -353,3 +353,18 @@ which is the bar's falsifier.
 
 **Bar:** net ≥ **+14**; own ≤ **8** — falsifier: losses on `export =` of
 values → the TYPE-meaning gate leaks; regressed == 0; lost == 0.
+
+### The export-assignment name scored — two gate refinements from two adverse lines
+
+Ungated: +99 / 1 lost (`export = Math` resolving the GLOBAL `Math`
+interface). Same-symbol gate: 70 — dropped `importNonExportedMember*`'s 27
+interface-only lines (no value meaning is fine). Final — decline only a
+DIFFERENT-symbol value resolution:
+
+```
+WRONG→RIGHT 70 · GAP→RIGHT 26 · GAP→WRONG 1 (a generic interface's declared
+print lacking its own parameters — a declared-print divergence, not this
+gate) · zero losses · +24 suite cases (3,019 → 3,043)
+```
+
+Legs: **+95** (≥ +14) · own **1** (≤ 8) · **0** regressed · **0** lost.
