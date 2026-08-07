@@ -43,6 +43,19 @@ WHAT THE SESSION OPENED, in value order:
      unread axes: property-vs-method, index/call signatures — each a future
      verse with the same recipe.
 
+NEXT HEAD, direction persisted before code (ninth session's tail): the
+`any → undefined` W2 row — 548 wrong lines, 12 case-finishes, head cases
+capturedLetConstInLoop* and jsxEsprimaFbTestSuite. Shape: `let x;` (auto
+type) referenced inside a CLOSURE — upstream cannot track the assignment
+across the function boundary and answers the declared auto → `any` (an
+HONEST any, the anySignature precedent; write the ADR-0038 argument from
+checker.go's auto-type conversion before building). Our flow narrows to the
+initial `undefined` instead. The fix shape: in get_flow_type_of_reference
+(flow.rs), when the reference's containing function differs from the
+declaration's and the declared type is the no-annotation auto shape, answer
+`any` rather than walking the flow. Size with a counterfactual on the 548
+first; bar before code; the falsifier is losses in NON-closure references.
+
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
     nothing; JAVASCRIPT_FILE is now stamped at the program's TWO parse sites
