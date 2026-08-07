@@ -120,12 +120,16 @@ fn an_unrenderable_index_signature_gaps_the_whole_literal() {
     // The reject-the-whole-literal rule is unchanged: a member this port cannot
     // render makes the type `error`, never a partial object type.
     //
-    // A `symbol` key is not the `string` or `number` intrinsic, which is the
-    // same gap `index_info_of` takes for the lookup side — so a literal can
-    // never print an index signature that `a[i]` then fails to find.
-    assert_eq!(type_of_annotation("var x: { [k: symbol]: number };"), "error");
+    // §32 (`checker-notes-callres.md`) widened the PRINT gate to any
+    // computable non-union key — `symbol` now renders as written, while the
+    // lookup gate stays intrinsic-only (a print the lookup cannot serve gaps
+    // the access, never wrongs it).
+    assert_eq!(
+        type_of_annotation("var x: { [k: symbol]: number };"),
+        "{ [k: symbol]: number; }"
+    );
+    // A UNION key still declines whole — upstream splits it into two infos.
+    assert_eq!(type_of_annotation("var x: { [k: string | number]: keyof T };"), "error");
     // A value type that is itself a gap.
     assert_eq!(type_of_annotation("var x: { [k: string]: keyof T };"), "error");
-    // And the property beside it does not leak out on its own.
-    assert_eq!(type_of_annotation("var x: { a: string; [k: symbol]: number };"), "error");
 }

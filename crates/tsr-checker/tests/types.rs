@@ -784,9 +784,9 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
     //
     // **The index-signature case moved too**, on the slice that taught the same
     // function to render `[k: string]: T` members — `tests/index_signature_members.rs`.
-    // What still gaps is an index signature whose *key* is neither the `string`
-    // nor the `number` intrinsic, which is the same gap the `a[i]` lookup side
-    // takes, so the two cannot disagree.
+    // §32 (`checker-notes-callres.md`) then widened the PRINT gate to any
+    // computable non-union key; the lookup side stays intrinsic-only, and a
+    // print the lookup cannot serve gaps the access rather than wronging it.
     assert_eq!(type_of_declaration("declare const x: { m(): void };", "x"), "{ m(): void; }");
     // The single call-signature member collapses to the arrow form (§10.15).
     assert_eq!(type_of_declaration("declare const x: { (): void };", "x"), "() => void");
@@ -794,7 +794,10 @@ fn an_object_type_with_a_member_this_port_cannot_render_is_a_gap() {
         type_of_declaration("declare const x: { [k: string]: string };", "x"),
         "{ [k: string]: string; }"
     );
-    assert_eq!(type_of_declaration("declare const x: { [k: symbol]: string };", "x"), "error");
+    assert_eq!(
+        type_of_declaration("declare const x: { [k: symbol]: string };", "x"),
+        "{ [k: symbol]: string; }"
+    );
     // A member whose own type is a gap takes the whole literal with it.
     assert_eq!(type_of_declaration("declare const x: { a: keyof string };", "x"), "error");
 }
