@@ -1,5 +1,5 @@
 //! §12.2's mandated trace instrument: run ONE case, print chosen lines'
-//! want/got. `TSR_TRACE_CASE=<name>` selects; positions via TSR_TRACE_POS.
+//! want/got. `TSR_TRACE_CASE=<name>` selects; positions via `TSR_TRACE_POS`.
 use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
 
 fn main() {
