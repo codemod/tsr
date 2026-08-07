@@ -1833,3 +1833,11 @@ the `tsr-eep` pattern for a RESOLVED shape). `NamedTupleMember` and `?`
 stay refused. Falsifier: positions wanting the EXPANDED instantiation
 (`[string, number]` from `[...T]` at a call) stay gaps and must not
 regress; the mint must never enter the element-list map.
+
+**§40 score — LANDED after the fired falsifier.** The first pair's 143
+adverse named the split: rests over CONCRETE tuples EXPAND (upstream
+splices them flat) while parameter rests print — the splice arm recovered
+14 and the final pair reads **+525 (524 G→R, 1 W→R) / 129 GAP→WRONG**
+(tuple-lambda assignability shapes, the print-only citizen meeting the
+relater — the recorded residue). `checker_types` right 392,022 →
+**392,547 (81.96%)**.

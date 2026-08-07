@@ -172,10 +172,15 @@ fn a_tuple_is_not_answered_as_a_plausible_array() {
     // assertions pin: a tuple must never render as an array.
     assert_eq!(type_of_annotation("var x: [string, number];"), "[string, number]");
     assert_eq!(type_of_annotation("var x: [string, string];"), "[string, string]");
-    // The per-element flags model is still unported, and refuses whole rather
-    // than approximating — `[string, ...number[]]` as `[string, number[]]`
-    // would be the wrong line this test was written about.
-    assert_eq!(type_of_annotation("var x: [string, ...number[]];"), "error");
+    // The rest form came due at §40 (`checker-notes-narrow.md`): a rest
+    // over a non-tuple prints VERBATIM — `[string, ...number[]]`, never the
+    // flattened `[string, number[]]` this test was written to forbid — so
+    // the property the name pins survives with the honest answer moved
+    // from a gap to the print.
+    assert_eq!(
+        type_of_annotation("var x: [string, ...number[]];"),
+        "[string, ...number[]]"
+    );
 }
 
 #[test]

@@ -618,6 +618,60 @@ impl<'a> Checker<'a, '_> {
     fn get_type_from_tuple_type_node(&mut self, node: &tsr_ast::TupleTypeNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
         let mut elements = Vec::with_capacity(node.elements.len());
+        // §40 (`checker-notes-narrow.md`): REST elements make the tuple a
+        // PRINT-ONLY variadic — the text composed from resolved element
+        // prints, minted with no element-list entry so access,
+        // instantiation, and relations keep declining.
+        if node.elements.iter().any(|element| matches!(element, TypeNode::RestTypeNode(_)))
+            && !node.elements.iter().any(|element| {
+                matches!(element, TypeNode::NamedTupleMember(_) | TypeNode::OptionalTypeNode(_))
+            })
+        {
+            let mut pieces = Vec::with_capacity(node.elements.len());
+            let mut spliced: Option<Vec<TypeId>> = Some(Vec::new());
+            for element in node.elements {
+                let (prefix, inner) = match element {
+                    TypeNode::RestTypeNode(rest) => {
+                        let Some(inner) = rest.r#type else { return error };
+                        ("...", inner)
+                    }
+                    other => ("", *other),
+                };
+                let resolved = self.get_type_from_type_node(inner);
+                if resolved == error {
+                    return error;
+                }
+                // A rest over a CONCRETE tuple splices — upstream expands it
+                // flat (`excessivelyLargeTupleSpread`, the §40 falsifier's
+                // population); any other rest keeps the whole print-only.
+                if let Some(flat) = spliced.as_mut() {
+                    if prefix.is_empty() {
+                        flat.push(resolved);
+                    } else if let Some((inner_elements, _)) =
+                        self.tuple_element_lists.get(&resolved).cloned()
+                    {
+                        flat.extend(inner_elements);
+                    } else {
+                        spliced = None;
+                    }
+                }
+                pieces.push(format!("{prefix}{}", self.type_to_string(resolved)));
+            }
+            if let Some(flat) = spliced {
+                let readonly = node
+                    .node_id
+                    .and_then(|id| self.nodes.parent(id))
+                    .is_some_and(|parent| self.is_readonly_type_operator(parent));
+                return self.create_tuple_type(flat, readonly);
+            }
+            let readonly = node
+                .node_id
+                .and_then(|id| self.nodes.parent(id))
+                .is_some_and(|parent| self.is_readonly_type_operator(parent));
+            let text =
+                format!("{}[{}]", if readonly { "readonly " } else { "" }, pieces.join(", "));
+            return self.store.new_named(TypeFlags::OBJECT, text, None);
+        }
         for element in node.elements {
             // The modifier forms, refused whole. `NamedTupleMember` carries the
             // label *and* may carry `?`/`...` itself, so it is refused here
