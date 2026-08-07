@@ -377,6 +377,17 @@ dependency` 664, long tail. This is §4.4's *structured signature types*
 capability measured from the answer side for the first time, and it is the
 largest single thing the board has ever shown.
 
+### 4.0c The ninth session's closing board, at `440d0ce`
+
+`depend.rs`, fresh. **Gap 78,430** (was 80,315 at the session's open — −1,885
+on the board's own denominator; the wrong bucket fell 36,767 → 36,094
+beside it). What moved on the board itself: **`BinaryExpression / no further
+dependency` fell 1,815 → 979 and its want-any share doubled to 54.2%** — the
+`||`/`??` build harvested the computable half and left the ADR-0038 share
+concentrated; `FunctionDeclaration`-cycle fell 2,943 → 2,531 (the signature
+arms); `ArrayLiteral` 1,776 → 1,726. Every head row keeps its owner from
+§4.0's correction; no new unowned row appeared.
+
 ### 4.0a The board it replaces, re-measured at `d9a730b` (sixth session)
 
 `examples/depend.rs`, run fresh so this section's numbers are this session's.
