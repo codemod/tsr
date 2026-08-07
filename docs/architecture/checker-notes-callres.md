@@ -893,3 +893,26 @@ function expressions and object-literal methods. No global `Promise` in scope
 3. cases regressed == **0**.
 4. lost == **0** — structurally: the arm converts a refusal (`None`) into an
    answer and touches nothing that answers today.
+
+### §14.1 Scored — every leg passed, forecast 101%
+
+`verdictdump` pair at the arm's commit:
+
+```
+GAP→RIGHT 176   (174 forecast — the 2 extra are composite prints, the named upside)
+GAP→WRONG 1     (`<T extends any>` where `<T extends unknown>` is wanted —
+                 a pre-existing constraint-print defect newly exposed; the
+                 Promise<void> the arm answered on that line is correct)
+RIGHT→WRONG 0 · RIGHT→GAP 0 · regressed 0 · suite +4 cases (2,848 → 2,852)
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +120 | **+176** | pass |
+| 2 | own ≤ 10 | **0** (1 exposure) | pass — the falsifier (want `Promise<T>`, `T ≠ void`) did not fire |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+Residue with owners: async valued returns 39 (`getAwaitedType`), generators
+173 + 43 (`Generator`/`AsyncGenerator` construction), the `extends any`
+constraint print (type-parameter constraint defaults, one line here).

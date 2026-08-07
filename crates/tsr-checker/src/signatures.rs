@@ -665,12 +665,35 @@ impl<'a> Checker<'a, '_> {
         asterisk: bool,
         may_return_never: bool,
     ) -> Option<TypeId> {
-        if asterisk
-            || modifiers.iter().any(|modifier| {
-                matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
-            })
-        {
+        let is_async = modifiers.iter().any(|modifier| {
+            matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
+        });
+        if asterisk {
             return None;
+        }
+        // An async **declaration** with no valued return answers
+        // `Promise<void>` — `getReturnTypeFromBody`'s zero-aggregate arm
+        // (`checker.go:20175`) through `createPromiseReturnType`
+        // (`checker.go:20372`) and `createPromiseType` (`checker.go:20348`),
+        // where `void` unwraps to itself. Every other async shape declines:
+        // a valued return needs `getAwaitedType`, and a non-declaration
+        // (arrow, function expression, object-literal method) consults the
+        // contextual return type at `checker.go:20179`, which can turn the
+        // `void` into `undefined` — a declaration never has one, which is
+        // what makes this slice sound. `checker-notes-callres.md` §14 sized
+        // it at 174 lines / 0 want-any and carries the bar.
+        if is_async {
+            if self.nodes.kind(declaration) != SyntaxKind::FunctionDeclaration {
+                return None;
+            }
+            let Body::Block(block) = body else { return None };
+            let returns = self.return_expressions_of(block, declaration);
+            if returns.iter().any(Option::is_some) {
+                return None;
+            }
+            let promise = self.global_type_symbol("Promise")?;
+            let void = self.intrinsics.void;
+            return Some(self.create_type_reference(promise, vec![void]));
         }
         let block = match body {
             // `getReturnTypeFromBody`'s first arm, `!ast.IsBlock(body)`

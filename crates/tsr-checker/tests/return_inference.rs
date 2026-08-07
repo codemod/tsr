@@ -128,3 +128,55 @@ fn an_aggregate_this_slice_cannot_reduce_is_still_a_gap() {
     assert_eq!(type_of_declaration("async function f() { return 1; }", "f"), "error");
     assert_eq!(type_of_declaration("function* f() { return 1; }", "f"), "error");
 }
+
+/// The printed type of `name`, bound beside a stand-in lib declaring `Promise`.
+fn type_of_declaration_with_promise(source: &str, name: &str) -> String {
+    let lib = "interface Promise<T> {}\n";
+    let arena = Arena::new();
+    let mut nodes = tsr_ast::NodeTable::new();
+    let mut node_map = tsr_ast::NodeMap::new();
+    let options = tsr_parser::ParseOptions::default();
+    let lib_file = tsr_parser::parse_into(&arena, lib, options, &mut nodes, &mut node_map);
+    let parsed = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "fixture must parse: {:?}",
+        parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+    );
+    let bound = tsr_binder::bind_into(
+        tsr_binder::BindResult::empty(),
+        lib_file.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "lib.d.ts", text: lib },
+    );
+    let bound = tsr_binder::bind_into(
+        bound,
+        parsed.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let symbol = bound.lookup_local(root, name).unwrap_or_else(|| panic!("`{name}` is declared"));
+    let mut checker = Checker::new(&bound, &nodes, &node_map);
+    let id = checker.get_type_of_symbol(symbol);
+    checker.type_to_string(id)
+}
+
+#[test]
+fn an_async_declaration_with_no_valued_return_is_promise_void() {
+    // `getReturnTypeFromBody`'s zero-aggregate async arm (`checker.go:20175`
+    // -> `:20184`): `compiler/asyncFunctionWithForStatementNoInitializer.types`
+    // records `>useFor : () => Promise<void>` for exactly this shape.
+    assert_eq!(
+        type_of_declaration_with_promise("async function f() {}", "f"),
+        "() => Promise<void>"
+    );
+    // A bare `return;` is still the empty aggregate (`checker.go:20266`).
+    assert_eq!(
+        type_of_declaration_with_promise("async function f() { return; }", "f"),
+        "() => Promise<void>"
+    );
+    // A VALUED return needs `getAwaitedType` and stays a gap — `error` is the
+    // gap sentinel, not an answer.
+    assert_eq!(type_of_declaration_with_promise("async function f() { return 1; }", "f"), "error");
+}
