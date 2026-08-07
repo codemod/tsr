@@ -145,15 +145,21 @@ const x = n(1);
 }
 
 #[test]
-fn no_candidate_matching_is_a_gap_rather_than_the_nearest_miss() {
-    // Upstream reports against the candidate with the fewest problems and
-    // answers that candidate's return type. This port has no error reporting,
-    // so it answers `error` rather than pinning one of the two as "closest".
+fn no_candidate_matching_answers_the_intersection_of_returns() {
+    // The stand-in came due (the twenty-second): this asserted `error` while
+    // the failure path was unported. Upstream does not gap a decided overload
+    // failure — `createUnionOfSignaturesForOverloadFailure`
+    // (`checker.go:9581`) answers a synthetic signature whose return is the
+    // INTERSECTION of the candidates' returns (`checker.go:9620`), so
+    // `p(true)` is `string & number = never`. Corpus-pinned:
+    // `controlFlowIterationErrors.types:138` (`x = foo(x) : never`) and the
+    // original TypeScript baseline agree verbatim. See
+    // `checker-notes-callres.md` §21.
     let source = "\
 function p(x: string): string;
 function p(x: number): number;
 function p(x: any): any { return x; }
 const x = p(true);
 ";
-    assert_eq!(type_of_last(source), "error");
+    assert_eq!(type_of_last(source), "never");
 }

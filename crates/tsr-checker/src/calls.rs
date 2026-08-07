@@ -912,6 +912,23 @@ impl Checker<'_, '_> {
             // decide.
             let mut verdict = Ternary::Related;
             for (&argument, parameter) in argument_types.iter().zip(&candidate.parameters) {
+                // With `strictNullChecks` off, `undefined`/`null` inhabit every
+                // type's domain, so such an argument rejects NO candidate —
+                // without this, `fn1(undefined)` reads as an overload failure
+                // and §21's arm answers an intersection upstream never computes
+                // (`overloadResolution`, the bar's fired falsifier (a)).
+                if !self.strict_null_checks
+                    && self
+                        .type_of(argument)
+                        .flags
+                        .intersects(TypeFlags::UNDEFINED | TypeFlags::NULL)
+                    && !self
+                        .type_of(argument)
+                        .flags
+                        .intersects(!(TypeFlags::UNDEFINED | TypeFlags::NULL))
+                {
+                    continue;
+                }
                 match self.relate_ternary(argument, parameter.r#type, Relation::Assignable) {
                     Ternary::NotRelated => {
                         verdict = Ternary::NotRelated;
@@ -956,6 +973,22 @@ impl Checker<'_, '_> {
             }
             None if arity_matched => bump(&COUNTERS.no_assignable_candidate),
             None => bump(&COUNTERS.arity_no_match),
+        }
+        if chosen.is_none() && arity_matched {
+            // Every arity-matching candidate was DECIDABLY rejected (an
+            // `Unknown` pair returned above), and upstream does not gap this
+            // call: `createUnionOfSignaturesForOverloadFailure`
+            // (`checker.go:9581`) answers with a synthetic signature whose
+            // return is the INTERSECTION of every candidate's return
+            // (`checker.go:9620`) — `foo(x)` on a union no overload takes is
+            // `number & string = never`. Only the return type is consumed
+            // downstream, so the failure signature is candidates[0] with the
+            // intersected return. See `checker-notes-callres.md` §21.
+            let returns: Vec<TypeId> =
+                candidates.iter().map(|candidate| candidate.r#type).collect();
+            let mut failure = candidates[0].clone();
+            failure.r#type = self.get_intersection_type(&returns, None);
+            return Some(failure);
         }
         chosen.cloned()
     }

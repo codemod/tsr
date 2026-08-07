@@ -1233,3 +1233,14 @@ type, not `never`/an intersection — means upstream selected where we
 refused, i.e. our relation rejected a pair upstream accepts, and the arm is
 answering from a wrong premise; (b) regression in the §17/§18 selected
 population — the new exit must not disturb selection.
+
+**§21 score — LANDED, after the bar's falsifier (a) fired and was honoured
+by narrowing.** First measurement: +83 / 9 GAP→WRONG, all nine
+`overloadResolution` `fn1(undefined)` under `@strict: false` — `undefined`
+inhabits every type non-strict, so upstream matched BOTH overloads and our
+relation's missing non-strict arm mis-read an ambiguity as a failure. The
+narrowed premise (a pure-`undefined`/`null` argument rejects no candidate;
+such calls fall to the ambiguous exit and stay gaps): **+77 (76 GAP→RIGHT,
+1 WRONG→RIGHT), ZERO adverse transitions.** `checker_types` 74.62% →
+**74.64%**, cases 3,064 → **3,069**. The twenty-second stand-in fixture came
+due (`overload_resolution.rs`: `p(true)` is `never`, not `error`).
