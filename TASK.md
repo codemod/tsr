@@ -11,10 +11,12 @@ session's spine: the fixpoint landed by exonerating it, the too-large bail
 ~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 3,123/9,538 (32.74%) · 370,197/478,954 = 77.29% · gap 76,774
-  · wrong 21,944. The continuation (builds 25–40): +13,544 right lines,
-  +80 cases, +2.83 points, sixteen bar-scored builds, every fired leg
-  honoured in writing. Arithmetic chain in STATUS §1.
+  checker_types 3,228/9,538 (33.84%) · 372,229/478,954 = 77.72% · gap 74,218
+  · wrong 22,468. The continuation (builds 25–45): +15,576 right lines,
+  +185 cases, +3.26 points, twenty-one bar-scored builds and FOUR measured
+  refusals (§22.1 stripped-callee 6-vs-59; §24's arithmetic variant −562;
+  §26's empty-remainder +102/147; §6.1 spread-own-line +23/388), every
+  fired leg honoured in writing. Arithmetic chain in STATUS §1.
 
 THE METHOD, unchanged and now ~40-for-40: counterfactual/probe sizing → bar
 in docs committed BEFORE code → build anchored to upstream file:line →
@@ -56,8 +58,21 @@ THE BOARD AFTER BUILD 40 (all remaining heads are subsystem-scale):
      (statement-position asserts) + chain-link marker mechanics
      (deleteChain).
   7. Small named residues, each priced in its section: §22's 3 Record
-     lines, §16's typeof-facts granularity for function/object, the
-     §12.7-era assignment-LHS leftovers in JS files.
+     lines, §16's typeof-facts granularity for function/object (§23's
+     faithful arm landed at zero — the constituents arrive lazily
+     unresolved), the §12.7-era assignment-LHS leftovers in JS files.
+  8. NEW prerequisite named by the freshest refusal (§6.1, +23/388):
+     SPREAD-AWARE CALL RESOLUTION. The SpreadElement expression arm is
+     one line, but landing it converts every spread-bearing call from gap
+     to confident wrong until selection understands spread arity. Build
+     the resolution half first; the expression arm then lands free.
+  9. Builds 42–45 opened the TERMINAL board (rank_board, fresh run in
+     the §24 bar): template expressions LANDED (+1,342), void/delete
+     LANDED (+438), non-null LANDED (+167), array-spread containment
+     LANDED (+85). Remaining TERMINAL heads: CallExpression 2,790,
+     ArrowFunction 1,395 (both contextual-typing-bound), NewExpression
+     733 (generic instantiation), ElementAccess 640, AsExpression 228
+     (type-node resolution bound).
 
 DO NOT RE-DERIVE: STATUS §5's refusals all stand. The fixpoint patch doc
 (fixpoint-patch-§12.md) is now HISTORY — the mechanism landed in §12.6/§12.8;
