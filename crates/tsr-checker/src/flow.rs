@@ -848,14 +848,19 @@ impl Checker<'_, '_> {
         if let Some(&cached) = self.flow_loop_cache.get(&key) {
             return FlowType { t: cached, incomplete: false };
         }
-        if let Some((_, types)) = self.flow_loop_stack.iter().find(|(stacked, _)| *stacked == key) {
+        // The on-stack answer requires a NON-EMPTY so-far list — an empty one
+        // means an outer loop's back edge re-entered an inner loop mid-flight,
+        // and upstream restarts that inner analysis rather than answering
+        // (`flow.go:1347`); the restart terminates because a loop junction's
+        // first antecedent is always the non-looping path. See
+        // `checker-notes-narrow.md` §12.8.
+        if let Some((_, types)) = self
+            .flow_loop_stack
+            .iter()
+            .find(|(stacked, types)| *stacked == key && !types.is_empty())
+        {
             let so_far = types.clone();
-            let t = if so_far.is_empty() {
-                self.intrinsics.never
-            } else {
-                self.get_union_type(&so_far)
-            };
-            return FlowType { t, incomplete: true };
+            return FlowType { t: self.get_union_type(&so_far), incomplete: true };
         }
         let antecedents: Vec<FlowId> = self.binder.flow().antecedents(flow).collect();
         let stack_index = self.flow_loop_stack.len();

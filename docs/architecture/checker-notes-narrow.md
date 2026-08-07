@@ -1114,3 +1114,13 @@ shapes all). Falsifiers: (a) non-termination — a hang or stack blowout in
 the conformance run means the restart's termination argument does not
 transfer to this port's walk and the change reverts whole; (b) any
 RIGHT→WRONG outside nested-loop cases.
+
+**§12.8 score — LANDED AT ZERO, and the bar's prediction was WRONG.** The
+restart semantics measured **byte-identical** across the corpus: no hang
+(falsifier (a) held), and none of the predicted under-accumulation lines
+moved — the empty-so-far re-entry is corpus-unreachable or output-neutral
+today. Kept as the faithful port (upstream's shape, one condition), but the
+under-accumulation family (`narrowingPastLastAssignment:0:64`,
+`controlFlowLoopAnalysis:0:25`, `nestedLoopTypeGuards:0:22`) is now
+**mechanism-unknown again** — its next probe must trace one line, not guess
+a fourth time.
