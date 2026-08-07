@@ -251,6 +251,10 @@ pub struct Checker<'a, 'n> {
     /// `@noUncheckedIndexedAccess`: an index-signature access adds
     /// `| undefined` (`checker-notes-narrow.md` §17's fired leg).
     pub(crate) no_unchecked_indexed_access: bool,
+    /// `@useUnknownInCatchVariables` (defaults to `strict`): an
+    /// annotation-less catch variable is `unknown`
+    /// (`checker-notes-narrow.md` §21).
+    pub(crate) use_unknown_in_catch_variables: bool,
     /// `compilerOptions.strictPropertyInitialization` through
     /// `GetStrictOptionValue` (`checker.go:922`) — so it follows `strict` when
     /// unset, exactly as [`Checker::strict_null_checks`] does.
@@ -539,6 +543,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_null_checks: true,
             no_unchecked_side_effect_imports: true,
             no_unchecked_indexed_access: false,
+            use_unknown_in_catch_variables: false,
             strict_property_initialization: true,
             file_has_parse_errors: false,
             allow_unreachable_code: false,
@@ -601,6 +606,12 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// options.
     pub fn set_no_unchecked_indexed_access(&mut self, on: bool) {
         self.no_unchecked_indexed_access = on;
+    }
+
+    /// Set [`Checker::use_unknown_in_catch_variables`] from a case's compiler
+    /// options.
+    pub fn set_use_unknown_in_catch_variables(&mut self, on: bool) {
+        self.use_unknown_in_catch_variables = on;
     }
 
     /// Set [`Checker::strict_property_initialization`] from a case's compiler

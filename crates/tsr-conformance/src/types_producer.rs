@@ -927,6 +927,13 @@ fn render_case(
     let strict_null_checks = explicit("strictnullchecks").or_else(|| explicit("strict"));
     checker.set_strict_null_checks(strict_null_checks.unwrap_or(true));
     checker.set_no_unchecked_indexed_access(explicit("nouncheckedindexedaccess").unwrap_or(false));
+    // Defaults from the EXPLICIT `@strict` directive only — the corpus's
+    // directive-less default keeps `any` (`capturedLetConstInLoop9`), and a
+    // bare `@strictNullChecks: true` does not imply it
+    // (`defaultOfAnyInStrictNullChecks`, the §21 bar's fired leg).
+    checker.set_use_unknown_in_catch_variables(
+        explicit("useunknownincatchvariables").or_else(|| explicit("strict")).unwrap_or(false),
+    );
 
     let mut ours = Vec::new();
     for expected_file in expected {

@@ -1416,3 +1416,15 @@ Plumbed as the fourth per-case option, defaulting to the case's strict
 setting, with the explicit directive winning either way. Falsifier:
 non-strict cases keep `any` (`useUnknownInCatchVariables01` explicitly
 tests the option's own directive).
+
+**§21 score — LANDED after two fired legs, one of them a process leg.** The
+first measurement (+90/102) fired on the DEFAULT: `useUnknownInCatchVariables`
+follows the explicit `@strict` directive only — a bare
+`@strictNullChecks: true` does not imply it and the corpus's
+directive-less default keeps `any`. The second leg was procedural: the
+producer-side plumbing edit silently failed (a python replace that
+printed ok without asserting), so the "fix" measured byte-identical —
+caught by the identical TOTAL, and the edit now asserts its anchor. Final:
+**+29 W→R, 6 W→G / 2 R→G** (`useUnknownInCatchVariables01`'s
+member-access-on-unknown positions). `checker_types` right 370,146 →
+**370,173**.

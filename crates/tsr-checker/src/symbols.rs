@@ -1539,6 +1539,21 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         declaration: NodeId,
     ) -> TypeId {
+        // An annotation-less catch variable is `unknown` under
+        // `useUnknownInCatchVariables` and `any` without it — never the
+        // ordinary implicit-any road (`checker-notes-narrow.md` §21).
+        if self.type_annotation_of(declaration).is_none()
+            && self
+                .nodes
+                .parent(declaration)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        {
+            return if self.use_unknown_in_catch_variables {
+                self.intrinsics.unknown
+            } else {
+                self.intrinsics.any
+            };
+        }
         if let Some(id) = self.get_type_for_variable_like_declaration(declaration) {
             id
         } else {
