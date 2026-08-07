@@ -738,6 +738,12 @@ fn would_merge(last: char, next: char, last_was_numeric: bool) -> bool {
     if last_was_numeric && last.is_ascii_digit() && next == '.' {
         return true;
     }
+    // Mapped modifiers spell their add/remove marker as `+?` / `-?`. Neither
+    // pair is a JavaScript punctuator, so separating it changes valid type syntax
+    // into a parse error rather than preventing token merging.
+    if matches!(last, '+' | '-') && next == '?' {
+        return false;
+    }
     PUNCTUATION.contains(last) && PUNCTUATION.contains(next)
 }
 

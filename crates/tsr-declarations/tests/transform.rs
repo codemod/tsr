@@ -327,6 +327,14 @@ fn mapped_types_in_synthesized_arrow_signatures_stay_single_line() {
 }
 
 #[test]
+fn a_missing_mapped_value_type_becomes_any_in_declaration_output() {
+    assert_emits(
+        "type T<U> = ({ [K in keyof U] }) extends ({ [P in keyof U]: U[P] }) ? 1 : 0;",
+        "type T<U> = ({\n    [K in keyof U]: any;\n}) extends ({\n    [P in keyof U]: U[P];\n}) ? 1 : 0;",
+    );
+}
+
+#[test]
 fn a_deferred_import_becomes_an_ordinary_declaration_import() {
     assert_emits(
         "import defer * as ns from \"./m.js\";\nexport type T = ns.Value;\n",

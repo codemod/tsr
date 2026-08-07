@@ -820,14 +820,14 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
 
-        // `+readonly` / `-readonly` add or remove the modifier rather than being
-        // one; the AST records only the plain form, so the sign is consumed and
-        // dropped until mapped-modifier fidelity is needed.
+        // `+readonly` / `-readonly` store the sign token. The following keyword
+        // is implied by that token kind when the printer reconstructs the syntax,
+        // matching upstream's `MappedTypeNode.ReadonlyToken` representation.
         let readonly = if matches!(self.token.kind, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
         {
-            self.next_token();
-            self.eat(SyntaxKind::ReadonlyKeyword);
-            None
+            let sign = self.take_token();
+            self.expect(SyntaxKind::ReadonlyKeyword);
+            Some(sign)
         } else if self.at(SyntaxKind::ReadonlyKeyword) {
             Some(self.take_token())
         } else {
@@ -854,9 +854,9 @@ impl<'a> Parser<'a> {
 
         let question = if matches!(self.token.kind, SyntaxKind::PlusToken | SyntaxKind::MinusToken)
         {
-            self.next_token();
-            self.eat(SyntaxKind::QuestionToken);
-            None
+            let sign = self.take_token();
+            self.expect(SyntaxKind::QuestionToken);
+            Some(sign)
         } else if self.at(SyntaxKind::QuestionToken) {
             Some(self.take_token())
         } else {

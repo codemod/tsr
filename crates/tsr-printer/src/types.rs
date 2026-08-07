@@ -1,6 +1,6 @@
 //! Type nodes and type-literal members.
 
-use tsr_ast::{TypeElement, TypeNode};
+use tsr_ast::{SyntaxKind, TypeElement, TypeNode};
 
 use crate::{ListFormat, Printer};
 
@@ -246,6 +246,9 @@ impl Printer<'_> {
                 }
                 if let Some(token) = mapped.readonly_token {
                     self.emit_token_node(token);
+                    if token.kind != SyntaxKind::ReadonlyKeyword {
+                        self.write("readonly");
+                    }
                     self.write(" ");
                 }
                 self.write("[");
@@ -265,6 +268,9 @@ impl Printer<'_> {
                 self.write("]");
                 if let Some(token) = mapped.question_token {
                     self.emit_token_node(token);
+                    if token.kind != SyntaxKind::QuestionToken {
+                        self.write("?");
+                    }
                 }
                 if let Some(r#type) = &mapped.r#type {
                     self.write(": ");

@@ -435,13 +435,14 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let saved = std::mem::replace(&mut self.needs_declare, false);
                 let modifiers =
                     self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
+                let r#type = node.r#type.map(|r#type| self.transform_written_type(r#type));
                 self.needs_declare = saved;
                 vec![Statement::TypeAliasDeclaration(self.factory.alloc(
                     tsr_ast::TypeAliasDeclaration::new(
                         modifiers,
                         node.name,
                         node.type_parameters,
-                        node.r#type,
+                        r#type,
                     ),
                     SyntaxKind::TypeAliasDeclaration,
                     self.span_of(node.node_id),
@@ -793,14 +794,62 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     }
 
     fn transform_written_type(&mut self, r#type: TypeNode<'a>) -> TypeNode<'a> {
-        let TypeNode::TypeLiteralNode(literal) = r#type else { return r#type };
-        let members = self.visit_type_members(literal.members);
-        TypeNode::TypeLiteralNode(self.factory.alloc(
-            tsr_ast::TypeLiteralNode::new(members),
-            SyntaxKind::TypeLiteral,
-            self.span_of(literal.node_id),
-            NodeFlags::empty(),
-        ))
+        match r#type {
+            TypeNode::TypeLiteralNode(literal) => {
+                let members = self.visit_type_members(literal.members);
+                TypeNode::TypeLiteralNode(self.factory.alloc(
+                    tsr_ast::TypeLiteralNode::new(members),
+                    SyntaxKind::TypeLiteral,
+                    self.span_of(literal.node_id),
+                    NodeFlags::empty(),
+                ))
+            }
+            TypeNode::MappedTypeNode(mapped) => {
+                let span = self.span_of(mapped.node_id);
+                let name_type = mapped.name_type.map(|name| self.transform_written_type(name));
+                let value_type = match mapped.r#type {
+                    Some(value) => self.transform_written_type(value),
+                    None => self.factory.keyword_type(SyntaxKind::AnyKeyword, span),
+                };
+                TypeNode::MappedTypeNode(self.factory.alloc(
+                    tsr_ast::MappedTypeNode::new(
+                        mapped.readonly_token,
+                        mapped.type_parameter,
+                        name_type,
+                        mapped.question_token,
+                        Some(value_type),
+                        mapped.members,
+                    ),
+                    SyntaxKind::MappedType,
+                    span,
+                    NodeFlags::empty(),
+                ))
+            }
+            TypeNode::ParenthesizedTypeNode(parenthesized) => {
+                let inner = parenthesized.r#type.map(|inner| self.transform_written_type(inner));
+                TypeNode::ParenthesizedTypeNode(self.factory.alloc(
+                    tsr_ast::ParenthesizedTypeNode::new(inner),
+                    SyntaxKind::ParenthesizedType,
+                    self.span_of(parenthesized.node_id),
+                    NodeFlags::empty(),
+                ))
+            }
+            TypeNode::ConditionalTypeNode(conditional) => {
+                let check = conditional.check_type.map(|node| self.transform_written_type(node));
+                let extends =
+                    conditional.extends_type.map(|node| self.transform_written_type(node));
+                let true_type = conditional.true_type.map(|node| self.transform_written_type(node));
+                let false_type =
+                    conditional.false_type.map(|node| self.transform_written_type(node));
+                TypeNode::ConditionalTypeNode(self.factory.alloc(
+                    tsr_ast::ConditionalTypeNode::new(check, extends, true_type, false_type),
+                    SyntaxKind::ConditionalType,
+                    self.span_of(conditional.node_id),
+                    NodeFlags::empty(),
+                ))
+            }
+            _ => r#type,
+        }
     }
 
     /// Ported from `transformModuleDeclaration` (`transform.go:1822`).

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 267/341 (78.30%)
-Failed         : 74
+Passed         : 269/341 (78.89%)
+Failed         : 72
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -32,8 +32,6 @@ compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
   emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
-compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
-  line 29: want `    [k in keyof o]-?: [k, o[k] & ({} | null)];`, got `    [k in keyof o]: [k, o[k] & ({} | null)];`
 compiler/declarationEmitNameConflicts2
   line 12: want `    var f: typeof base.f;`, got `    var f: any;`
 compiler/declarationEmitNoNonRequiredParens
@@ -86,8 +84,6 @@ compiler/libTypeScriptSubfileResolving
   line 1: want `// NOOP`, got `declare const a: DOMIterable;`
 compiler/mappedTypeGenericInstantiationPreservesHomomorphism
   line 1: want `export declare const mappedUnionWithPrivateType: <T extends unknown[]>(...args: T) => T[any] extends infer T_1 ? { [K in keyof T_1]: T_1[K]; } : never;`, got `export declare const mappedUnionWithPrivateType: any;`
-compiler/mappedTypeNoTypeNoCrash
-  line 2: want `    [K in keyof T]: any;`, got `    [K in keyof T];`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable

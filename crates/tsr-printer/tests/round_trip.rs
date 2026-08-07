@@ -69,6 +69,16 @@ fn mapped_types_use_the_upstream_multiline_default() {
 }
 
 #[test]
+fn mapped_type_modifier_signs_survive() {
+    let source = "type R<T> = { -readonly [K in keyof T]-?: T[K] };\n\
+                  type A<T> = { +readonly [K in keyof T]+?: T[K] };";
+    let output = printed(source);
+    assert!(output.contains("-readonly [K in keyof T]-?: T[K]"), "{output}");
+    assert!(output.contains("+readonly [K in keyof T]+?: T[K]"), "{output}");
+    assert!(round_trips(source));
+}
+
+#[test]
 fn a_negative_numeric_literal_type_keeps_its_sign() {
     let output = printed("type T = -1e999;");
     assert!(output.contains("-1e999"), "{output}");

@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  267/341  = 78.30%  (up from 161/339)
+  dts_emit                  269/341  = 78.89%  (up from 161/339)
   dts_shape                 743/918  = 80.94%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -152,6 +152,12 @@ assuming a SingleLine emit flag. Types copied into synthesized arrow-function
 signatures retain the compact form through an explicit synthesized-signature
 print context. Together these layout paths close six byte-exact cases without
 changing declaration shape, suite populations, or printer round-trip semantics.
+
+Mapped `+`/`-` modifier tokens now survive parsing and reconstruct their implied
+`readonly`/`?` syntax, including adjacent `+?` and `-?` pairs. Declaration
+transformation also recursively normalizes a missing mapped value annotation to
+`any` without changing the parser's recovery tree. These close two more
+byte-exact cases without changing declaration shape or suite populations.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
