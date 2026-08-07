@@ -3,103 +3,62 @@ The `diagnostics` workstream's is **TASK-diagnostics.md** — the two were
 overwriting each other in this one file, and the ninth session's diagnostics
 handoff was lost that way before it was read.
 
-FIRST: git pull. Read STATUS.md §1, §4.2a, §5, §7's top rows, then
-docs/architecture/checker-notes-assign.md §7–§12 (the ninth session's spine:
-five bars, four fired legs honoured, two overridden loudly) and
-checker-notes-callres.md §14–§18. The last ~600 lines of docs/conventions.md
-still pay.
+FIRST: git pull. Read STATUS.md §1 and §7's top rows (the ninth session's
+continuation appended SIXTEEN rows, builds 25–40), then
+docs/architecture/checker-notes-narrow.md §12.6–§22 — that run is the
+session's spine: the fixpoint landed by exonerating it, the too-large bail
+(+10,000 in one build), and fourteen more single-rule decodes. The last
+~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 2,942/9,538 (30.85%) · 355,098/478,954 = 74.14% · gap 77,733
-  · wrong 36,084. Ninth session: +2,371 lines, +101 cases, 0 lost,
-  0 regressed, across thirteen bar-scored builds, two measured refusals, and
-  one infrastructure fix. Arithmetic chain in §1.
+  checker_types 3,123/9,538 (32.74%) · 370,197/478,954 = 77.29% · gap 76,774
+  · wrong 21,944. The continuation (builds 25–40): +13,544 right lines,
+  +80 cases, +2.83 points, sixteen bar-scored builds, every fired leg
+  honoured in writing. Arithmetic chain in STATUS §1.
 
-THE METHOD, twelve-for-twelve: counterfactual/probe sizing → bar in docs
-committed BEFORE code → build anchored to upstream file:line → tests FROM
-BASELINES → verdictdump pair → score IN WRITING → five gates → STATUS → push.
-A fired leg is honoured by narrowing (nine times this session) or overridden
-loudly on independent evidence (§8.1, §12.1). Read residuals even when the
-ratio passes — §16.1 caught two latent wrong-rules inside a passing bar.
+THE METHOD, unchanged and now ~40-for-40: counterfactual/probe sizing → bar
+in docs committed BEFORE code → build anchored to upstream file:line →
+verdictdump pair → score IN WRITING → five gates VERIFIED BY GREP (rtk
+masks exit codes — a commit shipped claiming a green clippy that was red;
+`grep -c "^error"` is the gate now) → STATUS → push.
 
-WHAT THE SESSION OPENED, in value order:
-  1. DONE same session (§13.1, +33): the array consumer landed gated on the
-     provably-uncontextual position. The annotated positions stay gaps —
-     their members keep literals under contextual typing
-     (isLiteralOfContextualType), which is that refused subsystem's row.
-  2. DONE as a sizing (switchgap.rs, narrow notes §8.1): tsr-5kii is <=104
-     reachable lines across ~23 cases — an effort-3 mechanism that does NOT
-     clear the board. The 4 aggregate-exposure wrongs stay priced at that.
-  3. HALF DONE (callres §19.1, +151/0): the enclosing-scope half landed —
-     two scope rules learned from losses (shadowing chains keep the written
-     name; computed names and heritage clauses sit outside their class's
-     param scope). REMAINING: the within-print half, 322 lines — REFUSED TWICE
-     (callres §20.1: 149 lost at the shared join, −645 at the synthesized
-     joins). Written composites keep sibling names verbatim
-     (declarationEmitTypeParameterNameReusedInOverloads) while the IPromise
-     head renames; the discriminator is the print context's identity claims.
-     Prerequisite: a per-line study of the two head families side by side.
-     Do NOT attempt a third join placement.
-  4. tsr-5o2 (written-annotation reuse in signature prints) surfaced 4 more
-     lines in §11.2 — its row keeps growing as aggregates land.
-  5. DONE same session, all three verses (assign notes §14/§15/§16):
-     readonly, optionality (both directions) and privacy live in the relation
-     now; the §9 syntactic decline is deleted whole. The relation's remaining
-     unread axes: property-vs-method, index/call signatures — each a future
-     verse with the same recipe.
+TRANSFERABLE LESSONS THE CONTINUATION PAID FOR:
+  - Trace ONE line before theorizing. The eight-cycle fixpoint "semantic
+    residue" was cache poisoning (§12.6); the switch arm's +14/17 first
+    pair was a token-kind confusion (§16) — both named by a single print.
+  - The baseline's weird want usually IS upstream's rule. `foo(x) : never`
+    = intersection of overload returns (callres §21); `AA : any` at targets
+    = declared-type-at-definite-targets (§12.7); 10k want-any = TS2563's
+    deliberate bail rendered as any (§14).
+  - Identity breaks masquerade as relation gaps: the enum member's
+    fresh/regular twin (§18) made `Choice.One -> Choice` undecidable.
+  - Plumbing edits must assert their anchors (§21's silently-failed
+    python replace, caught only by a byte-identical re-measure).
 
-NEXT HEAD, direction persisted before code (ninth session's tail): the
-`any → undefined` W2 row — 548 wrong lines, 12 case-finishes, head cases
-capturedLetConstInLoop* and jsxEsprimaFbTestSuite. Shape: `let x;` (auto
-type) referenced inside a CLOSURE — upstream cannot track the assignment
-across the function boundary and answers the declared auto → `any` (an
-HONEST any, the anySignature precedent; write the ADR-0038 argument from
-checker.go's auto-type conversion before building). Our flow narrows to the
-initial `undefined` instead. CLOSED (narrow notes §9.1–§9.8): the
-family landed as three sound arms — the non-strict auto initial (+1,016),
-the compound-assignment target (+6), and the outer auto reference (+42,
-four measurements teaching isNeverInitialized / mutable-local / var-vs-let
-as ported clauses) — after the sentinel form was refused (+989, cache
-pollution) and the discriminator studied. The binder's per-container START
-nodes turned out to BE upstream's flowContainer bound. Remainder: the
-ever-assigned scan's granularity, small, owned in §9.8.
+THE BOARD AFTER BUILD 40 (all remaining heads are subsystem-scale):
+  1. contextual typing / inference aggregate — `number|string ← any`,
+     ~3,000 lines across inferFromGenericFunctionReturnTypes2,
+     intraExpressionInferences, contextualTyping… This is the REFUSED
+     inference-legs territory (STATUS §5); re-open only with a new
+     mechanism-level argument, not a population count.
+  2. compiler/temporal (433) — namespace-qualified types
+     (`Temporal.ZonedDateTime`), the modobj workstream's row.
+  3. longObjectInstantiationChain3 (166) + the `Omit<…> ← merge<…>` pair
+     row (142) — conditional types / mapped instantiation, unported.
+  4. underscoreTest1 (149) — the DOUBLE-REFUSED `_1` within-print half;
+     checker-notes-callres §20.1 forbids a third join placement without
+     the print-context study.
+  5. inferTypePredicates (147) — predicate INFERENCE from bodies
+     (getTypePredicateFromBody), distinct from build 40's call-condition
+     narrowing which landed.
+  6. controlFlowOptionalChain residue (175) — needs closure-callee
+     narrowing (§13's residue) + effects signatures at CALL flow nodes
+     (statement-position asserts) + chain-link marker mechanics
+     (deleteChain).
+  7. Small named residues, each priced in its section: §22's 3 Record
+     lines, §16's typeof-facts granularity for function/object, the
+     §12.7-era assignment-LHS leftovers in JS files.
 
-THE NEXT SUBSYSTEM: the LOOP FIXPOINT — two refused attempts, §12–§12.2 of
-narrow notes. The port sketch is validated (+241 measured, no cache
-poisoning) and SEVEN interventions produced FIVE byte-identical
-measurements: the 196-line parsingDeep loss family is invariant under every
-depth/disable/placeholder refinement, and the depth-cap diagnosis is
-DISPROVED by instrumentation (the cap never trips). DO NOT attempt an
-eighth blind fix. The required first step is the trace instrument §12.2
-specifies: one lost line, walked with and without the loop arm, printing
-which flow node answers and where the error enters. The branch label's
-incomplete-propagation defect (hardcoded false) is real and documented but
-not the mechanism. Also still open: the incomplete-union completing pass
-(controlFlowLoopAnalysis's | undefined) and the self-referential any bail.
-
-TRAPS PAID FOR THIS SESSION, do not repay:
-  - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
-    nothing; JAVASCRIPT_FILE is now stamped at the program's TWO parse sites
-    (Program::new AND the loader — a stamp at one site measures as zero).
-  - The non-strict Base*Facts delta (checker.go:467) belongs at the
-    whole-operand question in ||/??, NOT inside get_type_facts — a global
-    placement leaks into truthiness narrowing (§8.1 lost 2 lines).
-  - A never-falsy/never-nullish left short-circuits ||/?? to the LEFT type
-    (`1 || 2` is `1`); multi-return unions KEEP regular literals
-    (capturedLetConstInLoop8) — two intuition comments claimed otherwise and
-    both were wrong (the sixth and seventh such).
-  - get_union_type collapses `never` BEFORE any gate can see the pair — pair
-    gates must run on the pair, not the union (§9's fourth measurement).
-  - Upstream's useOnlyExternalAliasing is FALSE in the baseline path (only
-    hover sets it); same-file `import a = b` renames chain SEGMENTS, never
-    the whole printed name (privacyGloImport pins both in one file).
-  - A `.js`-family unit inside a .ts case file is JS: check the UNIT name.
-
-Seventeen unported-stand-in fixtures have now come due across the project.
-When a build goes green somewhere unexpected, grep tests for the mechanism
-name before assuming the build is wrong.
-
-issue-ids SKIPS locally (no beads DB) — a skip, not a pass. Say so in every
-session-close rather than calling the gate green.
-
-Do not stop for no reason. Keep grinding.
+DO NOT RE-DERIVE: STATUS §5's refusals all stand. The fixpoint patch doc
+(fixpoint-patch-§12.md) is now HISTORY — the mechanism landed in §12.6/§12.8;
+read it only for the investigation record.
