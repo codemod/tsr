@@ -2045,3 +2045,254 @@ this variant. The measurement costs two `casedelta` runs and settles it.
 - **The gate is doing the damage rather than the chain.** It cannot be: with the
   gate removed the loss is strictly larger — that was the first test failure, and
   it gaps types the gate never lets the chain see.
+
+---
+
+# Cycle 21 — the unresolved-VALUE-name row, split by what the baseline wants
+
+**2026-08-07. Measured at `df13a69` by `crates/tsr-conformance/examples/valgap.rs`.
+No compiler code was changed; this is a measurement, and its product is a
+refusal.**
+
+> **Re-taken at `a4e3991`, after the three-valued relater landed** (`tsr-kmzf`,
+> `7f6b4ff`/`d8590ff`; the whole-corpus gap fell 94 lines). **Every count in this
+> section is byte-identical across the two commits** — classified 7,685, all
+> thirteen buckets, all five controls. The only differences in the two runs'
+> output are hash-iteration ties between head names of equal count. So **none of
+> the ternary build's 94 lines came from this row**, which is the expected
+> result: an assignability decision cannot reach a line whose *name* never
+> resolved. Recorded because a re-take that changes nothing is still a
+> measurement, and the alternative is a reader assuming the numbers are stale.
+
+`STATUS.md` §4.3 carried the row *"1,425 lines — unresolved **value** names;
+79.5% want `any`; the reachable remnant has never been characterised"* with the
+probe *"split the 1,425 by what the baseline wants"*. This is that split.
+
+Reproduce:
+
+```
+cargo run --release -p tsr-conformance --example valgap
+```
+
+## 53. The row is 7,685, not 1,425 — and the number reconciles exactly
+
+`valgap.rs` re-walks `depend.rs`'s declaration-dependency chain with the same
+`step` and `gaps` functions, copied verbatim, and keeps the lines whose root is
+the `Identifier: the name does not resolve as a VALUE` bucket. At `df13a69` both
+instruments read the same cell:
+
+| | lines | want-any |
+|---|---:|---:|
+| `depend.rs`, `(Identifier: the name does not resolve as a VALUE, no further dependency)` | **7,685** | 5,683 (73.9%) |
+| `valgap.rs`, classified | **7,685** | 5,683 (73.9%) |
+| `STATUS.md` §4.3, at `b00738d` | 1,425 | 79.5% |
+
+**C5 was registered with the expectation that the row had *shrunk*, and that
+expectation was backwards** — six builds landed between `b00738d` and `df13a69`
+and the row is 5.4× larger. It is kept as registered above the corrected reading
+in the probe's own docs, because a rule quietly reinterpreted afterwards is worse
+than none.
+
+The obvious defence — *"1,425 was one `(kind, ending)` cell and 7,685 is the
+whole kind row"* — **is not available**: this probe carries `depend.rs`'s ending
+column and the histogram has exactly **one** entry, `no further dependency`, at
+7,685. There is no partition to have got wrong. `STATUS.md`'s figure is stale.
+
+**Why a root row grows while the gradient improves** is worth stating, because
+it will happen again: `depend.rs` attributes a gap line to wherever its chain
+*stops*. Building an arm makes chains walk *further*, so lines that used to stop
+at a `CallExpression` or a `TypeReference` now walk past it and stop at the
+unresolved name underneath. A `depend.rs` row is a **frontier**, not a
+population, and its size moves in both directions as the compiler improves.
+Nothing about this row's own mechanism changed.
+
+## 54. The split
+
+Every line, by what the baseline wants. Top-1 case share is printed for every
+bucket, because this project has been bitten three times by a bucket that was one
+case (`tsr-jle`: 10,000 of 11,004).
+
+| lines | share | cases | top-1 | bucket |
+|---:|---:|---:|---:|---|
+| **5,683** | **73.9%** | 643 | 20.0% | **(a) want `any`** — ADR-0038, unreachable |
+| 533 | 6.9% | 24 | **83.7%** | the chain ran — the root's string is not what the line wants |
+| 399 | 5.2% | 30 | 36.6% | (c) `arguments` — unsynthesised global |
+| 272 | 3.5% | 110 | 14.0% | **(b) a candidate types and prints something ELSE** |
+| 247 | 3.2% | 23 | 55.1% | (c) the only candidate is an **ALIAS** — `bd tsr-4jk`, already refused |
+| 140 | 1.8% | 21 | 14.3% | (c) `CommonJS` ambient (`require`/`module`/`exports`) |
+| 134 | 1.7% | 14 | 57.5% | (c) `globalThis` — unported |
+| 93 | 1.2% | 15 | 49.5% | (c) declared **nowhere** in this program |
+| **70** | **0.9%** | 45 | 8.6% | **(b) a candidate types and prints EXACTLY what is wanted** |
+| 54 | 0.7% | 30 | 16.7% | (c) the only candidate has a **type** meaning only |
+| 44 | 0.6% | 20 | 22.7% | (c) `@lib` dropped by the harness — `bd tsr-cug` |
+| 8 | 0.1% | 8 | 12.5% | (c) empty identifier text — parser recovery |
+| 8 | 0.1% | 5 | 50.0% | (c) a candidate exists and its own type gaps (downstream) |
+
+Rolled up into the three the probe was registered to produce:
+
+```
+(a) want `any`, unreachable                       5,683   73.9%
+(b) a nameable type this port could compute         342    4.4%   (70 exact + 272 differing)
+(c) behind a named unported mechanism             1,127   14.7%
+    not comparable (the chain ran)                  533    6.9%
+```
+
+### The 533 is one case
+
+`compiler/parsingDeepParenthensizedExpression` is 83.7% of it, and the name is
+`o` 414 times. It is `tsr-jle`'s shape again and it is not a population.
+
+### Bucket (a)'s head is the family §3 already named
+
+`NodeType` 1,561, `ErrorRecoverySet` 327, `BasicBlock` 176 — the
+`parserRealSource*` files, whose `///<reference path='typescript.ts' />` names a
+file the case does not contain. §3 named these three years of sessions ago as
+*"in finding 1, not in the available work"*, and they are still there. Top-1 case
+is `conformance/parserRealSource11` at 20.0%, so bucket (a) is not one case; it
+is one *family* spread over 643.
+
+## 55. Bucket (b) is 342 lines at its ceiling, and 70 at its floor
+
+The counterfactual is `get_type_of_symbol` on a candidate symbol of that name
+found anywhere in the program, rendered through `type_to_string_at` — the body of
+`types_producer::render`. Where that string is the string the baseline wants, the
+line is work. Where it is not, resolving the name converts a gap into a **wrong**
+line unless the printed form is fixed too.
+
+Head pairs from the 272 that would print something else:
+
+```
+  24  want number                    would print T
+  23  want this                      would print Function
+  18  want { b?: { c?: string; }; }  would print T
+   9  want typeof Backbone.Model     would print typeof Model
+   8  want number                    would print string
+   6  want exports                   would print number | undefined
+```
+
+Two families dominate and neither is a resolver defect. **`T`** is an
+uninstantiated type parameter — the candidate found is the *declaration's* type,
+not the type at the reference, so this is instantiation and inference, `bd
+tsr-g30h`'s territory. **`typeof Backbone.Model` against `typeof Model`** is
+namespace-qualified naming, refused in `STATUS.md` §5 at 2.7 wrong per right and
+re-refused by `jsxfeas.rs` this session.
+
+Where the candidate is declared, across both (b) buckets:
+
+| lines | bucket | where |
+|---:|---|---|
+| 211 | prints something else | another file of the program |
+| 50 | prints something else | inside a namespace/module body |
+| 28 | **exact** | this file, out of scope |
+| 27 | **exact** | another file of the program |
+| 15 | **exact** | inside a namespace/module body |
+| 11 | prints something else | this file, out of scope |
+
+**The 65 namespace-body lines are not the `nameresolver.go` exports arm.** That
+arm was built — `tsr-56r` at `3b7fa44`, +4,319 lines, `BindResult::resolve_name`
+(`lib.rs:431`) consults a namespace's `exports` today. `nameres.rs` §3's label
+*"no exports arm in `resolve_name`"* is stale, and reusing it wholesale would
+have reported a ported mechanism as missing. Grepped before it was quoted, per
+`docs/conventions.md`.
+
+### C4 fired, and its diagnosis makes 70 a floor rather than a point
+
+The counterfactual was mirrored, in the same pass, onto lines that are **already
+right** and whose node is a resolving identifier reference: if it is faithful it
+must reproduce those baselines. Registered at **≥95%**. It read **85.2%**
+(58,039 of 68,126).
+
+Its own diagnosis leg says **99.6% of the 10,087 disagreements are lines where
+the producer's answer differs from `get_type_of_symbol`** — the identifier arm
+does more than read the symbol (flow narrowing, the export redirect). So the
+counterfactual systematically *under*-counts exact matches. **70 is a lower bound
+on bucket (b) and 342 is the upper one.** Reported, not tuned.
+
+## 56. C3 fired at 31, and the 31 are a mechanism
+
+C3 was pinned to the upstream construct rather than to this probe's arithmetic:
+`checkIdentifier` calls `getResolvedSymbol` and, on `c.unknownSymbol`, returns
+`c.errorType` (`vendor/typescript-go/internal/checker/checker.go:11046`), which
+the node builder prints as `any`. So a depth-0 line whose name **nothing in this
+program declares** must want `any`. Expected 0.
+
+It read **31**. Every one is a place where upstream's program held a declaration
+ours does not — head names `React`, `CharacterCodes`, `FieldSymbol`, top case
+`conformance/jsxUnclosedParserRecovery`. This is program composition (`@lib`,
+`declare global`, missing reference files), the same owner as `bd tsr-cug` and as
+the global-augmentation prerequisite `jsxfeas.rs` named for JSX. **31 lines; it
+is a control result, not an item.**
+
+The first cut of this control read **168**, and the extra 137 were a classifier
+defect this section keeps rather than smooths: candidates were filtered to
+`SymbolFlags::VALUE`, which **excludes `ALIAS`** (`symbol.rs:106`), so every name
+whose only declaration is an import alias landed in a bucket meaning *"upstream
+cannot resolve it either"* — the opposite of the truth. The fix is the
+`CandidateAliasOnly` bucket, and it is 247 lines.
+
+> **A bucket named for the absence of something must be tested for every way the
+> thing can be present.** `NowhereInProgram` was defined by a lookup that could
+> not see one of the meanings, and the control pinned to upstream's construct is
+> what surfaced it — an arithmetic control over the same partition would have
+> summed correctly and said nothing.
+
+## 57. The verdict: the row dissolves, and mostly into things already refused
+
+```
+7,685  the row
+-5,683  ADR-0038's ceiling — no resolver work reaches these        73.9%
+-  533  one pathological case                                       6.9%
+-1,127  named unported mechanisms, none of them this resolver      14.7%
+=  342  the whole reachable remnant, at its CEILING                 4.4%
+```
+
+And the 342 does not survive contact either:
+
+- **272 of it would print the wrong string.** Its two head families are
+  uninstantiated type parameters (`bd tsr-g30h`) and namespace-qualified naming
+  (refused, `STATUS.md` §5). Building resolution without them manufactures wrong
+  lines — the exact shape `bd tsr-4jk` refused for import aliases, and the
+  247-line `CandidateAliasOnly` bucket here **is** that population arriving
+  through a third instrument.
+- **70 lines would print exactly right**, over 45 cases at top-1 8.6%. That is
+  diffuse and honest and it is **70 lines**, an order of magnitude below the
+  smallest thing this project has ever built and a tenth of the 800-line bar §4
+  refused this same family on in cycle 12.
+
+**REFUSED. There is no scoreable item in this row.** `STATUS.md` §4.3's entry
+should be replaced by a §5 refusal carrying 7,685 / 342 / 70, and its 1,425
+corrected to 7,685 with a note that the figure moved because a `depend.rs` root
+row is a frontier.
+
+The three mechanisms worth carrying forward are already filed and none of them is
+`resolve_name`:
+
+| lines | mechanism | owner |
+|---:|---|---|
+| 399 + 134 + 140 | `arguments`, `globalThis`, the `CommonJS` ambients | unsynthesised globals — the binder's `declare_synthesised_globals`, upstream's `argumentsSymbol` arm at `checker.go:11049` |
+| 247 | import aliases in value position | `bd tsr-4jk`, refused on naming |
+| 44 + 31 | `@lib` and the rest of program composition | `bd tsr-cug` |
+
+The largest of those, the three globals at **673 lines combined**, is the only
+one that is neither refused nor already filed as someone's prerequisite. It is
+not a resolver item — it is three names the binder does not declare — and it is
+recorded here rather than scored, because 673 is a ceiling on a population and
+this page's own history is a list of ceilings that converted at a fraction.
+
+## 58. How you would know this section is wrong
+
+- **The 7,685 is an artefact of copying `depend.rs`'s walk.** It cannot be: the
+  cell reconciles to the line against `depend.rs`'s own run at the same commit,
+  and the copy is verbatim and marked as such in both directions.
+- **Bucket (b) is bigger than 342.** It could be — C4 fired at 85.2% and the
+  counterfactual under-counts. But it would have to be **5× bigger** to reach the
+  800-line bar §4 refused this family on, and C4's disagreements are dominated by
+  flow narrowing, which cannot apply to a name that does not resolve at all
+  (`open`).
+- **The `arguments`/`globalThis` bucket is cheaper than it looks.** It is three
+  named globals, not a subsystem, and 673 lines is above several things that have
+  landed. Nobody has costed it; this page does not claim it is refused, only that
+  it is **not this row's item** (`open`).
+- **The 272 "prints something else" lines are mostly not `T`.** The head is read
+  from the top 12 pairs, which is 122 of 272; the remaining 150 are unread and
+  the claim that they are the same two families is an inference (`open`).
