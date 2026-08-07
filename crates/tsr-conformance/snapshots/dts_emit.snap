@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 253/341 (74.19%)
-Failed         : 88
+Passed         : 261/341 (76.54%)
+Failed         : 80
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -94,22 +94,6 @@ compiler/mappedTypeNoTypeNoCrash
   line 1: want `type T0<T> = ({`, got `type T0<T> = ({ [K in keyof T]; }) extends ({ [key in K]: T[K]; }) ? number : never;`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 1: want `export declare const thing: {`, got `export declare const thing: { [K in keyof number[] as Exclude<K, "length">]: (number[])[K]; };`
-compiler/moduleAugmentationDeclarationEmit1
-  line 1: want `declare module "./observable" {`, got `import { Observable } from "./observable";`
-compiler/moduleAugmentationDeclarationEmit2
-  line 1: want `declare module "./observable" {`, got `import { Observable } from "./observable";`
-compiler/moduleAugmentationExtendAmbientModule2
-  line 1: want `declare module "observable" {`, got `import { Observable } from "observable";`
-compiler/moduleAugmentationImportsAndExports1
-  line 1: want `import { B } from "./f2";`, got `import { A } from "./f1";`
-compiler/moduleAugmentationImportsAndExports2
-  line 1: want `declare namespace N {`, got `import { A } from "./f1";`
-compiler/moduleAugmentationImportsAndExports3
-  line 1: want `declare namespace N {`, got `import { A } from "./f1";`
-compiler/moduleAugmentationImportsAndExports5
-  line 1: want `import { B } from "./f2";`, got `import { A } from "./f1";`
-compiler/moduleAugmentationImportsAndExports6
-  line 1: want `import { B } from "./f2";`, got `import { A } from "./f1";`
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   line 1: want `export * from "./account";`, got `declare global {`
 compiler/moduleDetectionIsolatedModulesCjsFileScope

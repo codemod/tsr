@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 736/918 (80.17%)
-Failed         : 182
+Passed         : 743/918 (80.94%)
+Failed         : 175
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 182 failures:
+First 100 of 175 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -63,6 +63,8 @@ compiler/declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile
   #0: want `import`, got `var middleware`
 compiler/declarationEmitLateBoundAssignments2
   #7: want `function decl4`, got `namespace decl3`
+compiler/declarationEmitLocalClassHasRequiredDeclare
+  #2: want `class X`, got `class A`
 compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
   #0: want `type Fns`, got `var _default`
 compiler/declarationEmitMultipleComputedNamesSameDomain
@@ -193,23 +195,21 @@ compiler/libTypeScriptOverrideSimple
   #0: want `interface ABC`, got `var a`
 compiler/libTypeScriptSubfileResolving
   #0: extra `var a`
-compiler/moduleAugmentationDeclarationEmit1
-  #0: want `module "./observable"`, got `import`
-compiler/moduleAugmentationDeclarationEmit2
-  #0: want `module "./observable"`, got `import`
-compiler/moduleAugmentationExtendAmbientModule2
-  #0: want `module "observable"`, got `import`
-compiler/moduleAugmentationImportsAndExports1
-  #1: want `module "./f1"`, got `import`
-compiler/moduleAugmentationImportsAndExports2
-  #0: want `namespace N`, got `import`
-compiler/moduleAugmentationImportsAndExports3
-  #0: want `namespace N`, got `import`
-compiler/moduleAugmentationImportsAndExports5
-  #1: want `namespace N`, got `import`
-compiler/moduleAugmentationImportsAndExports6
-  #1: want `namespace N`, got `import`
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   #0: want `export{}`, got `namespace global`
 compiler/moduleDetectionIsolatedModulesCjsFileScope
   #0: want `export{}`, got `var a`
+compiler/moduleLocalImportNotIncorrectlyRedirected
+  #0: want `import`, got `export{}`
+compiler/multiImportExport
+  emitted Math/Math.d.ts, upstream emitted no declaration file
+compiler/nodeNextEsmImportsOfPackagesWithExtensionlessMains
+  #0: want `function address`, got `function getAddress`
+compiler/nodeNextImportModeImplicitIndexResolution
+  #0: want `var item`, got `export{}`
+compiler/nodeNextPackageSelfNameWithOutDirDeclDirCompositeNestedDirs
+  emitted src/thing.d.ts, upstream emitted no declaration file
+compiler/nodeNextPackageSelfNameWithOutDirDeclDirNestedDirs
+  emitted src/thing.d.ts, upstream emitted no declaration file
+compiler/objectLiteralComputedNameNoDeclarationError
+  #0: want `var Baa`, got `var Foo`

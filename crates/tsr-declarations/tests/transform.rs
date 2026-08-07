@@ -351,6 +351,27 @@ fn a_module_augmentation_and_its_type_import_are_retained() {
 }
 
 #[test]
+fn an_augmentation_declaration_does_not_retain_a_shadowed_import() {
+    assert_emits(
+        "import { Observable } from \"./observable\";\n\
+         declare module \"./observable\" {\n\
+             interface Observable<T> { map<U>(value: T): Observable<U>; }\n\
+         }",
+        "declare module \"./observable\" {\n    interface Observable<T> {\n        map<U>(value: T): Observable<U>;\n    }\n}\nexport {};",
+    );
+}
+
+#[test]
+fn an_augmentation_retains_only_genuine_external_type_imports() {
+    assert_emits(
+        "import { A } from \"./f1\";\n\
+         import { B } from \"./f2\";\n\
+         declare module \"./f1\" { interface A { foo(): B; } }",
+        "import { B } from \"./f2\";\ndeclare module \"./f1\" {\n    interface A {\n        foo(): B;\n    }\n}",
+    );
+}
+
+#[test]
 fn every_declaration_in_a_merged_symbol_is_retained_in_source_order() {
     assert_emits(
         "function f(): void {}\nnamespace f { export const x: number = 1; }\nexport { f };\n",

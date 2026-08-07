@@ -490,6 +490,30 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
         }
     }
 
+    fn visit_module_declaration(&mut self, node: &'a tsr_ast::ModuleDeclaration<'a>) {
+        let bound_len = self.bound_type_names.len();
+        match node.body {
+            Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
+                // Declarations in an augmentation or namespace bind names in that
+                // module's scope. In `declare module "./m" { interface A {} }`,
+                // the declaration name `A` must not retain a top-level `import
+                // { A } from "./m"`; genuine external references from member
+                // types remain unbound and still retain their imports.
+                for statement in block.statements {
+                    self.bound_type_names.extend(declared_names(statement));
+                }
+                for statement in block.statements {
+                    self.visit_node(tsr_ast::Node::from(*statement));
+                }
+            }
+            Some(tsr_ast::ModuleBody::ModuleDeclaration(inner)) => {
+                self.visit_module_declaration(inner);
+            }
+            None => {}
+        }
+        self.bound_type_names.truncate(bound_len);
+    }
+
     // A body emits nothing, so it can make nothing visible.
     fn visit_block(&mut self, _node: &'a tsr_ast::Block<'a>) {}
 
