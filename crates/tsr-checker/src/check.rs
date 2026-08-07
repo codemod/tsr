@@ -209,6 +209,7 @@ impl Checker<'_, '_> {
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
                 self.check_heritage_conformance(node);
+                self.check_property_overrides(node);
                 ambient
             }
             Node::ClassExpression(declaration) => {

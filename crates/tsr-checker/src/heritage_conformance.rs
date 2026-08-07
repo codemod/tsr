@@ -150,4 +150,113 @@ impl Checker<'_, '_> {
             return;
         }
     }
+
+    /// TS2416 — `Property '{0}' in type '{1}' is not assignable to the same
+    /// property in base type '{2}'.`
+    ///
+    /// `checkKindsOfPropertyMemberOverrides` (`checker.go`), which compares each
+    /// **own** member of a derived declaration against the base's member of the
+    /// same name. Error node the member's own name:
+    /// `baseClassImprovedMismatchErrors.ts(8,5)` is the `n` of `n: string |
+    /// Derived`.
+    ///
+    /// Reported per member, and therefore *beside* TS2415 rather than instead of
+    /// it — the baseline above records both codes for the same class, at
+    /// different positions.
+    pub(crate) fn check_property_overrides(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+        if !class.type_parameters.is_empty() {
+            return;
+        }
+        let Some(base) = self.sole_plain_base_type(class.heritage_clauses) else { return };
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if self.binder.symbols().get(symbol).declarations.len() > 1 {
+            return;
+        }
+        let derived = self.get_declared_type_of_class_or_interface(symbol);
+
+        let members: Vec<(String, NodeId)> = class
+            .members
+            .iter()
+            .filter_map(|member| {
+                let name = match member {
+                    tsr_ast::ClassElement::PropertyDeclaration(property) => property.name,
+                    tsr_ast::ClassElement::MethodDeclaration(method) => method.name,
+                    _ => return None,
+                };
+                let id = name.node_id()?;
+                match self.node_map.get(id) {
+                    Some(Node::Identifier(identifier)) => Some((identifier.text.to_string(), id)),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        for (name, at) in members {
+            let (Some(derived_type), Some(base_type)) = (
+                self.get_type_of_property_of_type(derived, &name),
+                self.get_type_of_property_of_type(base, &name),
+            ) else {
+                continue;
+            };
+            if !self.pair_is_reportable(derived_type, base_type) {
+                continue;
+            }
+            if self.relate_ternary(derived_type, base_type, Relation::Assignable)
+                != Ternary::NotRelated
+            {
+                continue;
+            }
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.nodes.span(at);
+            let derived_text = self.type_to_string(derived);
+            let base_text = self.type_to_string(base);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_IN_TYPE_1_IS_NOT_ASSIGNABLE_TO_THE_SAME_PROPERTY_IN_BASE_TYPE_2,
+                    span,
+                    [name, derived_text, base_text],
+                ),
+            );
+        }
+    }
+
+    /// The declared type of a class's single, plain, non-generic base class.
+    fn sole_plain_base_type(&mut self, clauses: &[&tsr_ast::HeritageClause<'_>]) -> Option<TypeId> {
+        let mut found = None;
+        for clause in clauses {
+            if clause.token.kind != tsr_ast::SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for entry in clause.types {
+                if found.is_some() || !entry.type_arguments.is_empty() {
+                    return None;
+                }
+                let tsr_ast::Expression::Identifier(written) = entry.expression? else {
+                    return None;
+                };
+                let base = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    written.node_id?,
+                    written.text,
+                    SymbolFlags::TYPE,
+                )?;
+                let base = self.binder.merged_symbol(base);
+                let entry = self.binder.symbols().get(base);
+                if !entry.flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                    || entry.declarations.len() > 1
+                {
+                    return None;
+                }
+                found = Some(self.get_declared_type_of_class_or_interface(base));
+            }
+        }
+        found
+    }
 }

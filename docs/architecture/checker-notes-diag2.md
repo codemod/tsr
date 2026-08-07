@@ -1884,3 +1884,26 @@ already there was **+10 conversions for +5 wrong lines** — the cheapest edit i
 this file since §12.
 
 Ratio 0.90, near the top of the project's 0.47–1.03 refusal band.
+
+### 27.1 TS2416 — the per-property override check, shipped at a measured **zero**
+
+```
+CONVERTS +0     LOST 0     RIGHT 4     WRONG 0
+```
+
+`checkKindsOfPropertyMemberOverrides` compares each **own** member of a derived
+class against the base's member of the same name; error node the member's own
+name, and it is reported *beside* TS2415 rather than instead of it — the
+`baseClassImprovedMismatchErrors` baseline records both codes for one class at
+different positions.
+
+**Shipped with zero conversions, and recorded as such.** Its gate is the tightest
+in this file — a single plain non-generic base, a single declaration on both
+sides — and the row's 18 cases are almost all generic or interface-based, which
+the gate excludes. Four right lines, no wrong ones, two cases moved closer.
+
+It is kept rather than reverted because the *rule* is right and only the gate is
+narrow: widening it is a one-line change once generic bases can be instantiated,
+and the alternative — deleting a correct rule because its gate has not caught up —
+is how a port loses work it has already done. The zero is here so nobody prices
+it as a conversion later.
