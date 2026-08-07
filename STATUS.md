@@ -475,6 +475,17 @@ computed names 219, design P's outer symbol chain 13, discriminated-union
 narrowing on `switch` (`bd tsr-5kii`, **unsized** — do not quote the 20 that
 exposed it), the value-name convertible bucket 70 (a *lower* bound).
 
+**The ninth session's builds point the next session at ONE re-measure:**
+`removeSubtypes` (`tsr-eak`, refused at 1.03 gained-per-lost) was priced
+before the ternary relation existed. The relation now answers
+`Related / NotRelated / Unknown` (`tsr-kmzf`), so a reduction gated on
+*every pairwise relation decidable* — declining the moment any pair reads
+`Unknown` — is a design neither of `tsr-eak`'s numbers priced. It is the
+named owner of the `||`/`??` residue, the conditional's non-safe pairs, the
+two-object array literals, the multi-distinct return aggregates and the
+`1 | 2` yield unions — five doors onto one mechanism, all found this session.
+Counterfactual first, as always.
+
 **Refused, each with its number** — §5. Do not re-derive: inference's remaining
 legs (~17), the ternary as an item (0 marginal), template literals (0.76 / 0.99),
 `removeSubtypes` (1.03), contextual typing (86% entangled, reproduced a **third**
