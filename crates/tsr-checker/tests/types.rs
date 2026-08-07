@@ -1044,9 +1044,12 @@ fn an_annotated_this_parameter_is_what_this_types_as() {
         ),
         "I"
     );
+    // §39 (`checker-notes-narrow.md`): a plain function's `this` is `any`
+    // in every mode — TS2683 is `noImplicitThis`'s diagnostic, not a type
+    // change.
     assert_eq!(
         type_of_nested_declaration("function f() { const x = this; return x; }", "x"),
-        "error"
+        "any"
     );
     // **Arm 1 shadows arm 2.** A method *is* function-like, so upstream reaches
     // the signature's `this` type before `ast.IsClassLike(container.Parent)` and
@@ -1159,12 +1162,14 @@ fn this_inside_a_class_is_the_class_this_type() {
         ),
         "number"
     );
+    // §39: the nested plain function REBINDS `this` — to `any`, upstream's
+    // typed answer, not the enclosing class's this-type and not a gap.
     assert_eq!(
         type_of_nested_declaration(
             "class C { a: number; m() { function f() { const x = this; return x; } } }",
             "x"
         ),
-        "error"
+        "any"
     );
     // Outside any class there is no container this port can answer for.
     assert_eq!(type_of_nested_declaration("const x = this;", "x"), "error");

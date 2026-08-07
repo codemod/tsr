@@ -1815,3 +1815,8 @@ plain-function opaque arm answered `errorType`; it now answers `any` — the
 boundary chain's shape again, though here the `any` is upstream's typed
 answer, not an error rendering. Falsifier: class-adjacent shapes must not
 route here (the arm sits exactly where the old error sat).
+
+**§39 score — LANDED.** **+672 (662 G→R, 10 W→R) / 140 GAP→WRONG** — the
+140 head at strict-mode `this` shapes where upstream's noImplicitThis
+answer differs contextually (`castTest`'s object-method `this`), the
+recorded residue. `checker_types` right 391,350 → **392,022 (81.85%)**.

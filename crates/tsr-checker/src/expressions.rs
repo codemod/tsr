@@ -757,10 +757,12 @@ impl Checker<'_, '_> {
                 // it needs no arm of its own. It is named here because that
                 // transparency is a rule and not an omission.
                 //
-                // Opaque: a plain function rebinds `this`, and what to is
-                // upstream's signature machinery (`bd tsr-4sc.8`).
+                // Opaque: a plain function rebinds `this` — to `any`, in
+                // every mode (`tryGetThisTypeAtEx`'s fallthrough; TS2683 is
+                // a diagnostic under `noImplicitThis`, not a type change) —
+                // `checker-notes-narrow.md` §39.
                 SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => {
-                    return self.intrinsics.error;
+                    return self.intrinsics.any;
                 }
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
                     let Some(symbol) = self.binder.symbol_of(id) else {
