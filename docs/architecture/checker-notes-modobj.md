@@ -619,3 +619,21 @@ against §10.9's dump: **WRONG→RIGHT 58, and no other transition of any kind**
 — +58 net, RIGHT→WRONG 0, gap ±0, cases 2,761 → 2,762, 0 regressed. The
 9-line difference from the residue's 67 is the `EnumE`-style rename-misses
 and chains whose remaining defect is further out.
+
+### 10.11 The ALIAS row re-taken, and the default-import arm's bar
+
+`nameres.rs` at `014ea8c`: the row is **2,057 lines** (was 5,207 at the
+refusal; the seventh session's chain took most of what the sixth left), and
+the convertible-under-unhandled-forms bucket is **196** (was 1,524). By form,
+the only shard left with a real conversion column is **`import d from "m"`:
+472 total, 131 convertible** — a genuine `default` export reached and typed
+with exactly upstream's text. The synthetic-default half (no `export
+default`, interop semantics, upstream's `cloneTypeAsModuleType`) is NOT this
+item and stays declined.
+
+**Bar for the plain-default arm** (`getTargetOfImportClause`,
+`checker.go:14497`, the `getUsableModuleExport("default")` half): net ≥ +65
+(50% of the 131-line replay ceiling); own new wrong ≤ 40; regressed == 0;
+lost ≤ 5. Falsifier: if new wrong concentrates in `want any` lines, the
+missing half is the *synthetic* default — decline it positionally rather
+than approximating.
