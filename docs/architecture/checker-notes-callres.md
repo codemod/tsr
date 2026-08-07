@@ -1282,3 +1282,16 @@ their undefined half in the baselines while some chain-ROOT identifier
 callees print without. The discriminator is a print-context question this
 measurement does not decide; reverted whole. The six lines stay wrong
 with this number recorded against the next attempt.
+
+### §23 The untyped-call gate learns the §31/§32 provenance
+
+`t.m(1)` with `t: Unresolved` errors while `t.m` answers `any`: the
+untyped-call arm's written-annotation gate (its own §-history's 248-line
+lesson) predates §31/§32, under which an `any` from a truly-unresolved
+name or a minted-unresolved receiver IS upstream's claim. Admission
+extends to: a callee that is a property/element access whose RECEIVER's
+type is the `any` intrinsic or a minted unresolved — `any.m` is `any` in
+both compilers, and a call through it is an untyped call. Falsifier: the
+248-line lesson's population (unported-mechanism `any`s) must not re-enter
+— the receiver test reaches only the §31/§32 provenances and written-any
+receivers, never an `any` this port computed FOR the callee itself.
