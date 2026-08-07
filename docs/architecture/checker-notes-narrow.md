@@ -1522,3 +1522,12 @@ still diverges on the rest (a scanner item, not a checker one). (3)
 `templateLiteralTypes2` ×19 — the contextual template-literal blind spot,
 falsifier (b) measured and accepted. (4) tagged-overloads ×10.
 `checker_types` right 370,197 → **371,539**, gap 76,774 → **75,017**.
+
+### §25 `void` and `delete` expressions
+
+Two TERMINAL board rows with one-line rules: `checkVoidExpression`
+(`checker.go`) — the operand checks, the answer is `undefined` (276 lines
+across the two rows: void 167, delete 109); `checkDeleteExpression` — the
+operand checks, the answer is `boolean`. A gapping operand gaps the whole,
+per the crate-wide rule. Falsifier: none worth naming — the rules have no
+alternatives; the measure is the control.
