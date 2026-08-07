@@ -390,12 +390,43 @@ impl Checker<'_, '_> {
     pub fn check_call_expression(&mut self, node: &CallExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         bump(&COUNTERS.call_expressions);
-        if node.question_dot_token.is_some() {
-            bump(&COUNTERS.optional_chain);
-            return error;
-        }
         let Some(callee) = node.expression else { return error };
-        let callee_type = self.check_expression(callee);
+        let raw_callee_type = self.check_expression(callee);
+        // `checkCallChain` (`checker.go:8300` family): the callee strips its
+        // nullable half through the same three chain functions property
+        // access uses, and the result re-unions `undefined` when anything
+        // was stripped. See `checker-notes-callres.md` §22.
+        let optional = node.question_dot_token.is_some();
+        if optional {
+            bump(&COUNTERS.optional_chain);
+        }
+        let (callee_type, chain_stripped) = if optional
+            || callee.node_id().is_some_and(|id| self.expression_is_optional_chain(id))
+        {
+            let non_optional =
+                self.get_optional_expression_type(raw_callee_type, callee.node_id(), optional);
+            let stripped = self.check_non_null_type(non_optional);
+            if stripped == error {
+                return error;
+            }
+            (stripped, non_optional != raw_callee_type)
+        } else {
+            (raw_callee_type, false)
+        };
+        let result = self.check_call_expression_worker(node, callee, callee_type);
+        if result == error || !chain_stripped {
+            return result;
+        }
+        self.propagate_optional_type_marker(result, true)
+    }
+
+    fn check_call_expression_worker(
+        &mut self,
+        node: &CallExpression<'_>,
+        callee: tsr_ast::Expression<'_>,
+        callee_type: TypeId,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
         // Split the largest bucket in the funnel by *why* the callee has no
         // object type. Done here rather than in `resolve_call_signature`
         // because only this path has the callee **node**, and the question is

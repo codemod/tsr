@@ -184,7 +184,7 @@ impl Checker<'_, '_> {
     /// parser; this port derives it by walking the spine, which a parenthesis
     /// deliberately breaks — `(a?.b).c` is not a chain link, exactly as
     /// upstream's flag propagation stops at the parenthesis.
-    fn expression_is_optional_chain(&self, id: tsr_ast::NodeId) -> bool {
+    pub(crate) fn expression_is_optional_chain(&self, id: tsr_ast::NodeId) -> bool {
         let mut current = id;
         loop {
             let next = match self.node_map.get(current) {

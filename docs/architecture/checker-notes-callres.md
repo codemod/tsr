@@ -1262,3 +1262,13 @@ boundary; error results stay errors (no marker on a gap).
 non-chain call regressing means the strip ran where no `?.` exists; (b) a
 chain whose want has no `| undefined` (already-non-nullable callee) means
 the marker fired without a strip.
+
+**§22 score — LANDED.** **+114 GAP→RIGHT / 23 GAP→WRONG.** The 23 split in
+two named shapes, neither the arm's own: `boolean | undefined` against a
+`boolean` want where the callee is a closure reference this port does not
+flow-narrow (the §13 residue — upstream narrows `f` non-nullable before
+the chain question, so no marker fires), and `deleteChain`'s inner-link
+markers (the propagated-marker mechanics between chain links, pre-existing
+in the property-access half). Both were GAPs that became answers whose
+wrongness is owned upstream of the arm. `checker_types` right 369,426 →
+**369,540**.

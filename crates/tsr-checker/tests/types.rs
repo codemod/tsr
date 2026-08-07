@@ -1595,10 +1595,14 @@ fn a_call_this_slice_cannot_resolve_is_a_gap_and_not_the_first_candidate() {
     );
     // A class is not callable: upstream reports and answers `errorType`.
     assert_eq!(type_of_declaration("class K {}\nconst x = K();", "x"), "error");
-    // An optional chain and explicit type arguments are both unported forms.
+    // The optional-chain stand-in came due (the twenty-third): the call
+    // chain landed (`checker-notes-callres.md` §22), and a voluntary `?.`
+    // on a never-nullish callee strips nothing, so no `undefined` joins —
+    // upstream's own answer for `g?.()` here is plain `number`
+    // (`controlFlowOptionalChain.types`, the guarded-call family).
     assert_eq!(
         type_of_declaration("declare function g(): number;\nconst x = g?.();", "x"),
-        "error"
+        "number"
     );
 }
 
