@@ -847,3 +847,31 @@ lost ≤ **10** (the entry-only behaviour today can be RIGHT by accident where
 the loop body's assignments would widen — those flips are the one loss shape
 this arm can produce legitimately, and above 10 they say the union model is
 wrong).
+
+### §12.1 The first fixpoint cycle — REFUSED with three named defects, the port sketch validated
+
+Measured whole: **WRONG→RIGHT 230, GAP→RIGHT 11 — and RIGHT→GAP 196,
+RIGHT→WRONG 77, 2 regressed.** Reverted. The three defects, each now a
+priced line-item for the session that takes this subsystem as its whole
+deliverable:
+
+1. **The depth-cap interaction** (196 of the losses, ONE case —
+   `parsingDeepParenthensizedExpression`): back-edge walks multiply depth in
+   the already-pathological graph, `MAX_FLOW_DEPTH` trips, and
+   `flow_analysis_disabled` poisons the rest of the case. Upstream's cap is
+   per-`getTypeAtFlowNode` with the loop stack excluded; the port's single
+   depth counter is not.
+2. **Incomplete-union semantics**: `controlFlowLoopAnalysis` wants
+   `number | undefined` where the fixpoint produced `number` — the condition
+   and assignment arms must treat an incomplete antecedent's type as
+   provisional (upstream re-narrows on the completing pass; this port's
+   arms treat every input as final).
+3. **Self-referential loops are a ceiling**, not a conversion:
+   `controlFlowSelfReferentialLoop` wants `any` (upstream's own bail), and
+   the fixpoint's honest union is *wrong* there — the family needs the
+   `convertAutoToAny`-style bail on self-referential keys, or those 60+
+   lines stay theirs.
+
+**What survived:** the protocol port itself (cache, stack, first-antecedent
+rule, shared-flows truncation) ran without cache poisoning — §9.2's lesson
+held. +241 is the measured upside once the three defects are owned.
