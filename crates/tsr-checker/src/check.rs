@@ -2300,6 +2300,10 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::BarToken
             | SyntaxKind::CaretToken
             | SyntaxKind::PlusToken
+            | SyntaxKind::LessThanToken
+            | SyntaxKind::GreaterThanToken
+            | SyntaxKind::LessThanEqualsToken
+            | SyntaxKind::GreaterThanEqualsToken
     )
 }
 

@@ -2651,3 +2651,20 @@ an **argument that was never measured at all**. §32 wrote "declining it costs
 whatever `+` cases exist and cannot produce a wrong one" — true, and it cost
 three. *An argument from upstream's structure is not a measurement*, and this
 file has now been caught making that substitution once.
+
+### 40.6 The relational operators too — +3
+
+`checkArithmeticOperandType` is reached from every operator that requires a
+numeric or comparable operand, and `<`, `>`, `<=`, `>=` are among them —
+`checkBinaryLikeExpression`'s relational arm calls the same check. §32's set held
+only the arithmetic and bitwise ones.
+
+**+3**, and with §40.5's `+` that is **+6 from widening one `matches!` twice.**
+The rule was right and its operator list was a guess dressed as a decision: §32
+wrote "every other arithmetic and bitwise operator takes numeric operands and
+nothing else", which is true and is not the same statement as "these are the
+operators that reach `checkArithmeticOperandType`".
+
+**A list is a claim about upstream and should be read off upstream**, the way
+§19's `getMinTypeArgumentCount` and §30's lib table were. This one was written
+from the inside out.
