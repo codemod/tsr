@@ -797,3 +797,13 @@ The §9 family is now closed to its studied edges: non-strict initial
 correctly `undefined` by construction. What remains of `any → undefined` is
 the ever-assigned scan's granularity (assignments the scan's container walk
 cannot see) — small, owned here.
+
+## §11 A non-identifier enum member's type is an indexed access — bar (ninth session)
+
+`negateOperatorWithEnumType.types:13`: `>"" : (typeof ENUM1)[""]` — a member
+whose name is not identifier text prints as the indexed-access spelling, not
+`ENUM1.`. The W2 row: 11 lines, 10 cases, 2 finishes; ours bakes the dotted
+form with an empty right side.
+
+**Bar:** net ≥ **+6**; own ≤ **4** — falsifier: losses on IDENTIFIER-named
+members (the split must not touch them); regressed == 0; lost == 0.
