@@ -391,3 +391,145 @@ fn a_chain_deeper_than_the_cap_gives_up() {
         assert!(!checker.is_type_assignable_to(left, right), "GAP: the depth cap gives up");
     });
 }
+
+// ---------------------------------------------------------------------------
+// The third answer (`bd tsr-kmzf`).
+//
+// These assert the CONTRACT in `docs/architecture/checker-notes-assign.md` §2 —
+// which of the six "answers `false` without knowing" sites now say `Unknown` —
+// rather than whatever the walk happens to do. A test written by reading the
+// implementation back cannot fail, and this suite has two properties that only
+// exist because a test was allowed to disagree with the code.
+//
+// The projection property (`is_type_assignable_to` == `relate_ternary(..) ==
+// Related`) is asserted directly, because it is what makes every test above
+// this line a statement about the ternary walk too.
+// ---------------------------------------------------------------------------
+
+/// The three-valued verdict for the same two-annotation fixture shape.
+fn verdict(source: &str) -> tsr_checker::relater::Ternary {
+    with_checker(source, |checker, statements| {
+        let a = annotation_type(checker, statements, 0);
+        let b = annotation_type(checker, statements, 1);
+        checker.relate_ternary(a, b, tsr_checker::relater::Relation::Assignable)
+    })
+}
+
+/// `string -> number` is a real negative: both sides are in the domain where
+/// `isSimpleTypeRelatedTo` is a complete decision procedure, so its silence is
+/// an answer.
+///
+/// Reddened by: adding `TypeFlags::OBJECT` to `FLAG_DECIDABLE` would not move
+/// this one, but removing `STRING` or `NUMBER` from it turns this `NotRelated`
+/// into `Unknown` — which is the mutation that matters, because a relation that
+/// cannot say "no" about two primitives refuses every overload set.
+#[test]
+fn two_unrelated_primitives_are_decidably_not_related() {
+    assert_eq!(verdict("let a: string; let b: number;"), tsr_checker::relater::Ternary::NotRelated);
+}
+
+/// Nothing but `never` is assignable to `never`, and that is a **decision**.
+///
+/// This is the one `Some(false)` arm in `is_simple_type_related_to`. Upstream
+/// returns there rather than falling through (`internal/checker/relater.go`), so
+/// folding it into "no arm fired" would make every `X -> never` pair `Unknown`
+/// as soon as `X` is an object type — the reason the arm is not an absence.
+#[test]
+fn nothing_but_never_is_assignable_to_never_and_that_is_decided() {
+    assert_eq!(
+        verdict("let a: { x: string }; let b: never;"),
+        tsr_checker::relater::Ternary::NotRelated
+    );
+}
+
+/// Two object types that genuinely match still answer `Related` — the ternary
+/// did not turn structural comparison into a mass refusal.
+#[test]
+fn a_structural_match_is_still_related() {
+    assert_eq!(
+        verdict("let a: { x: string }; let b: { x: string };"),
+        tsr_checker::relater::Ternary::Related
+    );
+}
+
+/// A property present on both sides with decidably unrelated types is a real
+/// negative, not an absence — the property walk must not launder a `NotRelated`
+/// constituent into `Unknown`.
+#[test]
+fn a_property_that_decidably_mismatches_is_not_related() {
+    assert_eq!(
+        verdict("let a: { x: string }; let b: { x: number };"),
+        tsr_checker::relater::Ternary::NotRelated
+    );
+}
+
+/// **Row 2 of §2.** A target property the source lacks is a rejection only if
+/// that property is *required*, and optionality is not read here — so this is
+/// the canonical "answered `false` without knowing" site.
+///
+/// Reddened by: restoring the `return false` in `properties_related_to`'s
+/// absent-property arm.
+#[test]
+fn an_absent_property_that_may_be_optional_is_unknown() {
+    assert_eq!(
+        verdict("let a: { x: string }; let b: { x: string, y?: number };"),
+        tsr_checker::relater::Ternary::Unknown
+    );
+}
+
+/// **Row 6 of §2**, the load-bearing one: for a signature-bearing pair the
+/// comparison is unsound in *both* directions at once — the signatures are
+/// never compared, so the property walk can neither reject nor accept honestly.
+///
+/// This is why no per-type flag predicate could separate the trustworthy pairs
+/// from the rest, and therefore why `SELECTABLE` could never have been widened
+/// into the fix.
+#[test]
+fn a_signature_bearing_pair_is_unknown() {
+    assert_eq!(
+        verdict("let a: { x: string }; let b: { x: string, (): void };"),
+        tsr_checker::relater::Ternary::Unknown
+    );
+}
+
+/// Kleene conjunction over a source union: every constituent must be related,
+/// and an `Unknown` constituent makes the whole thing `Unknown` rather than a
+/// rejection.
+#[test]
+fn a_source_union_composes_by_kleene_conjunction() {
+    assert_eq!(
+        verdict("let a: \"x\" | \"y\"; let b: string;"),
+        tsr_checker::relater::Ternary::Related
+    );
+    // One constituent is decidably not related, which beats any `Unknown`
+    // elsewhere in the list: a definite negative is the better answer.
+    assert_eq!(
+        verdict("let a: string | number; let b: string;"),
+        tsr_checker::relater::Ternary::NotRelated
+    );
+}
+
+/// **The projection property.** `is_type_assignable_to` is *defined* as
+/// `relate_ternary(..) == Related`, which is what makes this file's other
+/// twenty-odd tests statements about the ternary walk as well. Asserted over
+/// every shape above so the two can never drift apart silently.
+#[test]
+fn the_binary_relation_is_the_ternary_projected() {
+    for source in [
+        "let a: string; let b: number;",
+        "let a: \"x\"; let b: string;",
+        "let a: { x: string }; let b: { x: string };",
+        "let a: { x: string }; let b: { x: number };",
+        "let a: { x: string }; let b: { x: string, y?: number };",
+        "let a: { x: string }; let b: { x: string, (): void };",
+        "let a: string | number; let b: string;",
+    ] {
+        let ternary = verdict(source);
+        let binary = assignable(source);
+        assert_eq!(
+            binary,
+            ternary == tsr_checker::relater::Ternary::Related,
+            "projection broke for `{source}`: binary {binary}, ternary {ternary:?}"
+        );
+    }
+}
