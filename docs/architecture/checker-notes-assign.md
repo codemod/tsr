@@ -835,3 +835,19 @@ relation where upstream keeps them (readonly §14, optionality §15, privacy
 §16, the protected-target pair answering `Unknown` through the same gate as
 every undecidable pair). Zero conversions bought; a crutch deleted and the
 relation made upstream-shaped is what was paid for.
+
+## §17 Distinct classes with private members are NotRelated, syntactically
+
+The arrays-§7 blocker: class INSTANCE types carry no members table
+(`bd tsr-4sc.7`'s unfilled slice), so sibling-class pairs relate Unknown
+and `removeSubtypes` declines whole. Upstream's own rule decides without
+structure: a private (or `#`-named, or protected) member makes a class
+NOMINAL — related only through the SAME declaration
+(`relater.go`'s private-identity check). The arm reads the two class
+declarations' member lists for a privacy marker: both class instances,
+DIFFERENT symbols, either carries one → NotRelated under every relation.
+Falsifiers: (a) subclass pairs — `Derived extends Base` with Base's
+private INHERITED relates upstream (same declaration through heritage);
+the arm therefore requires NO heritage clause on either, the conservative
+containment; (b) privacy-free class pairs stay Unknown (structural, needs
+the members slice).
