@@ -3064,3 +3064,60 @@ from intuition here and all five were wrong; this is the same error moved from
 the test to the diagnosis, where it is cheaper to make and more expensive to
 catch — a wrong test fails, a wrong attribution just quietly sends the next
 session to the wrong file.
+
+### A ported predicate can be sound upstream and unsound here
+
+`isUntypedFunctionCall` (`checker.go:9931`) tests `IsTypeAny(funcType)`. Ported
+literally as a flag test, it measured **328 gained against 248 manufactured wrong
+lines**, and the residual named the cause in one row: `want string | got any`,
+137 of the 248.
+
+The port of the predicate was *correct*. What differed was the thing it tests.
+
+> **Upstream reaches `any` for a callee only where the source said `any`. This
+> port also reaches it wherever an unported mechanism gives up.** So the two
+> compilers disagree about which types are `any`, and a predicate that reads
+> `IsTypeAny` inherits that disagreement wholesale. It is sound in upstream's
+> type system and unsound in this one, and nothing about the porting was wrong.
+
+This is a distinct failure mode from the ones this document already records, and
+worth separating from them:
+
+- a *stale prerequisite* is a claim about this port that has decayed;
+- a *wrong attribution* is a diagnosis that was never true;
+- **this** is a faithful port of a correct predicate whose **inputs mean
+  something different here**.
+
+The last is the hardest to see, because every individual step checks out: the
+upstream function was read, the anchor resolves, the translation is literal. The
+error is one level down, in a type the predicate merely consults.
+
+**The test that catches it, and it is cheap:** for any ported predicate, ask
+*"does this port produce the same population for the thing being tested?"* Here
+the answer is no, and the fix was to test the **written syntax** — `any` in an
+annotation — instead of the computed flag, because that is the one form in which
+the two compilers make the same claim.
+
+The fix cost **214 conversions to remove 248 wrong lines**. On a ratio that is a
+bad trade and it was taken anyway, on this document's standing rule: answering
+off a premise the two compilers do not share is a **wrong rule, not a bad
+trade**, and a rule is not priced. The 248 were never conversions to lose — they
+were 248 assertions this port had no basis for.
+
+#### The bar's falsifier is what made this a twenty-minute correction
+
+The registration named it in advance: *"if new wrong is far above 13, the
+positional refusal is not firing — check that before re-reading anything else."*
+The refusal *was* firing; the arm was wider than the design that had been sized.
+But the falsifier pointed at the right *drawer* — the gap between the design
+measured and the code written — and that is most of the diagnostic work.
+
+> **A falsifier does not have to be right to pay.** It has to name where to look
+> first. This one named the wrong cause and the right location, and still turned
+> a fired leg into one re-measurement rather than an investigation.
+
+And the narrowing **subsumed the registered positional refusal**: an unannotated
+parameter has no annotation, so the written-syntax test excludes it for free. The
+explicit predicate was deleted rather than left as dead code, with a paragraph at
+the call site saying why the family is still refused without one — because a
+refusal that survives only as an absence is one nobody can find later.
