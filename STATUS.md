@@ -41,7 +41,7 @@ Measured at the §13 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,074/9,538** | **32.23%** | **gradient 74.66%** — the target |
-| `diagnostics` | **977/5,488** | **17.80%** | **tenth session, +260** — 717 → 977 across twenty builds and three measured refusals; the running total is 80 → 977, 12.2× |
+| `diagnostics` | **988/5,488** | **18.00%** | **tenth session, +271** — 717 → 988 across twenty-one builds and four measured refusals; the running total is 80 → 988, 12.4× |
 
 ### `checker_types`, the number the project is steered by
 
@@ -243,7 +243,8 @@ them (the parallel `.types` workstream's 3,043 / 74.46% is theirs).
 | `~` | **`extragap.rs`** (new) splits the extras into *displaced* and *invented* | — | — |
 | `~` | TS2583 + TS2301 substitutions in TS2304's residual | +3 | −18 |
 | `~` | TS2454's guarded-reference decline | 0 | **−59** |
-| `HEAD` | **TS1160 / TS1002 reported at the scanner's position, not the token's** | **+13** | — |
+| `~` | **TS1160 / TS1002 reported at the scanner's position, not the token's** | **+13** | — |
+| `HEAD` | **every `declare` path records the name node** — TS2300's position | **+11** | — |
 
 **The session was asked for 50%. It is not reachable from here, and the session
 measured that three separate ways rather than asserting it once.** `diaggap.rs`'s single-code column — the
@@ -316,7 +317,7 @@ TS2300          47         47            38
 TS1160          12          0            12
 ```
 
-It paid immediately and twice. **TS2304 and TS2454 are *invented*, not missing** —
+It paid immediately and three times. **TS2304 and TS2454 are *invented*, not missing** —
 two rules that had been read as incomplete for two sessions are over-reporting,
 and the fix is subtraction (−18 and −59 wrong lines). And **TS1160 read
 `12 displaced, 0 invented, 12 sole obstacle`**, which can only mean one
@@ -324,7 +325,18 @@ diagnostic in the wrong place: `s.error` (`scanner.go:413`) reports at the
 scanner's position with length zero and this port reported from the token's
 start. **One argument, twelve cases**, every parser and scanner suite
 byte-identical. `diaggap.rs` had been printing "TS1160 12 cases" in its
-false-positive list for two sessions with no way to tell those apart.
+false-positive list for two sessions with no way to tell those apart. **TS2300
+was the same shape**: `declare` reaches `declare_into` through eight call sites
+and only one recorded the declaration's name node, so a duplicate `class` inside
+a `namespace` reported on the keyword and the same class at file scope reported
+on its name. Eleven cases, and `binder_symbols` is unchanged at 98.03% —
+positions are not part of that suite's comparison, which is how the defect
+survived two sessions.
+
+**+23 cases for two arguments and one moved statement**, and a measured negative
+beside them: the same correction applied to the unterminated *regex* and *JSX
+string* sites cost 2 cases and was reverted. The rule is not "the scanner always
+reports at `pos`"; it is "report where upstream's call reports".
 
 **CORRECTED, same session, and the correction is the session's most useful
 result.** This block read: *"The first TS2322 build measured 947 right against

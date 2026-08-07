@@ -2124,3 +2124,11 @@ survived two sessions at 98.03%.
 > "TS1160 12 cases" and "TS2300 32 cases" in its false-positive list for two
 > sessions with no way to say so. **+23 cases for two arguments and one moved
 > statement.**
+
+**A measured negative in the same place**: applying the `s.pos` correction to the
+remaining two `token_start` error sites — the **unterminated regular expression**
+and the **JSX string literal** — cost **2 cases** and was reverted. Upstream's
+`s.error` is at `s.pos`, but those two sites report through `errorAt` with the
+token's own range. *The rule is not "the scanner always reports at `pos`"; it is
+"report where upstream's call reports"*, and the two are only sometimes the same.
+Both remaining sites are correct as written.
