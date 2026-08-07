@@ -1385,3 +1385,12 @@ head at lib `concat`-style signatures whose call results print the
 literal `this` where upstream instantiates to the receiver — the priced
 receiver-instantiation residue. `checker_types` right 391,007 →
 **391,350 (81.71%)**.
+
+### §29 `this`-typed call results answer the receiver
+
+The §28 residue's rule (`getThisTypeArgument`): a call whose resolved
+return is the interface-`this` mint answers the RECEIVER's type —
+`[a, b].sort(...)` is the array's own type. Scope: property-access
+callees only (the receiver is at hand); other callee shapes keep the mint.
+Falsifier: §28-v1's 28 R→G population — answering the receiver must not
+regress the written-return road it broke by erroring.
