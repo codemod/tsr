@@ -420,6 +420,8 @@ impl Checker<'_, '_> {
                     break FlowType { t: state.declared_type, incomplete: false };
                 }
                 break FlowType { t: state.initial_type, incomplete: false };
+            } else if flags.contains(FlowFlags::SWITCH_CLAUSE) {
+                break self.get_type_at_switch_clause(state, flow);
             } else if flags.contains(FlowFlags::UNREACHABLE) {
                 // Upstream's default arm: unreachable-code errors belong to the
                 // binder, and the checker returns the declared type to avoid
@@ -1547,6 +1549,325 @@ impl Checker<'_, '_> {
     /// a property access. That is the largest bound on what any guard here can
     /// convert, and it is measured — `docs/architecture/checker-notes-narrow.md`
     /// §4.
+    /// `getTypeAtSwitchClause` (`flow.go:1059`), the two matching arms —
+    /// identifier discriminant and `typeof` witness. Every other shape
+    /// (`switch (true)`, optional chains, discriminant property access)
+    /// passes the antecedent's type through unchanged, which is today's
+    /// answer, not a wrong one. See `checker-notes-narrow.md` §16.
+    fn get_type_at_switch_clause(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
+        let binder = self.binder;
+        let Some(antecedent) = binder.flow().antecedent(flow) else {
+            return FlowType { t: state.declared_type, incomplete: false };
+        };
+        let incoming = self.get_type_at_flow_node(state, antecedent);
+        let Some(clause) = binder.flow().switch_clause(flow) else {
+            return incoming;
+        };
+        let Some(Node::SwitchStatement(switch)) = self.node_map.get(clause.switch_statement) else {
+            return incoming;
+        };
+        let Some(mut expr) = switch.expression else { return incoming };
+        // A parenthesized expression in a JS file can be a JSDoc cast
+        // (`isJSDocTypeAssertion`), which upstream deliberately does NOT
+        // look through (`parenthesizedJSDocCastDoesNotNarrow`) — declining
+        // the whole skip in JS files is the conservative containment.
+        if !self.in_js_file(state.reference) {
+            while let tsr_ast::Expression::ParenthesizedExpression(inner) = expr {
+                let Some(next) = inner.expression else { return incoming };
+                expr = next;
+            }
+        }
+        let narrowed = if expr.node_id().is_some_and(|id| self.is_matching_reference(state, id)) {
+            self.narrow_type_by_switch_on_discriminant(incoming.t, switch, &clause)
+        } else if let tsr_ast::Expression::TypeOfExpression(type_of) = expr
+            && type_of
+                .expression
+                .and_then(|e| e.node_id())
+                .is_some_and(|id| self.is_matching_reference(state, id))
+        {
+            self.narrow_type_by_switch_on_typeof(incoming.t, switch, &clause)
+        } else {
+            incoming.t
+        };
+        FlowType { t: narrowed, incomplete: incoming.incomplete }
+    }
+
+    /// `narrowTypeBySwitchOnDiscriminant` (`flow.go:1092`), the
+    /// comparable-filter path. Declines whole — answers `t` unchanged — when
+    /// any clause type is missing, non-unit, or a comparability the relation
+    /// cannot decide, so the failure mode is the unnarrowed status quo. The
+    /// unknown-ground path is unported (stated in §16).
+    fn narrow_type_by_switch_on_discriminant(
+        &mut self,
+        t: TypeId,
+        switch: &tsr_ast::SwitchStatement<'_>,
+        clause: &tsr_binder::SwitchClause,
+    ) -> TypeId {
+        let Some(clause_types) = self.switch_clause_types(switch) else { return t };
+        if clause_types.is_empty() {
+            return t;
+        }
+        let (start, end) = (clause.clause_start as usize, clause.clause_end as usize);
+        let slice = &clause_types[start.min(clause_types.len())..end.min(clause_types.len())];
+        let has_default = start == end || slice.contains(&self.intrinsics.never);
+        if self.store.get(t).flags.intersects(TypeFlags::UNKNOWN) {
+            return t;
+        }
+        let discriminant = self.get_union_type(slice);
+        let case_type = if self.store.get(discriminant).flags.intersects(TypeFlags::NEVER) {
+            self.intrinsics.never
+        } else {
+            // The filter needs a decidable comparability per constituent; an
+            // Unknown pair declines the whole narrowing.
+            let constituents: Vec<TypeId> = match &self.store.get(t).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![t],
+            };
+            let mut kept = Vec::new();
+            for constituent in constituents {
+                match self.comparable_ternary(discriminant, constituent) {
+                    Some(true) => kept.push(constituent),
+                    Some(false) => {}
+                    None => return t,
+                }
+            }
+            let filtered = self.get_union_type(&kept);
+            self.replace_primitives_with_literals(filtered, discriminant)
+        };
+        if !has_default {
+            return case_type;
+        }
+        // The default half filters away every unit type another clause
+        // handles (`flow.go:1139`).
+        let all_types = clause_types.clone();
+        let default_type = self.filter_switch_default(t, &all_types);
+        let Some(default_type) = default_type else { return t };
+        if self.store.get(case_type).flags.intersects(TypeFlags::NEVER) {
+            return default_type;
+        }
+        self.get_union_type(&[case_type, default_type])
+    }
+
+    /// The default-clause filter of `narrowTypeBySwitchOnDiscriminant`
+    /// (`flow.go:1139`): keep constituents that are not unit types some
+    /// other clause already handles. `None` declines (an undecidable pair).
+    fn filter_switch_default(&mut self, t: TypeId, switch_types: &[TypeId]) -> Option<TypeId> {
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let mut kept = Vec::new();
+        for constituent in constituents {
+            let flags = self.store.get(constituent).flags;
+            if !flags.intersects(TypeFlags::UNIT) {
+                kept.push(constituent);
+                continue;
+            }
+            let unit = if flags.intersects(TypeFlags::UNDEFINED) {
+                self.intrinsics.undefined
+            } else {
+                self.get_regular_type_of_literal_type(constituent)
+            };
+            let mut handled = false;
+            for &switch_type in switch_types {
+                if !self.store.get(switch_type).flags.intersects(TypeFlags::UNIT) {
+                    continue;
+                }
+                match self.comparable_ternary(switch_type, unit) {
+                    Some(true) => {
+                        handled = true;
+                        break;
+                    }
+                    Some(false) => {}
+                    None => return None,
+                }
+            }
+            if !handled {
+                kept.push(constituent);
+            }
+        }
+        Some(self.get_union_type(&kept))
+    }
+
+    /// `narrowTypeBySwitchOnTypeOf` (`flow.go:1157`): the per-clause string
+    /// witnesses, unioned for a case range, NE-fact-filtered for a default.
+    fn narrow_type_by_switch_on_typeof(
+        &mut self,
+        t: TypeId,
+        switch: &tsr_ast::SwitchStatement<'_>,
+        clause: &tsr_binder::SwitchClause,
+    ) -> TypeId {
+        let Some(case_block) = switch.case_block else { return t };
+        let clauses = case_block.clauses;
+        // `getSwitchClauseTypeOfWitnesses` (`flow.go:1989`): every case must
+        // be a string literal or the whole switch yields no witnesses. A
+        // repeated text leaves the later occurrence empty.
+        let mut witnesses: Vec<Option<&str>> = Vec::with_capacity(clauses.len());
+        for case in clauses {
+            if case.kind.kind == SyntaxKind::CaseKeyword {
+                let text = match case.expression {
+                    Some(tsr_ast::Expression::StringLiteral(literal)) => literal.text,
+                    Some(tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal)) => {
+                        literal.text
+                    }
+                    _ => return t,
+                };
+                if witnesses.contains(&Some(text)) {
+                    witnesses.push(None);
+                } else {
+                    witnesses.push(Some(text));
+                }
+            } else {
+                witnesses.push(None);
+            }
+        }
+        let (start, end) = (clause.clause_start as usize, clause.clause_end as usize);
+        let default_index =
+            clauses.iter().position(|case| case.kind.kind == SyntaxKind::DefaultKeyword);
+        let has_default =
+            start == end || default_index.is_some_and(|index| index >= start && index < end);
+        if has_default {
+            // `getNotEqualFactsFromTypeofSwitch` (`flow.go:2012`).
+            let mut facts = TypeFacts::empty();
+            for (index, witness) in witnesses.iter().enumerate() {
+                if (index < start || index >= end)
+                    && let Some(text) = witness
+                {
+                    facts |= match *text {
+                        "string" => TypeFacts::TYPEOF_NE_STRING,
+                        "number" => TypeFacts::TYPEOF_NE_NUMBER,
+                        "bigint" => TypeFacts::TYPEOF_NE_BIG_INT,
+                        "boolean" => TypeFacts::TYPEOF_NE_BOOLEAN,
+                        "symbol" => TypeFacts::TYPEOF_NE_SYMBOL,
+                        "undefined" => TypeFacts::NE_UNDEFINED,
+                        "object" => TypeFacts::TYPEOF_NE_OBJECT,
+                        "function" => TypeFacts::TYPEOF_NE_FUNCTION,
+                        _ => TypeFacts::TYPEOF_NE_HOST_OBJECT,
+                    };
+                }
+            }
+            return self.filter_type(t, |checker, constituent| {
+                checker.get_type_facts(constituent).contains(facts)
+            });
+        }
+        let range: Vec<Option<String>> = witnesses
+            [start.min(witnesses.len())..end.min(witnesses.len())]
+            .iter()
+            .map(|w| w.map(str::to_string))
+            .collect();
+        let mut arms = Vec::with_capacity(range.len());
+        for witness in range {
+            let arm = match witness {
+                Some(text) => self.narrow_type_by_typeof_literal(t, &text, true),
+                None => self.intrinsics.never,
+            };
+            arms.push(arm);
+        }
+        self.get_union_type(&arms)
+    }
+
+    /// Per-clause case-expression types — `getSwitchClauseTypes`
+    /// (`flow.go:2026`); a default clause contributes `never`. `None` when
+    /// any case expression fails to type (the §16 decline).
+    fn switch_clause_types(
+        &mut self,
+        switch: &tsr_ast::SwitchStatement<'_>,
+    ) -> Option<Vec<TypeId>> {
+        let case_block = switch.case_block?;
+        let mut types = Vec::with_capacity(case_block.clauses.len());
+        for case in case_block.clauses {
+            if case.kind.kind == SyntaxKind::CaseKeyword {
+                let expression = case.expression?;
+                let checked = self.check_expression(expression);
+                if checked == self.intrinsics.error {
+                    return None;
+                }
+                let regular = self.get_regular_type_of_literal_type(checked);
+                types.push(regular);
+            } else {
+                types.push(self.intrinsics.never);
+            }
+        }
+        Some(types)
+    }
+
+    /// A decidable `areTypesComparable` for switch narrowing: literal and
+    /// primitive pairs answer definitely; anything structural is `None`,
+    /// which declines the narrowing whole. `checker.go`'s comparable
+    /// relation is not ported; this is its unit-type fragment.
+    fn comparable_ternary(&mut self, discriminant: TypeId, constituent: TypeId) -> Option<bool> {
+        if discriminant == constituent {
+            return Some(true);
+        }
+        let simple = TypeFlags::UNIT
+            | TypeFlags::STRING
+            | TypeFlags::NUMBER
+            | TypeFlags::BIG_INT
+            | TypeFlags::BOOLEAN
+            | TypeFlags::ENUM_LIKE
+            | TypeFlags::NULL
+            | TypeFlags::UNDEFINED;
+        let discriminant_constituents: Vec<TypeId> = match &self.store.get(discriminant).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![discriminant],
+        };
+        for &d in &discriminant_constituents {
+            let d_flags = self.store.get(d).flags;
+            let c_flags = self.store.get(constituent).flags;
+            if !d_flags.intersects(simple) || !c_flags.intersects(simple) {
+                return None;
+            }
+            // Comparable in either direction: same type, or a literal against
+            // its own base primitive.
+            if d == constituent
+                || self.get_base_type_of_literal_type(d)
+                    == self.get_base_type_of_literal_type(constituent)
+            {
+                return Some(true);
+            }
+        }
+        Some(false)
+    }
+
+    /// `replacePrimitivesWithLiterals` (`flow.go:1907`), the string/number
+    /// halves: a kept primitive constituent takes the discriminant's
+    /// literals of that base kind, so `case "a"` narrows a `string` to
+    /// `"a"`.
+    fn replace_primitives_with_literals(&mut self, t: TypeId, literals: TypeId) -> TypeId {
+        let literal_constituents: Vec<TypeId> = match &self.store.get(literals).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![literals],
+        };
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let mut replaced = Vec::with_capacity(constituents.len());
+        for constituent in constituents {
+            let flags = self.store.get(constituent).flags;
+            if flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT)
+                && !flags.intersects(TypeFlags::UNIT)
+            {
+                let base = self.get_base_type_of_literal_type(constituent);
+                let mut matched = false;
+                for &literal in &literal_constituents {
+                    if self.store.get(literal).flags.intersects(TypeFlags::UNIT)
+                        && self.get_base_type_of_literal_type(literal) == base
+                    {
+                        replaced.push(self.get_regular_type_of_literal_type(literal));
+                        matched = true;
+                    }
+                }
+                if !matched {
+                    replaced.push(constituent);
+                }
+            } else {
+                replaced.push(constituent);
+            }
+        }
+        self.get_union_type(&replaced)
+    }
+
     fn narrow_type(
         &mut self,
         state: &mut FlowState,

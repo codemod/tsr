@@ -1284,3 +1284,20 @@ losses in typeof-guard narrowing (`typeGuardsInSwitchStatement` family)
 mean the clause arm and the condition arm double-apply; (b) discriminant
 wrongs where the want keeps a constituent our comparable filter dropped
 mean the relation's comparability is over-deciding — decline harder.
+
+**§16 score — LANDED after two fired legs.** First pair read +14/17 and
+the trace named the defect in minutes: the clause node's `kind` token is
+`CaseKeyword`/`DefaultKeyword`, and comparing against the NODE kinds made
+every witness read as a default — the §12.5 lesson (trace one line before
+theorizing) paying again. Second leg: JSDoc parenthesized casts must not
+be looked through (`parenthesizedJSDocCastDoesNotNarrow`) — the paren skip
+now declines in JS files. Final pair: **+108 (97 W→R, 11 G→R), 27
+WRONG→GAP (honest declines where the arms bail), 6 GAP→WRONG** — all six
+inside `narrowingByTypeofInSwitch`'s exotic tails (keyof/fallthrough
+shapes), the case that gained 67. Gains also in
+`controlFlowOptionalChain` (14), `switchCaseNarrowsMatchingClauses…` (8),
+`literalTypes1` (8). `checker_types` right 369,246 → **369,354**, wrong
+22,688 → **22,570**. Residue priced: the `function`/`object` typeof-facts
+granularity (`case 'function'` keeps `Basic`), type-parameter narrowing
+(`T extends Basic` stays a gap), and the discriminant-property row (1,298,
+needs structural matching).
