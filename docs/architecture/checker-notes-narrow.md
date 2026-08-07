@@ -1902,3 +1902,10 @@ stays the arity error. Falsifier: the §38 twins' — arity longer than
 parameters errors; defaults referencing earlier parameters resolve
 against the filled prefix (declined here: a default MENTIONING a
 parameter gaps, the conservative first cut).
+
+**§43 score — LANDED SMALL, and the premise relocated.** **+4 / 3** — the
+typed arrays never reach the class tail: `Float32Array` is a lib VAR of
+constructor-INTERFACE type, so the road is `get_signature_of_named_type`'s
+construct half, not the class arm. The fill stays (it is the class-side
+twin of §38 and upstream-true); the 261-line row's next probe is the
+constructor-interface signature's decline, recorded as the sizing.

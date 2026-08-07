@@ -1216,11 +1216,50 @@ impl Checker<'_, '_> {
                 bump(&COUNTERS.new_instantiated);
                 return self.create_type_reference(symbol, arguments);
             }
-            // A count that does not match the class's type parameters.
-            // `checkTypeArguments` (`checker.go:9269`) fails the whole call,
-            // and `fillMissingTypeArguments`' defaults are ported only for the
-            // no-candidate case (`bd tsr-1uz`), so a shorter list that defaults
-            // would make legal stays a gap rather than a guess.
+            // §43 (`checker-notes-narrow.md`): a SHORTER list fills its tail
+            // from the class's declared defaults — `fillMissingTypeArguments`
+            // at the `new` road. A tail position without a default, or with a
+            // default that mentions another parameter, stays the arity error.
+            if written.len() < type_parameters.len() {
+                let mut arguments = Vec::with_capacity(type_parameters.len());
+                for argument in written {
+                    let id = self.get_type_from_type_node(*argument);
+                    if id == error {
+                        bump(&COUNTERS.new_type_parameters);
+                        return error;
+                    }
+                    arguments.push(id);
+                }
+                let names: Vec<&str> = type_parameters
+                    .iter()
+                    .map(|parameter| parameter.name.map_or("", |n| n.text))
+                    .collect();
+                let mut filled = true;
+                for parameter in &type_parameters[written.len()..] {
+                    let Some(default) = parameter.default_type else {
+                        filled = false;
+                        break;
+                    };
+                    let image = self.get_type_from_type_node(default);
+                    if image == error {
+                        filled = false;
+                        break;
+                    }
+                    // The conservative first cut: a default whose resolution
+                    // prints another parameter's name is unresolved-by-name
+                    // here and gaps.
+                    let printed = self.type_to_string(image);
+                    if names.contains(&printed.as_str()) {
+                        filled = false;
+                        break;
+                    }
+                    arguments.push(image);
+                }
+                if filled {
+                    bump(&COUNTERS.new_instantiated);
+                    return self.create_type_reference(symbol, arguments);
+                }
+            }
             bump(&COUNTERS.new_type_parameters);
             return error;
         }
