@@ -891,3 +891,51 @@ reasoning that produced it was completely different.
 
 **`diagnostics` closes the session at 700/5,488 = 12.76%, from 80/5,488 =
 1.46%.** Eight builds, one refusal, `checker_types` byte-identical throughout.
+
+---
+
+## 13. TS7026 — built, measured, REFUSED at 12 conversions for 47 wrong lines
+
+`JSX element implicitly has type 'any' because no interface
+'JSX.IntrinsicElements' exists.` 27 cases on the board, `getIntrinsicTagSymbol`
+(`jsx.go:1252`): an intrinsic tag (`IsIntrinsicJsxName`, a lowercase first letter
+or a `-`, `scanner/utilities.go:98`) whose `JSX.IntrinsicElements` does not
+resolve, under `noImplicitAny`.
+
+It was expected to be safe for a reason §9 makes precise — it reports on the
+absence of a **namespace**, which `binder_symbols` answers at 98.03%, not on the
+absence of a member of a type this port may have failed to build. That reasoning
+was right about the *kind* of question and wrong about *this port's* answer to
+it.
+
+```
+CONVERTS 620 -> 632   (+12)      LOST 0      WRONG 206 -> 253   (+47)
+```
+
+**0.26 conversions per wrong line**, below every refusal in `STATUS.md` §5.
+
+### One cause, already on record
+
+`conformance/checkJsxChildrenCanBeTupleType`, `compiler/jsxElementType`,
+`conformance/inlineJsxFactoryDeclarationsLocalTypes` and the rest all reference
+`/.lib/react16.d.ts`, which declares its `JSX` namespace inside a
+`declare global { … }` block. **Global augmentation is unported in this
+binder** — `checker-notes-jsx.md` recorded it as the JSX row's first blocker in
+the fifth session, and the `/.lib` mount that made `react.d.ts`'s *plain* global
+`namespace JSX` visible did not make an augmented one visible.
+
+So the rule's condition is `JSX.IntrinsicElements` does not resolve, and in 47
+lines the honest reading of that is **"this binder cannot see it"** rather than
+"it is not there" — the third distinct subsystem in this file where those two are
+the same answer (module resolution in §3, members in §9, global augmentation
+here).
+
+**What would make it win**, and it is a prerequisite already named elsewhere:
+`declare global` augmentation merged in the binder. `checker-notes-jsx.md`
+carries the `.types` side of that item; this is its `diagnostics` side, worth 27
+cases.
+
+A bound was considered and declined: refusing whenever the program contains a
+global augmentation would be sound, but the checker cannot enumerate the
+program's files and the harness testing for the *text* `declare global` is not a
+predicate, it is a grep. Recorded so the next attempt does not spend the cycle.
