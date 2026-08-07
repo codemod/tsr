@@ -1361,3 +1361,17 @@ declaration-position validity question was §26's and stands.
 at cross-file unique-symbol re-exports and intersection-reduction shapes —
 per-node minting cannot see that two files' nodes name one symbol, the
 recorded residue). `checker_types` right 389,825 → **391,007 (81.64%)**.
+
+### §28 `this` in type position — the print half, with the call gate
+
+`complexRecursiveCollections`' 612 lines head at members typed `(...) =>
+this`: the `ThisTypeNode` has no type-node arm, so every such member
+errors. The slice: one `this` type per enclosing class/interface
+declaration (minted, printing `this` — upstream's `thisType` identity per
+declaration), which makes the MEMBER lines print; call RESULTS through a
+`this`-returning signature are gated to gaps — upstream instantiates
+`this` to the receiver there (`getThisTypeArgument` road, unported), and
+answering the literal `this` at a call result would be a wrong line.
+Falsifier: (a) receivers' member lines whose want instantiates `this`
+(generic reference positions) — counted; (b) the call gate must not
+disturb non-`this` signatures.
