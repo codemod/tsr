@@ -1303,3 +1303,13 @@ are receiver-`any` positions where upstream's machinery types what this
 port's cannot — the same accepted class as §31/§32's residues, headed by
 lib-method chains (`arrayconcat`). `checker_types` right 384,826 →
 **386,250 (80.65%)**.
+
+### §24 Two residue arms: unresolved-identifier callees and `super()`
+
+The mountain's call residue: (1) `hasFlag(...)` — a §31-provenance
+IDENTIFIER callee (the §23 extension covered only access-expression
+callees); the admission re-runs §31's own test (resolves nowhere, in an
+import-free file). (2) `super(...)` answers `void`
+(`checkCallExpression`, `checker.go:8331` — the SuperKeyword arm).
+Falsifiers: (1) inherits §23's; (2) has none — the rule has no
+alternative.
