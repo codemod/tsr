@@ -307,3 +307,21 @@ instrument re-runs and settles what the heritage-shard refusal left open —
 the family's residue is ceiling + two named subsystem blockers, and it should
 not return to a board until global augmentation or the pragma machinery
 exists.
+
+## The heritage instantiation, the `ts` slice — bar (ninth session)
+
+The `tsr-fpti` heritage shard refused at `7299a14` (+10 vs ≥55) for two
+reasons: the gate over-fired on TS 4.7 instantiation expressions, and the
+tsx population's written argument types gap. Neither applies to the
+producer's own heritage branch (`types_producer.rs:414`): it already demands
+the `HeritageClause` ancestor, `extends`, and a class owner — and it then
+answers `get_declared_type_of_symbol`, the UNINSTANTIATED `A<T>`, ignoring
+the written arguments. The fresh W2 row `A<Base> → A<T>` (11 lines, **6
+finishes**) is the convertible `ts` slice: simple argument types that
+resolve.
+
+**Bar:** net ≥ **+8**; own ≤ **6** — falsifier: wrong lines where the
+baseline records `typeof X` for an argument-bearing heritage → the refused
+shard's population is leaking in despite the ancestor gate, stop; regressed
+== 0; lost ≤ **2** (an argument that gaps must fall through to the declared
+answer exactly as before, never to a gap).
