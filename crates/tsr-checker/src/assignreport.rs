@@ -624,9 +624,21 @@ impl<'a> Checker<'a, '_> {
     /// **One direction only.** The converse is false: `let x: {} = 5` is legal,
     /// because an object *target* can be satisfied by a primitive through its
     /// apparent type.
-    fn object_against_primitive(&self, source: TypeId, target: TypeId) -> bool {
-        self.type_of(source).flags.intersects(TypeFlags::OBJECT)
+    fn object_against_primitive(&mut self, source: TypeId, target: TypeId) -> bool {
+        if self.type_of(source).flags.intersects(TypeFlags::OBJECT)
             && self.type_of(target).flags.intersects(PRIMITIVE_TARGET)
+        {
+            return true;
+        }
+        // The converse, and it needs a condition. `let x: {} = 5` is legal
+        // because an empty object target is satisfied through the primitive's
+        // apparent type; `let x: { a: number } = 5` is not, because a number has
+        // no `a`. So a primitive source is a definite negative against an object
+        // target **that requires at least one property**.
+        self.type_of(source).flags.intersects(PRIMITIVE_TARGET)
+            && self
+                .declared_property_table(target)
+                .is_some_and(|table| table.iter().any(|(_, optional)| !optional))
     }
 
     /// Is the source expression a **reference** whose type is still a union?
