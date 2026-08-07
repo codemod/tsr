@@ -1428,3 +1428,24 @@ caught by the identical TOTAL, and the edit now asserts its anchor. Final:
 **+29 W→R, 6 W→G / 2 R→G** (`useUnknownInCatchVariables01`'s
 member-access-on-unknown positions). `checker_types` right 370,146 →
 **370,173**.
+
+### §22 Predicate narrowing at call conditions
+
+`if (isNumber(x))` narrows `x` — `narrowTypeByCallExpression`
+(`flow.go:444`) → `narrowTypeByTypePredicate` (`flow.go:316`) →
+`getNarrowedType`. The signature machinery exists (predicates are parsed,
+typed, instantiated, printed); what was missing is the `narrow_type`
+dispatch arm for a `CallExpression` condition. Ported: the
+identifier-predicate half (`x is T`, matching argument by the predicate's
+parameter name since this port's `TypePredicate` carries no index), with
+Kleene declines — a constituent the relation cannot place leaves the type
+unnarrowed. Unported and stated: `this is T`, `asserts`, the
+`hasOwnProperty` special case, discriminant-property arguments, and
+effects signatures at CALL flow nodes (statement-position asserts).
+
+**The bar**: the `typeGuardsFunction*` family and
+`controlFlowOptionalChain`'s `f(x)` positions move; net positive.
+Falsifiers: (a) R→W where the want keeps a constituent the predicate
+filter dropped — the assignability filter over-decides; (b) losses in
+truthiness narrowing mean the new arm swallowed the CallExpression's
+default truthiness path.
