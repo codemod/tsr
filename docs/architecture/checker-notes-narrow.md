@@ -712,3 +712,14 @@ that had already flipped once and whose second assertion was also wrong.
 
 The strict same-container behaviour is untouched by construction (the §9.2
 losses' population), and the OUTER-strict remainder keeps §9.2's price list.
+
+## §10 The compound-assignment target widens — bar (ninth session)
+
+`checker.go:11196`–`:11198`: an identifier that is the TARGET of a compound
+assignment returns `getBaseTypeOfLiteralType(flowType)` — `x |= …` reads `x`
+at `boolean`, not the narrowed `true`. The W2 row: 12 lines, 5 finishes,
+head `bitwiseCompoundAssignmentOperators`.
+
+**Bar:** net ≥ **+6**; own ≤ **4** — falsifier: losses on PLAIN `=` targets
+(the widening must gate on compound operators only); regressed == 0;
+lost == 0.
