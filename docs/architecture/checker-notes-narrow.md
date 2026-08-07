@@ -1301,3 +1301,23 @@ shapes), the case that gained 67. Gains also in
 granularity (`case 'function'` keeps `Basic`), type-parameter narrowing
 (`T extends Basic` stays a gap), and the discriminant-property row (1,298,
 needs structural matching).
+
+### §17 Property access falls back to the string index signature
+
+`controlFlowOptionalChain`'s head family: `o?.x` on
+`{ [key: string]: any; … }` gaps because `access_member_lookup` answers
+`error` on a property miss even when the receiver carries an applicable
+string index signature. Upstream (`checkPropertyAccessExpressionOrQualifiedName`,
+the `prop == nil` path): the applicable index info's value type IS the
+member's type (noImplicitAny may error; the type answers regardless). The
+machinery exists (`get_applicable_index_info`); the fallback is one arm at
+the miss exit, keyed by the property name's string literal type.
+
+**The bar**: the `o?.x` family flips (`controlFlowOptionalChain`), plus
+whatever the corpus's indexed-receiver property misses carry. Falsifiers:
+(a) losses where want is `error`-shaped — upstream refuses index fallback
+for some access forms (assignment targets on generic objects, private
+names); if those appear, gate on the upstream conditions before arguing;
+(b) the "receiver has members, name absent" callee row (225) must not
+convert into wrong CALLS — a fallback `any` callee answering `any` is
+right, a fallback SIGNATURE mis-selected is not.
