@@ -1987,3 +1987,15 @@ site-sensitive print problem, modobj proper;
 (reverted there for want of a completeness discriminator; lib interfaces
 may qualify, unmeasured).
 No new mechanism; the row waits on those three owners.
+
+### §48 Plain binding-pattern parameters render
+
+`dependentDestructuredVariables` (309) gaps at the SIGNATURE: a
+binding-pattern parameter name declined whole. The baselines print the
+written pattern verbatim (`({ kind, payload }: Action)`), and for PLAIN
+patterns — identifier elements only, no defaults/rest/renames/nesting —
+the render is mechanical: `{ a, b }` / `[a, b]`. Everything decorated
+stays the decline (a generated name compared verbatim is a guess, the
+original comment's rule intact for the shapes it feared). Falsifier:
+decorated patterns must keep declining — one default rendered wrong is
+instantly visible in the pair.
