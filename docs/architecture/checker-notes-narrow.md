@@ -900,3 +900,28 @@ node answers, with what, and where the `error` enters. Five blind cycles
 are the recorded price of skipping it. The +241 upside stands measured; the
 port sketch (cache/stack/first-antecedent/truncation) remains validated for
 everything but this case family.
+
+### §12.3 The trace session — three facts established, the next probe layer named
+
+`traceone.rs` (new, kept) plus a `TSR_TRACE_LOOP` hook on the patched arm:
+
+1. **The antecedent order is correct**: the binder tail-appends and the
+   entry edge is added before the body walk (`binder.rs:1286`/`1291`), so
+   upstream's "first antecedent is the non-looping path" HOLDS here — that
+   hypothesis is retired.
+2. **Initialized declarations DO have assignment flow nodes**
+   (`bind_initialized_variable_flow`, `binder.rs:1895`) — that hypothesis is
+   retired too.
+3. **The failing shape, seen directly**: for the `var Tn = f(Tn-1)`-in-loop
+   chains, the ENTRY antecedent walks to the substituted initial
+   (`undefined`, complete) and the BACK edge returns the on-stack
+   placeholder — `t=undefined, incomplete=true` — WITHOUT contributing the
+   declaration-assignment's `number`. The junction unions to `undefined`,
+   and `Tn + 32` then errors. Pre-fixpoint the catch-all followed the back
+   edge alone and was accidentally right.
+
+**The next probe layer**: why the back-edge walk reaches the junction
+without passing `Tn`'s declaration-assignment — instrument the walk's node
+kinds between the back edge and the junction (nested inner labels re-routing
+the walk is the live hypothesis). The trace hook's placement is recorded in
+`fixpoint-patch-§12.md`.
