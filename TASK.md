@@ -11,14 +11,26 @@ session's spine: the fixpoint landed by exonerating it, the too-large bail
 ~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 3,233/9,538 (33.90%) · 374,491/478,954 = 78.19% · gap 72,043
-  · wrong 22,381. The continuation (builds 25–48): +17,838 right lines,
-  +190 cases, +3.73 points, twenty-four bar-scored builds and FOUR measured
-  refusals (§22.1 stripped-callee 6-vs-59; §24's arithmetic variant −562;
-  §26's empty-remainder +102/147; §6.1 spread-own-line +23/388), every
-  fired leg honoured in writing. Arithmetic chain in STATUS §1.
+  checker_types 3,571/9,538 (37.44%) · 388,155/478,954 = 81.04% · gap 56,835
+  · wrong 23,925. The continuation (builds 25–54): +31,502 right lines,
+  +528 cases, +6.58 points, THIRTY-ONE bar-scored builds and FOUR measured
+  refusals, every fired leg honoured in writing. Chain in STATUS §1.
 
-  THE §29 SEAM IS NEW CAPABILITY: an on-stack alias mention answers a
+  THE BOUNDARY-ARGUMENT CHAIN was the continuation's largest seam — six
+  hops, each "upstream's deliberate error-answer's observable IS `any`":
+  §14 (TS2563 too-large, +10,000) → §27 (readonly targets, +155) → §31
+  (TS2304 unresolved names, +6,267, five gate sets priced) → §32 (access
+  through minted unresolveds, +4,263) → callres §23/§24/§25 (calls, super,
+  new through the same provenances, +2,960) → callres §26 (the
+  unique-symbol mint, +377). The gates that keep it honest: any-meaning
+  resolution, `arguments`/`globalThis` (port misses = future rules),
+  import-machinery files (by NODE kind — `export default interface`
+  modifiers are invisible to it, a recorded miss), JS files at the call
+  hops. ADR-0038's boundary is argued at each §; the fixtures that pinned
+  the old reading were renamed with their new truth, eight stand-ins came
+  due (twenty-second through twenty-eighth plus re-anchors).
+
+  THE §29 SEAM IS NEW CAPABILITY (and §31's chain multiplied through it): an on-stack alias mention answers a
   memoized NAME placeholder (read-only `Resolutions::on_stack`, no failure
   marking) — upstream's member-type laziness at the one seam
   print-at-creation permits. It took the 2,000-line `BigUnion` mountain
