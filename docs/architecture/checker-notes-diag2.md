@@ -3269,3 +3269,46 @@ is the operand's own type.* Getting from a proxy to the mechanism was worth
 > about **why**, not a threshold. §42.1 (a printing guard applied to a
 > non-printing consumer), §43 (a comment describing three kinds above code
 > handling one), and now a decline copied with its conclusion and not its cause.
+
+---
+
+## 46. TS2352's literal decline becomes the widening it was standing in for
+
+§45 established that `same_primitive_family` is `check_assertion_overlap`'s proxy
+for `getBaseTypeOfLiteralType`, which `checkAssertionDeferred`
+(`checker.go:12317`) applies to the *expression* before comparing:
+
+```go
+exprType := c.getRegularTypeOfObjectLiteral(c.getBaseTypeOfLiteralType(c.assertionLinks.Get(node).exprType))
+targetType := c.getTypeFromTypeNode(typeNode)
+if !c.isErrorType(targetType) {
+    widenedType := c.getWidenedType(exprType)
+    if !c.isTypeComparableTo(targetType, widenedType) {
+        c.checkTypeComparableTo(exprType, targetType, errNode, …)
+    }
+}
+```
+
+A proxy and the thing it proxies differ somewhere, and `diaggap.rs` says TS2352
+still has **22 cases it would convert alone**. Doing the widening for real is a
+one-line substitution — `get_base_type_of_literal_type` on the source before
+the two relation calls — and deleting the family test that stood in for it.
+
+The composite decline stays: it is the real relation difference (§45), and
+`getWidenedType`/`getRegularTypeOfObjectLiteral` remain unported, so a union
+source is still a pair this port cannot ask about.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,154**. Forecast **0 to +10**: the proxy already covers the common case, so this is the tail where widening and family membership disagree |
+| 2 | `checker_types` pass count unchanged at **3,660** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2352]` |
+| 4 | TS2352's own WRONG stays at **0** — it shipped at zero in §31 and a substitution that is *more* faithful must not spend that |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If WRONG rises, the family test was doing something besides the
+widening — most likely standing in for `getWidenedType` as well, which is a
+different function and is also unported. That would be a decline to re-derive
+rather than to delete, and the wrong column's top row would name which.

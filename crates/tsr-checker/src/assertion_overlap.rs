@@ -51,8 +51,17 @@ impl Checker<'_, '_> {
             return;
         }
         let target = self.get_type_from_type_node(annotation);
-        let source = self.check_expression(expression);
-        if !self.pair_is_reportable(source, target) || self.same_primitive_family(source, target) {
+        // `getBaseTypeOfLiteralType` on the **expression**
+        // (`checker.go:12317`), which is what makes `"foo" as "bar"` compare
+        // `string` against `"bar"` and report nothing. Ported literally rather
+        // than approximated by a primitive-family test — §45 found the proxy
+        // was being read as a statement about the *relation*, which it is not.
+        // `getRegularTypeOfObjectLiteral` and `getWidenedType` wrap it upstream
+        // and are unported; the composite decline below is what stands in for
+        // the population they would reach.
+        let expression_type = self.check_expression(expression);
+        let source = self.get_base_type_of_literal_type(expression_type);
+        if !self.pair_is_reportable(source, target) || self.either_is_composite(source, target) {
             return;
         }
         // Both directions, both confident. `Unknown` on either side is silence.
@@ -73,42 +82,6 @@ impl Checker<'_, '_> {
                 [source_text, target_text],
             ),
         );
-    }
-
-    /// Are both sides the same primitive family — both string-like, both
-    /// number-like, both boolean-like, both bigint-like?
-    ///
-    /// **This is where `isTypeComparableTo` and `isTypeAssignableTo` part
-    /// company**, and it is the whole of what the substitution above costs.
-    /// `"foo" as "bar"` is not assignable in either direction and *is* comparable
-    /// (both reduce to `string`), so upstream reports nothing.
-    /// `stringLiteralsWithTypeAssertions01` and
-    /// `stringLiteralsAssertionsInEqualityComparisons02` were 6 of this rule's
-    /// first 7 wrong lines and its only loss.
-    pub(crate) fn same_primitive_family(&self, source: TypeId, target: TypeId) -> bool {
-        let family = |flags: crate::flags::TypeFlags| -> Option<u8> {
-            use crate::flags::TypeFlags as F;
-            if flags.intersects(F::STRING.union(F::STRING_LITERAL)) {
-                Some(0)
-            } else if flags.intersects(F::NUMBER.union(F::NUMBER_LITERAL)) {
-                Some(1)
-            } else if flags.intersects(F::BOOLEAN.union(F::BOOLEAN_LITERAL)) {
-                Some(2)
-            } else if flags.intersects(F::BIG_INT.union(F::BIG_INT_LITERAL)) {
-                Some(3)
-            } else {
-                None
-            }
-        };
-        if self.either_is_composite(source, target) {
-            return true;
-        }
-        let (Some(left), Some(right)) =
-            (family(self.type_of(source).flags), family(self.type_of(target).flags))
-        else {
-            return false;
-        };
-        left == right
     }
 
     /// A **union or intersection** on either side, which every rule that
