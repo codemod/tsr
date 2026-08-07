@@ -290,7 +290,7 @@ list no longer reads as a board. Stated plainly, at `a57a04b`:
 | lines | item | note |
 |---:|---|---|
 | 658 / ~460 reachable | overload selection's own gates | score ~41; effort 5. Two of its largest gates are this session's own refusals working as designed |
-| 2,276 / ~1,833 | the **callee-type** family — `callee type is not an object type` 1,398 + `identifier: symbol types as a non-object` 878 | **never split**; the largest unexplored gate in the call funnel. A probe is the next move, not a build |
+| 2,276 / ~1,833 | the **callee-type** family — `callee type is not an object type` 1,398 + `identifier: symbol types as a non-object` 878 | **NOT PROBED. Start here.** The largest unexplored gate in the call funnel, and the only live row whose population has never been split by mechanism. A probe was dispatched this session and produced nothing; no partial instrument was kept, so there is no half-number to inherit. **The open question is whether the two gates are one mechanism or two** — plausibly both are "the callee does not type as something with signatures", but that is a hypothesis and testing it is the probe. Note `tsr-4sa`'s four positional refusals are prior art here, and **one of them (qualified naming) is no longer refused** — both halves shipped this session — so any bucket blocked on it must be re-examined rather than carried |
 | 494 | inference finds **no candidate at all** | surfaced by `infergen.rs` this session and *not* the priority lattice (refused at ~17). Unsized |
 | 399 | `arguments` | §4.3 — three mechanisms wearing one spelling, needs the split first |
 
