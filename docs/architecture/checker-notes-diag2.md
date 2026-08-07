@@ -2132,3 +2132,23 @@ and the **JSX string literal** — cost **2 cases** and was reverted. Upstream's
 token's own range. *The rule is not "the scanner always reports at `pos`"; it is
 "report where upstream's call reports"*, and the two are only sometimes the same.
 Both remaining sites are correct as written.
+
+
+### 30.3 TS1125 — the position family's third member, +5
+
+```
+diagnostics 988 -> 993   (+5)     every parser and scanner suite unchanged
+```
+
+`Hexadecimal_digit_expected` and `Digit_expected` are reported through
+`s.error` at `scanner.go:703`, `:1817` and `:1870` — the same `s.pos`, length
+zero as TS1160. Five sites in this port spanned from the escape's or the
+exponent's start instead. `extragap.rs` had priced the family at **86 displaced
+lines**; five cases finished.
+
+**The family is now exhausted from this instrument's data**: of the displaced
+column's head, TS2300 (47) and TS1160 (12) and TS1125 (86) are done, TS1002's two
+sites are done, and TS1005's 241 are *not* this shape — they are JSX and
+conflict-marker parser **recovery** differences (32 lines at one EOF position in
+`jsxUnclosedParserRecovery` alone), which is a parser project rather than a
+position. TS1109's 18 are the only untried remainder.

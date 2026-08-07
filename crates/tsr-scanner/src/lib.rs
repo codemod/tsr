@@ -628,7 +628,7 @@ impl<'a> Scanner<'a> {
                 } else {
                     self.error(
                         &messages::HEXADECIMAL_DIGIT_EXPECTED,
-                        Span::new(escape_start, self.pos),
+                        Span::new(self.pos, self.pos),
                     );
                     break;
                 }
@@ -695,8 +695,6 @@ impl<'a> Scanner<'a> {
     // ---- numbers --------------------------------------------------------
 
     fn scan_number(&mut self, flags: &mut TokenFlags) -> SyntaxKind {
-        let start = self.pos;
-
         if self.peek() == Some('0') {
             let radix = match self.peek_at(1) {
                 Some('x' | 'X') => Some((16, TokenFlags::HEX_SPECIFIER)),
@@ -710,7 +708,10 @@ impl<'a> Scanner<'a> {
                 *flags |= flag;
                 let digits = self.scan_digits(radix, flags);
                 if digits == 0 {
-                    self.error(&messages::HEXADECIMAL_DIGIT_EXPECTED, Span::new(start, self.pos));
+                    self.error(
+                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                        Span::new(self.pos, self.pos),
+                    );
                 }
                 if self.eat('n') {
                     return SyntaxKind::BigIntLiteral;
@@ -733,13 +734,12 @@ impl<'a> Scanner<'a> {
 
         // Exponent.
         if matches!(self.peek(), Some('e' | 'E')) {
-            let exponent_start = self.pos;
             self.bump();
             if matches!(self.peek(), Some('+' | '-')) {
                 self.bump();
             }
             if self.scan_digits(10, flags) == 0 {
-                self.error(&messages::DIGIT_EXPECTED, Span::new(exponent_start, self.pos));
+                self.error(&messages::DIGIT_EXPECTED, Span::new(self.pos, self.pos));
             } else {
                 *flags |= TokenFlags::SCIENTIFIC;
             }
@@ -859,18 +859,21 @@ impl<'a> Scanner<'a> {
                 let digits = &self.source[start as usize..self.pos as usize];
                 match u32::from_str_radix(digits, 16).ok().and_then(char::from_u32) {
                     Some(c) if digits.len() == 2 => out.push(c),
-                    _ => self
-                        .error(&messages::HEXADECIMAL_DIGIT_EXPECTED, Span::new(start, self.pos)),
+                    _ => self.error(
+                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                        Span::new(self.pos, self.pos),
+                    ),
                 }
             }
             'u' => {
                 // Back up so the shared escape scanner sees the `u`.
                 self.pos -= 1;
-                let start = self.pos;
                 match self.scan_unicode_escape() {
                     Some(cp) => self.push_code_point(cp, out),
-                    None => self
-                        .error(&messages::HEXADECIMAL_DIGIT_EXPECTED, Span::new(start, self.pos)),
+                    None => self.error(
+                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                        Span::new(self.pos, self.pos),
+                    ),
                 }
             }
             c if is_line_break(c) => {

@@ -41,7 +41,7 @@ Measured at the §14 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,075/9,538** | **32.24%** | **gradient 76.75%** — the target |
-| `diagnostics` | **988/5,488** | **18.00%** | **tenth session, +271** — 717 → 988 across twenty-one builds and four measured refusals; the running total is 80 → 988, 12.4× |
+| `diagnostics` | **993/5,488** | **18.09%** | **tenth session, +276** — 717 → 993 across twenty-two builds and four measured refusals; the running total is 80 → 993, 12.4× |
 
 ### `checker_types`, the number the project is steered by
 
@@ -247,7 +247,8 @@ them (the parallel `.types` workstream's 3,043 / 74.46% is theirs).
 | `~` | TS2583 + TS2301 substitutions in TS2304's residual | +3 | −18 |
 | `~` | TS2454's guarded-reference decline | 0 | **−59** |
 | `~` | **TS1160 / TS1002 reported at the scanner's position, not the token's** | **+13** | — |
-| `HEAD` | **every `declare` path records the name node** — TS2300's position | **+11** | — |
+| `~` | **every `declare` path records the name node** — TS2300's position | **+11** | — |
+| `HEAD` | TS1125 / TS1124 — the same `s.pos` correction at five more sites | **+5** | — |
 
 **The session was asked for 50%. It is not reachable from here, and the session
 measured that three separate ways rather than asserting it once.** `diaggap.rs`'s single-code column — the
@@ -336,7 +337,7 @@ on its name. Eleven cases, and `binder_symbols` is unchanged at 98.03% —
 positions are not part of that suite's comparison, which is how the defect
 survived two sessions.
 
-**+23 cases for two arguments and one moved statement**, and a measured negative
+**+28 cases for three arguments and one moved statement**, and a measured negative
 beside them: the same correction applied to the unterminated *regex* and *JSX
 string* sites cost 2 cases and was reverted. The rule is not "the scanner always
 reports at `pos`"; it is "report where upstream's call reports".
