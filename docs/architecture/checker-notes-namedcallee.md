@@ -461,3 +461,57 @@ below 20, the concentration is the first place to look and the second is whether
 `type_to_string_at` is reached on *this* path at all — a net of exactly 0 means
 the code did not run, which is the cheapest diagnosis on this board and should be
 checked before re-reading the premise.
+
+### Built and scored — all four legs pass, and the residual names the refusal's real size
+
+Measured with `verdictdump.rs` at both ends of a path-limited `git stash`, so the
+transition matrix is one probe's rather than a subtraction:
+
+```
+  GAP -> RIGHT   32
+  GAP -> WRONG    3
+  RIGHT -> *      0
+
+  gained 32   lost 0   net 32
+  cases touched 3:  compiler/temporal 24, conformance/es2018IntlAPIs 9,
+                    compiler/doYouNeedToChangeYourTargetLibraryES2016Plus 2
+  checker_types  72.53% -> 72.54%
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 net floor | `gained ≥ 20` | **32** | **PASS** (128% of forecast) |
+| 2 lost | `lost == 0` ABSOLUTE | **0** | **PASS** |
+| 3 case regression | `regressed == 0` | **0** | **PASS**, and non-vacuously — `RIGHT -> *` is empty, so no case *could* regress |
+| 4 gap→wrong | `≤ 3` attributable | **3** | **PASS**, exactly at the bar |
+
+**The falsifier fired in the direction that was named.** The bar said 22 of 25
+lines were `compiler/temporal` and that concentration was the first place to look;
+measured, it is 24 of 35 — **69%**, still concentrated, and the item is ~11 lines
+outside its head case. The forecast's *conversion* column was 25 and it delivered
+32, so the counterfactual understated it; its *miss* column was 0 and it delivered
+3, so it understated that too, and the reason is one mechanism.
+
+**What the 3 are, and what they say about the refusal that was deleted.** All
+three are `conformance/es2018IntlAPIs`:
+
+```
+  want Intl.NumberFormatPart[]                                got NumberFormatPart[]
+  want (number?: number | bigint) => Intl.NumberFormatPart[]  got (number?: number | bigint) => NumberFormatPart[]
+```
+
+`type_to_string_at` qualifies the type **it is asked about**, and these are names
+nested inside a composite — an array element, and a return type inside a
+signature. The qualifier does not recurse into constituents. So the deleted
+refusal was *not* wrong about the phenomenon; it was wrong about the **size** of
+it, by an order of magnitude:
+
+> **The refusal declined 35 lines to avoid 3 wrong ones.** It was registered when
+> the bare-name problem was total, and it survived unchanged into a compiler where
+> `type_to_string_at` had reduced it to the nested case. Nothing re-read it — the
+> same shape as the `SELECTABLE` gate earlier this session, a guard outliving the
+> weakness it guarded against.
+
+Filed rather than absorbed: **qualification does not recurse into composite
+constituents**, 3 measured lines, a `printing`/`type_to_string_at` item and not a
+signatures one.

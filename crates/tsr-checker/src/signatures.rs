@@ -343,41 +343,16 @@ impl<'a> Checker<'a, '_> {
         if self.store.get(first.r#type).flags.intersects(crate::TypeFlags::TYPE_PARAMETER) {
             return None;
         }
-        if self.needs_namespace_qualifier(first.r#type) {
-            return None;
-        }
+        // The `needs_namespace_qualifier` decline that stood here is DELETED.
+        // Its premise — `TypeData::Named` bakes the symbol's own name, so this
+        // would print `NumberFormat` where upstream prints `Intl.NumberFormat` —
+        // was true when it was written and is not true now:
+        // [`Checker::type_to_string_at`] renders a type *from its reference
+        // site* and qualifies it, and every `.types` assertion goes through it.
+        // Sized at 25 lines / 0 at risk by `examples/calleegap.rs`, with the bar
+        // in `docs/architecture/checker-notes-namedcallee.md` registered before
+        // the deletion.
         Some(first)
-    }
-
-    /// Whether a type's printed name would need a namespace qualifier.
-    ///
-    /// `TypeData::Named` bakes the symbol's own name, so a type declared inside
-    /// `declare namespace Intl` prints as `NumberFormat` where upstream's
-    /// `lookupSymbolChain` (`nodebuilderimpl.go:1061`) prints
-    /// `Intl.NumberFormat`. That family stands refused at 2.7 wrong per right
-    /// (`STATUS.md` §5, `bd tsr-93f`), so a caller that would otherwise print
-    /// the bare name gaps instead.
-    ///
-    /// The test is syntactic — a `ModuleDeclaration` anywhere above a
-    /// declaration — rather than a scope computation, because the refusal only
-    /// has to be *sound*: a false positive costs a gap, and this port's
-    /// measured cost for it is zero conversions
-    /// (`docs/architecture/checker-notes-namedcallee.md` §4.2).
-    fn needs_namespace_qualifier(&self, id: TypeId) -> bool {
-        let crate::types::TypeData::Named { members: Some(symbol), .. } = self.store.get(id).data
-        else {
-            return false;
-        };
-        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-            let mut current = self.nodes.parent(declaration);
-            while let Some(node) = current {
-                if self.nodes.kind(node) == SyntaxKind::ModuleDeclaration {
-                    return true;
-                }
-                current = self.nodes.parent(node);
-            }
-            false
-        })
     }
 
     /// The second half of `getSignaturesOfSymbol`'s loop (`checker.go:19814`):
