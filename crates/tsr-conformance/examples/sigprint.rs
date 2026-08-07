@@ -26,7 +26,92 @@
 use std::collections::BTreeMap;
 
 use rayon::prelude::*;
+use tsr_checker::signatures::{Signature, SignatureKind};
 use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
+
+/// `Checker::signature_to_string` (`signatures.rs:1435`), replicated with a
+/// `site`: every rendered slot goes through `type_to_string_at` when a site is
+/// given, falling back to the baked text where the site-aware path refuses.
+/// The written-text and predicate precedence rules are the composer's own;
+/// predicate signatures are skipped by the caller (the predicate printer is
+/// crate-private and its text is site-independent anyway).
+fn compose(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    signature: &Signature,
+    site: Option<tsr_ast::NodeId>,
+) -> String {
+    fn render(
+        checker: &mut tsr_checker::Checker<'_, '_>,
+        id: tsr_checker::TypeId,
+        site: Option<tsr_ast::NodeId>,
+    ) -> String {
+        match site {
+            Some(site) => {
+                checker.type_to_string_at(id, site).unwrap_or_else(|| checker.type_to_string(id))
+            }
+            None => checker.type_to_string(id),
+        }
+    }
+    let mut out = match signature.kind {
+        SignatureKind::Call => String::new(),
+        SignatureKind::Construct => "new ".to_string(),
+        SignatureKind::AbstractConstruct => "abstract new ".to_string(),
+    };
+    if !signature.type_parameters.is_empty() {
+        out.push('<');
+        for (index, parameter) in signature.type_parameters.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(&parameter.name);
+            if let Some(constraint) = parameter.constraint {
+                out.push_str(" extends ");
+                match &parameter.written_constraint {
+                    Some(written) => out.push_str(written),
+                    None => {
+                        let text = render(checker, constraint, site);
+                        out.push_str(&text);
+                    }
+                }
+            }
+            if let Some(default) = parameter.default {
+                out.push_str(" = ");
+                let text = render(checker, default, site);
+                out.push_str(&text);
+            }
+        }
+        out.push('>');
+    }
+    out.push('(');
+    for (index, parameter) in
+        signature.this_parameter.iter().chain(signature.parameters.iter()).enumerate()
+    {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        if parameter.rest {
+            out.push_str("...");
+        }
+        out.push_str(&parameter.name);
+        out.push_str(if parameter.optional { "?: " } else { ": " });
+        match &parameter.written_text {
+            Some(written) => out.push_str(written),
+            None => {
+                let text = render(checker, parameter.r#type, site);
+                out.push_str(&text);
+            }
+        }
+    }
+    out.push_str(") => ");
+    match &signature.written_return {
+        Some(written) => out.push_str(written),
+        None => {
+            let text = render(checker, signature.r#type, site);
+            out.push_str(&text);
+        }
+    }
+    out
+}
 
 #[derive(Default)]
 struct Report {
@@ -96,24 +181,20 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             if signatures.len() != 1 {
                 continue;
             }
-            let return_type = signatures[0].r#type;
-            let baked = checker.type_to_string(return_type);
-            if baked == "error" {
-                report.gap_return += 1;
+            let signature = signatures[0].clone();
+            if signature.predicate.is_some() {
                 continue;
             }
-            // The baked composite ends with the baked return rendering for the
-            // `(…) => R` shape; anything else is out of this forecast's reach.
-            if !printed.ends_with(&baked) {
+            // SELF-CHECK: the site-less reconstruction must equal what the
+            // compiler printed, or the format model here is not the
+            // composer's and no forecast below is readable.
+            let rebuilt = compose(&mut checker, &signature, None);
+            if rebuilt != printed {
+                report.gap_return += 1; // reused as the self-check-miss counter
                 continue;
             }
-            let site =
-                checker.type_to_string_at(return_type, id).unwrap_or_else(|| "error".to_string());
             report.admitted += 1;
-            if site == baked || site == "error" {
-                continue;
-            }
-            let forecast = format!("{}{site}", &printed[..printed.len() - baked.len()]);
+            let forecast = compose(&mut checker, &signature, Some(id));
             let outcome = if forecast == printed {
                 continue;
             } else if is_right {
@@ -147,11 +228,11 @@ fn main() {
         report.merge(&partial);
     }
     println!("# sigprint — the return slot of the composite-print seam, symbol-exact\n");
-    println!("  admitted (1 signature, baked return is the suffix)   {:>7}", report.admitted);
+    println!("  admitted (1 signature, self-check passed)            {:>7}", report.admitted);
     println!("  CONVERTS      wrong today, forecast IS the want      {:>7}", report.converts);
     println!("  WOULD-WRONG   wrong today, still not the want        {:>7}", report.churn);
     println!("  AT RISK       right today, forecast changes it       {:>7}", report.at_risk);
-    println!("  (return type itself gaps: {} — no claim)", report.gap_return);
+    println!("  (self-check misses — format model != composer: {})", report.gap_return);
     println!();
     let mut rows: Vec<_> = report.lines.iter().collect();
     rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
