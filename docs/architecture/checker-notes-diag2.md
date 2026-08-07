@@ -2365,3 +2365,32 @@ kinds, and only those, is twenty-four cases for a nine-line condition.
 > shapes it actually applies to. This one had been applied to three shapes and was
 > true of one. **A decline inherits its justification from the mechanism it names,
 > not from the type it happens to be attached to.**
+
+---
+
+## 36. The unnarrowed-reference decline is DELETED — +6, and §35's audit generalises
+
+```
+diagnostics 1,048 -> 1,054   (+6)     LOST 0
+```
+
+§16's fifth decline refused any assignability report whose source was a
+**reference with a union type**, on the argument that narrowing applies only to
+references and the two narrowing mechanisms this port lacks — aliased conditional
+expressions and inferred type predicates — leave a union un-reduced. It was
+measured at 18 wrong lines.
+
+**That measurement was taken under the binary relation** (§16, before §25). Under
+`relate_ternary` the un-reduced union reaches a relation that answers `Unknown`
+for exactly the pairs it cannot decide, so the decline now removes conversions
+and prevents nothing. Deleting it — and its three call sites, in the assignment,
+declaration, return and argument arms — is worth six cases and zero losses.
+
+> **§35's audit, generalised: a decline inherits its justification from the
+> measurement that produced it, and a later build can invalidate that measurement
+> without touching the decline.** Two of this session's own gates had gone stale
+> that way within the same session. The cheap check is to ask, of every decline,
+> *what would have to be true for this to still be needed* — and then run it.
+> `pair_is_reportable`'s enum veto was audited the same way and is now a
+> **measured no-op**: it is kept because it costs nothing and documents a real
+> upstream gap, but it no longer decides anything.

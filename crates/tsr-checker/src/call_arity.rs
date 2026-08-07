@@ -125,9 +125,6 @@ impl<'a> Checker<'a, '_> {
             // §23 wrote; only the target changes.
             self.check_excess_properties(target, argument_id);
             let source = self.check_expression(*argument);
-            if self.source_is_an_unnarrowed_reference(argument_id, source) {
-                continue;
-            }
             self.report_argument_failure(argument_id, source, target);
         }
     }
@@ -163,9 +160,6 @@ impl<'a> Checker<'a, '_> {
             let Some(argument_id) = argument.node_id() else { continue };
             let Some(target) = self.type_from_annotation_id(annotation) else { continue };
             let source = self.check_expression(*argument);
-            if self.source_is_an_unnarrowed_reference(argument_id, source) {
-                continue;
-            }
             self.report_argument_failure(argument_id, source, target);
         }
         // `sole_constructor_parameters` stops at the first rest parameter and

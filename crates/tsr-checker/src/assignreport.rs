@@ -65,9 +65,6 @@ impl<'a> Checker<'a, '_> {
         let source = self.check_expression(right);
         let Some(right_id) = right.node_id() else { return };
         self.check_excess_properties(target, right_id);
-        if self.source_is_an_unnarrowed_reference(right_id, source) {
-            return;
-        }
         self.report_assignability_failure(left_id, right_id, source, target);
     }
 
@@ -95,9 +92,6 @@ impl<'a> Checker<'a, '_> {
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
         self.check_excess_properties(target, initializer_id);
-        if self.source_is_an_unnarrowed_reference(initializer_id, source) {
-            return;
-        }
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 
@@ -130,9 +124,6 @@ impl<'a> Checker<'a, '_> {
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
         self.check_excess_properties(target, initializer_id);
-        if self.source_is_an_unnarrowed_reference(initializer_id, source) {
-            return;
-        }
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 
@@ -157,9 +148,6 @@ impl<'a> Checker<'a, '_> {
         let source = self.check_expression(expression);
         let Some(expression_id) = expression.node_id() else { return };
         self.check_excess_properties(target, expression_id);
-        if self.source_is_an_unnarrowed_reference(expression_id, source) {
-            return;
-        }
         self.report_assignability_failure(node, expression_id, source, target);
     }
 
@@ -414,9 +402,6 @@ impl<'a> Checker<'a, '_> {
         let Some(value) = self.object_literal_member_value(literal, name) else { return };
         let Some(member) = self.get_type_of_property_of_type(target, name) else { return };
         let source = self.check_expression_at_node(value);
-        if self.source_is_an_unnarrowed_reference(value, source) {
-            return;
-        }
         self.report_assignability_failure(at, value, source, member);
     }
 
@@ -700,28 +685,6 @@ impl<'a> Checker<'a, '_> {
             && self
                 .declared_property_table(target)
                 .is_some_and(|table| table.iter().any(|(_, optional)| !optional))
-    }
-
-    /// Is the source expression a **reference** whose type is still a union?
-    ///
-    /// Is the source expression a **reference** whose type is still a union?
-    ///
-    /// Narrowing only ever applies to a reference, so this is the exact shape in
-    /// which an unported narrowing mechanism can leave a union that upstream had
-    /// already reduced. Restricting the decline to references rather than to
-    /// every union source is worth 7 conversions: `var x: number = f()` returning
-    /// a union is a real error and no narrowing was ever going to touch it.
-    pub(crate) fn source_is_an_unnarrowed_reference(
-        &self,
-        expression: NodeId,
-        source: TypeId,
-    ) -> bool {
-        matches!(
-            self.nodes.kind(expression),
-            SyntaxKind::Identifier
-                | SyntaxKind::PropertyAccessExpression
-                | SyntaxKind::ElementAccessExpression
-        ) && self.type_of(source).flags.contains(TypeFlags::UNION)
     }
 }
 
