@@ -287,6 +287,9 @@ pub mod counters {
         generic_candidate = "  a generic candidate in the set",
         /// A `this` or rest parameter on any candidate.
         this_or_rest_parameter = "  a this or rest parameter",
+        /// An untyped call — the callee types as `any`, so the call answers
+        /// `any`. `resolveUntypedCall` (`checker.go:9902`).
+        untyped_call = "  UNTYPED CALL — callee is `any`, answered `any`",
         /// An `any` parameter on any candidate — the positional refusal that
         /// replaced the `SELECTABLE` parameter gate. `bd tsr-kmzf`.
         parameter_any = "  an `any` parameter (refused positionally)",
@@ -401,6 +404,22 @@ impl Checker<'_, '_> {
             && !matches!(self.store.get(callee_type).data, TypeData::Anonymous { .. })
         {
             self.classify_unresolved_callee(callee, callee_type);
+        }
+        // `resolveUntypedCall` (`checker.go:9902`): a call through an `any`
+        // callee is an **untyped call**, and its type is `any`. TS 1.0 spec
+        // §4.12, quoted in upstream's comment above `isUntypedFunctionCall`
+        // (`checker.go:9931`).
+        //
+        // This is NOT ADR-0038's forbidden rendering. Upstream keeps
+        // `anySignature` (`checker.go:1042`, returning `anyType`) distinct from
+        // `unknownSignature` (`checker.go:1043`, returning `errorType`), and its
+        // error path is the separate `resolveErrorCall` (`checker.go:9923`). The
+        // `any` answered here is an honest computation, not a failed one wearing
+        // `any`'s name — `docs/architecture/checker-notes-calleegap.md` argues it
+        // from those two adjacent upstream lines.
+        if self.is_untyped_call_target(callee, callee_type) {
+            bump(&COUNTERS.untyped_call);
+            return self.intrinsics.any;
         }
         let Some(signature) = self.resolve_call_signature(callee_type, Some(node.arguments)) else {
             return error;
@@ -939,6 +958,89 @@ impl Checker<'_, '_> {
             None => bump(&COUNTERS.arity_no_match),
         }
         chosen.cloned()
+    }
+
+    /// Whether a call through this callee is an **untyped call** —
+    /// `isUntypedFunctionCall` (`checker.go:9931`), reduced to its first
+    /// disjunct, `IsTypeAny(funcType)`.
+    ///
+    /// Upstream's other two disjuncts are **not** ported and each is a gap
+    /// rather than a guess: the `TypeFlagsTypeParameter` arm needs an apparent
+    /// type this port does not compute for every parameter, and the
+    /// `globalFunctionType` assignability arm needs the global `Function`
+    /// interface.
+    ///
+    /// # The positional refusal, and why it is a rule and not a trade
+    ///
+    /// An **unannotated parameter** types as `any` in this port and is
+    /// **contextually typed** upstream, so upstream's answer for a call through
+    /// one is the contextual parameter type — never `any`. Answering `any` there
+    /// would assert something upstream never computes, which is a wrong rule,
+    /// and `docs/conventions.md` says a rule is not priced. It is `STATUS.md`
+    /// §5's 2,082-line contextual-typing refusal reached through a new door, and
+    /// `examples/calleegap.rs` measured it at **64 of 77 misses removed for 36
+    /// conversions**.
+    ///
+    /// **The refusal needs no test of its own.** It was written as one and the
+    /// narrowing below subsumed it: an unannotated parameter has no annotation,
+    /// so [`Checker::any_is_written_in_an_annotation`] already excludes it. The
+    /// explicit predicate was deleted rather than left as dead code, and this
+    /// paragraph is why the family is still refused without one.
+    fn is_untyped_call_target(&mut self, callee: Expression<'_>, callee_type: TypeId) -> bool {
+        if !self.store.get(callee_type).flags.intersects(TypeFlags::ANY) {
+            return false;
+        }
+        // `errorType` carries `ANY` too. A gap must stay a gap: answering `any`
+        // for it is precisely ADR-0038's forbidden rendering, and this is the
+        // one place this arm could commit it.
+        if callee_type == self.intrinsics.error {
+            return false;
+        }
+        // NARROWED after the first run measured 248 gap->wrong against a bar of
+        // 20. The counterfactual sized a design whose `any` comes from a
+        // **written** annotation; this arm had been firing wherever the callee
+        // typed as `any` for ANY reason, including the many places this port
+        // produces `any` from an unported mechanism where upstream computes a
+        // real type. `want string | got any` was 137 of the 248.
+        //
+        // So the test is not "is the type `any`" but "did the source **say**
+        // `any`". That is the only form in which this port's `any` and
+        // upstream's are the same claim.
+        self.any_is_written_in_an_annotation(callee)
+    }
+
+    /// Whether the callee's `any` was **written** in the source, rather than
+    /// produced by an unported mechanism. See [`Checker::is_untyped_call_target`].
+    ///
+    /// This is the whole safety property of the arm. `docs/conventions.md`'s
+    /// *"a gap beats a wrong answer"*: where this port answers `any` because it
+    /// could not compute something, upstream computes a real type and answering
+    /// `any` manufactures a wrong line. Only an `any` the programmer wrote is a
+    /// claim both compilers make.
+    fn any_is_written_in_an_annotation(&mut self, callee: Expression<'_>) -> bool {
+        let Expression::Identifier(identifier) = callee else { return false };
+        let Some(id) = identifier.node_id else { return false };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            id,
+            identifier.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return false;
+        };
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let annotation = match self.node_map.get(declaration) {
+            Some(tsr_ast::Node::VariableDeclaration(node)) => node.r#type,
+            Some(tsr_ast::Node::ParameterDeclaration(node)) => node.r#type,
+            Some(tsr_ast::Node::PropertyDeclaration(node)) => node.r#type,
+            Some(tsr_ast::Node::PropertySignatureDeclaration(node)) => node.r#type,
+            _ => None,
+        };
+        matches!(annotation, Some(tsr_ast::TypeNode::KeywordTypeNode(k))
+            if k.kind == tsr_ast::SyntaxKind::AnyKeyword)
     }
 }
 

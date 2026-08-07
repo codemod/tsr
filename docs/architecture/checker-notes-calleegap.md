@@ -470,3 +470,66 @@ own-node/cascade modelling gap.
 2. **If new wrong is far above 13, the unannotated-parameter refusal is not
    firing.** Check that before re-reading anything else; it is the difference
    between 213/13 and 249/77.
+
+### Built and scored — the first design was WRONG and its number is the finding
+
+Measured with `verdictdump.rs` at both ends of a path-limited `git stash`.
+
+**The naive arm — every callee that types as `any`:**
+
+```
+  GAP   -> RIGHT  327     RIGHT -> WRONG  2
+  GAP   -> WRONG  248     WRONG -> RIGHT  1
+  gained 328   lost 2   net 326
+```
+
+**Leg 4 fired at 248 against a registered 20**, and the bar's *second named
+falsifier* is what it was: *"if new wrong is far above 13, check that before
+re-reading anything else."* Hypothesis one — the build — is where it went, and
+the residual said so in one line: **`want string | got any` was 137 of the 248**,
+with `number` 17, `void` 8, `boolean` 8.
+
+> **This port's `any` and upstream's `any` are not the same claim.** Upstream
+> reaches `any` for a callee only when the source *said* `any`. This port also
+> reaches it wherever an unported mechanism gives up. `isUntypedFunctionCall`
+> tests `IsTypeAny(funcType)` and that test is *sound upstream and unsound here*,
+> because the two compilers disagree about which types are `any`.
+
+The counterfactual had sized a population whose `any` originates in an
+**annotation** — `calleegap.rs` §6's buckets are *annotated variable*, *callee
+not a bare name*, *unannotated variable*. The arm implemented was the flag test,
+which is strictly wider. **The build did not match the design that was sized**,
+which is exactly what leg 4 exists to catch.
+
+**Narrowed: the `any` must be WRITTEN in an annotation.**
+
+```
+  GAP -> RIGHT  114      and nothing else moved at all
+  gained 114   lost 0   net 114
+  cases gaining 25, losing 0
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 net floor | `gained ≥ 100` | **114** | **PASS** |
+| 2 lost | `lost ≤ 5`, each diagnosed | **0** | **PASS** |
+| 3 case regression | `regressed == 0` | **0** | **PASS**, non-vacuously — no `RIGHT ->` traffic at all |
+| 4 gap→wrong | `≤ 20` attributable | **0** | **PASS** |
+
+**Falsifier 1 did not fire.** It predicted 47% of the gain in
+`compiler/duplicateLocalVariable1`; measured, the top case is
+`compiler/fatarrowfunctions` at 30 of 114, and `net − top case = 84` against a
+threshold of 50. The forecast's *concentration* was wrong in the good direction
+and the item is more diffuse than it was sold as — 25 cases, not one.
+
+**The narrowing's price, measured rather than assumed:** it costs **214
+conversions to remove 248 wrong lines**. On a ratio that looks like a poor trade,
+and it is taken anyway, on the rule this project has applied four times now:
+answering off a premise the two compilers do not share is a **wrong rule, not a
+bad trade**, and a rule is not priced. The 248 were never conversions to lose;
+they were 248 assertions this port had no basis for.
+
+**Refused with its number, so nobody rebuilds it:** *the flag-test form of
+`isUntypedFunctionCall`* — 328 gained against **248** manufactured wrong lines,
+1.3 gained per wrong, worse than every refusal on `STATUS.md` §5 except
+`removeSubtypes`.
