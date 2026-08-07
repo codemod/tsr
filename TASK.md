@@ -11,15 +11,21 @@ session's spine: the fixpoint landed by exonerating it, the too-large bail
 ~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 3,575/9,538 (37.48%) · 388,917/478,954 = 81.20% · gap 55,979
-  · wrong 24,019. The continuation (builds 25–57): +32,264 right lines,
-  +532 cases, +6.74 points, THIRTY-FOUR bar-scored builds and FIVE measured
-  refusals/reverts, every fired leg honoured in writing. Chain in STATUS §1.
-  Late finds worth reading first: §35 (tsgo prints `error` in JS chains —
-  123 baseline files, ADR-0038's premise refined), §36 (the `unknown`
-  inference fallback), §37 (tuples instantiate — `instantiate_type`'s
-  oldest decline closed by `tsr-5ll`'s element lists), §33 (`globalThis`),
-  §26-callres (the unique-symbol mint).
+  checker_types 3,645/9,538 (38.22%) · 394,836/478,954 = 82.44% · gap 50,074
+  · wrong 24,005. The continuation (builds 25–72): +38,183 right lines,
+  +602 cases, +7.98 points, FORTY-NINE bar-scored builds and SIX measured
+  refusals, every fired leg honoured in writing. Chain in STATUS §1.
+  The late run's spine: the §41–§46 members-carrying-reference design
+  (qualified names, generic qualifieds, alias bodies — three standing rows
+  converted at once, including 264 of the double-refused underscoreTest1),
+  the §17 un-refusal (+784 — a refusal's diagnosis is itself a claim the
+  next probe must test), skip-with-agreement over constructor overloads
+  (+891, typed arrays whole), Record<string, V> (+274), plain-function
+  `this` (+672), `this`-results answer their receiver (+66), variadic
+  tuple prints with concrete splices (+525). The §20.1 double-refusal's
+  print-context diagnosis CONFIRMED from the outside: underscoreTest1's
+  residue wants T_1 renames in exactly the same-member-list context the
+  refusal said it could not see.
 
   THE BOUNDARY-ARGUMENT CHAIN was the continuation's largest seam — six
   hops, each "upstream's deliberate error-answer's observable IS `any`":
