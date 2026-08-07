@@ -102,13 +102,29 @@ pub(crate) fn prints_as_a_single_token(ty: &Type) -> bool {
 pub(crate) fn quote(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
-    for ch in value.chars() {
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
         match ch {
             '\\' => out.push_str("\\\\"),
             '"' => out.push_str("\\\""),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            // The rest of `escapedCharsMap` (`printer/utilities.go:41`) plus
+            // the NUL rule (`:150`): `\0` prints `\0` unless a digit follows —
+            // then `\x00`, so the result cannot re-parse as an octal. The
+            // corpus pinned these as the `templateString*Escapes` W2 rows
+            // (`"\t\n\v\f\r"` wanted where `` printed).
+            '\u{0B}' => out.push_str("\\v"),
+            '\u{0C}' => out.push_str("\\f"),
+            '\u{08}' => out.push_str("\\b"),
+            '\0' => {
+                if chars.peek().is_some_and(char::is_ascii_digit) {
+                    out.push_str("\\x00");
+                } else {
+                    out.push_str("\\0");
+                }
+            }
             c if (c as u32) < 0x20 => {
                 use std::fmt::Write as _;
                 let _ = write!(out, "\\u{:04X}", c as u32);
