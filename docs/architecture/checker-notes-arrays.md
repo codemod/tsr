@@ -725,3 +725,14 @@ surfaced one step closer, not a new mechanism. `checker_types` right
 368,720 → **369,246**, wrong 23,212 → **22,688**. The case's residual line
 is the return aggregate's fall-through `| undefined`, a different (priced)
 mechanism.
+
+## §6 Array spreads contribute their element type
+
+`SpreadElement` (402 TERMINAL lines): `[a, ...xs]` gaps whole today. The
+ported slice: a spread whose operand types as `Array<T>` (the
+`type_reference_targets` unwrap the `await` build introduced) contributes
+`T` to the element union — `getSpreadElementType`'s array half. Tuple
+spreads, iterables, and strings stay declines (error whole, the status
+quo). Falsifier: contextual/tuple positions where upstream spreads
+per-element — those want tuples, and an `Array<T>` answer there is wrong;
+counted by the measure.
