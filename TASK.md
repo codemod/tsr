@@ -1,3 +1,8 @@
+THIS FILE IS THE `.types` GRADIENT WORKSTREAM'S HANDOFF.
+The `diagnostics` workstream's is **TASK-diagnostics.md** — the two were
+overwriting each other in this one file, and the ninth session's diagnostics
+handoff was lost that way before it was read.
+
 FIRST: git pull. Read STATUS.md §1, §4.2a, §5, §7's top rows, then
 docs/architecture/checker-notes-assign.md §7–§12 (the ninth session's spine:
 five bars, four fired legs honoured, two overridden loudly) and

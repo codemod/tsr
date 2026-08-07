@@ -41,7 +41,7 @@ Measured at **`225451f`**, 2026-08-07 (ninth session).
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,043/9,538** | **31.90%** | **gradient 74.46%** — the target |
-| `diagnostics` | **717/5,488** | **13.06%** | **the check traversal landed, eighth session** — 80 → 717 across eighteen codes, see below |
+| `diagnostics` | **893/5,488** | **16.27%** | **tenth session, +176** — 717 → 893 across seven more builds; the running total is 80 → 893, 11.2× |
 
 ### `checker_types`, the number the project is steered by
 
@@ -197,6 +197,57 @@ syntactic `2xxx` rows — TS1212 22, TS1036 19, TS2391 17, TS1029 12, TS1107 12
 and a long tail, ~150 cases — are therefore worth roughly their row at roughly
 no risk, and rank **above** TS2322's 543, which needs a members subsystem before
 it is worth anything at all (§9).
+
+### `diagnostics`, the tenth session — +176, and a goal that was measured rather than met
+
+Measured at `HEAD`, tenth session. **717 → 893 of 5,488 = 16.27%.** Seven builds,
+**zero cases lost across all seven**, `checker_types` untouched by every one of
+them (the parallel `.types` workstream's 3,043 / 74.46% is theirs).
+
+| build | rule | net cases | wrong lines |
+|---|---|---:|---:|
+| `46cb49e` | `checkUnusedIdentifiers` — TS6133/6138/6192/6196/6198/6199/6205 | **+115** | 11 |
+| `8ec40c5` | TS2322, assignment and variable-declaration anchors | +29 | 28 |
+| `ed2ed2a` | `@ts-ignore` / `@ts-expect-error` + TS2578 — the **program-level** filter | +2 | — |
+| `9effd7b` | TS2322, return-statement anchor | +5 | 27 |
+| `a071849` | `noImplicitAny` parameters — TS7006 / TS7019 | +7 | **0** |
+| `8ba72f9` | TS2322 property/parameter anchors; directive position corrected | +0 | 24 |
+| `50bc406` | TS2314 / TS2707 — type-argument arity | +12 | **1** |
+| `HEAD` | TS2554 / TS2555 — call arity | +6 | **0** |
+
+**The session was asked for 50% and 50% is not reachable from here, which is a
+measurement rather than an opinion.** `diaggap.rs`'s single-code column — the
+only forecastable one — sums to **3,217 cases** at the session's open. 50% of the
+suite is 2,744 passing, so reaching it means converting essentially *every*
+single-code row plus a share of the multi-code tail. The column's head is
+TS2322 at 510 and TS2339 at 143, and both need the members-table subsystem §5
+refuses; TS2345/2741/2353/2411/2430/2416/2420 (≈370 more) need the same. The
+honest ceiling for a session that does not build that subsystem is the long tail,
+and the long tail is what this session spent itself on.
+
+**What the session establishes for the next one, in one number.** The first
+TS2322 build was gated on nothing but the error type and measured **947 right
+against 988 wrong** — the relation disagreeing with upstream *almost exactly half
+the time*. That is `checker_types`' 26% non-gradient arriving as diagnostics, and
+it is the first direct measurement of a thing the project had only asserted: **an
+incomplete relation does not report less, it reports wrongly.** Every gate in
+`checker-notes-diag2.md` §16 exists to bound that, and the surviving rule is
+confined to types whose assignability is settled by flags alone.
+
+**Three rules reported zero or one wrong line**, and all three report on a
+*syntactic* fact — §14's ordering rule holding for a third and fourth kind of
+rule. TS2314 and TS2554 look like type questions and are not:
+`getMinTypeArgumentCount` is *"the index of the first type parameter with a
+default"* and `getMinArgumentCount` is *"the index of the first optional
+parameter"*, both readable off the declaration.
+
+**The closing board**, `diaggap.rs` at `HEAD` (re-run; rows grow as rules land):
+TS2322 510, TS2339 143 (refused, §5), TS2345 114, TS2304 81, TS2454 62,
+TS2564 40, TS2741 40, TS2353 37, TS2403 29, TS2411 29, TS18050 29, TS2430 28,
+TS2300 27, TS7026 27 (refused, §5). **TS6133 and TS6196 have left the board
+entirely.** 36 cases are blocked by an *extra* diagnostic alone and 586 by both —
+the false-positive column is now the smaller half of the problem for the first
+time.
 
 ---
 
@@ -643,6 +694,37 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New this session, `diagnostics`
+
+- **TS2322 on anything but a primitive-shaped pair — REFUSED at 988 wrong lines
+  against 947 right** (`checker-notes-diag2.md` §16, build 0). Gated on nothing
+  but the error type, this port's relation disagreed with upstream on
+  *half* the assignments it was asked about; `arr_i1 = arr_c1` where
+  `C1 implements I1` is assignable upstream and not here, and every structural
+  row behaves the same way. **Returns when the members table and the structural
+  relation are finished**, not before — and the same number retires it, since it
+  is a direct read of `checker_types`' non-gradient.
+- **TS2322 for a union-typed reference source — REFUSED at 18 wrong lines.**
+  `controlFlowAliasing` (13, aliased conditional expressions) and
+  `inferTypePredicates` (5) both write `let t: string = x` after a narrowing this
+  port does not perform. Restricting the decline to *references* rather than to
+  every union source is worth 7 conversions.
+- **Implicit-any and TS2322 in `.js` files — REFUSED at 33 wrong lines**
+  (28 for `noImplicitAny`, 5 for TS2322's declaration anchors). JSDoc `@param`
+  and `@type` supply the types upstream reads and this port does not parse.
+  `typedefOnStatements.js` alone was 15 lines on one line of source. Returns with
+  JSDoc types. **The assignment anchor keeps JS**, because declining it there
+  costs 4 conversions for 5 wrong lines — an asymmetry that is measured, not
+  principled.
+- **The auto-to-any divergence, from the diagnostics side.** `let x;` and
+  `let x = undefined;` both get upstream's auto type, which `convertAutoToAny`
+  makes `any`; this port answers `undefined`. Already refused from the `.types`
+  side (`checker-notes-narrow.md` §9.1) — recorded here only so the two sides
+  keep **one owner** and the next session does not price it twice.
+- **Enum assignability — REFUSED at 11 wrong lines and one loss.**
+  `isTypeRelatedTo`'s enum arms and `numberAssignableToEnum`'s numeric widening
+  are unported, so enum and enum-literal types are vetoed inside TS2322's gate.
+
 **Do not rebuild these without new evidence. Each cost a measured cycle.**
 Rows marked **WITHDRAWN** are kept because the rule is never to delete a
 refusal — but their stated grounds have since been contradicted by a
@@ -735,6 +817,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | `HEAD` | untouched | untouched | **`diagnostics` 717 → 893 (13.06% → 16.27%), +176 cases, 0 lost across all seven builds, 0 regressed** | **The tenth session: seven builds down the long tail, and the session's real product is the number that prices the top of the board.** Builds: `checkUnusedIdentifiers` **+115** (the largest — seven codes, reference marking rebuilt as its own over-approximating pass because upstream's is a side effect of type checking this port does not do); TS2322's four anchors **+34**; the `@ts-ignore`/`@ts-expect-error` **program-level** filter with TS2578 **+2**; `noImplicitAny` parameters **+7 for zero wrong**; type-argument arity **+12 for one wrong**; call arity **+6 for zero wrong**. **The goal was 50% and 50% was measured as unreachable rather than missed**: `diaggap.rs`'s single-code column — the only forecastable one — sums to 3,217 cases, of which TS2322 (510) + TS2339 (143) + the TS2345/2741/2353/2411/2430/2416/2420 family (≈370) all sit behind the members-table subsystem §5 refuses. **Four transferable findings.** (1) *An incomplete relation does not report less, it reports wrongly* — TS2322 gated on nothing but the error type measured **947 right against 988 wrong**, `checker_types`' 26% non-gradient arriving as diagnostics, and every gate in `checker-notes-diag2.md` §16 exists to bound it. (2) *A register site inside a conditional is a precondition, not plumbing* — `registerForUnusedIdentifiersCheck(sourceFile)` sits inside `if IsExternalOrCommonJSModule`, and missing that reported every top-level declaration of every script in the unused corpus: **108 of 158 wrong lines and all three losses**, all of which then converted. (3) *A type-shaped question can still be syntactic* — `getMinTypeArgumentCount` is "the index of the first type parameter with a default" and `getMinArgumentCount` is "the index of the first optional parameter"; both read off the declaration, and both rules landed at 0–1 wrong lines. §14's ordering rule, holding for a third and fourth kind of rule. (4) *The error node can differ by direction* — TS2554 reports on the callee when there are too **few** arguments and on the first excess argument when there are too **many** (`checker.go:9770` vs `:9804`); getting one half right looks like a working rule. **Five refusals with numbers** in §5, and one of them (auto-to-any) is recorded only to keep **one owner** with the `.types` workstream's §9.1 |
 | 2026-08-07 | `0f8838f` | **74.13%** | **2,942** | **+3,926 across twenty-four builds and FOUR measured refusals, 0 lost, +202 cases, 0 regressed** — the sixteenth a measured zero shipped for the crutch it deletes (§16.1), the seventeenth the `_1` family's enclosing-scope half at 151/0 with two scope rules learned from the losses (`checker-notes-callres.md` §19.1) | **The ninth session: TASK.md's three items and one found item, every build bar-first.** (1) **Fresh wrong split** (`wrongflip` at `0a609cc`, wrong 35,859) surfaced the `undefined[] → never[]` W2 row and the arm landed same-session (`3bfec72`, +246, WRONG→RIGHT 246 with **zero** other RIGHT traffic, 7 cases — exactly the row's forecast upper bound): `checker.go:8098`'s non-strict branch, skipped since before `set_strict_null_checks` existed. (2) **`tsr-epnz` → the alias-rename filter** (`594973e`, +377): `best_name` widened from external-import-equals-only to upstream's own exclusions (`useOnlyExternalAliasing` is FALSE in the baseline path — only hover sets it), **split by print position** after the bar's named falsifier fired at 130 losses in exactly the four `privacy*` cases — the corpus wants the same-file alias on chain *segments* and the target name on the *whole* print, same file, same symbol pair. Mechanism (b) first broke the enum-union collapse (2 regressed, reverted) and relanded through the existing `enum_member_owners` side table at **+6 exact**. **The sized 26 converted 11; the +377 is 96% segment-path windfall** — recorded loudly in `checker-notes-modobj.md` §10.17. (3) **`tsr-fpti` re-probed: no buildable item** — 960 lines decompose to ceiling (256 want-any element lines are upstream `errorType` at `jsx.go:74`; the fragment escape at `:123` has a measured population of ZERO), `declare global` augmentation (154), pragma factories (`tsr-xpb8`), the heritage shard's downstream argument types. (4i) **the return aggregate reduces, behind a flag that now exists** (+84, +10 cases, 0 own wrong — §10's three-consumer wiring was REFUSED whole (+168 but 44/12, three unrelated owners pooling under one bar, §10.1), the return consumer alone then refused AGAIN on the JS `@overload` falsifier whose exclusion had nothing to read — **`NodeFlags::JAVASCRIPT_FILE` was declared and set by nothing, the `AMBIENT` trap's sibling, caught before it cost a build** — and landed once the program's two parse sites stamp it, §11.2; fixture pairs sixteen and seventeen came due against an intuition comment). (4h) **`removeSubtypes` lands, decidability-gated** (+112, WRONG→RIGHT 45, **zero** other traffic after five measurements and three falsifier-driven narrowings — `tsr-eak`'s 1.03 is now *located* in the relation's unread modifiers rather than diffuse; the modifier-bearing population returns to the board owned by `properties_related_to`; the §9 bar's falsifier fired verbatim on `{ a } | { readonly a }` and the fifteenth stand-in fixture came due, `checker-notes-assign.md` §9.1). (4g) **`||` and `??` land for the reduction-agnostic pairs** (+815, **+29 cases — past 74%**, the session's largest: `bd tsr-5s2`'s refusal re-measured — the reduction question belongs to the constituent PAIR; two legs fired across three measurements and both reshaped the build, the non-strict `Base*Facts` delta placed at the whole-operand question after a global placement lost 2 lines to narrowing leakage; leg 2's 18-vs-15 overridden loudly at 45:1 with the overage owned, `checker-notes-assign.md` §8.1). (4f) **the conditional's identity/`any` branches** (+157 — the first conditional build to clean more *wrong* than gap, WRONG→RIGHT 84; the union of `[t, t]` needs no reduction, `any` absorbs under both, `checker-notes-assign.md` §7). (4e) **`await e` answers** — the identity-and-global-`Promise` slice of `checkAwaitExpression` (`checker.go:10845`, +245, **+22 cases**, own wrong 6, 0 lost — the board's 578-line `AwaitExpression / NO STEP ARM` row had no expression arm at all; the unwrap runs through `type_reference_targets` against the merged global `Promise` symbol and declines every thenable it cannot prove). (4d) **the same two arms reach class methods** (+46, no other transition, +5 cases — a class method takes no contextual return type, and the object-literal exception is exactly what `may_return_never` discriminates, `checker.go:29711`). (4c) **async primitive returns answer `Promise<T>`** (`c3b47e2`, +15 with NO other transition — the §16 residual refused two admitted shapes before shipping: nullable primitives widen to `any` non-strict, and a reachable body end appends `undefined` strict, which gave `block_completes_normally` its `ReturnStatement` arm). (4b, same session, continuing) **generator declarations answer `Generator<Y, void, unknown>`** (`f273c08`, +63, 1 own wrong, **+17 suite cases — past 30% of cases**): §15's bar had leg 2 fire twice (bare `yield;`, `castOfYield`'s next slot, the `1 | 2` literal union, the computed-name walker blind spot — each reshaped the arm) and leg 1's guessed +80 floor miss at +63 **overridden loudly** in §15.1 — the floor priced unsized shares that turned out to be the majority, and the remaining conversions are 63/1 with zero losses and 17 whole cases. (4) **The surprise: async declarations answer `Promise<void>`** (`097d6bc`, +176 = 101% of the 174 forecast, 0 own wrong, +4 suite cases): `checker.go:20175`'s zero-aggregate async arm, gated to declarations because only non-declarations consult the contextual return type. Residue owned: async valued returns 39 (`getAwaitedType`), generators 216, esm string-named export= 6. **Found and left on the table: the `_1` type-parameter disambiguation family, 625 wrong lines in 128 cases** — upstream renames a shadowing type parameter (`T` → `T_1`) per printed type; a baked-text architecture needs a per-print naming context to follow. Unowned, diffuse (top-1 16%), the largest single naming family left |
 | 2026-08-07 | `0fab830` | untouched | untouched | **`diagnostics` 80 → 717 (1.46% → 13.06%), +637 cases, 0 regressed, 0 lost** | **The eighth session: the suite two handoffs called "structurally blocked" moves 8.75×, and the unblocking was a measurement rather than a build.** ADR-0040's diagnosis was right about *why* the number was flat and was being quoted as a *sizing*; `diaggap.rs` (new) asked what the blocked cases are blocked **on** — **3,258 of 5,488 on exactly one code**. Then ADR-0040 decisions (1) and (2), a `Checker`-owned collection and a `check_source_file` traversal, and eight builds: **TS2307/2882** +50, **TS2564** +133, **TS2304** +115, **TS2454** +233, **TS2369/2695** +40, **break/continue grammar (5 codes)** +25, **TS1036/1183** +24, **the overload implementation-expected family** +17. Two **refusals with numbers**: TS2339 at 2 converts / 254 wrong and TS7026 at 12 / 47. `checker_types` byte-identical throughout — the traversal is a second entry point and no query call site invokes it. **Four transferable findings.** (1) *The gates are the design*: upstream's `resolveExternalModule` carries fourteen messages and TS2307 is what is left when thirteen decline; ungated 45/0/100/**60**, gated 50/0/101/**21**. (2) *`tsr_ast::NodeFlags::AMBIENT` is declared, documented and set by nothing* — it caused **three** separate residuals (86 wrong lines, 4,781, 2) and a flag with no writer is a landmine with one instance per reader. (3) *A wrong column dominated by one case is one predicate*: `genericDefaults`'s 227 lines were `declare const`. (4) *A syntactic rule has no incompleteness to leak* — the three grammar builds converted 89 cases for **zero** wrong lines and needed no tightening pass, where all four semantic rules needed two or three. Forecast **exact twice** (50, 133) because the counterfactual calls the shipped code. Scored on `passing + single-code reachable`, the only currency that prices a false positive: TS2304 +56, TS2454 +28 — and **−85 / −210** respectively before their last refusals landed |
 | 2026-08-07 | `7299a14` | 73.65% | 2,841 | 0 lines, by design | **the eighth session opens by falsifying the seventh's closing sentence.** Board re-run fresh: gap **80,315**, every row unchanged — and *"no unowned row remains above 1,000"* holds only over the endings `depend.rs` **attributes**. `cyclegap.rs` (new) measured the two that attribute nothing (8.4% of the gap): the `cycle` ending is **98.6% a length-1 self-loop**, every one a declaration with neither annotation nor initialiser, i.e. `NO STEP ARM` under a label that says "a real shape here". **`FunctionDeclaration`-cycle is unowned: 2,889 net, want-any 1.8%, 611 cases, 1,894 wanting a signature.** `ArrayType` 2,120 is 99.7% *propagation* (2,114 have a gapping child type node); 4,696 of 8,499 type-node roots are the same. And the first whole-gap **want-shape** histogram: **24.9% wants `any`**, and **signature/arrow is 12,606 lines (15.7%)** spread across six rows — §4.4's structured-signature capability seen from the answer side. Both `depend.rs` fixes named and not made, so the board stays comparable. **Then the row was split the same session (`fnsiggap.rs`) rather than left as a candidate: 72.5% is downstream (a parameter or a returned expression gaps) and the item is 810 lines / 779 net in four mechanisms — plain 366, async 228, generator 173, async generator 43. ≈0.16 points at 100% conversion.** Its C1 fired on the first run (1,475 vs 2,943) and diagnosed the *probe*: it had tested the line's own node, while half the row is reached only after ≥1 step. **So the strongest unowned candidate the board has had since the seventh session closed is worth under two tenths of a point** — §4.4 arriving through another door. `docs/architecture/checker-notes-cyclegap.md`. **Also recorded, then CORRECTED the same session: ~~the clippy gate is RED at `7299a14`~~** — reported as red on `crates/tsr-ast/tests/kind_conformance.rs:83` (`inefficient_to_string`). **It is green.** The reading came from a machine whose default toolchain was **1.89.0**; on the 1.96.0 the workspace now pins, `clippy --workspace --all-targets -- -D warnings` finds **nothing**, and CI's `@stable` had been green on that file since the scaffold commit. The diagnosis in the original note ("toolchain drift, not a regression") was right and the *verdict* was wrong — **an unpinned lint gate is not a gate, because its answer is a property of whoever ran it**. Fixed at the cause: `rust-toolchain.toml` pins 1.96.0 and both workflows pin the same version at the action. **Left standing and unresolved: `Cargo.toml` claims `rust-version = "1.85"` and the workspace uses let-chains, stable in 1.88 — the MSRV claim is false and is NOT what this session pinned; it needs its own measurement** |
