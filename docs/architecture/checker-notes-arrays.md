@@ -645,3 +645,56 @@ missing `match` arm rather than missing machinery, and in each case the row's
 *name* pointed at the wrong step — the lookup already worked. Anyone ranking a
 row that mentions a symbol flag or a declaration kind should check that dispatch
 before believing the row is about what it says it is about.
+
+## The empty literal under non-strict options: `undefined[]` (2026-08-07, ninth session)
+
+**Found by the fresh wrong-bucket split** (`wrongflip.rs` at `0a609cc`, wrong
+35,859): the W2 board's third row is the exact substitution **upstream
+`undefined[]` / ours `never[]` — 212 ROOT lines, 76 cases, 7 finishes**, head
+cases `externalModuleImmutableBindings` (16), `typedArrays` (11),
+`contextualTyping` (10). Diffuse, which is what makes a 212-line row worth an
+arm.
+
+**The mechanism is one branch this module documents itself skipping.** The
+module doc above says *"`checker.go:8098` — `implicitNeverType` under
+`strictNullChecks` and `undefinedWideningType` without it"* and then assumes
+the option on. That assumption predates `set_strict_null_checks`
+(`checker.rs:478`) — the flag has been per-case real since the `856972a` build,
+and the empty-literal arm never started reading it.
+
+**Attribution from the baseline, not the row name** (`typedArrays.types:177`):
+
+```
+    var typedArrays = [];
+>typedArrays : any[]        <- the DECLARATION widening, unported (bd tsr-mli), stays wrong
+>[] : undefined[]           <- the literal, this arm, converts
+```
+
+**Sizing.** Converts: the 212 measured exact-substitution lines, plus an
+unsized composite share (corpus-wide `: undefined[]` appears on 384 lines in
+138 baselines; the difference is composites, gaps, and declaration lines like
+the `any[]` above). At-risk: **structurally zero** — a baseline line records
+`undefined[]` only where the case's options resolve `strictNullChecks` off, and
+in exactly those cases upstream *cannot* record `never[]` from this arm; strict
+cases take the unchanged branch. Would-wrong: lines where the `undefined`
+element then feeds a mechanism that diverges under the new constituent —
+unions drop nothing here (`undefined` is kept even non-strict in this port's
+constructor per `unions.rs:414` — NOTE: that arm drops nullable-only unions
+when non-strict, which is a single `undefined` element... **checked before
+registering**: `get_union_type` of one element returns the element unreduced,
+so the dropping arm is not reached).
+
+**Bar, registered before any code:**
+
+1. net ≥ **+150** (~70% of the exact row; the composite share is upside, not
+   floor).
+2. own new wrong ≤ **10**; global Δwrong may include downstream re-exposure but
+   `RIGHT→WRONG` in **strict** cases must be **0** — that is the falsifier: a
+   strict-case loss means the flag read is wrong, not a trade.
+3. cases regressed == **0**.
+4. lost (RIGHT→GAP) == **0** — the arm changes which type it answers, never
+   whether it answers.
+
+Falsifier bis: if conversions land far *below* 150, the 212 lines are not at
+the literal's own node (wrongflip ROOT classification wrong for this row) —
+re-read the dump before touching the arm.
