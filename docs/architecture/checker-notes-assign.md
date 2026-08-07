@@ -496,3 +496,29 @@ falsifier — a literal collapsing into a sibling object type — did not fire.
 
 Residue with owners: right-operand narrowing under `!left` (flow), the
 non-reduction-free pairs (`bd tsr-5s2`'s surviving core), compound `||=`/`??=`.
+
+## §9 `removeSubtypes`, gated on decidability — bar (ninth session, the tenth build)
+
+`tsr-eak` refused subtype reduction at **1.03 gained-per-lost at the
+ceiling** — priced on the binary relation, before `tsr-kmzf` gave the
+relation `Related / NotRelated / Unknown`. The design neither of those
+numbers priced: run upstream's removal test (`isTypeRelatedTo(source,
+target, strictSubtypeRelation)`, the `removeSubtypes` loop) and **decline the
+whole reduction the moment any pairwise answer reads `Unknown`** — the exact
+population whose wrong removals produced the 1.03. Two further conservatisms,
+each a named upstream branch this port lacks: a `Related` pair of two
+**class instances** declines whole (`isTypeDerivedFrom`, the
+`ObjectFlagsClass` caveat), and a **type parameter** constituent declines
+whole (the union-constraint special case at the loop's head). Upstream's
+key-property and `hasEmptyObject` branches are speed, not semantics, and are
+not ported.
+
+Consumers wired first: the `||`/`??` and conditional non-agnostic paths —
+the two that decline today, so the arm can only turn gaps into answers.
+
+**Bar:** net ≥ **+100** (both residues are unsized); own ≤ **20** —
+falsifier: wrong lines whose want **keeps** both constituents where this
+removed one → the strict-subtype relation answered `Related` where
+upstream's does not, an unsoundness the `Unknown` gate failed to catch —
+read those lines before touching anything else; regressed == **0**;
+lost == **0**.
