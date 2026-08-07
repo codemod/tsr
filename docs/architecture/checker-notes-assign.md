@@ -599,3 +599,16 @@ interplay; accessor aggregates), and each deserves its own bar rather than a
 shared one — the §10 bar's single ceiling is exactly what let three unrelated
 defects pool into one number. The §9 mechanism itself is untouched and its
 `||`/`??`/conditional consumers keep their zero-wrong score.
+
+## §11 The return aggregate alone, bare-return declined — bar (ninth session)
+
+§10.1's rule applied: one consumer, one bar. The ≥2-distinct return aggregate
+takes the §9 reduction with the two declines §10.1's residual named — a
+bare `return;` beside valued ones (the strict-mode `| undefined` appendix,
+`checker.go:20301`) and, kept from the single-type arm, a written contextual
+type. Yields and array literals stay declined with their owners.
+
+**Bar:** net ≥ **+20**; own ≤ **8** — falsifier: wrong lines in JS
+`@overload` cases (`overloadTag1` was 10 of §10.1's 44; if those lines came
+from THIS consumer the JSDoc signature family must be excluded, not traded);
+regressed == 0; lost == 0.
