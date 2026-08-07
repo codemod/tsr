@@ -1953,3 +1953,17 @@ and every uniform-return constructor interface with one exotic overload.
 The 147 head at conditional-type constructor shapes where the skipped
 overload's return WOULD have disagreed — the stated risk, measured and
 carried. `checker_types` right 393,835 → **394,726 (82.42%)**.
+
+### §46 Generic alias references carry their body's members
+
+`longObjectInstantiationChain2` (322) and kin: a generic alias reference
+(`Type<{p1: 1}>`) prints name+args upstream while its MEMBERS come from
+the instantiated body. The §41 design over the alias body: the reference
+answers `Named { text: "Type<args>", members: Some(body's __type symbol) }`
+with `type_reference_targets` registered as (alias symbol, args) so the
+tsr-4qx seam substitutes member types by the alias's parameters. Declines:
+a body that is not a type literal (unions/conditionals stay the name-only
+print), and any argument that gaps. Falsifiers: (a) self-referential
+bodies must ride the §29 placeholder, not recurse; (b) the seam must
+substitute by the ALIAS's parameter list — a mismatch prints `t` raw and
+is instantly visible.
