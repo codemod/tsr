@@ -30,7 +30,7 @@
 //!
 //! | Upstream | Why it is out |
 //! |---|---|
-//! | `transformCommonJSExport`, `visitCJSExportAssignments` (`:1326`, `:2672`) | CommonJS `module.exports =` emit. Needs the `Program` to know the module kind |
+//! | `transformCommonJSExport`, `visitCJSExportAssignments` (`:1326`, `:2672`) | `CommonJS` `module.exports =` emit. Needs the `Program` to know the module kind |
 //! | `visitThisPropertyAssignments`, `collectThisPropertyAssignments` (`:2072`, `:2163`) | JS-file only, and JSDoc-driven |
 //! | The `JSDoc*` transform arms (`:2576`–`:2632`) | JS-file only |
 //! | `CreateLateBoundIndexSignatures` in `buildClassMembers` (`:1918`) | Purely a checker product |
@@ -51,7 +51,7 @@ use tsr_ast::{
 use tsr_core::Span;
 
 use crate::{
-    Freshness,
+    DeclarationEmitOptions, Freshness,
     factory::Factory,
     modifiers,
     resolver::{EmitResolver, LiteralConstHost, has_modifier, is_private_member},
@@ -103,6 +103,8 @@ pub(crate) struct Transformer<'a, 't, R> {
     /// Non-generic top-level aliases whose written target can be followed
     /// without checker inference.
     type_aliases: HashMap<String, TypeNode<'a>>,
+    /// Syntax-only compiler options and the source trivia they inspect.
+    options: DeclarationEmitOptions<'a>,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -112,7 +114,11 @@ pub(crate) struct Transformer<'a, 't, R> {
 }
 
 impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
-    pub(crate) fn new(factory: Factory<'a, 't>, resolver: R) -> Self {
+    pub(crate) fn new(
+        factory: Factory<'a, 't>,
+        resolver: R,
+        options: DeclarationEmitOptions<'a>,
+    ) -> Self {
         Self {
             factory,
             resolver,
@@ -124,6 +130,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             ambient_context: false,
             expando_members: HashMap::new(),
             type_aliases: HashMap::new(),
+            options,
             inference_required: Vec::new(),
         }
     }
@@ -161,6 +168,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
 
         let mut statements: Vec<Statement<'a>> = Vec::with_capacity(file.statements.len());
         for statement in file.statements {
+            if self.should_strip_internal(statement.node_id()) {
+                continue;
+            }
             if is_function_overload_implementation(statement, file.statements) {
                 continue;
             }
@@ -290,8 +300,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let Some(clause) = node.import_clause else {
             return Statement::ImportDeclaration(node);
         };
-        if !clause.phase_modifier.is_some_and(|modifier| modifier.kind == SyntaxKind::DeferKeyword)
-        {
+        if clause.phase_modifier.is_none_or(|modifier| modifier.kind != SyntaxKind::DeferKeyword) {
             return Statement::ImportDeclaration(node);
         }
         let span = self.span_of(clause.node_id);
@@ -920,6 +929,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             for parameter in constructor.parameters {
                 if modifiers::modifier_flags(parameter.modifiers)
                     .intersects(PARAMETER_PROPERTY_MODIFIER)
+                    && !self.should_strip_internal(parameter.node_id)
                 {
                     members.extend(self.parameter_properties(parameter));
                 }
@@ -957,6 +967,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         });
         let mut private_method_markers = Vec::new();
         for member in node.members {
+            if self.should_strip_internal(member.node_id()) {
+                continue;
+            }
             if matches!(member, ClassElement::ConstructorDeclaration(constructor) if constructor.body.is_some())
                 && has_constructor_overloads
             {
@@ -1207,7 +1220,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
 
         let TypeNode::TypeLiteralNode(literal) = parent else { return None };
-        let key = element.property_name.or_else(|| match element.name {
+        let key = element.property_name.or(match element.name {
             Some(tsr_ast::BindingName::Identifier(identifier)) => {
                 Some(tsr_ast::PropertyName::Identifier(identifier))
             }
@@ -1432,6 +1445,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     fn visit_type_members(&mut self, members: &'a [TypeElement<'a>]) -> &'a [TypeElement<'a>] {
         let mut result = Vec::with_capacity(members.len());
         for member in members {
+            if self.should_strip_internal(member.node_id()) {
+                continue;
+            }
             if type_element_name(member).is_some_and(|name| !property_name_is_nameable(name)) {
                 continue;
             }
@@ -1529,6 +1545,20 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
         }
         self.factory.slice(&result)
+    }
+
+    /// Whether `stripInternal` removes this declaration using source-visible
+    /// comment trivia only. Upstream attaches the closest leading comment to the
+    /// node; an intervening non-internal comment therefore prevents an older
+    /// `@internal` comment from being borrowed by the following declaration.
+    fn should_strip_internal(&self, node_id: Option<tsr_ast::NodeId>) -> bool {
+        if !self.options.strip_internal {
+            return false;
+        }
+        let Some(source) = self.options.source_text else { return false };
+        let start = self.span_of(node_id).start as usize;
+        nearest_leading_comment(&source[..start.min(source.len())])
+            .is_some_and(|comment| comment.contains("@internal"))
     }
 
     /// Ported from `updateParamList` (`transform.go:2384`) and `ensureParameter`
@@ -2080,6 +2110,22 @@ fn statement_modifiers<'a>(statement: &Statement<'a>) -> Option<&'a [ModifierLik
         Statement::ExportAssignment(node) => node.modifiers,
         _ => return None,
     })
+}
+
+/// The closest comment immediately preceding a node, excluding whitespace.
+///
+/// Returning one comment is intentional: an intervening non-internal comment
+/// prevents an older `@internal` comment from being attached to the declaration.
+fn nearest_leading_comment(prefix: &str) -> Option<&str> {
+    let trimmed = prefix.trim_end_matches(char::is_whitespace);
+    if trimmed.ends_with("*/") {
+        let start = trimmed.rfind("/*")?;
+        return Some(&trimmed[start..]);
+    }
+
+    let line_start = trimmed.rfind(['\n', '\r']).map_or(0, |index| index + 1);
+    let line = trimmed[line_start..].trim_start();
+    line.starts_with("//").then_some(line)
 }
 
 /// Ported from `ast.ReplaceModifiers` (`internal/ast/utilities.go`), for the

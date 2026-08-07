@@ -36,6 +36,23 @@ fn emit(source: &str) -> String {
     result.text
 }
 
+fn emit_stripping_internal(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "test source must parse cleanly: {source:?}");
+    let mut nodes = parsed.nodes;
+    tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: true,
+        },
+    )
+    .text
+}
+
 #[test]
 fn preserved_references_precede_declarations_in_source_order() {
     use tsr_declarations::{
@@ -433,6 +450,21 @@ fn a_parameter_property_becomes_a_property() {
     assert_emits(
         "export class C {\n    constructor(public a: number, private b: string) {}\n}",
         "export declare class C {\n    a: number;\n    private b;\n    constructor(a: number, b: string);\n}",
+    );
+}
+
+#[test]
+fn strip_internal_removes_annotated_members() {
+    let source = "class C {\n  kept(): void {}\n  // @internal\n  removed(): void {}\n}";
+    assert_eq!(emit_stripping_internal(source), "declare class C {\n    kept(): void;\n}");
+}
+
+#[test]
+fn strip_internal_removes_parameter_properties_but_keeps_parameters() {
+    let source = "export class C { constructor(\n/** @internal */ public removed: string,\n/** @internal */ // explanation\npublic kept: string\n) {} }";
+    assert_eq!(
+        emit_stripping_internal(source),
+        "export declare class C {\n    kept: string;\n    constructor(removed: string, kept: string);\n}"
     );
 }
 

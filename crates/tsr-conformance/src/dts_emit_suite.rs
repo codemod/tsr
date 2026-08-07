@@ -111,11 +111,12 @@ impl Suite for DtsEmit {
             }
             let references = declaration_references(&parsed.file_references);
             let mut nodes = parsed.nodes;
-            let result = tsr_declarations::emit_with_references(
+            let result = tsr_declarations::emit_with_references_and_options(
                 &arena,
                 &mut nodes,
                 parsed.source_file,
                 &references,
+                declaration_emit_options(&parsed_case, &unit.content),
             );
             if !result.diagnostics.is_empty() {
                 return Outcome::Skipped {
@@ -339,6 +340,19 @@ pub(crate) fn declaration_references(
                 .map(|reference| convert(reference, DeclarationReferenceKind::Lib)),
         )
         .collect()
+}
+
+pub(crate) fn declaration_emit_options<'a>(
+    case: &crate::TestCase,
+    source_text: &'a str,
+) -> tsr_declarations::DeclarationEmitOptions<'a> {
+    tsr_declarations::DeclarationEmitOptions {
+        source_text: Some(source_text),
+        strip_internal: case
+            .options
+            .get("stripinternal")
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+    }
 }
 
 #[cfg(test)]

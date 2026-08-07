@@ -934,7 +934,7 @@ mod tests {
         assert_eq!(quote_string(r#"a"b"#, TokenFlags::empty()), r#""a\"b""#);
         assert_eq!(quote_string("a\\b", TokenFlags::empty()), r#""a\\b""#);
         assert_eq!(quote_string("a\nb", TokenFlags::empty()), r#""a\nb""#);
-        assert_eq!(quote_string("a'b", TokenFlags::SINGLE_QUOTE), r#"'a\'b'"#);
+        assert_eq!(quote_string("a'b", TokenFlags::SINGLE_QUOTE), r"'a\'b'");
         // U+2028 is a line terminator in JavaScript, so it cannot be left bare
         // inside a string literal even though it is printable.
         assert_eq!(quote_string("\u{2028}", TokenFlags::empty()), r#""\u2028""#);

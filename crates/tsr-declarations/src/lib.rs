@@ -113,6 +113,19 @@ pub struct DeclarationEmit {
     pub inference_required: Vec<Span>,
 }
 
+/// Syntax-only declaration emit options.
+///
+/// These are deliberately limited to facts that do not require a checker. The
+/// source text is optional so existing AST-only callers retain their behavior;
+/// options whose semantics depend on comments are inert without it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeclarationEmitOptions<'a> {
+    /// Original source text used to inspect comment trivia around declarations.
+    pub source_text: Option<&'a str>,
+    /// Remove declarations whose nearest leading comment contains `@internal`.
+    pub strip_internal: bool,
+}
+
 /// The kind of a preserved triple-slash declaration reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeclarationReferenceKind {
@@ -160,7 +173,18 @@ pub fn emit<'a>(
     nodes: &mut NodeTable,
     file: &'a SourceFile<'a>,
 ) -> DeclarationEmit {
-    emit_with_references(arena, nodes, file, &[])
+    emit_with_references_and_options(arena, nodes, file, &[], DeclarationEmitOptions::default())
+}
+
+/// Emit declarations with syntax-only compiler options.
+#[must_use]
+pub fn emit_with_options<'a>(
+    arena: &'a Arena,
+    nodes: &mut NodeTable,
+    file: &'a SourceFile<'a>,
+    options: DeclarationEmitOptions<'a>,
+) -> DeclarationEmit {
+    emit_with_references_and_options(arena, nodes, file, &[], options)
 }
 
 /// Emit declarations and prepend explicitly preserved triple-slash references.
@@ -171,12 +195,30 @@ pub fn emit_with_references<'a>(
     file: &'a SourceFile<'a>,
     references: &[DeclarationReference],
 ) -> DeclarationEmit {
+    emit_with_references_and_options(
+        arena,
+        nodes,
+        file,
+        references,
+        DeclarationEmitOptions::default(),
+    )
+}
+
+/// Emit declarations with preserved references and syntax-only compiler options.
+#[must_use]
+pub fn emit_with_references_and_options<'a>(
+    arena: &'a Arena,
+    nodes: &mut NodeTable,
+    file: &'a SourceFile<'a>,
+    references: &[DeclarationReference],
+    options: DeclarationEmitOptions<'a>,
+) -> DeclarationEmit {
     let diagnostics = tsr_dts::analyze(file, nodes);
     let resolver = SyntacticResolver::new(file);
 
     let (declaration_file, inference_required) = {
         let factory = Factory::new(arena, nodes);
-        let mut transformer = transform::Transformer::new(factory, resolver);
+        let mut transformer = transform::Transformer::new(factory, resolver, options);
         let result = transformer.transform_source_file(file);
         (result, std::mem::take(&mut transformer.inference_required))
     };

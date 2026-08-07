@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  233/341  = 68.33%  (up from 161/339)
+  dts_emit                  234/341  = 68.62%  (up from 161/339)
   dts_shape                 708/918  = 77.12%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -97,6 +97,13 @@ parameter properties flatten to their bound names when their element types are
 written directly or reachable through a non-generic top-level tuple/object alias.
 These syntax-only passes added four byte-exact declaration cases without changing
 the declaration denominator, parser clean-file result, or printer round trip.
+
+`stripInternal` now consumes the corpus option and original source trivia without
+requiring checker state. The declaration transform removes statements, class and
+type members, and synthesized parameter-property fields whose closest leading
+comment contains `@internal`, while retaining the corresponding constructor
+parameters. This closed `compiler/stripInternal1`; the inline-comments case now
+reaches its later comment/layout mismatch instead of failing on extra properties.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

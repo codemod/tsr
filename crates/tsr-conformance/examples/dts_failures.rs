@@ -55,7 +55,6 @@ fn shape_bucket(outcome: &Outcome) -> Option<Bucket> {
         Outcome::Unsupported { reason } if reason.starts_with("printer: ") => {
             Some(Bucket::UnsupportedPrinterKind)
         }
-        Outcome::Unsupported { .. } => Some(Bucket::OtherFailure),
         Outcome::Skipped { reason } if reason == "a unit of this case does not parse cleanly" => {
             Some(Bucket::SourceParseSkip)
         }
@@ -80,7 +79,7 @@ fn shape_bucket(outcome: &Outcome) -> Option<Bucket> {
         Outcome::Failed { reason } if reason == "the emitted .d.ts does not reparse" => {
             Some(Bucket::EmittedDeclarationDoesNotReparse)
         }
-        Outcome::Failed { .. } => Some(Bucket::OtherFailure),
+        Outcome::Unsupported { .. } | Outcome::Failed { .. } => Some(Bucket::OtherFailure),
     }
 }
 
