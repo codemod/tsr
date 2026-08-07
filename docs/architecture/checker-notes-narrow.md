@@ -1750,3 +1750,9 @@ gains elsewhere vs this case) and stands, but the finding matters for the
 NEXT session: want-`error` lines are matchable output, and a per-case
 count of them (grep the baselines) belongs in any future gate argument
 about JS files.
+
+**§35 addendum:** 123 baseline files carry want-`error` lines. Any future
+gate must remain a SOURCE-side property — peeking at the oracle to decide
+the answer is the one move the conformance methodology forbids — so the
+next session's question is which source shape predicts tsgo's
+error-printing (JS comma-chain assignment recovery is the observed one).
