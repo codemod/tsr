@@ -1262,3 +1262,58 @@ same way.
   (`arrayAssignmentTest1.ts(6,16)` is the `return`, not the expression), and
   parameter defaults, property declarations and object-literal members each have
   one. Every anchor is worth its own measurement against this gate.
+
+---
+
+## 17. `@ts-ignore` / `@ts-expect-error` — the one build that pays for every rule
+
+`getDiagnosticsWithPrecedingDirectives` (`internal/compiler/program.go:1386`) is
+**not a checker rule**. It runs after the binder and the checker have both had
+their say, filters diagnostics of every code from every producer, and is
+therefore the only place in this port where one build pays for all of them at
+once. §16 found it as 9 of its 28 residual wrong lines and correctly refused to
+handle it locally.
+
+```
+diagnostics 861 -> 863   (+2)
+```
+
+**+2 is the honest number and it understates the build**, which is why the row is
+here rather than folded into §16: the filter removes a *class* of wrong line from
+every rule that exists and every rule that follows. Nine of §16's wrong lines
+were this; nothing else in the suite reports on those two cases yet, so only two
+cases finished.
+
+### Two halves, and the second is not optional
+
+1. A diagnostic whose line is preceded — across blank and comment lines **only** —
+   by a directive line is dropped, and the directive is marked used.
+2. Every `@ts-expect-error` still unused afterwards becomes **TS2578**
+   `Unused '@ts-expect-error' directive.` at the directive's own position
+   (`program.go:1377`).
+
+Porting only the first half trades one wrong diagnostic for one missing one on
+every case that writes a directive it does not need, and
+`conformance/ts-expect-error` is exactly such a case. The backward scan's stop
+condition — *"stop when you reach a line that is neither blank nor a comment"* —
+is equally load-bearing: without it one directive at the top of a file silences
+the whole file, which is a test in `crate::comment_directives`.
+
+### Why it walks tokens rather than the text
+
+Upstream's *scanner* records directives as it scans (`scanner.go:1003`), so a
+`// @ts-ignore` inside a string literal is never a directive. This port's scanner
+does not record them, and the obvious substitute — searching the text for the
+marker — finds exactly those. The directives are recovered instead by walking the
+token stream and asking `leading_comment_ranges` for the trivia in front of each
+token: the same comments the scanner saw, reached from outside it. The first test
+in the module is a string literal containing `// @ts-ignore`.
+
+### Where it lives, and why not in the checker
+
+`crates/tsr-conformance/src/comment_directives.rs`, called from
+`diagnostics_suite::reported_for` — this port's program layer for the suite. It
+needs the file *text*, applies to parser, binder and checker diagnostics
+together, and belongs to whatever assembles a program's diagnostics. Putting it
+in `tsr-checker` would give the checker a filter over diagnostics it did not
+produce.

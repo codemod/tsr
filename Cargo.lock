@@ -329,6 +329,7 @@ dependencies = [
  "tsr-compiler",
  "tsr-core",
  "tsr-declarations",
+ "tsr-diagnostics",
  "tsr-dts",
  "tsr-module",
  "tsr-parser",

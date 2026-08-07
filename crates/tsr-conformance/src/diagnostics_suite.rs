@@ -151,7 +151,7 @@ impl Suite for Diagnostics {
 /// is a sorted-multiset equality and doing it twice hides which side is which.
 #[must_use]
 pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
-    let mut actual = Vec::new();
+    let mut actual: Vec<BaselineDiagnostic> = Vec::new();
     for unit in &test.files {
         let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
         if kind == tsr_parser::ScriptKind::Json {
@@ -180,7 +180,52 @@ pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         }
     }
     actual.extend(from_check_traversal(test));
-    actual
+    // `getBindAndCheckDiagnosticsWithChecker` (`compiler/program.go:1352`)
+    // applies the comment-directive filter to the *assembled* set, after every
+    // producer has contributed. Doing it anywhere earlier would let a
+    // parser diagnostic survive a directive that a checker diagnostic honours.
+    apply_comment_directives(test, actual)
+}
+
+/// `@ts-ignore` / `@ts-expect-error`, applied per file over the whole set.
+///
+/// See [`crate::comment_directives`] for the rule. The split by unit is not an
+/// optimisation: a directive suppresses diagnostics **in its own file**, and the
+/// line numbers on a `BaselineDiagnostic` are only meaningful against that
+/// file's text.
+fn apply_comment_directives(
+    test: &crate::TestCase,
+    reported: Vec<BaselineDiagnostic>,
+) -> Vec<BaselineDiagnostic> {
+    let mut out = Vec::with_capacity(reported.len());
+    let mut remaining = reported;
+    for unit in &test.files {
+        let directives = crate::comment_directives::directives_in(&unit.content);
+        if directives.is_empty() {
+            continue;
+        }
+        let (mine, others): (Vec<_>, Vec<_>) =
+            remaining.into_iter().partition(|d| d.file == unit.name);
+        remaining = others;
+        // The suite's lines are 1-based; the filter's are 0-based, as
+        // `ComputeLineOfPosition`'s are.
+        let entries: Vec<(u32, BaselineDiagnostic)> =
+            mine.into_iter().map(|d| (d.line.saturating_sub(1), d)).collect();
+        let (kept, unused) =
+            crate::comment_directives::filter(&unit.content, &entries, &directives);
+        out.extend(kept);
+        for diagnostic in unused {
+            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+            out.push(BaselineDiagnostic {
+                file: unit.name.clone(),
+                line: line + 1,
+                column: character + 1,
+                code: diagnostic.message.code(),
+            });
+        }
+    }
+    out.extend(remaining);
+    out
 }
 
 /// Every diagnostic `Checker::check_source_file` reports for the case's own
