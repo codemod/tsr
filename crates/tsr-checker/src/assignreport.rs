@@ -687,7 +687,7 @@ impl<'a> Checker<'a, '_> {
     /// **One direction only.** The converse is false: `let x: {} = 5` is legal,
     /// because an object *target* can be satisfied by a primitive through its
     /// apparent type.
-    fn object_against_primitive(&mut self, source: TypeId, target: TypeId) -> bool {
+    pub(crate) fn object_against_primitive(&mut self, source: TypeId, target: TypeId) -> bool {
         if self.type_of(source).flags.intersects(TypeFlags::OBJECT)
             && self.type_of(target).flags.intersects(PRIMITIVE_TARGET)
         {

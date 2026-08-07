@@ -3545,3 +3545,121 @@ reports on a `VariableDeclaration`, `EnumMember`, `PropertySignature`,
 `ClassExpression` or `NamespaceImport` gets the right span without knowing this
 section exists. **A zero that removes a class of future defect is not the same
 kind of zero as §44's**, which removed none and was kept on a forecast.
+
+---
+
+## 49. TS2365 — `Operator '{0}' cannot be applied…`, the two arms `reportOperatorError` has left
+
+§45 ported one of `reportOperatorError`'s three callers (the equality arm). The
+other two are TS2365, and `diagmissing.rs` splits its **14 sole-obstacle cases**
+along exactly that line:
+
+```
+ 19 lines  conformance/additionOperatorWithInvalidOperands       <- the `+` arm
+ 14 lines  conformance/additionOperatorWithTypeParameter         <- the `+` arm
+ 16 lines  conformance/comparisonOperatorWithNoRelationshipObjectsOnProperty
+  7 lines  compiler/relationalOperatorComparable                 <- the relational arm
+  4 lines  compiler/grammarAmbiguities1
+```
+
+### The `+` arm is a flag test with a relation as its fallback
+
+`checker.go:12422`: `+` produces `number` when both operands are number-like,
+`bigint` when both are bigint-like, `string` when **either** is string-like, and
+`any` when either is `any`. If none of those holds, `resultType` is nil and
+TS2365 is reported. `isTypeAssignableToKindEx` (`checker.go:27645`) is a flag
+test first and an assignability check second, with `strict` short-circuiting on
+`any`, `unknown`, `void`, `undefined` and `null`.
+
+### The relational arm needs §45's substitution again
+
+`checker.go:12465` reports unless `any` is involved, **or** both operands are
+assignable to `number | bigint`, **or** neither is and the two are *comparable*.
+`isTypeComparableTo` is still unported, so §45's substitution applies at its
+third site — with `either_is_composite`, and with `relate_ternary` so an
+undecidable pair is silence.
+
+**A direction trap this arm has and §45 did not.** Here the relation is consulted
+to decide **not** to report, so an `Unknown` collapsed to `false` would
+*manufacture* a diagnostic. Every positive test in this rule must therefore read
+"not a confident negative" rather than "a confident positive" — the mirror of
+§25, and the reason the two arms are written with an explicit
+`Ternary::NotRelated` comparison rather than a boolean helper.
+
+### Two declines carried in from the sites upstream visits first
+
+- **A nullish operand.** `checkNonNullType` runs before both arms
+  (`checker.go:12419`, `:12467`) and reports TS2531/TS2533 instead. Declining a
+  `null`- or `undefined`-flagged operand costs nothing this rule could have had.
+- **`+` where either operand is string-like by flags.** This is upstream's own
+  third disjunct and is a flag test, so it is exact rather than approximate.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,175**. Forecast **+5 to +14** — the row is 14 and the two arms split it roughly evenly |
+| 2 | `checker_types` pass count unchanged at **3,681** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2365]` |
+| 4 | own WRONG ≤ **25**. Higher than §45's bar because the relational arm sees every `<` in the corpus and the `+` arm every concatenation |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column is dominated by `+` on object or union
+operands, the flag-first structure of `isTypeAssignableToKindEx` is not being
+reproduced — a union of number-likes carries `UNION` and no `NUMBER_LIKE` flag
+here, which is the same blindness §45's `either_is_composite` names, and the
+answer is that decline rather than a narrower kind test.
+
+### Scored — **+3 for zero wrong**, and leg 1 fired
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,175, forecast +5 to +14 | **1,178 / 5,488 = 21.47%** | **fired — below the forecast** |
+| 2 | `checker_types` pass count 3,681 | **3,681 / 82.78%**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 25 | **0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2365: **CONVERTS 3 · RIGHT 91 · WRONG 0 · LOST 0.**
+
+**Three of fourteen, and the four declines that got the wrong column to zero are
+each worth more than the conversion count.** The first measurement read
+**58 wrong lines**; every one was removed by a decline with a named owner, and
+none by a threshold:
+
+| decline | owner | cost |
+|---|---|---:|
+| a **type parameter** on either side | `getBaseConstraintOfType` — both `areTypesComparable` and `isTypeAssignableTo` reach a type parameter through its constraint and this relater does not follow it | 48 wrong lines removed; `additionOperatorWithTypeParameter` (14 lines, 1 case) becomes unreachable |
+| an **ES symbol** operand | `checkForDisallowedESSymbolOperand` (`checker.go:12442`) reports **TS2469** in its place | 5 |
+| `+=` | the assignment-target checks run first and answer `errorType` on failure, which then supplies a result type. `f += 1` on a class is **TS2629**, and this port models neither TS2629 nor TS2364, so its left operand keeps a real type | 3 |
+| a union **containing** `undefined` | `checkNonNullType` strips it and reports TS18048 | 3 |
+
+And one *widening* that was worth 42 right lines: §29's `object_against_primitive`
+is asked inside `assignable_to_kind`, because `is_related_to` answers `Unknown`
+for an object source against a primitive target and nothing structured is
+assignable to `number` whatever its shape. `additionOperatorWithInvalidOperands`
+went from 7 emitted lines to 16 of its 19 on that one call.
+
+### The site trap fired for the third time in this file
+
+The rule reported **nothing at all** on its first run, and the cause was not the
+predicate: `check_operator_operands` was dispatched from
+`check_node`'s general `BinaryExpression` arm, and an **earlier guarded arm**
+already claims `+`, `<`, `>`, `<=` and `>=` for `check_nullable_operand`
+(TS18050, whose operator list §40.5 and §40.6 extended to exactly those). A
+`match` arm that fires first is a register site inside a conditional, and §15's
+trap — *"the code was copied and the question it was answering was not"* — is
+now on its third instance here, after `registerForUnusedIdentifiersCheck` and
+`checkTruthinessExpression`'s seven call sites.
+
+> **When a new rule measures zero, check that it ran before checking what it
+> decided.** The first thing to print is not the predicate's inputs, it is
+> whether the predicate was reached.
+
+### What the remaining eleven cases need
+
+`additionOperatorWithTypeParameter` (14 lines) and the type-parameter half of the
+relational arm need **constraint following** in the relater — a `checker_types`
+item. `parserGreaterThanTokenAmbiguity2/3/4` and `grammarAmbiguities1` are
+parser-recovery shapes. `additionOperatorWithInvalidOperands` is `STILL SHORT` by
+three lines out of nineteen. None of them is this rule's condition.

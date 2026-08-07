@@ -129,6 +129,7 @@ pub mod members;
 pub mod nonexistent_property;
 pub mod nullable_operand;
 pub mod objects;
+pub mod operator_operands;
 pub mod optionality;
 pub mod printing;
 pub mod relater;

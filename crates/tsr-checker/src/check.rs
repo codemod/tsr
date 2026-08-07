@@ -313,6 +313,7 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| is_numeric_binary_operator(t.kind)) =>
             {
                 self.check_nullable_operand(node, ambient);
+                self.check_operator_operands(node, ambient);
                 ambient
             }
             Node::BinaryExpression(binary)
@@ -346,6 +347,7 @@ impl Checker<'_, '_> {
             }
             Node::BinaryExpression(_) => {
                 self.check_comparison_overlap(node, ambient);
+                self.check_operator_operands(node, ambient);
                 ambient
             }
             Node::CallExpression(_) => {
