@@ -932,10 +932,14 @@ impl<'a> Scanner<'a> {
         loop {
             let Some(ch) = self.peek() else {
                 *flags |= TokenFlags::UNTERMINATED;
-                self.error(
-                    &messages::UNTERMINATED_TEMPLATE_LITERAL,
-                    Span::new(self.token_start, self.pos),
-                );
+                // `s.error` (`scanner.go:413`) reports at **`s.pos` with length
+                // zero** — the position the scanner has reached, not the token's
+                // start. `templateStringUnterminated1.ts` is a file containing
+                // one backtick and upstream's caret is at column **2**.
+                // Reporting from `token_start` put it at column 1 in every
+                // unterminated-template case in the corpus: 12 cases, and TS1160
+                // was the *only* difference in all twelve.
+                self.error(&messages::UNTERMINATED_TEMPLATE_LITERAL, Span::new(self.pos, self.pos));
                 self.value =
                     Some(decoded.unwrap_or_else(|| {
                         self.source[start as usize..self.pos as usize].to_string()

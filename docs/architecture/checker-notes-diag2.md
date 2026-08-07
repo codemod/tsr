@@ -2054,3 +2054,35 @@ diagnostics 961 -> 964
   resolver that can never find it. Worked around at the reader rather than in the
   parser, because `null` is not a spellable binding in any scope — declining it
   can hide no real diagnostic.
+
+### 30.1 TS2454's residual, and TS1160 — the cheapest twelve cases in this file
+
+**TS2454, −59 wrong lines for 0 conversions and 0 losses.** A reference
+*guarded by a condition that names it* is one upstream has already narrowed:
+`typeGuardOfFormIsType`'s `isC1(c1Orc2) && c1Orc2.p1` reads as *used before being
+assigned* here because the user-defined predicate that removes `undefined`
+upstream is unported. Three guard shapes — the right operand of `&&`/`||`/`??`,
+a conditional's branches, the body of an `if`/`while`/`do` — all syntactic, all
+over-approximating in the direction this rule may fail in. Zero cases finished
+today; sixty cases now have one fewer obstacle.
+
+**TS1160 — twelve cases for one argument.**
+
+```
+diagnostics 964 -> 976   (+12)     every other suite byte-identical
+```
+
+`s.error` (`scanner.go:413`) is `s.errorAt(diagnostic, s.pos, 0)` — it reports at
+the position the scanner has **reached**, with length zero. This port's
+unterminated-template arm reported `Span::new(token_start, pos)`.
+`templateStringUnterminated1.ts` is a file containing one backtick and upstream's
+caret is at column **2**; this port put it at column 1, in all twelve
+unterminated-template cases in the corpus, and TS1160 was the *only* difference
+in every one of them.
+
+> **`extragap.rs`'s `displaced` column found this and nothing else could have.**
+> TS1160 read `12 displaced, 0 invented, 12 sole obstacle` — a code that is
+> simultaneously the most-missing and the most-extra in the same twelve files is
+> not a missing rule, it is one diagnostic in the wrong place. `diaggap.rs` had
+> been printing "TS1160 12 cases" in its false-positive list for two sessions
+> with no way to tell those apart.
