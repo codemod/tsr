@@ -1820,3 +1820,16 @@ route here (the arm sits exactly where the old error sat).
 140 head at strict-mode `this` shapes where upstream's noImplicitThis
 answer differs contextually (`castTest`'s object-method `this`), the
 recorded residue. `checker_types` right 391,350 → **392,022 (81.85%)**.
+
+### §40 Variadic tuple type nodes print
+
+`variadicTuples1`'s 409 gaps head at written `[...T]`/`[string, ...T]`
+forms the tuple builder refuses whole. The slice: a tuple node whose only
+refused elements are REST forms builds a PRINT-ONLY type — the text
+composed from the resolved element prints (`...` + element), minted
+`Named` with NO `tuple_element_lists` entry, so element access,
+instantiation, and relations all keep declining (print-only citizenship,
+the `tsr-eep` pattern for a RESOLVED shape). `NamedTupleMember` and `?`
+stay refused. Falsifier: positions wanting the EXPANDED instantiation
+(`[string, number]` from `[...T]` at a call) stay gaps and must not
+regress; the mint must never enter the element-list map.
