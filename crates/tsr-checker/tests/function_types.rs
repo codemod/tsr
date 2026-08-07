@@ -150,10 +150,7 @@ fn a_return_type_that_is_a_gap_makes_the_function_type_a_gap() {
 /// decorated patterns (defaults/rest/renames) still gap.
 #[test]
 fn a_destructuring_parameter_makes_the_function_type_a_gap() {
-    assert_eq!(
-        type_of_function_annotation("let f: ({ a }: any) => void;"),
-        "({ a }: any) => void"
-    );
+    assert_eq!(type_of_function_annotation("let f: ({ a }: any) => void;"), "({ a }: any) => void");
 }
 
 /// Calling a function-typed value now resolves, with **no code in `calls.rs`**.
@@ -277,8 +274,5 @@ fn a_constructor_type_inherits_the_function_types_gaps_and_adds_none() {
     // §48: the plain pattern renders in BOTH spellings — the two lines
     // still move together, which is the property this fixture pins.
     assert_eq!(type_of_annotation(source), "new ({ a }: any) => void");
-    assert_eq!(
-        type_of_function_annotation("let f: ({ a }: any) => void;"),
-        "({ a }: any) => void"
-    );
+    assert_eq!(type_of_function_annotation("let f: ({ a }: any) => void;"), "({ a }: any) => void");
 }

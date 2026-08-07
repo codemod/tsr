@@ -587,6 +587,18 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        // §49 (`checker-notes-narrow.md`): a UNION projects across its
+        // constituents — every one must carry the name, and the answer is
+        // the union of the member types.
+        if let TypeData::Union { types, .. } = &self.store.get(id).data {
+            let constituents = types.clone();
+            let mut projected = Vec::with_capacity(constituents.len());
+            for constituent in constituents {
+                let member = self.get_type_of_property_of_type(constituent, name)?;
+                projected.push(member);
+            }
+            return Some(self.get_union_type(&projected));
+        }
         // A tuple's numeric-literal property IS its element. Upstream reaches
         // this through the synthesised tuple target's members
         // (`createNormalizedTupleType`) and the reference's resolved type

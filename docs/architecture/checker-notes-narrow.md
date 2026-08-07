@@ -2018,3 +2018,11 @@ carry the name (a miss anywhere is a miss), and the type is the union of
 the member types. Optionality/readonly aggregation and intersections stay
 declines. Falsifier: partial-membership unions must MISS (answering the
 present half would be the confident wrong).
+
+**§49 score — LANDED.** **+734 GAP→RIGHT / 268 GAP→WRONG.** The 268 are
+one family: dependent-DISCRIMINANT positions where the projection now
+answers the full union and upstream's flow narrows it (`kind === 'A'` →
+`payload : number`) — the dependent-destructured-flow half (`tsr-pqnh`),
+which was always this row's other owner. The projection is its
+prerequisite, not its rival. `checker_types` right 394,985 → **395,719
+(82.62%)**.

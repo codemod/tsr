@@ -171,7 +171,7 @@ compiler/arrayCast
 compiler/arrayConcatMap
   2 missing (first TS2769 at arrayConcatMap.ts(1,20))
 compiler/arrayDestructuringInSwitch2
-  1 missing (first TS2488 at arrayDestructuringInSwitch2.ts(11,13))
+  1 unexpected (first TS2322 at arrayDestructuringInSwitch2.ts(7,7)), 1 missing
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
 compiler/arrayFrom
