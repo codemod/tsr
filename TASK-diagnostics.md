@@ -13,7 +13,7 @@ FIRST: git pull. Then read, in this order:
   there is a build or a refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    910/5,488 = 16.58%   (was 717 = 13.06%; running total 80 → 910)
+  diagnostics    947/5,488 = 17.26%   (was 717 = 13.06%; running total 80 → 947)
   checker_types  3,043/9,538 · 74.46% gradient — the other workstream's
 
 WHAT THE SESSION WAS ASKED FOR, AND WHAT IT MEASURED
@@ -53,7 +53,21 @@ THE INSTRUMENTS — use them, do not rebuild them
                          LOST must read 0. It calls `diagnostics_suite::
                          reported_for`, so probe and build cannot diverge.
 
+READ §25 FIRST. The single most valuable thing this session found is that
+`crate::relater` is **three-valued** and every consumer that acts on a *negative*
+must call `relate_ternary`, not `is_type_assignable_to`. The binary projection
+collapses `Ternary::Unknown` into `false`, and that one wrong call produced 988
+wrong lines, a bogus diagnosis ("the relation disagrees half the time"), and a
+primitives-only gate that suppressed four whole rows. Correcting it was **+37
+cases across four builds** with zero losses. **Before writing any rule that
+reports because a relation failed, check which function you are calling.**
+
 RANKED NEXT ITEMS, with what each is actually blocked on
+  0. **More consumers of `relate_ternary`.** TS2411 (index-signature constraint,
+     29 cases), TS2352 (`as` conversions, 24) and TS2367 (no-overlap comparison,
+     23) are all relation questions that were unreachable under the binary
+     projection. TS2367 needs `isTypeComparableTo`, which is a fourth
+     `Relation` and does not exist; the other two do not.
   1. **`isTypeIdenticalTo` — the relation in identity mode.** `crate::relater`
      has assignability and subtype and no identity. It is a relater build rather
      than a diagnostics one and it is the best-priced item on this page: TS2403
@@ -115,8 +129,10 @@ TRAPS PAID FOR THIS SESSION, do not repay
     writerless flag, after `NodeFlags::AMBIENT` and `NodeFlags::JAVASCRIPT_FILE`.
     Read optionality off the declaration's `?`.
   - **A rule's yield is not its row.** TS2339 converted 12 of 143, TS2741 1 of
-    40, TS2353 6 of 37. Check `STILL SHORT` before pricing anything from
-    `diaggap.rs`.
+    40, TS2353 6 of 37, and TS2322 emitted **294 correct lines to finish 15
+    cases**. Check `STILL SHORT` before pricing anything from `diaggap.rs`.
+  - **`is_type_assignable_to` is the wrong function for a reporting rule** — see
+    the top of this file and §25.
 
 THE LOOP THAT WORKED SEVEN TIMES
   diaggap.rs for the size -> isolate the codes in diag2307.rs's RULE_CODES ->
