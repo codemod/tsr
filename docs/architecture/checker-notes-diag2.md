@@ -1,0 +1,230 @@
+# The check traversal, and the first diagnostic that comes out of it
+
+`bd tsr-o9tl`. Successor to `checker-notes-diag.md`, which measured ADR-0040's
+falsifiers and built nothing. This page is where the traversal gets built.
+
+Upstream is pinned at `5b1047d10`; every `checker.go:` line below was
+`grep -n`-verified against that commit.
+
+---
+
+## 1. Why this is a workstream and not a row
+
+`diagnostics` has read **80/5,488 (1.46%)** across every session, unmoved by a
+`checker_types` gradient that went 36% → 73.65%.
+[ADR-0040](../adr/0040-diagnostics-come-from-a-check-traversal-and-assignability-gets-a-reporting-twin.md)
+diagnosed it correctly and structurally: this port built upstream's *query* road
+(`getTypeOfNode`) and none of its *reporting* road (`checkSourceFile` →
+`checkSourceElement`). A diagnostic is an eager side effect of a walk; no answer
+on the query road can produce one.
+
+That diagnosis has been quoted for two sessions as *"diagnostics is structurally
+blocked"*, and the handoff repeats it. **It is a statement about why the number
+is flat, not a sizing of the work**, and nobody had measured what the blocked
+cases are blocked *on*. `STATUS.md`'s fourth rule cuts both ways: a population is
+a ceiling, and so is a blocker.
+
+### The measurement, `examples/diaggap.rs` at `7299a14`
+
+New instrument. Over the suite's own 5,488 judged cases (its skips copied, not
+re-derived), it runs today's comparison and splits the difference sets:
+
+```
+judged 5488  passing 80
+blocked by an EXTRA diagnostic alone:   19
+blocked by MISSING alone:             4906
+blocked by both:                       483
+```
+
+and then the column that can be built against — **cases missing exactly one
+distinct code and reporting nothing extra**, which is the only bucket where one
+rule converts a case on its own:
+
+| code | converts alone | ceiling (cases containing it) |
+|---|---:|---:|
+| TS2322 | 476 | 904 |
+| TS2454 | 255 | 403 |
+| TS2304 | 191 | 537 |
+| TS2564 | 166 | 538 |
+| TS2339 | 132 | 333 |
+| TS2345 | 96 | 249 |
+| TS6133 | 77 | 98 |
+| **TS2307** | **50** | **75** |
+| TS2741 | 36 | 129 |
+| TS2353 | 34 | 79 |
+
+**3,258 of the 5,488 judged cases are blocked on exactly one code**, spread over
+469 codes. That is 59% of the suite sitting behind single rules, which is a very
+different shape from "structurally blocked" — the structure was the traversal,
+and once it exists the suite is a long tail of independently-sizeable rules
+rather than one wall.
+
+The ceiling column is printed second on purpose. Ranking by "cases containing the
+code" would put TS2322 at 904 and reproduce the *population identified by the
+shape of the answer* failure `docs/conventions.md` records — almost every case
+containing TS2322 also wants a second code nobody can emit.
+
+### Why TS2307 first, and not the four rows above it
+
+Not because it is the biggest. Because it is the one whose **machinery is already
+at 100%** on its own suites — `module_resolution` 95/95, `file_loader` 96/96 —
+so the first commit through a brand-new emission path is the one where a wrong
+answer is least likely to be the emitter's fault. TS2454 and TS2564 need
+definite-assignment analysis, TS2304 needs a full identifier walk, and each is a
+new *analysis* on top of a new *road*. Two unknowns at once is how a build
+becomes unattributable.
+
+The order the board should take afterwards is the table above, and the reason to
+say so here is that this page's method — `diaggap.rs` re-run, single-code column,
+counterfactual, bar — transfers to every row of it unchanged.
+
+---
+
+## 2. What was built
+
+### The road: `Checker::check_source_file` (`crates/tsr-checker/src/check.rs`)
+
+ADR-0040 decisions (1) and (2), the two its own falsifiers left standing:
+
+1. diagnostics are produced **inside** `tsr-checker`, appended to a collection on
+   the `Checker`, and *drained* by the consumer;
+2. `check_source_file` is a **second entry point**, not a hook on the query path.
+
+It walks statements, recurses into module bodies, and today visits only the
+declarations carrying a module specifier. That is far short of upstream's
+`checkSourceElement`, deliberately: **every node kind the walk learns to visit is
+a new opportunity to report something upstream does not**, and under the suite's
+exact-multiset rule an invented diagnostic fails a case exactly as a missing one
+does *and* can break a case that passes. The walk grows one sized rule at a time.
+
+The collection stores `(source file, diagnostic)` pairs rather than bare
+diagnostics. Upstream can store bare ones because its `Diagnostic` holds its
+`*ast.SourceFile`; `tsr_diagnostics::Diagnostic` holds only a `Span`, and under
+[ADR-0034](../adr/0034-a-program-needs-one-identity-space.md) one `NodeTable`
+spans every file of a program, so a span alone cannot say which unit it is an
+offset into.
+
+### The rule: TS2307, and the four gates that are the design
+
+Upstream's site is the **fallthrough** of `resolveExternalModule`
+(`checker.go:15149`) — a 190-line function carrying fourteen distinct messages,
+of which TS2307 is what is left when every other one declines. Porting the
+condition means porting the declines, and each decline that is missing is a
+*wrong code at a right position*.
+
+The error node is the specifier literal, so the column is the **opening quote**:
+`badExternalModuleReference.errors.txt` records `(1,21)` for
+`import a1 = require("garbage")`, and 21 is the `"`.
+
+| gate | what upstream does there instead |
+|---|---|
+| the declaration is not directly under a `SourceFile` or an **ambient** module block (`checkExternalImportOrExportDeclaration`, `checker.go:5332`) | TS1147 / TS1148 grammar error, and `return` **without resolving** |
+| the import has no clause — a side-effect import (`checker.go:5321`) | TS2882, a different message from the same resolution |
+| resolution named a file the program does not hold | TS7016 / TS6142 / TS2306 — *the same position, a different code* |
+| `declare module "x"` names it, or any pattern ambient module exists | resolved; no diagnostic |
+| a Node core module name, or `@types/…` | TS2580 / TS2591 / TS6137 substituted at `checker.go:15109` |
+
+Two of those gates cost real machinery and are worth naming:
+
+**`ModuleHost` grew a second method.** `resolved_module`'s doc said, correctly at
+the time, that its `None` covers *both* "resolution found nothing" and "resolution
+found a file the program does not hold", and that *"telling them apart is a
+diagnostic distinction this port has no consumer for."* The traversal is that
+consumer. `module_resolution_found` is upstream's
+`GetResolvedModule(...).IsResolved()` without the
+`GetSourceFileForResolvedModule` membership hop. ADR-0041's *"one method rather
+than eighteen"* is a rule against porting the `Program` interface speculatively,
+not a cap; this is the second question a real caller asks.
+
+**`noUncheckedSideEffectImports` is plumbed as a flag**, read through upstream's
+`IsTrueOrUnknown` so *unset means on*. It exists because
+`compiler/ambientExportDefaultErrors` writes it explicitly `false`, and without it
+the side-effect arm reports two diagnostics upstream suppresses.
+
+---
+
+## 3. The counterfactual — probe and build are the same function
+
+`examples/diag2307.rs` does **not** re-implement the rule. It calls the shipped
+`Checker::check_source_file` and merges its output into the diagnostic set the
+`diagnostics` suite compares today. `STATUS.md` §7 records why this shape is
+worth the trouble: the composite-print twin landed on a 1,500-line forecast to the
+line because `sigprint::compose` and `signature_to_string_at` were one function.
+Here the identity is stronger still — there is no second implementation to
+diverge from.
+
+What is therefore *not* true while the probe runs: the suite does not consult the
+checker. So these are a forecast of the **wiring** commit, and the wiring commit
+is the only thing that can move `diagnostics`.
+
+### The gates, measured one at a time
+
+Each row is a full corpus run of the same probe, with one gate added:
+
+| build | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| no gates beyond ambient / pattern / core / `@types` | 45 | 0 | 100 | **60** |
+| + the three gates in §2 (position, side-effect, resolved-elsewhere) | 50 | 0 | 101 | **23** |
+| + `noUncheckedSideEffectImports` | **50** | **0** | **101** | **21** |
+
+The 39 wrong lines the gates removed were, by case: 14 namespace-positioned
+imports (`privacyImportParseErrors` and its sibling, wanting TS1147), 15
+resolved-elsewhere (`untypedModuleImport_*` wanting TS7016,
+`moduleResolutionWithExtensions_notSupported` wanting TS6142), 5 side-effect
+imports wanting TS2882 — which the side-effect arm then converted rather than
+merely silenced, which is why CONVERTS rose 45 → 50 while WRONG fell — and 2 the
+option suppresses.
+
+### The residual 21, each with an owner
+
+These are **not** this rule's defects. In every one, the rule's condition is
+correct and `tsr-module` disagrees with upstream about whether the specifier
+resolves:
+
+| lines | family | owner |
+|---:|---|---|
+| 9 | symlink / `realpath` resolution (`moduleResolutionWithSymlinks*`, `symbolLinkDeclarationEmitModuleNames`, `declarationEmitReexportedSymlinkReference3`) | `tsr-vfs` models no symlinks |
+| 6 | `node16` / `nodenext` modes and `package.json` fields (`resolutionModeCache`, `nodeNextImportModeImplicitIndexResolution`, `resolutionCandidateFromPackageJsonField2`, `moduleResolutionWithoutExtension1`) | `tsr-module`'s mode handling |
+| 2 | `isolatedModulesExportDeclarationType`, `reservedWords2` | a parse-recovery divergence; `reservedWords2` is `import while = require("dfdf")` |
+| 1 | `decoratorMetadataTypeOnlyImport` | **the harness, not the compiler**: the unit is declared `// @filename: ./a.ts`, the baseline writes `a.ts`, and `diagnostics_suite` compares the two spellings literally. `binder_suite::same_unit` exists for exactly this and is not used here |
+| 3 | unclassified | — |
+
+The last row is written down rather than folded into the others. It is one case
+and it is a *harness* conversion — fixing it would move `diagnostics` without the
+compiler improving, so it must never be banked inside a compiler build's number.
+`bd tsr-o9tl` carries it.
+
+---
+
+## 4. The bar, registered before the wiring commit
+
+The wiring commit makes `diagnostics_suite::run` append
+`Checker::check_source_file`'s output to the parser and binder diagnostics it
+already collects. Nothing else changes.
+
+| leg | registered | why this number |
+|---|---|---|
+| 1 | `diagnostics` passes ≥ **125** | 80 + 50 converts, minus a 5-case discount for the suite building a *program* per case where the probe's `today()` half does not — the two paths must produce identical parser/binder sets and any drift lands here |
+| 2 | `checker_types` **unchanged**, exactly | the traversal is a second entry point and no query-path call site invokes it. A single line of movement means `check_source_file` is being reached from the gradient's producer, which it must not be |
+| 3 | cases regressed == **0** | the rule only *adds* diagnostics, and every one of the 80 passing cases is already an exact multiset. LOST measured 0 in the counterfactual and a non-zero reading here is a wiring defect, not a rule defect |
+| 4 | own new wrong ≤ **25** | the counterfactual's 21, plus margin. This is the mechanism's *own* column: a TS2307 or TS2882 emitted where the baseline records neither |
+| 5 | every other suite unchanged | `ModuleHost` grew a method and `Checker` grew two fields; none of it is read off the query path |
+
+**Falsifier 1.** If leg 1 lands materially *above* 130, the extra did not come
+from this rule — the suite's program-based path is producing parser or binder
+diagnostics the per-unit path does not, and the gain belongs to a harness change
+rather than to the checker. Diagnose before banking.
+
+**Falsifier 2.** If leg 4's 21 grows, a gate is being reached in a shape the
+counterfactual did not exercise. The most likely one is the position gate: the
+probe walks the case's own units only, and a `declare module` block nested two
+deep is the shape `external_import_is_positioned_for_resolution` is thinnest on.
+
+**Falsifier 3, and the one to take seriously.** The rule reports on a *negative*
+— "resolution found nothing" — which is the consumer kind `docs/conventions.md`
+warns is unsafe when a subsystem is incomplete. `module_resolution` reads 95/95
+over **95 cases**; the corpus's real resolution surface is two orders larger, and
+the 21 residual lines are the first measurement of that gap from outside its own
+suite. If the residual is much larger than 21 on the wired run, the honest
+conclusion is that TS2307 is bounded by module resolution's completeness and not
+by this rule.

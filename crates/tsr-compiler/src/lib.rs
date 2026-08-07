@@ -518,6 +518,25 @@ impl<'a> Program<'a> {
         self.source_file_by_path(target)?.source_file().node_id
     }
 
+    /// Did the resolver name a file for this specifier, whether or not the
+    /// program holds it?
+    ///
+    /// `Program.GetResolvedModule(...).IsResolved()`. The difference from
+    /// [`Program::resolved_module`] is the `GetSourceFileForResolvedModule`
+    /// membership hop that method ends with: an untyped `node_modules` package
+    /// under `allowJs: false`, or a `.tsx` reached without `--jsx`, resolves
+    /// here and is absent there. Upstream reports a different diagnostic code
+    /// for each, which is the only reason the distinction is exposed —
+    /// see [`tsr_checker::resolution::ModuleHost::module_resolution_found`].
+    #[must_use]
+    pub fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
+        let Some(&index) = self.files_by_source_file.get(&importing_file) else { return false };
+        let Some(resolutions) = self.resolved_modules.get(self.files[index].path()) else {
+            return false;
+        };
+        matches!(resolutions.get(specifier), Some(ModuleResolution::To(_)))
+    }
+
     /// A file name canonicalised the way this program canonicalises
     /// (`Program.toPath`, `internal/compiler/program.go:1830`).
     #[must_use]
@@ -550,6 +569,10 @@ impl<'a> Program<'a> {
 impl tsr_checker::resolution::ModuleHost for Program<'_> {
     fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId> {
         Program::resolved_module(self, importing_file, specifier)
+    }
+
+    fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
+        Program::module_resolution_found(self, importing_file, specifier)
     }
 }
 

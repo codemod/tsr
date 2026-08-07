@@ -102,6 +102,7 @@ pub mod array_literals;
 pub mod assertions;
 pub mod binary;
 pub mod calls;
+pub mod check;
 pub mod checker;
 pub mod contextual;
 pub mod declared;

@@ -936,7 +936,15 @@ fn render_case(
 /// this suite renders whatever section the baseline has, and a unit dropped for
 /// being unreachable would render empty and be counted as a miss. Upstream's
 /// `programFileNames` makes the same choice for a case with no tsconfig.
-fn program_for_case<'a>(
+///
+/// **Public because a second consumer arrived**: the `diagnostics` suite and its
+/// probes need a case compiled the way the `checker_types` gradient compiles it,
+/// and `docs/conventions.md`'s *"a probe that re-implements the harness is
+/// measuring a different compiler"* makes copying this function a defect rather
+/// than a convenience. The `/.lib` mount and the `@libFiles` roots below are
+/// exactly the parts a copy silently loses.
+#[must_use]
+pub fn program_for_case<'a>(
     arena: &'a tsr_core::Arena,
     case: &crate::TestCase,
 ) -> tsr_compiler::Program<'a> {

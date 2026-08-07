@@ -96,6 +96,31 @@ pub trait ModuleHost {
     /// that answers `Some` for a plain script is answering correctly, and the
     /// checker still gaps.
     fn resolved_module(&self, importing_file: NodeId, specifier: &str) -> Option<NodeId>;
+
+    /// Did resolution name a file **at all**, whether or not the program holds
+    /// it?
+    ///
+    /// `Program.GetResolvedModule(...).IsResolved()` (`checker.go:15208`), the
+    /// half of the composition above that
+    /// [`ModuleHost::resolved_module`] throws away.
+    ///
+    /// # Why the trait grew a second method
+    ///
+    /// The doc on [`ModuleHost::resolved_module`] said, correctly at the time,
+    /// that its `None` covers upstream's unresolved module *and* its
+    /// resolved-to-a-file-not-in-the-program case, and that *"telling them apart
+    /// is a diagnostic distinction this port has no consumer for."* The check
+    /// traversal ([`crate::check`]) is that consumer. Upstream reports a
+    /// **different code** for each — TS2307 for the first, TS7016 / TS6142 /
+    /// TS2306 for the second, all at the same position — so a rule that cannot
+    /// distinguish them manufactures a wrong diagnostic on every untyped
+    /// `node_modules` package and every `.tsx` reached without `--jsx`.
+    /// Measured, before the gate existed: 15 of 60 wrong lines.
+    ///
+    /// ADR-0041's "one method rather than eighteen" is a rule about not porting
+    /// the `Program` interface speculatively, not a cap. This is the second
+    /// question a real caller asks.
+    fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool;
 }
 
 /// Which lazily-computed property of an entity is being resolved.

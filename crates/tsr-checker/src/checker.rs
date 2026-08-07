@@ -95,6 +95,21 @@ pub struct Checker<'a, 'n> {
     /// member symbol is already the key's origin. The consequence to accept: a
     /// future caller wanting the member symbol itself cannot get it from here.
     pub(crate) enum_member_owners: FxHashMap<TypeId, SymbolId>,
+    /// Every diagnostic the check traversal has reported, paired with the
+    /// `SourceFile` node it belongs to.
+    ///
+    /// Upstream's `c.diagnostics`, an `ast.DiagnosticsCollection` field on the
+    /// `Checker` (`internal/checker/checker.go:661`), drained rather than
+    /// computed by `GetDiagnostics` (`checker.go:13951`) — ADR-0040 decision
+    /// (1). The file is carried alongside because
+    /// [`tsr_diagnostics::Diagnostic`] holds only a span, and under ADR-0034 one
+    /// `NodeTable` spans every file of a program, so a span alone cannot say
+    /// which unit it is an offset into.
+    ///
+    /// Empty for every checker nobody calls [`Checker::check_source_file`] on,
+    /// which is every call site the `checker_types` gradient runs through: the
+    /// traversal is a second entry point, never a side effect of a query.
+    pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
     /// `(generic symbol, type arguments) -> the instantiated reference`,
@@ -186,6 +201,16 @@ pub struct Checker<'a, 'n> {
     /// **on**; each is a separately measurable change and `bd tsr-e10` names
     /// the optionality one.
     pub(crate) strict_null_checks: bool,
+    /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
+    /// `IsTrueOrUnknown` (`checker.go:5321`) — so the default here is `true`,
+    /// matching an *unset* option rather than a `false` one.
+    ///
+    /// Consulted by exactly one rule ([`crate::check`]'s side-effect import
+    /// arm). It is a field rather than a `CompilerOptions` read for the same
+    /// reason `strict_null_checks` is: this port has one call site that knows a
+    /// case's directives, and widening `CompilerOptions` for a single consumer
+    /// is what the `strict_null_checks` comment declines to do.
+    pub(crate) no_unchecked_side_effect_imports: bool,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -377,6 +402,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             node_types: FxHashMap::default(),
             regular_types: FxHashMap::default(),
             enum_member_owners: FxHashMap::default(),
+            diagnostics: Vec::new(),
             symbol_types,
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),
@@ -389,6 +415,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,
+            no_unchecked_side_effect_imports: true,
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),
@@ -420,6 +447,18 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// types exist would leave a mixed store.
     pub fn set_strict_null_checks(&mut self, on: bool) {
         self.strict_null_checks = on;
+    }
+
+    /// Set [`Checker::no_unchecked_side_effect_imports`] from a case's compiler
+    /// options.
+    ///
+    /// Upstream reads `c.compilerOptions.NoUncheckedSideEffectImports.IsTrueOrUnknown()`
+    /// (`checker.go:5321`), so **unset means on** — the field's default. Only an
+    /// explicit `false` turns the side-effect-import diagnostic off, which is
+    /// what `compiler/ambientExportDefaultErrors` writes and what made this
+    /// setter necessary rather than optional.
+    pub fn set_no_unchecked_side_effect_imports(&mut self, on: bool) {
+        self.no_unchecked_side_effect_imports = on;
     }
 
     /// The well-known types.
