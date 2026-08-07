@@ -509,3 +509,28 @@ destructuring-pattern pair at 9/37 = 24%, and the mechanism's named case
 
 This is the build that carried the gradient over the exact 70% threshold:
 **335,293 / 478,954 = 70.003%**, cases 2,540.
+
+## §8 `tsr-5kii` sizing, first pass — the cheap prior is CONTAMINATED, recorded so nobody quotes it
+
+Ninth session. A grep-join of switch-bearing case sources against the
+residual dump reads **12,140 residual lines in 101 switch-bearing cases** —
+and the head is `parserRealSource11` (3,481), `parserRealSource7` (2,406),
+`parserindenter` (1,035): cases that *contain* switches while their residual
+mass belongs to naming and member resolution. A population identified by the
+presence of a keyword is not attributed to a mechanism — the file's oldest
+rule, and this prior would break it.
+
+What §11.2 and §15.1 *did* measure: switch narrowing's absence minted 4
+concrete wrong lines through the return aggregate
+(`switchCaseNarrowsMatchingClausesEvenWhenNonMatchingClausesExist` — the
+default arm's un-narrowed `string` collapses `"abc" | "defaultValue"`), and
+`controlFlowOptionalChain`/`controlFlowAliasing` (269 + 221 residuals) are
+narrowing-family cases in the contaminated list.
+
+**The probe that would size it** (unbuilt): per gap/wrong line inside a
+`CaseClause`/`DefaultClause`, test whether the line's expression contains a
+reference `is_matching_reference`-equal to the enclosing switch's
+discriminant, and split by whether the case expressions are unit-typed
+(the `narrowTypeBySwitchOnDiscriminant` precondition). That is
+`refmatch.rs`'s shape pointed at switch clauses, and it is the next
+session's first instrument.
