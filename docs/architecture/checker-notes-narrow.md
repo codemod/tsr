@@ -1588,3 +1588,13 @@ direct rule: a number-like index into an `Array<T>` reference answers `T`
 (the tuple's own literal arm already answers literal indices). Falsifier:
 `noUncheckedIndexedAccess` cases want `T | undefined` — the §17 option
 gate applies here too.
+
+**§28 score — LANDED AT ZERO, and the bar's premise was WRONG.** In-corpus,
+`xs[i]` on `number[]` already answers through the lib's `Array<T>` number
+index signature — the gap that motivated the bar exists only in LIB-LESS
+programs (the micro-probe's world, not the corpus's). The first pair
+measured 0 gained / 2 wrong (out-of-range tuple literals reaching the new
+arm); restricted to plain-`number` indices it is byte-identical and stays
+as the lib-less fallback, per the §12.8/§23 precedent. The 640-line
+`ElementAccess` TERMINAL row is therefore NOT this rule — its next probe
+must trace one line before any further code.

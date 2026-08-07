@@ -174,7 +174,50 @@ impl Checker<'_, '_> {
         }
         // A named lookup that misses still reaches the index signatures, which is
         // what makes `{ [k: string]: number }["anything"]` answer `number`.
-        self.get_applicable_index_info(object_type, index_type).map_or(error, |info| info.value)
+        if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
+            return info.value;
+        }
+        self.array_or_tuple_element_access(object_type, index_type).unwrap_or(error)
+    }
+
+    /// The `Array<T>`/tuple half of `getIndexedAccessType`'s numeric road
+    /// (`checker-notes-narrow.md` §28): a number-like index into `Array<T>`
+    /// answers `T` (`| undefined` under `noUncheckedIndexedAccess`); into a
+    /// tuple, the element union.
+    fn array_or_tuple_element_access(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+    ) -> Option<TypeId> {
+        // Plain `number` only: a literal index already answered through the
+        // property-name road (in-range) or wants `undefined` (out of range —
+        // `indexerWithTuple`, the §28 measurement's only movement).
+        if index_type != self.intrinsics.number {
+            return None;
+        }
+        let element = if let Some((elements, _)) = self.tuple_element_lists.get(&object_type) {
+            let elements = elements.clone();
+            self.get_union_type(&elements)
+        } else {
+            let (target, arguments) = self.type_reference_targets.get(&object_type)?.clone();
+            if arguments.len() != 1 {
+                return None;
+            }
+            let array = self.global_type_symbol("Array")?;
+            let readonly_array = self.global_type_symbol("ReadonlyArray");
+            let merged = self.binder.merged_symbol(target);
+            if merged != self.binder.merged_symbol(array)
+                && readonly_array.map(|s| self.binder.merged_symbol(s)) != Some(merged)
+            {
+                return None;
+            }
+            arguments[0]
+        };
+        if self.no_unchecked_indexed_access {
+            let undefined = self.intrinsics.undefined;
+            return Some(self.get_union_type(&[element, undefined]));
+        }
+        Some(element)
     }
 
     /// The property name an index type names, if it names one.
