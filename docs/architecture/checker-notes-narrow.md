@@ -1364,3 +1364,15 @@ R→G. `checker_types` right 369,540 → **369,673**, wrong 22,595 →
 **22,462**. The fix's reach is wider than the head case: enum equality
 narrowing and assignment reduction now DECIDE (`enumLiteralTypes3`,
 `stringEnumLiteralTypes3`, `enumPropertyAccess` all moved).
+
+### §19 An un-annotated rest parameter is `any[]`
+
+The `any[] ← any` board row (~200 lines; `restParameterWithoutAnnotationIsAnyArray`
+names the rule in its filename): upstream's implicit-any fallback for a
+parameter with a `...` token is `anyArrayType`
+(`reportImplicitAny`'s rest arm, `checker.go:18131` family), where this
+port's `get_widened_type_for_variable_like_declaration` answered plain
+`any` for every annotation-less, initializer-less declaration. One arm at
+the fallback: a `Parameter` with `dot_dot_dot_token` and no binding
+pattern answers `any[]`. Falsifier: non-rest parameters and variables
+must not move.
