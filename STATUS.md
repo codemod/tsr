@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §21 landing, 2026-08-07 (ninth session, continued: builds 25–39).
+Measured at the §22 landing, 2026-08-07 (ninth session, continued: builds 25–40).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §21 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,122/9,538** | **32.73%** | **gradient 77.29%** — the target |
+| **`checker_types`** | **3,123/9,538** | **32.74%** | **gradient 77.29%** — the target |
 | `diagnostics` | **1,022/5,488** | **18.62%** | **tenth session, +305** — 717 → 1,022 across twenty-seven builds and six measured refusals; the running total is 80 → 1,022, 12.8×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-370,173 / 478,954 assertion lines = 77.29%      (measured at the §21 landing)
-  right 370,173 | gap 76,774 | wrong 21,968        right+gap+wrong = 468,915 exactly
+370,197 / 478,954 assertion lines = 77.29%      (measured at the §22 landing)
+  right 370,197 | gap 76,774 | wrong 21,944        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -996,6 +996,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §22-narrow landing | **77.29%** | **3,123** | **+27/3** | **Build 40: `if (isNumber(x))` narrows.** `narrowTypeByCallExpression`'s identifier-predicate half. Three bar legs fired and each taught upstream's exact shape: mutual relations prefer the ASSERTED type (the four-rung ladder, `flow.go:915`), unchanged mappings keep the original named alias, and the false branch keeps constituents the true branch mapped AWAY (`{}` vs `Record`). The 3 residual are relater precision on `Record` instantiations |
 | 2026-08-07 | §21 landing | **77.29%** | **3,122** | **+29/2** | **Build 39: strict catch variables are `unknown`.** `useUnknownInCatchVariables` follows the explicit `@strict` directive only — a bare `@strictNullChecks: true` does not imply it. The second fired leg was procedural and transferable: a producer-side plumbing edit silently failed (python replace printing ok without asserting), measured byte-identical, and was caught by the identical TOTAL — plumbing edits assert their anchors now |
 | 2026-08-07 | §20 landing | **77.28%** | **3,122** | **+103/0** | **Build 38: nullable initializers widen — non-strict only.** `getWidenedTypeWithContext`'s nullable arm; the bar's first pair fired 69 R→W and named the gate (the widening twins exist only with `strictNullChecks` off; strict `let x = null` keeps `null`). Gated: zero adverse |
 | 2026-08-07 | §19 landing | **77.26%** | **3,118** | **+376/6, +32 cases** | **Build 37: `(...args)` is `any[]`.** The `any[] ← any` board row was one rule — the implicit-any fallback's rest arm (`reportImplicitAny`'s `anyArrayType`). Thirty-two cases flipped whole on a five-line arm. The 6 adverse are `tsr-5o2`'s written-annotation node-reuse (upstream prints a written `(...args)` fn-type verbatim as `any` while typing the symbol `any[]` — this port prints the computed type) |
