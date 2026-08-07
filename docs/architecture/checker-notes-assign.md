@@ -716,3 +716,27 @@ regressed **0** · lost **0**. The eighteenth stand-in fixture came due.
 yields +2, arrays +33 = **+119 with 15 exposure lines, each owned**) — the
 per-consumer bars cost three cycles and bought the JS-file flag, two
 position gates, and three attributed residues.
+
+## §14 `readonly` enters the strict-subtype relation — bar (ninth session)
+
+The §9.1 residue's owner takes its first slice. Upstream's rule is exact and
+small (`relater.go:4300`–`:4308`): **only under `strictSubtypeRelation`**,
+`isReadonlySymbol(source) && !isReadonlySymbol(target)` rejects — the comment
+says why: it orders the subtype relation so declaration order cannot decide
+union subtype reduction, and `readonly` deliberately does NOT affect
+assignability. `isReadonlySymbol` (`checker.go:13849`) reduces, for the
+shapes this port's binder represents, to: a property with a `readonly`
+modifier, a get-accessor without a set-accessor, an enum member.
+
+With the relation taught, the §9 syntactic decline **drops its readonly
+clause** (the `?`/`private`/`protected` clauses stay — optionality and
+privacy are still unread): the declined readonly population converts through
+the now-directed relation, and `readonlyPropertySubtypeRelationDirected`
+flips from the §9.1 wrong-liner to the pin.
+
+**Bar:** net ≥ **+10**; own ≤ **6** — falsifier: wrong lines where a
+readonly-bearing union under `||`/`??`/conditional reduces the WRONG way →
+the direction is inverted, check the source/target orientation before
+anything; regressed == 0; lost == 0 (a new NotRelated can only *keep*
+constituents the old walk removed, and nothing consuming Subtype/Assignable
+sees the rule).
