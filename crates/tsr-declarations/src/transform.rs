@@ -596,9 +596,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 // in the form this tree actually carries it; the flag is still
                 // tested so this reads correctly once the parser gap
                 // (`bd tsr-qc3`) is closed.
-                if self.factory.flags_of(node.node_id).contains(NodeFlags::AMBIENT)
-                    || has_modifier(node.modifiers, SyntaxKind::DeclareKeyword)
-                {
+                if enters_ambient {
                     self.needs_scope_fix_marker = false;
                 }
                 // `!ast.IsGlobalScopeAugmentation(input)`: `declare global { … }`
@@ -731,7 +729,27 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             )));
         }
 
+        let has_constructor_overloads = node.members.iter().any(|member| {
+            matches!(member, ClassElement::ConstructorDeclaration(constructor) if constructor.body.is_none())
+        });
+        let mut private_method_markers = Vec::new();
         for member in node.members {
+            if matches!(member, ClassElement::ConstructorDeclaration(constructor) if constructor.body.is_some())
+                && has_constructor_overloads
+            {
+                continue;
+            }
+            if let ClassElement::MethodDeclaration(method) = member
+                && is_private_member(member)
+            {
+                let is_static = has_modifier(method.modifiers, SyntaxKind::StaticKeyword);
+                if private_method_markers.iter().any(|(seen_static, seen_name)| {
+                    *seen_static == is_static && property_names_equal(seen_name, &method.name)
+                }) {
+                    continue;
+                }
+                private_method_markers.push((is_static, method.name));
+            }
             if let Some(member) = self.visit_class_element(member) {
                 members.push(member);
             }
@@ -980,6 +998,36 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let mut result = Vec::with_capacity(members.len());
         for member in members {
             match member {
+                TypeElement::CallSignatureDeclaration(node) => {
+                    let span = self.span_of(node.node_id);
+                    let parameters = self.update_param_list(node.parameters, false);
+                    result.push(TypeElement::CallSignatureDeclaration(self.factory.alloc(
+                        tsr_ast::CallSignatureDeclaration::new(
+                            node.type_parameters,
+                            parameters,
+                            node.r#type,
+                            node.full_signature,
+                        ),
+                        SyntaxKind::CallSignature,
+                        span,
+                        NodeFlags::empty(),
+                    )));
+                }
+                TypeElement::ConstructSignatureDeclaration(node) => {
+                    let span = self.span_of(node.node_id);
+                    let parameters = self.update_param_list(node.parameters, false);
+                    result.push(TypeElement::ConstructSignatureDeclaration(self.factory.alloc(
+                        tsr_ast::ConstructSignatureDeclaration::new(
+                            node.type_parameters,
+                            parameters,
+                            node.r#type,
+                            node.full_signature,
+                        ),
+                        SyntaxKind::ConstructSignature,
+                        span,
+                        NodeFlags::empty(),
+                    )));
+                }
                 // `transformPropertySignatureDeclaration` (`:963`).
                 TypeElement::PropertySignatureDeclaration(node) => {
                     let span = self.span_of(node.node_id);
@@ -1000,17 +1048,34 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     let span = self.span_of(node.node_id);
                     let modifiers =
                         self.ensure_modifiers(node.modifiers, node.node_id, false, true);
+                    let parameters = self.update_param_list(node.parameters, false);
                     result.push(TypeElement::MethodSignatureDeclaration(self.factory.alloc(
                         tsr_ast::MethodSignatureDeclaration::new(
                             modifiers,
                             node.name,
                             node.postfix_token,
                             node.type_parameters,
-                            node.parameters,
+                            parameters,
                             node.r#type,
                             node.full_signature,
                         ),
                         SyntaxKind::MethodSignature,
+                        span,
+                        NodeFlags::empty(),
+                    )));
+                }
+                TypeElement::IndexSignatureDeclaration(node) => {
+                    let span = self.span_of(node.node_id);
+                    let parameters = self.update_param_list(node.parameters, false);
+                    result.push(TypeElement::IndexSignatureDeclaration(self.factory.alloc(
+                        tsr_ast::IndexSignatureDeclaration::new(
+                            node.modifiers,
+                            parameters,
+                            node.r#type,
+                            node.full_signature,
+                            node.type_parameters,
+                        ),
+                        SyntaxKind::IndexSignature,
                         span,
                         NodeFlags::empty(),
                     )));
@@ -1035,10 +1100,49 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             return &[];
         }
         let mut result = Vec::with_capacity(parameters.len());
-        for parameter in parameters {
-            result.push(self.ensure_parameter(parameter));
+        for (index, parameter) in parameters.iter().enumerate() {
+            let ensured = self.ensure_parameter(parameter);
+            let has_later_required = parameters[index + 1..]
+                .iter()
+                .any(|later| !self.resolver.is_optional_parameter(later));
+            if parameter.initializer.is_some() && has_later_required {
+                result.push(self.require_initialized_parameter(ensured));
+            } else {
+                result.push(ensured);
+            }
         }
         self.factory.slice(&result)
+    }
+
+    fn require_initialized_parameter(
+        &mut self,
+        parameter: &'a ParameterDeclaration<'a>,
+    ) -> &'a ParameterDeclaration<'a> {
+        let span = self.span_of(parameter.node_id);
+        let existing = parameter
+            .r#type
+            .unwrap_or_else(|| self.factory.keyword_type(SyntaxKind::AnyKeyword, span));
+        let undefined = self.factory.keyword_type(SyntaxKind::UndefinedKeyword, span);
+        let types = self.factory.slice(&[existing, undefined]);
+        let union = self.factory.alloc(
+            tsr_ast::UnionTypeNode::new(types),
+            SyntaxKind::UnionType,
+            span,
+            NodeFlags::empty(),
+        );
+        self.factory.alloc(
+            ParameterDeclaration::new(
+                parameter.modifiers,
+                parameter.dot_dot_dot_token,
+                parameter.name,
+                None,
+                Some(TypeNode::UnionTypeNode(union)),
+                None,
+            ),
+            SyntaxKind::Parameter,
+            span,
+            NodeFlags::empty(),
+        )
     }
 
     /// Ported from `updateAccessorParamList` (`transform.go:1031`).
@@ -1455,5 +1559,35 @@ fn class_member_name<'b, 'a>(
         ClassElement::GetAccessorDeclaration(node) => Some(&node.name),
         ClassElement::SetAccessorDeclaration(node) => Some(&node.name),
         _ => None,
+    }
+}
+
+fn property_names_equal(
+    left: &tsr_ast::PropertyName<'_>,
+    right: &tsr_ast::PropertyName<'_>,
+) -> bool {
+    use tsr_ast::PropertyName;
+
+    match (left, right) {
+        (PropertyName::BigIntLiteral(left), PropertyName::BigIntLiteral(right)) => {
+            left.text == right.text
+        }
+        (PropertyName::Identifier(left), PropertyName::Identifier(right)) => {
+            left.text == right.text
+        }
+        (
+            PropertyName::NoSubstitutionTemplateLiteral(left),
+            PropertyName::NoSubstitutionTemplateLiteral(right),
+        ) => left.text == right.text,
+        (PropertyName::NumericLiteral(left), PropertyName::NumericLiteral(right)) => {
+            left.text == right.text
+        }
+        (PropertyName::PrivateIdentifier(left), PropertyName::PrivateIdentifier(right)) => {
+            left.text == right.text
+        }
+        (PropertyName::StringLiteral(left), PropertyName::StringLiteral(right)) => {
+            left.text == right.text
+        }
+        _ => false,
     }
 }

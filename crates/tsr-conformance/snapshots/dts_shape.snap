@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 657/918 (71.57%)
-Failed         : 261
+Passed         : 662/918 (72.11%)
+Failed         : 256
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 261 failures:
+First 100 of 256 failures:
 compiler/aliasInaccessibleModule2
   #2: want `  import= R`, got `    class C`
 compiler/amdLikeInputDeclarationEmit
@@ -27,18 +27,10 @@ compiler/conflictingDeclarationsImportFromNamespace1
   #0: want `export=`, got `var pick`
 compiler/conflictingDeclarationsImportFromNamespace2
   #0: want `export=`, got `var pick`
-compiler/declFileAliasUseBeforeDeclaration2
-  #3: want `  class B`, got `    export{}`
-compiler/declFileAmbientExternalModuleWithSingleExportedModule
-  #4: extra `      export{}`
-compiler/declFileGenericType2
-  #3: want `namespace templa`, got `    export{}`
 compiler/declFileImportModuleWithExportAssignment
   #0: want `import= a1`, got `var a`
 compiler/declFileTypeofFunction
   #2: want `function g`, got `function f`
-compiler/declFileWithExtendsClauseThatHasItsContainerNameConflict
-  #4: want `namespace A`, got `      export{}`
 compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
   #8: want `        class W`, got `        namespace A`
 compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
@@ -213,3 +205,11 @@ compiler/internalAliasClassInsideTopLevelModuleWithoutExport
   #2: want `import= xc`, got `var cProp`
 compiler/internalAliasFunctionInsideLocalModuleWithoutExport
   #4: want `  var bVal2`, got `  var bVal`
+compiler/internalAliasFunctionInsideTopLevelModuleWithoutExport
+  #2: want `import= b`, got `var bVal`
+compiler/internalAliasVar
+  #3: want `  var bVal`, got `  import= b`
+compiler/internalAliasWithDottedNameEmit
+  #7: extra `      import= g`
+compiler/intrinsics
+  #3: want `class Foo`, got `  interface __proto__`

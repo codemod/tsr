@@ -159,6 +159,14 @@ fn an_ambient_namespace_needs_no_scope_marker() {
 }
 
 #[test]
+fn ambient_context_is_inherited_by_nested_namespaces() {
+    assert_emits(
+        "declare module \"pkg\" {\n    namespace A {\n        class C {}\n    }\n}",
+        "declare module \"pkg\" {\n    namespace A {\n        class C {\n        }\n    }\n}\n",
+    );
+}
+
+#[test]
 fn a_namespace_whose_members_are_all_exported_has_its_export_modifiers_stripped() {
     // `transformModuleDeclaration`'s second branch (`:1849`): everything in an
     // ambient namespace is exported, so restating `export` is noise upstream does
@@ -292,6 +300,30 @@ fn a_private_member_keeps_its_name_and_loses_its_type() {
     assert_emits(
         "export class C {\n    private a: number = 1;\n    private m(x: number): void {}\n}",
         "export declare class C {\n    private a;\n    private m;\n}",
+    );
+}
+
+#[test]
+fn overload_implementations_are_omitted_and_private_methods_have_one_marker() {
+    assert_emits(
+        "class C {\n    private method(x: number): void;\n    private method(x: string): void;\n    private method(x: unknown): void {}\n    constructor(x: number);\n    constructor(x: number) {}\n}",
+        "declare class C {\n    private method;\n    constructor(x: number);\n}\n",
+    );
+}
+
+#[test]
+fn initialized_parameter_before_required_parameter_includes_undefined() {
+    assert_emits(
+        "export class C { constructor(public values: number[] = [], count: number) {} }",
+        "export declare class C {\n    values: number[];\n    constructor(values: number[] | undefined, count: number);\n}\n",
+    );
+}
+
+#[test]
+fn untyped_type_member_parameters_emit_as_any() {
+    assert_emits(
+        "interface Callable { (value): void; method(value): void; new (value): object; }",
+        "interface Callable {\n    (value: any): void;\n    method(value: any): void;\n    new (value: any): object;\n}\n",
     );
 }
 

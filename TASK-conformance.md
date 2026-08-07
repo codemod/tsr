@@ -5,8 +5,8 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  195/341  = 57.18%  (up from 161/339)
-  dts_shape                 657/918  = 71.57%  (up from 618/912)
+  dts_emit                  205/341  = 60.12%  (up from 161/339)
+  dts_shape                 662/918  = 72.11%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -52,6 +52,13 @@ declarations in their original mixed-kind order. Path references are rewritten
 to declaration suffixes, resolution modes are retained, and attribute values are
 escaped. This closed another two byte-exact cases without changing declaration
 shape or printer round-trip.
+
+The next structural pass propagated ambient context through nested namespaces,
+preventing synthesized `export {}` markers from leaking into five declaration
+files. Class overload implementations are now omitted, repeated private overloads
+collapse to one nominal marker, initialized parameters before required parameters
+emit `| undefined`, and untyped type-member parameters emit `any`. Together these
+raised `dts_emit` by ten cases and `dts_shape` by five from the previous checkpoint.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
