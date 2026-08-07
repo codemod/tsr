@@ -1637,3 +1637,17 @@ positions wanting the EXPANDED form where the placeholder's name now
 prints (`recursiveArrayNotCircular` head) — the same node-reuse-vs-computed
 boundary as `tsr-5o2`, recorded against it. `checker_types` right 372,384
 → **374,491**, gap 74,218 → **72,043**.
+
+### §30 SIZING ONLY — `typeof import("…")`, the next unit, not built here
+
+764 gap lines mention `typeof import` (heads: `ramdaToolsNoInfinite2` ×34
+written ImportTypeNodes, `checkExportsObjectAssignProperty` ×27 computed
+module-object prints, `privacyImportParseErrors` ×14). Two distinct
+mechanisms: (1) the ImportTypeNode TYPE-NODE arm (`getTypeFromImportTypeNode`
+— no dispatch arm exists; needs specifier → module-host resolution →
+module symbol → `is_type_of` split); (2) the module-object PRINT form for
+external-module symbols (`typeof import("./mod1")` where a namespace
+prints `typeof M`) — the modobj workstream's row. NOT built in this
+continuation: cross-file resolution plus the print-form question deserve a
+fresh context, and the split above is the probe the next session starts
+from. No bar is registered; nothing here is refused.
