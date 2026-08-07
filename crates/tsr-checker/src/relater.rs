@@ -880,6 +880,38 @@ impl Relater<'_, '_, '_> {
                 parts.push(Ternary::Unknown);
                 continue;
             };
+            // The privacy arms (`propertyRelatedTo`'s first switch, §16 of
+            // `checker-notes-assign.md`): PRIVATE on either side relates only
+            // when both symbols share one value declaration — an identity
+            // this port tests exactly; a protected SOURCE against a public
+            // target rejects; a protected TARGET needs `isValidOverrideOf`,
+            // unported, so that pair is `Unknown` and any reduction touching
+            // it declines whole.
+            if let (Some(source_property), Some(target_property)) = (
+                self.checker.get_property_of_type(source, &name),
+                self.checker.get_property_of_type(target, &name),
+            ) {
+                let private = tsr_ast::SyntaxKind::PrivateKeyword;
+                let protected = tsr_ast::SyntaxKind::ProtectedKeyword;
+                let source_private = self.checker.property_has_modifier(source_property, private);
+                let target_private = self.checker.property_has_modifier(target_property, private);
+                if source_private || target_private {
+                    let source_declaration =
+                        self.checker.binder.symbols().get(source_property).value_declaration;
+                    let target_declaration =
+                        self.checker.binder.symbols().get(target_property).value_declaration;
+                    if source_declaration != target_declaration || source_declaration.is_none() {
+                        parts.push(Ternary::NotRelated);
+                        continue;
+                    }
+                } else if self.checker.property_has_modifier(target_property, protected) {
+                    parts.push(Ternary::Unknown);
+                    continue;
+                } else if self.checker.property_has_modifier(source_property, protected) {
+                    parts.push(Ternary::NotRelated);
+                    continue;
+                }
+            }
             // A source-OPTIONAL property against a REQUIRED target member
             // rejects in every relation but comparability
             // (`propertyRelatedTo`, the 1.0-spec §3.8.3 clause: "if M is a

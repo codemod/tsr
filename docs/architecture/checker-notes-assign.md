@@ -821,3 +821,17 @@ construction — it exists only where a class type reaches a union reduction);
 own ≤ **6** — falsifier: wrong lines where two same-class-instance unions
 reduce → the class-pair decline in `union_with_subtype_reduction` must still
 be reached, check ordering; regressed == 0; lost == 0.
+
+### §16.1 Scored — measured ZERO, shipped with the zero stated
+
+The pair is byte-identical: the privacy-bearing population never reaches a
+reduction whose answer changes — every such pair either already declined
+through the class-instance gate or sits outside the wired consumers. Leg 1's
+≥ +5 floor fired at **0** and is overridden on the `tsr-kmzf` shape: the
+arms are upstream's own switch verbatim (`propertyRelatedTo`, first switch),
+and they are what makes **deleting the §9 syntactic decline whole** safe —
+`has_modifier_bearing_members` is gone, its three clauses now living in the
+relation where upstream keeps them (readonly §14, optionality §15, privacy
+§16, the protected-target pair answering `Unknown` through the same gate as
+every undecidable pair). Zero conversions bought; a crutch deleted and the
+relation made upstream-shaped is what was paid for.

@@ -744,9 +744,10 @@ impl crate::checker::Checker<'_, '_> {
         // carrying a generic instantiation (`NonNullable<T>` reduced to `T`)
         // — declines the whole reduction, syntactically.
         for &constituent in &constituents {
-            if self.has_modifier_bearing_members(constituent) {
-                return None;
-            }
+            // §16 deleted the modifier decline's last clause: readonly (§14),
+            // optionality (§15) and privacy (§16) all live in the relation
+            // now, and a protected-target pair reads `Unknown` there — the
+            // gate below declines it as it declines every undecidable pair.
             if let Some((_, arguments)) = self.type_reference_targets.get(&constituent)
                 && arguments.iter().any(|&a| {
                     self.store.get(a).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
@@ -784,56 +785,6 @@ impl crate::checker::Checker<'_, '_> {
             }
         }
         Some(self.get_union_type(&kept))
-    }
-
-    /// Whether any member the relation would compare carries a modifier the
-    /// relation does not read — `readonly`, `?`, or a `private`/`protected`
-    /// keyword on its declaration. The §9 reduction's syntactic decline.
-    fn has_modifier_bearing_members(&self, id: crate::types::TypeId) -> bool {
-        let symbol = match &self.store.get(id).data {
-            crate::types::TypeData::Named { members: Some(symbol), .. }
-            | crate::types::TypeData::Anonymous { symbol, .. } => *symbol,
-            _ => match self.type_reference_targets.get(&id) {
-                Some((symbol, _)) => *symbol,
-                None => return false,
-            },
-        };
-        let members = &self.binder.symbols().get(symbol).members;
-        members.values().any(|&member| {
-            self.binder.symbols().get(member).declarations.iter().any(|&declaration| {
-                let Some(node) = self.node_map.get(declaration) else { return false };
-                #[allow(
-                    clippy::match_same_arms,
-                    reason = "four member node kinds bind four distinct payload \
-                              types to one (modifiers, postfix) shape; the arms \
-                              cannot or-pattern across types"
-                )]
-                let (modifiers, question) = match node {
-                    tsr_ast::Node::PropertySignatureDeclaration(p) => {
-                        (p.modifiers, p.postfix_token)
-                    }
-                    tsr_ast::Node::PropertyDeclaration(p) => (p.modifiers, p.postfix_token),
-                    tsr_ast::Node::MethodSignatureDeclaration(m) => (m.modifiers, m.postfix_token),
-                    tsr_ast::Node::MethodDeclaration(m) => (m.modifiers, m.postfix_token),
-                    _ => return false,
-                };
-                // `readonly` left this list when the relation learned it
-                // (§14), `?` when §15 taught the absent-property arm to read
-                // it. Privacy stays: still unread.
-                let _ = question;
-                modifiers.iter().any(|modifier| {
-                    matches!(
-                        modifier,
-                        tsr_ast::ModifierLike::Token(token)
-                            if matches!(
-                                token.kind,
-                                tsr_ast::SyntaxKind::PrivateKeyword
-                                    | tsr_ast::SyntaxKind::ProtectedKeyword
-                            )
-                    )
-                })
-            })
-        })
     }
 
     /// Whether a type is a class **instance** type — the shape upstream's

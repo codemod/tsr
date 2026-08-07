@@ -913,3 +913,31 @@ impl Checker<'_, '_> {
         })
     }
 }
+
+impl Checker<'_, '_> {
+    /// Whether a property's declaration carries the given modifier keyword —
+    /// the reader behind the relation's privacy arms
+    /// (`checker-notes-assign.md` §16), syntactic for the same reason
+    /// [`Checker::property_is_optional`] is.
+    pub(crate) fn property_has_modifier(
+        &self,
+        symbol: tsr_binder::SymbolId,
+        kind: tsr_ast::SyntaxKind,
+    ) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            let modifiers = match self.node_map.get(declaration) {
+                Some(Node::PropertySignatureDeclaration(p)) => p.modifiers,
+                Some(Node::PropertyDeclaration(p)) => p.modifiers,
+                Some(Node::MethodSignatureDeclaration(m)) => m.modifiers,
+                Some(Node::MethodDeclaration(m)) => m.modifiers,
+                _ => return false,
+            };
+            modifiers.iter().any(|modifier| {
+                matches!(
+                    modifier,
+                    tsr_ast::ModifierLike::Token(token) if token.kind == kind
+                )
+            })
+        })
+    }
+}
