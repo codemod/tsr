@@ -647,9 +647,16 @@ impl<'a> Checker<'a, '_> {
     /// [`Checker::assignability_is_decidable`]'s successor below.
     pub(crate) fn pair_is_reportable(&mut self, source: TypeId, target: TypeId) -> bool {
         let intrinsics = self.intrinsics();
-        let (error, unknown, any) = (intrinsics.error, intrinsics.unknown, intrinsics.any);
+        let (unknown, any) = (intrinsics.unknown, intrinsics.any);
         for side in [source, target] {
-            if side == error || side == unknown || side == any {
+            // `Checker::is_error` and not `== intrinsics.error`: an unresolved
+            // type REFERENCE mints a `TypeData::Named` carrying the written
+            // text and answers `is_error` without being that intrinsic
+            // (`checker-notes-diag2.md` §44). It is the same accident the arm
+            // above describes, under a different type id — a type the port
+            // could not build, which the relater cannot distinguish from one
+            // that failed.
+            if self.is_error(side) || side == unknown || side == any {
                 return false;
             }
             if self.type_of(side).flags.intersects(UNDECIDABLE_HERE) {

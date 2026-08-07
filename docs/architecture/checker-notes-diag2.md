@@ -3062,3 +3062,76 @@ standard gate this module uses everywhere else removes all four:
 fail for other reasons, so removing them converts nothing, and the gate costs a
 real conversion. Same result as §40.3, which *deleted* TS2304's parse-error
 decline for +6 — the gate is worth measuring per rule and is not a house style.
+
+---
+
+## 44. The `== errorType` audit — the grep §43 asked for
+
+§43 found that `declared == self.intrinsics.error` is the **narrower** of two
+questions this port can ask, and that the wide one — `Checker::is_error`, which
+also answers for the `TypeData::Named` an unresolved type *reference* mints — is
+the faithful reading of upstream's `t.flags&TypeFlagsAnyOrUnknown`. It cost two
+wrong lines in one rule and named the audit: **every identity test against
+`intrinsics.error` in a reporting path is a question about which was meant.**
+
+Inside the diagnostics road there are three left after §43:
+
+| site | direction | what the wide reading would do |
+|---|---|---|
+| `assignreport.rs:651` — `pair_is_reportable` | **decline** | stop reporting TS2322/2345/2352/2411/2415/2420/2430 for a pair whose source or target is an unresolved reference |
+| `check.rs:1145` — TS2454's declared type | decline | §42.2 refuses this one: it is upstream's own any-flag disjunct and there is no initial type to run the flow with |
+| `check.rs:1155` — TS2454's flow type | decline | the flow answer, not the declared one |
+
+The first is the one with a population. `pair_is_reportable` is the gate every
+conformance rule shares, and its own doc says *"`any` and the error type,
+unchanged: neither can fail a relation, so admitting them can only produce
+accidents."* **An unresolved reference is exactly that accident under a
+different type id** — `Named("Foo")` where `Foo` never resolved is not a type
+that failed a relation, it is a type the port could not build, and the relater
+has no way to say so.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,139**. This is a *decline*, so the honest forecast is **0 to +6**: it can only remove wrong lines, and a wrong line converts a case only when it was that case's last defect |
+| 2 | `checker_types` byte-identical — 3,659 / 82.62% |
+| 3 | LOST == **0** |
+| 4 | the assignment family's WRONG column **decreases** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the suite *drops*, the unresolved-reference types were carrying
+real reports — meaning the port resolves those names well enough that the
+relation's answer was sound — and the narrow test was right for a reason nobody
+wrote down.
+
+### Scored — a **measured zero**, kept, and the zero is the useful part
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,139 | **1,139** | pass |
+| 2 | `checker_types` byte-identical | **3,660 / 82.64%**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | the assignment family's WRONG decreases | **161 → 161** | **did not fire** |
+| 5 | every other snapshot unchanged | **`diagnostics.snap` is byte-identical too** | pass |
+
+`diag2307.rs` over `[2322, 2345, 2352, 2411, 2415, 2416, 2420, 2430]`, measured
+on both sides of the edit: **CONVERTS 118, WRONG 161, LOST 0 — identical.**
+
+**No unresolved-reference type reaches `pair_is_reportable` today.** The two
+readings of the error test are the same function at this site, so the edit is
+behaviour-neutral over the whole corpus, and `diagnostics.snap` is byte-identical
+rather than merely equal in its total.
+
+**Kept anyway, and this is a judgement rather than a measurement.** The reason is
+the direction the port is moving: `checker-notes-narrow.md` §31–§32 mint
+unresolved `Named` types deliberately and in growing numbers — TS2304's
+provenance chain is 6,267 lines of them — and the moment one reaches an
+assignment anchor the narrow test reports a type the port could not build. The
+cost of keeping the wide reading is one set lookup on a path that already does
+three intrinsic comparisons; the cost of the narrow one, when it fires, is the
+same wrong line §43 measured in TS2564.
+
+**A zero is a fact about the corpus at this commit, not about the predicate.**
+Recorded here so the next session does not re-run it hoping for a number, and so
+that if a future build *does* see this fire, the date it started is findable.
