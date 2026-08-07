@@ -1405,3 +1405,14 @@ the 69 R→W named the gate: the widening twins exist only with
 (`initializersWidened`, `implicitAnyCastedValue`). Gated: **+91 W→R, +12
 G→R, ZERO adverse.** `checker_types` right 370,043 → **370,146**, wrong
 22,094 → **22,003**.
+
+### §21 Strict catch variables are `unknown`
+
+The `unknown ← any` row's decodable half (`tryCatchFinallyControlFlow`
+et al.): `useUnknownInCatchVariables` is part of `strict` since TS 4.4 —
+an annotation-less catch variable types `unknown`, not `any`
+(`getTypeOfVariableOrParameterOrPropertyWorker`'s catch arm upstream).
+Plumbed as the fourth per-case option, defaulting to the case's strict
+setting, with the explicit directive winning either way. Falsifier:
+non-strict cases keep `any` (`useUnknownInCatchVariables01` explicitly
+tests the option's own directive).
