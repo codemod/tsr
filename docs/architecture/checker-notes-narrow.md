@@ -974,3 +974,46 @@ trace**: pick `controlFlowIterationErrors:0:<n>`, print the walk's per-arm
 answers, and set them against upstream's arms for the same line — the
 divergence is in an arm, and the plumbing is proven ready to carry the fix
 when it is found.
+
+### §12.6 The one-line trace ran — the arms are innocent; the poison is TRANSIENT CACHE WRITES
+
+The §12.5-mandated trace (`TSR_TRACE_LOOP` in the loop arm, kept in
+`traceone.rs`'s workflow) on `controlFlowIterationErrors` produced the
+decisive negative: **all eight loop labels compute the upstream-correct
+union** — `[string, number] → string | number` at every per-function key —
+yet the printed positions read `string` / `number`. The walk's arms answer
+correctly; what the printer reads is the **per-node cache
+(`expressions.rs`'s `node_types`), stamped during the transient back-edge
+pass** while `x` was provisionally `string`. `foo(x)` was resolved once
+against that provisional `string`, cached as `number`, and the cache entry
+outlived the fixpoint's convergence. §9.2 said it in general terms
+("second walks over write-through caches are structurally unsound —
+provenance must be a flag"); this is the mechanism, named.
+
+Upstream's guard is explicit — `checkExpressionCachedEx`
+(`internal/checker/checker.go:7517`): before computing a type that will be
+cached it **clears `flowLoopStack` and `flowTypeCache`**, with the comment
+"variables may have transient types in indeterminable states. Moving
+flowLoopStart to the top of the stack ensures all transient types are
+computed from a known point." The dual formulation for this port's single
+`node_types` cache: **suppress the write while `flow_loop_stack` is
+non-empty** — transient computations answer but never persist. Reads stay:
+entries written outside loop analysis are final by construction, and if
+transient writes never happen, no stale entry can exist to be read.
+
+**The bar**: with the §12 patch live (JS decline included) plus the
+one-line write gate, the `controlFlowIterationErrors*` family's stale-cache
+lines (`foo(x)` families, post-loop unions) flip; the standing fixpoint
+balance (+111/63/12/2) must improve on the 63+12 adverse side, since those
+were measured through the poisoned cache. Falsifiers: (a) if the gate does
+not move the adverse 86, the staleness diagnosis is wrong and the arms are
+back under suspicion; (b) any net-negative verdictdump refuses the pair
+whole — the gate cannot be worth keeping if recomputation-at-query-time
+answers differently than the final source-order pass.
+
+Known non-goals of this bar, priced separately: assignment-LHS positions
+want the *declared* type (`x` in `x = foo(x)` prints
+`string | number | boolean`) — a distinct upstream rule, not cache
+staleness; and `foo(x) : never` on converged union arguments needs the
+overload-failure result type. Both stay wrong under this bar and are the
+§12.7 candidates.
