@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §14 landing, 2026-08-07 (ninth session, continued: builds 25–30).
+Measured at the §15 landing, 2026-08-07 (ninth session, continued: builds 25–31).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §14 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,075/9,538** | **32.24%** | **gradient 76.75%** — the target |
+| **`checker_types`** | **3,078/9,538** | **32.27%** | **gradient 76.98%** — the target |
 | `diagnostics` | **993/5,488** | **18.09%** | **tenth session, +276** — 717 → 993 across twenty-two builds and four measured refusals; the running total is 80 → 993, 12.4× |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-367,576 / 478,954 assertion lines = 76.75%      (measured at the §14 landing, ninth cont.)
-  right 367,576 | gap 77,013 | wrong 24,326        right+gap+wrong = 468,915 exactly
+368,720 / 478,954 assertion lines = 76.98%      (measured at the §15 landing, ninth cont.)
+  right 368,720 | gap 76,983 | wrong 23,212        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -66,7 +66,11 @@ narrowing, `checker.go:11139` + `flow.go:2698` — two fired legs honoured
 in-build: max extended position, export exclusion) = 357,576; then + 10,000 (§14: the
 too-large evolving-array bail — TS2563's observable, `largeControlFlowGraph`
 whole, **the largest single build in the project's history**, zero adverse)
-= 367,576 exactly.
+= 367,576; then + 1,144 net (§15: compound
+assignments do not narrow, `flow.go:229`'s skip at the literal's base —
++1,147 gained / 5 adverse, of which 3 are the documented `noImplicitAny`
+plumbing gap `bd tsr-4sc.11`; the fired leg taught that catch variables are
+not auto) = 368,720 exactly.
 
 **The ninth session's chain, every figure from one `verdictdump` pair per
 build:** 352,727 + 246 (empty literal non-strict) + 377 (alias rename, split
@@ -981,6 +985,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §15 landing | **76.98%** | **3,078** | **+1,147/5 (229×), +3 cases** | **Build 31: compound assignments do not narrow.** The `2,624 number ← any` board row decoded at `flow.go:229`: upstream's assignment arm SKIPS a compound target's effect, answering the antecedent's type at the literal's base — the md5 chains stay `number` through every `a += any` because the plain shift re-anchors and `+=` never injects. `binaryArithmeticControlFlowGraphNotTooLarge` whole (968) plus `controlFlowSelfReferentialLoop`'s remaining 131. Fired leg: catch variables were misclassified auto and the skip exposed it (`useUnknownInCatchVariables01` — `is_auto_typed_declaration` now excludes catch clauses). 3 residual = `noImplicitAny`-off, options unplumbed, `bd tsr-4sc.11`. Diagnostics rode along 964 → 993 (+29 across two builds) |
 | 2026-08-07 | §14 landing | **76.75%** | **3,075** | **+10,000/0 — one build, one case, +2.09 points** | **Build 30: the too-large bail.** The wrong board's head was ONE case — `largeControlFlowGraph`, 10,001 lines want-`any`, 29% of the entire wrong column. Mechanism: upstream's DELIBERATE give-up — 10k chained `data[0] = 0` against `const data = []` (autoArrayType) trips the flow depth cap through `getTypeAtFlowArrayMutation`'s per-mutation recursion (`flow.go:118`/`1404`), TS2563 reports once at the declaration, `flowAnalysisDisabled` poisons the containing body (`checkBlock` save/restore, `checker.go:3791`), and every flow reference answers `errorType` — **which upstream prints as `any`**. The port: a mutation-count stand-in for the recursion (≥2,000 same-name element assignments in the container), a per-container disabled set scoped by lexical containment, and the `any` intrinsic as the bail's answer — with the ADR-0038 boundary argued in `checker-notes-narrow.md` §14: `error`-printing is for THIS port's failures; TS2563 is upstream's own, and its observable IS `any`. One leg fired in-build: the declaration keeps its widened `any[]` (the poison is for references, not the symbol). Falsifier (a) held: `binaryArithmeticControlFlowGraphNotTooLarge` (10k nodes, iterative walk upstream, no trip) untouched |
 | 2026-08-07 | §13 landing | **74.66%** | **3,074** | **+166 net across three more builds (77+0+89), 0 adverse lines** | **Builds 27–29.** §21: a decided overload failure answers the INTERSECTION of candidate returns (`createUnionOfSignaturesForOverloadFailure`, `checker.go:9620`) — the iteration-errors `foo(x) : never` decoded; its bar's falsifier fired on `fn1(undefined)` under `@strict: false` and was honoured by the non-strict undefined/null guard (ambiguity stays a gap). §12.8: upstream's empty-so-far loop re-entry restart, landed at a measured ZERO with the wrong prediction recorded. §13: past-last-assignment closure narrowing — the `flowContainer` extension loop, the START walk-out through the closure's creation-site flow (one binder `record_flow` arm), and `markNodeAssignments`' single-walk position marking; two legs fired in-build (stack-order vs source-order → maximum extended position; `export let` exclusion) and the final pair read +89/0. Diagnostics rode along +12 (949 → 961) |
 | 2026-08-07 | `238261b` | **74.62%** | **3,064** | **+757 net (+63 then +694/0), +21 cases, 2 regressed then both recovered** | **The ninth session's continuation, builds 25–26: the loop fixpoint landed by exonerating it.** §12.5's mandated one-line trace (`TSR_TRACE_LOOP`) proved all eight of `controlFlowIterationErrors`' loop labels compute the upstream-correct union — the eight-cycle "semantic residue" was never in the walk's arms; it was **per-node cache entries stamped during transient back-edge passes** (`foo(x)` resolved against a provisional `string`, cached forever). Upstream's guard is `checkExpressionCachedEx` clearing `flowLoopStack` before caching (`checker.go:7517`); the port's dual is a one-line write gate: `check_expression` persists nothing while `flow_loop_stack` is non-empty — §9.2's "provenance must be a flag", named. That landed +117/54 with two regressed cases, and reading the 53 adverse lines against upstream collapsed two residue families into ONE missing rule: **a variable in a definite assignment-target position returns its DECLARED type, no flow analysis** (`checker.go:11109` — `AA=a : number` but `AA : any`, the target prints declared, auto prints `any`; the "self-referential any bail" hypothesis was WRONG, no bail exists). §12.7 ported the full `GetAssignmentTarget` walk + kind classification (logical assignments corrected to DEFINITE, amending §10): **+694 with zero adverse transitions**, the session's cleanest sweep. Residue priced: overload-failure `never` (a callres question), so-far under-accumulation (~20 lines), and upstream's nested-loop restart semantics (empty so-far falls through, `flow.go:1347`). Interleaved with the diagnostics session's pushes; snapshot regenerated on the merged tree, 947 → 949 |
