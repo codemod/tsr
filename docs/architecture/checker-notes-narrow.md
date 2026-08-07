@@ -1321,3 +1321,11 @@ names); if those appear, gate on the upstream conditions before arguing;
 (b) the "receiver has members, name absent" callee row (225) must not
 convert into wrong CALLS — a fallback `any` callee answering `any` is
 right, a fallback SIGNATURE mis-selected is not.
+
+**§17 score — LANDED.** First pair +63/12 — all twelve
+`noUncheckedIndexedAccessCompoundAssignments`, the fired leg being the
+`@noUncheckedIndexedAccess` option (index results add `| undefined`).
+Plumbed as a real per-case option (the third, after `strictNullChecks` and
+`noUncheckedSideEffectImports`). Final pair: **+72 GAP→RIGHT / 2
+GAP→WRONG** (one subtler shape inside `noUncheckedIndexedAccess`'s own
+case). `checker_types` right 369,354 → **369,426**.

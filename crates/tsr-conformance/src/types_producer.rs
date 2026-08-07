@@ -926,6 +926,7 @@ fn render_case(
     let explicit = |name: &str| case.options.get(name).map(|v| v.eq_ignore_ascii_case("true"));
     let strict_null_checks = explicit("strictnullchecks").or_else(|| explicit("strict"));
     checker.set_strict_null_checks(strict_null_checks.unwrap_or(true));
+    checker.set_no_unchecked_indexed_access(explicit("nouncheckedindexedaccess").unwrap_or(false));
 
     let mut ours = Vec::new();
     for expected_file in expected {

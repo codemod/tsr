@@ -244,6 +244,9 @@ pub struct Checker<'a, 'n> {
     /// case's directives, and widening `CompilerOptions` for a single consumer
     /// is what the `strict_null_checks` comment declines to do.
     pub(crate) no_unchecked_side_effect_imports: bool,
+    /// `@noUncheckedIndexedAccess`: an index-signature access adds
+    /// `| undefined` (`checker-notes-narrow.md` §17's fired leg).
+    pub(crate) no_unchecked_indexed_access: bool,
     /// `compilerOptions.strictPropertyInitialization` through
     /// `GetStrictOptionValue` (`checker.go:922`) — so it follows `strict` when
     /// unset, exactly as [`Checker::strict_null_checks`] does.
@@ -530,6 +533,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_count: 0,
             strict_null_checks: true,
             no_unchecked_side_effect_imports: true,
+            no_unchecked_indexed_access: false,
             strict_property_initialization: true,
             file_has_parse_errors: false,
             allow_unreachable_code: false,
@@ -586,6 +590,12 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// setter necessary rather than optional.
     pub fn set_no_unchecked_side_effect_imports(&mut self, on: bool) {
         self.no_unchecked_side_effect_imports = on;
+    }
+
+    /// Set [`Checker::no_unchecked_indexed_access`] from a case's compiler
+    /// options.
+    pub fn set_no_unchecked_indexed_access(&mut self, on: bool) {
+        self.no_unchecked_indexed_access = on;
     }
 
     /// Set [`Checker::strict_property_initialization`] from a case's compiler

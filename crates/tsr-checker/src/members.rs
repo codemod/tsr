@@ -320,7 +320,31 @@ impl Checker<'_, '_> {
         // make the guard observable, so it was removed rather than kept as
         // decoration. The identity test above is what keeps that true now that
         // an `ANY`-flagged type has a fast path.
-        let property_type = self.get_type_of_property_of_type(receiver_type, name).unwrap_or(error);
+        let property_type = match self.get_type_of_property_of_type(receiver_type, name) {
+            Some(found) => found,
+            // The `prop == nil` path of
+            // `checkPropertyAccessExpressionOrQualifiedName`: an applicable
+            // index signature answers the member's type (`noImplicitAny`
+            // errors are diagnostics, not types). The key is the name's
+            // string literal type. See `checker-notes-narrow.md` §17.
+            None => {
+                let key = self.store.intern_literal(
+                    crate::flags::TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(name.to_string()),
+                    false,
+                );
+                if let Some(info) = self.get_applicable_index_info(receiver_type, key) {
+                    if self.no_unchecked_indexed_access {
+                        let undefined = self.intrinsics.undefined;
+                        self.get_union_type(&[info.value, undefined])
+                    } else {
+                        info.value
+                    }
+                } else {
+                    error
+                }
+            }
+        };
         // `checkPropertyAccessExpressionOrQualifiedName` ends by narrowing the
         // property's declared type by the flow reaching this access
         // (`getFlowTypeOfReference`, `checker.go:11430`) — `bd tsr-6ka`. Until
