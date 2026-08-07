@@ -423,6 +423,17 @@ impl Checker<'_, '_> {
             (raw_callee_type, false)
         };
         let result = self.check_call_expression_worker(node, callee, callee_type);
+        // §29 (`checker-notes-callres.md`): a `this`-minted result
+        // instantiates to the RECEIVER — `[a, b].sort()` is the array's own
+        // type.
+        let result = if self.this_type_nodes.values().any(|&t| t == result)
+            && let Expression::PropertyAccessExpression(access) = callee
+            && let Some(receiver) = access.expression
+        {
+            self.check_expression(receiver)
+        } else {
+            result
+        };
         if result == error || !chain_stripped {
             return result;
         }

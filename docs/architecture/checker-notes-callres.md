@@ -1394,3 +1394,8 @@ return is the interface-`this` mint answers the RECEIVER's type —
 callees only (the receiver is at hand); other callee shapes keep the mint.
 Falsifier: §28-v1's 28 R→G population — answering the receiver must not
 regress the written-return road it broke by erroring.
+
+**§29 score — LANDED.** **+66 (35 G→R, 31 W→R) / 4 GAP→WRONG**
+(`fluentInterfaces`' derived-through-base chains — the receiver answer is
+the BASE-typed receiver where upstream keeps the derived; the polymorphic
+half, recorded). `checker_types` right 394,770 → **394,836 (82.44%)**.
