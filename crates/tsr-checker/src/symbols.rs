@@ -1472,7 +1472,10 @@ impl<'a> Checker<'a, '_> {
     /// Ported from `Checker.getWidenedTypeForVariableLikeDeclaration`, which is
     /// `widenTypeForVariableLikeDeclaration(getTypeForVariableLikeDeclaration(..))`
     /// (`checker.go:16610`, `:18242`).
-    fn get_widened_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> TypeId {
+    pub(crate) fn get_widened_type_for_variable_like_declaration(
+        &mut self,
+        declaration: NodeId,
+    ) -> TypeId {
         match self.get_type_for_variable_like_declaration(declaration) {
             Some(id) => id,
             // Upstream returns `anyType` for a declaration with neither an

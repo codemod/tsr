@@ -1704,3 +1704,54 @@ corpus's assignability cases. A type literal is an interface's member list
 without the interface: no type parameters to instantiate, no `extends` to follow,
 so the same member test settles it. Adding the arm also took §21's TS2339 from
 11 conversions to **12** with no new wrong lines.
+
+---
+
+## 24. TS2403 — built, measured, REFUSED at 6 losses, and the reason is a missing relation
+
+```
+CONVERTS +12     LOST 6      RIGHT 25     WRONG 22
+```
+
+**Refused on the loss column alone**, which no bar in this file has ever
+permitted, and the diagnosis is worth more than the row.
+
+The predicate is `isTypeIdenticalTo` (`checker.go:5929`), and the build assumed
+that **`TypeId` equality models it** — types are interned here, so two
+declarations that mean the same type should be the same id. That assumption is
+false, and the six losses are all one shape:
+
+```ts
+var o: {} = c;
+…
+var o: {} = d;      // conformance/classWithEmptyBody, instantiatedModule,
+                    // typeAliases, the two TwoInternalModules* cases
+```
+
+Two `{}` type literals written in two places mint **two anonymous types**. They
+are structurally identical and are not the same `TypeId`, so the rule reported
+that a variable redeclared with the same annotation has a different type — on
+six cases that pass today.
+
+> **Interning gives identity for the types it interns, and `isTypeIdenticalTo` is
+> a *relation*.** The two coincide for primitives, literals and named references
+> and part company at the first structural type. A port that has interning and no
+> identity relation has half of what the predicate needs, and the half it has is
+> the half that never fires.
+
+Tightening to *"every declaration carries a written annotation"* took the wrong
+column from 102 lines to 22 and the losses only from 7 to 6 — the losses are the
+annotated case. There is no tightening that reaches this, because the failure is
+in the comparison rather than in the population.
+
+**What would make this win**: `isTypeIdenticalTo` — the relation in identity
+mode. `crate::relater` has `is_type_related_to` with assignability and subtype
+relations and no identity one. That is a relater build, not a diagnostics one,
+and it is worth more than this row: `checkTypeIdentical` sites also gate
+TS2717 (subsequent property declarations), TS2320 (conflicting inherited types)
+and the overload-identity checks — **TS2403 29 cases, TS2320 14, TS2717 and
+TS2394 13 each** on the current board, ~70 cases behind one relation mode.
+
+The code is removed rather than switched off (contrast §22's
+`REPORT_MISSING_REQUIRED_PROPERTY`): §22's machinery is correct and waiting on
+data, and this one is waiting on a function that does not exist.
