@@ -1273,6 +1273,25 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 }) else {
                     continue;
                 };
+                // The shipped strict path's INSIDE refusal (`bd tsr-2ghn`'s
+                // refinement): a reference site inside the container it would
+                // be qualified by takes no qualifier — the at-risk head
+                // (`privacy*`, `publicClass` inside `publicModule`) is this
+                // family, and the strict build keeps the decline at 1.2:1.
+                let site_inside =
+                    bound.symbols().get(symbol).parent.map(|p| bound.merged_symbol(p)).is_some_and(
+                        |p| {
+                            bound
+                                .symbols()
+                                .get(p)
+                                .declarations
+                                .iter()
+                                .any(|&declaration| is_inside(nodes, id, declaration))
+                        },
+                    );
+                if site_inside {
+                    continue;
+                }
                 let Ok(qualifier) = symbol_chain(
                     &program,
                     bound,
