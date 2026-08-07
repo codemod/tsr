@@ -1435,3 +1435,38 @@ whose `@` sits at column 4.
 Second correction in the same place: `isCommentOrBlankLine` (`program.go:1445`)
 recognises `//` and **not** `/*`. §17's version accepted both, so its backward
 scan ran past lines upstream stops at. Both are now tests.
+
+---
+
+## 19. TS2314 / TS2707 — type-argument arity, +12 for **one** wrong line
+
+```
+CONVERTS 875 -> 887  (+12)     LOST 0      RIGHT 151     WRONG 1
+```
+
+The best ratio in this file after the grammar rules of §10–§12, and for the same
+reason: **it reports on a syntactic fact.**
+
+Upstream asks the *declared type* for its local type parameters
+(`getTypeFromClassOrInterfaceReference`, `checker.go:23169`). But everything the
+decision needs is on the **declaration**: a class or interface writes its type
+parameters syntactically, and `getMinTypeArgumentCount` is *"the index of the
+first parameter carrying a default"* — also syntactic. So the rule resolves the
+name, reads the declaration's list, and counts. No type is computed, and the
+§16 problem — an incomplete relation reporting wrongly — cannot arise.
+
+This is §14's ordering rule holding for a *third* kind of rule. It is not that
+grammar rules are cheap; it is that **a rule whose predicate is a syntactic fact
+has no incompleteness to leak**, and a type-shaped question can still turn out to
+be one.
+
+### The declines, all four structural
+
+| decline | why |
+|---|---|
+| a `.js` file | upstream substitutes `Expected_0_type_arguments_provide_these_with_an_extends_tag` for a missing JSDoc `@augments` (`checker.go:23181`), and with `noImplicitAny` off reports nothing at all |
+| a type **alias** or a type parameter | their arity errors are TS2315 / TS2558 from a different function |
+| a symbol whose declarations are not all class-or-interface, or whose lists disagree | upstream reads the parameters off the *merged* symbol, and this port's merge is not upstream's |
+| an `ExpressionWithTypeArguments` outside a heritage clause | that syntax is also an **instantiation expression** (`f<number>`), a value position with nothing to do with this rule |
+
+The single residual wrong line is `genericTypeReferenceWithoutTypeArgument2`.

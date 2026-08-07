@@ -322,6 +322,10 @@ impl Checker<'_, '_> {
                 self.check_implicit_any_parameters(node, ambient);
                 ambient
             }
+            Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
+                self.check_type_argument_arity(node);
+                ambient
+            }
             Node::Identifier(identifier) => {
                 self.check_value_identifier(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);

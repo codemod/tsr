@@ -127,6 +127,7 @@ pub mod relater;
 pub mod resolution;
 pub mod signatures;
 pub mod symbols;
+pub mod type_argument_arity;
 pub mod types;
 pub mod unions;
 pub mod unused;
