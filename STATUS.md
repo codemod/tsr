@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §29 landing, 2026-08-07 (ninth session, continued: builds 25–48).
+Measured at the §31 landing, 2026-08-07 (ninth session, continued: builds 25–49).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §29 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,233/9,538** | **33.90%** | **gradient 78.19%** — the target |
+| **`checker_types`** | **3,427/9,538** | **35.93%** | **gradient 79.46%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-374,491 / 478,954 assertion lines = 78.19%      (measured at the §29 landing)
-  right 374,491 | gap 72,043 | wrong 22,381        right+gap+wrong = 468,915 exactly
+380,563 / 478,954 assertion lines = 79.46%      (measured at the §31 landing)
+  right 380,563 | gap 65,508 | wrong 22,844        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -105,7 +105,10 @@ through the lib; landed as the lib-less fallback) + 2,107 (§29:
 self-referential aliases serve their NAME inside their own cycle — the
 2,000-line `BigUnion` mountain whole, upstream's member-type laziness at
 the one seam print-at-creation permits; the degenerate-cycle trade stated)
-= 374,491 exactly — builds 25–48.
+= 374,491; then + 6,072 net (§31: unresolved
+free names answer upstream's TS2304 `any` — five gate sets measured, the
+third mountain range converted, +194 cases) = 380,563 exactly — builds
+25–49.
 
 **CORRECTED, and said so:** this chain sat at 369,673 for five builds while
 the table above moved to 77.29% — the very "figure that appears twice will
@@ -1025,6 +1028,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §31 landing | **79.46%** | **3,427** | **+6,267/486, +194 cases** | **Build 49: the third mountain range.** `parserRealSource*`'s ~9,000 gap lines were names from `///<reference>` files the corpus deliberately omits — upstream reports TS2304 and answers `errorType`, printed `any` (the §14/§27 boundary argument's third application). FIVE gate sets measured and priced in §31; the landed set excludes any-meaning-resolvable names, `arguments`/`globalThis` (port misses, now their own future rules), and import-machinery files. 182 of the 195 R→W are the standing JS md5 case. Four stand-ins updated; ADR-0038's fixture renamed with its §31 truth |
 | 2026-08-07 | §29 landing | **78.19%** | **3,233** | **+2,107/68 (§29); 0 (§28, premise corrected)** | **Builds 47–48: the second mountain.** §28's numeric element-access bar had a WRONG premise (the corpus already answers through the lib's index signature; the arm stays as the lib-less fallback) and its mandated trace found the real row: type-position indexed access, subsystem-bound. §29 then took the trace's other find — 2,000 gap lines in ONE case, a self-referential alias union — with upstream's member-type laziness rebuilt at the single seam print-at-creation permits: an on-stack alias mention answers a memoized NAME placeholder (read-only probe, no failure marking). Degenerate cycles (`type T = T`) now answer their name, a stated trade (`bd tsr-5e7.6` owns the diagnostic) |
 | 2026-08-07 | §27 landing | **77.75%** | **3,232** | **+155/0** | **Build 46: readonly assignment targets.** `M.x = 1` on an exported const answers upstream's TS2540 `errorType`, printed `any` — the §14 boundary argument's second application, at both target sites (`checker.go:11096`/`:11377`). Fired leg: the constructor exception (`this.x` readonly assignments in the declaring constructor are legal). Zero adverse after the gate |
 | 2026-08-07 | arrays-§6 landing | **77.72%** | **3,228** | **+85/22** | **Build 45: array spreads.** `getSpreadElementType`'s `Array<T>` half; the 22 adverse are the falsifier's own tuple/contextual population, counted and accepted |
