@@ -107,16 +107,17 @@ fn an_object_branch_is_a_gap_because_subtype_reduction_would_collapse_it() {
         ),
         "error"
     );
-    // **And this port is more conservative than upstream here**, which the old
-    // fixture hid rather than showed. Two identical object types need no
-    // reduction — dedup alone answers `A` — and this still gaps, because the
-    // guard is on object-ness and not on reduction. That is a second, smaller
-    // divergence, and it is the one that would be cheapest to close first.
+    // Two identical object types need no reduction — dedup alone answers `A`.
+    // This assertion read `error` until the ninth session and its own comment
+    // called the conservatism "the one that would be cheapest to close first";
+    // `checker-notes-assign.md` §7 closed it, and the identity test runs on
+    // the regular (freshness-stripped) forms so a fresh and a regular spelling
+    // of one literal count as one type.
     assert_eq!(
         type_of_last(
             "var c: boolean;\ninterface A { a: string; }\nvar p: A;\nvar q: A;\nconst x = c ? p : q;"
         ),
-        "error"
+        "A"
     );
     // The control that makes both assertions mean something: dedup demonstrably
     // works for a non-object type, so neither line above is passing because

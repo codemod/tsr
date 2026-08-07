@@ -719,8 +719,26 @@ impl Checker<'_, '_> {
         let branches = [self.check_expression(when_true), self.check_expression(when_false)];
         // A gap in a branch is a gap in the conditional: `c ? 1 : unported` is
         // not `1`, and printing the known branch alone would be a wrong line.
-        if branches.iter().any(|&branch| branch == error || !self.is_subtype_reduction_free(branch))
-        {
+        if branches.contains(&error) {
+            return error;
+        }
+        // Two shapes need no reduction judgement (`checker-notes-assign.md`
+        // §7): identical branches — the union of `[t, t]` is `t` under every
+        // reduction, and references intern by `(symbol, args)` — and an
+        // `any`/`unknown` branch, which absorbs the union under both
+        // reductions. The freshness hop matters for the identity test:
+        // `c ? 1 : 1` is the fresh literal twice, and `c ? x : 1` with
+        // `x: 1` is the regular and the fresh spelling of one type, which
+        // upstream's union regularises to one constituent.
+        let regular = [
+            self.get_regular_type_of_literal_type(branches[0]),
+            self.get_regular_type_of_literal_type(branches[1]),
+        ];
+        let any = self.intrinsics.any;
+        if regular[0] == regular[1] || branches.contains(&any) {
+            return self.get_union_type(&branches);
+        }
+        if branches.iter().any(|&branch| !self.is_subtype_reduction_free(branch)) {
             return error;
         }
         self.get_union_type(&branches)

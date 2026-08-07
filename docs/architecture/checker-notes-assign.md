@@ -418,3 +418,16 @@ unsized; the floor is deliberately under half the row's want-any alone);
 own ≤ **10** — falsifier: wrong lines whose want is a *union of the two
 branches* → the identity test admitted two same-printing distinct types
 (non-interned object literals); regressed == 0; lost == 0.
+
+### §7.1 Scored — the first conditional build to clean more wrong than gap
+
+```
+WRONG→RIGHT 84 · GAP→RIGHT 73 · GAP→WRONG 3 · nothing else · suite +6 cases (2,896 → 2,902)
+```
+
+Legs: net **+157** (≥ +80) · own **3** (≤ 10; all `returnTagTypeGuard`, the
+`any`-absorption arm on a JSDoc-typed operand this port mistypes upstream of
+the conditional — the named falsifier, two same-printing distinct types, did
+not fire) · regressed **0** · lost **0**. The `conditional.rs` fixture that
+asserted the conservatism and called it "cheapest to close first" now asserts
+the closure.
