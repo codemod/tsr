@@ -72,10 +72,22 @@ impl Checker<'_, '_> {
         }
         let owner = match &self.store.get(id).data {
             TypeData::Named { members: Some(owner), .. } => *owner,
-            // `Anonymous` is `typeof X` — a namespace's or class's `exports`,
-            // which `get_property_of_anonymous_symbol` reads without following
-            // anything. Its inherited statics are a documented gap there, so the
-            // table is not complete either.
+            // `Anonymous` is `typeof X` — the symbol's `exports`, which
+            // `get_property_of_anonymous_symbol` reads without following
+            // anything. Its one documented gap is **inherited statics**
+            // (`getBaseConstructorTypeOfClass`), which only a *class* can have.
+            // A namespace or an enum has no base, so its exports table is the
+            // whole table and a `None` from it is an absent member.
+            TypeData::Anonymous { symbol, .. } => {
+                let symbol = *symbol;
+                let flags = self.binder.symbols().get(symbol).flags;
+                if !flags.intersects(SymbolFlags::MODULE.union(SymbolFlags::ENUM))
+                    || flags.intersects(SymbolFlags::CLASS)
+                {
+                    return false;
+                }
+                return true;
+            }
             _ => return false,
         };
         let mut visiting = Vec::new();

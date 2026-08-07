@@ -2334,3 +2334,34 @@ declaration is, and the contextual type is the parameter's. **+0 cases, 0 wrong,
 
 Kept for the reason §27.1 gives: the rule is right and only its reach is short.
 The zero is recorded so nobody prices it as a conversion later.
+
+---
+
+## 35. TS2339 on a namespace or enum receiver — **+24**, the largest single edit since §15
+
+```
+diagnostics 1,024 -> 1,048   (+24)     checker_types and binder_symbols unchanged
+```
+
+`declared_members_are_complete` returned `false` for every `TypeData::Anonymous`
+— `typeof X`, the static side of a class, a namespace's exports, an enum's
+members — with the note *"its inherited statics are a documented gap, so the
+table is not complete either."*
+
+**That note over-generalised its own source.** `get_property_of_anonymous_symbol`
+lists exactly three gaps and only the first is about inheritance:
+
+- statics inherited from a base class (`getBaseConstructorTypeOfClass`),
+- `globalThis`,
+- an enum's numeric index signature.
+
+**Only a *class* can have a base.** A namespace or an enum inherits nothing, so
+its `exports` table *is* the whole table and a `None` from it is an absent
+member — which is precisely what TS2339 needs to know. Admitting those two symbol
+kinds, and only those, is twenty-four cases for a nine-line condition.
+
+> The completeness predicate is a list of *named* unported mechanisms (§21), and
+> the value of writing it that way is that each entry can be checked against the
+> shapes it actually applies to. This one had been applied to three shapes and was
+> true of one. **A decline inherits its justification from the mechanism it names,
+> not from the type it happens to be attached to.**

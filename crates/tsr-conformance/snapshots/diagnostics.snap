@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1024/5488 (18.66%)
-Failed         : 4464
+Passed         : 1048/5488 (19.10%)
+Failed         : 4440
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4464 failures:
+First 100 of 4440 failures:
 compiler/ClassDeclaration10
   1 missing (first TS2390 at ClassDeclaration10.ts(2,4))
 compiler/ClassDeclaration11
@@ -89,7 +89,7 @@ compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
   1 missing (first TS2352 at aliasInstantiationExpressionGenericIntersectionNoCrash2.ts(15,1))
 compiler/aliasOnMergedModuleInterface
-  1 missing (first TS2708 at aliasOnMergedModuleInterface_1.ts(5,16))
+  1 unexpected (first TS2339 at aliasOnMergedModuleInterface_1.ts(5,20)), 1 missing
 compiler/aliasUsageInGenericFunction
   1 missing (first TS2352 at aliasUsageInGenericFunction_main.ts(10,19))
 compiler/aliasUsageInOrExpression
@@ -98,8 +98,6 @@ compiler/allowImportClausesToMergeWithTypes
   1 missing (first TS2749 at index.ts(9,10))
 compiler/allowJscheckJsTypeParameterNoCrash
   2 unexpected (first TS2300 at app.js(6,7)), 1 missing
-compiler/allowSyntheticDefaultImports10
-  2 missing (first TS2339 at a.ts(2,5))
 compiler/alwaysStrict
   1 missing (first TS1100 at alwaysStrict.ts(2,9))
 compiler/alwaysStrictES6
@@ -212,3 +210,5 @@ compiler/asiAmbientFunctionDeclaration
   1 missing (first TS7010 at asiAmbientFunctionDeclaration.ts(1,18))
 compiler/asiReturn
   1 missing (first TS1108 at asiReturn.ts(2,1))
+compiler/assignLambdaToNominalSubtypeOfFunction
+  2 missing (first TS2345 at assignLambdaToNominalSubtypeOfFunction.ts(7,4))
