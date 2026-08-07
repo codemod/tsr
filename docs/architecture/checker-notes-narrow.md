@@ -1682,3 +1682,15 @@ JS-trap case, already majority-wrong, worsened rather than newly broken.
 **65,508** — the third mountain range (`parserRealSource*`) largely
 converted. The two synthetic-global exclusions (`arguments`,
 `globalThis`) are PORT misses recorded as their own future rules.
+
+### §32 Member access through a minted unresolved type answers `any`
+
+`parserRealSource11`'s remaining 2,354 want-`any` gaps: the receivers
+resolve to `tsr-eep`'s minted unresolved-reference types (`TypeFlow` et
+al. print right), and MEMBER ACCESS through them errors where upstream's
+receiver is `errorType` — whose member access answers `errorType`, printed
+`any` (the §31 argument, one hop further). The `unresolved_types` set
+already carries the identity; the arm is one membership test in the
+property/element lookups. Falsifier: the set must never admit a type this
+port MINTED for any other reason — `is_error` identity discipline already
+polices that.
