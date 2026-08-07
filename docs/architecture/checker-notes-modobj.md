@@ -668,3 +668,27 @@ cases   2,762  ->  2,767    +5, 0 regressed
 The 29 residual: re-export renames (`MyConstEnum1` — export-specifier
 aliasing, outside the `useOnlyExternalAliasing` rename), `types.A`
 qualifier-through-default families, ADR-0039 `any` baselines, narrowing.
+
+### 10.13 The composite-print twin — bar, registered before code
+
+`bd tsr-2ghn`, final forecast after the Union/Intersection naming arm
+(`0796633`) landed: `sigprint.rs` (full reconstruction, self-check leg,
+misses 0.6%) reads **CONVERTS 1,500 / WOULD-WRONG 336 / AT RISK 2** over
+38,892 admitted lines. The build is a site-aware twin of
+`signature_to_string` (`signatures.rs:1435`) — every rendered slot through
+`type_to_string_at` with the baked text as fallback, `written_text` /
+`written_return` / predicate precedence unchanged — reached from
+`type_to_string_at` when the type carries exactly one signature and no
+predicate. `sigprint.rs`'s `compose()` is the spec.
+
+- **Leg 1 — net ≥ +1,100.** Rule: ~75% of 1,500; the discount owns
+  multi-slot interactions the per-line forecast cannot see.
+- **Leg 2 — own new wrong ≤ 60**, global beside. Rule: the 336 residual's
+  mechanism-own share is unmeasured; if this fires, read the residual before
+  anything else.
+- **Leg 3 — cases regressed == 0.**
+- **Leg 4 — lost ≤ 6.** Rule: 2 measured at-risk + margin.
+
+Falsifier 1: lost concentrated in one case → the twin fires on a shape the
+self-check population excluded (overload sets, predicates) — check the gate
+before the walk.
