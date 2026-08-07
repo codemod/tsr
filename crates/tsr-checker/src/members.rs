@@ -364,7 +364,10 @@ impl Checker<'_, '_> {
         }
         // §45 (`checker-notes-narrow.md`): the global `Record<K, V>` answers
         // V for property reads when K is `string` — the one mapped alias
-        // special-cased, everything else mapped stays the subsystem.
+        // special-cased, everything else mapped stays the subsystem. The
+        // `noUncheckedIndexedAccess` refinement was measured at −6 net
+        // (10 R→W / 4 W→R): the option's property-vs-element split differs
+        // inside this road and stays recorded, not guessed.
         if let Some(value) = self.record_string_value(receiver_type) {
             return value;
         }
