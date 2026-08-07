@@ -1933,3 +1933,40 @@ A **numeric** index signature constrains only numerically-named properties
 (`isNumericLiteralName`), which is what keeps `y: string` legal beside
 `[n: number]: number`; a template-literal or union index parameter is
 `getIndexInfosOfType` and is declined.
+
+---
+
+## 29. One definite negative the relater declines to give — +12 for +10 wrong
+
+```
+TS2322  CONVERTS 42 -> 54     LOST 0     RIGHT 305 -> 337     WRONG 50 -> 60
+diagnostics 949 -> 961
+```
+
+`is_related_to` answers `Unknown` for a pair whose source is an object type with
+**no members table** — a function type, an index-signature-only type — because
+its structural arm was never reached. That is row 3 of
+`checker-notes-assign.md` §2 and it is correct *as a statement about the
+structural comparison*.
+
+But nothing structured is assignable to `string`, and no members table is needed
+to know it. `aliasDoesNotDuplicateSignatures` is the case that surfaced it:
+
+```ts
+let x1: string = demoNS.f;   // TS2322: Type '() => void' is not assignable to type 'string'.
+```
+
+`demoNS.f` is a function type, so the relater declined, so the rule was silent —
+on a diagnostic whose whole content is that a function is not a string.
+
+**Asked in the rule, not added to the relater**, and that placement is the
+decision: `crate::relater` is read by overload selection and by narrowing, and
+widening what *it* calls a definite negative moves `checker_types`. As a
+rule-local predicate it moves nothing else, and it is shared by TS2322 and
+TS2345 through the one function both already call.
+
+**One direction only.** The converse is false — `let x: {} = 5` is legal, because
+an object *target* can be satisfied by a primitive through its apparent type. And
+`void`, `null` and `undefined` are absent from the target list: their relation to
+an object source depends on `strictNullChecks`, and the list may hold only pairs
+that are unrelated under every configuration.

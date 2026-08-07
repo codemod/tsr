@@ -468,6 +468,7 @@ impl<'a> Checker<'a, '_> {
         }
         if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
             != crate::relater::Ternary::NotRelated
+            && !self.object_against_primitive(source, target)
         {
             return;
         }
@@ -537,6 +538,7 @@ impl<'a> Checker<'a, '_> {
         // undecidable pair was being reported as an error.
         if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
             != crate::relater::Ternary::NotRelated
+            && !self.object_against_primitive(source, target)
         {
             return false;
         }
@@ -603,6 +605,30 @@ impl<'a> Checker<'a, '_> {
         true
     }
 
+    /// An **object** source against a **primitive** target — a definite
+    /// negative the relater declines to give.
+    ///
+    /// `is_related_to` answers `Unknown` for a pair whose source is an object
+    /// type with no members table (a function type, an index-signature-only
+    /// type) because its structural arm was never reached — row 3 of
+    /// `checker-notes-assign.md` §2, and correct as a statement about the
+    /// *structural* comparison.
+    ///
+    /// But nothing structured is assignable to `string`, and no members table is
+    /// needed to know it: `let x1: string = demoNS.f` is TS2322 whatever `f`'s
+    /// shape turns out to be. This is asked here rather than added to
+    /// `crate::relater` deliberately — the relater is read by overload selection
+    /// and by narrowing, and widening what it calls a definite negative moves
+    /// `checker_types`. As a rule-local decision it moves nothing else.
+    ///
+    /// **One direction only.** The converse is false: `let x: {} = 5` is legal,
+    /// because an object *target* can be satisfied by a primitive through its
+    /// apparent type.
+    fn object_against_primitive(&self, source: TypeId, target: TypeId) -> bool {
+        self.type_of(source).flags.intersects(TypeFlags::OBJECT)
+            && self.type_of(target).flags.intersects(PRIMITIVE_TARGET)
+    }
+
     /// Is the source expression a **reference** whose type is still a union?
     ///
     /// Is the source expression a **reference** whose type is still a union?
@@ -632,6 +658,21 @@ fn has_async(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
         matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
     })
 }
+
+/// The target flags that no object type can ever satisfy.
+///
+/// `void`, `null` and `undefined` are absent: their relation to an object source
+/// depends on `strictNullChecks` and on `void`'s own arm, and this list must
+/// hold only the pairs that are unrelated under every configuration.
+const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
+    .union(TypeFlags::NUMBER)
+    .union(TypeFlags::BOOLEAN)
+    .union(TypeFlags::BIG_INT)
+    .union(TypeFlags::ES_SYMBOL)
+    .union(TypeFlags::STRING_LITERAL)
+    .union(TypeFlags::NUMBER_LITERAL)
+    .union(TypeFlags::BOOLEAN_LITERAL)
+    .union(TypeFlags::BIG_INT_LITERAL);
 
 /// Is the TS2741 arm live?
 ///
