@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §33 landing, 2026-08-07 (ninth session, continued: builds 25–55).
+Measured at the §36 landing, 2026-08-07 (ninth session, continued: builds 25–56).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §33 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,574/9,538** | **37.47%** | **gradient 81.12%** — the target |
+| **`checker_types`** | **3,575/9,538** | **37.48%** | **gradient 81.15%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-388,533 / 478,954 assertion lines = 81.12%      (measured at the §33 landing)
-  right 388,533 | gap 56,435 | wrong 23,947        right+gap+wrong = 468,915 exactly
+388,682 / 478,954 assertion lines = 81.15%      (measured at the §36 landing)
+  right 388,682 | gap 56,247 | wrong 23,986        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -116,8 +116,14 @@ unresolved-identifier callees and `super()` → `void`, +106 cases) =
 387,098; then + 680 (callres §25: `new`
 through unresolveds, near clean) = 387,778; then + 377 (callres §26: the
 unique-symbol mint — the twenty-eighth stand-in came due) = 388,155; then + 378 (§33: `globalThis`
-mints its type, members read the merged globals) = 388,533 exactly —
-builds 25–55.
+mints its type, members read the merged globals) = 388,533; then + 0 (§34: property-miss-on-
+complete-tables — measured zero, REVERTED: the population is callee-side
+only, and the arm touched the ADR-0038 boundary for no payoff) + 149 (§36:
+uninferred type parameters fall back to `unknown`, `inference.go:1406`) =
+388,682 exactly — builds 25–56. §35 records a FINDING: tsgo prints
+` : error` in JS chains across 123 baseline files — ADR-0038's premise
+refined, the §31 JS trade re-grounded, and any future gate stays
+source-side (no oracle peeking).
 
 **CORRECTED, and said so:** this chain sat at 369,673 for five builds while
 the table above moved to 77.29% — the very "figure that appears twice will
@@ -1037,6 +1043,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §36 landing | **81.15%** | **3,575** | **+149/39; §34 zero-reverted; §35 finding** | **Build 56: the `unknown` fallback** (`getInferredType`'s last leg). §34 measured zero and REVERTED (callee-side-only population; the arm touched the ADR boundary for nothing). §35: tsgo prints `error` in JS chains — 123 baseline files carry want-`error` lines, matchable by honest gaps; recorded with the no-oracle-peeking constraint |
 | 2026-08-07 | §33 landing | **81.12%** | **3,574** | **+378/24** | **Build 55: `globalThis`** — the §31 exclusion became its own rule; a binder accessor opens the merged globals to member access |
 | 2026-08-07 | callres-§26 landing | **81.04%** | **3,571** | **+377/19** | **Build 54: the unique-symbol mint** — one distinct type per valid declaration position; the positional gate's error became the mint it was guarding for |
 | 2026-08-07 | callres-§25 landing | **80.96%** | **3,565** | **+680/7** | **Build 53: `new Unresolved()` — the sixth hop, near clean** |
