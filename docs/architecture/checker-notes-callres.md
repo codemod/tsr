@@ -1205,3 +1205,31 @@ does not; both are written sibling overloads). **Finding the true
 discriminator needs a per-line study of the two head families side by side
 before any third placement is attempted** — filed as the §20 residue, and
 the two measured placements are what the next attempt must not repeat.
+
+### §21 The overload-failure signature — the baseline's `never` is an intersection of returns
+
+`controlFlowIterationErrors`' `foo(x) : never` (§12.6's priced residue)
+decodes in `createUnionOfSignaturesForOverloadFailure`
+(`internal/checker/checker.go:9581`): when overload resolution fails,
+upstream does not gap the call — it answers with a synthetic signature whose
+**return type is `getIntersectionType` over every candidate's return**
+(`checker.go:9620`), so `(string)=>number | (number)=>string` failing on a
+union argument answers `number & string = never`, matching the original
+TypeScript baseline verbatim (`_submodules/.../controlFlowIterationErrors.types:138`).
+The narrowed `x : never` after `x = foo(x)` then falls out of ordinary
+assignment narrowing.
+
+**Scope**: only `choose_overload`'s `None if arity_matched` exit — the case
+`overload_funnel` prices at **45 sites** where every arity-matching
+candidate was **decidably** `NotRelated` (an `Unknown` pair already returns
+earlier, so decidability is structural, not a new gate). The arity-mismatch
+exit (12 sites) stays a gap: upstream routes it through
+`pickLongestCandidateSignature`, a different mechanism, unsized.
+
+**Bar**: the `foo(x) : never` family flips (`controlFlowIterationErrors`,
+`Async` variant — 16 lines) plus whatever the other 40-odd sites carry; own
+wrong ≤ 10. Falsifiers: (a) a flipped-to-wrong line whose want is a real
+type, not `never`/an intersection — means upstream selected where we
+refused, i.e. our relation rejected a pair upstream accepts, and the arm is
+answering from a wrong premise; (b) regression in the §17/§18 selected
+population — the new exit must not disturb selection.
