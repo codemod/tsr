@@ -35,6 +35,33 @@ use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
 /// The written-text and predicate precedence rules are the composer's own;
 /// predicate signatures are skipped by the caller (the predicate printer is
 /// crate-private and its text is site-independent anyway).
+/// The braces form — `{ (x: T): R; (y: U): S; }` — the member spelling
+/// (`symbols.rs:1309`, `objects.rs::signature_member_text`), site-aware.
+fn compose_braces(
+    checker: &mut tsr_checker::Checker<'_, '_>,
+    signatures: &[Signature],
+    site: Option<tsr_ast::NodeId>,
+) -> String {
+    let mut out = String::from("{ ");
+    for signature in signatures {
+        let arrow = compose(checker, signature, site);
+        // Member spelling: the arrow form with `) => R` re-spelled `): R`,
+        // and Construct/AbstractConstruct both print bare `new `.
+        let arrow = arrow.replace("abstract new ", "new ");
+        match arrow.rfind(") => ") {
+            Some(at) => {
+                out.push_str(&arrow[..at + 1]);
+                out.push_str(": ");
+                out.push_str(&arrow[at + 5..]);
+            }
+            None => out.push_str(&arrow),
+        }
+        out.push_str("; ");
+    }
+    out.push('}');
+    out
+}
+
 fn compose(
     checker: &mut tsr_checker::Checker<'_, '_>,
     signature: &Signature,
@@ -122,6 +149,10 @@ struct Report {
     /// Wrong-today lines whose type carries 2+ signatures — the overload
     /// shard's population ceiling, not a forecast.
     multi_signature_wrong: usize,
+    braces_converts: usize,
+    braces_churn: usize,
+    braces_at_risk: usize,
+    braces_self_check_miss: usize,
     lines: BTreeMap<String, usize>,
 }
 
@@ -133,6 +164,10 @@ impl Report {
         self.at_risk += other.at_risk;
         self.gap_return += other.gap_return;
         self.multi_signature_wrong += other.multi_signature_wrong;
+        self.braces_converts += other.braces_converts;
+        self.braces_churn += other.braces_churn;
+        self.braces_at_risk += other.braces_at_risk;
+        self.braces_self_check_miss += other.braces_self_check_miss;
         for (key, n) in &other.lines {
             *self.lines.entry(key.clone()).or_default() += n;
         }
@@ -185,6 +220,37 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                 if !is_right {
                     report.multi_signature_wrong += 1;
                 }
+                // The braces-form shard: self-check, then forecast.
+                let signatures = signatures.clone();
+                if signatures.iter().any(|s| s.predicate.is_some()) {
+                    continue;
+                }
+                let rebuilt = compose_braces(&mut checker, &signatures, None);
+                if rebuilt != printed {
+                    report.braces_self_check_miss += 1;
+                    continue;
+                }
+                let forecast = compose_braces(&mut checker, &signatures, Some(id));
+                if forecast == printed {
+                    continue;
+                }
+                let outcome = if is_right {
+                    report.braces_at_risk += 1;
+                    "B-AT RISK"
+                } else if forecast == wanted {
+                    report.braces_converts += 1;
+                    "B-CONVERTS"
+                } else {
+                    report.braces_churn += 1;
+                    "B-WOULD-WRONG"
+                };
+                *report
+                    .lines
+                    .entry(format!(
+                        "{outcome:<13} want `{wanted}`, `{printed}` -> `{forecast}`  [{}]",
+                        case.name
+                    ))
+                    .or_default() += 1;
                 continue;
             }
             let signature = signatures[0].clone();
@@ -242,6 +308,13 @@ fn main() {
     println!(
         "  multi-signature wrong-today lines (overload shard ceiling): {}",
         report.multi_signature_wrong
+    );
+    println!(
+        "  BRACES shard: converts {} / would-wrong {} / at-risk {} / self-check misses {}",
+        report.braces_converts,
+        report.braces_churn,
+        report.braces_at_risk,
+        report.braces_self_check_miss
     );
     println!();
     let mut rows: Vec<_> = report.lines.iter().collect();
