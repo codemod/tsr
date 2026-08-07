@@ -50,14 +50,17 @@ type) referenced inside a CLOSURE — upstream cannot track the assignment
 across the function boundary and answers the declared auto → `any` (an
 HONEST any, the anySignature precedent; write the ADR-0038 argument from
 checker.go's auto-type conversion before building). Our flow narrows to the
-initial `undefined` instead. READ checker.go:11120-11175 FIRST — the real
-decision table is twelve clauses (isOuterVariable, isNeverInitialized,
-assumeInitialized, the flow-container EXTENSION loop for const/past-last-
-assignment captures, and the auto->undefined initialType), and the sketch
-"different container -> any" is NOT it: a never-initialized outer `let x;`
-keeps initialType undefined and the `any` arrives through the evolving-type
-conversion, not the container test. Size with a counterfactual on the 548
-first; bar before code; the falsifier is losses in NON-closure references.
+initial `undefined` instead. BUILT ONCE AND REFUSED (narrow notes
+§9.1/§9.2): the mechanism is checker.go:11182's two exits (convertAutoToAny
++ the used-before-assigned declared-auto return), the counterfactual split
+is 276 same-container / 316 outer (closuregap.rs), and the sentinel-re-walk
+implementation measured +989 and was reverted on 79 losses, 7 regressions
+and CACHE POLLUTION (a second walk over write-through caches is unsound).
+Price list for the retry, in order: (1) study the deleteOperator1-style
+want-undefined population against the want-any one — the discriminator is
+var/let/strict/mutability, unknown; (2) provenance as a FlyType flag on
+FlowType threaded through every arm, never a re-walk; (3) the loop-label
+merge handling. The +989 is real and waiting.
 
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
