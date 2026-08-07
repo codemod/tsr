@@ -1970,3 +1970,29 @@ an object *target* can be satisfied by a primitive through its apparent type. An
 `void`, `null` and `undefined` are absent from the target list: their relation to
 an object source depends on `strictNullChecks`, and the list may hold only pairs
 that are unrelated under every configuration.
+
+### 29.1 The object-literal member anchor, and the ratio that prices the row
+
+```
+TS2322 + TS2345   CONVERTS 63 (unchanged)   LOST 0   RIGHT 384 -> 392   WRONG 71 -> 73
+```
+
+A known property of an object literal is checked against the target's member of
+the same name, reported at the **property name**:
+`everyTypeWithAnnotationAndInvalidInitializer.ts(43,28)` is the `id` of
+`var anObjectLiteral: I = { id: 'a string' }`. It shares the walk
+`check_excess_properties` already makes — an unknown name is TS2353, a known one
+is this.
+
+**Eight more right lines, zero more cases**, and that is the number this section
+exists to record. Across §25–§29 the TS2322 family emits **392 correct
+diagnostics and finishes 63 cases** — roughly **six right lines per case**. The
+board says 496 cases are blocked on TS2322 *alone*; at six lines each that row is
+~3,000 correct diagnostics away, which is not a set of anchors, it is complete
+assignability.
+
+> **`diaggap.rs`'s single-code column names the code a case is blocked on. It
+> does not say how many of that code the case needs, and for the assignability
+> family the answer is about six.** Every forecast this project has made off that
+> column — including the ones in §16 and §21 — has been high by that factor. The
+> column is still the right *ordering*; it is not a case count.

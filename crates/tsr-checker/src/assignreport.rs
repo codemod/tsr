@@ -368,6 +368,12 @@ impl<'a> Checker<'a, '_> {
         }
         for name in names {
             if known.iter().any(|(seen, _)| seen == name) {
+                // A **known** property is not excess; its value is checked
+                // against the target's member instead.
+                // `everyTypeWithAnnotationAndInvalidInitializer.ts(43,28)` is the
+                // `id` of `var anObjectLiteral: I = { id: 'a string' }` — the
+                // property *name*, not the value and not the declaration.
+                self.check_object_literal_member(literal, target, name);
                 continue;
             }
             // A near miss is TS2561, a different code at the same position.
@@ -389,6 +395,61 @@ impl<'a> Checker<'a, '_> {
             );
             return;
         }
+    }
+
+    /// One known property of an object literal, against the target's member of
+    /// the same name.
+    ///
+    /// `checkObjectLiteral`'s per-property contextual check, reduced to the
+    /// comparison: the contextual type is the target the caller already has, and
+    /// the verdict is the same `relate_ternary` every other rule in this module
+    /// reads.
+    fn check_object_literal_member(
+        &mut self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        target: TypeId,
+        name: &str,
+    ) {
+        let Some(at) = self.excess_property_name_node(literal, name) else { return };
+        let Some(value) = self.object_literal_member_value(literal, name) else { return };
+        let Some(member) = self.get_type_of_property_of_type(target, name) else { return };
+        let source = self.check_expression_at_node(value);
+        if self.source_is_an_unnarrowed_reference(value, source) {
+            return;
+        }
+        self.report_assignability_failure(at, value, source, member);
+    }
+
+    /// The initialiser node of the literal's property called `name`.
+    fn object_literal_member_value(
+        &self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        name: &str,
+    ) -> Option<NodeId> {
+        for property in literal.properties {
+            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
+                continue;
+            };
+            let id = assignment.name.node_id()?;
+            let text = match self.node_map.get(id) {
+                Some(Node::Identifier(identifier)) => identifier.text,
+                Some(Node::StringLiteral(literal)) => literal.text,
+                _ => continue,
+            };
+            if text == name {
+                return assignment.initializer.and_then(|value| value.node_id());
+            }
+        }
+        None
+    }
+
+    /// [`Checker::check_expression`] reached from a [`NodeId`] — ADR-0013's
+    /// read-drop-recurse, as [`crate::index_constraint`] does for type nodes.
+    fn check_expression_at_node(&mut self, node: NodeId) -> TypeId {
+        let error = self.intrinsics().error;
+        let Some(typed) = self.node_map.get(node) else { return error };
+        let Ok(expression) = tsr_ast::Expression::try_from(typed) else { return error };
+        self.check_expression(expression)
     }
 
     /// The name node of the literal's property called `name`.
