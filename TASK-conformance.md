@@ -5,8 +5,8 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  246/341  = 72.14%  (up from 161/339)
-  dts_shape                 723/918  = 78.76%  (up from 618/912)
+  dts_emit                  253/341  = 74.19%  (up from 161/339)
+  dts_shape                 736/918  = 80.17%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -132,6 +132,13 @@ continue pulling their dependencies into the namespace. Preserved declaration
 references also normalize an explicit same-directory `./` prefix. This closes
 fifteen declaration-shape cases and seven byte-exact cases without changing any
 suite population.
+
+External-module files now run the same reachability fixpoint after declaration
+transformation. Top-level declarations retained only by types erased from private
+class members are removed, while dependencies named by emitted public types,
+export declarations/assignments, and side-effect imports remain. This closes
+another thirteen declaration-shape cases and seven byte-exact cases without
+changing any suite population.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

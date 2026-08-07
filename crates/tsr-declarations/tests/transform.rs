@@ -248,6 +248,26 @@ fn a_dotted_namespace_emits_as_one_header() {
 // ----- the file-level scope marker -----------------------------------------
 
 #[test]
+fn external_module_elides_private_dependencies_after_member_transformation() {
+    assert_emits(
+        "class Hidden {}\nexport class Public { private value: Hidden; }",
+        "export declare class Public {\n    private value;\n}",
+    );
+    assert_emits(
+        "class Hidden {}\nexport interface Public { value: Hidden; }",
+        "declare class Hidden {\n}\nexport interface Public {\n    value: Hidden;\n}\nexport {};",
+    );
+}
+
+#[test]
+fn external_module_post_transform_visibility_preserves_side_effect_imports() {
+    assert_emits(
+        "import \"./polyfill\";\nclass Hidden {}\nexport interface Public {}",
+        "import \"./polyfill\";\nexport interface Public {\n}",
+    );
+}
+
+#[test]
 fn a_module_that_would_lose_its_moduleness_gains_an_export_marker() {
     // `transformSourceFile`'s scope-marker block. Without the marker the emitted
     // declarations would leak into the global scope — a change of meaning, not of

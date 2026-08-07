@@ -188,6 +188,31 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             }
         }
 
+        // Visibility is initially computed from source syntax so declarations
+        // needed by an emitted type are available to the transformer. Recompute
+        // it from the declaration syntax afterward: private class members have
+        // lost their types by now and must no longer keep otherwise-private
+        // declarations alive. This is the file-scope counterpart of the same
+        // second-stage pass used for source namespace bodies below.
+        if is_module {
+            let visible = tsr_dts::visibility::visible_module_members(&statements);
+            statements.retain(|statement| {
+                visible.contains(statement.node_id())
+                    || matches!(
+                        statement,
+                        Statement::ExportDeclaration(_) | Statement::ExportAssignment(_)
+                    )
+                    || matches!(
+                        statement,
+                        Statement::ImportDeclaration(import) if import.import_clause.is_none()
+                    )
+            });
+            self.result_has_external_module_indicator =
+                statements.iter().any(is_external_module_indicator);
+            self.needs_scope_fix_marker = statements.iter().any(needs_scope_marker);
+            self.result_has_scope_marker = statements.iter().any(is_scope_marker);
+        }
+
         // `transformSourceFile`'s scope-marker block. A `.d.ts` that dropped every
         // export would stop being a module and its declarations would leak into
         // the global scope, so an empty `export {}` is appended to hold the file's

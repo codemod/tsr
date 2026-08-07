@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 246/341 (72.14%)
-Failed         : 95
+Passed         : 253/341 (74.19%)
+Failed         : 88
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -57,7 +57,7 @@ compiler/declarationEmitTypeParameterNameShadowedInternally
 compiler/declarationMaps
   line 16: missing `//# sourceMappingURL=declarationMaps.d.ts.map`
 compiler/declarationsForFileShadowingGlobalNoError
-  line 1: want `import { DOMNode } from './dom';`, got `type Constructor = new (...args: any[]) => any;`
+  line 1: want `import { DOMNode } from './dom';`, got `export declare const mixin: any;`
 compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams
   line 3: want `export declare const updateIfChanged: <T>(t: T) => (<K extends Key<T>>(key: K) => (<K_1 extends Key<Value<K, T>>>(key: K_1) => (<K_2 extends Key<Value<K_1, Value<K, T>>>>(key: K_2) => (<K_3 extends Key<Value<K_2, Value<K_1, Value<K, T>>>>>(key: K_3) => (<K_4 extends Key<Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>(key: K_4) => (<K_5 extends Key<Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>(key: K_5) => (<K_6 extends Key<Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>(key: K_6) => (<K_7 extends Key<Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>(key: K_7) => (<K_8 extends Key<Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>(key: K_8) => (<K_9 extends Key<Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>(key: K_9) => (<K_10 extends Key<Value<K_9, Value<K_8, Value<K_7, Value<K_6, Value<K_5, Value<K_4, Value<K_3, Value<K_2, Value<K_1, Value<K, T>>>>>>>>>>>>(key: K_10) => /*elided*/ any & {`, got `export declare const updateIfChanged: any;`
 compiler/declareDottedModuleName
@@ -120,8 +120,6 @@ compiler/moduleSymbolMerging
   line 2: want `declare namespace A { }`, got `declare namespace A {`
 compiler/noEmitOnError
   line 2: missing ``
-compiler/noImplicitAnyDestructuringInPrivateMethod
-  line 1: want `export declare class Bar {`, got `type Arg = {`
 compiler/nodeNextEsmImportsOfPackagesWithExtensionlessMains
   line 1: want `export function address(): string;`, got `export declare function getAddress(): string;`
 compiler/nodeNextImportModeImplicitIndexResolution
@@ -136,26 +134,14 @@ compiler/paramterDestrcuturingDeclaration
   line 2: want `    ({ p: name }: {`, got `    ({ p: name }: any): any;`
 compiler/parenthesisDoesNotBlockAliasSymbolCreation
   line 1: want `export type InvalidKeys<K extends string | number | symbol> = {`, got `export type InvalidKeys<K extends string | number | symbol> = { [P in K]?: never; };`
-compiler/privacyClassExtendsClauseDeclFile
-  line 34: want `export declare class publicClassExtendingPublicClass extends publicClass {`, got `declare class privateClassExtendingPrivateClassInModule extends privateClass {`
-compiler/privacyClassImplementsClauseDeclFile
-  line 33: want `export declare class publicClassImplementingPublicInterface implements publicInterface {`, got `declare class privateClassImplementingPrivateInterfaceInModule implements privateInterface {`
-compiler/privacyInterfaceExtendsClauseDeclFile
-  line 33: want `export interface publicInterfaceImplementingPublicInterface extends publicInterface {`, got `interface privateInterfaceImplementingPrivateInterfaceInModule extends privateInterface {`
-compiler/privacyTypeParametersOfClassDeclFile
-  line 11: want `export declare class publicClassWithPublicTypeParametersWithoutExtends<T> {`, got `declare class privateClassWithPrivateTypeParameters<T extends privateClass> {`
-compiler/privacyTypeParametersOfInterfaceDeclFile
-  line 25: want `export interface publicInterfaceWithPublicTypeParametersWithoutExtends<T> {`, got `interface privateInterfaceWithPrivateTypeParameters<T extends privateClass> {`
 compiler/privacyVarDeclFile
-  line 11: want `export declare class publicClassWithWithPrivatePropertyTypes {`, got `interface privateInterfaceWithPrivatePropertyTypes {`
+  line 61: want `    export var publicAmbientVarWithPrivatePropertyTypes: privateClass;`, got `    export declare var publicAmbientVarWithPrivatePropertyTypes: privateClass;`
 compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
 compiler/stackDepthLimitCastingType
   line 1: want `declare global {`, got `export {};`
 compiler/unionTypeWithLeadingOperator
   line 1: want `export type D = /*leading1*/ 1 | /*leading2*/ 2;`, got `export type D = 1 | 2;`
-compiler/unusedImportDeclaration
-  line 1: want `export {};`, got `import B = require("./unusedImportDeclaration_testerB");`
 conformance/assignmentToVoidZero1
   line 1: missing `export declare var y: 2;`
 conformance/callbackOnConstructor
