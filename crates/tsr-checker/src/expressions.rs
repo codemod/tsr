@@ -312,6 +312,26 @@ impl Checker<'_, '_> {
             // `checkTypeOfExpression` (`checker.go:10617`). The operand's type is
             // irrelevant to the answer — see below.
             Expression::TypeOfExpression(node) => self.check_type_of_expression(node),
+            // `checkVoidExpression` (`checker.go:10633`): the operand checks
+            // for its own lines; the expression is `undefined`.
+            Expression::VoidExpression(node) => {
+                let Some(operand) = node.expression else { return self.intrinsics.error };
+                let checked = self.check_expression(operand);
+                if checked == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+                self.intrinsics.undefined
+            }
+            // `checkDeleteExpression` (`checker.go:10570`): the operand
+            // checks; the expression is `boolean`.
+            Expression::DeleteExpression(node) => {
+                let Some(operand) = node.expression else { return self.intrinsics.error };
+                let checked = self.check_expression(operand);
+                if checked == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+                self.intrinsics.boolean
+            }
             // `checkPrefixUnaryExpression` (`checker.go:10855`).
             Expression::PrefixUnaryExpression(node) => self.check_prefix_unary_expression(node),
             // `checkPostfixUnaryExpression` (`checker.go:10909`).

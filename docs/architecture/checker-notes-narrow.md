@@ -1531,3 +1531,7 @@ across the two rows: void 167, delete 109); `checkDeleteExpression` — the
 operand checks, the answer is `boolean`. A gapping operand gaps the whole,
 per the crate-wide rule. Falsifier: none worth naming — the rules have no
 alternatives; the measure is the control.
+
+**§25 score — LANDED.** **+438 GAP→RIGHT / 5 GAP→WRONG** (the five are JS
+typedef/import positions downstream of the newly-answering operands).
+`checker_types` right 371,539 → **371,977**.
