@@ -381,6 +381,26 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
                     (false, false) => "plain — wants the body's type",
                 };
                 *report.wiring_forms.entry(form).or_default() += 1;
+                if form.starts_with("async —") {
+                    let key = if returns.is_empty() {
+                        if want_type.ends_with("=> Promise<void>") {
+                            "async, no returns, want ends `=> Promise<void>`"
+                        } else {
+                            "async, no returns, want is something else"
+                        }
+                    } else {
+                        "async, has returns"
+                    };
+                    *report.buckets.entry(key).or_default() += 1;
+                }
+                if form.starts_with("plain") && report.samples.len() < 40 {
+                    report.samples.push(format!(
+                        "PLAIN {:<40} want {:<50} returns {}",
+                        case.name,
+                        &want_type[..want_type.len().min(50)],
+                        returns.len()
+                    ));
+                }
                 report
                     .wiring_params
                     .entry(parameters.len().min(4))

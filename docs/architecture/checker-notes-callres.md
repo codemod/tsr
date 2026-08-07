@@ -854,3 +854,42 @@ exactly what §14 built. Rewritten as the **pair** — the written-argument form
 answers, the inferred form beside it still gaps — so it keeps discriminating
 rather than merely flipping. That is the standing prophylactic from
 `checker-notes-tuple.md`, and this is its twelfth invocation.
+
+## §14 The async-declaration `Promise<void>` arm — sized and barred (ninth session)
+
+`cyclegap.rs` (eighth session) found the un-annotated `FunctionDeclaration`
+self-loop row; `fnsiggap.rs` split it 72.5% downstream and left 810 wiring
+lines in four mechanisms. This is the **async** one, re-split by whether the
+body has a valued return (probe extended this session, at `07f1af4`):
+
+```
+  174  async declaration, no valued return, want ends `=> Promise<void>`  <- the item
+   39  async, has valued returns      — needs getAwaitedType, declined
+   15  async, no returns, want else   — custom thenables etc., declined
+```
+
+The 174 want-any share is **0**, and the whole population is GAP today:
+`return_type_from_body` refuses `async` outright (`signatures.rs`, the
+modifier test), so the arm can only turn `None` into `Some`.
+
+**Mechanism, anchored.** `getReturnTypeFromBody`'s zero-aggregate arm
+(`checker.go:20175`): an async function's empty aggregate answers
+`createPromiseReturnType(fn, voidType)` (`:20184`) →
+`createPromiseType` (`:20348`) = a reference to global `Promise` with the
+promised type unwrapped — `void` unwraps to itself. The contextual-return
+consultation at `:20179` (which can make it `undefined`) applies only where a
+contextual return type exists; a **declaration** never has one, which is why
+the arm gates on `FunctionDeclaration` and deliberately excludes arrows,
+function expressions and object-literal methods. No global `Promise` in scope
+→ upstream errors and answers `errorType` (`:20374`) — decline, same answer.
+
+**Bar, registered before any code:**
+
+1. net ≥ **+120** (~70% of 174; composite prints referencing these functions
+   are upside).
+2. own new wrong ≤ **10**. Falsifier: wrong lines in cases wanting
+   `Promise<T>`, `T ≠ void` → `return_expressions_of` is missing valued
+   returns in some body shape — check the walker before the arm.
+3. cases regressed == **0**.
+4. lost == **0** — structurally: the arm converts a refusal (`None`) into an
+   answer and touches nothing that answers today.
