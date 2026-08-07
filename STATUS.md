@@ -40,19 +40,19 @@ Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,793/9,538** | **29.28%** | **gradient 73.30%** — the target |
+| **`checker_types`** | **2,841/9,538** | **29.79%** | **gradient 73.65%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-351,053 / 478,954 assertion lines = 73.30%      (measured at ffb77fe, seventh session)
-  right 351,053 | gap 79,429 | wrong 38,433        right+gap+wrong = 468,915 exactly
+352,727 / 478,954 assertion lines = 73.65%      (measured at 1b02597, seventh session)
+  right 352,727 | gap 79,421 | wrong 36,767        right+gap+wrong = 468,915 exactly
 ```
 
 **Re-taken from one `verdictdump.rs` run at `9fe8056`**, and the arithmetic
 check against the sixth session's triple names the session's six checker
-builds: 347,530 + 128 + 293 + 297 + 58 + 83 + 1,153 + 11 + 1,500 = 351,053.
+builds: 347,530 + 128 + 293 + 297 + 58 + 83 + 1,153 + 11 + 1,500 + 1,674 = 352,726 (+1 alignment drift, re-taken whole from the run above).
 
 **Re-taken, not carried.** This block read `347,384 / 81,977 / 39,554` for two
 builds after those numbers stopped being true — the namespace deletion (+32) and
@@ -194,6 +194,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `1b02597` | **the single-signature literal collapse, with written carriage at three slots** (`bd tsr-d4li`, §10.15–16) — first built without carriage, **fired its leg at 112 lost, reverted whole** (`dbc1ae9`), rebuilt to the revert's own spec; three measurement residuals each named the next carriage slot, converging 112 → 55 → 25 → **7** with conversions untouched. Δwrong **−1,666**, +48 cases | **+1,668** |
 | `ffb77fe` | **the composite-print twin** — `signature_to_string_at`, every rendered slot of a single-signature type through the site-aware naming stack (`checker-notes-modobj.md` §10.13–14, `bd tsr-2ghn`). **Forecast delivered to the line: 1,500 forecast, 1,500 net**, RIGHT→WRONG 2 = the counterfactual's at-risk count, Δwrong −1,500 — because the probe's `compose()` and the build are the same function, proven by the self-check leg before either ran. The enabler (`0796633`, the Union/Intersection symbol arm in `qualified_name_at`, +11) is what raised the forecast from 674 to 1,500 | **+1,500** |
 | `9fe8056` | **a JSX element expression has the `JSX.Element` type** (`checkJsxElement`, `jsx.go:72`) — buildable only after the `/.lib` mount; the fifth session's "46% cannot resolve JSX" premise predated it and is corrected in `checker-notes-jsx.md`. 152% of the 759 forecast via the arrow-function-return cascade; own new wrong **4**, lost **4** (baselines that record `error`), residual = the composite-signature-print boundary (285, design P's baked-text seam) | **+1,153** |
 | `cc8c422` | **`import d from "m"` resolves the real `default` export** (`getTargetOfModuleDefault`, plain half; synthetic default declined) — plus the rendering refusal that a symbol named `default` **never prints as a name**, which converted 40 would-be wrongs into gaps and cleaned 67 pre-existing ones. Δwrong **−38** (§10.12) | **+83** |
