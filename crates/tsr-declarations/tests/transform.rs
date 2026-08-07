@@ -328,6 +328,30 @@ fn untyped_type_member_parameters_emit_as_any() {
 }
 
 #[test]
+fn apparent_arrow_and_empty_function_returns_are_reused() {
+    assert_emits(
+        "export const number = (value: string) => 1;\nexport const nothing = (value?: string) => {};\nexport const nullish = function(value: string) {};",
+        "export declare const number: (value: string) => number;\nexport declare const nothing: (value?: string) => void;\nexport declare const nullish: (value: string) => void;",
+    );
+}
+
+#[test]
+fn empty_declaration_and_method_bodies_return_void() {
+    assert_emits(
+        "export function f() {}\nexport class C { method() {} }",
+        "export declare function f(): void;\nexport declare class C {\n    method(): void;\n}\n",
+    );
+}
+
+#[test]
+fn expression_class_base_is_hoisted_to_a_named_declaration() {
+    assert_emits(
+        "const Derived_base = 1;\nexport declare function factory(): new () => object;\nexport class Derived extends factory() {}",
+        "export declare function factory(): new () => object;\ndeclare const Derived_base_1: any;\nexport declare class Derived extends Derived_base_1 {\n}\nexport {};\n",
+    );
+}
+
+#[test]
 fn a_hash_private_member_becomes_a_single_marker() {
     // `buildClassMembers` (`:1918`): a class with any `#name` carries one
     // `#private` marker, and the members themselves are not named — emitting them

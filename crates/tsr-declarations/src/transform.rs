@@ -402,7 +402,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let modifiers =
                     self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
                 let parameters = self.update_param_list(node.parameters, false);
-                let return_type = self.ensure_return_type(node.r#type, node.node_id);
+                let return_type =
+                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id);
                 vec![Statement::FunctionDeclaration(self.factory.alloc(
                     tsr_ast::FunctionDeclaration::new(
                         modifiers,
@@ -682,6 +683,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         node: &tsr_ast::ClassDeclaration<'a>,
     ) -> Vec<Statement<'a>> {
         let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, true, false);
+        let (base_variable, heritage_clauses) = self.rewrite_class_base(node);
         let mut members: Vec<ClassElement<'a>> = Vec::with_capacity(node.members.len());
 
         // `buildClassMembers`'s parameter-property pass: a `private x` in the
@@ -756,18 +758,111 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
 
         let members = self.factory.slice(&members);
-        vec![Statement::ClassDeclaration(self.factory.alloc(
+        let class = Statement::ClassDeclaration(self.factory.alloc(
             tsr_ast::ClassDeclaration::new(
                 modifiers,
                 node.name,
                 node.type_parameters,
-                node.heritage_clauses,
+                heritage_clauses,
                 members,
             ),
             SyntaxKind::ClassDeclaration,
             self.span_of(node.node_id),
             NodeFlags::empty(),
-        ))]
+        ));
+        match base_variable {
+            Some(base) => vec![base, class],
+            None => vec![class],
+        }
+    }
+
+    /// Hoist a non-name `extends` expression to the private declaration shape
+    /// upstream emits. Its exact type is checker-built and the existing TS9021
+    /// diagnostic records that gap; `any` keeps this approximate output valid
+    /// while preserving declaration order, naming, and heritage structure.
+    fn rewrite_class_base(
+        &mut self,
+        node: &tsr_ast::ClassDeclaration<'a>,
+    ) -> (Option<Statement<'a>>, &'a [&'a tsr_ast::HeritageClause<'a>]) {
+        let Some(class_name) = node.name else { return (None, node.heritage_clauses) };
+        let Some((clause_index, base)) =
+            node.heritage_clauses.iter().enumerate().find_map(|(index, clause)| {
+                if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                    return None;
+                }
+                let base = *clause.types.first()?;
+                let expression = base.expression.as_ref()?;
+                (!is_entity_name_expression(expression)).then_some((index, base))
+            })
+        else {
+            return (None, node.heritage_clauses);
+        };
+
+        let span = self.span_of(base.node_id);
+        let base_name = self.fresh_class_base_name(class_name.text, span);
+        let any_type = self.factory.keyword_type(SyntaxKind::AnyKeyword, span);
+        let declaration = self.factory.alloc(
+            tsr_ast::VariableDeclaration::new(
+                Some(tsr_ast::BindingName::Identifier(base_name)),
+                None,
+                Some(any_type),
+                None,
+            ),
+            SyntaxKind::VariableDeclaration,
+            span,
+            NodeFlags::empty(),
+        );
+        let declarations = self.factory.slice(&[declaration]);
+        let list = self.factory.alloc(
+            tsr_ast::VariableDeclarationList::new(declarations),
+            SyntaxKind::VariableDeclarationList,
+            span,
+            NodeFlags::CONST,
+        );
+        let declare = self.factory.modifier(SyntaxKind::DeclareKeyword, span);
+        let modifiers = self.factory.slice(&[declare]);
+        let variable = Statement::VariableStatement(self.factory.alloc(
+            tsr_ast::VariableStatement::new(modifiers, Some(list)),
+            SyntaxKind::VariableStatement,
+            span,
+            NodeFlags::empty(),
+        ));
+
+        let replacement_base = self.factory.alloc(
+            tsr_ast::ExpressionWithTypeArguments::new(
+                Some(Expression::Identifier(base_name)),
+                base.type_arguments,
+            ),
+            SyntaxKind::ExpressionWithTypeArguments,
+            span,
+            NodeFlags::empty(),
+        );
+        let mut clauses = node.heritage_clauses.to_vec();
+        let original = clauses[clause_index];
+        let types = self.factory.slice(&[replacement_base]);
+        clauses[clause_index] = self.factory.alloc(
+            tsr_ast::HeritageClause::new(original.token, types),
+            SyntaxKind::HeritageClause,
+            self.span_of(original.node_id),
+            NodeFlags::empty(),
+        );
+        (Some(variable), self.factory.slice(&clauses))
+    }
+
+    fn fresh_class_base_name(
+        &mut self,
+        class_name: &str,
+        span: Span,
+    ) -> &'a tsr_ast::Identifier<'a> {
+        let stem = format!("{class_name}_base");
+        let mut suffix = 0usize;
+        loop {
+            let candidate = if suffix == 0 { stem.clone() } else { format!("{stem}_{suffix}") };
+            if self.used_names.insert(candidate.clone()) {
+                return self.factory.identifier(&candidate, span);
+            }
+            suffix += 1;
+        }
     }
 
     /// The property a parameter property declares, from `buildClassMembers`.
@@ -874,7 +969,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     )));
                 }
                 let parameters = self.update_param_list(node.parameters, false);
-                let return_type = self.ensure_return_type(node.r#type, node.node_id);
+                let return_type =
+                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id);
                 Some(ClassElement::MethodDeclaration(self.factory.alloc(
                     tsr_ast::MethodDeclaration::new(
                         modifiers,
@@ -918,8 +1014,11 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let span = self.span_of(node.node_id);
                 let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
                 let parameters = self.update_param_list(node.parameters, private);
-                let return_type =
-                    if private { None } else { self.ensure_return_type(node.r#type, node.node_id) };
+                let return_type = if private {
+                    None
+                } else {
+                    self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id)
+                };
                 Some(ClassElement::GetAccessorDeclaration(self.factory.alloc(
                     tsr_ast::GetAccessorDeclaration::new(
                         modifiers,
@@ -1252,10 +1351,16 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     fn ensure_return_type(
         &mut self,
         annotation: Option<TypeNode<'a>>,
+        body: Option<&tsr_ast::FunctionBody<'a>>,
         node_id: Option<tsr_ast::NodeId>,
     ) -> Option<TypeNode<'a>> {
         if annotation.is_some() {
             return annotation;
+        }
+        if matches!(body, Some(tsr_ast::FunctionBody::Block(block)) if block.statements.is_empty())
+        {
+            let span = self.span_of(node_id);
+            return Some(self.factory.keyword_type(SyntaxKind::VoidKeyword, span));
         }
         if let Some(built) =
             self.resolver.create_return_type_of_signature_declaration(&mut self.factory)
@@ -1590,4 +1695,8 @@ fn property_names_equal(
         }
         _ => false,
     }
+}
+
+fn is_entity_name_expression(expression: &Expression<'_>) -> bool {
+    matches!(expression, Expression::Identifier(_) | Expression::PropertyAccessExpression(_))
 }

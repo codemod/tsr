@@ -228,20 +228,26 @@ pub(crate) fn type_of_expression<'a>(
             ));
             Some(readonly_operator(factory, tuple, span))
         }
-        Expression::ArrowFunction(arrow) => function_type(
-            factory,
-            arrow.type_parameters,
-            arrow.parameters,
-            arrow.r#type.as_ref(),
-            span,
-        ),
-        Expression::FunctionExpression(function) => function_type(
-            factory,
-            function.type_parameters,
-            function.parameters,
-            function.r#type.as_ref(),
-            span,
-        ),
+        Expression::ArrowFunction(arrow) => {
+            let inferred = arrow_return_type(factory, arrow.body.as_ref(), span);
+            function_type(
+                factory,
+                arrow.type_parameters,
+                arrow.parameters,
+                arrow.r#type.or(inferred),
+                span,
+            )
+        }
+        Expression::FunctionExpression(function) => {
+            let inferred = empty_function_body_return_type(factory, function.body.as_ref(), span);
+            function_type(
+                factory,
+                function.type_parameters,
+                function.parameters,
+                function.r#type.or(inferred),
+                span,
+            )
+        }
         _ => None,
     }
 }
@@ -298,7 +304,7 @@ fn object_literal_type<'a>(
                             factory,
                             method.type_parameters,
                             method.parameters,
-                            Some(&return_type),
+                            Some(return_type),
                             span,
                         )?;
                         property_signature(factory, method.name, Some(function), freshness, span)
@@ -366,16 +372,41 @@ fn function_type<'a>(
     factory: &mut Factory<'a, '_>,
     type_parameters: &'a [&'a tsr_ast::TypeParameterDeclaration<'a>],
     parameters: &'a [&'a tsr_ast::ParameterDeclaration<'a>],
-    return_type: Option<&TypeNode<'a>>,
+    return_type: Option<TypeNode<'a>>,
     span: Span,
 ) -> Option<TypeNode<'a>> {
-    let return_type = *return_type?;
+    let return_type = return_type?;
     Some(TypeNode::FunctionTypeNode(factory.alloc(
         tsr_ast::FunctionTypeNode::new(type_parameters, parameters, Some(return_type), &[], None),
         SyntaxKind::FunctionType,
         span,
         NodeFlags::empty(),
     )))
+}
+
+fn arrow_return_type<'a>(
+    factory: &mut Factory<'a, '_>,
+    body: Option<&tsr_ast::ConciseBody<'a>>,
+    span: Span,
+) -> Option<TypeNode<'a>> {
+    let body = body?;
+    if let tsr_ast::ConciseBody::Block(block) = body {
+        return block
+            .statements
+            .is_empty()
+            .then(|| factory.keyword_type(SyntaxKind::VoidKeyword, span));
+    }
+    let expression = Expression::try_from(Node::from(*body)).ok()?;
+    type_of_expression(factory, &expression, Freshness::Widening)
+}
+
+fn empty_function_body_return_type<'a>(
+    factory: &mut Factory<'a, '_>,
+    body: Option<&tsr_ast::FunctionBody<'a>>,
+    span: Span,
+) -> Option<TypeNode<'a>> {
+    let tsr_ast::FunctionBody::Block(block) = body?;
+    block.statements.is_empty().then(|| factory.keyword_type(SyntaxKind::VoidKeyword, span))
 }
 
 fn literal_type<'a>(factory: &mut Factory<'a, '_>, literal: Node<'a>, span: Span) -> TypeNode<'a> {

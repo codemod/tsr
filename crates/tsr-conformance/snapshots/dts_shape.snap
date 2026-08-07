@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 662/918 (72.11%)
-Failed         : 256
+Passed         : 680/918 (74.07%)
+Failed         : 238
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,17 +12,15 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 256 failures:
+First 100 of 238 failures:
 compiler/aliasInaccessibleModule2
   #2: want `  import= R`, got `    class C`
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
-compiler/anonClassDeclarationEmitIsAnon
-  #3: want `var TimestampedUser_base`, got `class TimestampedUser`
 compiler/bindingPatternOmittedExpressionNesting
   #0: want `export{}`, got `var <pattern>`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
-  #0: want `interface Pretty`, got `class A`
+  #0: want `interface Pretty`, got `var A_base`
 compiler/conflictingDeclarationsImportFromNamespace1
   #0: want `export=`, got `var pick`
 compiler/conflictingDeclarationsImportFromNamespace2
@@ -43,8 +41,6 @@ compiler/declarationEmitAliasInlineing
   #0: want `import`, got `var f`
 compiler/declarationEmitClassMemberWithComputedPropertyName
   #0: want `var k1`, got `var t1`
-compiler/declarationEmitClassMixinLocalClassDeclaration
-  #5: want `var XmlElement2_base`, got `class XmlElement2`
 compiler/declarationEmitComputedPropertyNameSymbol1
   emitted index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitComputedPropertyNameSymbol2
@@ -69,14 +65,8 @@ compiler/declarationEmitExpandoWithGenericConstraint
   #2: want `function Point`, got `var Point`
 compiler/declarationEmitExportAliasVisibiilityMarking
   #0: want `import`, got `var _default`
-compiler/declarationEmitExpressionInExtends2
-  #2: want `var MyClass_base`, got `class MyClass`
 compiler/declarationEmitExpressionInExtends3
   #1: want `class LocalClass`, got `interface ExportedInterface`
-compiler/declarationEmitExpressionInExtends4
-  #1: want `var C_base`, got `class C`
-compiler/declarationEmitExpressionInExtends5
-  #3: want `  var Derived_base`, got `  class Derived`
 compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
   emitted b.d.ts, upstream emitted no declaration file
 compiler/declarationEmitForDefaultExportClassExtendingExpression01
@@ -97,8 +87,6 @@ compiler/declarationEmitLateBoundAssignments2
   #1: want `namespace decl`, got `function decl2`
 compiler/declarationEmitLateBoundJSAssignments
   #1: missing `namespace foo`
-compiler/declarationEmitLocalClassDeclarationMixin
-  #2: want `var FilteredThing_base`, got `class FilteredThing`
 compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
   #0: want `type Fns`, got `var _default`
 compiler/declarationEmitMultipleComputedNamesSameDomain
@@ -143,8 +131,6 @@ compiler/declarationEmitTypeAliasWithTypeParameters5
   #2: want `export{}`, got `function foo`
 compiler/declarationMapsMultifile
   #1: missing `import`
-compiler/declarationNoDanglingGenerics
-  #0: want `var AKind_base`, got `class AKind`
 compiler/declarationsForFileShadowingGlobalNoError
   #0: want `import`, got `type Constructor`
 compiler/declarationsForIndirectTypeAliasReference
@@ -163,8 +149,6 @@ compiler/destructuredDeclarationEmit
   #2: want `var <pattern>`, got `export{}`
 compiler/duplicateIdentifiersAcrossFileBoundaries
   #8: extra `    var t`
-compiler/emitClassExpressionInDeclarationFile
-  #5: want `var Test_base`, got `class Test`
 compiler/enumDeclarationEmitInitializerHasImport
   #0: want `import= provider`, got `var value`
 compiler/es6ImportDefaultBindingFollowedWithNamedImportDts
@@ -182,7 +166,7 @@ compiler/expandoFunctionExpressionsWithDynamicNames
 compiler/expandoFunctionNestedAssigments
   #1: want `namespace Foo`, got `var d`
 compiler/exportClassExtendingIntersection
-  #0: want `import`, got `class MyExtendedClass`
+  #0: want `import`, got `var MyExtendedClass_base`
 compiler/funcdecl
   #20: want `var withOverloadSignature`, got `function overload1`
 compiler/globalThisDeclarationEmit
@@ -213,3 +197,19 @@ compiler/internalAliasWithDottedNameEmit
   #7: extra `      import= g`
 compiler/intrinsics
   #3: want `class Foo`, got `  interface __proto__`
+compiler/isolatedDeclarationErrorsDefault
+  emitted a.d.ts, upstream emitted no declaration file
+compiler/isolatedDeclarationsAddUndefined
+  emitted file2.d.ts, upstream emitted no declaration file
+compiler/jsDeclarationEmitDoesNotRenameImport
+  #1: want `type Options`, got `class X`
+compiler/jsDeclarationEmitExportAssignedArray
+  #0: missing `var _exports`
+compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
+  #0: missing `export=`
+compiler/jsDeclarationEmitExportedClassWithExtends
+  #0: want `export{}`, got `import`
+compiler/jsDeclarationsGlobalFileConstFunction
+  #1: want `function SomeConstructor2`, got `var SomeConstructor2`
+compiler/jsDeclarationsGlobalFileConstFunctionNamed
+  #1: want `function SomeConstructor2`, got `var SomeConstructor2`

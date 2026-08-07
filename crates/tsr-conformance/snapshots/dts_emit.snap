@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 205/341 (60.12%)
-Failed         : 136
+Passed         : 215/341 (63.05%)
+Failed         : 126
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,7 +12,7 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 136 failures:
+First 100 of 126 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
@@ -27,20 +27,14 @@ compiler/conflictingDeclarationsImportFromNamespace1
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
 compiler/conflictingDeclarationsImportFromNamespace2
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
-compiler/declFileRegressionTests
-  line 1: want `declare var n: {`, got `declare var n: any;`
 compiler/declFileWithInternalModuleNameConflictsInExtendsClause1
   line 6: want `    class W implements X.A.C.Z {`, got `    namespace A {`
 compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
   line 10: want `}`, got `    namespace A {`
-compiler/declarationEmitAliasExportStar
-  line 2: want `export declare const thing2: (param: things.ThingB) => any;`, got `export declare const thing2: any;`
 compiler/declarationEmitArrowFunctionNoRenaming
   line 1: want `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & {`, got `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & { [K in ReservedName]: Branding; } & {`
 compiler/declarationEmitBindingPatternWithReservedWord
   line 10: want `export declare const getLocales: <T extends LocaleData>({ app, name, default: defaultLocalesConfig, config: userLocalesConfig, }: GetLocalesOptions<T>) => ConvertLocaleConfig<T>;`, got `export declare const getLocales: <T extends LocaleData>({ app, name, default: defaultLocalesConfig, config: userLocalesConfig = {} }: GetLocalesOptions<T>) => ConvertLocaleConfig<T>;`
-compiler/declarationEmitBindingPatternsFunctionExpr
-  line 4: want `declare let notReferenced: ({ name: alias }: Named) => void;`, got `declare let notReferenced: any;`
 compiler/declarationEmitClassAccessorsJs1
   line 2: want `    /**`, got `    get path(): any;`
 compiler/declarationEmitDestructuringObjectLiteralPattern1
@@ -49,8 +43,6 @@ compiler/declarationEmitDestructuringParameterProperties
   line 2: want `    x: string;`, got `    constructor([x, y, z]: string[]);`
 compiler/declarationEmitDestructuringParameterProperties2
   line 2: want `    x: string;`, got `    constructor([x, y, z]: string[]);`
-compiler/declarationEmitDistributiveConditionalWithInfer
-  line 1: want `export declare const fun: (subFun: <Collection, Field extends keyof Collection>() => FlatArray<Collection[Field], 0>[]) => void;`, got `export declare const fun: any;`
 compiler/declarationEmitDuplicateParameterDestructuring
   line 1: want `export declare const fn1: ({ prop: a, prop: b }: {`, got `export declare const fn1: any;`
 compiler/declarationEmitExpandoPropertyPrivateName
@@ -66,7 +58,7 @@ compiler/declarationEmitInlinedDistributiveConditional
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
   line 1: want `declare type requiredKeys<T extends object> = {`, got `declare type requiredKeys<T extends object> = { [k in keyof T]: undefined extends T[k] ? never : k; }[keyof T];`
 compiler/declarationEmitNameConflicts2
-  line 2: want `    function f(): void;`, got `    function f(): any;`
+  line 12: want `    var f: typeof base.f;`, got `    var f: any;`
 compiler/declarationEmitNestedBindingPattern
   line 2: want `    x: any;`, got `    constructor([[x]]: any[]);`
 compiler/declarationEmitNoNonRequiredParens
@@ -85,10 +77,6 @@ compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
   line 1: want `export type Whatever<T> = {x: T};`, got `export declare const run: <E>(i: () => E.Whatever<E>) => E.Whatever<E>;`
 compiler/declarationEmitScopeConsistency3
   line 1: want `export declare const g: (v: "outer") => () => "inner";`, got `export declare const g: any;`
-compiler/declarationEmitTypeAliasWithTypeParameters1
-  line 3: want `export declare const y: (x: Foo<string>) => number;`, got `export declare const y: any;`
-compiler/declarationEmitTypeAliasWithTypeParameters2
-  line 4: want `export declare const y: (x: Baa<number>) => number;`, got `export declare const y: any;`
 compiler/declarationEmitTypeParameterNameShadowedInternally
   line 1: want `export declare const foo: <T>(x: T) => <T_1>(y: T_1) => readonly [T, T_1];`, got `export declare const foo: any;`
 compiler/declarationMaps
@@ -106,7 +94,7 @@ compiler/deferredLookupTypeResolution2
 compiler/destructuredDeclarationEmit
   line 3: want `declare const { bar: baz, bat, bam: { bork: { bar: ibar, baz: ibaz } } }: {`, got `export { baz, ibaz };`
 compiler/expandoFunctionExpressionsWithDynamicNames
-  line 1: want `export declare function expr(): void;`, got `export declare const expr: any;`
+  line 1: want `export declare function expr(): void;`, got `export declare const expr: () => void;`
 compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
 compiler/importAliasFromNamespace
@@ -199,17 +187,29 @@ compiler/privacyTypeParametersOfInterfaceDeclFile
   line 25: want `export interface publicInterfaceWithPublicTypeParametersWithoutExtends<T> {`, got `interface privateInterfaceWithPrivateTypeParameters<T extends privateClass> {`
 compiler/privacyVarDeclFile
   line 11: want `export declare class publicClassWithWithPrivatePropertyTypes {`, got `interface privateInterfaceWithPrivatePropertyTypes {`
-compiler/reexportWrittenCorrectlyInDeclaration
-  line 3: want `    method: (input: things.ThingA) => void;`, got `    method: any;`
 compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
 compiler/stackDepthLimitCastingType
   line 1: want `declare global {`, got `export {};`
 compiler/stripInternal1
   line 3: want `}`, got `    bar(): void;`
-compiler/templateLiteralsInTypes
-  line 1: want `declare const f: (hdr: string, val: number) => `${string}:\t${number}\r\n`;`, got `declare const f: any;`
-compiler/trackedSymbolsNoCrash
-  line 2: want `export declare const isNodeOfType: <NodeType extends ast.SyntaxKind>(nodeType: NodeType) => (node: ast.Node | null | undefined) => node is Extract<ast.Node, {`, got `export declare const isNodeOfType: any;`
 compiler/unionTypeWithLeadingOperator
   line 1: want `export type D = /*leading1*/ 1 | /*leading2*/ 2;`, got `export type D = 1 | 2;`
+compiler/unusedImportDeclaration
+  line 1: want `export {};`, got `import B = require("./unusedImportDeclaration_testerB");`
+conformance/assignmentToVoidZero1
+  line 1: missing `export declare var y: 2;`
+conformance/callbackOnConstructor
+  line 1: want `export type ValueGetter_2 = (name: string) => boolean | number | string | undefined;`, got `export declare class Preferences {`
+conformance/callbackTagVariadicType
+  line 1: want `/**`, got `export declare const x: () => number;`
+conformance/classDoesNotDependOnPrivateMember
+  line 2: want `    class C {`, got `    interface I {`
+conformance/computedPropertyNamesDeclarationEmit3_ES6
+  line 2: want `}`, got `    ["" + ""](): void;`
+conformance/computedPropertyNamesDeclarationEmit4_ES6
+  line 1: want `declare var v: {};`, got `declare var v: {`
+conformance/contextuallyTypedStringLiteralsInJsxAttributes01
+  line 9: want `declare const FooComponent: (props: {`, got `declare const FooComponent: any;`
+conformance/declarationEmitThisPredicatesWithPrivateName02
+  line 1: want `interface Foo {`, got `export declare const obj: {`

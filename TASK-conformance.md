@@ -5,8 +5,8 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  205/341  = 60.12%  (up from 161/339)
-  dts_shape                 662/918  = 72.11%  (up from 618/912)
+  dts_emit                  215/341  = 63.05%  (up from 161/339)
+  dts_shape                 680/918  = 74.07%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -59,6 +59,14 @@ files. Class overload implementations are now omitted, repeated private overload
 collapse to one nominal marker, initialized parameters before required parameters
 emit `| undefined`, and untyped type-member parameters emit `any`. Together these
 raised `dts_emit` by ten cases and `dts_shape` by five from the previous checkpoint.
+
+Syntactically apparent arrow returns and empty function bodies now produce
+function types instead of falling back to `any`, closing ten more byte-exact
+cases. Non-entity class bases are hoisted to collision-free `Class_base`
+declarations and referenced from the rewritten `extends` clause; their type stays
+`any` when checker inference is required and the existing diagnostic remains.
+That restores the declaration structure in another eighteen `dts_shape` cases
+without changing the checker-free `dts_emit` denominator.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
