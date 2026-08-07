@@ -1131,3 +1131,30 @@ lines whose print holds a property or nested parameter named like a type
 parameter → the token substitution is reaching value positions, gate on the
 shape before widening anything; regressed == 0; lost == 0 (a rename cannot
 un-compute a type; `type_to_string_at` still falls back to the baked text).
+
+### §19.1 Scored — three measurements, two scope rules learned from the losses, every leg passed
+
+**First form** (exclude only the declaration node): +172 but **67 losses, 10
+regressed** — the losses discriminated the rule exactly: an ancestor that
+also encloses the signature's own declaration is ordinary SHADOWING (`<D>()
+=> Promise<D>` at its own member site keeps `D`); only a collision from a
+chain the signature does not live under renames. **Second form** (exclude
+the whole declaration-ancestor chain): 152/5/2 — the residual 5 all sat in
+computed property names and heritage clauses, which are OUTSIDE their
+declaration's type-parameter scope (`class C<T> extends Base` cannot see
+`T`). **Third form:**
+
+```
+WRONG→RIGHT 151 · nothing else at all · 0 regressed · +9 cases (2,944 → 2,953)
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +150 | **+151** | pass, by one line |
+| 2 | own ≤ 20 | **0** | pass — the token-substitution falsifier never fired |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+The within-print half (322, sibling signatures in one composite) stays open
+with its own design named: a per-composite naming pass over the member loop,
+not this site walk.

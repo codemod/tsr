@@ -1739,6 +1739,120 @@ impl<'a> Checker<'a, '_> {
         if signature.predicate.is_some() {
             return self.signature_to_string(signature);
         }
+        // The `_1` rename, enclosing-scope half (`checker-notes-callres.md`
+        // §19): a type parameter whose name is also declared by an ancestor
+        // of the reference site — and NOT by this signature's own declaration,
+        // which is the identity test that keeps `foo`'s own line from
+        // renaming `foo`'s own `T` — renders as the first free `X_n`, exactly
+        // as upstream's `typeParameterToName` by-text cache does. The
+        // substitution is token-wise across the rendered text, priced by the
+        // §19 bar.
+        let renames = self.type_parameter_renames(signature, reference);
+        if !renames.is_empty() {
+            let plain = self.signature_to_string_at_worker(signature, reference);
+            return apply_renames(&plain, &renames);
+        }
+        self.signature_to_string_at_worker(signature, reference)
+    }
+
+    /// Colliding signature type-parameter names at `reference`, each with its
+    /// fresh `X_n` — empty when nothing collides. §19's scope walk.
+    fn type_parameter_renames(
+        &self,
+        signature: &Signature,
+        reference: tsr_ast::NodeId,
+    ) -> Vec<(String, String)> {
+        if signature.type_parameters.is_empty() {
+            return Vec::new();
+        }
+        // The whole ancestor chain of the signature's own declaration is
+        // excluded, not just the declaration: a colliding ancestor that also
+        // encloses the declaration is the ordinary SHADOWING case — the
+        // written inner name wins, and the first measurement's 67 losses
+        // (`<D>() => Promise<D>` renamed at its own member site) were
+        // exactly this. Only a collision from a declaration chain the
+        // signature does NOT live under renames, which is upstream's
+        // by-identity cache seen positionally.
+        let mut declaration_chain = std::collections::HashSet::new();
+        let mut current = Some(signature.declaration);
+        while let Some(id) = current {
+            declaration_chain.insert(id);
+            current = self.nodes.parent(id);
+        }
+        let mut in_scope: Vec<String> = Vec::new();
+        let mut current = Some(reference);
+        // A computed property name and a heritage clause sit OUTSIDE their
+        // declaration's type-parameter scope (`class C<T> extends Base` — the
+        // extends expression cannot see `T`, and neither can `[foo<T>()]`),
+        // so a declaration reached across one contributes nothing — the
+        // second measurement's 5 residual losses, all in exactly those two
+        // positions.
+        let mut crossed_scope_boundary = false;
+        while let Some(id) = current {
+            match self.nodes.kind(id) {
+                SyntaxKind::ComputedPropertyName | SyntaxKind::HeritageClause => {
+                    crossed_scope_boundary = true;
+                }
+                _ => {}
+            }
+            if !declaration_chain.contains(&id)
+                && let Some(node) = self.node_map.get(id)
+            {
+                let parameters = match node {
+                    Node::FunctionDeclaration(n) => n.type_parameters,
+                    Node::FunctionExpression(n) => n.type_parameters,
+                    Node::ArrowFunction(n) => n.type_parameters,
+                    Node::MethodDeclaration(n) => n.type_parameters,
+                    Node::ClassDeclaration(n) => n.type_parameters,
+                    Node::InterfaceDeclaration(n) => n.type_parameters,
+                    Node::TypeAliasDeclaration(n) => n.type_parameters,
+                    _ => &[],
+                };
+                if !parameters.is_empty() && crossed_scope_boundary {
+                    // This declaration was reached across a computed name or
+                    // heritage clause: its parameters are not in scope there.
+                    // Outer declarations' parameters still are.
+                    crossed_scope_boundary = false;
+                } else {
+                    for parameter in parameters {
+                        if let Some(name) = parameter.name {
+                            in_scope.push(name.text.to_string());
+                        }
+                    }
+                }
+            }
+            current = self.nodes.parent(id);
+        }
+        if in_scope.is_empty() {
+            return Vec::new();
+        }
+        let own: Vec<&str> = signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+        let mut renames = Vec::new();
+        for parameter in &signature.type_parameters {
+            if !in_scope.contains(&parameter.name) {
+                continue;
+            }
+            let mut suffix = 1usize;
+            loop {
+                let candidate = format!("{}_{suffix}", parameter.name);
+                let taken = in_scope.contains(&candidate)
+                    || own.contains(&candidate.as_str())
+                    || renames.iter().any(|(_, to): &(String, String)| *to == candidate);
+                if !taken {
+                    renames.push((parameter.name.clone(), candidate));
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+        renames
+    }
+
+    fn signature_to_string_at_worker(
+        &mut self,
+        signature: &Signature,
+        reference: tsr_ast::NodeId,
+    ) -> String {
         let render = |checker: &mut Self, id: crate::types::TypeId| {
             checker.type_to_string_at(id, reference).unwrap_or_else(|| checker.type_to_string(id))
         };
@@ -1859,6 +1973,41 @@ impl<'a> Checker<'a, '_> {
         }
         out
     }
+}
+
+/// Token-wise rename over a rendered signature — §19's substitution. A token
+/// boundary is a non-identifier character on both sides, the same test the
+/// baselines' own texts obey.
+fn apply_renames(text: &str, renames: &[(String, String)]) -> String {
+    let mut out = text.to_string();
+    for (from, to) in renames {
+        let bytes: Vec<u8> = out.bytes().collect();
+        let mut result = String::with_capacity(out.len() + 8);
+        let mut index = 0;
+        while index < out.len() {
+            if out[index..].starts_with(from.as_str()) {
+                let end = index + from.len();
+                let before_ok = index == 0
+                    || !(bytes[index - 1].is_ascii_alphanumeric()
+                        || bytes[index - 1] == b'_'
+                        || bytes[index - 1] == b'$');
+                let after_ok = end == out.len()
+                    || !(bytes[end].is_ascii_alphanumeric()
+                        || bytes[end] == b'_'
+                        || bytes[end] == b'$');
+                if before_ok && after_ok {
+                    result.push_str(to);
+                    index = end;
+                    continue;
+                }
+            }
+            let ch = out[index..].chars().next().expect("in bounds");
+            result.push(ch);
+            index += ch.len_utf8();
+        }
+        out = result;
+    }
+    out
 }
 
 #[cfg(test)]
