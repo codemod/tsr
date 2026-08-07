@@ -575,8 +575,13 @@ fn or_and_nullish_are_still_a_gap_and_and_is_not() {
     // the *left* type, right only when the left can never be falsy, and the
     // plain union `1 | 2`.
     assert_eq!(type_of_initialiser("const x = 1 && 2;"), "2");
-    assert_eq!(type_of_initialiser("const x = 1 || 2;"), "error");
-    assert_eq!(type_of_initialiser("const x = 1 ?? 2;"), "error");
+    // The other two went green in the ninth session's reduction-free slice
+    // (`checker-notes-assign.md` §8) — the fourteenth stand-in to come due.
+    // A never-falsy, never-nullish left short-circuits both operators to the
+    // LEFT type unchanged (`checker.go:12510`, `:12523`): the playground
+    // agrees that `const a = 1 || 2` is `1`, however tempting `1 | 2` reads.
+    assert_eq!(type_of_initialiser("const x = 1 || 2;"), "1");
+    assert_eq!(type_of_initialiser("const x = 1 ?? 2;"), "1");
 }
 
 #[test]

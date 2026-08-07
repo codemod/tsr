@@ -151,17 +151,24 @@ fn the_falsy_part_of_string_is_the_empty_string_literal() {
 /// A gap in is a gap out, and the test is on **identity** rather than on
 /// `TypeFlags::ANY` — `errorType` carries `ANY` too.
 ///
-/// The unported form to hand is `||`, which this module still gaps, so
-/// `(a || b) && s` reaches `check_logical_and` with an `errorType` left
-/// operand. Without the `is_error` guard the falsy switch would map it through
-/// `ANY_OR_UNKNOWN` to itself and the union would answer `error` anyway — by
-/// accident of a flag, and only for as long as `||` is the gap. Removing the
-/// guard therefore does **not** turn this red today, which is stated rather
-/// than dressed up: what it defends is the day `||` lands and some *other*
-/// form is the gap. The corpus is the real evidence, at 0 lines lost across
-/// 9,538 cases.
+/// **The thirteenth unported-stand-in fixture to come due.** This used `||`
+/// as its gap, and the ninth session's reduction-free slice
+/// (`checker-notes-assign.md` §8) made `(a || b) && s` answer
+/// `string | false` — correctly. The stand-in is now a template expression,
+/// which is refused with a number (STATUS §5) rather than merely unbuilt, so
+/// this fixture outlives the next build too.
 #[test]
 fn a_gapped_left_operand_gaps_the_whole_expression() {
-    let source = "let a: boolean; let b: boolean; let s: string; let c = (a || b) && s;";
-    assert_eq!(type_of_initialiser_at(source, 3), "error");
+    let source = "let s: string; let c = `x${s}` && s;";
+    assert_eq!(type_of_initialiser_at(source, 1), "error");
+}
+
+#[test]
+fn logical_or_of_a_boolean_pair_is_boolean() {
+    // The reduction-free slice of `||` (`checker.go:12509`,
+    // `checker-notes-assign.md` §8): `removeDefinitelyFalsyTypes(boolean)` is
+    // `true`, and `true | boolean` flattens to `boolean` under every
+    // reduction.
+    let source = "let a: boolean; let b: boolean; let c = a || b;";
+    assert_eq!(type_of_initialiser_at(source, 2), "boolean");
 }

@@ -131,22 +131,22 @@ impl Checker<'_, '_> {
                 self.check_logical_and(left_type, right_type)
             }
 
-            // `||` and `??` are still gaps, and for a reason `&&` does **not**
-            // share — see [`Checker::check_logical_and`]. `||` filters the left
-            // operand with `hasTypeFacts(Truthy)` and then reduces the union
-            // with `UnionReductionSubtype` (`checker.go:12509`); `??` does the
-            // same after `getNonNullableType` (`checker.go:12519`). That
-            // reduction is `removeSubtypes` and needs assignability, which this
-            // port does not have, so the answer would be a wrong line rather
-            // than a missing one. `bd tsr-5s2`.
+            // `||` and `??` were refused whole on `UnionReductionSubtype`
+            // (`bd tsr-5s2`); `checker-notes-assign.md` §7–§8 re-measured the
+            // ground — the reduction question is a property of the constituent
+            // PAIR — and the reduction-free slice ships. The remaining pairs
+            // keep declining inside [`Checker::check_logical_or_coalescing`].
             //
             // The compound forms `&&=`, `||=` and `??=` additionally reach
             // `checkAssignmentOperator`, and are left with the family they
             // belong to rather than split off for the sake of three lines
             // corpus-wide.
-            //
-            // `errorType`, not the left type, which would be right only when the
-            // left operand is never falsy.
+            SyntaxKind::BarBarToken => {
+                self.check_logical_or_coalescing(left_type, right_type, false)
+            }
+            SyntaxKind::QuestionQuestionToken => {
+                self.check_logical_or_coalescing(left_type, right_type, true)
+            }
             _ => error,
         }
     }
@@ -287,6 +287,95 @@ impl Checker<'_, '_> {
     /// accident of the flag. The test is written explicitly, on **identity**,
     /// so that a genuine `any` operand still answers `any` (56 corpus lines are
     /// `any && true`) while an unported form still gaps.
+    /// The `||` and `??` arms (`checker.go:12509`, `:12519`), restricted to
+    /// the union pairs whose reduction is decidable without assignability —
+    /// `checker-notes-assign.md` §8.
+    ///
+    /// - `||`: a never-falsy left answers `left` unchanged; otherwise the
+    ///   union of `nonNullable(removeDefinitelyFalsyTypes(left))` and the
+    ///   right.
+    /// - `??`: a never-nullish left answers `left`; otherwise the union of
+    ///   `nonNullable(left)` and the right.
+    ///
+    /// The union ships only when the pair is reduction-agnostic: both sides
+    /// reduction-free, or identical after freshness-stripping, or either side
+    /// `any` (absorption). Everything else stays a gap — the surviving core of
+    /// `bd tsr-5s2`'s refusal.
+    fn check_logical_or_coalescing(
+        &mut self,
+        left: TypeId,
+        right: TypeId,
+        coalescing: bool,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        if self.is_error(left) || self.is_error(right) {
+            return error;
+        }
+        // The non-strict half of every `Base*Facts` aggregate
+        // (`checker.go:467` and siblings): with `strictNullChecks` off a
+        // non-nullable type may still hold `undefined`/`null` at runtime, so
+        // upstream adds `EQUndefined | EQNull | EQUndefinedOrNull | Falsy` to
+        // each strict set. The delta is applied HERE, to the whole-operand
+        // question only, and deliberately not inside `get_type_facts`: a
+        // global application leaked into truthiness narrowing (`if (!x)` kept
+        // a `"foo"` constituent because the literal had gained `FALSY`) and
+        // lost 2 right lines — the §8 bar's leg 4, honoured by this
+        // placement. The constituent-level filter below stays strict, which
+        // keeps a falsy literal a falsy literal.
+        let mut facts = self.get_type_facts(left);
+        if !self.strict_null_checks {
+            facts |= TypeFacts::FALSY | TypeFacts::EQ_UNDEFINED_OR_NULL;
+        }
+        if coalescing {
+            if !facts.contains(TypeFacts::EQ_UNDEFINED_OR_NULL) {
+                return left;
+            }
+        } else if !facts.contains(TypeFacts::FALSY) {
+            return left;
+        }
+        let filtered = if coalescing {
+            self.get_non_nullable_type(left)
+        } else {
+            let truthy = self.remove_definitely_falsy_types(left);
+            self.get_non_nullable_type(truthy)
+        };
+        let pair = [filtered, right];
+        let regular = [
+            self.get_regular_type_of_literal_type(filtered),
+            self.get_regular_type_of_literal_type(right),
+        ];
+        let any = self.intrinsics.any;
+        let agnostic = regular[0] == regular[1]
+            || pair.contains(&any)
+            || pair.iter().all(|&id| self.is_subtype_reduction_free(id));
+        if !agnostic {
+            return error;
+        }
+        self.get_union_type(&pair)
+    }
+
+    /// `removeDefinitelyFalsyTypes` (`checker.go:29106`) — `filterType` by
+    /// `TypeFactsTruthy` per constituent.
+    fn remove_definitely_falsy_types(&mut self, id: TypeId) -> TypeId {
+        let ty = self.store.get(id);
+        let TypeData::Union { types, .. } = &ty.data else {
+            return if self.get_type_facts(id).contains(TypeFacts::TRUTHY) {
+                id
+            } else {
+                self.intrinsics.never
+            };
+        };
+        let constituents = types.clone();
+        let kept: Vec<TypeId> = constituents
+            .into_iter()
+            .filter(|&c| self.get_type_facts(c).contains(TypeFacts::TRUTHY))
+            .collect();
+        if kept.is_empty() {
+            return self.intrinsics.never;
+        }
+        self.get_union_type(&kept)
+    }
+
     fn check_logical_and(&mut self, left: TypeId, right: TypeId) -> TypeId {
         if self.is_error(left) || self.is_error(right) {
             return self.intrinsics.error;

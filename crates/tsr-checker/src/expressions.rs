@@ -755,7 +755,7 @@ impl Checker<'_, '_> {
     ///
     /// A union is transparent: it is reduction-free when all of its constituents
     /// are, because `addTypesToUnion` flattens it before either reduction runs.
-    fn is_subtype_reduction_free(&self, id: TypeId) -> bool {
+    pub(crate) fn is_subtype_reduction_free(&self, id: TypeId) -> bool {
         const SAFE: TypeFlags = TypeFlags::STRING
             .union(TypeFlags::NUMBER)
             .union(TypeFlags::BIG_INT)

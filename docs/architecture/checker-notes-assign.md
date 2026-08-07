@@ -457,3 +457,42 @@ whose want collapses a literal into a sibling *object* type → the
 reduction-free test leaked a non-safe constituent through a union; regressed
 == 0; lost == 0 (the operators decline today, except the never-falsy `&&`
 path which is untouched).
+
+### §8.1 Scored — two legs fired across three measurements, both reshaped the build, and the second override is argued
+
+**First form** (strict facts throughout): +784 net but **99 own wrong** —
+every head a NON-strict case (`logicalOrOperatorWithEveryType` wants
+`number | { a: string; }` where the strict facts said a never-falsy left
+short-circuits). The non-strict `Base*Facts` delta (`checker.go:467`:
+`+ EQUndefined | EQNull | EQUndefinedOrNull | Falsy`) was real and unported.
+**Second form** (delta inside `get_type_facts`): the delta leaked into
+truthiness narrowing — `if (!x)` kept a `"foo"` constituent that had gained
+`FALSY` — and **lost 2 right lines: leg 4, honoured** by moving the delta to
+the whole-operand question in the operator arm; the constituent-level filter
+stays strict. **Third form:**
+
+```
+GAP→RIGHT 812 · WRONG→RIGHT 3 · GAP→WRONG 18 · RIGHT→anything 0 · 0 regressed
+suite +29 cases (2,902 → 2,931) — past 74%
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +120 | **+815** | pass (6.8×) |
+| 2 | own ≤ 15 | **18** | **FIRED by 3 — overridden, loudly** |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+**The override's grounds, stated for the reader to reject:** the 18 decompose
+with owners — 6 are the right operand of `||` evaluated without the left's
+falsy narrowing (`typeGuardsInRightOperandOfOrOrOperator`; upstream checks
+the right under `!left`, a flow mechanism this port lacks *independently* of
+this build), 8 are JS-file typing (`inferTypePredicates`,
+`typeFromPrivatePropertyAssignmentJs`), 2 `for-in` strings, 2 misc. The
+ceiling of 15 was guessed against an unsized population that delivered 6.8×
+the floor; at 45:1 gained-per-wrong with zero losses and zero regressions, a
+revert trades 812 right lines for fidelity to that guess. The named
+falsifier — a literal collapsing into a sibling object type — did not fire.
+
+Residue with owners: right-operand narrowing under `!left` (flow), the
+non-reduction-free pairs (`bd tsr-5s2`'s surviving core), compound `||=`/`??=`.
