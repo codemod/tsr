@@ -130,7 +130,8 @@ impl Checker<'_, '_> {
             Some(Node::FunctionExpression(_) | Node::ArrowFunction(_)) => {
                 match self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)) {
                     Some(Node::VariableDeclaration(declaration)) => declaration.r#type.is_none(),
-                    Some(Node::ExpressionStatement(_)) => true,
+                    Some(Node::ExpressionStatement(_) | Node::ReturnStatement(_)) => true,
+                    Some(Node::PropertyDeclaration(property)) => property.r#type.is_none(),
                     _ => false,
                 }
             }

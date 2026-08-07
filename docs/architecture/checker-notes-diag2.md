@@ -2394,3 +2394,33 @@ declaration, return and argument arms — is worth six cases and zero losses.
 > `pair_is_reportable`'s enum veto was audited the same way and is now a
 > **measured no-op**: it is kept because it costs nothing and documents a real
 > upstream gap, but it no longer decides anything.
+
+---
+
+## 37. The decline audit — four re-runs, two payments, one refused on faithfulness
+
+§36 turned §35 into a procedure: **re-run every decline against the compiler that
+exists now**, because a decline inherits its justification from the measurement
+that produced it and a later build can invalidate that measurement silently. Four
+were outstanding.
+
+| decline | audited to | kept? |
+|---|---|---|
+| §18's contextual-typing position list (`implicit_any`) | **+2** — a `return` and an un-annotated property initialiser are uncontextual too | widened |
+| §21's index-signature condition (`member_completeness`) | 0 | kept, still exact |
+| §16.4's guarded-reference decline (TS2454) | **+2 available, REFUSED** | kept |
+| `pair_is_reportable`'s enum veto | 0 — a measured no-op since §25 | kept, documented |
+
+### The one refused, and it is refused on the goal rather than the number
+
+Removing TS2454's guarded-reference decline is worth **+2 cases** and puts back
+**45 wrong lines**. Those 45 are diagnostics upstream does not report: it narrows
+by the type predicate and says nothing. So the +2 is bought by being *less*
+faithful in 45 places, and the two cases it wins are ones where the guard —
+a syntactic over-approximation — declines a TS2454 upstream really does report.
+
+**Kept.** `docs/conventions.md`'s rule that a wrong diagnostic is worse than a
+missing one is not a tie-breaker here; it is the whole answer, and the suite
+number is the thing being traded away rather than the thing being served. The
+right fix is a narrower guard, not no guard, and it is worth exactly 2 cases —
+which is why it is recorded rather than attempted.
