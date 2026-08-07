@@ -168,6 +168,20 @@ impl<'t> Printer<'t> {
         printer
     }
 
+    /// Whether `node_id`'s original source span starts at a brace and sits on
+    /// one line. Only declaration emit carries source text, so ordinary
+    /// round-trip printing always answers `false`.
+    pub(crate) fn original_span_is_single_line(&self, node_id: Option<tsr_ast::NodeId>) -> bool {
+        let Some(source) = self.source_text else { return false };
+        let Some(node_id) = node_id else { return false };
+        let span = self.nodes.span(node_id);
+        let (start, end) = (span.start as usize, span.end as usize);
+        start < end
+            && end <= source.len()
+            && source[start..].starts_with('{')
+            && !source[start..end].contains(['\n', '\r'])
+    }
+
     /// Emit the nearest leading JSDoc attached to `node_id`, if any.
     pub(crate) fn emit_leading_jsdoc(&mut self, node_id: Option<tsr_ast::NodeId>) {
         let Some(source) = self.source_text else { return };

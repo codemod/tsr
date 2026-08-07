@@ -98,6 +98,26 @@ fn preserved_references_precede_declarations_in_source_order() {
 
 /// Assert the emitted text exactly, so spacing and ordering are covered too.
 #[track_caller]
+/// Emit with the original text available, as the conformance harness does.
+fn emit_with_source(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "test source must parse cleanly: {source:?}");
+    let mut nodes = parsed.nodes;
+    tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: false,
+        },
+    )
+    .text
+}
+
 fn assert_emits(source: &str, expected: &str) {
     assert_eq!(emit(source).trim_end(), expected.trim_end(), "\nfrom: {source}");
 }
@@ -331,6 +351,18 @@ fn a_missing_mapped_value_type_becomes_any_in_declaration_output() {
     assert_emits(
         "type T<U> = ({ [K in keyof U] }) extends ({ [P in keyof U]: U[P] }) ? 1 : 0;",
         "type T<U> = ({\n    [K in keyof U]: any;\n}) extends ({\n    [P in keyof U]: U[P];\n}) ? 1 : 0;",
+    );
+}
+
+#[test]
+fn an_empty_namespace_body_keeps_its_source_brace_layout() {
+    // moduleSymbolMerging: a body whose braces sat on one line prints `{ }`
+    // even when its statements were filtered away; declareDottedModuleName: a
+    // body whose source braces span lines stays multiline.
+    let output = emit_with_source("namespace A { ; }\nnamespace B {\n}\nnamespace C.D { }");
+    assert_eq!(
+        output,
+        "declare namespace A { }\ndeclare namespace B {\n}\ndeclare namespace C.D { }"
     );
 }
 

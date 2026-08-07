@@ -545,6 +545,16 @@ impl Printer<'_> {
         match body {
             Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
                 self.write_space();
+                // An empty namespace body prints `{ }` only when the original
+                // source block sat on one line — even if its statements were
+                // filtered away. Bodies whose source braces span lines stay
+                // multiline; empty interface and type-literal bodies always do.
+                if block.statements.is_empty() && self.original_span_is_single_line(block.node_id) {
+                    self.write_punctuation("{");
+                    self.write(" ");
+                    self.write_punctuation("}");
+                    return;
+                }
                 self.write_punctuation("{");
                 self.emit_list(
                     block.statements,
