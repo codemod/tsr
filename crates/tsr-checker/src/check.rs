@@ -46,7 +46,7 @@
 //! the wrong unit, which is the failure mode that looks like a checker bug for a
 //! week.
 
-use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_ast::{ClassElement, HasNodeId as _, ModifierLike, Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -61,10 +61,27 @@ impl Checker<'_, '_> {
     /// Idempotent by construction is *not* claimed: calling this twice on one
     /// file appends its diagnostics twice, exactly as upstream's would without
     /// its `checkSourceFileWorker` memo. Callers run it once per file.
-    pub fn check_source_file(&mut self, file: NodeId) {
+    /// `in_ambient_context` is upstream's `node.Flags & ast.NodeFlagsAmbient`,
+    /// **passed in because this port's parser never sets that flag** — it is
+    /// declared in `tsr_ast::NodeFlags` and written nowhere
+    /// (`grep -rn AMBIENT crates/tsr-parser/src` is empty). Upstream's parser
+    /// sets it as a context flag on every node of a declaration file and inside
+    /// every `declare`d declaration, and the checker reads it in ~40 places.
+    ///
+    /// Here the caller supplies the *file-level* half — is this a `.d.ts` — and
+    /// [`Checker::check_source_element`] carries the `declare`-modifier half
+    /// down the walk. That is a faithful reproduction of the effect and an
+    /// unfaithful reproduction of the mechanism; when the parser learns to set
+    /// the flag this parameter goes away and every reader gets it for free.
+    /// `bd tsr-o9tl` carries it.
+    ///
+    /// It was not optional: reading the unset flag instead reported TS2564 on
+    /// **every property of every `declare class` in the corpus**, ~25 of the 86
+    /// wrong lines that measurement produced.
+    pub fn check_source_file(&mut self, file: NodeId, in_ambient_context: bool) {
         let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
         for statement in source.statements {
-            self.check_source_element(statement.node_id());
+            self.check_source_element(statement.node_id(), in_ambient_context);
         }
     }
 
@@ -76,7 +93,7 @@ impl Checker<'_, '_> {
     /// `checkSourceElement` walk. Nothing else recurses yet — a function body
     /// cannot contain an import declaration, and `import("x")` in expression or
     /// type position is a separate rule with its own sizing.
-    fn check_source_element(&mut self, node: Option<NodeId>) {
+    fn check_source_element(&mut self, node: Option<NodeId>, ambient: bool) {
         let Some(node) = node else { return };
         match self.node_map.get(node) {
             Some(Node::ImportDeclaration(declaration)) => {
@@ -119,17 +136,32 @@ impl Checker<'_, '_> {
                     );
                 }
             }
-            Some(Node::ModuleDeclaration(declaration)) => match declaration.body {
-                Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
-                    for statement in block.statements {
-                        self.check_source_element(statement.node_id());
+            Some(Node::ClassDeclaration(declaration)) => {
+                // `declare class C { x: number }` puts every member in an
+                // ambient context, which is where upstream's flag would already
+                // be set on the members themselves.
+                let ambient = ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
+                self.check_property_initialization(declaration.members, ambient);
+            }
+            Some(Node::ModuleDeclaration(declaration)) => {
+                // `declare module "m" { … }` and `declare namespace N { … }`
+                // are ambient contexts, and so is an *ambient* module's body
+                // whether or not the keyword is repeated inside it.
+                let ambient = ambient
+                    || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+                    || self.is_ambient_module_node(node);
+                match declaration.body {
+                    Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
+                        for statement in block.statements {
+                            self.check_source_element(statement.node_id(), ambient);
+                        }
                     }
+                    Some(tsr_ast::ModuleBody::ModuleDeclaration(nested)) => {
+                        self.check_source_element(nested.node_id, ambient);
+                    }
+                    None => {}
                 }
-                Some(tsr_ast::ModuleBody::ModuleDeclaration(nested)) => {
-                    self.check_source_element(nested.node_id);
-                }
-                None => {}
-            },
+            }
             _ => {}
         }
     }
@@ -258,6 +290,125 @@ impl Checker<'_, '_> {
             &messages::CANNOT_FIND_MODULE_0_OR_ITS_CORRESPONDING_TYPE_DECLARATIONS
         };
         self.report(importing, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+
+    /// TS2564 — `Property '{0}' has no initializer and is not definitely
+    /// assigned in the constructor.`
+    ///
+    /// `checkPropertyInitialization` (`checker.go:4933`), called from
+    /// `checkClassLikeDeclaration`'s last line (`checker.go:4390`). The error
+    /// node is the **member's name**, so the reported column is the property
+    /// name rather than the declaration or its type.
+    ///
+    /// # The bound: no constructor with a body, or nothing is said
+    ///
+    /// Upstream's condition is `constructor == nil ||
+    /// !isPropertyInitializedInConstructor(...)` (`checker.go:4947`). The second
+    /// disjunct synthesises a `this.x` property access, hangs it off the
+    /// constructor's `ReturnFlowNode` and asks `getFlowTypeOfReference` whether
+    /// `undefined` survives (`checker.go:4960` shows the sibling doing it for
+    /// static blocks). **This port cannot synthesise that node**: the tree is
+    /// arena-allocated and immutable after parsing
+    /// ([ADR-0012](../../../docs/adr/0012-ast-is-sync.md)), and a flow query
+    /// needs a *registered* node with a parent and a flow node.
+    ///
+    /// So only the first disjunct is ported, and a class that **has** a
+    /// constructor with a body is declined outright. That is silence, never a
+    /// wrong answer: upstream reports there only when the constructor fails to
+    /// assign, and this port cannot tell those apart. The cost is measured
+    /// rather than assumed — see `docs/architecture/checker-notes-diag2.md` §6.
+    ///
+    /// # `strictPropertyInitialization` is `strictNullChecks` here
+    ///
+    /// Upstream reads two separate `GetStrictOptionValue` results
+    /// (`checker.go:919`, `:922`). This port models one strictness flag
+    /// ([`Checker::strict_null_checks`], set from the case's directives), and
+    /// both options default to `strict`, so the single flag is the faithful
+    /// reading for every case that does not set them apart. A case writing
+    /// `strictPropertyInitialization: false` under `strict: true` would be
+    /// over-reported; the harness reads the directive and turns the rule off,
+    /// which is where that divergence is repaired.
+    fn check_property_initialization(&mut self, members: &[ClassElement<'_>], ambient: bool) {
+        if !self.strict_null_checks || !self.strict_property_initialization || ambient {
+            return;
+        }
+        // `ast.FindConstructorDeclaration` (`ast/utilities.go:2498`) — a
+        // constructor **with a body**; an overload signature does not count.
+        let has_constructor = members.iter().any(|member| {
+            matches!(member, ClassElement::ConstructorDeclaration(ctor) if ctor.body.is_some())
+        });
+        if has_constructor {
+            return;
+        }
+        for member in members {
+            let ClassElement::PropertyDeclaration(property) = member else { continue };
+            if has_modifier(property.modifiers, SyntaxKind::DeclareKeyword)
+                || has_modifier(property.modifiers, SyntaxKind::StaticKeyword)
+                || has_modifier(property.modifiers, SyntaxKind::AbstractKeyword)
+            {
+                continue;
+            }
+            // `isPropertyWithoutInitializer` (`checker.go:4956`): no `!`
+            // postfix, no initialiser. A `?` postfix is *not* excluded here —
+            // upstream lets it through and the `containsUndefinedType` test
+            // below is what stops it, because an optional property's type
+            // carries `undefined` under `strictNullChecks`.
+            if property.initializer.is_some()
+                || property
+                    .postfix_token
+                    .is_some_and(|token| token.kind == SyntaxKind::ExclamationToken)
+            {
+                continue;
+            }
+            // `IsIdentifier || IsPrivateIdentifier || IsComputedPropertyName`
+            // (`checker.go:4944`). A string- or number-named property is
+            // skipped by upstream too.
+            let name = match property.name {
+                tsr_ast::PropertyName::Identifier(identifier) => identifier.text,
+                _ => continue,
+            };
+            let Some(id) = property.node_id else { continue };
+            let Some(symbol) = self.binder.symbol_of(id) else { continue };
+            let declared = self.get_type_of_symbol(symbol);
+            if declared == self.intrinsics.error
+                || declared == self.intrinsics.any
+                || declared == self.intrinsics.unknown
+                || self.contains_undefined_type(declared)
+            {
+                continue;
+            }
+            let Some(name_id) = property.name.node_id() else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
+            let span = self.nodes.span(name_id);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::PROPERTY_0_HAS_NO_INITIALIZER_AND_IS_NOT_DEFINITELY_ASSIGNED_IN_THE_CONSTRUCTOR,
+                    span,
+                    [name.to_string()],
+                ),
+            );
+        }
+    }
+
+    /// `containsUndefinedType` (`checker.go`): the type *is* `undefined`, or is
+    /// a union with `undefined` among its constituents.
+    ///
+    /// **A gap counts as containing it.** This port answers `errorType` where it
+    /// cannot compute, and a property whose type it cannot compute must not
+    /// produce a diagnostic that depends on what that type is — which is why the
+    /// caller tests `error` beside this.
+    fn contains_undefined_type(&self, ty: crate::types::TypeId) -> bool {
+        if ty == self.intrinsics.undefined {
+            return true;
+        }
+        match &self.store.get(ty).data {
+            crate::types::TypeData::Union { types, .. } => {
+                types.contains(&self.intrinsics.undefined)
+            }
+            _ => false,
+        }
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`
@@ -392,3 +543,13 @@ const NODE_CORE_MODULES: &[&str] = &[
     "worker_threads",
     "zlib",
 ];
+
+/// `ast.HasSyntacticModifier` for one keyword.
+///
+/// A decorator in the modifier list is not a modifier; the enum keeps them
+/// together because the parser does (`ModifierLike`).
+fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
+    modifiers
+        .iter()
+        .any(|modifier| matches!(modifier, ModifierLike::Token(token) if token.kind == keyword))
+}

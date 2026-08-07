@@ -211,6 +211,15 @@ pub struct Checker<'a, 'n> {
     /// case's directives, and widening `CompilerOptions` for a single consumer
     /// is what the `strict_null_checks` comment declines to do.
     pub(crate) no_unchecked_side_effect_imports: bool,
+    /// `compilerOptions.strictPropertyInitialization` through
+    /// `GetStrictOptionValue` (`checker.go:922`) — so it follows `strict` when
+    /// unset, exactly as [`Checker::strict_null_checks`] does.
+    ///
+    /// Held apart from `strict_null_checks` even though the two default
+    /// together, because a case can write one `false` and leave the other on and
+    /// the corpus contains such cases. Collapsing them would over-report every
+    /// one of them.
+    pub(crate) strict_property_initialization: bool,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -416,6 +425,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiation_count: 0,
             strict_null_checks: true,
             no_unchecked_side_effect_imports: true,
+            strict_property_initialization: true,
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),
@@ -459,6 +469,16 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// setter necessary rather than optional.
     pub fn set_no_unchecked_side_effect_imports(&mut self, on: bool) {
         self.no_unchecked_side_effect_imports = on;
+    }
+
+    /// Set [`Checker::strict_property_initialization`] from a case's compiler
+    /// options.
+    ///
+    /// `GetStrictOptionValue` (`checker.go:922`): the explicit flag wins, then
+    /// `@strict`, and the default is on — the same rule the harness applies to
+    /// `strictNullChecks`.
+    pub fn set_strict_property_initialization(&mut self, on: bool) {
+        self.strict_property_initialization = on;
     }
 
     /// The well-known types.

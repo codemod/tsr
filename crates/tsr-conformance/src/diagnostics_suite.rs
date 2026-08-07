@@ -208,6 +208,19 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
             .is_none_or(|value| !value.eq_ignore_ascii_case("false")),
     );
 
+    // `GetStrictOptionValue(strictPropertyInitialization)` (`checker.go:922`):
+    // the explicit flag wins, `@strict` is the fallback, and unset is on — the
+    // same three-step read `types_producer` makes for `strictNullChecks`.
+    let explicit = |name: &str| test.options.get(name).map(|v| v.eq_ignore_ascii_case("true"));
+    let strict = explicit("strictpropertyinitialization")
+        .or_else(|| explicit("strictnullchecks"))
+        .or_else(|| explicit("strict"))
+        .unwrap_or(true);
+    checker.set_strict_null_checks(
+        explicit("strictnullchecks").or_else(|| explicit("strict")).unwrap_or(true),
+    );
+    checker.set_strict_property_initialization(strict);
+
     let mut units = Vec::new();
     for unit in &test.files {
         if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
@@ -215,7 +228,13 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         }
         let Some(file) = program.source_file(&unit.name) else { continue };
         let Some(id) = file.source_file().node_id else { continue };
-        checker.check_source_file(id);
+        // Upstream's parser sets `NodeFlagsAmbient` on every node of a
+        // declaration file; this port's does not, so the bit is supplied here.
+        // `.d.ts` / `.d.mts` / `.d.cts`, which is `tspath.IsDeclarationFileName`.
+        let declaration_file = unit.name.ends_with(".d.ts")
+            || unit.name.ends_with(".d.mts")
+            || unit.name.ends_with(".d.cts");
+        checker.check_source_file(id, declaration_file);
         units.push((id, unit.name.clone(), file.text()));
     }
 

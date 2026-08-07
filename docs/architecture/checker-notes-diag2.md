@@ -289,3 +289,105 @@ something already built, which is the same argument that put TS2307 first here.
 TS6133 is the cheaper of the two and TS2304 the larger. Neither has been
 counterfactualled; do that before costing either, because both are
 *negative-acting* rules and the failure mode is the one falsifier 3 names.
+
+---
+
+## 6. The second rule: TS2564, and a bound that costs a whole disjunct
+
+`Property '{0}' has no initializer and is not definitely assigned in the
+constructor.` `diaggap.rs` sizes it at **165 cases blocked on it alone**, second
+only to TS2454 among the rules that need no assignability.
+
+`checkPropertyInitialization` (`checker.go:4933`), called from
+`checkClassLikeDeclaration`'s last line (`checker.go:4390`). The error node is
+the **member's name**, so the column is the property name.
+
+### The bound, and why it is a refusal rather than an approximation
+
+Upstream's condition is `constructor == nil || !isPropertyInitializedInConstructor(...)`
+(`checker.go:4947`). The second disjunct **synthesises** a `this.x` property
+access, hangs it off the constructor's `ReturnFlowNode`, and asks
+`getFlowTypeOfReference` whether `undefined` survives — the sibling for static
+blocks is visible in full at `checker.go:4960`.
+
+This port cannot do that. The tree is arena-allocated and immutable after
+parsing ([ADR-0012](../adr/0012-ast-is-sync.md)), and a flow query needs a
+*registered* node with a parent and a flow node of its own. So **a class with a
+constructor body is declined outright** — silence, never a wrong answer, because
+upstream reports there only when the constructor fails to assign and this port
+cannot tell those apart. What that refusal costs is measured in the residual
+below, not assumed.
+
+### The ambient bit, and a parser flag that is declared and never written
+
+The first measurement read **86 wrong lines** and the cause was one fact:
+`tsr_ast::NodeFlags::AMBIENT` exists and **nothing sets it** —
+`grep -rn AMBIENT crates/tsr-parser/src` is empty. Upstream's parser sets it as a
+context flag on every node of a declaration file and inside every `declare`d
+declaration, and `checkPropertyInitialization`'s first line reads it.
+
+Reading the unset flag reported TS2564 on **every property of every
+`declare class` in the corpus** — `castTest`, `genericFunctionInference1`,
+`signatureCombiningRestParameters3`, `noImplicitAnyParametersInAmbientClass` (12
+lines by itself) and 20 more. Repaired by carrying the bit explicitly: the caller
+supplies the file-level half (is this a `.d.ts`) and the walk carries the
+`declare`-modifier half down through class and module declarations. That is a
+faithful reproduction of the *effect* and an unfaithful one of the *mechanism*;
+`bd tsr-o9tl` carries the parser fix, after which the parameter disappears and
+every one of upstream's ~40 readers gets the flag for free.
+
+**The number is the finding here.** A flag that is declared, documented and never
+written reads exactly like a flag that works, and the only thing that
+distinguished them was a measurement. `docs/conventions.md`'s *"a prerequisite in
+your own doc comment is checked the way a handover's is"* — this is the same
+failure with the prerequisite inside the same repository.
+
+### Counterfactual, cumulative with §3's rule
+
+`examples/diag2307.rs` with `RULE_CODES` extended to `{2307, 2882, 2564}`:
+
+| build | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| TS2307 / TS2882 only (§3, shipped at `bc8045b`) | 50 | 0 | 101 | 21 |
+| + TS2564, ambient bit unset | 182 | 0 | 1,305 | **107** |
+| + the ambient bit carried | **183** | **0** | **1,305** | **27** |
+
+So TS2564's own contribution is **+133 conversions for 6 wrong lines**, a 22:1
+trade — the best ratio any build in this project has registered.
+
+The 6, each diagnosed rather than counted: `typeParameterUsedAsTypeParameterConstraint4`
+and `ClassAndModuleThatMergeWithModuleMemberThatUsesClassTypeParameter` are a
+type-parameter *scope* divergence (this port resolves a `W` that is out of scope,
+so the property gets a type where upstream gets `errorType`, which upstream's
+`AnyOrUnknown` test then excludes); `indexSignatureWithAccessibilityModifier` and
+`classExtendsEveryObjectType`/`2` are parse-recovery divergences producing a
+`PropertyDeclaration` upstream does not have; `decoratorMetadataNoLibIsolatedModulesTypes`
+is `@noLib` with a decorated member. **None is the rule's condition being wrong.**
+
+### The bar, registered before the coverage run that scores it
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **255** (130 + 133, discounted 8 for the merge) |
+| 2 | `checker_types` **unchanged, byte-identical snapshot** |
+| 3 | cases regressed == **0** |
+| 4 | own new wrong ≤ **10** (the counterfactual's 6, plus margin) |
+| 5 | every other snapshot unchanged |
+
+**Falsifier 1.** Above ~265 and the gain is not this rule's; diagnose before
+banking, exactly as §5's falsifier 1 required and did not fire.
+
+**Falsifier 2.** If leg 4 exceeds 10, the ambient bit is leaking through a
+context the walk does not carry. The likeliest is a class the walk never reaches
+at all — it visits statements and module bodies only, so a class inside a
+function body or a block is invisible, and that shows up as a *missed*
+conversion rather than a wrong line. A wrong line instead would mean a `declare`
+context reached by a route the two carried halves do not cover.
+
+**Falsifier 3, and the one that decides whether this item is finished.** The
+no-constructor bound is a refusal of one of upstream's two disjuncts. If, after
+this build, `diaggap.rs` still shows a large TS2564 single-code population, the
+remainder is the constructor half and it is blocked on synthesising a flow
+reference — which is an ADR-sized question about whether this port grows a
+synthetic-node facility, not a follow-up patch. Read the post-build TS2564 row
+and write the number down either way.
