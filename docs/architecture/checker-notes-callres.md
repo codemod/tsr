@@ -1244,3 +1244,21 @@ such calls fall to the ambiguous exit and stay gaps): **+77 (76 GAP→RIGHT,
 1 WRONG→RIGHT), ZERO adverse transitions.** `checker_types` 74.62% →
 **74.64%**, cases 3,064 → **3,069**. The twenty-second stand-in fixture came
 due (`overload_resolution.rs`: `p(true)` is `never`, not `error`).
+
+### §22 Optional call chains — the callee strips, the result re-unions
+
+`check_call_expression` refused every `?.` call outright
+(`COUNTERS.optional_chain`, the §17-family residue in
+`controlFlowOptionalChain`: `f?.(x)` wants `boolean | undefined`).
+Upstream's `checkCallChain`: the callee passes through
+`getOptionalExpressionType` (a chain root strips nullable, an inner link
+strips the propagated marker), resolution runs on the non-nullable
+remainder, and `propagateOptionalTypeMarker` unions `undefined` back when
+anything was stripped — the same three functions the property-access chain
+already uses (`members.rs`). The port is those calls at the callee
+boundary; error results stay errors (no marker on a gap).
+
+**The bar**: the `f?.(x)`/`o?.(...)` family flips. Falsifiers: (a) a
+non-chain call regressing means the strip ran where no `?.` exists; (b) a
+chain whose want has no `| undefined` (already-non-nullable callee) means
+the marker fired without a strip.
