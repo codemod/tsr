@@ -431,3 +431,29 @@ the conditional — the named falsifier, two same-printing distinct types, did
 not fire) · regressed **0** · lost **0**. The `conditional.rs` fixture that
 asserted the conservatism and called it "cheapest to close first" now asserts
 the closure.
+
+## §8 `||` and `??` — the reduction-free slice of a standing refusal — bar (ninth session)
+
+STATUS §5 refuses both operators whole: *"need `UnionReductionSubtype`"*
+(`bd tsr-5s2`). §7 just measured that the reduction question is a property of
+the **constituent pair**, not of the operator: the union of two
+reduction-free types (primitives and their literals — `is_subtype_reduction_free`),
+of two identical types, or of anything with `any`, is the same under literal
+and subtype reduction. The refusal's ground holds only for the remaining
+pairs, which keep declining.
+
+**Mechanism, anchored** (`checker.go:12509`–`:12526`): `||` with a
+possibly-falsy left is `union(nonNullable(removeDefinitelyFalsyTypes(left)),
+right)`; a never-falsy left answers `left` unchanged. `??` with a
+possibly-nullish left is `union(nonNullable(left), right)`; a never-nullish
+left answers `left`. `removeDefinitelyFalsyTypes` is `filterType` by
+`TypeFactsTruthy` (`:29106`) — the facts machinery the `&&` arm already
+uses — and `get_non_nullable_type` exists (`members.rs:133`).
+
+**Bar:** net ≥ **+120** (the row was 358 + 96 when refused, is
+`BinaryExpression / no further dependency` 1,815 today with 35.5% want-any;
+the reduction-free share is unsized); own ≤ **15** — falsifier: wrong lines
+whose want collapses a literal into a sibling *object* type → the
+reduction-free test leaked a non-safe constituent through a union; regressed
+== 0; lost == 0 (the operators decline today, except the never-falsy `&&`
+path which is untouched).
