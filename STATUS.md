@@ -292,7 +292,10 @@ TemplateExpression 1,890 (refused). ~~**No unowned row remains above 1,000.**~~
 
 ### 4.0b The gap by what upstream's ANSWER LOOKS LIKE — new, eighth session
 
-`cyclegap.rs` at `7299a14`, over the same 80,315 lines. The first whole-gap view
+`cyclegap.rs` at `7299a14`, over the same 80,315 lines — and **re-run unchanged
+at `0d0971a`**, after the parallel session's check traversal landed (it touches
+`types_producer.rs`, so the re-take was not optional): every figure on this page
+and in §4.0's correction is byte-identical across that merge. The first whole-gap view
 that is not a node-kind histogram, and it re-frames the board:
 
 ```
