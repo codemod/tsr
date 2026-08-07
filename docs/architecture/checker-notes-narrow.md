@@ -1124,3 +1124,39 @@ under-accumulation family (`narrowingPastLastAssignment:0:64`,
 `controlFlowLoopAnalysis:0:25`, `nestedLoopTypeGuards:0:22`) is now
 **mechanism-unknown again** — its next probe must trace one line, not guess
 a fourth time.
+
+### §13 Past-last-assignment closure narrowing — the flow container extends outward
+
+The `narrowingPastLastAssignment` family (§12.8's mechanism-unknown resid-
+ue) is upstream's closure-narrowing feature, in two halves this port has
+neither of:
+
+1. **The extension loop** (`checkIdentifier`, `checker.go:11139`): when the
+   reference's control-flow container is a function expression, arrow, or
+   object/class-expression method, and the symbol is a constant variable OR
+   a parameter/mutable-local referenced **past its last assignment**, the
+   `flowContainer` bound moves one container outward — repeatedly. Analysis
+   then continues from the closure's *creation site* in the enclosing
+   container: the START arm walks out (`flow.go:187`,
+   `container.FlowNodeData().FlowNode`) instead of answering.
+2. **The assignment-position mark** (`markNodeAssignments`,
+   `flow.go:2698`): one AST walk per enclosing function/source-file records
+   each parameter/mutable-local's last assignment position — `MaxInt32`
+   when assigned in a nested function or referenced in a value export
+   specifier, extended to the end of any enclosing compound statement
+   (`extendAssignmentPosition`, `flow.go:2752` — conservatism instead of
+   flow analysis). "Never assigned" reads as past (pos 0 → true).
+
+The binder already gives START nodes their container payload for exactly
+the container kinds upstream walks out of (`binder.rs:903`); what it does
+not yet record is the flow node in effect AT those container nodes — one
+`record_flow` arm.
+
+**The bar**: `narrowingPastLastAssignment` (~30 wrong lines) plus the
+closure-read residue in `typeGuardsAsAssertions`/`capturedLetConstInLoop*`
+move rightward; net positive. Falsifiers: (a) regressions in the §9.7
+population (`nestedBlockScopedBindings*`, `capturedLetConstInLoop*` writes)
+mean the walk-out and the §9.7 stop-heuristics disagree about who owns a
+line — narrow to `isConstantVariable` only and re-measure before arguing;
+(b) a hang means the walk-out loops through a cycle of creation sites the
+binder graph permits and upstream's does not.
