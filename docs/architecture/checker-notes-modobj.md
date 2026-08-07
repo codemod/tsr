@@ -826,3 +826,55 @@ the parent — the §10.9 segment rename applied to baked prefixes.
    print in the corpus, and the prefix-rewrite gate (`printed` starts with
    exactly `{parent}.`) is what keeps that from touching unrelated lines; a
    loss above 3 says the gate leaks.
+
+### 10.17 §10.16 scored — the falsifier fired, the design split on it, and the conversions were not where the sizing said
+
+Three measurements, each `verdictdump` against the same `3bfec72` base:
+
+**First form** (widened filter everywhere + member-symbol carriage):
+WRONG→RIGHT 408 / RIGHT→WRONG **163** / regressed **2** — legs 2 and 3 FIRED.
+Decomposed: mechanism (b)'s symbol carriage broke the **enum-union collapse**
+(`enumOperations` printed `Enum.None` where `Enum` is wanted; the collapse
+distinguishes the enum type from a member by `members: None`) — reverted, and
+the `symbol: None` at `declared.rs` now says it is load-bearing with this
+measurement. The remaining 130 losses were **exactly the four `privacy*`
+cases** — the bar's named falsifier, verbatim.
+
+**The corpus then discriminated what the falsifier could not**: within
+`privacyGloImport` itself, chain **segments** want the same-file alias
+(`typeof m1_im1_private.c1` — converts) while the **whole printed name** wants
+the target (`m1_im1_private :` records `typeof m1_M1_public` — the 130
+losses). The design split on print position: `best_name` takes
+`admit_local_import_equals`, true from `symbol_chain`'s segment site, false
+from both `qualified_name_at` rename sites.
+
+**Second form** (split filter): WRONG→RIGHT 349, GAP→RIGHT 22,
+**RIGHT→WRONG 0, RIGHT→GAP 0, regressed 0**, GAP→WRONG 12 (6 = the esm
+interop ambiguity our refusal cannot see — `import Foo = require` beside
+`import Foo2 from` where the sibling resolves through a string-named
+`export { Foo as "module.exports" }` this resolver does not follow; 6 =
+wrong-shaped types newly nameable, the JS-construct family's exposure).
+
+**Third form** (mechanism (b) through `enum_member_owners` — the side table
+the first form should have used): **+6, exactly the sized lines, no other
+transition.**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +18 | **+377** | pass — and see below |
+| 2 | own ≤ 8 | **6** (esm picks; +6 exposure global) | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost ≤ 3 | **0** | pass |
+
+**The number that must travel with leg 1: the sized 26 converted 11.** The
++377 is 96% windfall through the *segment* path — the privacy/import
+namespace families the §10.9 external filter had been declining wholesale.
+The sizing identified the right mechanism and priced the wrong population,
+in the flattering direction for once; `docs/conventions.md`'s "a mechanism
+can turn out wider" clause, measured again.
+
+**Residue, each with its owner:** `constEnumNoEmitReexport` 8+3 — the
+default-import alias does not *resolve* through a re-export/default chain
+(`resolve_alias` depth, `bd tsr-wwum`'s family), admission was never the
+blocker; `importElisionEnum` 3 of 5 — same; esm interop 6 — string-named
+export= (`"module.exports"`), unmodelled.

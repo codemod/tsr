@@ -1148,6 +1148,15 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 };
                 let member_name = self.binder.symbols().get(member_symbol).name.to_string();
+                // `symbol: None` is LOAD-BEARING, measured (§10.16 of
+                // `checker-notes-modobj.md`): carrying the member symbol here
+                // let `qualified_name_at` rename the baked `{enum}.` prefix —
+                // 6 wanted lines in `exportAssignmentEnum` — and broke the
+                // enum-union collapse on 100+ others (`enumOperations` printed
+                // `Enum.None` where `Enum` is wanted, 2 cases regressed). The
+                // collapse distinguishes the enum type from a member by this
+                // very field; the §10.16 build kept mechanism (a) and reverted
+                // this one on that measurement.
                 let member_type =
                     self.store.new_named(TypeFlags::ENUM, format!("{name}.{member_name}"), None);
                 // `checker.go:23890`: the member's own declared type is the

@@ -700,7 +700,32 @@ impl<'a, 'n> Checker<'a, 'n> {
             | crate::types::TypeData::Intersection { symbol, .. } => *symbol,
             _ => None,
         };
-        let Some(symbol) = symbol else { return Some(printed) };
+        let Some(symbol) = symbol else {
+            // An enum **member** type carries no symbol by design — the
+            // enum-union collapse keys on exactly that, and giving it one
+            // regressed two cases (§10.16's mechanism (b), first form,
+            // reverted on measurement). The member→enum edge this rename
+            // needs already exists in `enum_member_owners`, so the baked
+            // `{enum}.` prefix takes the segment rename through the side
+            // table instead: `exportAssignmentEnum` wants `EnumE.A` over the
+            // baked `E.A`.
+            if let Some(&owner) = self.enum_member_owners.get(&id) {
+                let owner = self.binder.merged_symbol(owner);
+                let owner_name = self.binder.symbols().get(owner).name;
+                if printed.len() > owner_name.len()
+                    && printed.starts_with(owner_name)
+                    && printed.as_bytes()[owner_name.len()] == b'.'
+                    && let Some(better) = self.best_name(owner, reference, false)
+                    && better != owner_name
+                {
+                    let mut out = String::with_capacity(printed.len() + better.len());
+                    out.push_str(better);
+                    out.push_str(&printed[owner_name.len()..]);
+                    return Some(out);
+                }
+            }
+            return Some(printed);
+        };
         let name = self.binder.symbols().get(symbol).name;
         let Some(suffix_at) = Self::split_around_name(&printed, name) else {
             return Some(printed);
@@ -712,7 +737,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // first table that reaches the symbol. Measured over every printed
         // line in the corpus before building: it changes zero of them — its
         // whole population is lines that gap today.
-        if let Some(better) = self.best_name(symbol, reference)
+        if let Some(better) = self.best_name(symbol, reference, false)
             && better != name
         {
             let mut out = String::with_capacity(printed.len() + better.len());
@@ -720,6 +745,31 @@ impl<'a, 'n> Checker<'a, 'n> {
             out.push_str(better);
             out.push_str(&printed[suffix_at..]);
             return Some(out);
+        }
+        // The §10.9 segment rename, applied to a **baked** prefix: an enum
+        // member's text is created as `{enum}.{member}` (`declared.rs`,
+        // `get_declared_type_of_enum`), so the container's name never passes
+        // through `symbol_chain`'s per-segment `best_name`. When the printed
+        // form is exactly `{parent}.{name}` — the whole prefix, nothing before
+        // it — the parent segment takes the same rename the chain builder
+        // applies: `exportAssignmentEnum` wants `EnumE.A` over the baked
+        // `E.A`. The exact-prefix gate is bar leg 4's protection (§10.16): a
+        // dotted name embedded deeper in a composite is not this shape.
+        if let Some(parent) = self.binder.symbols().get(symbol).parent {
+            let parent = self.binder.merged_symbol(parent);
+            let parent_name = self.binder.symbols().get(parent).name;
+            let prefix = &printed[..suffix_at - name.len()];
+            if prefix.len() == parent_name.len() + 1
+                && prefix.starts_with(parent_name)
+                && prefix.ends_with('.')
+                && let Some(better) = self.best_name(parent, reference, false)
+                && better != parent_name
+            {
+                let mut out = String::with_capacity(printed.len() + better.len());
+                out.push_str(better);
+                out.push_str(&printed[parent_name.len()..]);
+                return Some(out);
+            }
         }
         // A symbol literally named `default` — a default export reached with
         // no accessible alias. Upstream NEVER prints `default` as a name
@@ -858,8 +908,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         // accessible name for that segment — `React.Component`, not
         // `__React.Component`. Same walk, same `useOnlyExternalAliasing`
         // filter, falling back to the segment's own name.
-        let parent_name =
-            self.best_name(parent, reference).unwrap_or(self.binder.symbols().get(parent).name);
+        let parent_name = self
+            .best_name(parent, reference, true)
+            .unwrap_or(self.binder.symbols().get(parent).name);
         Some(match self.symbol_chain(parent, reference, SymbolFlags::NAMESPACE, depth + 1) {
             Some(prefix) => format!("{prefix}{parent_name}."),
             // The container itself resolves bare here: the chain stops, which
@@ -995,7 +1046,20 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// it — the chain-choice rule this port declines to guess
     /// (`checker-notes-nameres.md` §14 measured both tie-breaks at ~96%
     /// coincidence).
-    fn best_name(&mut self, symbol: SymbolId, reference: NodeId) -> Option<&'a str> {
+    /// `admit_local_import_equals` — whether a **same-file** `import a = b`
+    /// may supply the name. The corpus splits on print position
+    /// (`checker-notes-modobj.md` §10.16): a chain **segment** takes it
+    /// (`typeof m1_im1_private.c1`, the §10.9 residue's own baselines), while
+    /// the **whole printed name** does not (`m1_im1_private :` itself records
+    /// `typeof m1_M1_public`, and admitting the local alias there lost 130
+    /// lines in exactly the four `privacy*` cases — the §10.16 bar's named
+    /// falsifier, fired and honoured).
+    fn best_name(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        admit_local_import_equals: bool,
+    ) -> Option<&'a str> {
         let own = self.binder.symbols().get(symbol).name;
         let target = self.binder.merged_symbol(symbol);
         let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
@@ -1018,14 +1082,43 @@ impl<'a, 'n> Checker<'a, 'n> {
                 if !self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
                     continue;
                 }
-                // `useOnlyExternalAliasing` (`trySymbolTable`,
-                // `symbolaccessibility.go:568`): the `.types` writer only lets
-                // an **external** `import a = require("…")` rename a symbol.
-                // Without this filter a same-file `import a = b` alias renamed
-                // `typeof m1_M1_public` to `typeof m1_im1_private` — 130
-                // right lines lost in the first measurement, the fired leg 4
-                // §10.9 records.
-                if !self.is_external_import_equals(candidate) {
+                // Upstream's own alias exclusions (`trySymbolTable`,
+                // `symbolaccessibility.go:564`–`:575`) under
+                // `useOnlyExternalAliasing == false` — which is the value the
+                // baseline path passes (`nodebuilderimpl.go:1088` reads it from
+                // flags and only hover sets it, `nodebuilder_hover.go:431`).
+                // This arm shipped narrower first — external `import a =
+                // require` only — because a same-file `import a = b` alias
+                // renamed `typeof m1_M1_public` to `typeof m1_im1_private`,
+                // 130 right lines lost (§10.9). What protects that family
+                // upstream is not the external filter: it is the **per-table
+                // direct-hit priority** above, which this walk has had all
+                // along. §10.16 measured the widened filter's own population
+                // at 26 lines and its bar names the §10.9 recurrence as the
+                // falsifier.
+                if name == "default" || name == "export=" {
+                    continue;
+                }
+                let declarations = &self.binder.symbols().get(candidate).declarations;
+                // Export-specifier-declared symbols are not in scope
+                // (`symbolaccessibility.go:574`, mirroring `resolveName`), and
+                // a namespace re-export (`export * as ns from "m"`) is omitted
+                // on a local-name lookup (`:571`), which every call here is.
+                let excluded = declarations.iter().any(|&declaration| {
+                    matches!(
+                        self.node_map.get(declaration),
+                        Some(Node::ExportSpecifier(_) | Node::NamespaceExport(_))
+                    ) || (!admit_local_import_equals
+                        && matches!(
+                            self.node_map.get(declaration),
+                            Some(Node::ImportEqualsDeclaration(node))
+                                if !matches!(
+                                    node.module_reference,
+                                    Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                                )
+                        ))
+                });
+                if excluded {
                     continue;
                 }
                 if self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
@@ -1044,20 +1137,6 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         None
-    }
-
-    /// `ast.IsExternalModuleImportEqualsDeclaration`: `import a = require("m")`.
-    fn is_external_import_equals(&self, symbol: SymbolId) -> bool {
-        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-            matches!(
-                self.node_map.get(declaration),
-                Some(Node::ImportEqualsDeclaration(node))
-                    if matches!(
-                        node.module_reference,
-                        Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
-                    )
-            )
-        })
     }
 
     /// Whether any in-scope alias resolves to `target` itself at `reference` —
