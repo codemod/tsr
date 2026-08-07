@@ -1179,8 +1179,32 @@ impl<'a> Checker<'a, '_> {
                 // collapse distinguishes the enum type from a member by this
                 // very field; the §10.16 build kept mechanism (a) and reverted
                 // this one on that measurement.
-                let member_type =
-                    self.store.new_named(TypeFlags::ENUM, format!("{name}.{member_name}"), None);
+                // A member whose name is not identifier text spells as an
+                // indexed access — `>"" : (typeof ENUM1)[""]`
+                // (`negateOperatorWithEnumType.types:13`;
+                // `checker-notes-narrow.md` §11). The dotted form would print
+                // `ENUM1.` with an empty right side.
+                // ASCII first, then a Unicode approximation: `Ϳ` is
+                // identifier text upstream (`enumMemberNameNonIdentifier`
+                // records `E.Ϳ` — the §11 bar's falsifier caught the
+                // ASCII-only test costing 4 such lines), and `char`'s
+                // alphabetic/alphanumeric classes are close enough to
+                // ID_Start/ID_Continue for every name the corpus holds.
+                let identifier_like = crate::symbols::is_identifier_text(&member_name)
+                    || (!member_name.is_empty()
+                        && member_name.chars().enumerate().all(|(index, c)| {
+                            if index == 0 {
+                                c.is_alphabetic() || c == '_' || c == '$'
+                            } else {
+                                c.is_alphanumeric() || c == '_' || c == '$'
+                            }
+                        }));
+                let member_text = if identifier_like {
+                    format!("{name}.{member_name}")
+                } else {
+                    format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
+                };
+                let member_type = self.store.new_named(TypeFlags::ENUM, member_text, None);
                 // `checker.go:23890`: the member's own declared type is the
                 // *fresh* form of its literal type.
                 //

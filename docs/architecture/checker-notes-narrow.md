@@ -807,3 +807,11 @@ form with an empty right side.
 
 **Bar:** net ≥ **+6**; own ≤ **4** — falsifier: losses on IDENTIFIER-named
 members (the split must not touch them); regressed == 0; lost == 0.
+
+### §11.1 Scored — the falsifier caught the ASCII assumption, then clean
+
+First measurement: +58 / 4 lost — `Ϳ` is identifier text upstream and the
+shared ASCII-only `is_identifier_text` said no. A local Unicode
+approximation (alphabetic/alphanumeric classes) fixed the split without
+touching the shared helper's other consumers. Final: **WRONG→RIGHT 58,
+nothing else, +9 cases.** Legs: +58 (≥ +6) · 0 own · 0 · 0.

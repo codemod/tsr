@@ -1645,7 +1645,7 @@ impl<'a> Checker<'a, '_> {
 /// module's private helper into the crate surface for six lines, and the two
 /// have different reasons to change — that one guards a property name in an
 /// object literal, this one an enum member name.
-fn is_identifier_text(text: &str) -> bool {
+pub(crate) fn is_identifier_text(text: &str) -> bool {
     let mut chars = text.chars();
     let Some(first) = chars.next() else { return false };
     (first.is_ascii_alphabetic() || first == '_' || first == '$')
