@@ -339,6 +339,40 @@ impl<'a> Checker<'a, '_> {
             self.signature_types.insert(built, vec![signature]);
             return built;
         }
+        // §33's second containment (`checker-notes-callres.md`): overloaded
+        // literals whose signatures REUSE a type-parameter name print
+        // upstream's site-sensitive `_1` renames (the §19/§20 refusal); when
+        // any member also carries `const` — the shape this build newly
+        // admits — the literal declines whole rather than printing the
+        // un-renamed collision.
+        {
+            let mut any_const = false;
+            let mut seen = std::collections::HashSet::new();
+            let mut collision = false;
+            for member in node.members {
+                let parameters = match member {
+                    tsr_ast::TypeElement::CallSignatureDeclaration(m) => m.type_parameters,
+                    tsr_ast::TypeElement::ConstructSignatureDeclaration(m) => m.type_parameters,
+                    _ => continue,
+                };
+                for parameter in parameters {
+                    if parameter.modifiers.iter().any(|modifier| {
+                        matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                            if token.kind == SyntaxKind::ConstKeyword)
+                    }) {
+                        any_const = true;
+                    }
+                    if let Some(name) = parameter.name
+                        && !seen.insert(name.text)
+                    {
+                        collision = true;
+                    }
+                }
+            }
+            if any_const && collision {
+                return error;
+            }
+        }
         let mut signatures = Vec::new();
         let mut indexes = Vec::new();
         let mut properties = Vec::with_capacity(node.members.len());
@@ -1476,6 +1510,20 @@ impl<'a> Checker<'a, '_> {
         if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
             return error;
         }
+        // §33's containment (`checker-notes-callres.md`): a body whose
+        // signatures carry a CONST type parameter is a shape this build
+        // newly admits; upstream's declared type keeps the ALIAS's own name
+        // (`>T2 : T2`), and expanding it printed the signature — 14 G→W in
+        // the first pair. Scoped to the const shape: the broader
+        // alias-name-on-anonymous-body question is its own bar.
+        if Self::alias_body_has_const_type_parameter(type_node) {
+            if !self.resolutions.pop() {
+                return error;
+            }
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            let members = type_node.node_id().and_then(|id| self.binder.symbol_of(id));
+            return self.store.new_named(TypeFlags::OBJECT, name, members);
+        }
         let resolved = self.get_type_from_type_node(type_node);
         if !self.resolutions.pop() {
             // A cycle closed below this frame, so the answer above was built on a
@@ -1484,6 +1532,35 @@ impl<'a> Checker<'a, '_> {
             return error;
         }
         resolved
+    }
+
+    /// §33: whether an alias body is a function type, constructor type, or
+    /// type literal whose signature members carry a `const` type parameter.
+    fn alias_body_has_const_type_parameter(type_node: TypeNode<'a>) -> bool {
+        let has_const = |parameters: &[&tsr_ast::TypeParameterDeclaration<'_>]| {
+            parameters.iter().any(|parameter| {
+                parameter.modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                        if token.kind == SyntaxKind::ConstKeyword)
+                })
+            })
+        };
+        match type_node {
+            TypeNode::FunctionTypeNode(node) => has_const(node.type_parameters),
+            TypeNode::ConstructorTypeNode(node) => has_const(node.type_parameters),
+            TypeNode::TypeLiteralNode(literal) => {
+                literal.members.iter().any(|member| match member {
+                    tsr_ast::TypeElement::CallSignatureDeclaration(node) => {
+                        has_const(node.type_parameters)
+                    }
+                    tsr_ast::TypeElement::ConstructSignatureDeclaration(node) => {
+                        has_const(node.type_parameters)
+                    }
+                    _ => false,
+                })
+            }
+            _ => false,
+        }
     }
 
     /// A named type for `symbol`, printed as `C` or `C<T, U>`.

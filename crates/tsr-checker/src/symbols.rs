@@ -1332,6 +1332,26 @@ impl<'a> Checker<'a, '_> {
                 self.signature_to_string(signature)
             }
             many => {
+                // §33's second containment (`checker-notes-callres.md`):
+                // overload members that REUSE a type-parameter name print
+                // upstream's site-sensitive `_1` renames (the §19/§20
+                // refusal); when any member also carries `const` — the shape
+                // §33 newly admits — the print declines whole rather than
+                // spelling the un-renamed collision.
+                let mut seen = std::collections::HashSet::new();
+                let mut collision = false;
+                let mut any_const = false;
+                for signature in many {
+                    for parameter in &signature.type_parameters {
+                        any_const |= parameter.is_const;
+                        if !seen.insert(parameter.name.clone()) {
+                            collision = true;
+                        }
+                    }
+                }
+                if any_const && collision {
+                    return self.intrinsics.error;
+                }
                 let mut out = String::from("{ ");
                 for signature in many {
                     out.push_str(&crate::objects::signature_member_text(self, signature));

@@ -1502,3 +1502,40 @@ before the run; corrected to the measured +53.) `checker_types` right
 396,500 → **396,553 (82.80%)**. Residue in the case: union-keyed splits,
 `[sym]` computed members, and key types the port cannot compute
 (template-literal types among them).
+
+### §33 The `const` type-parameter modifier prints
+
+`typeParameterConstModifiers` (~40 GAP): `type_parameter_of` declined ANY
+modifier, gapping the whole signature for `<const T>(x: T) => T`.
+Upstream prints the modifier as written
+(`typeParameterToDeclarationWithConstraint` carries the declaration's
+modifiers) and `const` changes INFERENCE (literal retention,
+`checker.go`'s `InferenceFlagsNoDefault`-adjacent const handling), not
+the signature's shape.
+
+**The bar.** Admit exactly the `const` modifier (`in`/`out` variance
+stays declined — variance is checked machinery, not print baggage), carry
+`is_const` on `TypeParameter`, and print `const ` before the name at all
+three signature print sites. Inference is NOT taught literal retention in
+this build; calls through const-generic signatures answer whatever the
+existing inference answers.
+
+**Falsifiers.** (a) If existing inference WIDENS where const demands
+literal retention, call-result lines go G→W (want `"a"`, print `string`)
+— if the adverse count crosses the win, gate CALLS through const-marked
+signatures to decline while keeping the print. (b) If `in`/`out` appear
+beside `const` in the corpus, those still gap whole — measured residue,
+not a leg.
+
+**§33 score — LANDED (narrowed twice).** First pair +149 G→R / 70 G→W:
+falsifier (a) fired — the port's inference widens where `const` retains
+literals — so calls through const-marked signatures DECLINE while the
+signature prints. Second pair +144/10: the residue was two shapes this
+admission newly exposed — the alias-name print (`>T2 : T2`, contained by
+minting the alias's own name for const-carrying bodies) and the §19/§20
+`_1` rename refusal reappearing in overload prints (contained by declining
+a many-signature print whose members reuse a type-parameter name while any
+carries `const` — a gap beats a wrong, costing 10 potential wins). Final:
+**+134 (G→R), ZERO adverse.** `checker_types` right 396,553 →
+**396,687 (82.83%)**. Residue: const inference (literal retention,
+readonly-tuple minting) — the real subsystem behind the declined calls.

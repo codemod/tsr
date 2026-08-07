@@ -196,6 +196,9 @@ pub(crate) fn signature_member_text(checker: &Checker<'_, '_>, signature: &Signa
             if index > 0 {
                 out.push_str(", ");
             }
+            if parameter.is_const {
+                out.push_str("const ");
+            }
             out.push_str(&parameter.name);
             if let Some(constraint) = parameter.constraint {
                 out.push_str(" extends ");

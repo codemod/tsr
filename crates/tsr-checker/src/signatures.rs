@@ -75,6 +75,9 @@ pub struct Parameter {
 /// `extends` constraint, and a default.
 #[derive(Debug, Clone)]
 pub struct TypeParameter {
+    /// The `const` modifier (§33, `checker-notes-callres.md`) — printed as
+    /// written; inference does not yet act on it.
+    pub is_const: bool,
     /// The parameter's name, as written.
     pub name: String,
     /// The `extends` clause, if there is one.
@@ -1505,8 +1508,16 @@ impl<'a> Checker<'a, '_> {
 
     /// One type parameter, or `None` for a form this port cannot print exactly.
     fn type_parameter_of(&mut self, node: &TypeParameterDeclaration<'a>) -> Option<TypeParameter> {
-        if !node.modifiers.is_empty() {
-            return None;
+        // §33: exactly the `const` modifier is admitted (and printed);
+        // variance modifiers still decline the signature whole.
+        let mut is_const = false;
+        for modifier in node.modifiers {
+            match modifier {
+                ModifierLike::Token(token) if token.kind == SyntaxKind::ConstKeyword => {
+                    is_const = true;
+                }
+                _ => return None,
+            }
         }
         let name = node.name?.text.to_string();
         let error = self.intrinsics.error;
@@ -1521,7 +1532,7 @@ impl<'a> Checker<'a, '_> {
         let default = resolve(self, node.default_type)?;
         let written_constraint =
             node.constraint.and_then(|annotation| self.written_annotation_text(annotation));
-        Some(TypeParameter { name, constraint, written_constraint, default })
+        Some(TypeParameter { is_const, name, constraint, written_constraint, default })
     }
 
     /// Call, construct, or abstract construct, read off the declaration.
@@ -1933,6 +1944,9 @@ impl<'a> Checker<'a, '_> {
                 if index > 0 {
                     out.push_str(", ");
                 }
+                if parameter.is_const {
+                    out.push_str("const ");
+                }
                 out.push_str(&parameter.name);
                 if let Some(constraint) = parameter.constraint {
                     out.push_str(" extends ");
@@ -1991,6 +2005,9 @@ impl<'a> Checker<'a, '_> {
             for (index, parameter) in signature.type_parameters.iter().enumerate() {
                 if index > 0 {
                     out.push_str(", ");
+                }
+                if parameter.is_const {
+                    out.push_str("const ");
                 }
                 out.push_str(&parameter.name);
                 if let Some(constraint) = parameter.constraint {

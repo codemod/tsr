@@ -478,6 +478,13 @@ impl Checker<'_, '_> {
         // Upstream would now report on the arguments; see the module docs for
         // why this does not, and why the return type is the same either way.
         if !signature.type_parameters.is_empty() {
+            // §33's fired leg: `const` type parameters retain literals (and
+            // mint readonly tuples) where this port's inference widens — 70
+            // G→W in the first pair — so calls through a const-marked
+            // signature DECLINE while the signature itself prints.
+            if signature.type_parameters.iter().any(|parameter| parameter.is_const) {
+                return error;
+            }
             // A generic signature's return type depends on the arguments, so it
             // needs inference (`inferTypeArguments`, `checker.go:9390`). Answering
             // the uninstantiated return type would print `T` where upstream prints
