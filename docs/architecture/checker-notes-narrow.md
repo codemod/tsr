@@ -2042,3 +2042,12 @@ upstream case), assigned-parameter roots, and any sibling condition whose
 member/literal pair the comparability cannot decide. Falsifiers: (a) the
 268 §49 residuals flip or stay — nothing else may move; (b) an
 undecidable discriminant keeps the FULL union (never `never`).
+
+**§50 score — LANDED.** **+52 (30 G→R, 22 W→R), ZERO adverse.** Two fired
+legs en route, both structural: the sibling's value declaration is the
+NAME node (two-hop walk), and `comparable_ternary` answered true for ANY
+same-base literal pair — `'A'` comparable to `'B'` — a §16-era latent bug
+the discriminant filter exposed (distinct unit literals are now
+incomparable, which also tightens the switch road). The residue: sibling
+conditions in switch/else-chains and the tuple-parameter dependent case,
+both named. `checker_types` right 395,719 → **395,771 (82.63%)**.

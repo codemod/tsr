@@ -70,7 +70,24 @@ impl Checker<'_, '_> {
     ///
     /// `errorType` is a refusal, never an answer: every early return below is
     /// a leg the module doc refuses by name.
+    /// §50's re-projection: the element against a NARROWED parent type.
+    pub(crate) fn project_binding_element(
+        &mut self,
+        declaration: NodeId,
+        parent_override: TypeId,
+    ) -> TypeId {
+        self.get_type_for_binding_element_impl(declaration, Some(parent_override))
+    }
+
     pub(crate) fn get_type_for_binding_element(&mut self, declaration: NodeId) -> TypeId {
+        self.get_type_for_binding_element_impl(declaration, None)
+    }
+
+    fn get_type_for_binding_element_impl(
+        &mut self,
+        declaration: NodeId,
+        parent_override: Option<TypeId>,
+    ) -> TypeId {
         let error = self.intrinsics.error;
         let Some(Node::BindingElement(element)) = self.node_map.get(declaration) else {
             return error;
@@ -100,7 +117,10 @@ impl Checker<'_, '_> {
         }
         let Some(pattern_id) = self.nodes.parent(declaration) else { return error };
         let Some(holder) = self.nodes.parent(pattern_id) else { return error };
-        let parent_type = self.get_type_for_binding_element_parent(holder);
+        let parent_type = match parent_override {
+            Some(overridden) => overridden,
+            None => self.get_type_for_binding_element_parent(holder),
+        };
         if parent_type == error {
             return error;
         }
@@ -200,7 +220,7 @@ impl Checker<'_, '_> {
     /// type); and a holder with neither annotation nor initializer, where
     /// upstream reaches iteration (`for-of`), index keys (`for-in`), catch
     /// variables, or the pattern's implied type — all unported.
-    fn get_type_for_binding_element_parent(&mut self, holder: NodeId) -> TypeId {
+    pub(crate) fn get_type_for_binding_element_parent(&mut self, holder: NodeId) -> TypeId {
         let error = self.intrinsics.error;
         match self.nodes.kind(holder) {
             // A nested pattern: the holder is itself a binding element, and

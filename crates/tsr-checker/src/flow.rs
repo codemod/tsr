@@ -106,6 +106,10 @@ struct FlowState {
     /// declaration's — upstream's `isOuterVariable`, deciding the START arm's
     /// answer (`checker-notes-narrow.md` §9.7).
     outer_reference: bool,
+    /// §50's pseudo-reference payload: the binding PATTERN whose sibling
+    /// elements act as discriminants on the walked union
+    /// (`checker-notes-narrow.md`).
+    discriminant_pattern: Option<NodeId>,
     /// The container bound the walk may not leave — upstream's
     /// `flowContainer`, possibly extended outward by the §13 loop
     /// (`checker.go:11139`). `None` bounds nothing beyond the graph itself.
@@ -239,6 +243,39 @@ impl Checker<'_, '_> {
         self.get_flow_type_of_reference_ex(reference, symbol, declared_type, None)
     }
 
+    /// §50's pseudo-reference walk: narrow `parent_union` at `reference`'s
+    /// flow position, with `pattern`'s sibling elements acting as
+    /// discriminants (`checker-notes-narrow.md` §50).
+    pub(crate) fn narrow_destructured_parent(
+        &mut self,
+        reference: NodeId,
+        pattern: NodeId,
+        parent_union: TypeId,
+    ) -> TypeId {
+        if self.flow_analysis_disabled {
+            return parent_union;
+        }
+        let Some(flow) = self.binder.flow_of(reference) else {
+            return parent_union;
+        };
+        let mut state = FlowState {
+            reference,
+            symbol: None,
+            declared_type: parent_union,
+            initial_type: parent_union,
+            is_auto: false,
+            discriminant_pattern: Some(pattern),
+            is_auto_array: false,
+            outer_reference: false,
+            flow_container: self.control_flow_container(reference),
+            shared_flow_start: self.shared_flows.len(),
+            depth: 0,
+        };
+        let result = self.get_type_at_flow_node(&mut state, flow).t;
+        self.shared_flows.truncate(state.shared_flow_start);
+        result
+    }
+
     /// `getFlowTypeOfReferenceEx`'s `initialType` parameter, which the caller
     /// above always leaves at its default.
     ///
@@ -314,6 +351,7 @@ impl Checker<'_, '_> {
                 None => declared_type,
             },
             is_auto,
+            discriminant_pattern: None,
             is_auto_array: symbol.is_some_and(|symbol| self.is_auto_array_declaration(symbol)),
             outer_reference: self.is_outer_reference(reference, symbol),
             flow_container: self.extended_flow_container(reference, symbol),
@@ -1936,11 +1974,25 @@ impl Checker<'_, '_> {
             if !d_flags.intersects(simple) || !c_flags.intersects(simple) {
                 return None;
             }
-            // Comparable in either direction: same type, or a literal against
-            // its own base primitive.
-            if d == constituent
-                || self.get_base_type_of_literal_type(d)
-                    == self.get_base_type_of_literal_type(constituent)
+            // Comparable in either direction: same type, a literal against
+            // its own base primitive — but two DISTINCT literals of one base
+            // are NOT comparable (`'A'` vs `'B'`), the §50 measurement's
+            // fired leg.
+            let d_unit = d_flags.intersects(TypeFlags::UNIT);
+            let c_unit = c_flags.intersects(TypeFlags::UNIT);
+            if d == constituent {
+                return Some(true);
+            }
+            if d_unit && c_unit {
+                let d_regular = self.get_regular_type_of_literal_type(d);
+                let c_regular = self.get_regular_type_of_literal_type(constituent);
+                if d_regular == c_regular {
+                    return Some(true);
+                }
+                continue;
+            }
+            if self.get_base_type_of_literal_type(d)
+                == self.get_base_type_of_literal_type(constituent)
             {
                 return Some(true);
             }
@@ -2106,6 +2158,80 @@ impl Checker<'_, '_> {
                             | SyntaxKind::ExclamationEqualsEqualsToken
                     );
                     return self.narrow_type_by_typeof_literal(t, literal, assume_true != negated);
+                }
+                // §50: a condition on a SIBLING element of the pseudo-
+                // reference pattern discriminates the walked union
+                // (`checker-notes-narrow.md`).
+                if let Some(pattern) = state.discriminant_pattern {
+                    let sibling = |checker: &Self, id: NodeId| -> Option<String> {
+                        let Some(Node::Identifier(identifier)) = checker.node_map.get(id) else {
+                            return None;
+                        };
+                        let symbol = checker.binder.resolve_name(
+                            checker.nodes,
+                            checker.node_map,
+                            id,
+                            identifier.text,
+                            SymbolFlags::VALUE,
+                        )?;
+                        let declaration = checker.binder.symbols().get(symbol).value_declaration?;
+                        // The value declaration may be the element OR its
+                        // name node — walk up to two hops to the pattern.
+                        let mut current = Some(declaration);
+                        for _ in 0..2 {
+                            let Some(node) = current else { break };
+                            if checker.nodes.parent(node) == Some(pattern) {
+                                return Some(identifier.text.to_string());
+                            }
+                            current = checker.nodes.parent(node);
+                        }
+                        None
+                    };
+                    let pair = sibling(self, left)
+                        .map(|name| (name, right))
+                        .or_else(|| sibling(self, right).map(|name| (name, left)));
+                    if let Some((member, literal_node)) = pair {
+                        let literal_type = self
+                            .node_map
+                            .get(literal_node)
+                            .and_then(|node| tsr_ast::Expression::try_from(node).ok())
+                            .map(|expression| self.check_expression(expression));
+                        if let Some(literal_type) = literal_type
+                            && literal_type != self.intrinsics.error
+                        {
+                            let negated = matches!(
+                                operator.kind,
+                                SyntaxKind::ExclamationEqualsToken
+                                    | SyntaxKind::ExclamationEqualsEqualsToken
+                            );
+                            let keep_match = assume_true != negated;
+                            let constituents: Vec<TypeId> = match &self.store.get(t).data {
+                                TypeData::Union { types, .. } => types.clone(),
+                                _ => vec![t],
+                            };
+                            let regular = self.get_regular_type_of_literal_type(literal_type);
+                            let mut kept = Vec::new();
+                            for constituent in constituents {
+                                let Some(member_type) =
+                                    self.get_type_of_property_of_type(constituent, &member)
+                                else {
+                                    return t;
+                                };
+                                match self.comparable_ternary(regular, member_type) {
+                                    Some(admits) => {
+                                        if admits == keep_match {
+                                            kept.push(constituent);
+                                        }
+                                    }
+                                    None => return t,
+                                }
+                            }
+                            if kept.is_empty() {
+                                return t;
+                            }
+                            return self.get_union_type(&kept);
+                        }
+                    }
                 }
                 // Upstream normalises with `getReferenceCandidate` on the left
                 // and reads the value from the right; the reference can sit on

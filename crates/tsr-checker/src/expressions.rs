@@ -180,6 +180,56 @@ impl Checker<'_, '_> {
         answer
     }
 
+    /// The §50 shape test + pseudo-narrow + re-projection
+    /// (`getNarrowedTypeOfSymbol`'s binding-element case,
+    /// `checker.go:13751`). `None` hands back to the ordinary flow road.
+    fn dependent_destructured_type(
+        &mut self,
+        symbol: tsr_binder::SymbolId,
+        reference: NodeId,
+    ) -> Option<TypeId> {
+        let declaration = self.binder.symbols().get(symbol).value_declaration?;
+        let Node::BindingElement(element) = self.node_map.get(declaration)? else {
+            return None;
+        };
+        if element.dot_dot_dot_token.is_some() || element.initializer.is_some() {
+            return None;
+        }
+        let pattern_id = self.nodes.parent(declaration)?;
+        let Node::BindingPattern(pattern) = self.node_map.get(pattern_id)? else {
+            return None;
+        };
+        if pattern.elements.len() < 2 {
+            return None;
+        }
+        let holder = self.nodes.parent(pattern_id)?;
+        // Const-like roots only: a parameter, or a `const` variable.
+        let root_ok = match self.nodes.kind(holder) {
+            SyntaxKind::Parameter => true,
+            SyntaxKind::VariableDeclaration => {
+                self.combined_node_flags(holder).intersects(tsr_ast::NodeFlags::CONSTANT)
+            }
+            _ => return None,
+        };
+        if !root_ok {
+            return None;
+        }
+        let parent_type = self.get_type_for_binding_element_parent(holder);
+        if parent_type == self.intrinsics.error
+            || !self.store.get(parent_type).flags.intersects(crate::flags::TypeFlags::UNION)
+        {
+            return None;
+        }
+        let narrowed = self.narrow_destructured_parent(reference, pattern_id, parent_type);
+        if narrowed == parent_type {
+            // Nothing narrowed: the ordinary projection road answers, and
+            // taking it keeps this arm invisible when no discriminant fired.
+            return None;
+        }
+        let projected = self.project_binding_element(declaration, narrowed);
+        (projected != self.intrinsics.error).then_some(projected)
+    }
+
     fn check_expression_worker(&mut self, expression: Expression<'_>) -> TypeId {
         match expression {
             // Literal *expressions* produce **fresh** literal types, which is
@@ -300,7 +350,21 @@ impl Checker<'_, '_> {
                                     self.get_base_type_of_literal_type(flowed)
                                 }
                                 AssignmentTargetKind::None => {
-                                    self.get_flow_type_of_reference(node_id, Some(symbol), declared)
+                                    // §50 (`checker-notes-narrow.md`): a
+                                    // dependent destructured local narrows
+                                    // its PARENT at the use site and
+                                    // re-projects.
+                                    if let Some(narrowed) =
+                                        self.dependent_destructured_type(symbol, node_id)
+                                    {
+                                        narrowed
+                                    } else {
+                                        self.get_flow_type_of_reference(
+                                            node_id,
+                                            Some(symbol),
+                                            declared,
+                                        )
+                                    }
                                 }
                             }
                         } else {
