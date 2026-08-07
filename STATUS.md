@@ -248,7 +248,20 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
-### 4.0 The gap-root board, re-measured at `d9a730b` (sixth session)
+### 4.0 The gap-root board, re-measured at `138fb45` (seventh session, closing)
+
+`examples/depend.rs`, fresh. **Gap 80,315** (was 81,769 at the session's first
+board run — the naming family's conversions came mostly from the *wrong*
+bucket, which this board does not walk). The head rows are unchanged in kind
+and all owned: `PropertyAccessExpression / dependency` 10,210 (the §4.3
+symptom), unresolved VALUE identifiers 7,678 (74% want-any),
+`CallExpression` 6,610 (call family, refused legs), member name 4,786,
+`ArrowFunction` 3,836 at 0.9% want-any (contextual typing, refused),
+`NewExpression` 3,318, FunctionDeclaration-cycle 2,943, ObjectLiteral 2,383
+(contextual), BindingElement-cycle 2,363, ArrayType 2,120 (94.3% one case),
+TemplateExpression 1,890 (refused). **No unowned row remains above 1,000.**
+
+### 4.0a The board it replaces, re-measured at `d9a730b` (sixth session)
 
 `examples/depend.rs`, run fresh so this section's numbers are this session's.
 **Gap 86,642 → 82,871 across the session** (−3,771). The single most useful
