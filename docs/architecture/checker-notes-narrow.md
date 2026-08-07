@@ -1256,3 +1256,31 @@ GAP→WRONG (`error`→`any`, one step nearer the `number | undefined` want).
 `checker_types` right 367,576 → **368,720**, wrong 24,326 → **23,212**.
 `controlFlowSelfReferentialLoop` gained 131 — the §12.7 residue's md5
 compound chains were this same rule.
+
+### §16 The switch-clause arm — typeof witnesses and identifier discriminants
+
+`switchgap.rs`'s standing rows (`bd tsr-5kii`): 527 lines behind
+"other discriminant shape" (head `narrowingByTypeofInSwitch` — these are
+`switch (typeof x)` witnesses) and 100 direct identifier-discriminant
+lines (71 wrong + 29 gap). The walk's catch-all skips SWITCH_CLAUSE
+today; the binder already records the clause range (`SwitchClause`,
+`tsr-binder/flow.rs:124`).
+
+Ported (`getTypeAtSwitchClause`, `flow.go:1059`): the two matching arms —
+discriminant (`narrowTypeBySwitchOnDiscriminant`, `flow.go:1092`) and
+typeof (`narrowTypeBySwitchOnTypeOf`, `flow.go:1157`). The typeof half
+reuses `narrow_type_by_typeof_literal` (the `narrowTypeByTypeName` port)
+and the NE-facts fragment; the default clause filters by
+`getNotEqualFactsFromTypeofSwitch`. The discriminant half takes the
+comparable-filter path with Kleene declines: a pair the relation cannot
+decide leaves the type unnarrowed (the gap direction, never the confident
+one). Unported and stated: `switch (true)`, optional-chain containment,
+discriminant PROPERTY access (the 1,298-line row needs structural
+matching), and the unknown-ground-types path.
+
+**The bar**: `narrowingByTypeofInSwitch`'s 129 move; the 71 wrong
+identifier-discriminant lines flip or gap; net positive. Falsifiers: (a)
+losses in typeof-guard narrowing (`typeGuardsInSwitchStatement` family)
+mean the clause arm and the condition arm double-apply; (b) discriminant
+wrongs where the want keeps a constituent our comparable filter dropped
+mean the relation's comparability is over-deciding — decline harder.
