@@ -2825,3 +2825,68 @@ and cannot say *"I could not tell"*, so decidability is a property of the
 **pair**, not of either type. That is why no widening of a flag set like
 `SELECTABLE` could ever have worked, and it retargets the item from "port a
 relation" to "make the relation three-valued" (`bd tsr-kmzf`).
+
+### Before building a mechanism, check whether any caller asks for it
+
+The entry immediately above ends by retargeting `bd tsr-kmzf` from *"port a
+relation"* to *"make the relation three-valued"*. Measured, that retarget was
+**also wrong**, and the correction is the third on the same item.
+
+The bar registered a control — C3 — reading: *"re-run the same scan with
+`Unknown` folded back to `NotRelated`, which is what `is_type_assignable_to`
+does today, and it must select **zero** calls that convert."* It selected
+**33 — every single one.** The cross-tab it forced carried no `[NEEDS the
+ternary]` row anywhere: three-valuedness converted **nothing**.
+
+`conformance/stringLiteralTypesOverloads01` settles why in one line of source.
+Its overloads take `(x: "boolean" | "string")`. The binary relation decides a
+union of string literals without difficulty. `SELECTABLE` — a **flag set** —
+contains `STRING_LITERAL` but not `UNION`, so `calls.rs` never *asked*.
+
+> **"The mechanism cannot compute this" and "no caller ever asks it to" are
+> different diagnoses with the same symptom, and only one of them is fixed by
+> building the mechanism.** Both present as a gap line. Neither is
+> distinguishable from the gap, from the row it sits in, or from the mechanism's
+> own source — you have to go and read the **call site**.
+
+The check is one grep and it is the same one either way: find the caller, and
+confirm it would reach the mechanism if the mechanism were perfect. Here the
+caller was gated on a flag set that had been written *because* the relation was
+weak, and had outlived the weakness — the guard survived the thing it guarded
+against, and nothing re-read it. That is the same failure mode as the stale
+crate-level inventory two entries above, wearing a different hat: **a defensive
+guard is a claim about the code it defends, and it decays exactly as fast.**
+
+Two smaller rules fell out of the same run:
+
+- **A control's expected value can be wrong in a way that makes it *more*
+  useful.** C3's premise — "these calls fail to select under the binary
+  relation" — conflated the gate with the relation and was false. Registering it
+  anyway is what surfaced the confusion, because a control fixed at zero that
+  reads 33 cannot be read past. *Pre-registration buys falsifiability, not
+  correctness* is already in this document; this is the encouraging corollary,
+  that a **wrong** registered control still pays, provided it is reported rather
+  than tuned.
+- **A capability that repeated ranking puts first is not thereby large.**
+  `STATUS.md` §4.4 named assignability first of five capabilities the remaining
+  gradient hides behind, for four cycles. On the population it was named to
+  unblock it is **33 lines**. Four rankings agreeing is four readings of the same
+  unmeasured intuition, not four pieces of evidence.
+
+### A counted gate catches a green that a sampled one reports
+
+`cargo test --workspace | grep -c '^test result: ok'` read **0**. Not a failure
+line, not a panic — zero result blocks, because one workspace *example* no longer
+compiled after a counter was renamed, and `cargo test` never got as far as
+running anything.
+
+A gate read by eye, or piped through `head`, shows a screen with no `FAILED` on
+it and passes. This document already records `5290e1a`, where a gate piped
+through `head` reported green while a test failed, and `180bcb0`, where the count
+was printed and committed past. This is the third variant and the cheapest to
+miss, because the honest-looking output of a total failure to build is **silence**.
+
+> **Count the passes, not the failures.** `grep -c FAILED` reads 0 when nothing
+> ran, and so does reading the tail. Only the positive count distinguishes "108
+> blocks green" from "the test binary was never built", and those are the two
+> readings a workspace gate has to tell apart.
