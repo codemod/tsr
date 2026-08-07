@@ -2210,3 +2210,27 @@ declines are exactly where the two relations part company:
 > literals to their base primitive — and it costs two declines. That is the whole
 > of what `isTypeComparableTo` would buy on this row, which prices the real
 > build.
+
+---
+
+## 32. TS18050 — a nullable operand, +10 for **zero** wrong
+
+```
+diagnostics 1,003 -> 1,013   (+10)     LOST 0      RIGHT 534      WRONG 0
+```
+
+`checkArithmeticOperandType` (`checker.go:12799`): an operand of a numeric
+operator whose type *is* `null` or `undefined` is not a number and cannot become
+one. Error node the operand — `binaryArithmatic1.ts(1,13)` is the `null` of
+`var v = 4 | null;`.
+
+**`+` is excluded, and it is the only decision in the rule.** Every other
+arithmetic and bitwise operator takes numeric operands and nothing else; `+` is
+overloaded with string concatenation, so its operand check runs after the
+overload is chosen — a different arm with a different message set. Declining it
+costs whatever `+` cases exist and cannot produce a wrong one.
+
+534 right lines and zero wrong ones, which puts this beside §12 and §19 in the
+"reports on a fact the port already computes exactly" family: the predicate is
+`flags == NULL` or `flags == UNDEFINED` on a type, and there is no relation, no
+members table and no inference between the question and the answer.

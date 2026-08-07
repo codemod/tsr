@@ -126,6 +126,7 @@ pub mod literals;
 pub mod member_completeness;
 pub mod members;
 pub mod nonexistent_property;
+pub mod nullable_operand;
 pub mod objects;
 pub mod optionality;
 pub mod printing;

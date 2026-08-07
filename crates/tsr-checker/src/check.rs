@@ -310,6 +310,12 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::BinaryExpression(binary)
+                if binary.operator_token.is_some_and(|t| is_numeric_binary_operator(t.kind)) =>
+            {
+                self.check_nullable_operand(node, ambient);
+                ambient
+            }
+            Node::BinaryExpression(binary)
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::CommaToken) =>
             {
                 self.check_comma_left(node, binary.left.and_then(|left| left.node_id()));
@@ -2216,6 +2222,25 @@ const LIB_FEATURE_NAMES: &[(&str, &str)] = &[
     ("WeakMap", "es2015"),
     ("WeakSet", "es2015"),
 ];
+
+/// The operators [`crate::nullable_operand`] checks, named here so the walk's
+/// guard and the rule agree.
+fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::MinusToken
+            | SyntaxKind::AsteriskToken
+            | SyntaxKind::AsteriskAsteriskToken
+            | SyntaxKind::SlashToken
+            | SyntaxKind::PercentToken
+            | SyntaxKind::LessThanLessThanToken
+            | SyntaxKind::GreaterThanGreaterThanToken
+            | SyntaxKind::GreaterThanGreaterThanGreaterThanToken
+            | SyntaxKind::AmpersandToken
+            | SyntaxKind::BarToken
+            | SyntaxKind::CaretToken
+    )
+}
 
 /// `ast.HasSyntacticModifier` for one keyword.
 ///
