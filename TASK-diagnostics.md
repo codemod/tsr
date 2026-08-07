@@ -13,7 +13,7 @@ FIRST: git pull. Then read, in this order:
   there is a build or a refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    993/5,488 = 18.09%   (was 717 = 13.06%; running total 80 → 993)
+  diagnostics    1,003/5,488 = 18.28%   (was 717 = 13.06%; running total 80 → 993)
   checker_types  3,043/9,538 · 74.46% gradient — the other workstream's
 
 WHAT THE SESSION WAS ASKED FOR, AND WHAT IT MEASURED
@@ -70,10 +70,11 @@ cases across four builds** with zero losses. **Before writing any rule that
 reports because a relation failed, check which function you are calling.**
 
 RANKED NEXT ITEMS, with what each is actually blocked on
-  0. **More consumers of `relate_ternary`.** TS2411 is DONE (+2). TS2352 (`as`
-     conversions, 24 cases) and TS2367 (no-overlap comparison, 23) remain; TS2367
-     needs `isTypeComparableTo`, a fourth `Relation` that does not exist, TS2352
-     does not.
+  0. **More consumers of `relate_ternary`.** TS2411 is DONE (+2). TS2352 is DONE (+4, 0 wrong) with
+     assignability standing in for comparability behind two named declines (§31).
+     **TS2367 (no-overlap comparison, 23 cases) remains** and is the same
+     substitution at a different site — §31 prices what `isTypeComparableTo`
+     would buy.
   0a. **TS2454's row is on the MISSING side, and that is now measured — the
      best-priced single build left on this page.** Its extras are closed (114 →
      10 wrong lines across three declines) and *none of the three converted a
