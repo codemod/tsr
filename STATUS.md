@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`cc8c422`**, 2026-08-07 (seventh session).
+Measured at **`9fe8056`**, 2026-08-07 (seventh session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,19 +40,19 @@ Measured at **`cc8c422`**, 2026-08-07 (seventh session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,767/9,538** | **29.01%** | **gradient 72.74%** — the target |
+| **`checker_types`** | **2,786/9,538** | **29.21%** | **gradient 72.98%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-348,389 / 478,954 assertion lines = 72.74%      (measured at cc8c422, seventh session)
-  right 348,389 | gap 80,875 | wrong 39,651        right+gap+wrong = 468,915 exactly
+349,542 / 478,954 assertion lines = 72.98%      (measured at 9fe8056, seventh session)
+  right 349,542 | gap 79,429 | wrong 39,944        right+gap+wrong = 468,915 exactly
 ```
 
-**Re-taken from one `verdictdump.rs` run at `cc8c422`**, and the arithmetic
-check against the sixth session's triple names the session's five checker
-builds: 347,530 + 128 + 293 + 297 + 58 + 83 = 348,389.
+**Re-taken from one `verdictdump.rs` run at `9fe8056`**, and the arithmetic
+check against the sixth session's triple names the session's six checker
+builds: 347,530 + 128 + 293 + 297 + 58 + 83 + 1,153 = 349,542.
 
 **Re-taken, not carried.** This block read `347,384 / 81,977 / 39,554` for two
 builds after those numbers stopped being true — the namespace deletion (+32) and
@@ -185,6 +185,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `9fe8056` | **a JSX element expression has the `JSX.Element` type** (`checkJsxElement`, `jsx.go:72`) — buildable only after the `/.lib` mount; the fifth session's "46% cannot resolve JSX" premise predated it and is corrected in `checker-notes-jsx.md`. 152% of the 759 forecast via the arrow-function-return cascade; own new wrong **4**, lost **4** (baselines that record `error`), residual = the composite-signature-print boundary (285, design P's baked-text seam) | **+1,153** |
 | `cc8c422` | **`import d from "m"` resolves the real `default` export** (`getTargetOfModuleDefault`, plain half; synthetic default declined) — plus the rendering refusal that a symbol named `default` **never prints as a name**, which converted 40 would-be wrongs into gaps and cleaned 67 pre-existing ones. Δwrong **−38** (§10.12) | **+83** |
 | `67949ee` | **a chain segment prints under its best name** — `React.Component`, never `__React.Component`. One edit on `symbol_chain`'s parent segment; measured WRONG→RIGHT 58 with **no other transition of any kind** (`checker-notes-modobj.md` §10.10) | **+58** |
 | `952b328` | **`export = X` resolves through the assignment, and the rename prints the alias** — `resolve_alias`'s `ExportAssignment` arm (`checker.go:14889`), `import a = require` following `resolveExternalModuleSymbol` (`:15556`), and `Checker::best_name` (the innermost-table walk of `getAccessibleSymbolChain`). Sized at 302 seed converts / 23 would-wrong (§10.8). **Leg 4 FIRED at 130 lost on the first measurement** — a same-file `import a = b` alias renamed `privacyGloImport`'s namespaces, and the counterfactual's alias reduction was blind to that form, a false 0 at-risk — fixed with upstream's own `useOnlyExternalAliasing` flag (`symbolaccessibility.go:568`) and re-measured at **RIGHT→WRONG 0** (§10.9). The React/tsx `typeof React` family converts | **+297** |
