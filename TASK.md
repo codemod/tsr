@@ -58,7 +58,7 @@ implementation measured +989 and was reverted on 79 losses, 7 regressions
 and CACHE POLLUTION (a second walk over write-through caches is unsound).
 Price list for the retry, in order: (1) study the deleteOperator1-style
 want-undefined population against the want-any one — the discriminator is
-var/let/strict/mutability, unknown; (2) provenance as a FlyType flag on
+var/let/strict/mutability, unknown; (2) provenance as a provenance flag on
 FlowType threaded through every arm, never a re-walk; (3) the loop-label
 merge handling. The +989 is real and waiting.
 
