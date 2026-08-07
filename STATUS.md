@@ -46,9 +46,18 @@ Measured at **`a57a04b`**, 2026-08-07 (sixth session).
 ### `checker_types`, the number the project is steered by
 
 ```
-347,384 / 478,954 assertion lines = 72.53%      (measured at 90c4e70 + the design-P build)
-  right 347,384 | gap 81,977 | wrong 39,554
+347,530 / 478,954 assertion lines = 72.56%      (measured at HEAD, sixth session)
+  right 347,530 | gap 81,828 | wrong 39,557        right+gap+wrong = 468,915 exactly
 ```
+
+**Re-taken, not carried.** This block read `347,384 / 81,977 / 39,554` for two
+builds after those numbers stopped being true — the namespace deletion (+32) and
+the untyped-call arm (+114) had both landed while §1's *table* was updated and
+this block was not. Caught by a consistency pass rather than by a reader, which
+is luck; the two numbers sat 20 lines apart in the same section. **A figure that
+appears twice in one file will disagree with itself unless something re-derives
+both**, and the arithmetic check that catches it is free: 347,384 + 32 + 114 =
+347,530.
 
 **All three figures are now ONE probe's, which is what this section has been
 asking for.** `examples/verdictdump.rs` (new, this session) emits a verdict for
@@ -61,11 +70,20 @@ first time two instruments here have agreed on that number.
 
 The remaining **10,039** lines of the 478,954 denominator are **unaligned**: the
 baseline and this port disagree about the *expression*, so no comparison of
-answers is meaningful and the line is in no bucket. That is very likely what the
-"9,145 short" paragraph below was seeing — but the two sums were taken from
-different instruments at different commits, so **this is offered as the probable
-explanation and not as a reconciliation**. Re-taking the old sum with this probe
-is what would settle it, and it is now one command.
+answers is meaningful and the line is in no bucket.
+
+**This SETTLES the "9,145 short" discrepancy** that this section opened the
+session with, and it is now a reconciliation rather than a hypothesis: the whole
+triple is one probe's, taken at one commit, and it sums to 468,915 exactly.
+`478,954 − 468,915 = 10,039`. The earlier 9,145 was the same phenomenon measured
+with three instruments that do not share a denominator, which is why it was
+neither stable nor equal to this figure.
+
+> The session opened by recording that gap as *"worth a future session's first
+> hour"*. It cost about ten minutes, and only because a build had already needed
+> `verdictdump.rs` for an unrelated leg. **The instrument that answers a standing
+> question is usually built for something else** — the cheap move is to notice
+> when one arrives, not to schedule the question.
 
 **Corrected in place: §1 carried `340,719` and the snapshot at `df13a69` read
 `340,727`.** Eight lines, from commits landed after the `tsr-g30h` merge the
