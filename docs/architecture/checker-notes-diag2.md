@@ -561,3 +561,113 @@ than dressed up. The legs that were genuinely open when it was registered are
 **Falsifier.** If `checker_types` moves at all, the general walk is being reached
 from the gradient's producer — it is a `pub fn` on the same `Checker` the
 producer builds, and nothing but discipline stops a future call site invoking it.
+
+---
+
+## 8. The fourth rule: TS2454, and a 227-line concentration that was one keyword
+
+`Variable '{0}' is used before being assigned.` `diaggap.rs` sized it at **300
+cases blocked on it alone** at 378 passing — the largest rule on the board that
+needs no assignability.
+
+`checkIdentifier` (`checker.go:11191`): the flow type carries `undefined` where
+the declared type does not, and `assumeInitialized` is false.
+
+### The bound is `assumeInitialized`, and it is chosen so the unported half cannot matter
+
+`assumeInitialized` (`checker.go:11150`) is a nine-way disjunction and **every
+disjunct that is false is a diagnostic**. Two of them need machinery this port
+does not have: `isSymbolAssignedDefinitely` needs `markNodeAssignments`
+(`flow.go:2655`), `isPastLastAssignment` needs recorded assignment positions.
+
+Rather than approximate those, the rule **requires the shape in which they cannot
+be consulted**:
+
+- the symbol's declaration is a plain `VariableDeclaration` **with a type
+  annotation** — which excludes `isParameter`, `isAlias`,
+  `isSameScopedBindingElement` and the auto-typed path by construction;
+- the reference's control-flow container **is** the declaration's, so
+  `isOuterVariable` is false and `isNeverInitialized` — the sole consumer of
+  `isSymbolAssignedDefinitely` — is never reached;
+- the reference is not a definite assignment target, which `checker.go:11109`
+  returns early for.
+
+The rest of the disjunction is syntactic and *is* ported: `!` on the declaration,
+an ambient declaration, `typeof x`, an ambient-or-type-node position, an
+`ExportSpecifier` parent, a `NonNullExpression` parent.
+
+`get_flow_type_of_reference` grew upstream's `initialType` parameter to serve it
+(`get_flow_type_of_reference_ex`). That is the concrete form of ADR-0040's claim
+that the two roads are different entry points: the query road wants the declared
+type at the top of the graph, and this rule is *defined* by running the same
+graph with `T | undefined` there instead.
+
+### The first measurement, and what 227 lines in one case turned out to be
+
+| build | CONVERTS | LOST | WRONG |
+|---|---:|---:|---:|
+| as first written | 530 | 0 | **4,894** |
+| + exclude `const` and `declare` declarations | **531** | **0** | **206** |
+
+Cumulative, so TS2454's own share is **+233 conversions for 93 wrong lines**.
+
+**4,781 wrong lines fell to 93 on one predicate, and 227 of them were a single
+case.** `compiler/genericDefaults` opens with `declare const a: A;` fourteen
+times over. A `const` with no initialiser occurs only in an ambient context or
+after a grammar error, and upstream's `assumeInitialized` short-circuits on
+`declaration.Flags&NodeFlagsAmbient` (`checker.go:11158`) — the same unset parser
+flag §6 met, arriving through a different door and costing 50× more.
+
+`docs/conventions.md`'s *"concentration is a case-gate concern; for the line
+gradient it is leverage"* has a diagnostics-side corollary worth writing down:
+**a wrong column dominated by one case is almost always one predicate, and
+reading the top case before tightening anything is the cheapest move available.**
+Both of this session's largest residuals — 86 wrong for TS2564, 4,894 for
+TS2454 — were the ambient flag, and both were found by looking at the top row
+rather than at the total.
+
+### The residual 93, and the cost accounting
+
+Diffuse, top family 12 lines: `typeGuardOfForm*` and
+`typeGuardConstructorPrimitiveTypes` (narrowing divergences — this port's flow
+leaves `undefined` alive where upstream's guard removes it),
+`shorthandPropertyAssignmentsInDestructuring_ES6` and the iterable-pattern cases
+(destructuring). Every one is a flow or destructuring gap with an existing owner;
+none is the rule's condition.
+
+```
+                    passing   single-code reachable   sum
+before TS2454          378            3,226          3,604
+after  TS2454          611            3,021          3,632
+```
+
+**+28 net**, and the number that matters is what it would have been without the
+`const`/`declare` predicate: **610 + 2,784 = 3,394, or −210**. The same shape as
+§7 and a starker margin — a rule that reports on a negative is worth roughly
+nothing until its declines are right, and is worth *less than nothing* before
+that.
+
+Only **29 cases** carry a spurious TS2454, against 55 for TS2304.
+
+### The bar
+
+As in §7, `diaggap.rs` calls the suite, so leg 1 is a confirmation. Legs 2–5
+were open.
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 (confirmation) | `diagnostics` passes == 611 | **611/5,488 = 11.13%** | pass |
+| 2 | `checker_types` unchanged, byte-identical | **2,841 / 73.65%**, snapshot identical | pass |
+| 3 | cases regressed == 0 | **0** — 611 = 378 + 233 | pass |
+| 4 | own new wrong ≤ 35 cases | **29** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+The falsifier did not fire: `checker_types` is byte-identical across the
+`get_flow_type_of_reference` refactor, so delegating to the `_ex` form kept the
+auto-typed default.
+
+**Falsifier, and this one is real.** `get_flow_type_of_reference` was refactored
+to delegate to the `_ex` form. If `checker_types` moves by a single line, the
+refactor was not behaviour-neutral — the `initial_type` default now runs through
+a `match` where it ran through an `if`, and the auto-typed arm is the one that
+could have been dropped.

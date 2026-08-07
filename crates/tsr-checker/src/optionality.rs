@@ -136,7 +136,7 @@ impl Checker<'_, '_> {
     /// `undefinedType` — that is, when `exactOptionalPropertyTypes` is ported —
     /// since `missingType` is a distinct type that would then need this test to
     /// avoid being unioned with itself under a different identity.
-    fn get_optional_type(&mut self, ty: TypeId, _is_property: bool) -> TypeId {
+    pub(crate) fn get_optional_type(&mut self, ty: TypeId, _is_property: bool) -> TypeId {
         // `undefinedOrMissingType` is `exactOptionalPropertyTypes ? missingType
         // : undefinedType` (`checker.go:987`). That option is unported and
         // defaults off, so **both branches of upstream's `isProperty` choice are

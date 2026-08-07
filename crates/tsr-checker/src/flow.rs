@@ -212,6 +212,33 @@ impl Checker<'_, '_> {
         symbol: Option<SymbolId>,
         declared_type: TypeId,
     ) -> TypeId {
+        self.get_flow_type_of_reference_ex(reference, symbol, declared_type, None)
+    }
+
+    /// `getFlowTypeOfReferenceEx`'s `initialType` parameter, which the caller
+    /// above always leaves at its default.
+    ///
+    /// Upstream's default *is* the declared type (`checker.go`,
+    /// `getFlowTypeOfReference`), and this port additionally substitutes
+    /// `undefined` for an auto-typed declaration — the arm documented at
+    /// [`Checker::get_flow_type_of_reference`]. `Some(initial)` overrides both.
+    ///
+    /// # The one caller that needs it, and why nothing else does
+    ///
+    /// TS2454 (`Variable_0_is_used_before_being_assigned`, `checker.go:11191`)
+    /// is decided by running the graph with the top-of-graph type set to
+    /// `T | undefined` and asking whether `undefined` survives to the reference
+    /// (`checker.go:11170`). Any *query* would answer the declared type there —
+    /// which is exactly what the reporting road wants to differ from, and why
+    /// ADR-0040 calls the two roads different entry points rather than one
+    /// function with a flag.
+    pub(crate) fn get_flow_type_of_reference_ex(
+        &mut self,
+        reference: NodeId,
+        symbol: Option<SymbolId>,
+        declared_type: TypeId,
+        initial_type: Option<TypeId>,
+    ) -> TypeId {
         if self.flow_analysis_disabled {
             return self.intrinsics.error;
         }
@@ -235,7 +262,11 @@ impl Checker<'_, '_> {
             // `undefined` and `let x; if (c) x = 1; x;` answer
             // `number | undefined` — the second is a union built by the branch
             // label out of the assignment on one path and this on the other.
-            initial_type: if is_auto { self.intrinsics.undefined } else { declared_type },
+            initial_type: match initial_type {
+                Some(initial) => initial,
+                None if is_auto => self.intrinsics.undefined,
+                None => declared_type,
+            },
             is_auto,
             shared_flow_start: self.shared_flows.len(),
             depth: 0,

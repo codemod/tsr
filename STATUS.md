@@ -41,7 +41,7 @@ Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **2,841/9,538** | **29.79%** | **gradient 73.65%** — the target |
-| `diagnostics` | **378/5,488** | **6.89%** | **the check traversal landed, eighth session** — 80 → 378 across three rules, see below |
+| `diagnostics` | **611/5,488** | **11.13%** | **the check traversal landed, eighth session** — 80 → 611 across four rules, see below |
 
 ### `checker_types`, the number the project is steered by
 
@@ -148,15 +148,21 @@ consumer. Three rules on top of it, each bar-scored:
 | `bc8045b` | TS2307 / TS2882 — module specifiers (`resolveExternalModule`) | +50 |
 | `413174c` | TS2564 — `strictPropertyInitialization` | +133 |
 | `7fab616` | TS2304 — `Cannot find name` | +115 |
+| this commit | TS2454 — used before being assigned | +233 |
 
-`docs/architecture/checker-notes-diag2.md` carries the reasoning, the four gates
-per rule and the refusals. **`checker_types` is byte-identical across all
-three**: the traversal is a second road and no query-path call site invokes it.
+`docs/architecture/checker-notes-diag2.md` carries the reasoning, the gates per
+rule and the refusals. **`checker_types` is byte-identical across all four**: the traversal is a second road and no query-path call site invokes it.
 
 The suite's board is now `diaggap.rs`'s single-code column, re-run after every
 rule because rows *grow* as rules land (a case blocked on two codes becomes a
-case blocked on one). At 378 passing: TS2322 520, TS2454 300, TS2339 140, TS2345
-100, TS2304 82, TS6133 81, TS2564 35.
+case blocked on one). At **611** passing: TS2322 433, TS2339 133, TS2345 85,
+TS2304 81, TS6133 80, TS2454 60, TS2564 35.
+
+**The metric a diagnostic rule is scored on is not its conversions.** A case
+carrying a spurious diagnostic can never pass however many rules land later, so
+the figure is `passing + single-code reachable`. TS2454 read **+28** on it — and
+**−210** before its last refusal landed, which is the number that shows why the
+declines are the design rather than the polish.
 
 ---
 

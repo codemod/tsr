@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 378/5488 (6.89%)
-Failed         : 5110
+Passed         : 611/5488 (11.13%)
+Failed         : 4877
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5110 failures:
+First 100 of 4877 failures:
 compiler/ArrowFunctionExpression1
   1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
 compiler/ClassDeclaration10
@@ -88,10 +88,6 @@ compiler/accessorInferredReturnTypeErrorInReturnStatement
   1 missing (first TS2339 at accessorInferredReturnTypeErrorInReturnStatement.ts(4,18))
 compiler/accessors_spec_section-4.5_error-cases
   4 missing (first TS2322 at accessors_spec_section-4.5_error-cases.ts(3,48))
-compiler/addMoreCallSignaturesToBaseSignature
-  1 missing (first TS2454 at addMoreCallSignaturesToBaseSignature.ts(10,13))
-compiler/addMoreCallSignaturesToBaseSignature2
-  1 missing (first TS2454 at addMoreCallSignaturesToBaseSignature2.ts(10,13))
 compiler/addMoreOverloadsToBaseSignature
   1 missing (first TS2430 at addMoreOverloadsToBaseSignature.ts(5,11))
 compiler/aliasAssignments
@@ -112,8 +108,6 @@ compiler/aliasUsageInGenericFunction
   1 missing (first TS2352 at aliasUsageInGenericFunction_main.ts(10,19))
 compiler/aliasUsageInOrExpression
   5 missing (first TS2352 at aliasUsageInOrExpression_main.ts(10,40))
-compiler/aliasUsageInVarAssignment
-  1 missing (first TS2454 at aliasUsageInVarAssignment_main.ts(7,25))
 compiler/allowImportClausesToMergeWithTypes
   1 missing (first TS2749 at index.ts(9,10))
 compiler/allowJscheckJsTypeParameterNoCrash
@@ -154,8 +148,6 @@ compiler/anyIdenticalToItself
   1 missing (first TS2394 at anyIdenticalToItself.ts(1,10))
 compiler/anyIndexedAccessArrayNoException
   1 missing (first TS2538 at anyIndexedAccessArrayNoException.ts(1,12))
-compiler/anyInferenceAnonymousFunctions
-  5 missing (first TS2454 at anyInferenceAnonymousFunctions.ts(3,1))
 compiler/anyMappedTypesError
   1 missing (first TS7039 at anyMappedTypesError.ts(1,12))
 compiler/arguments
@@ -177,7 +169,7 @@ compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
 compiler/arithAssignTyping
   12 missing (first TS2629 at arithAssignTyping.ts(3,1))
 compiler/arithmeticOnInvalidTypes
-  15 missing (first TS2365 at arithmeticOnInvalidTypes.ts(3,9))
+  7 missing (first TS2365 at arithmeticOnInvalidTypes.ts(3,9))
 compiler/arithmeticOnInvalidTypes2
   7 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
 compiler/arityErrorRelatedSpanBindingPattern
@@ -196,10 +188,8 @@ compiler/arrayAssignmentTest6
   1 missing (first TS2322 at arrayAssignmentTest6.ts(16,13))
 compiler/arrayBestCommonTypes
   26 missing (first TS2769 at arrayBestCommonTypes.ts(16,37))
-compiler/arrayBindingPatternOmittedExpressions
-  1 missing (first TS2454 at arrayBindingPatternOmittedExpressions.ts(4,22))
 compiler/arrayBufferIsViewNarrowsType
-  1 missing (first TS2454 at arrayBufferIsViewNarrowsType.ts(2,24))
+  1 unexpected (first TS2454 at arrayBufferIsViewNarrowsType.ts(4,31)), 0 missing
 compiler/arrayCast
   1 missing (first TS2353 at arrayCast.ts(3,23))
 compiler/arrayConcatMap
@@ -212,3 +202,13 @@ compiler/arrayFrom
   2 missing (first TS2322 at arrayFrom.ts(20,7))
 compiler/arrayIndexWithArrayFails
   1 missing (first TS2538 at arrayIndexWithArrayFails.ts(3,16))
+compiler/arrayLiteralAndArrayConstructorEquivalence1
+  1 missing (first TS2314 at arrayLiteralAndArrayConstructorEquivalence1.ts(3,22))
+compiler/arrayLiteralTypeInference
+  4 missing (first TS2353 at arrayLiteralTypeInference.ts(14,14))
+compiler/arrayOfExportedClass
+  1 missing (first TS2564 at arrayOfExportedClass_1.ts(6,12))
+compiler/arrayOfSubtypeIsAssignableToReadonlyArray
+  2 missing (first TS2322 at arrayOfSubtypeIsAssignableToReadonlyArray.ts(13,1))
+compiler/arrayReferenceWithoutTypeArgs
+  1 missing (first TS2314 at arrayReferenceWithoutTypeArgs.ts(2,17))

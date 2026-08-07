@@ -228,6 +228,7 @@ impl Checker<'_, '_> {
             }
             Node::Identifier(identifier) => {
                 self.check_value_identifier(node, identifier.text);
+                self.check_used_before_assigned(node, identifier.text);
                 ambient
             }
             _ => ambient,
@@ -721,6 +722,197 @@ impl Checker<'_, '_> {
             }
             _ => false,
         }
+    }
+
+    /// TS2454 — `Variable '{0}' is used before being assigned.`
+    ///
+    /// `checkIdentifier` (`checker.go:11191`), the arm reached when
+    /// `assumeInitialized` is false and the *flow* type carries `undefined`
+    /// while the declared type does not.
+    ///
+    /// # This is a bound, and the bound is `assumeInitialized`
+    ///
+    /// Upstream's `assumeInitialized` (`checker.go:11150`) is a nine-way
+    /// disjunction, and every disjunct that is false is a diagnostic. Rather
+    /// than port the ones that need machinery this port lacks —
+    /// `isSymbolAssignedDefinitely` needs `markNodeAssignments`,
+    /// `isPastLastAssignment` needs assignment positions — the rule **requires
+    /// the shape where those disjuncts cannot matter**:
+    ///
+    /// - the symbol's declaration is a plain `VariableDeclaration` with a type
+    ///   annotation, so `isParameter`, `isAlias`, `isSameScopedBindingElement`
+    ///   and the auto-typed path are all excluded by construction;
+    /// - the reference's control-flow container **is** the declaration's, so
+    ///   `isOuterVariable` is false and `isNeverInitialized` — the only consumer
+    ///   of `isSymbolAssignedDefinitely` — is never consulted;
+    /// - the reference is not a definite assignment target, which
+    ///   `checker.go:11109` returns early for.
+    ///
+    /// The remaining disjuncts are syntactic and are ported: a `!` on the
+    /// declaration, an ambient declaration, `typeof x`, an ambient-or-type-node
+    /// position, an `ExportSpecifier` parent, a `NonNullExpression` parent.
+    ///
+    /// What the bound gives up is every `let x: T` referenced from inside a
+    /// nested function — measured rather than assumed, in
+    /// `docs/architecture/checker-notes-diag2.md` §8.
+    fn check_used_before_assigned(&mut self, node: NodeId, text: &str) {
+        if self.file_has_parse_errors || !self.strict_null_checks || !self.is_value_reference(node)
+        {
+            return;
+        }
+        // `assignmentKind == AssignmentKindDefinite` returns before the flow
+        // section (`checker.go:11109`), so `x = 1` never reports even though the
+        // flow type at `x` carries `undefined`.
+        if self.is_definite_assignment_target(node) {
+            return;
+        }
+        if self.is_inside_with_statement(node) || self.is_in_type_query_or_type_node(node) {
+            return;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return };
+        if matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::ExportSpecifier | SyntaxKind::NonNullExpression
+        ) {
+            return;
+        }
+        let Some(symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
+        else {
+            return;
+        };
+        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
+        else {
+            return;
+        };
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+            return;
+        };
+        // No initialiser, no `!`, and an explicit annotation — the annotation is
+        // what keeps the auto-typed path (`t == autoType`, a different
+        // diagnostic entirely) out of this rule.
+        if variable.initializer.is_some()
+            || variable.exclamation_token.is_some()
+            || variable.r#type.is_none()
+        {
+            return;
+        }
+        // A `const` with no initialiser only occurs in an ambient context or
+        // after a grammar error (TS1155), and upstream reaches neither: the
+        // ambient flag short-circuits `assumeInitialized`
+        // (`checker.go:11158`). `declare const b: B` supplied **227 of the
+        // first measurement's 4,781 wrong lines from one case**
+        // (`compiler/genericDefaults`), which is what put both tests here.
+        let Some(list) = self.nodes.parent(declaration) else { return };
+        if self.nodes.flags(list).intersects(tsr_ast::NodeFlags::CONST) {
+            return;
+        }
+        if self.nodes.parent(list).and_then(|statement| self.node_map.get(statement)).is_some_and(
+            |statement| match statement {
+                Node::VariableStatement(variable) => {
+                    has_modifier(variable.modifiers, SyntaxKind::DeclareKeyword)
+                }
+                _ => false,
+            },
+        ) {
+            return;
+        }
+        // `for (x of …)` and `for (x in …)` assign on entry.
+        if self.nodes.parent(list).is_some_and(|owner| {
+            matches!(
+                self.nodes.kind(owner),
+                SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement
+            )
+        }) {
+            return;
+        }
+        // `isOuterVariable` (`checker.go:11128`): with different containers the
+        // graph cannot be analysed from the declaration, and upstream assumes
+        // initialised. Here it is a refusal rather than an assumption, which is
+        // the same behaviour and a different reason.
+        if self.control_flow_container(node) != self.control_flow_container(declaration) {
+            return;
+        }
+        let declared = self.get_type_of_symbol(symbol);
+        if declared == self.intrinsics.error
+            || declared == self.intrinsics.any
+            || declared == self.intrinsics.unknown
+            || declared == self.intrinsics.void
+            || self.contains_undefined_type(declared)
+        {
+            return;
+        }
+        let initial = self.get_optional_type(declared, false);
+        let flow = self.get_flow_type_of_reference_ex(node, Some(symbol), declared, Some(initial));
+        if flow == self.intrinsics.error || !self.contains_undefined_type(flow) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::VARIABLE_0_IS_USED_BEFORE_BEING_ASSIGNED,
+                span,
+                [text.to_string()],
+            ),
+        );
+    }
+
+    /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing
+    /// function, module block, source file or property declaration.
+    fn control_flow_container(&self, node: NodeId) -> Option<NodeId> {
+        let mut current = self.nodes.parent(node);
+        while let Some(id) = current {
+            if matches!(
+                self.nodes.kind(id),
+                SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+                    | SyntaxKind::MethodDeclaration
+                    | SyntaxKind::Constructor
+                    | SyntaxKind::GetAccessor
+                    | SyntaxKind::SetAccessor
+                    | SyntaxKind::ModuleBlock
+                    | SyntaxKind::SourceFile
+                    | SyntaxKind::PropertyDeclaration
+            ) {
+                return Some(id);
+            }
+            current = self.nodes.parent(id);
+        }
+        None
+    }
+
+    /// Is this identifier the left side of a plain `=`?
+    ///
+    /// `AssignmentKindDefinite`. A compound assignment (`x += 1`) reads before
+    /// it writes and is *not* excluded, which is upstream's split at
+    /// `checker.go:11110` (`isInCompoundLikeAssignment`).
+    fn is_definite_assignment_target(&self, node: NodeId) -> bool {
+        self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.node_map.get(parent),
+                Some(Node::BinaryExpression(binary))
+                    if binary.operator_token.is_some_and(|token| token.kind == SyntaxKind::EqualsToken)
+                        && binary.left.and_then(|left| left.node_id()) == Some(node)
+            )
+        })
+    }
+
+    /// `IsInTypeQuery` and `isInAmbientOrTypeNode` (`utilities.go:1057`),
+    /// collapsed: both are ancestor walks and both mean "not a value position
+    /// the flow graph describes".
+    fn is_in_type_query_or_type_node(&self, node: NodeId) -> bool {
+        self.nodes.ancestors(node).any(|id| {
+            matches!(
+                self.nodes.kind(id),
+                SyntaxKind::TypeQuery
+                    | SyntaxKind::InterfaceDeclaration
+                    | SyntaxKind::TypeAliasDeclaration
+                    | SyntaxKind::TypeLiteral
+            )
+        })
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`
