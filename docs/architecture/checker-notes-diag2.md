@@ -2586,3 +2586,17 @@ draw — a type-only import, an `import type` alias, and the position tests that
 separate it from TS2749 and TS2708. **The pattern generalises to the
 substitutions whose upstream site is a single `if`, and TS2693's is not.**
 Reverted; the decline stands.
+
+### 40.2 The type-parameter condition drops out of completeness — +1
+
+`declaration_members_are_complete` required `type_parameters.is_empty()` on every
+class and interface. Removing it is **+1** and loses nothing, because the
+condition was **already enforced one level up**:
+`declared_members_are_complete` returns `false` for anything in
+`type_reference_targets`, which is every *instantiated* reference. A generic
+declaration reached without type arguments has an uninstantiated table, and its
+member **names** — the only thing this predicate promises — are complete.
+
+The tenth redundant or stale condition the audit has retired. Two levels of a
+predicate testing the same thing is the shape to look for: the outer one is
+usually the real gate.

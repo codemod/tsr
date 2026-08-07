@@ -289,16 +289,13 @@ impl Checker<'_, '_> {
     fn declaration_members_are_complete(&mut self, declaration: NodeId) -> bool {
         match self.node_map.get(declaration) {
             Some(Node::ClassDeclaration(class)) => {
-                class.type_parameters.is_empty()
-                    && class.members.iter().all(|member| self.class_member_is_plain(*member))
+                class.members.iter().all(|member| self.class_member_is_plain(*member))
             }
             Some(Node::ClassExpression(class)) => {
-                class.type_parameters.is_empty()
-                    && class.members.iter().all(|member| self.class_member_is_plain(*member))
+                class.members.iter().all(|member| self.class_member_is_plain(*member))
             }
             Some(Node::InterfaceDeclaration(interface)) => {
-                interface.type_parameters.is_empty()
-                    && interface.members.iter().all(|member| self.type_member_is_plain(*member))
+                interface.members.iter().all(|member| self.type_member_is_plain(*member))
             }
             // A **type literal** — `{ id: number }` — is an interface's member
             // list without the interface: no type parameters to instantiate and
