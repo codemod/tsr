@@ -134,6 +134,18 @@ impl Checker<'_, '_> {
         self.propagate_optional_type_marker(result, non_optional != receiver_type)
     }
 
+    /// The §45 `Record<string, V>` read: `Some(V)` only for a reference to
+    /// the GLOBAL `Record` with a plain-`string` key.
+    fn record_string_value(&mut self, receiver: TypeId) -> Option<TypeId> {
+        let (target, arguments) = self.type_reference_targets.get(&receiver)?.clone();
+        if arguments.len() != 2 || arguments[0] != self.intrinsics.string {
+            return None;
+        }
+        let record = self.binder.global("Record")?;
+        (self.binder.merged_symbol(target) == self.binder.merged_symbol(record))
+            .then_some(arguments[1])
+    }
+
     /// `checkNonNullType` (`checker.go:7409`), without the diagnostics: an
     /// `unknown` receiver is `errorType` in strict mode; a nullable one is
     /// answered by its non-nullable remainder; a remainder that is itself
@@ -349,6 +361,12 @@ impl Checker<'_, '_> {
                 Some(symbol) => self.get_type_of_symbol(symbol),
                 None => error,
             };
+        }
+        // §45 (`checker-notes-narrow.md`): the global `Record<K, V>` answers
+        // V for property reads when K is `string` — the one mapped alias
+        // special-cased, everything else mapped stays the subsystem.
+        if let Some(value) = self.record_string_value(receiver_type) {
+            return value;
         }
         // §32 (`checker-notes-narrow.md`): a receiver minted for an
         // UNRESOLVED type reference is upstream's `errorType`, and member

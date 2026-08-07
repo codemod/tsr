@@ -1939,3 +1939,8 @@ K behave as the union's members. Everything else mapped stays the
 subsystem. Falsifier: a `Record` whose K is a literal union — a MISS
 outside the union wants upstream's TS2339/undefined behavior; those
 decline.
+
+**§45 score — LANDED.** **+274 GAP→RIGHT / 12 GAP→WRONG** (the twelve:
+`noUncheckedIndexedAccess` wants `| undefined` through this road too, and
+unbounded-parameter values — both recorded refinements). `checker_types`
+right 393,561 → **393,835 (82.23%)**.
