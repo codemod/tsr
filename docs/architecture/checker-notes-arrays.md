@@ -781,3 +781,15 @@ answers throughout). Falsifiers: (a) an admitted line whose want differs
 from the uncontextual union — the context-independence claim is then
 WRONG for that shape and the slice narrows; (b) the §13-admitted
 population must not move.
+
+**§7 score — LANDED, and the head case named the REAL blocker.** Net
+**+43 right / −16 wrong** (+59 G→R, 30 W→G honest declines, 16 R→G, 14
+G→W). The mountain itself (`generatedContextualTyping`) did NOT move: its
+arrays now pass the admission and then die in
+`union_with_subtype_reduction`'s CLASS-PAIR decline — sibling classes
+with no heritage link relate Unknown where upstream's nominal check
+answers NotRelated decidably. The re-open's next slice is therefore a
+RELATER arm (unrelated nominal classes are NotRelated under
+strictSubtype), not more admission. The 16 R→G head
+(`lambdaParamTypes`) interacts with the §35 want-`error` population and
+is recorded against it.

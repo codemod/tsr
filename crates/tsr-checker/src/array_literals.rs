@@ -132,7 +132,15 @@ impl Checker<'_, '_> {
                 // un-annotated variable initialiser — takes the §9 reduction
                 // (§13); everything else stays this arm's gap.
                 let uncontextual = node.node_id.is_some_and(|id| self.has_no_contextual_type(id));
-                if !uncontextual {
+                // §7 (`checker-notes-arrays.md`): an element union with no
+                // FRESHABLE literal constituent is context-independent —
+                // `isLiteralOfContextualType` has nothing to preserve — so
+                // the position question dissolves for it.
+                let literal_free = elements.iter().all(|&element| {
+                    let ty = self.store.get(element);
+                    !(ty.fresh || ty.flags.intersects(TypeFlags::UNIT))
+                });
+                if !uncontextual && !literal_free {
                     return error;
                 }
                 match self.union_with_subtype_reduction(&elements) {
