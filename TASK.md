@@ -59,6 +59,17 @@ pollution) and the discriminator studied. The binder's per-container START
 nodes turned out to BE upstream's flowContainer bound. Remainder: the
 ever-assigned scan's granularity, small, owned in §9.8.
 
+THE NEXT SUBSYSTEM, from the closing W1' board: the LOOP FIXPOINT
+(upstream's incomplete-types iteration, getTypeAtFlowLoopLabel). The
+`intrinsic -> intrinsic` W1' row is 5,016 lines / 99 finishes across 768
+cases; its two ceiling heads (binaryArithmetic 1,232, selfReferentialLoop
+145) leave a ~3,600-line diffuse tail that every earlier residual attributed
+to loop-label handling (e7a65fb's 260, §9.2's leak, capturedLet). The
+current loop-label arm's shape and upstream's protocol (cache the incomplete
+result, iterate to fixpoint, the evolving-type interaction) is the study;
+this is subsystem-scale — one session's whole deliverable, per STATUS §4.4's
+standing rule.
+
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
     nothing; JAVASCRIPT_FILE is now stamped at the program's TWO parse sites
