@@ -534,3 +534,28 @@ discriminant, and split by whether the case expressions are unit-typed
 (the `narrowTypeBySwitchOnDiscriminant` precondition). That is
 `refmatch.rs`'s shape pointed at switch clauses, and it is the next
 session's first instrument.
+
+### §8.1 `tsr-5kii` SIZED — a ~100-line item, not a subsystem
+
+`switchgap.rs` (new), walking every non-right aligned line's ancestry at the
+sixteenth build's commit:
+
+```
+111,129  not in a switch clause
+  1,305  in clause, property-access discriminant — 57.5% parserRealSource11
+    693  in clause, identifier discriminant, line does not mention it
+    530  in clause, other discriminant shape
+     75  IN CLAUSE, identifier discriminant, line MENTIONS it — WRONG
+     29  same — GAP
+```
+
+**The reachable population is 104 lines across ~23 cases** (top-1 ~30%), and
+that is a *ceiling*: a mentioning line converts only when the clause-narrowed
+answer is the wanted one. The 1,305 property-access-discriminant lines are
+mostly `parserRealSource11`'s naming mass sitting inside switches — the §8
+contamination measured per-line rather than per-case. The mechanism
+(`narrowTypeBySwitchOnDiscriminant` plus clause flow) is an effort-3 build
+for a ≤104-line ceiling at the observed conversion band — **it does not
+clear the board**, and `tsr-5kii` carries this number now instead of
+"unsized". The 4 aggregate-exposure wrongs (§11.2) stay as they are: their
+fix is this mechanism, at this price, whenever the price is worth it.
