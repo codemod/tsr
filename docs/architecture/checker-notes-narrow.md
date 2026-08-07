@@ -590,3 +590,32 @@ ADR-0038 argument (this is `anyType` from a computation, the `anySignature`
 precedent, not a rendered `errorType`). Only then bar the two arms
 separately: same-container first (276, no closure machinery needed), outer
 second.
+
+### §9.1 The mechanism located exactly, and the bar
+
+`checker.go:11182`–`:11193`, both §9 arms through one exit pair:
+
+- **flow result still `autoType`** (the walk never saw the declaration — the
+  OUTER 316): `convertAutoToAny(flowType)` → `anyType` (`:11188`, `:31216`);
+- **used-before-assigned** (same container, declared auto does not contain
+  `undefined`, flow result does — the SAME-container 276): report and
+  **return the declared type** (`:11193`) — the declared `autoType`, which
+  renders `any`.
+
+Both are *computed* `anyType` — `convertAutoToAny` maps `autoType → anyType`
+by identity, upstream's non-error path; the `anySignature` ADR-0038 argument
+carries over verbatim. The port's divergence is one substitution: this
+port's flow hands an auto declaration `undefined` as its initial and then
+BELIEVES the initial when it survives; upstream believes the *declared*.
+
+**The implementation constraint that decides the shape:** a genuine
+`x = undefined` assignment also produces an `undefined` flow result, and the
+two are indistinguishable by `TypeId` — the walk must report whether the
+START node's substituted initial contributed to the answer, and only that
+provenance converts. A flag through the walk, not a type comparison.
+
+**Bar:** population 592 (276 + 316; the 52 with-initializer lines are other
+mechanisms and excluded). Net ≥ **+350**; own ≤ **30** — falsifier: losses
+on references AFTER a reaching assignment (`let x; x = 1; x` must stay
+`number` — if the flag leaks through assignment arms the provenance model is
+wrong, stop); regressed == 0; lost == 0.
