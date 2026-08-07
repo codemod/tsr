@@ -1890,3 +1890,15 @@ population's prints were already served by the mints; the registration's
 value is structural (the seam now sees these references) and its measured
 conversion today is small. `checker_types` right 393,549 → **393,553
 (82.18%)**.
+
+### §43 `new` fills missing type arguments from class defaults
+
+`typedArrays` (261): the modern lib's `Float32Array<TArrayBuffer extends
+ArrayBufferLike = ArrayBuffer>` makes every `new Float32Array(…)` a
+generic construction whose written list (empty) is SHORTER than the
+parameters — §38's fill rule at the `new` road: tail positions take their
+declared DEFAULT type node's resolution; a tail position with NO default
+stays the arity error. Falsifier: the §38 twins' — arity longer than
+parameters errors; defaults referencing earlier parameters resolve
+against the filled prefix (declined here: a default MENTIONING a
+parameter gaps, the conservative first cut).
