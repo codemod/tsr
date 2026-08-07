@@ -692,3 +692,24 @@ predicate. `sigprint.rs`'s `compose()` is the spec.
 Falsifier 1: lost concentrated in one case → the twin fires on a shape the
 self-check population excluded (overload sets, predicates) — check the gate
 before the walk.
+
+### 10.14 §10.13 scored — the forecast was exact to the line
+
+```
+right  349,553 -> 351,053   +1,500     WRONG→RIGHT 1,502, RIGHT→WRONG 2, nothing else
+wrong   39,933 ->  38,433   −1,500
+gap                          ±0        structural: the twin is a renaming
+cases    2,786 ->   2,793   +7, 0 regressed
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +1,100 | **+1,500** — the forecast's 1,500, exactly | pass |
+| 2 | own ≤ 60 | **2** (global **−1,500**) | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost ≤ 6 | **2** (`interMixingModulesInterfaces2/3`, `() => B` right today, the twin qualifies to `() => A.B` — the same containment edge as every remaining at-risk in this family) | pass |
+
+A forecast delivered to the line, twice in one session (design P did it at
+2,990): both times because the counterfactual **was** the build — the probe's
+`compose()` and the checker's twin are the same function, and the self-check
+leg is what proved it before either ran.

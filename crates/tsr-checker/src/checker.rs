@@ -248,6 +248,9 @@ pub struct Checker<'a, 'n> {
     /// The values of [`Checker::instantiated_signatures`], for the O(1)
     /// membership test the call resolver makes.
     pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
+    /// Composite types currently being re-rendered at a site — the cycle
+    /// guard of [`Checker::type_to_string_at`]'s twin arm (§10.13).
+    pub(crate) rendering_composites: rustc_hash::FxHashSet<TypeId>,
     /// How many frames of [`Checker::instantiate_type`] are on the stack.
     ///
     /// Upstream's `c.instantiationDepth` (`checker.go:592`), consumed by the
@@ -392,6 +395,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             signature_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             minted_signature_types: rustc_hash::FxHashSet::default(),
+            rendering_composites: rustc_hash::FxHashSet::default(),
         }
     }
 
@@ -523,6 +527,22 @@ impl<'a, 'n> Checker<'a, 'n> {
             _ => None,
         };
         let Some(module) = module else {
+            // The composite-print twin (`checker-notes-modobj.md` §10.13): a
+            // single-signature type re-renders from its structure at the site,
+            // so embedded named types take their qualifiers and renames. The
+            // visiting set is the cycle guard a self-referential function type
+            // needs (`type F = () => F`): a re-entered id falls back to its
+            // baked text, exactly what the site-less renderer would produce.
+            if let Some(signatures) = self.signature_types.get(&id)
+                && signatures.len() == 1
+                && !self.rendering_composites.contains(&id)
+            {
+                let signature = signatures[0].clone();
+                self.rendering_composites.insert(id);
+                let out = self.signature_to_string_at(&signature, reference);
+                self.rendering_composites.remove(&id);
+                return Some(out);
+            }
             let printed = self.type_to_string(id);
             return self.qualified_name_at(id, printed, reference);
         };

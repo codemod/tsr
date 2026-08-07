@@ -1432,6 +1432,85 @@ impl<'a> Checker<'a, '_> {
     /// declaration's modifier list — `nodebuilderimpl.go:1834` synthesises the
     /// modifier onto the built node from `SignatureFlagsAbstract` — which is why
     /// [`SignatureKind`] and not `SignatureParts::modifiers` carries it.
+    /// [`Checker::signature_to_string`]'s **site-aware twin** — the
+    /// composite-print seam's build (`checker-notes-modobj.md` §10.13, `bd
+    /// tsr-2ghn`). Same slots, same `written_text` / `written_return` /
+    /// predicate precedence; the one difference is that every *rendered* slot
+    /// goes through [`Checker::type_to_string_at`] so an embedded named type
+    /// takes the qualifier, rename or refusal the site owes it — falling back
+    /// to the baked text where the site-aware path declines.
+    ///
+    /// Predicate signatures take the baked text: a predicate's print is
+    /// site-independent, and the twin's counterfactual excluded them.
+    pub(crate) fn signature_to_string_at(
+        &mut self,
+        signature: &Signature,
+        reference: tsr_ast::NodeId,
+    ) -> String {
+        if signature.predicate.is_some() {
+            return self.signature_to_string(signature);
+        }
+        let render = |checker: &mut Self, id: crate::types::TypeId| {
+            checker.type_to_string_at(id, reference).unwrap_or_else(|| checker.type_to_string(id))
+        };
+        let mut out = match signature.kind {
+            SignatureKind::Call => String::new(),
+            SignatureKind::Construct => "new ".to_string(),
+            SignatureKind::AbstractConstruct => "abstract new ".to_string(),
+        };
+        if !signature.type_parameters.is_empty() {
+            out.push('<');
+            for (index, parameter) in signature.type_parameters.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&parameter.name);
+                if let Some(constraint) = parameter.constraint {
+                    out.push_str(" extends ");
+                    if let Some(written) = &parameter.written_constraint {
+                        out.push_str(written);
+                    } else {
+                        let text = render(self, constraint);
+                        out.push_str(&text);
+                    }
+                }
+                if let Some(default) = parameter.default {
+                    out.push_str(" = ");
+                    let text = render(self, default);
+                    out.push_str(&text);
+                }
+            }
+            out.push('>');
+        }
+        out.push('(');
+        for (index, parameter) in
+            signature.this_parameter.iter().chain(signature.parameters.iter()).enumerate()
+        {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            if parameter.rest {
+                out.push_str("...");
+            }
+            out.push_str(&parameter.name);
+            out.push_str(if parameter.optional { "?: " } else { ": " });
+            if let Some(written) = &parameter.written_text {
+                out.push_str(written);
+            } else {
+                let text = render(self, parameter.r#type);
+                out.push_str(&text);
+            }
+        }
+        out.push_str(") => ");
+        if let Some(written) = &signature.written_return {
+            out.push_str(written);
+        } else {
+            let text = render(self, signature.r#type);
+            out.push_str(&text);
+        }
+        out
+    }
+
     pub(crate) fn signature_to_string(&self, signature: &Signature) -> String {
         let mut out = match signature.kind {
             SignatureKind::Call => String::new(),
