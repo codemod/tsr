@@ -577,3 +577,25 @@ row whose want keeps two same-printing constituents → object-literal types
 are never interned and the reduction collapsed two distinct types that print
 alike, which is the §9 identity test doing exactly what `check_array_literal`'s
 doc warns about — read those before anything; regressed == 0; lost == 0.
+
+### §10.1 REFUSED and reverted — every consumer sits on its own unported subtlety
+
+Measured once, whole: **+168 right, but GAP→WRONG 44 (leg 2, 4.4× its
+ceiling), RIGHT→GAP 12 (leg 4), and a fixture red.** The residual attributes
+each firing to a divergence that is *not* the reduction's:
+
+- the **array literal** row (`arrayBestCommonTypes`): upstream keeps the
+  elements' literal-typed members (`{ x: true; y: derived }`), this port's
+  object-literal member typing widens them first — so the reduction collapsed
+  a union upstream keeps. Member freshness, not reduction;
+- the **return aggregate** (`capturedLetConstInLoop8`): the `many` arm
+  ignored `has_bare_return`, dropping the strict-mode `| undefined`;
+- the accessor fixture asserts the multi-return inference stays a gap, and
+  the wiring made it answer.
+
+The wiring is REVERTED whole rather than patched leg by leg: three consumers,
+three distinct owners (object-literal member freshness; the bare-return
+interplay; accessor aggregates), and each deserves its own bar rather than a
+shared one — the §10 bar's single ceiling is exactly what let three unrelated
+defects pool into one number. The §9 mechanism itself is untouched and its
+`||`/`??`/conditional consumers keep their zero-wrong score.
