@@ -3,9 +3,10 @@ THIS FILE IS THE NON-CHECKER, NON-DIAGNOSTICS CONFORMANCE WORKSTREAM'S HANDOFF.
 CURRENT PROGRESS (2026-08-07)
 
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
-  dts_reachable_target     497/1,162 = 42.77%  (up from 495)
-  dts_emit                  163/342  = 47.66%  (up from 161/339)
-  dts_shape                 635/918  = 69.17%  (up from 618/912)
+  dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
+                                                exposed one inference case)
+  dts_emit                  171/341  = 50.15%  (up from 161/339)
+  dts_shape                 657/918  = 71.57%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -19,6 +20,18 @@ and `new <T>C()`; 23 printer failures remain, almost entirely JSDoc/comment
 retention and malformed constructor/accessor recovery trees. Declaration shape
 now synthesizes collision-free `_default` bindings for default and export-equals
 expressions and retains classes named by default `new` expressions.
+
+The all-failure classifier is now
+`cargo run -p tsr-conformance --example dts_failures`. Add `-- --cases` for one
+tab-separated row per non-pass. It correlates the two declaration suites, so a
+`dts_emit` mismatch is called exact-text-only only when `dts_shape` passes. The
+first full classification found 243 wrong-kind/name/order shape failures, 24
+extra declarations/output files, and 16 missing declarations. The first
+checker-free structural pass retained written types inside arrow/function
+initializers, kept module/global augmentations and their imports, and retained
+every declaration participating in a merged symbol. After that pass the live
+shape residue is 227 wrong-kind/name/order, 26 extra, and 15 missing; parser skips
+remain 6 source units and 8 upstream declaration baselines.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

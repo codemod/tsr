@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 635/918 (69.17%)
-Failed         : 283
+Passed         : 657/918 (71.57%)
+Failed         : 261
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 283 failures:
+First 100 of 261 failures:
 compiler/aliasInaccessibleModule2
   #2: want `  import= R`, got `    class C`
 compiler/amdLikeInputDeclarationEmit
@@ -34,7 +34,7 @@ compiler/declFileAmbientExternalModuleWithSingleExportedModule
 compiler/declFileGenericType2
   #3: want `namespace templa`, got `    export{}`
 compiler/declFileImportModuleWithExportAssignment
-  #0: want `namespace m2`, got `var m2`
+  #0: want `import= a1`, got `var a`
 compiler/declFileTypeofFunction
   #2: want `function g`, got `function f`
 compiler/declFileWithExtendsClauseThatHasItsContainerNameConflict
@@ -45,12 +45,10 @@ compiler/declFileWithInternalModuleNameConflictsInExtendsClause2
   #13: extra `        namespace A`
 compiler/declInput4
   #1: want `  class E`, got `  class C`
-compiler/declarationEmitAliasExportStar
-  #0: want `import`, got `var thing2`
 compiler/declarationEmitAliasFromIndirectFile
-  #0: want `var _default`, got `var fp`
+  #0: want `var _default`, got `import`
 compiler/declarationEmitAliasInlineing
-  #0: want `type O`, got `var fn`
+  #0: want `import`, got `var f`
 compiler/declarationEmitClassMemberWithComputedPropertyName
   #0: want `var k1`, got `var t1`
 compiler/declarationEmitClassMixinLocalClassDeclaration
@@ -92,7 +90,7 @@ compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
 compiler/declarationEmitForDefaultExportClassExtendingExpression01
   #0: want `interface Greeter`, got `class <anonymous>`
 compiler/declarationEmitForModuleImportingModuleAugmentationRetainsImport
-  #1: want `module "./parent"`, got `function child1`
+  #0: want `import`, got `class ParentThing`
 compiler/declarationEmitFunctionDuplicateNamespace
   #1: want `namespace f`, got `function f`
 compiler/declarationEmitFunctionKeywordProp
@@ -113,8 +111,6 @@ compiler/declarationEmitMappedTypeDistributivityPreservesConstraints
   #0: want `type Fns`, got `var _default`
 compiler/declarationEmitMultipleComputedNamesSameDomain
   #0: want `var x`, got `class Test`
-compiler/declarationEmitNamespaceMergedWithInterfaceNestedFunction
-  #1: want `interface Bar`, got `namespace Bar`
 compiler/declarationEmitNoInvalidCommentReuse3
   #0: want `import`, got `var _`
 compiler/declarationEmitNonExportedBindingPattern
@@ -122,9 +118,9 @@ compiler/declarationEmitNonExportedBindingPattern
 compiler/declarationEmitObjectAssignedDefaultExport
   #0: want `interface Statics`, got `var C`
 compiler/declarationEmitPartialNodeReuseTypeOf
-  #2: want `var nPrivate`, got `var o`
+  #0: want `import`, got `var g`
 compiler/declarationEmitPartialNodeReuseTypeReferences
-  #1: want `type PrivateSpecialString`, got `namespace N`
+  #0: want `import`, got `var g`
 compiler/declarationEmitPartialReuseComputedProperty
   #0: want `import`, got `var g`
 compiler/declarationEmitPreserveReferencedImports
@@ -132,7 +128,7 @@ compiler/declarationEmitPreserveReferencedImports
 compiler/declarationEmitPrivateNameCausesError
   #0: want `var IGNORE_EXTRA_VARIABLES`, got `function ignoreExtraVariables`
 compiler/declarationEmitPrivatePromiseLikeInterface
-  #0: want `type TPromise`, got `interface HttpResponse`
+  emitted Api.d.ts, upstream emitted no declaration file
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationEmit2
   #0: want `import`, got `class C`
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
@@ -141,46 +137,32 @@ compiler/declarationEmitQualifiedAliasTypeArgument
   #0: want `import`, got `var fun`
 compiler/declarationEmitReadonlyComputedProperty
   emitted index.d.ts, upstream emitted no declaration file
-compiler/declarationEmitRecursiveConditionalAliasPreserved
-  #0: want `import`, got `var power`
-compiler/declarationEmitResolveTypesIfNotReusable
-  #0: want `var u`, got `var o1`
 compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
   #0: want `type Whatever`, got `var run`
-compiler/declarationEmitRetainsJsdocyComments
-  #3: missing `namespace global`
 compiler/declarationEmitReusesLambdaParameterNodes
   #0: want `type Whatever`, got `import`
 compiler/declarationEmitScopeConsistency
   #0: want `import`, got `interface A`
-compiler/declarationEmitShadowingInferNotRenamed
-  #0: want `type Client`, got `var createClient`
 compiler/declarationEmitSpreadStringlyKeyedEnum
   #0: want `enum AgeGroups`, got `var SpotifyAgeGroupEnum`
 compiler/declarationEmitTransitiveImportOfHtmlDeclarationItem
   #0: want `import`, got `function func`
 compiler/declarationEmitTypeAliasWithTypeParameters5
   #2: want `export{}`, got `function foo`
-compiler/declarationEmitTypeofRest
-  #0: want `var n`, got `var v2`
-compiler/declarationMaps
-  #0: want `namespace m2`, got `var m2`
 compiler/declarationMapsMultifile
   #1: missing `import`
 compiler/declarationNoDanglingGenerics
   #0: want `var AKind_base`, got `class AKind`
 compiler/declarationsForFileShadowingGlobalNoError
-  #0: want `import`, got `var mixin`
+  #0: want `import`, got `type Constructor`
 compiler/declarationsForIndirectTypeAliasReference
   #0: want `import`, got `export{}`
 compiler/declarationsIndirectGeneratedAliasReference
   #0: want `import`, got `var MyComp`
 compiler/declareDottedModuleName
   #1: want `namespace M`, got `  namespace P`
-compiler/declareFileExportAssignment
-  #0: want `namespace m2`, got `var m2`
 compiler/declareFileExportAssignmentWithVarFromVariableStatement
-  #0: want `namespace m2`, got `var x, m2`
+  #3: want `var m2`, got `var x, m2`
 compiler/defaultDeclarationEmitDefaultImport
   #0: want `import`, got `var instance`
 compiler/defaultDeclarationEmitShadowedNamedCorrectly
@@ -213,3 +195,21 @@ compiler/funcdecl
   #20: want `var withOverloadSignature`, got `function overload1`
 compiler/globalThisDeclarationEmit
   emitted index.d.ts, upstream emitted no declaration file
+compiler/importAliasFromNamespace
+  #2: want `    class Foo`, got `    import= Internal`
+compiler/importDecl
+  #0: want `import= m4`, got `var x4`
+compiler/importTypeGenericArrowTypeParenthesized
+  #3: want `type MakeItWork`, got `var works2`
+compiler/importedAliasedConditionalTypeInstantiation
+  #0: want `type Handler`, got `export{}`
+compiler/inferredReturnTypeIncorrectReuse1
+  #2: want `var out`, got `var t`
+compiler/internalAliasClassInsideLocalModuleWithExport
+  #6: want `var d`, got `    var cReturnVal`
+compiler/internalAliasClassInsideLocalModuleWithoutExport
+  #6: extra `    var cReturnVal`
+compiler/internalAliasClassInsideTopLevelModuleWithoutExport
+  #2: want `import= xc`, got `var cProp`
+compiler/internalAliasFunctionInsideLocalModuleWithoutExport
+  #4: want `  var bVal2`, got `  var bVal`

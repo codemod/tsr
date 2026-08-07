@@ -186,11 +186,43 @@ fn an_unreferenced_import_is_elided_and_a_referenced_one_is_not() {
 }
 
 #[test]
+fn an_import_used_by_a_written_arrow_signature_is_retained() {
+    assert_emits(
+        "import { T } from \"./m\";\nexport const f = (value: T): void => {};\n",
+        "import { T } from \"./m\";\nexport declare const f: (value: T) => void;\n",
+    );
+}
+
+#[test]
+fn an_arrow_type_parameter_does_not_retain_a_shadowed_import() {
+    assert_emits(
+        "import * as T from \"./m\";\nexport const identity = <T>(value: T): T => value;\n",
+        "export declare const identity: <T>(value: T) => T;\n",
+    );
+}
+
+#[test]
 fn a_side_effect_import_is_never_elided() {
     // It binds no name, so reachability has nothing to say about it — and dropping
     // it changes what an importer of the `.d.ts` loads. `transform.go:2474`.
     let text = emit("import \"./polyfill\";\nexport const a: number = 1;\n");
     assert!(text.contains("import \"./polyfill\";"), "a side-effect import was dropped:\n{text}");
+}
+
+#[test]
+fn a_module_augmentation_and_its_type_import_are_retained() {
+    assert_emits(
+        "import { T } from \"./m\";\ndeclare global { interface Window { value: T; } }\n",
+        "import { T } from \"./m\";\ndeclare global {\n    interface Window {\n        value: T;\n    }\n}\n",
+    );
+}
+
+#[test]
+fn every_declaration_in_a_merged_symbol_is_retained_in_source_order() {
+    assert_emits(
+        "function f(): void {}\nnamespace f { export const x: number = 1; }\nexport { f };\n",
+        "declare function f(): void;\ndeclare namespace f {\n    const x: number;\n}\nexport { f };\n",
+    );
 }
 
 // ----- class members --------------------------------------------------------
