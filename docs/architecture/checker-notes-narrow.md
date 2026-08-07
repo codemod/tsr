@@ -875,3 +875,28 @@ deliverable:
 **What survived:** the protocol port itself (cache, stack, first-antecedent
 rule, shared-flows truncation) ran without cache poisoning — §9.2's lesson
 held. +241 is the measured upside once the three defects are owned.
+
+### §12.2 The second attempt — five cycles, five identical measurements, and a disproved diagnosis
+
+The fixpoint was re-implemented with §12.1's fixes and refined four more
+times: depth save/restore around nested walks, the empty-placeholder
+on-stack return, a per-invocation disable scope, a half-budget declared
+bail, and incomplete propagation through the branch label (which HAD been
+hardcoding `incomplete: false` — a real defect, now documented). **Every
+one of the five measurements was byte-identical**: +241 gained, 196 lost in
+`parsingDeepParenthensizedExpression`, 77 wrong, 2 regressed.
+
+**§12.1's defect-1 diagnosis is DISPROVED**: an instrumented run shows the
+depth cap **never trips** — the 196 losses do not come from the cap, the
+disable, or the depth accounting at all, and three interventions were aimed
+at a mechanism that does not fire. What produces them is still unidentified;
+the placeholder-`never` laundering hypothesis (branch label dropping
+`incomplete`) was real as a defect but did not move the number either.
+
+**The next attempt's REQUIRED first step is an instrument, not a fix**: a
+single-line trace comparing the flow walk of one
+`parsingDeep…:0:1095`-family line with and without the loop arm — which
+node answers, with what, and where the `error` enters. Five blind cycles
+are the recorded price of skipping it. The +241 upside stands measured; the
+port sketch (cache/stack/first-antecedent/truncation) remains validated for
+everything but this case family.
