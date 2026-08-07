@@ -658,8 +658,19 @@ impl<'a> Checker<'a, '_> {
     /// happens when a file is checked with no lib files, as every unit test here
     /// is.
     pub(crate) fn global_type_symbol(&self, name: &str) -> Option<SymbolId> {
+        self.global_type_symbol_with_arity(name, 1)
+    }
+
+    /// [`Checker::global_type_symbol`] at an explicit arity — `getGlobalType`'s
+    /// real signature (`checker.go`, `arity int`); `Generator` is the first
+    /// caller to need one other than 1.
+    pub(crate) fn global_type_symbol_with_arity(
+        &self,
+        name: &str,
+        arity: usize,
+    ) -> Option<SymbolId> {
         let symbol = *self.binder.globals().get(name)?;
-        (self.local_type_parameters_of(symbol).len() == 1).then_some(symbol)
+        (self.local_type_parameters_of(symbol).len() == arity).then_some(symbol)
     }
 
     /// Ported from `Checker.getAliasSymbolForTypeNode` (`checker.go:23719`).

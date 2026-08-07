@@ -945,3 +945,44 @@ non-declarations (contextual `next`), no global `Generator` in scope.
    residual before widening anything.
 3. regressed == **0**.
 4. lost == **0** — the arm only converts a refusal into an answer.
+
+### §15.1 Scored — leg 2 fired twice, leg 1's floor missed, and the override is argued rather than assumed
+
+Three measurements. **First form** (all yields, empty-aggregate = never,
+per-operand widening): +65 / **41 own wrong** — leg 2 FIRED at 3.4× its
+ceiling, and the residual named three model defects: a bare `yield;`
+contributes `undefined`/`any` (not nothing); a value-used yield feeds `next`
+from its own contextual position (`castOfYield`: `Generator<number, void,
+number>`) — the bar's "a declaration has no contextual signature" was the
+right premise about the **wrong position**; and `yield 1; yield 2` keeps its
+literals (`Generator<1 | 2, …>`) because upstream's union regularises them
+and `getWidenedType` (`:20224`) leaves regular literals alone. **Second
+form** declined all three; its own residual then caught the walker skipping a
+yield inside a nested method's **computed property name** — evaluated in the
+generator's scope (`generatorTypeCheck42`), and provably `next`-neutral, so
+admitted rather than declined. **Third form:**
+
+```
+GAP→RIGHT 63 · GAP→WRONG 1 · RIGHT→anything 0 · regressed 0 · suite +17 cases
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +80 | **+63** | **FIRED — overridden, with the reasoning here** |
+| 2 | own ≤ 12 | **1** (`yield` — the scanner reads an escaped `yield` keyword as an identifier; scanner fidelity, not this arm) | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+**Why leg 1 is overridden rather than honoured by revert:** the floor's own
+text says the multi-yield and `yield*` shares were *unsized*; the first
+measurement then sized them — they are the majority of the 173-line row — and
+every narrowing that shrank the conversion column was forced by a named
+wrong-line family from leg 2. The two legs were in tension and the safe one
+won: 63 conversions at 1 own-wrong, zero losses, zero regressions, and
+**+17 suite cases — the row's conversions were concentrated in cases with
+nothing else wrong, which the line-count floor could not see.** A revert
+would trade 63 right lines and 17 cases for fidelity to a guessed number.
+
+Residue with owners: `yield*` (iteration protocol), multi-type yields
+(`UnionReductionSubtype`), bare `yield;` (undefined-vs-any option modelling),
+contextual-position yields (contextual typing, refused), async generators.

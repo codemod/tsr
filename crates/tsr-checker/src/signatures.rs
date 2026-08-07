@@ -669,7 +669,89 @@ impl<'a> Checker<'a, '_> {
             matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
         });
         if asterisk {
-            return None;
+            // A **generator declaration** — `getReturnTypeFromBody`'s generator
+            // arm (`checker.go:20151`): yield type = the operand aggregate,
+            // `never` when empty (`:20239`); return type = the return
+            // aggregate's `void` fallback; next type = the contextual
+            // intersection, and a declaration has no contextual signature, so
+            // it is always `unknown` (`:20242`–`:20245`) — the same
+            // declaration-only soundness gate as the async arm below.
+            // `checker-notes-callres.md` §15 carries the bar and the declined
+            // shapes: `yield*`, ≥2 distinct operands, valued returns, async
+            // generators, non-declarations.
+            if is_async || self.nodes.kind(declaration) != SyntaxKind::FunctionDeclaration {
+                return None;
+            }
+            let Body::Block(block) = body else { return None };
+            if self.return_expressions_of(block, declaration).iter().any(Option::is_some) {
+                return None;
+            }
+            let yields = self.yield_expressions_of(block, declaration);
+            let mut operand_types: Vec<TypeId> = Vec::new();
+            for (delegates, id, operand) in yields {
+                // `yield*` reads the delegated iterable's element type through
+                // the iteration protocol (`getYieldedTypeOfYieldExpression`) —
+                // unported, and the whole signature declines rather than
+                // mistyping the yield slot.
+                if delegates {
+                    return None;
+                }
+                // The first measurement fired the §15 bar's leg 2 at 41 and
+                // the residual named two shapes this arm had modelled wrong,
+                // both now declined rather than approximated:
+                // - a **bare `yield;`** contributes `undefined` (or `any`),
+                //   not nothing — `generatorImplicitAny` wants
+                //   `Generator<undefined, …>` where the empty-aggregate model
+                //   said `never`;
+                // - a yield whose **value is used** feeds the `next` slot from
+                //   its own contextual position — `castOfYield` records
+                //   `Generator<number, void, number>` — so "a declaration has
+                //   no contextual signature" was the right premise about the
+                //   wrong position. Statement position is the one place the
+                //   value is provably unused.
+                let operand = operand?;
+                // Statement position and a computed property name are the two
+                // positions that provably give a yield **no contextual type**
+                // (`generatorTypeCheck42` pins the second: the yield's value
+                // becomes a property key and `next` still reads `unknown`).
+                // Everywhere else the contextual-typing subsystem decides, and
+                // it is refused — decline rather than model it.
+                if self.nodes.parent(id).is_none_or(|parent| {
+                    !matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::ExpressionStatement | SyntaxKind::ComputedPropertyName
+                    )
+                }) {
+                    return None;
+                }
+                let operand_type = self.check_expression(operand);
+                if operand_type == self.intrinsics.error {
+                    return None;
+                }
+                // Dedup on the UNWIDENED type: `yield 1; yield 2` aggregates
+                // two distinct fresh literals whose union regularises to
+                // `1 | 2` — upstream's `getWidenedType` then leaves regular
+                // literals alone (`generatorReturnTypeInference` records
+                // `Generator<1 | 2, …>`), so widening per-operand and then
+                // deduping answered `number` there. The single-type case is
+                // the one `getWidenedType` widens, below.
+                if !operand_types.contains(&operand_type) {
+                    operand_types.push(operand_type);
+                }
+            }
+            let yield_type = match operand_types.as_slice() {
+                [] => self.intrinsics.never,
+                // One distinct fresh type: `getWidenedType` (`checker.go:20224`)
+                // widens the freshness away — `yield 1` prints `number`.
+                [single] => self.get_widened_literal_type(*single),
+                // Two or more distinct operand types aggregate under
+                // `UnionReductionSubtype` (`checker.go:20159`), unported.
+                _ => return None,
+            };
+            let generator = self.global_type_symbol_with_arity("Generator", 3)?;
+            let void = self.intrinsics.void;
+            let unknown = self.intrinsics.unknown;
+            return Some(self.create_type_reference(generator, vec![yield_type, void, unknown]));
         }
         // An async **declaration** with no valued return answers
         // `Promise<void>` — `getReturnTypeFromBody`'s zero-aggregate arm
@@ -934,6 +1016,52 @@ impl<'a> Checker<'a, '_> {
                 // function *expression* there. `signature_parts_of` above already
                 // stops that; not descending at all is simply cheaper.
                 continue;
+            }
+            children.clear();
+            tsr_ast::push_children(node, &mut children);
+            stack.extend(children.iter().copied());
+        }
+        found
+    }
+
+    /// Every `yield` expression belonging to `owner`, as `(delegates,
+    /// operand)` — `true` for `yield*`.
+    ///
+    /// The walker is [`Checker::return_expressions_of`]'s shape with the same
+    /// nested-function guard: a `yield` inside an inner function-like node
+    /// belongs to that node. Unlike a `return`, a `yield` is an *expression*
+    /// and can nest inside another (`yield yield 1`), so this one does descend
+    /// into what it finds.
+    fn yield_expressions_of(
+        &self,
+        body: NodeId,
+        owner: NodeId,
+    ) -> Vec<(bool, NodeId, Option<tsr_ast::Expression<'a>>)> {
+        let Some(root) = self.node_map.get(body) else { return Vec::new() };
+        let mut found = Vec::new();
+        let mut stack = vec![root];
+        let mut children = Vec::new();
+        while let Some(node) = stack.pop() {
+            let id = node.node_id();
+            if id.is_some_and(|id| id != owner && self.signature_parts_of(id).is_some()) {
+                // A nested function's body is its own yield scope — but its
+                // **computed property name** is evaluated in this one:
+                // `function* g() { let x = { [yield 0]() {} } }` records
+                // `Generator<number, …>` (`generatorTypeCheck42`), and
+                // skipping the whole method skipped the name with it — the
+                // §15 bar's first measurement counted those yields as absent.
+                if let Some(name) = node.name_id()
+                    && self.nodes.kind(name) == SyntaxKind::ComputedPropertyName
+                    && let Some(name_node) = self.node_map.get(name)
+                {
+                    stack.push(name_node);
+                }
+                continue;
+            }
+            if let Node::YieldExpression(expression) = node
+                && let Some(id) = expression.node_id
+            {
+                found.push((expression.asterisk_token.is_some(), id, expression.expression));
             }
             children.clear();
             tsr_ast::push_children(node, &mut children);

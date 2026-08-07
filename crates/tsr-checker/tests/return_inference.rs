@@ -180,3 +180,61 @@ fn an_async_declaration_with_no_valued_return_is_promise_void() {
     // gap sentinel, not an answer.
     assert_eq!(type_of_declaration_with_promise("async function f() { return 1; }", "f"), "error");
 }
+
+/// The printed type of `name`, bound beside a stand-in lib declaring `Generator`.
+fn type_of_declaration_with_generator(source: &str, name: &str) -> String {
+    let lib = "interface Generator<T, TReturn, TNext> {}\n";
+    let arena = Arena::new();
+    let mut nodes = tsr_ast::NodeTable::new();
+    let mut node_map = tsr_ast::NodeMap::new();
+    let options = tsr_parser::ParseOptions::default();
+    let lib_file = tsr_parser::parse_into(&arena, lib, options, &mut nodes, &mut node_map);
+    let parsed = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
+    assert!(
+        parsed.diagnostics.is_empty(),
+        "fixture must parse: {:?}",
+        parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
+    );
+    let bound = tsr_binder::bind_into(
+        tsr_binder::BindResult::empty(),
+        lib_file.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "lib.d.ts", text: lib },
+    );
+    let bound = tsr_binder::bind_into(
+        bound,
+        parsed.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let symbol = bound.lookup_local(root, name).unwrap_or_else(|| panic!("`{name}` is declared"));
+    let mut checker = Checker::new(&bound, &nodes, &node_map);
+    let id = checker.get_type_of_symbol(symbol);
+    checker.type_to_string(id)
+}
+
+#[test]
+fn a_generator_declaration_infers_generator_of_its_yields() {
+    // `getReturnTypeFromBody`'s generator arm (`checker.go:20151`): yield
+    // aggregate, `void` return fallback, `unknown` next for a declaration
+    // (`:20242`). `conformance/generatorReturnTypeInference*` baselines record
+    // exactly these shapes.
+    assert_eq!(
+        type_of_declaration_with_generator("function* g() { yield 1; }", "g"),
+        "() => Generator<number, void, unknown>"
+    );
+    // No yield at all: the aggregate is empty and the slot is `never`
+    // (`checker.go:20239`).
+    assert_eq!(
+        type_of_declaration_with_generator("function* g() {}", "g"),
+        "() => Generator<never, void, unknown>"
+    );
+    // `yield*` needs the iteration protocol and declines whole.
+    assert_eq!(type_of_declaration_with_generator("function* g() { yield* [1]; }", "g"), "error");
+    // A valued return needs the subtype-reduced aggregate and declines whole.
+    assert_eq!(
+        type_of_declaration_with_generator("function* g() { yield 1; return 2; }", "g"),
+        "error"
+    );
+}
