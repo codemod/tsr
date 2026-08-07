@@ -248,3 +248,17 @@ are composite *signature* prints — `() => Element` where `() => JSX.Element`
 is wanted — the baked-text-inside-composites boundary design P has always
 had, now with its largest single population. That family is the next naming
 shard and it is NOT this arm's defect: the return type it embeds is correct.
+
+## The heritage-expression shard (`bd tsr-fpti`, first shard) — bar
+
+`class B extends React.Component<P, any>` records the **instantiated
+reference** on the heritage expression (`checkJsxChildrenProperty12.types:27`,
+`>React.Component : React.Component<ButtonProp, any>`); a bare `extends Base`
+records `typeof Base`, which the value path already answers. Gate: the
+expression's parent is `ExpressionWithTypeArguments` with non-empty
+arguments. Sized at **108 wrong lines / at-risk 0** (upstream never records
+`typeof` for a with-arguments heritage). Bar: net ≥ +55 (~50%; the entity
+walk and arity check will decline a share); own new wrong ≤ 10; regressed
+== 0; lost ≤ 3. Falsifier: losses → the gate is firing outside heritage
+positions (`ExpressionWithTypeArguments` appears in `implements` too, where
+the same rule holds — but check that first).
