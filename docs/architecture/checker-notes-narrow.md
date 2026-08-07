@@ -925,3 +925,29 @@ without passing `Tn`'s declaration-assignment — instrument the walk's node
 kinds between the back edge and the junction (nested inner labels re-routing
 the walk is the live hypothesis). The trace hook's placement is recorded in
 `fixpoint-patch-§12.md`.
+
+### §12.4 The 196 solved — it was a JS file, and the walk trace earned its keep
+
+The node-kind probe led to the case source: `parsingDeepParenthensizedExpression`
+is **`@fileName: a.js`** — minified MD5 JavaScript, chained assignment
+EXPRESSIONS (`M = (M = …`) inside `for` loops. With the §11.2 JS decline on
+the loop arm (`in_js_file`, the flag that session made real), the 196
+vanish entirely — **§12.1's defect 1 was never a depth problem; it was the
+JS-file trap's third appearance** (`@overload` §11.1, the auto-initial JS
+residue, now this). 130 of the first attempt's 230 wins were the same JS
+case's other lines converting, so the JS decline is load-bearing in both
+directions.
+
+With it, the sixth measurement reads: **+111 gained / 63 RIGHT→WRONG /
+12 RIGHT→GAP / 2 regressed** — the residue is now purely the `.ts`
+loop-iteration family (`controlFlowIterationErrors*`, `WhileStatement`,
+`typeGuardsAsAssertions`, `SelfReferentialLoop`): the completing-pass
+incomplete semantics, §12.1's defect 2, the one remaining real port gap. Its
+candidate mechanism, for the next cycle: upstream's `antecedentTypes` slice
+ALIASES into the on-stack entry (Go slice backing shared up to capacity), so
+a second back edge's placeholder can see the first back edge's contribution
+— this port's `types.clone()` snapshot freezes it instead. Verify against
+`flow.go:1367` before coding.
+
+Reverted again; the arm plus JS decline is the base state for the next
+cycle, preserved in `fixpoint-patch-§12.md` (amended).

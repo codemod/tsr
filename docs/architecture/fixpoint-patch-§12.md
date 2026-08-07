@@ -107,9 +107,22 @@ fn is_type_subset_of(&mut self, sub: TypeId, superset: TypeId) -> bool {
 In `get_type_at_flow_branch_label`, accumulate `incomplete |=` across
 antecedent walks and return it instead of the hardcoded `false`.
 
+## 4b. REQUIRED: the JS decline (§12.4 — the 196-line mystery's answer)
+
+Gate the dispatch arm:
+```rust
+} else if flags.contains(FlowFlags::LOOP_LABEL)
+    && !self.in_js_file(state.reference)
+{
+    break self.get_type_at_flow_loop_label(state, flow);
+```
+With it the parsingDeep family (a JS file) is untouched in both directions
+and the residue is the .ts loop-iteration family only.
+
 ## 5. The measured state with all of the above
 
-+241 gained · 196 lost (all `parsingDeepParenthensizedExpression`) · 77
-wrong · 2 regressed — **byte-identical across five refinement variants**,
-depth cap instrumented as never tripping. The trace goes in §3's function
-and at the `error` intrinsic's production sites.
+WITHOUT the JS decline: +241 / 196 lost / 77 wrong / 2 regressed. WITH it
+(§12.4): **+111 / 63 wrong / 12 lost / 2 regressed** — the residue is the
+`.ts` loop-iteration family, candidate mechanism: upstream's
+`antecedentTypes` aliasing into the on-stack entry (`flow.go:1367`) versus
+this port's frozen `types.clone()` snapshot.
