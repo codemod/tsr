@@ -2443,3 +2443,25 @@ The procedure is cheap enough to be routine: disable the condition, run coverage
 keep or revert. It should be the first thing a session does after any build that
 changes what the port can decide — §25 and §35 each invalidated gates written
 before them, and nothing announced it.
+
+### 37.2 The JS declines were **borrowed**, not measured — +3
+
+```
+diagnostics 1,058 -> 1,061   (+3)
+```
+
+`crate::nonexistent_property` and `crate::type_argument_arity` both declined
+`.js` files. Neither had ever measured it: they took the argument from §18 and
+§16.2, where it *is* measured — JSDoc `@param` and `@type` supply annotations
+this port does not parse, so an option-gated rule reports an implicit any on
+every annotated parameter, and a declaration's type comes out wrong.
+
+**That argument is about annotations, and neither of these rules reads one.**
+TS2339 reports on a member's *absence* from a table the binder built from real
+declarations, and TS2314 counts type parameters written on a class. **JSDoc adds
+no members and no type parameters.** The declines were inherited by resemblance.
+
+Three cases, and the shape is worth more than the three: a decline copied from a
+sibling rule carries the sibling's justification, not its own, and nothing in the
+code says which is which. The audit catches it; a reviewer reading either file in
+isolation would not.

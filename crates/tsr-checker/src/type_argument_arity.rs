@@ -36,7 +36,7 @@ use crate::checker::Checker;
 impl Checker<'_, '_> {
     /// The arity check for one written type reference.
     pub(crate) fn check_type_argument_arity(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.file_has_parse_errors {
             return;
         }
         let (name, written) = match self.node_map.get(node) {

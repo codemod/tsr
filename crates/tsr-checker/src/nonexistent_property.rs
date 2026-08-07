@@ -27,8 +27,16 @@ use crate::checker::Checker;
 
 impl Checker<'_, '_> {
     /// The nonexistent-property check for one property access.
+    ///
+    /// **No `.js` decline**, and §37's audit is why. Every other rule this
+    /// session declines JS because JSDoc supplies types this port does not
+    /// parse — but that argument is about *annotations*, and this rule reports
+    /// on a member's **absence** from a table the binder built from real
+    /// declarations. JSDoc adds no members. Removing the decline here and in
+    /// `crate::type_argument_arity`, which declined for the same borrowed
+    /// reason, is worth 3 cases.
     pub(crate) fn check_nonexistent_property(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.file_has_parse_errors {
             return;
         }
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
