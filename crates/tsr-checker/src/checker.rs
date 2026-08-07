@@ -204,6 +204,11 @@ pub struct Checker<'a, 'n> {
     /// changes what a deep function answers rather than only protecting the
     /// stack. See [`crate::flow`].
     pub(crate) flow_analysis_disabled: bool,
+    /// Containers whose flow analysis tripped the §14 too-large bail —
+    /// upstream's `flowAnalysisDisabled`, whose `checkBlock` save/restore
+    /// (`checker.go:3791`) scopes the poison to the containing function or
+    /// module body. Here the scope is lexical containment of the reference.
+    pub(crate) flow_disabled_containers: rustc_hash::FxHashSet<NodeId>,
     /// The per-invocation memo for flow nodes with more than one antecedent.
     ///
     /// Upstream's `c.sharedFlows` (`checker.go:799`), a stack that each
@@ -519,6 +524,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unresolved_types: rustc_hash::FxHashSet::default(),
             resolutions: Resolutions::new(),
             flow_analysis_disabled: false,
+            flow_disabled_containers: rustc_hash::FxHashSet::default(),
             shared_flows: Vec::new(),
             instantiation_depth: 0,
             instantiation_count: 0,

@@ -1212,3 +1212,14 @@ computes real types; a step-counting implementation instead of a
 recursion-equivalent one fails exactly there; (b) any new wrong line in a
 case whose errors baseline lacks TS2563 means the trip fired where
 upstream's did not.
+
+**§14 score — LANDED: +10,000 WRONG→RIGHT, zero adverse. The largest single
+build in the project's history.** `checker_types` 74.66% → **76.75%**
+(+2.09 points from one case), right 357,576 → **367,576**, wrong 34,326 →
+**24,326** — the wrong column lost 29% in one build. Both falsifiers held:
+`binaryArithmeticControlFlowGraphNotTooLarge` untouched (its want-number
+family is pre-existing and unrelated), and no new wrong line anywhere. One
+leg fired in-build and taught the model's refinement: the DECLARATION
+prints the widened `any[]` (the symbol keeps its type; upstream's TS2563
+poison applies to flow REFERENCES), so the trip disables the container
+without touching the symbol's own answer. Diagnostics rode along 961 → 964.

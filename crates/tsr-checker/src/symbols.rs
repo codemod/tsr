@@ -1360,6 +1360,58 @@ impl<'a> Checker<'a, '_> {
     /// The memo is ADR-0013's read-drop-recurse-write: the lookup's borrow ends
     /// before the recursion, because `TypeId` is `Copy` and nothing borrowed from
     /// `self` survives into it.
+    /// The §14 stand-in for upstream's evolving-array finalization depth:
+    /// an auto-array declaration (no annotation, `= []`) whose container
+    /// holds 2,000 or more element-mutation statements on the same name.
+    /// Returns the container to disable. The count proxies `flow.go:1404`'s
+    /// per-mutation recursion, which is what actually trips upstream's cap.
+    fn too_large_evolving_array(
+        &mut self,
+        symbol: SymbolId,
+        declaration: NodeId,
+    ) -> Option<NodeId> {
+        let Some(Node::VariableDeclaration(node)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        if node.r#type.is_some()
+            || !matches!(
+                node.initializer,
+                Some(tsr_ast::Expression::ArrayLiteralExpression(array))
+                    if array.elements.is_empty()
+            )
+        {
+            return None;
+        }
+        let name = self.binder.symbols().get(symbol).name;
+        let container = self.function_or_source_file_ancestor(declaration)?;
+        let container_node = self.node_map.get(container)?;
+        let mut count: u32 = 0;
+        let mut stack = vec![container_node];
+        let mut children = Vec::new();
+        while let Some(current) = stack.pop() {
+            if let Node::BinaryExpression(binary) = current
+                && binary
+                    .operator_token
+                    .is_some_and(|token| token.kind == tsr_ast::SyntaxKind::EqualsToken)
+                && let Some(tsr_ast::Expression::ElementAccessExpression(access)) = binary.left
+                && matches!(
+                    access.expression,
+                    Some(tsr_ast::Expression::Identifier(identifier))
+                        if identifier.text == name
+                )
+            {
+                count += 1;
+                if count >= 2_000 {
+                    return Some(container);
+                }
+            }
+            children.clear();
+            tsr_ast::push_children(current, &mut children);
+            stack.extend(children.iter().copied());
+        }
+        None
+    }
+
     fn get_type_of_variable_or_parameter_or_property(&mut self, symbol: SymbolId) -> TypeId {
         if let Some(&cached) = self.symbol_types.get(&symbol) {
             return cached;
@@ -1375,6 +1427,17 @@ impl<'a> Checker<'a, '_> {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return self.intrinsics.error;
         };
+        // §14 (`checker-notes-narrow.md`): upstream finalizes an evolving
+        // array (`const data = []`) by walking every mutation in the
+        // container; past 2,000 the depth cap trips and TS2563 disables flow
+        // analysis for the containing body (`largeControlFlowGraph`). The
+        // SYMBOL keeps its widened `any[]` — the baseline prints it at the
+        // declaration — while every flow REFERENCE in the disabled container
+        // answers upstream's `errorType`, printed `any`. The count stands in
+        // for the recursion this port's iterative walk never performs.
+        if let Some(container) = self.too_large_evolving_array(symbol, declaration) {
+            self.flow_disabled_containers.insert(container);
+        }
 
         // The circularity guard wraps the *whole* computation, so a type that
         // reaches itself through any depth of indirection is caught. Nothing

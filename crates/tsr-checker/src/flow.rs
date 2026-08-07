@@ -98,6 +98,10 @@ struct FlowState {
     /// the declaration instead, in [`Checker::is_auto_typed_declaration`]; see
     /// that method for why the identity trick is not reproduced.
     is_auto: bool,
+    /// Whether the declaration is upstream's `autoArrayType` trigger — no
+    /// annotation, empty-array-literal initializer (`flow.go:1404`'s guard).
+    /// Decides the §14 `ARRAY_MUTATION` depth accounting.
+    is_auto_array: bool,
     /// Whether the reference's control-flow container differs from its
     /// declaration's — upstream's `isOuterVariable`, deciding the START arm's
     /// answer (`checker-notes-narrow.md` §9.7).
@@ -250,6 +254,20 @@ impl Checker<'_, '_> {
         if self.flow_analysis_disabled {
             return self.intrinsics.error;
         }
+        // §14: a reference inside a container whose analysis tripped the
+        // too-large bail answers upstream's give-up value — `errorType`,
+        // WHICH UPSTREAM PRINTS AS `any`. The `any` intrinsic here is that
+        // observable, not a computed claim; ADR-0038's `error` printing is
+        // for THIS port's failures, and this is upstream's own (TS2563).
+        if !self.flow_disabled_containers.is_empty() {
+            let mut ancestor = Some(reference);
+            while let Some(id) = ancestor {
+                if self.flow_disabled_containers.contains(&id) {
+                    return self.intrinsics.any;
+                }
+                ancestor = self.nodes.parent(id);
+            }
+        }
         let Some(flow) = self.binder.flow_of(reference) else {
             // Upstream returns the declared type when a reference has no flow
             // node — it is not an error, it is a position the binder never
@@ -284,6 +302,7 @@ impl Checker<'_, '_> {
                 None => declared_type,
             },
             is_auto,
+            is_auto_array: symbol.is_some_and(|symbol| self.is_auto_array_declaration(symbol)),
             outer_reference: self.is_outer_reference(reference, symbol),
             flow_container: self.extended_flow_container(reference, symbol),
             shared_flow_start: self.shared_flows.len(),
@@ -301,13 +320,17 @@ impl Checker<'_, '_> {
     /// long straight-line function from consuming 2,000 frames of depth for
     /// nodes that say nothing.
     fn get_type_at_flow_node(&mut self, state: &mut FlowState, from: FlowId) -> FlowType {
-        if state.depth == MAX_FLOW_DEPTH {
-            // Not a return value: upstream disables flow analysis for the rest
-            // of the containing function and reports an error. The error is not
-            // ported (no checker diagnostics yet, `bd tsr-4sc`), but the state
-            // change is, because it is observable in every later answer.
-            self.flow_analysis_disabled = true;
-            return FlowType { t: self.intrinsics.error, incomplete: false };
+        if state.depth >= MAX_FLOW_DEPTH {
+            // Upstream disables flow analysis for the rest of the containing
+            // function or module body and reports TS2563 (`flow.go:118`); the
+            // diagnostic is not ported (`bd tsr-4sc`), the state change and
+            // the answer are. The answer is upstream's `errorType` — printed
+            // `any` there, so the `any` intrinsic IS the observable
+            // (`checker-notes-narrow.md` §14).
+            if let Some(container) = self.function_or_source_file_ancestor(state.reference) {
+                self.flow_disabled_containers.insert(container);
+            }
+            return FlowType { t: self.intrinsics.any, incomplete: false };
         }
         state.depth += 1;
 
@@ -407,6 +430,23 @@ impl Checker<'_, '_> {
                 // are one intrinsic here rather than two.
                 break FlowType { t: state.declared_type, incomplete: false };
             } else {
+                // §14: an ARRAY_MUTATION node against an auto-array
+                // reference is a RECURSION upstream (`flow.go:1404` calls
+                // `getTypeAtFlowNode` per mutation), and the depth cap is
+                // what makes `largeControlFlowGraph` bail deliberately. This
+                // walk skips the node iteratively, so the recursion is
+                // accounted for explicitly — one depth step per mutation.
+                if flags.contains(FlowFlags::ARRAY_MUTATION) && state.is_auto_array {
+                    state.depth += 1;
+                    if state.depth >= MAX_FLOW_DEPTH {
+                        if let Some(container) =
+                            self.function_or_source_file_ancestor(state.reference)
+                        {
+                            self.flow_disabled_containers.insert(container);
+                        }
+                        break FlowType { t: self.intrinsics.any, incomplete: false };
+                    }
+                }
                 // SWITCH_CLAUSE, CALL, ARRAY_MUTATION and REDUCE_LABEL. Each is
                 // a narrowing this port does not do, and skipping to the
                 // antecedent yields the *unnarrowed* type — today's answer, not
@@ -753,7 +793,7 @@ impl Checker<'_, '_> {
 
     /// The nearest function-like or source-file ancestor (inclusive walk from
     /// the parent) — upstream's `ast.IsFunctionOrSourceFile` `FindAncestor`.
-    fn function_or_source_file_ancestor(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn function_or_source_file_ancestor(&self, node: NodeId) -> Option<NodeId> {
         let mut current = Some(node);
         while let Some(id) = current {
             if matches!(
@@ -984,6 +1024,24 @@ impl Checker<'_, '_> {
         node.r#type.is_none()
             && node.initializer.is_none()
             && !self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
+    }
+
+    /// Upstream's `autoArrayType` trigger (`checker.go`, the evolving-array
+    /// machinery): a variable declared with no annotation and an empty
+    /// array-literal initializer. Only the §14 depth accounting asks.
+    fn is_auto_array_declaration(&self, symbol: SymbolId) -> bool {
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let Some(Node::VariableDeclaration(node)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        node.r#type.is_none()
+            && matches!(
+                node.initializer,
+                Some(tsr_ast::Expression::ArrayLiteralExpression(array))
+                    if array.elements.is_empty()
+            )
     }
 
     /// The type an assignment flow node puts into the variable
