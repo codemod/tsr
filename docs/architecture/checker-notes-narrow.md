@@ -1967,3 +1967,10 @@ print), and any argument that gaps. Falsifiers: (a) self-referential
 bodies must ride the §29 placeholder, not recurse; (b) the seam must
 substitute by the ALIAS's parameter list — a mismatch prints `t` raw and
 is instantly visible.
+
+**§46 score — LANDED.** **+46 GAP→RIGHT / 4 adverse (2 R→W import-
+retention prints, 2 G→W in the head case itself).** The chain case's bulk
+needs the member-signature instantiation through nested call inference —
+the seam substitutes but the chained `.merge` returns need §38-style
+inference over the alias's own signatures, the row's remaining named
+prerequisite. `checker_types` right 394,726 → **394,770 (82.42%)**.

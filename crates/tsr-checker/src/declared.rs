@@ -838,6 +838,30 @@ impl<'a> Checker<'a, '_> {
             }
             arguments.push(resolved);
         }
+        // §46 (`checker-notes-narrow.md`): a generic ALIAS reference whose
+        // body is a type literal answers the §41 shape — name+args print,
+        // the body's member symbol, the seam registration.
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && let Some(TypeNode::TypeLiteralNode(literal)) = alias.r#type
+            && let Some(literal_id) = literal.node_id
+            && let Some(body_symbol) = self.binder.symbol_of(literal_id)
+        {
+            let printed_arguments: Vec<String> =
+                arguments.iter().map(|&a| self.type_to_string(a)).collect();
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            let text = format!("{name}<{}>", printed_arguments.join(", "));
+            let key = (text.clone(), symbol);
+            if let Some(&existing) = self.qualified_reference_types.get(&key) {
+                return existing;
+            }
+            let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(body_symbol));
+            self.qualified_reference_types.insert(key, minted);
+            self.type_reference_targets.insert(minted, (symbol, arguments));
+            return minted;
+        }
         self.create_type_reference(symbol, arguments)
     }
 
