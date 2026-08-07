@@ -566,6 +566,15 @@ impl<'a, 'n> Checker<'a, 'n> {
         let symbol = match &self.store.get(id).data {
             crate::types::TypeData::Named { members, .. } => *members,
             crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            // A union or intersection that a type alias (or an enum) names
+            // prints under that symbol's name — and until the seventh session
+            // this match dropped it, which is why a class-typed return slot
+            // qualified (`Temporal.Duration`) while an alias-typed parameter
+            // slot in the same signature did not (`DurationLike` bare, wanting
+            // `Temporal.DurationLike`). `bd tsr-2ghn`'s counterfactual found
+            // the asymmetry; the fields have carried the symbol all along.
+            crate::types::TypeData::Union { symbol, .. }
+            | crate::types::TypeData::Intersection { symbol, .. } => *symbol,
             _ => None,
         };
         let Some(symbol) = symbol else { return Some(printed) };
