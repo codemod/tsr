@@ -1223,3 +1223,22 @@ leg fired in-build and taught the model's refinement: the DECLARATION
 prints the widened `any[]` (the symbol keeps its type; upstream's TS2563
 poison applies to flow REFERENCES), so the trip disables the container
 without touching the symbol's own answer. Diagnostics rode along 961 → 964.
+
+### §15 Compound assignments do not narrow — the walk skips them at the literal's base
+
+`binaryArithmeticControlFlowGraphNotTooLarge` (968 lines, want `number` got
+`any`) decoded: reads after `a += anyTypedExpr` want `number` because
+upstream's assignment arm SKIPS a compound assignment's effect —
+`getTypeAtFlowAssignment` (`flow.go:229`): a matching COMPOUND target
+returns `getBaseTypeOfLiteralType(getTypeAtFlowNode(antecedent))`, the
+PRE-assignment type. The md5-style chains stay `number` through every
+`a += any` because both branch tails re-anchor with plain
+`a = (a << 3) | (a >>> 29)` (shift on `any` is `number`), and the compound
+steps never inject the `any`. This port's arm computed the `+=` result and
+assigned it — the 968 confident wrongs.
+
+**The bar**: the case's want-number family flips; the `2,624 number ← any`
+board row shrinks accordingly. Falsifiers: (a) losses in the §10 compound
+population (`bitwiseCompoundAssignmentOperators`) mean the reference-side
+base rule and this walk-side skip disagree; (b) losses where want IS the
+compound result mean upstream's skip is narrower than the arm ported.
