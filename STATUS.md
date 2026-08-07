@@ -189,6 +189,35 @@ fresh run at `7cecc02` (fourth session; every row within noise). Two lists, beca
 project's ordering rule has two halves: **rank by the conversion, and where the
 conversion is unknown, rank by how cheap it is to find out.**
 
+### 4.0 The gap-root board, re-measured at `d9a730b` (sixth session)
+
+`examples/depend.rs`, run fresh so this section's numbers are this session's.
+**Gap 86,642 → 82,871 across the session** (−3,771). The single most useful
+thing in it is a row that is *no longer there*:
+
+```
+  10,342  12.5%  PropertyAccessExpression   dependency types    want-any 47.9%   top-1 14.9%
+   7,685   9.3%  Identifier, no VALUE       no further dep      want-any 73.9%   top-1 14.9%
+   6,692   8.1%  CallExpression             dependency types    want-any 12.5%   top-1  4.2%
+   4,827   5.8%  Identifier, member name    dependency types    want-any 43.7%   top-1 13.9%
+   3,917   4.7%  ArrowFunction              NO STEP ARM         want-any  0.8%
+   3,337   4.0%  NewExpression              dependency types    want-any 15.7%
+   2,402   2.9%  Identifier, no value decl  no further dep      — the refused import-alias row
+   1,563   1.9%  TypeReference              dependency types    (was 1,939)
+       —         TypeReference              NO FURTHER DEP      — GONE. Was 4,010 and ranked 5th
+```
+
+**`TypeReference / no further dependency` was 4,010 lines at the start of this
+session and does not appear at all now.** That is independent confirmation of the
+qualified-naming build from a different instrument than the one that scored it:
+`typerefgap.rs` said the row was 99.8% one mechanism, and removing that mechanism
+removed the row.
+
+Two head rows are *known* not to be items and must not be re-scored as such:
+`PropertyAccessExpression / dependency types` is §4.3's downstream symptom
+(`bd tsr-mcd`), and `Identifier / no value declaration` (2,402) is the import-alias
+family refused on naming grounds (`bd tsr-4jk`, §5).
+
 ### 4.1 How the score is built, and what it is not
 
 ```
