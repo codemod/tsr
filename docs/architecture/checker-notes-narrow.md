@@ -1576,3 +1576,15 @@ named it). Gated: **+155 WRONG→RIGHT, ZERO adverse.** `checker_types`
 right 372,229 → **372,384**. Heads converted whole:
 `constDeclarations-access2–5`, `assignToEnum`,
 `externalModuleImmutableBindings`.
+
+### §28 Numeric element access on arrays and tuples
+
+`xs[i]` on `number[]` gaps — the commonest element access in the language
+(`ElementAccessExpression`, 640 TERMINAL lines). `getIndexedAccessType`'s
+applicable-index road exists but the `Array<T>` reference's inherited
+`[n: number]: T` does not arrive through `get_index_infos_of_type`. The
+direct rule: a number-like index into an `Array<T>` reference answers `T`
+(the `type_reference_targets` unwrap); into a tuple, the element union
+(the tuple's own literal arm already answers literal indices). Falsifier:
+`noUncheckedIndexedAccess` cases want `T | undefined` — the §17 option
+gate applies here too.
