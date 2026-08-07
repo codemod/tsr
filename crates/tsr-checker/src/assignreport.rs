@@ -722,9 +722,10 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 
 /// Is the TS2741 arm live?
 ///
-/// **`false`, and refused with its number** — `checker-notes-diag2.md` §22
-/// measured it at **1 conversion for 8 wrong lines**, 0.125 gained per wrong,
-/// against a project refusal band of 0.47–1.03.
+/// **`true` since §41.2.** §22 refused it at 1 conversion for 8 wrong lines,
+/// measured against a `declared_property_table` that declined instantiated
+/// references, generic declarations and every `Anonymous` receiver. §35, §38.2
+/// and §41.1 removed all three; re-running the switch is now positive.
 ///
 /// A constant rather than a deletion, and the distinction is the point: the
 /// machinery it switches — [`Checker::missing_required_property`] and
@@ -732,7 +733,7 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 /// what four named residual families stand between and a positive score. §22
 /// lists them. Deleting the code would make the refusal unrevisitable, which is
 /// the one thing `docs/conventions.md` forbids about a refusal.
-const REPORT_MISSING_REQUIRED_PROPERTY: bool = false;
+const REPORT_MISSING_REQUIRED_PROPERTY: bool = true;
 
 /// Flags that veto [`Checker::pair_is_reportable`] outright.
 ///

@@ -2717,3 +2717,20 @@ the member names are all present. TS2339 needs exactly the second."*
 Deleting it is **+4**. Fourteenth audit payment, and the second in a row where
 the decline was a correct sentence about a different question than the one the
 function asks.
+
+### 41.2 §22's TS2741 refusal is RETIRED — the switch flips to `true`, +1
+
+§22 refused TS2741 at **1 conversion for 8 wrong lines** and kept the machinery
+behind `REPORT_MISSING_REQUIRED_PROPERTY` *"because everything it switches is
+correct and four named families stand between it and a positive score."*
+
+**It was measured against a `declared_property_table` that declined instantiated
+references, generic declarations and every `Anonymous` receiver.** §35, §38.2 and
+§41.1 removed all three. Flipping the constant is now **+1** with the gates
+green — and the refusal is retired by the same procedure that retired §9's:
+re-run it after the thing it was blocked on changes.
+
+That is the second refusal in this file to be retired by measurement rather than
+by argument (§21 was the first), and both times the retirement condition had been
+written down at the point of refusal. **A refusal with a named prerequisite is an
+asset; one without is a dead end.**
