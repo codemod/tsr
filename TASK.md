@@ -11,10 +11,15 @@ session's spine: the fixpoint landed by exonerating it, the too-large bail
 ~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 3,571/9,538 (37.44%) · 388,155/478,954 = 81.04% · gap 56,835
-  · wrong 23,925. The continuation (builds 25–54): +31,502 right lines,
-  +528 cases, +6.58 points, THIRTY-ONE bar-scored builds and FOUR measured
-  refusals, every fired leg honoured in writing. Chain in STATUS §1.
+  checker_types 3,575/9,538 (37.48%) · 388,917/478,954 = 81.20% · gap 55,979
+  · wrong 24,019. The continuation (builds 25–57): +32,264 right lines,
+  +532 cases, +6.74 points, THIRTY-FOUR bar-scored builds and FIVE measured
+  refusals/reverts, every fired leg honoured in writing. Chain in STATUS §1.
+  Late finds worth reading first: §35 (tsgo prints `error` in JS chains —
+  123 baseline files, ADR-0038's premise refined), §36 (the `unknown`
+  inference fallback), §37 (tuples instantiate — `instantiate_type`'s
+  oldest decline closed by `tsr-5ll`'s element lists), §33 (`globalThis`),
+  §26-callres (the unique-symbol mint).
 
   THE BOUNDARY-ARGUMENT CHAIN was the continuation's largest seam — six
   hops, each "upstream's deliberate error-answer's observable IS `any`":
