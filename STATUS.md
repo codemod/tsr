@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §18 landing, 2026-08-07 (ninth session, continued: builds 25–36).
+Measured at the §19 landing, 2026-08-07 (ninth session, continued: builds 25–37).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §18 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,086/9,538** | **32.35%** | **gradient 77.18%** — the target |
+| **`checker_types`** | **3,118/9,538** | **32.69%** | **gradient 77.26%** — the target |
 | `diagnostics` | **993/5,488** | **18.09%** | **tenth session, +276** — 717 → 993 across twenty-two builds and four measured refusals; the running total is 80 → 993, 12.4× |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-369,673 / 478,954 assertion lines = 77.18%      (measured at the §18 landing)
-  right 369,673 | gap 76,780 | wrong 22,462        right+gap+wrong = 468,915 exactly
+370,043 / 478,954 assertion lines = 77.26%      (measured at the §19 landing)
+  right 370,043 | gap 76,778 | wrong 22,094        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -996,6 +996,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §19 landing | **77.26%** | **3,118** | **+376/6, +32 cases** | **Build 37: `(...args)` is `any[]`.** The `any[] ← any` board row was one rule — the implicit-any fallback's rest arm (`reportImplicitAny`'s `anyArrayType`). Thirty-two cases flipped whole on a five-line arm. The 6 adverse are `tsr-5o2`'s written-annotation node-reuse (upstream prints a written `(...args)` fn-type verbatim as `any` while typing the symbol `any[]` — this port prints the computed type) |
 | 2026-08-07 | §18 landing | **77.18%** | **3,086** | **+142/9** | **Build 36: the enum member's regular twin.** `Choice.One → Choice` answered Unknown because `get_regular_type_of_literal_type` interned a LOOKALIKE of the union's constituent — upstream's `freshType`/`regularType` are two pointers on one type object, and the port's equivalent is a back-link recorded at the single member-type creation site. One fired leg: one-constituent unions (the one-member-enum deviation) decline assignment reduction. The fix's reach: enum equality narrowing and reduction decide corpus-wide, not just the 120-line head case |
 | 2026-08-07 | §22 landing | **77.16%** | **3,084** | **+114/23** | **Build 35: optional call chains.** `checkCallChain`'s boundary — the callee strips its nullable half via `getOptionalExpressionType`/`checkNonNullType`, resolution runs on the remainder, `propagateOptionalTypeMarker` re-unions. The 23 adverse are named and owned elsewhere: closure callees this port does not flow-narrow (§13 residue — the marker fires where upstream's narrowing already removed `undefined`), and `deleteChain`'s inner-link marker mechanics. A gate-report correction also landed this block: the §17 commit claimed clippy ok while the lib-test target was red — rtk masks exit codes (now in memory + verified by `grep -c` since) |
 | 2026-08-07 | §17 landing | **77.13%** | **3,084** | **+72/2, +4 cases** | **Build 34: the string-index fallback.** `checkPropertyAccessExpressionOrQualifiedName`'s `prop == nil` path — a property miss on a receiver with an applicable string index signature answers the index value type. Fired leg: `@noUncheckedIndexedAccess` (adds `\| undefined`) plumbed as a real per-case option |
