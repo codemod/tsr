@@ -794,9 +794,12 @@ impl<'a> Scanner<'a> {
         loop {
             let Some(ch) = self.peek() else {
                 *flags |= TokenFlags::UNTERMINATED;
+                // `s.error` reports at `s.pos` with length zero
+                // (`scanner.go:413`) — the same correction the template arm
+                // needed, at the two sites `scanner.go:1613` and `:1630`.
                 self.error(
                     &messages::UNTERMINATED_STRING_LITERAL,
-                    Span::new(self.token_start, self.pos),
+                    Span::new(self.pos, self.pos),
                 );
                 break;
             };
@@ -810,9 +813,12 @@ impl<'a> Scanner<'a> {
             // `is_line_break` is deliberately not used here.
             if ch == '\n' || ch == '\r' {
                 *flags |= TokenFlags::UNTERMINATED;
+                // `s.error` reports at `s.pos` with length zero
+                // (`scanner.go:413`) — the same correction the template arm
+                // needed, at the two sites `scanner.go:1613` and `:1630`.
                 self.error(
                     &messages::UNTERMINATED_STRING_LITERAL,
-                    Span::new(self.token_start, self.pos),
+                    Span::new(self.pos, self.pos),
                 );
                 break;
             }

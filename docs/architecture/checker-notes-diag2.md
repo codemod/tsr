@@ -2086,3 +2086,10 @@ in every one of them.
 > not a missing rule, it is one diagnostic in the wrong place. `diaggap.rs` had
 > been printing "TS1160 12 cases" in its false-positive list for two sessions
 > with no way to tell those apart.
+
+The same argument applies at `scanner.go:1613` and `:1630` —
+**unterminated string literals**, two more sites reporting from `token_start`.
+Fixed together: **+1 case** on `diagnostics` (977) and **+5 lines** on
+`checker_types` (3,074 / 74.66%), which is the first time a `diagnostics` build
+has moved the other workstream's number. Every parser and scanner suite is
+byte-identical: `parser_typescript` 5,001/5,031, `scanner_clean_files` 5,031.
