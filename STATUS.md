@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,641/9,538** | **38.17%** | **gradient 82.18%** — the target |
+| **`checker_types`** | **3,641/9,538** | **38.17%** | **gradient 82.18%** — the target (builds 25–67) |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
@@ -142,7 +142,10 @@ type references carry their target's members — three standing rows
 converted at once, 264 of the double-refused `underscoreTest1` among
 them) = 393,549; then + 4 with 18 W→G (§42 v2:
 generic qualified references — v1 refused at +4/352 for unqualified
-prints, the named design landed clean) = 393,553 exactly — builds 25–66. §35 records a FINDING: tsgo prints
+prints, the named design landed clean) = 393,553; then + 4 with 3 G→W (§43: `new`
+fills from class defaults — small; the typed-array road relocated to the
+constructor-interface signature, its sizing recorded) = 393,557 exactly —
+builds 25–67. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
