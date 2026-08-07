@@ -1775,3 +1775,13 @@ structural-source guard admits them because the source parameter's type
 mentions no parameter BARELY (it mentions it under `ConcatArray<…>`),
 the known ported-inference boundary. `checker_types` right 388,533 →
 **388,682 (81.15%)**.
+
+### §37 Tuples instantiate
+
+`instantiate_type`'s decline list predates `tsr-5ll`'s
+`tuple_element_lists`: a tuple carries its element ids now, so the fifth
+arm substitutes them and re-mints through `create_tuple_type` — which is
+what lets `<A, B = A>(a?: A, b?: B) => [A, B]` calls answer
+(`genericDefaults`' f04 family, ~380 lines in that case alone).
+Falsifier: named/modifier tuple forms whose mint refuses stay declines —
+the arm reads only what the list holds.
