@@ -401,3 +401,63 @@ signatures". It has them now. Rewritten as the pair — the plain construct
 signature answers `string`, the generic one beside it still gaps — so it keeps
 discriminating rather than merely flipping. That is the standing prophylactic
 from `checker-notes-tuple.md`.
+
+## The `needs_namespace_qualifier` decline is now STALE — bar registered before the deletion
+
+Sixth session, `a57a04b`. `get_signature_of_named_type` ends with a refusal
+(`signatures.rs:346`) whose doc comment states its own premise:
+
+> `TypeData::Named` bakes the symbol's own name, so a type declared inside
+> `declare namespace Intl` prints as `NumberFormat` where upstream's
+> `lookupSymbolChain` prints `Intl.NumberFormat`. That family stands refused at
+> 2.7 wrong per right.
+
+**That premise died earlier the same session.** Design P added
+`Checker::type_to_string_at` (`checker.rs:513`), and `types_producer.rs:682`
+renders **every** assertion through it, so a `Named` type no longer prints its
+bare baked name at an assertion site — it prints the qualified one. The refusal
+now declines lines the port would get right.
+
+Verified by grep before anything was written, not inferred from the build having
+landed: both the function and the producer's call to it are in the tree.
+
+`examples/calleegap.rs` sized it in the same pass that split the callee-type
+family, and **predicted this staleness in its header before running**:
+
+```
+  25 lines,  forecast 25 match / 0 miss,  own-node 18 / 18 match
+  22 of the 25 are compiler/temporal
+```
+
+The old figure was 75 (`tsr-4sa` §4.2); the Intl 50 has since moved into the
+"overload set disagrees" bucket, so this is a **smaller** item than the page
+previously carried, not a larger one.
+
+### The bar, registered before the deletion
+
+The change is **deleting three lines**. The bar's shape follows from that: a
+deletion of a refusal can only *add* answers, so a line that is right today and
+changes is wrong **by construction** — `docs/conventions.md`'s rule that when a
+change can only add, the honest bar is an absolute zero on the other direction
+rather than a ratio.
+
+```
+1  net floor        gained >= 20        (forecast 25; 80% of it)
+2  lost             lost == 0           ABSOLUTE
+3  case regression  cases regressed == 0    written as an equality, not
+                    `regressed < finished` — 25 lines over ~5 cases will finish
+                    few or none, so the inequality could read 0 < 0 and be vacuous
+4  gap->wrong       new wrong attributable to signatures.rs <= 3
+                    (forecast 0 misses; 3 allows for the own-node/cascade gap)
+```
+
+**Why leg 2 is absolute and not a ratio.** The counterfactual measured **0 at
+risk**, and the only way this deletion loses a line is if the qualifier really
+was needed somewhere the measurement said it was not — a wrong rule, not a bad
+trade, and a rule is not priced.
+
+**Falsifier.** 22 of 25 lines are `compiler/temporal`. If the measured net is far
+below 20, the concentration is the first place to look and the second is whether
+`type_to_string_at` is reached on *this* path at all — a net of exactly 0 means
+the code did not run, which is the cheapest diagnosis on this board and should be
+checked before re-reading the premise.
