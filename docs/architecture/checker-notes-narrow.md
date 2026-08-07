@@ -1535,3 +1535,12 @@ alternatives; the measure is the control.
 **§25 score — LANDED.** **+438 GAP→RIGHT / 5 GAP→WRONG** (the five are JS
 typedef/import positions downstream of the newly-answering operands).
 `checker_types` right 371,539 → **371,977**.
+
+### §26 Non-null assertions
+
+`x!` (66 TERMINAL lines): `checkNonNullAssertion` — the operand's
+non-nullable remainder (`getNonNullableType`, the same facts filter
+property chains use). A gapping operand gaps; everything else answers.
+Falsifier: `unknown!` and `never`-remainder shapes — upstream substitutes
+`nonNullUnknown`/reports rather than gapping; measured, and if they
+surface as wrongs the arm gains upstream's two special cases.
