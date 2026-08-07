@@ -13,7 +13,7 @@ FIRST: git pull. Then read, in this order:
   there is a build or a refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    961/5,488 = 17.51%   (was 717 = 13.06%; running total 80 → 961)
+  diagnostics    977/5,488 = 17.80%   (was 717 = 13.06%; running total 80 → 977)
   checker_types  3,043/9,538 · 74.46% gradient — the other workstream's
 
 WHAT THE SESSION WAS ASKED FOR, AND WHAT IT MEASURED
@@ -45,6 +45,13 @@ THE NUMBER THE NEXT SESSION SHOULD START FROM
   900 already-correct TS2322 lines stop being wrong.
 
 THE INSTRUMENTS — use them, do not rebuild them
+  examples/extragap.rs   **NEW and the one to run first.** Splits the *extra*
+                         column into `displaced` (same code missing elsewhere in
+                         the file — one diagnostic in the wrong PLACE) and
+                         `invented` (the baseline never mentions it), and ranks
+                         by "cases where one code, right in both directions,
+                         finishes the case". It found TS1160 — 12 cases for one
+                         argument — which `diaggap.rs` could not have.
   examples/diaggap.rs    the board. Single-code column is the ONLY forecastable
                          one. RE-RUN AFTER EVERY RULE — rows GROW as rules land.
   examples/diag2307.rs   the per-rule counterfactual. Put the rule's codes in
@@ -67,6 +74,10 @@ RANKED NEXT ITEMS, with what each is actually blocked on
      conversions, 24 cases) and TS2367 (no-overlap comparison, 23) remain; TS2367
      needs `isTypeComparableTo`, a fourth `Relation` that does not exist, TS2352
      does not.
+  0a. **The rest of `extragap.rs`'s displaced column.** TS1005 has **241
+     displaced** lines, TS1125 86, TS1109 18, TS1002 16 (DONE, +1), TS2300 47.
+     Every one of those is a position, not a rule, and TS1160 says what a
+     position is worth. TS2300 also carries **38 sole-obstacle cases**.
   0b. **More definite negatives the relater declines to give** (§29). It answers
      `Unknown` for any pair it did not reach structurally, and two of those are
      decidable from flags alone: an object source against a primitive target, and

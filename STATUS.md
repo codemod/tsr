@@ -41,7 +41,7 @@ Measured at the §13 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,074/9,538** | **32.23%** | **gradient 74.66%** — the target |
-| `diagnostics` | **961/5,488** | **17.51%** | **tenth session, +244** — 717 → 961 across seventeen builds and three measured refusals; the running total is 80 → 961, 12.0× |
+| `diagnostics` | **977/5,488** | **17.80%** | **tenth session, +260** — 717 → 977 across twenty builds and three measured refusals; the running total is 80 → 977, 12.2× |
 
 ### `checker_types`, the number the project is steered by
 
@@ -239,7 +239,11 @@ them (the parallel `.types` workstream's 3,043 / 74.46% is theirs).
 | `~` | TS2416 — per-property overrides, shipped at a measured **zero** | 0 | **0** |
 | `~` | TS2411 — the index constraint, found by walking the `extends` chain | +2 | 1 |
 | `~` | **an object source is never a primitive** — a definite negative the relater declines to give, asked in the rule | +12 | 10 |
-| `HEAD` | the object-literal member anchor | 0 | 2 |
+| `~` | the object-literal member anchor | 0 | 2 |
+| `~` | **`extragap.rs`** (new) splits the extras into *displaced* and *invented* | — | — |
+| `~` | TS2583 + TS2301 substitutions in TS2304's residual | +3 | −18 |
+| `~` | TS2454's guarded-reference decline | 0 | **−59** |
+| `HEAD` | **TS1160 / TS1002 reported at the scanner's position, not the token's** | **+13** | — |
 
 **The session was asked for 50%. It is not reachable from here, and the session
 measured that three separate ways rather than asserting it once.** `diaggap.rs`'s single-code column — the
@@ -293,6 +297,34 @@ diagnostics away, which is not a set of anchors, it is complete assignability.
 > column has been high by that factor. The column is still the right *ordering*;
 > it is not a case count. That correction is the tenth session's most portable
 > finding after the `relate_ternary` one.
+
+**And the second instrument the session should have had from the start.**
+`examples/extragap.rs` (new) splits the *extra* column into **displaced** — the
+same code is missing elsewhere in the same file, so the port found the defect and
+put it in the wrong place — and **invented**, and adds the only forecastable
+number on that side: cases where one code, got right in *both* directions, would
+finish the case.
+
+```
+  code   displaced   invented   sole obstacle
+TS2322          42         23           489
+TS2339           0         11           132
+TS2345           0          8           104
+TS2304           1         85            88
+TS2454           3        111            66
+TS2300          47         47            38
+TS1160          12          0            12
+```
+
+It paid immediately and twice. **TS2304 and TS2454 are *invented*, not missing** —
+two rules that had been read as incomplete for two sessions are over-reporting,
+and the fix is subtraction (−18 and −59 wrong lines). And **TS1160 read
+`12 displaced, 0 invented, 12 sole obstacle`**, which can only mean one
+diagnostic in the wrong place: `s.error` (`scanner.go:413`) reports at the
+scanner's position with length zero and this port reported from the token's
+start. **One argument, twelve cases**, every parser and scanner suite
+byte-identical. `diaggap.rs` had been printing "TS1160 12 cases" in its
+false-positive list for two sessions with no way to tell those apart.
 
 **CORRECTED, same session, and the correction is the session's most useful
 result.** This block read: *"The first TS2322 build measured 947 right against
