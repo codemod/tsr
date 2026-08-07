@@ -11,12 +11,20 @@ session's spine: the fixpoint landed by exonerating it, the too-large bail
 ~600 lines of docs/conventions.md still pay.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  checker_types 3,228/9,538 (33.84%) · 372,229/478,954 = 77.72% · gap 74,218
-  · wrong 22,468. The continuation (builds 25–45): +15,576 right lines,
-  +185 cases, +3.26 points, twenty-one bar-scored builds and FOUR measured
+  checker_types 3,233/9,538 (33.90%) · 374,491/478,954 = 78.19% · gap 72,043
+  · wrong 22,381. The continuation (builds 25–48): +17,838 right lines,
+  +190 cases, +3.73 points, twenty-four bar-scored builds and FOUR measured
   refusals (§22.1 stripped-callee 6-vs-59; §24's arithmetic variant −562;
   §26's empty-remainder +102/147; §6.1 spread-own-line +23/388), every
   fired leg honoured in writing. Arithmetic chain in STATUS §1.
+
+  THE §29 SEAM IS NEW CAPABILITY: an on-stack alias mention answers a
+  memoized NAME placeholder (read-only `Resolutions::on_stack`, no failure
+  marking) — upstream's member-type laziness at the one seam
+  print-at-creation permits. It took the 2,000-line `BigUnion` mountain
+  whole and dropped "type node unresolvable" 9,247 → 7,160. Anything else
+  that errors only because a cycle passes through an alias should re-probe
+  against it.
 
 THE METHOD, unchanged and now ~40-for-40: counterfactual/probe sizing → bar
 in docs committed BEFORE code → build anchored to upstream file:line →
