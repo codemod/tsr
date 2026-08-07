@@ -249,9 +249,7 @@ impl Checker<'_, '_> {
                 )?;
                 let base = self.binder.merged_symbol(base);
                 let entry = self.binder.symbols().get(base);
-                if !entry.flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-                    || entry.declarations.len() > 1
-                {
+                if !entry.flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
                     return None;
                 }
                 found = Some(self.get_declared_type_of_class_or_interface(base));

@@ -2734,3 +2734,14 @@ That is the second refusal in this file to be retired by measurement rather than
 by argument (§21 was the first), and both times the retirement condition had been
 written down at the point of refusal. **A refusal with a named prerequisite is an
 asset; one without is a dead end.**
+
+### 41.3 The merged-base decline in `sole_plain_base_type` — +1
+
+§27 declined a **merged** base symbol in `check_property_overrides` by copying
+the decline `check_heritage_conformance` needed, where it is measured (4 wrong
+lines). The override check compares one *named member* at a time, and a member
+found in a merged table is still the member upstream would have found — the
+merge only changes which declarations contributed it, not what it is.
+
+**+1**, and the sixteenth payment. Third instance of §37.2's shape: a decline
+borrowed from a sibling that was answering a different question.
