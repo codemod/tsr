@@ -41,7 +41,7 @@ Measured at **`238261b`**, 2026-08-07 (ninth session, continued: builds 25–26)
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,064/9,538** | **32.12%** | **gradient 74.62%** — the target |
-| `diagnostics` | **947/5,488** | **17.26%** | **tenth session, +230** — 717 → 947 across fourteen builds and three measured refusals; the running total is 80 → 947, 11.8× |
+| `diagnostics` | **961/5,488** | **17.51%** | **tenth session, +244** — 717 → 961 across seventeen builds and three measured refusals; the running total is 80 → 961, 12.0× |
 
 ### `checker_types`, the number the project is steered by
 
@@ -229,7 +229,10 @@ them (the parallel `.types` workstream's 3,043 / 74.46% is theirs).
 | `~` | **TS2322 re-gated on `relate_ternary`; §16's primitives gate deleted** | +7 | 50 |
 | `~` | TS2345 — argument assignability on the sole-signature gate | +11 | 8 |
 | `~` | TS2415 / TS2420 / TS2430 — heritage conformance | +19 | 21 |
-| `HEAD` | TS2416 — per-property overrides, shipped at a measured **zero** | 0 | **0** |
+| `~` | TS2416 — per-property overrides, shipped at a measured **zero** | 0 | **0** |
+| `~` | TS2411 — the index constraint, found by walking the `extends` chain | +2 | 1 |
+| `~` | **an object source is never a primitive** — a definite negative the relater declines to give, asked in the rule | +12 | 10 |
+| `HEAD` | the object-literal member anchor | 0 | 2 |
 
 **The session was asked for 50%. It is not reachable from here, and the session
 measured that three separate ways rather than asserting it once.** `diaggap.rs`'s single-code column — the
@@ -271,10 +274,18 @@ members table together are worth on the order of 800–1,000 cases, which lands 
 suite near **30%**, and the remainder is a long tail of rows worth 10–30 cases
 each. That is a multi-session number and it is now a costed one.
 
-**And the third measurement is the one to act on.** After the `relate_ternary`
-correction the TS2322 row fell 511 → 496 while the rule emitted **294 correct
-lines** — fifteen cases finished out of 294 right diagnostics. That ratio, not
-the row sizes, is what prices the remaining board.
+**And the third measurement is the one to act on, now taken twice.** Across
+§25–§29 the TS2322 family emits **392 correct diagnostics and finishes 63
+cases** — roughly **six right lines per case**. The board says 496 cases are
+blocked on TS2322 *alone*; at six lines each that row is ~3,000 correct
+diagnostics away, which is not a set of anchors, it is complete assignability.
+
+> **`diaggap.rs`'s single-code column names the code a case is blocked on. It
+> does not say how many of that code the case needs, and for the assignability
+> family the answer is about six.** Every forecast this project has made off that
+> column has been high by that factor. The column is still the right *ordering*;
+> it is not a case count. That correction is the tenth session's most portable
+> finding after the `relate_ternary` one.
 
 **CORRECTED, same session, and the correction is the session's most useful
 result.** This block read: *"The first TS2322 build measured 947 right against

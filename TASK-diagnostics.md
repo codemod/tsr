@@ -13,7 +13,7 @@ FIRST: git pull. Then read, in this order:
   there is a build or a refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    947/5,488 = 17.26%   (was 717 = 13.06%; running total 80 → 947)
+  diagnostics    961/5,488 = 17.51%   (was 717 = 13.06%; running total 80 → 961)
   checker_types  3,043/9,538 · 74.46% gradient — the other workstream's
 
 WHAT THE SESSION WAS ASKED FOR, AND WHAT IT MEASURED
@@ -63,11 +63,17 @@ cases across four builds** with zero losses. **Before writing any rule that
 reports because a relation failed, check which function you are calling.**
 
 RANKED NEXT ITEMS, with what each is actually blocked on
-  0. **More consumers of `relate_ternary`.** TS2411 (index-signature constraint,
-     29 cases), TS2352 (`as` conversions, 24) and TS2367 (no-overlap comparison,
-     23) are all relation questions that were unreachable under the binary
-     projection. TS2367 needs `isTypeComparableTo`, which is a fourth
-     `Relation` and does not exist; the other two do not.
+  0. **More consumers of `relate_ternary`.** TS2411 is DONE (+2). TS2352 (`as`
+     conversions, 24 cases) and TS2367 (no-overlap comparison, 23) remain; TS2367
+     needs `isTypeComparableTo`, a fourth `Relation` that does not exist, TS2352
+     does not.
+  0b. **More definite negatives the relater declines to give** (§29). It answers
+     `Unknown` for any pair it did not reach structurally, and two of those are
+     decidable from flags alone: an object source against a primitive target, and
+     a primitive source against a target requiring a property. Both are asked in
+     the rule rather than in `crate::relater`, because widening what the relater
+     calls a definite negative moves `checker_types`. **Look for more of these
+     before writing another rule** — the first one was worth +12 cases.
   1. **`isTypeIdenticalTo` — the relation in identity mode.** `crate::relater`
      has assignability and subtype and no identity. It is a relater build rather
      than a diagnostics one and it is the best-priced item on this page: TS2403
