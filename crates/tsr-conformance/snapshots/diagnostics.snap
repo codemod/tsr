@@ -172,8 +172,6 @@ compiler/arrayAssignmentTest6
   1 missing (first TS2322 at arrayAssignmentTest6.ts(16,13))
 compiler/arrayBestCommonTypes
   26 missing (first TS2769 at arrayBestCommonTypes.ts(16,37))
-compiler/arrayBufferIsViewNarrowsType
-  1 unexpected (first TS2454 at arrayBufferIsViewNarrowsType.ts(4,31)), 0 missing
 compiler/arrayCast
   1 missing (first TS2353 at arrayCast.ts(3,23))
 compiler/arrayConcatMap
@@ -212,3 +210,5 @@ compiler/arrowFunctionsMissingTokens
   57 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 15 missing
 compiler/asiAbstract
   1 missing (first TS1244 at asiAbstract.ts(3,3))
+compiler/asiAmbientFunctionDeclaration
+  1 missing (first TS7010 at asiAmbientFunctionDeclaration.ts(1,18))

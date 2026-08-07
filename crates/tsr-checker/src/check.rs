@@ -998,6 +998,16 @@ impl Checker<'_, '_> {
         else {
             return;
         };
+        // A reference **guarded by a condition that mentions the same name** is
+        // one upstream has narrowed before it gets here, and the narrowings this
+        // port does not model all leave `undefined` in the flow type.
+        // `typeGuardOfFormIsType`'s `isC1(c1Orc2) && c1Orc2.p1` is the family:
+        // the user-defined predicate removes `undefined` upstream, and the
+        // second `c1Orc2` read as *used before being assigned* here. 43 of this
+        // rule's 114 wrong lines are that shape.
+        if self.reference_is_guarded_by_a_condition_on(node, text) {
+            return;
+        }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
             return;
         };
@@ -1070,6 +1080,91 @@ impl Checker<'_, '_> {
                 [text.to_string()],
             ),
         );
+    }
+
+    /// Is this reference in a position a *condition naming the same identifier*
+    /// dominates?
+    ///
+    /// A syntactic over-approximation of "upstream narrowed this before the
+    /// check", and deliberately one: every narrowing this port does not model —
+    /// user-defined type predicates, `instanceof` on an interface,
+    /// discriminated switches — removes `undefined` upstream and leaves it here,
+    /// and each of them is written as a guard. Declining costs a *missing*
+    /// diagnostic, which is the direction this rule may fail in.
+    ///
+    /// The three guard shapes, all of which put the reference in a subtree the
+    /// condition dominates:
+    ///
+    /// - the right operand of `&&`, `||` or `??` whose left mentions the name;
+    /// - the then/else branch of a conditional expression;
+    /// - the body of an `if`, `while` or `do` whose condition mentions it.
+    fn reference_is_guarded_by_a_condition_on(&self, node: NodeId, text: &str) -> bool {
+        let mut child = node;
+        let mut at = self.nodes.parent(node);
+        let mut depth = 0u32;
+        while let Some(current) = at {
+            depth += 1;
+            if depth > 64 {
+                return false;
+            }
+            let condition = match self.node_map.get(current) {
+                Some(Node::BinaryExpression(binary))
+                    if matches!(
+                        binary.operator_token.map(|token| token.kind),
+                        Some(
+                            SyntaxKind::AmpersandAmpersandToken
+                                | SyntaxKind::BarBarToken
+                                | SyntaxKind::QuestionQuestionToken
+                        )
+                    ) && binary.right.and_then(|right| right.node_id()) == Some(child) =>
+                {
+                    binary.left.and_then(|left| left.node_id())
+                }
+                Some(Node::ConditionalExpression(conditional))
+                    if conditional.condition.and_then(|c| c.node_id()) != Some(child) =>
+                {
+                    conditional.condition.and_then(|c| c.node_id())
+                }
+                Some(Node::IfStatement(statement))
+                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
+                {
+                    statement.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::WhileStatement(statement))
+                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
+                {
+                    statement.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::DoStatement(statement))
+                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
+                {
+                    statement.expression.and_then(|e| e.node_id())
+                }
+                _ => None,
+            };
+            if let Some(condition) = condition
+                && self.subtree_mentions(condition, text, 0)
+            {
+                return true;
+            }
+            child = current;
+            at = self.nodes.parent(current);
+        }
+        false
+    }
+
+    /// Does the subtree rooted at `node` contain an identifier spelled `text`?
+    fn subtree_mentions(&self, node: NodeId, text: &str, depth: u32) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let Some(typed) = self.node_map.get(node) else { return false };
+        if matches!(typed, Node::Identifier(identifier) if identifier.text == text) {
+            return true;
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        children.into_iter().any(|child| self.subtree_mentions(child, text, depth + 1))
     }
 
     /// `getControlFlowContainer` (`checker.go:11438`): the innermost enclosing
