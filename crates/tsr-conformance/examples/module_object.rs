@@ -102,6 +102,12 @@ impl Blockers {
     }
 }
 
+/// What `blockers_of` memoises per line: the blocker set, the worst mock
+/// beneath the line, and the worst namespace target **with the seed position
+/// it came from** — the seed is what the alias-search counterfactual keys its
+/// module identity on.
+type LineVerdict = (Blockers, Option<Mock>, Option<(NsTarget, usize)>);
+
 /// `examples/module_blocked.rs:192`, verbatim — including the declaration
 /// order, which `blockers_of` takes the minimum over to find the worst leaf.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -454,8 +460,10 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                     error,
                 );
                 ns_of.insert(position, target);
-                seed_module
-                    .insert(position, alias_module_symbol(&program, bound, nodes, node_map, symbol));
+                seed_module.insert(
+                    position,
+                    alias_module_symbol(&program, bound, nodes, node_map, symbol),
+                );
                 pending.push((position, form, row_key(reason), alias, module_name, target));
             }
         }
@@ -476,7 +484,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
         }
 
         // Pass three: walk every gap line down to its blocking leaves.
-        let mut memo: HashMap<usize, (Blockers, Option<Mock>, Option<(NsTarget, usize)>)> = HashMap::new();
+        let mut memo: HashMap<usize, LineVerdict> = HashMap::new();
         for &position in reasons.keys() {
             let mut stack = Vec::new();
             let (blockers, worst, ns) = blockers_of(
@@ -532,8 +540,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
             // The alias-search counterfactual, on the line's own site.
             // -----------------------------------------------------------------
             let site = line_ids[position];
-            let line_module =
-                seed_position.and_then(|at| seed_module.get(&at).cloned().flatten());
+            let line_module = seed_position.and_then(|at| seed_module.get(&at).cloned().flatten());
             // Distinct in-scope alias names reaching the line's module — the
             // ambiguity a chain-choice rule has to break, and, for the
             // `import(` form, the wrong name a naive search would print.
@@ -545,8 +552,7 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                             .resolve_name(nodes, node_map, site, name, SymbolFlags::VALUE)
                             .map(|s| bound.merged_symbol(s))
                             .is_some_and(|s| {
-                                alias_module_symbol(&program, bound, nodes, node_map, s)
-                                    .as_ref()
+                                alias_module_symbol(&program, bound, nodes, node_map, s).as_ref()
                                     == Some(module)
                             })
                     })
@@ -572,12 +578,24 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                                             report.ambiguous_choice += 1;
                                         }
                                         match (&module, ambiguous) {
-                                            (AliasTarget::File(_), true) => "REACHABLE, ambiguous — ≥2 in-scope names [file module]",
-                                            (AliasTarget::File(_), false) => "REACHABLE, unique in-scope name [file module]",
-                                            (AliasTarget::Ambient(_), true) => "REACHABLE, ambiguous — ≥2 in-scope names [AMBIENT]",
-                                            (AliasTarget::Ambient(_), false) => "REACHABLE, unique in-scope name [AMBIENT]",
-                                            (AliasTarget::Spec(_), true) => "REACHABLE, ambiguous — but module UNRESOLVABLE, stays gap",
-                                            (AliasTarget::Spec(_), false) => "REACHABLE name — but module UNRESOLVABLE, stays gap",
+                                            (AliasTarget::File(_), true) => {
+                                                "REACHABLE, ambiguous — ≥2 in-scope names [file module]"
+                                            }
+                                            (AliasTarget::File(_), false) => {
+                                                "REACHABLE, unique in-scope name [file module]"
+                                            }
+                                            (AliasTarget::Ambient(_), true) => {
+                                                "REACHABLE, ambiguous — ≥2 in-scope names [AMBIENT]"
+                                            }
+                                            (AliasTarget::Ambient(_), false) => {
+                                                "REACHABLE, unique in-scope name [AMBIENT]"
+                                            }
+                                            (AliasTarget::Spec(_), true) => {
+                                                "REACHABLE, ambiguous — but module UNRESOLVABLE, stays gap"
+                                            }
+                                            (AliasTarget::Spec(_), false) => {
+                                                "REACHABLE name — but module UNRESOLVABLE, stays gap"
+                                            }
                                         }
                                     }
                                     Some(_) => "MISS — alias of a DIFFERENT module than the line's",
@@ -596,7 +614,9 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<CaseReport> {
                             report.import_form_alias_in_scope += 1;
                             "import(...) wanted, alias IN SCOPE — naive search would print WRONG"
                         }
-                        Some(_) => "import(...) wanted, no alias in scope — refusal holds, stays gap",
+                        Some(_) => {
+                            "import(...) wanted, no alias in scope — refusal holds, stays gap"
+                        }
                         None => "import(...) wanted, line's module unknown",
                     }
                 }
@@ -919,9 +939,9 @@ fn blockers_of(
     nodes: &tsr_ast::NodeTable,
     node_map: &tsr_ast::NodeMap<'_>,
     bound: &tsr_binder::BindResult<'_>,
-    memo: &mut HashMap<usize, (Blockers, Option<Mock>, Option<(NsTarget, usize)>)>,
+    memo: &mut HashMap<usize, LineVerdict>,
     stack: &mut Vec<usize>,
-) -> (Blockers, Option<Mock>, Option<(NsTarget, usize)>) {
+) -> LineVerdict {
     if let Some(&known) = memo.get(&position) {
         return known;
     }
@@ -1249,9 +1269,7 @@ fn report(reports: &[CaseReport]) {
         pct(reachable_total, unspellable)
     );
     println!("  ambiguous-choice share of reachable: {ambiguous_choice}");
-    println!(
-        "  import(...) lines a naive search would print WRONG: {import_form_alias_in_scope}"
-    );
+    println!("  import(...) lines a naive search would print WRONG: {import_form_alias_in_scope}");
 
     println!("\n=== alias-search forecast, verbatim (top 40) ===");
     let mut ranked: Vec<(&String, &usize)> = forecast_lines.iter().collect();

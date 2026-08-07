@@ -373,3 +373,58 @@ Falsifiers, in the order to open the drawers:
 3. **Net far below 60** → check that the namespace-shaped `resolve_alias`
    arms actually route through `resolve_external_module_name` rather than a
    second copy of resolution the build did not touch.
+
+### 10.5 Scored against the bar — built at the commit carrying this section
+
+Measured over the full corpus, `verdictdump.rs` at both ends of a
+path-limited stash, before = `b3aeda1` exactly (`347,530 / 81,828 / 39,557`,
+the handoff triple):
+
+```
+right  347,530 -> 347,658   +128
+gap     81,828 ->  81,355   −473
+wrong   39,557 ->  39,902   +345     GAP→WRONG 345, RIGHT→WRONG 0
+cases    2,750 ->   2,750   regressed 0, finished 0
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +60 | **+128** | pass |
+| 2 | mechanism-own new wrong ≤ 82, global Δwrong beside it | **~15 own · +345 global** | pass — see below |
+| 3 | cases regressed == 0 | **0** | pass |
+| 4 | lost (RIGHT→WRONG) ≤ 5 | **0** | pass |
+
+**Leg 2's split is arithmetic over the two dumps, not a judgement call.** Of
+the 345 GAP→WRONG lines:
+
+- **216** are byte-identical to the baseline once `import("…").` qualifiers
+  are stripped from the want — the type is computed correctly and only the
+  **import-type naming form** is missing. Owner: `bd tsr-xpb8`'s specifier
+  half — and for an *ambient* container the specifier is exact and free
+  (`nodebuilderimpl.go:1260`), which makes this bucket the next slice's
+  measured population rather than an accepted loss.
+- **112** are identical once a dotted qualifier is stripped
+  (`im_private_mi_public.c_public` wanted, `c_public` printed) — the
+  **container-alias chain**: `symbol_chain` declines at a module container
+  while the alias half it needs (`module_name_at`) already exists.
+- **17** other: ~15 are the mechanism's own — `typesVersions` selection
+  inside ambient module names (6, `typesVersions.ambientModules`), one
+  shorthand-merge line (`ambientShorthand_merging` wants `any`), the
+  `typesVersionsDeclarationEmit` signature pair — plus tsx tag-shape lines
+  owned elsewhere.
+
+The registered falsifier 1 named the right drawer with the wrong label: the
+counterfactual's would-wrong ceiling (41) was measured over the seam-only
+population, and the 345 arrived through **type-position references** the
+probe never walked. The ceiling was a ceiling on the population it was
+measured on — §4.1's rule, met again from the other side.
+
+**What was NOT done, deliberately**: no positional refusal was added to stop
+the 328 named-owner lines printing bare names. The port's shipped design
+already prints a bare name when the chain stops at a *file* module container
+(the `qualnamep.rs` FILE-half's 932-line family predates this build);
+refusing only for ambient containers would fork one mechanism's behaviour by
+container kind, and refusing for both requires knowing an accessible alias
+exists for the *symbol itself* — which is precisely the next mechanism, not a
+guard to improvise here. The 328 sit in the wrong bucket with their owners
+named, and §10.6 prices converting them.

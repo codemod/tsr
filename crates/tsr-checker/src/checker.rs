@@ -514,7 +514,11 @@ impl<'a, 'n> Checker<'a, 'n> {
         let module = match &self.store.get(id).data {
             crate::types::TypeData::Anonymous { symbol, .. } => {
                 let symbol = *symbol;
-                self.is_module_symbol(symbol).then_some(symbol)
+                // Ambient modules (`declare module "x"`) resolve since the
+                // `tryFindAmbientModule` arm (`checker-notes-modobj.md` §10)
+                // and must take the same interception: their baked text is the
+                // module's own name, which is never what upstream prints.
+                (self.is_module_symbol(symbol) || self.is_ambient_module(symbol)).then_some(symbol)
             }
             _ => None,
         };
@@ -705,7 +709,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// both through `getSpecifierForModuleSymbol`
     /// (`internal/checker/nodebuilderimpl.go:1104`) rather than through a dotted
     /// name, so neither may become a qualifier.
-    fn is_ambient_module(&self, symbol: SymbolId) -> bool {
+    pub(crate) fn is_ambient_module(&self, symbol: SymbolId) -> bool {
         self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
             matches!(
                 self.node_map.get(declaration),

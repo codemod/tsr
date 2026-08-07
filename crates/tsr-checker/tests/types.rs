@@ -1414,12 +1414,33 @@ fn a_shorthand_ambient_module_is_any_and_not_a_gap() {
     // The binder stores a string module's name unquoted, which is why the guard
     // below is on the declaration's name *node* and not on the stored text.
     assert_eq!(type_of_declaration("declare module \"x\";", "x"), "any");
-    // With a body it is an ordinary value module, and upstream spells it
-    // `typeof import("x")` — a form this port does not build, so a gap rather
-    // than the `typeof x` its stored name would produce.
+    // With a body it is an ordinary value module. Upstream spells it
+    // `typeof import("x")` — a form this port does not build — and until the
+    // `tryFindAmbientModule` slice (`checker-notes-modobj.md` §10) that
+    // refusal lived *here*, at type creation, which also kept every line
+    // `through` the module at `errorType` after it resolved. The refusal now
+    // lives in the rendering path: the type exists, its baked `typeof x` is a
+    // placeholder, and `type_to_string_at` — the entry point every baseline
+    // line renders through — refuses to name a module with no alias in scope,
+    // so the *rendered* answer is still a gap. Both halves pinned:
+    let source = "declare module \"x\" { export const a: number; }";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let bound = tsr_binder::bind(
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "test.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let symbol = bound.lookup_local(root, "x").expect("`x` is declared");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let id = checker.get_type_of_symbol(symbol);
+    assert_ne!(id, checker.intrinsics().error, "the module object now has a type");
     assert_eq!(
-        type_of_declaration("declare module \"x\" { export const a: number; }", "x"),
-        "error"
+        checker.type_to_string_at(id, root),
+        None,
+        "and no alias is in scope, so the rendered line is still a gap"
     );
 }
 

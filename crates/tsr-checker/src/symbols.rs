@@ -916,18 +916,17 @@ impl<'a> Checker<'a, '_> {
     /// `CommonJS` file reaching an ES module. None of it changes which symbol is
     /// returned.
     ///
-    /// # Three resolutions that are not ported, all misses
+    /// # Two resolutions that are not ported, both misses
     ///
-    /// - **`tryFindAmbientModule`** (`checker.go:15154`), which answers
-    ///   `declare module "fs"` **before** the host is consulted. A program whose
-    ///   `"fs"` is ambient therefore gaps here where upstream resolves.
     /// - **Pattern ambient modules** (`declare module "foo/*"`), upstream's
     ///   fallback after the host misses.
     /// - **`getMergedSymbol`** on the result: a module symbol that merges with a
     ///   module augmentation is answered unmerged.
     ///
     /// Each is a `None`, so each is an `errorType` — a gap, never a wrong
-    /// target.
+    /// target. `tryFindAmbientModule` was the third entry on this list until
+    /// the seventh session; it is the arm below, and
+    /// `docs/architecture/checker-notes-modobj.md` §10 carries its sizing.
     ///
     /// # With no host, this answers `None` and the behaviour is today's
     ///
@@ -946,6 +945,19 @@ impl<'a> Checker<'a, '_> {
             // is not a string literal (`checker.go:15123`).
             return None;
         };
+        // `tryFindAmbientModule` (`checker.go:15533`), consulted **before** the
+        // host exactly as `resolveExternalModule` (`checker.go:15154`) does: a
+        // non-relative specifier may name a `declare module "x"`. Upstream keys
+        // ambient modules in `globals` under the *quoted* name; this binder
+        // stores the literal's text unquoted (`module_name`,
+        // `crates/tsr-binder/src/binder.rs:4091`) and that naming is
+        // load-bearing for its other consumers, so the selection upstream gets
+        // from the quotes is recovered from the declaration's *shape* instead —
+        // [`Checker::is_ambient_module`] — plus upstream's
+        // `SymbolFlagsValueModule` meaning test.
+        if let Some(ambient) = self.ambient_module(literal.text) {
+            return Some(ambient);
+        }
         let importing_file = self.source_file_of(location)?;
         let target = self.module_host?.resolved_module(importing_file, literal.text)?;
         // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
@@ -954,6 +966,25 @@ impl<'a> Checker<'a, '_> {
         // resolving to a plain script is a successful resolution with no module
         // symbol at the end of it, and only the checker can tell those apart.
         self.binder.symbol_of(target)
+    }
+
+    /// `tryFindAmbientModule` (`checker.go:15533`): the `declare module "x"`
+    /// a non-relative specifier names, or `None`.
+    ///
+    /// Upstream: `IsExternalModuleNameRelative` short-circuits, then
+    /// `c.getSymbol(c.globals, "\""+moduleName+"\"", ast.SymbolFlagsValueModule)`
+    /// with `getMergedSymbol` on the hit. The quoted-name key becomes a
+    /// declaration-shape test here — see the call site above for why.
+    fn ambient_module(&self, name: &str) -> Option<SymbolId> {
+        // `tspath.IsExternalModuleNameRelative`: `.`, `..`, `./…`, `../…`.
+        if name == "." || name == ".." || name.starts_with("./") || name.starts_with("../") {
+            return None;
+        }
+        let &symbol = self.binder.globals().get(name)?;
+        let symbol = self.binder.merged_symbol(symbol);
+        (self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE_MODULE)
+            && self.is_ambient_module(symbol))
+        .then_some(symbol)
     }
 
     /// The **module object** a specifier names: the module symbol itself, and
@@ -1216,32 +1247,22 @@ impl<'a> Checker<'a, '_> {
     /// Whether `symbolToTypeNode` would spell this symbol as something other than
     /// its own name.
     ///
-    /// Two cases, and both would otherwise print a plausible wrong line:
+    /// One case: **an anonymous symbol** — a default export, an unnamed class
+    /// expression. Upstream's node builder generates a name for one, and this
+    /// port has nothing to bake.
     ///
-    /// - **An anonymous symbol** — a default export, an unnamed class expression.
-    ///   Upstream's node builder generates a name for one.
-    /// - **A module declared with a string name**, `declare module "x" { }`.
-    ///   Upstream writes `typeof import("x")`, which the corpus records 46 times
-    ///   for `module.exports` alone; the binder stores the name unquoted, so
-    ///   taking it verbatim would print `typeof x` for a module that no name in
-    ///   scope refers to.
+    /// **An ambient module — `declare module "x"` — was this predicate's second
+    /// arm until the `tryFindAmbientModule` slice**
+    /// (`docs/architecture/checker-notes-modobj.md` §10). It now takes the same
+    /// route a *file's* module symbol already takes: the baked `typeof x` text
+    /// is a placeholder that must never reach a baseline, and the guard is the
+    /// rendering interception — [`Checker::type_to_string_at`] names either
+    /// kind of module at the reference site through the alias search, or
+    /// answers `None` and the caller renders a gap. Refusing here instead kept
+    /// every line *through* an ambient module at `errorType` even after the
+    /// module resolved.
     fn has_a_name_no_type_query_can_spell(&self, symbol: SymbolId) -> bool {
-        if self.binder.symbols().get(symbol).name.is_empty() {
-            return true;
-        }
-        self.binder
-            .symbols()
-            .get(symbol)
-            .declarations
-            .iter()
-            .filter_map(|&declaration| self.node_map.get(declaration))
-            .any(|node| {
-                matches!(
-                    node,
-                    Node::ModuleDeclaration(module)
-                        if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
-                )
-            })
+        self.binder.symbols().get(symbol).name.is_empty()
     }
 
     /// Ported from `isShorthandAmbientModule` (`utilities.go:202`): *"the only

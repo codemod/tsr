@@ -215,3 +215,67 @@ fn a_namespace_declaration_keeps_its_declared_name() {
     let id = checker.get_type_of_symbol(symbol);
     assert_eq!(checker.type_to_string_at(id, declaration), Some("typeof N".to_string()));
 }
+
+#[test]
+fn an_ambient_module_resolves_and_prints_the_alias_name() {
+    // `tryFindAmbientModule` (`checker.go:15533`): `declare module 'm'` is a
+    // resolution target consulted before the host, and the resolved module
+    // object is named at the reference site like any other. Pinned to
+    // `compiler/privacyTopLevelAmbientExternalModuleImportWithoutExport.types:7-8`:
+    //
+    // ```text
+    // import im_private_mi_private = require("m");
+    // >im_private_mi_private : typeof im_private_mi_private
+    // ```
+    //
+    // Note the host below has no file for `"m"` at all — the ambient arm is
+    // the only route.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("decl", "declare module 'm' { export class c_private { baz: string } }\n"),
+            ("core", "import a = require(\"m\");\n"),
+        ],
+    );
+    assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "typeof a");
+}
+
+#[test]
+fn an_ordinary_global_sharing_the_specifier_name_is_not_a_module() {
+    // Upstream keys ambient modules in `globals` under the QUOTED name, so a
+    // plain `namespace m {}` can never be found by `tryFindAmbientModule`.
+    // This binder stores ambient module names unquoted
+    // (`crates/tsr-binder/src/binder.rs:4091`), so the selection is recovered
+    // from the declaration's shape instead — and this is the fixture that
+    // reddens if that shape test is dropped: `m` here is a global namespace,
+    // not a `declare module`, and the import must stay a gap.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("decl", "namespace m { export class c { baz: string } }\n"),
+            ("core", "import a = require(\"m\");\n"),
+        ],
+    );
+    assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "error");
+}
+
+#[test]
+fn an_ambient_module_named_by_two_aliases_is_still_a_gap() {
+    // The ambiguity refusal from `c91314c` is form-independent: an ambient
+    // module reached by the new arm flows through the same
+    // `Checker::module_name_at`, so two in-scope aliases keep the line a gap
+    // rather than a guessed name — same property
+    // `a_module_named_by_two_aliases_is_a_gap` pins for file modules.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("decl", "declare module 'm' { export const v: string }\n"),
+            ("core", "import a = require(\"m\");\nimport b = require(\"m\");\n"),
+        ],
+    );
+    assert_eq!(rendered_at(&fixture, "a", SyntaxKind::ImportEqualsDeclaration), "error");
+    assert_eq!(rendered_at(&fixture, "b", SyntaxKind::ImportEqualsDeclaration), "error");
+}
