@@ -119,6 +119,11 @@ impl<'a> Checker<'a, '_> {
             let Some(annotation) = *parameter else { continue };
             let Some(argument_id) = argument.node_id() else { continue };
             let target = self.get_type_from_type_node(annotation);
+            // An object literal at an argument position is an excess-property
+            // site exactly as one at a declaration is — the contextual type is
+            // the parameter's. `check_excess_properties` is the same function
+            // §23 wrote; only the target changes.
+            self.check_excess_properties(target, argument_id);
             let source = self.check_expression(*argument);
             if self.source_is_an_unnarrowed_reference(argument_id, source) {
                 continue;

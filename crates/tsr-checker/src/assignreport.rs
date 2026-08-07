@@ -314,7 +314,7 @@ impl<'a> Checker<'a, '_> {
     /// `hasExcessProperties` reports and returns on the first excess property it
     /// finds. Reporting every one would fail the case under the exact-multiset
     /// rule just as surely as reporting none.
-    fn check_excess_properties(&mut self, target: TypeId, initializer: NodeId) {
+    pub(crate) fn check_excess_properties(&mut self, target: TypeId, initializer: NodeId) {
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(initializer) else {
             return;
         };

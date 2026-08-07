@@ -2324,3 +2324,13 @@ written for one node kind and turned out to describe a *signature source*, not a
 call syntax. Every remaining call-shaped site — a method call through a receiver,
 a `super(…)`, a decorator — reuses the same two functions once its signature
 source is nameable.
+
+### 34.1 Excess properties at argument positions — a measured zero, kept
+
+`check_excess_properties` is called from `check_argument_types`: an object literal
+at an argument position is an excess-property site exactly as one at a
+declaration is, and the contextual type is the parameter's. **+0 cases, 0 wrong,
+0 lost** — the same function §23 wrote, one new caller, one line.
+
+Kept for the reason §27.1 gives: the rule is right and only its reach is short.
+The zero is recorded so nobody prices it as a conversion later.
