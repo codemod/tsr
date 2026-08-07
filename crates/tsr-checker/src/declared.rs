@@ -93,6 +93,22 @@ impl<'a> Checker<'a, '_> {
                 node.r#type
                     .map_or(self.intrinsics.error, |inner| self.get_type_from_type_node(inner))
             }
+            // The ESSymbol arm of `getTypeFromTypeOperatorNode`
+            // (`checker.go:22960`): a WRITTEN `unique symbol` mints one type
+            // per node (`checker-notes-callres.md` §27).
+            TypeNode::TypeOperatorNode(node) if node.operator.kind == SyntaxKind::UniqueKeyword => {
+                let Some(id) = node.node_id else { return self.intrinsics.error };
+                if let Some(&existing) = self.unique_symbol_nodes.get(&id) {
+                    return existing;
+                }
+                let minted = self.store.new_named(
+                    TypeFlags::UNIQUE_ES_SYMBOL,
+                    "unique symbol".to_string(),
+                    None,
+                );
+                self.unique_symbol_nodes.insert(id, minted);
+                minted
+            }
             _ => self.intrinsics.error,
         }
     }

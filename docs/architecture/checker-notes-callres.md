@@ -1356,3 +1356,8 @@ form — `declare const s: unique symbol` is a `TypeOperatorNode` with
 `checker.go:22960`) — mints per declaration, memoized by NODE id so one
 declaration is one type. Falsifier: none beyond the measure — the
 declaration-position validity question was §26's and stands.
+
+**§27 score — LANDED.** **+1,182 GAP→RIGHT / 129 GAP→WRONG** (the 129 head
+at cross-file unique-symbol re-exports and intersection-reduction shapes —
+per-node minting cannot see that two files' nodes name one symbol, the
+recorded residue). `checker_types` right 389,825 → **391,007 (81.64%)**.

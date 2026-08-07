@@ -141,6 +141,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) file_import_machinery: FxHashMap<NodeId, bool>,
     /// The memoized `typeof globalThis` type (`checker-notes-narrow.md` §33).
     pub(crate) global_this_type: Option<TypeId>,
+    /// One `unique symbol` per WRITTEN `unique symbol` type node
+    /// (`checker-notes-callres.md` §27).
+    pub(crate) unique_symbol_nodes: FxHashMap<NodeId, TypeId>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -537,6 +540,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             alias_placeholders: FxHashMap::default(),
             file_import_machinery: FxHashMap::default(),
             global_this_type: None,
+            unique_symbol_nodes: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),
