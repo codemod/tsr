@@ -139,7 +139,7 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
-            let span = self.nodes.span(name);
+            let span = self.error_span(name);
             let source_text = self.type_to_string(source);
             let target_text = self.type_to_string(target);
             self.report(file, Diagnostic::with_args(message, span, [source_text, target_text]));
@@ -212,7 +212,7 @@ impl Checker<'_, '_> {
                 continue;
             }
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
-            let span = self.nodes.span(at);
+            let span = self.error_span(at);
             let derived_text = self.type_to_string(derived);
             let base_text = self.type_to_string(base);
             self.report(

@@ -84,7 +84,7 @@ impl<'a> Checker<'a, '_> {
             _ => self.call_error_node(callee),
         };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        let span = self.error_span(at);
         let range = match maximum {
             Some(maximum) if maximum > minimum => format!("{minimum}-{maximum}"),
             _ => minimum.to_string(),
@@ -177,7 +177,7 @@ impl<'a> Checker<'a, '_> {
             node
         };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        let span = self.error_span(at);
         self.report(
             file,
             Diagnostic::with_args(message, span, [expected.to_string(), arguments.to_string()]),

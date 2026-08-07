@@ -79,7 +79,7 @@ impl Checker<'_, '_> {
         ) {
             let suggestion = suggestion.to_string();
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
-            let span = self.nodes.span(name_id);
+            let span = self.error_span(name_id);
             let printed = self.type_to_string(receiver_type);
             self.report(
                 file,
@@ -92,7 +92,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
-        let span = self.nodes.span(name_id);
+        let span = self.error_span(name_id);
         let printed = self.type_to_string(receiver_type);
         self.report(
             file,

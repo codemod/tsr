@@ -91,7 +91,7 @@ impl Checker<'_, '_> {
             // The position is the **parameter declaration**, modifiers included:
             // `ParameterList4.ts(1,12)` for `function F(public A)` is the
             // `public`, not the `A`.
-            let span = self.nodes.span(parameter);
+            let span = self.error_span(parameter);
             let text = name.text.to_string();
             let diagnostic = if rest {
                 Diagnostic::with_args(message, span, [text])

@@ -147,7 +147,7 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
-                let span = self.nodes.span(at);
+                let span = self.error_span(at);
                 let property_text = self.type_to_string(property);
                 let index_text = self.type_to_string(index);
                 self.report(

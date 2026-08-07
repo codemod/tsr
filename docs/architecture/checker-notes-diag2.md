@@ -3435,3 +3435,113 @@ span is **the declaration's name**.
 right because they were each written to pass the name node themselves (§43's
 TS2564 passes `property.name`; §30's TS2300 build was this same defect found one
 call site at a time). Doing it centrally is §48.
+
+---
+
+## 48. `GetErrorRangeForNode` — the mapping this port never had
+
+Every checker diagnostic upstream goes through `c.error(location, …)` →
+`NewDiagnosticForNode` → `scanner.GetErrorRangeForNode` (`scanner.go:2588`),
+which maps the *node the rule names* to the *span the diagnostic is reported
+at*. For fifteen node kinds that span is **the declaration's name**:
+
+```go
+case ast.KindVariableDeclaration, ast.KindBindingElement, ast.KindClassDeclaration, ast.KindInterfaceDeclaration,
+    ast.KindModuleDeclaration, ast.KindEnumDeclaration, ast.KindEnumMember, ast.KindFunctionExpression,
+    ast.KindGetAccessor, ast.KindSetAccessor, ast.KindTypeAliasDeclaration, ast.KindJSTypeAliasDeclaration,
+    ast.KindPropertyDeclaration, ast.KindPropertySignature, ast.KindNamespaceImport:
+    errorNode = ast.GetNameOfDeclaration(node)
+case ast.KindClassExpression:
+    errorNode = node.Name()
+```
+
+(`KindFunctionDeclaration` and `KindMethodDeclaration` fall through into the
+same arm unless reparsed.)
+
+**This port has no such mapping.** Every `report` call site builds its span with
+`self.nodes.span(node)`, and the rules that are positionally right are right
+because each was written to pass the name node itself. That is not a style
+choice, it is an absent function, and this file has now paid for it three times
+independently:
+
+- §30 found it in TS2300 one `declare_into` call site at a time — **+11 cases**
+  for recording the declaration's name node;
+- §14's `report_implementation_expected` carries a private
+  `declaration_name_of` that covers exactly three of the fifteen kinds;
+- §47's last four wrong lines are `function named() { … } || undefined`, where
+  upstream underlines `named`.
+
+`extragap.rs`'s **displaced** column is the instrument that sizes this: a
+displaced diagnostic is the same code missing elsewhere in the same file, which
+is precisely what a wrong error span produces. At `HEAD` the column reads
+TS1005 241, TS2304 37, TS2322 49, TS2552 58, TS1125 40, TS2300 21, TS1109 18 —
+and the parser rows are §30's *"not this shape"*, but the checker rows are
+candidates for exactly this defect.
+
+### What is portable and what is not
+
+The name arms need no source text and port directly. Four arms do need text or a
+scanner and are **not** ported:
+
+| arm | needs |
+|---|---|
+| `KindSourceFile` | `SkipTrivia` over the file text |
+| `KindArrowFunction` | `getErrorRangeForArrowFunction`, a scanner walk |
+| `KindCaseClause` / `KindDefaultClause` | `SkipTrivia`, plus the first statement's `pos` |
+| `KindReturnStatement` / `KindYieldExpression` / `KindConstructor` | `GetRangeOfTokenAtPosition`, a scanner walk |
+
+The checker holds spans and no file text (ADR-0034), so those keep today's
+answer. Recorded rather than silently omitted: a future session finding a
+displaced `return` diagnostic should look here first.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,175**. Forecast **+2 to +12**: §47 names four wrong lines in one case, and the rest is whatever the fifteen kinds reach |
+| 2 | `checker_types` pass count unchanged at **3,660** |
+| 3 | LOST == **0** — this is the leg that matters. A central span change touches **every** rule at once, and a rule that was accidentally right can be made wrong |
+| 4 | the `displaced` column in `extragap.rs` does not grow |
+| 5 | every other snapshot unchanged |
+
+**Falsifier, and it is the reason leg 3 is stated so sharply.** If LOST is
+non-zero, some rule is passing a *declaration* node where upstream passes the
+*name* node — the two were the same answer only because neither was mapped, and
+mapping one of them breaks the pair. The lost case would name which rule.
+
+### Scored — **+0 on the suite, −4 wrong lines, and LOST 0 is the result**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,175, forecast +2 to +12 | **1,175** — no conversion | **did not fire** |
+| 2 | `checker_types` pass count unchanged | **3,665 / 82.70%** (the parallel workstream moved the baseline from 3,660 during this build; identical on both sides of the edit) | pass |
+| 3 | **LOST == 0** | **0** | pass |
+| 4 | `extragap.rs`'s `displaced` column does not grow | TS2304 37, TS2322 49, TS2552 58, TS1125 40, TS2300 21, TS1109 18, TS2454 1 — **unchanged** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2872, 2873, 1345]`: **WRONG 4 → 0, RIGHT 196 → 200**, and
+`generatedContextualTyping` still fails for reasons this rule does not reach, so
+the suite does not move.
+
+**Leg 3 is the whole result and it is worth more than the leg 1 zero.** Thirty-six
+report sites across fourteen modules were routed through one mapping in a single
+edit, and **not one case regressed**. That is the direct evidence that no rule in
+this workstream was passing a declaration node where upstream passes the name
+node — the failure the falsifier described. The rules that were positionally
+right were right by construction, not by accident, and the mapping is now where
+upstream keeps it rather than replicated in whoever remembered.
+
+**One site was reverted and it is the one that proves the split.**
+`crate::expressions`'s template-escape test reads a span to compare its *width*
+against the cooked text's length — a measurement, not a diagnostic position — and
+it is on the **query** road. The blanket edit caught it because it matched the
+same three words. It is the only one of the thirty-seven, and the reason it
+matters is that a span read on the query road is exactly what leg 2 watches.
+
+**What this is worth is what it stops costing.** §30 spent a build finding this
+defect in TS2300 one `declare_into` call site at a time, for +11; §14 carried a
+three-kind private copy of it; §47 paid four wrong lines. The next rule that
+reports on a `VariableDeclaration`, `EnumMember`, `PropertySignature`,
+`ClassExpression` or `NamespaceImport` gets the right span without knowing this
+section exists. **A zero that removes a class of future defect is not the same
+kind of zero as §44's**, which removed none and was kept on a forecast.

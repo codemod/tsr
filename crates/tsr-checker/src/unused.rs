@@ -450,7 +450,7 @@ impl Checker<'_, '_> {
             &messages::_0_IS_DECLARED_BUT_ITS_VALUE_IS_NEVER_READ
         };
         let at = self.name_node_of(node).unwrap_or(node);
-        let span = self.nodes.span(at);
+        let span = self.error_span(at);
         self.report_unused(
             node,
             UnusedKind::Local,
@@ -464,7 +464,7 @@ impl Checker<'_, '_> {
         if declarations.len() > 1
             && declarations.iter().all(|d| self.is_unreferenced_variable_declaration(*d))
         {
-            let span = self.nodes.span(list);
+            let span = self.error_span(list);
             self.report_unused_variable(
                 list,
                 Diagnostic::new(&messages::ALL_VARIABLES_ARE_UNUSED, span),
@@ -486,7 +486,7 @@ impl Checker<'_, '_> {
         if elements.len() > 1
             && elements.iter().all(|d| self.is_unreferenced_variable_declaration(*d))
         {
-            let span = self.nodes.span(pattern);
+            let span = self.error_span(pattern);
             self.report_unused_variable(
                 pattern,
                 Diagnostic::new(&messages::ALL_DESTRUCTURED_ELEMENTS_ARE_UNUSED, span),
@@ -506,7 +506,7 @@ impl Checker<'_, '_> {
             if matches!(self.node_map.get(name), Some(Node::BindingPattern(_))) {
                 self.report_unused_binding_elements(name);
             } else if self.is_unreferenced_variable_declaration(*declaration) {
-                let span = self.nodes.span(name);
+                let span = self.error_span(name);
                 let text = self.identifier_text_of(name).unwrap_or_default().to_string();
                 self.report_unused_variable(
                     *declaration,
@@ -628,7 +628,7 @@ impl Checker<'_, '_> {
         }
         if declaration_count > 1 && declaration_count == unused.len() {
             let Some(parent) = self.nodes.parent(clause) else { return };
-            let span = self.nodes.span(parent);
+            let span = self.error_span(parent);
             self.report_unused(
                 clause,
                 UnusedKind::Local,
@@ -681,7 +681,7 @@ impl Checker<'_, '_> {
                         continue;
                     }
                     let text = text.to_string();
-                    let span = self.nodes.span(name);
+                    let span = self.error_span(name);
                     self.report_unused(
                         id,
                         UnusedKind::Local,
@@ -704,7 +704,7 @@ impl Checker<'_, '_> {
                             continue;
                         }
                         let text = text.to_string();
-                        let span = self.nodes.span(name);
+                        let span = self.error_span(name);
                         self.report_unused(
                             id,
                             UnusedKind::Local,
@@ -745,7 +745,7 @@ impl Checker<'_, '_> {
                 }
                 let Some(name) = self.name_node_of(parameter) else { continue };
                 let text = self.identifier_text_of(name).unwrap_or_default().to_string();
-                let span = self.nodes.span(parameter);
+                let span = self.error_span(parameter);
                 self.report_unused(
                     node,
                     UnusedKind::Parameter,
@@ -764,7 +764,7 @@ impl Checker<'_, '_> {
         }
         let Some(name) = self.name_node_of(parameter) else { return };
         let text = self.identifier_text_of(name).unwrap_or_default().to_string();
-        let span = self.nodes.span(name);
+        let span = self.error_span(name);
         self.report_unused(
             node,
             UnusedKind::Parameter,

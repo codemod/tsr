@@ -87,7 +87,7 @@ impl Checker<'_, '_> {
     fn check_truthiness_of(&mut self, expression: Expression<'_>) {
         let Some(node) = expression.node_id() else { return };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         let tested = self.check_expression(expression);
         if self.type_of(tested).flags.intersects(TypeFlags::VOID) {
             self.report(

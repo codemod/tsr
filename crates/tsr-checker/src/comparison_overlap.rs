@@ -100,7 +100,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         self.report(

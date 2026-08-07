@@ -73,7 +73,7 @@ impl Checker<'_, '_> {
             &messages::GENERIC_TYPE_0_REQUIRES_1_TYPE_ARGUMENT_S
         };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         let printed = self.written_type_name(name);
         self.report(
             file,

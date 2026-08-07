@@ -480,7 +480,7 @@ impl Checker<'_, '_> {
         let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
         let text = literal.text;
         let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return };
-        let span = self.nodes.span(specifier);
+        let span = self.error_span(specifier);
         let message = if side_effect {
             &messages::CANNOT_FIND_MODULE_OR_TYPE_DECLARATIONS_FOR_SIDE_EFFECT_IMPORT_OF_0
         } else {
@@ -624,7 +624,7 @@ impl Checker<'_, '_> {
             }
             let Some(name_id) = property.name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
-            let span = self.nodes.span(name_id);
+            let span = self.error_span(name_id);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -717,7 +717,7 @@ impl Checker<'_, '_> {
         // resolve, and therefore never reports, an identifier the parser
         // synthesised while recovering. `NodeIsMissing` is `pos == end`, and a
         // missing identifier also carries empty text.
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         if text.is_empty() || span.start == span.end {
             return;
         }
@@ -1174,7 +1174,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         self.report(
             file,
             Diagnostic::with_args(
@@ -1391,7 +1391,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         self.report(
             file,
             Diagnostic::new(
@@ -1424,7 +1424,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(left) else { return };
-        let span = self.nodes.span(left);
+        let span = self.error_span(left);
         self.report(
             file,
             Diagnostic::new(
@@ -1707,7 +1707,7 @@ impl Checker<'_, '_> {
     /// whole node, with no arguments.
     fn report_grammar(&mut self, node: NodeId, message: &'static tsr_diagnostics::Message) {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         self.report(file, Diagnostic::new(message, span));
     }
 
@@ -1901,7 +1901,7 @@ impl Checker<'_, '_> {
 
         if multiple_constructor_implementations {
             for &declaration in &function_declarations {
-                let span = self.nodes.span(declaration);
+                let span = self.error_span(declaration);
                 self.report(
                     file,
                     Diagnostic::new(
@@ -1914,7 +1914,7 @@ impl Checker<'_, '_> {
         if duplicate_function_implementation {
             for &declaration in &function_declarations {
                 let at = self.declaration_name_of(declaration).unwrap_or(declaration);
-                let span = self.nodes.span(at);
+                let span = self.error_span(at);
                 self.report(
                     file,
                     Diagnostic::new(&messages::DUPLICATE_FUNCTION_IMPLEMENTATION, span),
@@ -1947,7 +1947,7 @@ impl Checker<'_, '_> {
         }
         let at = self.declaration_name_of(node).unwrap_or(node);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        let span = self.error_span(at);
         let message = if is_constructor {
             &messages::CONSTRUCTOR_IMPLEMENTATION_IS_MISSING
         } else if self.declaration_is_abstract(node) {
@@ -2096,8 +2096,51 @@ impl Checker<'_, '_> {
             }
             Node::MethodDeclaration(declaration) => declaration.name.node_id(),
             Node::MethodSignatureDeclaration(signature) => signature.name.node_id(),
+            Node::VariableDeclaration(declaration) => declaration.name.and_then(|n| n.node_id()),
+            Node::BindingElement(element) => element.name.and_then(|n| n.node_id()),
+            Node::ClassDeclaration(declaration) => declaration.name.and_then(|name| name.node_id),
+            Node::ClassExpression(expression) => expression.name.and_then(|name| name.node_id),
+            Node::InterfaceDeclaration(declaration) => declaration.name.and_then(|n| n.node_id),
+            Node::ModuleDeclaration(declaration) => declaration.name.and_then(|n| n.node_id()),
+            Node::EnumDeclaration(declaration) => declaration.name.and_then(|n| n.node_id),
+            Node::EnumMember(member) => member.name.node_id(),
+            Node::FunctionExpression(expression) => expression.name.and_then(|name| name.node_id),
+            Node::GetAccessorDeclaration(accessor) => accessor.name.node_id(),
+            Node::SetAccessorDeclaration(accessor) => accessor.name.node_id(),
+            Node::TypeAliasDeclaration(declaration) => declaration.name.and_then(|n| n.node_id),
+            Node::PropertyDeclaration(declaration) => declaration.name.node_id(),
+            Node::PropertySignatureDeclaration(signature) => signature.name.node_id(),
+            Node::NamespaceImport(import) => import.name.and_then(|n| n.node_id),
             _ => None,
         }
+    }
+
+    /// `scanner.GetErrorRangeForNode` (`scanner.go:2588`) — the span a
+    /// diagnostic naming `node` is actually reported at.
+    ///
+    /// Upstream routes **every** checker diagnostic through this, in
+    /// `NewDiagnosticForNode`. For fifteen declaration kinds the span is the
+    /// declaration's *name*, which is why upstream underlines `named` in
+    /// `function named() { … } || undefined` and this port underlined
+    /// `function` until `checker-notes-diag2.md` §48.
+    ///
+    /// Four of upstream's arms need the file's **text** or a scanner —
+    /// `KindSourceFile`, `KindArrowFunction`, the case/default clauses, and
+    /// `return`/`yield`/`constructor` — and this checker holds spans and no
+    /// text (ADR-0034). Those keep the node's own span; §48 records the
+    /// omission rather than hiding it, because a displaced `return` diagnostic
+    /// is the symptom it would produce.
+    pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
+        self.declaration_name_of(node).map_or_else(
+            || self.nodes.span(node),
+            |name| {
+                // `if errorNode == nil` upstream falls back to the node's own
+                // first token; a name node with an empty span is the same
+                // "missing" case and takes the same fallback.
+                let span = self.error_span(name);
+                if span.start == span.end { self.nodes.span(node) } else { span }
+            },
+        )
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`

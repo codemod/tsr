@@ -381,7 +381,7 @@ impl<'a> Checker<'a, '_> {
             }
             let Some(at) = self.excess_property_name_node(literal, name) else { return };
             let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-            let span = self.nodes.span(at);
+            let span = self.error_span(at);
             let printed = self.type_to_string(target);
             self.report(
                 file,
@@ -529,7 +529,7 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        let span = self.error_span(at);
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         self.report(
@@ -569,7 +569,7 @@ impl<'a> Checker<'a, '_> {
             return false;
         }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
-        let span = self.nodes.span(at);
+        let span = self.error_span(at);
         if REPORT_MISSING_REQUIRED_PROPERTY
             && let Some(property) = self.missing_required_property(source, target)
         {

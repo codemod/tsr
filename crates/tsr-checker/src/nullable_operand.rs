@@ -49,7 +49,7 @@ impl Checker<'_, '_> {
                 continue;
             };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-            let span = self.nodes.span(id);
+            let span = self.error_span(id);
             self.report(
                 file,
                 Diagnostic::with_args(
