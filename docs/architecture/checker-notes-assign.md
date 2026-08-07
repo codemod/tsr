@@ -699,3 +699,20 @@ falsifier: wrong lines in un-annotated positions whose want keeps two
 same-printing constituents → the §9 identity test collapsed two distinct
 object-literal types, `check_array_literal`'s own documented hazard;
 regressed == 0; lost == 0.
+
+### §13.1 Scored — clean, and the §10 wiring is now fully re-landed consumer by consumer
+
+```
+GAP→RIGHT 33 · nothing else at all · 0 regressed
+```
+
+Legs: net **+33** (≥ +8) · own **0** (the identity-collapse falsifier did not
+fire — two same-printing distinct object-literal types are exactly what the
+mutual-strict-subtype removal collapses, which is upstream's own answer) ·
+regressed **0** · lost **0**. The eighteenth stand-in fixture came due.
+
+§10's verdict stands vindicated in both directions: refused as ONE wiring
+(+168 with three families' defects pooled), landed as THREE (returns +84,
+yields +2, arrays +33 = **+119 with 15 exposure lines, each owned**) — the
+per-consumer bars cost three cycles and bought the JS-file flag, two
+position gates, and three attributed residues.

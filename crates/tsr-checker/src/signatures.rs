@@ -1299,7 +1299,7 @@ impl<'a> Checker<'a, '_> {
     /// argument, an annotated declaration, an object-literal property, a
     /// `return` expression, an `as`) can supply a contextual type, and this
     /// refuses to guess which.
-    fn has_no_contextual_type(&self, declaration: NodeId) -> bool {
+    pub(crate) fn has_no_contextual_type(&self, declaration: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(declaration) else { return false };
         matches!(
             self.node_map.get(parent),

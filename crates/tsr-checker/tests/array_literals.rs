@@ -186,11 +186,14 @@ fn a_spread_or_an_omitted_element_makes_the_literal_a_gap() {
 
 #[test]
 fn two_object_typed_elements_are_a_gap_because_subtype_reduction_is_missing() {
-    // An object literal type is not interned, so `[{a: 1}, {a: 1}]` is a union
-    // of two *distinct* types printing the same string, which upstream's
-    // `UnionReductionSubtype` collapses to one. Printing
-    // `({ a: number; } | { a: number; })[]` would look like a formatting bug.
-    assert_eq!(type_of_initialiser("const a = [{ a: 1 }, { a: 1 }];"), "error");
+    // The eighteenth unported-stand-in fixture to come due: this asserted
+    // `error` for the exact mechanism the ninth session built. In the one
+    // provably-uncontextual position — an un-annotated variable initialiser —
+    // the §9 decidability-gated reduction now runs upstream's
+    // `UnionReductionSubtype` call (`checker.go:8096`,
+    // `checker-notes-assign.md` §13), and two mutual-subtype object types
+    // collapse to one exactly as upstream's do.
+    assert_eq!(type_of_initialiser("const a = [{ a: 1 }, { a: 1 }];"), "{ a: number; }[]");
     // One object-typed element is unaffected — subtype reduction would not have
     // merged these either, so the guard is specific rather than a blanket
     // refusal of object elements.

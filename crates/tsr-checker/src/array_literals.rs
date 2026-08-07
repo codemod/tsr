@@ -111,9 +111,29 @@ impl Checker<'_, '_> {
         } else {
             let reduced = self.get_union_type(&elements);
             if self.object_constituent_count(reduced) > 1 {
-                return error;
+                // Upstream reduces the element union with
+                // `UnionReductionSubtype` (`checker.go:8096`). In a position
+                // WITH a contextual type the members kept their literals and
+                // this port's widening already diverged upstream of here
+                // (`checker-notes-assign.md` §10.1, `arrayBestCommonTypes`),
+                // so only the provably-uncontextual position — an
+                // un-annotated variable initialiser — takes the §9 reduction
+                // (§13); everything else stays this arm's gap.
+                let uncontextual = node.node_id.is_some_and(|id| self.has_no_contextual_type(id));
+                if !uncontextual {
+                    return error;
+                }
+                match self.union_with_subtype_reduction(&elements) {
+                    Some(subtype_reduced)
+                        if self.object_constituent_count(subtype_reduced) <= 1 =>
+                    {
+                        subtype_reduced
+                    }
+                    _ => return error,
+                }
+            } else {
+                reduced
             }
-            reduced
         };
 
         let Some(target) = self.global_type_symbol("Array") else { return error };
