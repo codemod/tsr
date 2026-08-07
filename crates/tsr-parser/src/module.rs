@@ -34,10 +34,15 @@ impl<'a> Parser<'a> {
             return Statement::ImportDeclaration(node);
         }
 
-        // `import type …` — but `import type from "m"` imports a binding named
-        // `type`, so the token after decides.
-        let is_type_only = self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here();
-        let phase = if is_type_only { Some(self.take_token()) } else { None };
+        // `import type …` / `import defer …` — but both words may also name the
+        // default binding, so the following tokens decide. In particular,
+        // `import type from from "m"` is a type-only import whose binding is
+        // named `from`, while `import type from "m"` imports a binding named
+        // `type`.
+        let has_phase = (self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here())
+            || (self.at(SyntaxKind::DeferKeyword) && self.defer_is_modifier_here());
+        let phase = if has_phase { Some(self.take_token()) } else { None };
+        let is_type_only = phase.is_some_and(|phase| phase.kind == SyntaxKind::TypeKeyword);
 
         // `import x = require("m")` and `import x = A.B`.
         if self.at_binding_identifier() && self.next_is_equals() {
@@ -566,15 +571,34 @@ impl<'a> Parser<'a> {
     /// `import type { A } from "m"` is type-only; `import type from "m"` imports
     /// a binding called `type`. The distinguishing token is what follows.
     fn type_is_modifier_here(&mut self) -> bool {
-        self.peek_kind(|kind| {
+        self.look_ahead(|parser| {
+            parser.next_token();
+            if parser.at(SyntaxKind::FromKeyword) {
+                parser.next_token();
+                return matches!(
+                    parser.token.kind,
+                    SyntaxKind::FromKeyword | SyntaxKind::EqualsToken
+                );
+            }
             !matches!(
-                kind,
-                SyntaxKind::FromKeyword
-                    | SyntaxKind::CommaToken
+                parser.token.kind,
+                SyntaxKind::CommaToken
                     | SyntaxKind::EqualsToken
                     | SyntaxKind::CloseBraceToken
                     | SyntaxKind::AsKeyword
             )
+        })
+    }
+
+    /// Whether `defer` is an import phase rather than the default binding name.
+    fn defer_is_modifier_here(&mut self) -> bool {
+        self.look_ahead(|parser| {
+            parser.next_token();
+            if parser.at(SyntaxKind::FromKeyword) {
+                parser.next_token();
+                return !parser.at(SyntaxKind::StringLiteral);
+            }
+            !matches!(parser.token.kind, SyntaxKind::CommaToken | SyntaxKind::EqualsToken)
         })
     }
 

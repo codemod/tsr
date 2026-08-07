@@ -82,7 +82,7 @@ fn subtraction_is_left_associative() {
 #[test]
 fn call_and_member_chains() {
     let arena = Arena::new();
-    statements(&arena, "a.b.c(1)[2]!.d?.e?.(3);");
+    statements(&arena, "a.b.c(1)[2]!.d?.e?.(3); new this.#fieldFunc();");
 }
 
 #[test]
@@ -568,6 +568,8 @@ fn jsx_tag_names() {
     tsx(&arena, "const b = <A.B.C />;");
     tsx(&arena, "const c = <my-element />;");
     tsx(&arena, "const d = <svg:circle />;");
+    tsx(&arena, "const e = <this._tagName />;");
+    tsx(&arena, "const f = <this._tagName>text</this._tagName>;");
 }
 
 #[test]
@@ -724,6 +726,14 @@ fn import_attributes() {
     let arena = Arena::new();
     statements(&arena, r#"import d from "./d.json" with { type: "json" };"#);
     statements(&arena, r#"export { a } from "./m" with { type: "json" };"#);
+}
+
+#[test]
+fn import_phase_modifiers_and_keyword_bindings() {
+    let arena = Arena::new();
+    statements(&arena, r#"import defer * as ns from "./a.js";"#);
+    statements(&arena, r#"import type from from "./a";"#);
+    statements(&arena, r#"import type from = require("./a");"#);
 }
 
 #[test]

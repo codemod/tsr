@@ -2,11 +2,11 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 printer_round_trip Summary:
 What a pass means: every unit of the case parses, prints, and reparses to the same tree
-Passed         : 11689/11738 (99.58%)
+Passed         : 11707/11756 (99.58%)
 Failed         : 49
-Skipped        : 706 (excluded from the denominator)
+Skipped        : 688 (excluded from the denominator)
 
-  706  skipped: the case does not parse cleanly, so there is no tree to preserve
+  688  skipped: the case does not parse cleanly, so there is no tree to preserve
 
 compiler/commentOnArrayElement10
   tree has 5 nodes, printed has 4

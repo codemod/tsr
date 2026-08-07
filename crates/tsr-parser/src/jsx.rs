@@ -97,30 +97,31 @@ impl<'a> Parser<'a> {
     fn parse_jsx_tag_name(&mut self) -> JsxTagNameExpression<'a> {
         let start = self.pos();
 
-        if self.at(SyntaxKind::ThisKeyword) {
+        let mut expression = if self.at(SyntaxKind::ThisKeyword) {
             self.next_token();
-            return JsxTagNameExpression::KeywordExpression(self.finish_node(
+            Expression::KeywordExpression(self.finish_node(
                 KeywordExpression::new(SyntaxKind::ThisKeyword),
                 SyntaxKind::ThisKeyword,
                 start,
-            ));
-        }
+            ))
+        } else {
+            let name = self.parse_jsx_name();
 
-        let name = self.parse_jsx_name();
+            // `ns:name` — a namespaced name, distinct from a member access.
+            if self.at(SyntaxKind::ColonToken) {
+                self.next_token();
+                let local = self.parse_jsx_name();
+                return JsxTagNameExpression::JsxNamespacedName(self.finish_node(
+                    JsxNamespacedName::new(Some(name), Some(local)),
+                    SyntaxKind::JsxNamespacedName,
+                    start,
+                ));
+            }
 
-        // `ns:name` — a namespaced name, distinct from a member access.
-        if self.at(SyntaxKind::ColonToken) {
-            self.next_token();
-            let local = self.parse_jsx_name();
-            return JsxTagNameExpression::JsxNamespacedName(self.finish_node(
-                JsxNamespacedName::new(Some(name), Some(local)),
-                SyntaxKind::JsxNamespacedName,
-                start,
-            ));
-        }
+            Expression::Identifier(name)
+        };
 
-        // `A.B.C` — a member chain.
-        let mut expression = Expression::Identifier(name);
+        // `A.B.C` and `this.dynamic` — member chains.
         while self.at(SyntaxKind::DotToken) {
             self.next_token();
             let member = self.parse_jsx_name();
@@ -137,6 +138,9 @@ impl<'a> Parser<'a> {
 
         match expression {
             Expression::Identifier(identifier) => JsxTagNameExpression::Identifier(identifier),
+            Expression::KeywordExpression(keyword) => {
+                JsxTagNameExpression::KeywordExpression(keyword)
+            }
             Expression::PropertyAccessExpression(access) => {
                 JsxTagNameExpression::PropertyAccessExpression(access)
             }

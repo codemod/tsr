@@ -525,13 +525,9 @@ impl<'a> Parser<'a> {
         // parentheses belong to `new`.
         while self.at(SyntaxKind::DotToken) {
             self.next_token();
-            let name = self.parse_identifier();
+            let name = self.parse_member_name();
             let node = self.finish_node(
-                PropertyAccessExpression::new(
-                    Some(callee),
-                    None,
-                    Some(MemberName::Identifier(name)),
-                ),
+                PropertyAccessExpression::new(Some(callee), None, Some(name)),
                 SyntaxKind::PropertyAccessExpression,
                 callee_start,
             );
