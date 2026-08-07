@@ -99,6 +99,7 @@
 //! path and seen to go red.
 
 pub mod array_literals;
+pub mod assertion_overlap;
 pub mod assertions;
 pub mod assignreport;
 pub mod binary;

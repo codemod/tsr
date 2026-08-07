@@ -2176,3 +2176,37 @@ documented at `check_used_before_assigned` and excludes outer variables,
 parameters, aliases and binding elements — the ninth session's named residual,
 *"outer variables and assignment marking"*. **That, not the extras, is what the
 row is worth**, and this is the measurement that says so.
+
+---
+
+## 31. TS2352 — assertion overlap, +4 for **zero** wrong, and a substitution that needed two declines
+
+```
+diagnostics 998 -> 1,003   (+4, past the thousand mark)     LOST 0     WRONG 0
+```
+
+`checkAssertionWorker`: an `as` or `<T>` assertion errors when **neither** type is
+comparable to the other. `crate::relater` has no comparable relation, and
+comparable is *weaker* than assignable — so "not assignable either way" is a
+**superset** of upstream's condition and would over-report.
+
+`relate_ternary` is what makes the substitution survivable at all: a pair this
+port cannot decide answers `Unknown`, so the rule fires only where both
+directions are a confident negative. But it is not sufficient, and the two
+declines are exactly where the two relations part company:
+
+- **The same primitive family.** `"foo" as "bar"` is not assignable in either
+  direction and *is* comparable — both reduce to `string`.
+  `stringLiteralsWithTypeAssertions01` and
+  `stringLiteralsAssertionsInEqualityComparisons02` were 6 of the first 7 wrong
+  lines.
+- **A union or intersection on either side.** `fooOrBar as "baz"` with
+  `fooOrBar: "foo" | "bar"` is comparable for the same reason, and this port's
+  union carries `UNION` rather than its constituents' flags, so the family test
+  cannot see through it. The last two wrong lines and the rule's only loss.
+
+> **A weaker relation can stand in for a stronger one only where you can name
+> the difference.** Here the difference is one sentence — comparability reduces
+> literals to their base primitive — and it costs two declines. That is the whole
+> of what `isTypeComparableTo` would buy on this row, which prices the real
+> build.

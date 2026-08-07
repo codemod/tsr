@@ -334,6 +334,10 @@ impl Checker<'_, '_> {
                 self.check_nonexistent_property(node, ambient);
                 ambient
             }
+            Node::AsExpression(_) | Node::TypeAssertion(_) => {
+                self.check_assertion_overlap(node, ambient);
+                ambient
+            }
             Node::CallExpression(_) => {
                 self.check_call_arity(node);
                 ambient
