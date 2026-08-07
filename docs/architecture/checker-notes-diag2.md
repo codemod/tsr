@@ -1338,3 +1338,51 @@ the wrapper would be a wrong diagnostic on every correct `async` function in the
 corpus, which is the largest single wrong family this rule could have produced.
 
 `diagnostics` 863/5,488 → **868/5,488 = 15.82%**.
+
+---
+
+## 18. `noImplicitAny` for parameters — TS7006 and TS7019, +7 for **zero** wrong
+
+```
+CONVERTS 868 -> 875  (+7)     LOST 0      RIGHT 128     WRONG 0
+```
+
+The third option-gated rule, and the same safety profile as §15: nothing fires
+unless the case writes `@noImplicitAny` or `@strict`, so a wrong answer can only
+reach cases that opted in.
+
+### A widening rule upstream, a syntactic one here
+
+`reportImplicitAny` (`checker.go:18275`) is reached from
+`reportErrorsFromWidening` (`checker.go:20452`) when a declaration's widened type
+still carries `ObjectFlagsContainsWideningType`. This port has no widening
+marker, so the question is asked of the syntax instead — **and it can only be
+asked where the answer cannot depend on a contextual type**, because contextual
+typing is the one thing that supplies a parameter's type without an annotation
+and this port's version of it is the refused `ArrowFunction` row.
+
+Admitted: a `function` declaration, a class method (not an object-literal one),
+a constructor, and a function expression or arrow in exactly two positions — the
+initialiser of a variable with **no** annotation, and a bare expression
+statement. Everything else — an argument, an annotated declaration, a property
+assignment, a `return`, a JSX attribute, an `as` — has a contextual type this
+port computes only partially, and partial contextual typing is a *wrong* TS7006
+rather than a missing one.
+
+Widening from declarations-only to those two expression positions was worth
+**+3 conversions and +21 right lines for zero new wrong**, which is the evidence
+that the position list is the right axis to grow along.
+
+### The wrong column was 28 lines and one word: JSDoc
+
+The first measurement read **28 wrong, and every one was a `.js` file**.
+`typedefOnStatements.js(71,…)` alone was 15 of them, on one line. Upstream reads
+`@param {string} x` out of JSDoc and gives the parameter a type; this port parses
+no JSDoc types, so a checked JS file reports an implicit any on every *annotated*
+parameter it has.
+
+`reportImplicitAny` already declines a `.js` file without `checkJs`
+(`checker.go:18276`); this declines **every** `.js` file, which is wider than
+upstream and is a refusal rather than a bound — it comes back when JSDoc types
+are parsed. **The whole wrong column went to zero on one condition**, which is
+the cleanest signal in this file that a residual had a single owner.

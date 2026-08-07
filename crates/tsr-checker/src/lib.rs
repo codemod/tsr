@@ -112,6 +112,7 @@ pub mod expressions;
 pub mod flags;
 pub mod flow;
 pub mod function_types;
+pub mod implicit_any;
 pub mod index_signatures;
 pub mod indexed;
 pub mod inference;

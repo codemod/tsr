@@ -229,7 +229,10 @@ impl Checker<'_, '_> {
             }
             Node::FunctionDeclaration(declaration) => {
                 self.check_function_or_constructor_symbol(node, ambient);
-                ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+                let ambient =
+                    ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
+                self.check_implicit_any_parameters(node, ambient);
+                ambient
             }
             Node::EnumDeclaration(declaration) => {
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
@@ -307,6 +310,11 @@ impl Checker<'_, '_> {
             }
             Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
                 self.check_function_or_constructor_symbol(node, ambient);
+                self.check_implicit_any_parameters(node, ambient);
+                ambient
+            }
+            Node::FunctionExpression(_) | Node::ArrowFunction(_) => {
+                self.check_implicit_any_parameters(node, ambient);
                 ambient
             }
             Node::Identifier(identifier) => {

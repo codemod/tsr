@@ -250,6 +250,10 @@ pub struct Checker<'a, 'n> {
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
+    /// `compilerOptions.noImplicitAny` through `GetStrictOptionValue`
+    /// (`checker.go:922`) — it follows `strict` when unset, like
+    /// `strictNullChecks`.
+    pub(crate) no_implicit_any: bool,
     pub(crate) no_unused_locals: bool,
     /// `compilerOptions.noUnusedParameters` (`checker.go:7109`).
     pub(crate) no_unused_parameters: bool,
@@ -494,6 +498,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             strict_property_initialization: true,
             file_has_parse_errors: false,
             allow_unreachable_code: false,
+            no_implicit_any: false,
             no_unused_locals: false,
             no_unused_parameters: false,
             symbol_reference_kinds: FxHashMap::default(),
@@ -574,6 +579,18 @@ impl<'a, 'n> Checker<'a, 'n> {
     pub fn set_no_unused(&mut self, locals: bool, parameters: bool) {
         self.no_unused_locals = locals;
         self.no_unused_parameters = parameters;
+    }
+
+    /// Set `noImplicitAny` from a case's compiler options.
+    ///
+    /// A strict-family option: the explicit flag wins, `@strict` is the
+    /// fallback. Unset is **off** here rather than on, because this port reads
+    /// the corpus's directives and the corpus writes `@strict` where it means
+    /// it — the same three-step read the harness makes for
+    /// `strictPropertyInitialization`, with a different default because
+    /// `noImplicitAny` is not on by default outside `strict`.
+    pub fn set_no_implicit_any(&mut self, on: bool) {
+        self.no_implicit_any = on;
     }
 
     /// The well-known types.

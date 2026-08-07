@@ -272,6 +272,9 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
     // `unusedIsError` (`checker.go:7104`) reads both as `IsTrue()`, so an unset
     // option is off and `crate::unused` reports nothing at all — which is what
     // confines that family to the cases that write the directive.
+    checker.set_no_implicit_any(
+        explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(false),
+    );
     checker.set_no_unused(
         test.options.get("nounusedlocals").is_some_and(|v| v.eq_ignore_ascii_case("true")),
         test.options.get("nounusedparameters").is_some_and(|v| v.eq_ignore_ascii_case("true")),
