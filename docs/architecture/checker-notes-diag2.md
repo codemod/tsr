@@ -1996,3 +1996,61 @@ assignability.
 > family the answer is about six.** Every forecast this project has made off that
 > column — including the ones in §16 and §21 — has been high by that factor. The
 > column is still the right *ordering*; it is not a case count.
+
+---
+
+## 30. `extragap.rs` — the column nobody had opened, and TS2304's residual
+
+`diaggap.rs` ranks the *missing* column and prints one line per code for the
+extras. That was never enough to act on: **a code appearing in both columns of
+one case is usually one diagnostic at the wrong position**, not one invented and
+one missed, and the two readings call for completely different work.
+
+`examples/extragap.rs` (new) splits them — *displaced* (the same code is missing
+elsewhere in the same file) versus *invented* (the baseline never mentions it for
+that file) — and adds the only forecastable column on this side: **cases where
+one code, got entirely right in both directions, would finish the case.**
+
+```
+  code   displaced   invented   sole obstacle
+TS2322          42         23           489
+TS2339           0         11           132
+TS2345           0          8           104
+TS2304           1         85            88
+TS2454           3        111            66
+TS2300          47         47            38
+TS2430           1          6            24
+TS2420           2          5            16
+TS1160          12          0            12
+```
+
+**TS2304 and TS2454 are *invented*, not missing.** Both rules shipped in the
+eighth session, and 85 and 111 of their lines respectively are diagnostics
+upstream does not report at all. That reframes two rows that had been read as
+"the rule is incomplete" for two sessions: they are over-reporting, and the fix
+is subtraction.
+
+### TS2304's residual, 86 wrong lines → 68, and two of the three are substitutions
+
+```
+CONVERTS 127 -> 130     LOST 1 (unchanged, pre-existing)     WRONG 86 -> 68
+diagnostics 961 -> 964
+```
+
+- **TS2583, the missing-lib arm** (18 lines). `onFailedToResolveSymbol` reports
+  the missing lib **before** the spelling suggestion (`checker.go:1584` versus
+  `:1590`), so `Map`, `Set`, `WeakMap` and 51 more names are TS2583 whenever they
+  do not resolve. `getFeatureMap`'s *keys* are the whole of what that needs;
+  ported as a sorted name→lib list rather than as the nested map, because
+  everything else in it belongs to TS2550's row. The ordering is load-bearing:
+  `Map` has near neighbours in most scopes, so the two arms do not commute.
+- **TS2301, the constructor-parameter arm** (4 lines, and it converts its case).
+  An instance property's initialiser naming a **constructor parameter** is
+  `OnPropertyWithInvalidInitializer`. This port's `resolve_name` does not put
+  constructor parameters in a property initialiser's scope at all, so the
+  substitution is made by asking the class directly.
+- **`class C extends null`** (5 lines). Upstream's parser makes `null` a
+  `NullKeyword`; this one makes it an `Identifier`, so the name reaches a
+  resolver that can never find it. Worked around at the reader rather than in the
+  parser, because `null` is not a spellable binding in any scope — declining it
+  can hide no real diagnostic.

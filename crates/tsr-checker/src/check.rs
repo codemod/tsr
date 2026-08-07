@@ -684,6 +684,37 @@ impl Checker<'_, '_> {
         if text.is_empty() || span.start == span.end {
             return;
         }
+        // `class C extends null {}` — upstream's parser makes `null` a
+        // `NullKeyword` expression and this one makes it an `Identifier`, so the
+        // name reaches a resolver that can never find it. A parser divergence
+        // worked around at the reader rather than in the parser, because `null`
+        // is not a spellable binding in any scope: declining it can hide no real
+        // diagnostic. `classExtendsNull`, `classExtendsNull2` and
+        // `classExtendsNull3` were 5 wrong lines.
+        if text == "null" {
+            return;
+        }
+        // `OnPropertyWithInvalidInitializer` (`nameresolver.go`, reached from
+        // `resolveNameHelper`): an instance property's initialiser that names a
+        // **constructor parameter** is TS2301, not TS2304 — upstream's resolver
+        // finds the parameter, notices the position, and substitutes. This
+        // port's `resolve_name` does not put constructor parameters in a
+        // property initialiser's scope at all, so the same substitution is made
+        // by asking the class directly.
+        if let Some(property) =
+            self.property_initializer_referencing_a_constructor_parameter(node, text)
+        {
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::INITIALIZER_OF_INSTANCE_MEMBER_VARIABLE_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_IN_THE_CONSTRUCTOR,
+                    span,
+                    [property, text.to_string()],
+                ),
+            );
+            return;
+        }
         if self
             .binder
             .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
@@ -706,14 +737,77 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        // `onFailedToResolveSymbol` reports the **missing lib first**
+        // (`checker.go:1584`): a name in `getFeatureMap` is TS2583, not TS2304,
+        // and the two are a wrong code at a right position apart.
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        if let Some(lib) = suggested_lib_for(text) {
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_CHANGE_YOUR_TARGET_LIBRARY_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_1_OR_LATER,
+                    span,
+                    [text.to_string(), lib.to_string()],
+                ),
+            );
+            return;
+        }
+        // Then spelling suggestions (`checker.go:1590`) — TS2552.
         if self.has_spelling_suggestion(node, text) {
             return;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         self.report(
             file,
             Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
         );
+    }
+
+    /// Is this identifier inside an **instance** property's initialiser, naming
+    /// a parameter of the enclosing class's constructor?
+    ///
+    /// Answers the property's name, for the message. `static` members are
+    /// excluded: a static initialiser is not in the constructor's scope in
+    /// either direction, and upstream's check is on `PropertyDeclaration`
+    /// without the static modifier.
+    fn property_initializer_referencing_a_constructor_parameter(
+        &self,
+        node: NodeId,
+        text: &str,
+    ) -> Option<String> {
+        // Walk out to the property declaration, stopping at anything that
+        // introduces its own `this` or its own scope boundary for this purpose.
+        let mut at = self.nodes.parent(node)?;
+        let property = loop {
+            match self.node_map.get(at)? {
+                Node::PropertyDeclaration(property) => break property,
+                Node::ClassDeclaration(_) | Node::ClassExpression(_) | Node::SourceFile(_) => {
+                    return None;
+                }
+                _ => at = self.nodes.parent(at)?,
+            }
+        };
+        if has_modifier(property.modifiers, SyntaxKind::StaticKeyword) {
+            return None;
+        }
+        let name = property.name.node_id().and_then(|id| self.identifier_text(id))?.to_string();
+        let class = self.nodes.parent(at)?;
+        let members: &[ClassElement<'_>] = match self.node_map.get(class)? {
+            Node::ClassDeclaration(declaration) => declaration.members,
+            Node::ClassExpression(declaration) => declaration.members,
+            _ => return None,
+        };
+        for member in members {
+            let ClassElement::ConstructorDeclaration(constructor) = member else { continue };
+            for parameter in constructor.parameters {
+                let Some(tsr_ast::BindingName::Identifier(written)) = parameter.name else {
+                    continue;
+                };
+                if written.text == text {
+                    return Some(name);
+                }
+            }
+        }
+        None
     }
 
     /// Would `getSuggestedSymbolForNonexistentSymbol` (`checker.go:1591`) find
@@ -1932,6 +2026,84 @@ const NODE_CORE_MODULES: &[&str] = &[
     "wasi",
     "worker_threads",
     "zlib",
+];
+
+/// `getSuggestedLibForNonExistentName` (`checker.go:1733`) — the **first** lib
+/// entry of `getFeatureMap` (`utilities.go:1292`) for a name, if it has one.
+///
+/// The map's values are per-lib property lists that only TS2550 reads; the
+/// *keys* are the whole of what TS2583 needs, plus the first entry's lib name
+/// for the message. Ported as a sorted name→lib list rather than as the whole
+/// nested map, because everything else in it belongs to a row this port has not
+/// opened — and a partial copy of a table is easier to keep honest than a
+/// partial copy of a table's shape.
+///
+/// Upstream reports the missing lib **before** the spelling suggestion
+/// (`checker.go:1584` versus `:1590`), which is why this is asked first: `Map`
+/// has near neighbours in most scopes, so the two arms are not commutative.
+fn suggested_lib_for(name: &str) -> Option<&'static str> {
+    LIB_FEATURE_NAMES
+        .binary_search_by_key(&name, |(feature, _)| *feature)
+        .ok()
+        .map(|index| LIB_FEATURE_NAMES[index].1)
+}
+
+/// `getFeatureMap`'s keys with each one's first lib, sorted by name.
+const LIB_FEATURE_NAMES: &[(&str, &str)] = &[
+    ("Array", "es2015"),
+    ("ArrayBuffer", "es2024"),
+    ("ArrayConstructor", "es2015"),
+    ("AsyncDisposableStack", "esnext"),
+    ("AsyncGenerator", "es2018"),
+    ("AsyncGeneratorFunction", "es2018"),
+    ("AsyncIterable", "es2018"),
+    ("AsyncIterableIterator", "es2018"),
+    ("AsyncIterator", "es2015"),
+    ("Atomics", "es2017"),
+    ("BigInt", "es2020"),
+    ("BigInt64Array", "es2020"),
+    ("BigUint64Array", "es2020"),
+    ("DataView", "es2015"),
+    ("Date", "es2015"),
+    ("DateTimeFormat", "es2017"),
+    ("DisposableStack", "esnext"),
+    ("Error", "es2022"),
+    ("ErrorConstructor", "es2022"),
+    ("Float16Array", "esnext"),
+    ("Float32Array", "es2015"),
+    ("Float64Array", "es2015"),
+    ("Int16Array", "es2015"),
+    ("Int32Array", "es2015"),
+    ("Int8Array", "es2015"),
+    ("Intl", "es2015"),
+    ("Iterator", "es2015"),
+    ("Map", "es2015"),
+    ("MapConstructor", "es2015"),
+    ("Math", "es2015"),
+    ("NumberConstructor", "es2015"),
+    ("NumberFormat", "es2015"),
+    ("ObjectConstructor", "es2015"),
+    ("Promise", "es2015"),
+    ("PromiseConstructor", "es2015"),
+    ("Reflect", "es2015"),
+    ("RegExp", "es2015"),
+    ("RegExpConstructor", "es2015"),
+    ("RegExpExecArray", "es2015"),
+    ("RegExpMatchArray", "es2015"),
+    ("RelativeTimeFormat", "es2020"),
+    ("Set", "es2015"),
+    ("SharedArrayBuffer", "es2017"),
+    ("String", "es2015"),
+    ("StringConstructor", "es2015"),
+    ("Symbol", "es2015"),
+    ("SymbolConstructor", "es2015"),
+    ("Uint16Array", "es2015"),
+    ("Uint32Array", "es2015"),
+    ("Uint8Array", "es2015"),
+    ("Uint8ArrayConstructor", "esnext"),
+    ("Uint8ClampedArray", "es2015"),
+    ("WeakMap", "es2015"),
+    ("WeakSet", "es2015"),
 ];
 
 /// `ast.HasSyntacticModifier` for one keyword.
