@@ -391,6 +391,15 @@ impl Checker<'_, '_> {
         let error = self.intrinsics.error;
         bump(&COUNTERS.call_expressions);
         let Some(callee) = node.expression else { return error };
+        // `checkCallExpression` (`checker.go:8331`): a `super(...)` call is
+        // `void` (`checker-notes-callres.md` §24).
+        if matches!(
+            callee,
+            Expression::KeywordExpression(keyword)
+                if keyword.kind == tsr_ast::SyntaxKind::SuperKeyword
+        ) {
+            return self.intrinsics.void;
+        }
         let raw_callee_type = self.check_expression(callee);
         // `checkCallChain` (`checker.go:8300` family): the callee strips its
         // nullable half through the same three chain functions property
@@ -1081,6 +1090,27 @@ impl Checker<'_, '_> {
             Expression::ElementAccessExpression(access) => access.expression,
             _ => None,
         };
+        // §24: an IDENTIFIER callee whose `any` is §31's own answer — the
+        // name resolves nowhere and the file carries no import machinery.
+        if let Expression::Identifier(identifier) = callee
+            && let Some(id) = identifier.node_id
+            && self
+                .binder
+                .resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    identifier.text,
+                    SymbolFlags::VALUE
+                        | SymbolFlags::TYPE
+                        | SymbolFlags::NAMESPACE
+                        | SymbolFlags::ALIAS,
+                )
+                .is_none()
+            && !self.file_has_import_machinery(id)
+        {
+            return true;
+        }
         let Some(receiver) = receiver else { return false };
         let receiver_type = self.check_expression(receiver);
         if self.unresolved_types.contains(&receiver_type) {

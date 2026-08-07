@@ -1313,3 +1313,9 @@ import-free file). (2) `super(...)` answers `void`
 (`checkCallExpression`, `checker.go:8331` — the SuperKeyword arm).
 Falsifiers: (1) inherits §23's; (2) has none — the rule has no
 alternative.
+
+**§24 score — LANDED.** **+856 (845 G→R, 11 W→R) / 162 (154 G→W, 8 R→W —
+the eight all `parsingDeepParenthensizedExpression`, the standing JS
+case).** The 154 head at super-call diagnostics cases and JS
+export-assignment shapes, the accepted residue classes. `checker_types`
+right 386,250 → **387,098 (80.82%)**.

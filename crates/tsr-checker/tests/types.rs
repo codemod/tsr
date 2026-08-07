@@ -78,7 +78,10 @@ fn an_unported_expression_form_is_error_not_any() {
     // and conflating them is how a gap becomes an assertion. Everything unported
     // must land on `error`.
     let arena = Arena::new();
-    let source = "const x = f();";
+    // `f()` stopped being the stand-in at §24 (an unresolved callee is an
+    // untyped call answering `any`, upstream's own rule); `satisfies` is
+    // the current genuinely-unported form.
+    let source = "const x = 1 satisfies number;";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
         parsed.source_file,
@@ -561,9 +564,10 @@ fn an_unported_operand_propagates_rather_than_becoming_number() {
     // The deliberate deviation, stated as a test. `errorType` carries
     // `TypeFlagsAny`, so upstream's rule would answer `number` here — sound for
     // upstream, where `errorType` means an error was reported, and a claim in
-    // this port, where it also means an unported form.
-    assert_eq!(type_of_initialiser("const x = f() * 2;"), "error");
-    assert_eq!(type_of_initialiser("const x = f() + 2;"), "error");
+    // this port, where it also means an unported form. (`f()` stopped being
+    // the stand-in at §24; `satisfies` carries the gap now.)
+    assert_eq!(type_of_initialiser("const x = (1 satisfies number) * 2;"), "error");
+    assert_eq!(type_of_initialiser("const x = (1 satisfies number) + 2;"), "error");
 }
 
 #[test]
