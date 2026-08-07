@@ -369,6 +369,71 @@ honest ceiling for a session that does not build that subsystem is the long tail
 and the long tail is what this session spent itself on.
 
 
+### `diagnostics`, the eleventh session — **+57 to 21.41%**, and five of seven builds were a sentence rather than a mechanism
+
+Measured at `adfd789`. **1,118 → 1,175 of 5,488 = 21.41%.** Seven builds, **zero
+cases lost in any of them**, `checker_types` unmoved by every one (the parallel
+`.types` workstream took it 3,645 → 3,681 over the same hours; those are theirs).
+
+| build | rule | net cases | wrong lines |
+|---|---|---:|---:|
+| §42 | TS2454's `isOuterVariable && !isNeverInitialized` disjunct | +1 | 30, from 29 |
+| §42.1 | the **named-union printing guard**, removed for a non-printing consumer | **+7** | +1 |
+| §43 | TS2564's private-identifier and computed name kinds; `is_error` for `== errorType` | **+14** | 6 → **4** |
+| §44 | the same error test at `pair_is_reportable` | 0 | 0 (a measured zero, kept) |
+| §45 | **TS2367**, the comparison overlap | **+15** | **0** |
+| §46 | TS2352 ported to `getBaseTypeOfLiteralType` instead of its proxy | 0 | 0 (kept) |
+| §47 | **TS2872 / TS2873**, `checkTruthinessOfType` | **+21** | 4 → **0** |
+| §48 | `GetErrorRangeForNode`, centrally over 36 report sites | 0 | −4, **0 lost** |
+
+**The session's finding, and it recurred five times in seven builds: the thing
+between a rule at +2 and the same rule at +15 was a sentence about *why*, not a
+threshold.** In order:
+
+1. **A printing guard applied where nothing prints** (§42.1). `union_type_worker`
+   answers `errorType` for a union with a named constituent so `E | undefined`
+   does not print `E.a | E.b | undefined`. Correct — about printing. TS2454
+   compares `(file, line, column, code)`, and the guard was silencing it on
+   **every enum-typed declaration in the corpus**.
+2. **A comment describing three cases above code handling one** (§43).
+   `checkPropertyInitialization` accepts identifier, private identifier and
+   computed name; the port quoted that line and matched `Identifier` alone.
+3. **`== self.intrinsics.error` where `Checker::is_error` was meant** (§43, §44).
+   This port has two error types — the intrinsic, and the `Named` an unresolved
+   type reference mints — and upstream has one, `TypeFlagsAny`-carrying, so
+   `t.flags&AnyOrUnknown` **is** the error test. The narrow spelling removed two
+   wrong lines that predated the build it was found in. **31 more identity tests
+   against `intrinsics.error` remain in the checker and each is the same
+   question.**
+4. **A decline copied with its conclusion and not its cause** (§45). §31's
+   `same_primitive_family` reads as *"comparability reduces literals to their
+   base primitive"*; it is really a stand-in for `getBaseTypeOfLiteralType`,
+   which `checkAssertionDeferred` applies **at assertion sites only**. Inheriting
+   it into TS2367 declined the whole `stringLiteralsWithEqualityChecks` family and
+   read 2 conversions instead of 15.
+5. **A literal's text compared against a literal's value** (§47). Upstream tests
+   `node.Text() == "0"`, and a `NumericLiteral`'s `Text` is the scanner's
+   *normalised* value — `0.0` reads `"0"`. This port keeps the source spelling,
+   so `if (0.0)` reported as always truthy.
+
+**The eighth build is the one with no number and the longest reach.** §48 ported
+`scanner.GetErrorRangeForNode` — the mapping from *the node a rule names* to
+*the span it is reported at*, which upstream runs on **every** diagnostic and
+this port did not have at all. Thirty-six report sites across fourteen modules
+were routed through it in one edit and **not one case regressed**, which is the
+evidence that no rule here was passing a declaration node where upstream passes
+the name node. It converts nothing today; it stops §30's build (+11, found one
+call site at a time) from having to be repeated per rule.
+
+**Two instruments, and the first one steered four of the builds.**
+`examples/diagmissing.rs` prints the **missing** half of one code — every
+baseline line the port does not emit, restricted to the cases that code alone
+blocks, so each case printed is exactly one conversion. It is the twin
+`extragap.rs` never had: `extragap` splits the *extra* column, `diaggap` ranks
+the codes, and neither says **which lines are absent**. §42.1, §43, §45 and §47
+were all found by reading its output rather than by re-deriving a board.
+`examples/diagcase.rs` prints one case's expected and actual side by side.
+
 ### The three measurements that price 50%, and the second is the surprising one
 
 1. **The column's arithmetic.** `diaggap.rs`'s single-code column — the only
@@ -939,6 +1004,27 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, eleventh session, `diagnostics`
+
+- **TS2454's `declared == errorType` decline — REFUSED, and it is upstream's own
+  arm** (`checker-notes-diag2.md` §42.2). Eight cases (the `moduleAugmentation*`
+  family plus `augmentExportEquals5`) sit behind it, all `let x: SomeImportedType;`
+  whose annotation this port cannot resolve. Upstream's `errorType` carries
+  `TypeFlagsAny`, so `assumeInitialized`'s `t.flags&AnyOrUnknown` disjunct fires
+  and upstream reports **nothing** either. It is also unreachable from here:
+  `error | undefined` is `error` again, so there is no initial type to run the
+  flow with. Returns when the annotations resolve — a `checker_types` question.
+- **TS2564's `file_has_parse_errors` gate — REFUSED on the suite at −1** (§43).
+  It removes all four of the rule's remaining wrong lines and they convert
+  nothing, while the gate costs a real conversion. Same result as §40.3, which
+  *deleted* TS2304's. **The parse-error gate is a per-rule measurement, not a
+  house style.**
+- **`GetErrorRangeForNode`'s four text-dependent arms — not ported, recorded**
+  (§48): `KindSourceFile`, `KindArrowFunction`, the case/default clauses, and
+  `return`/`yield`/`constructor`. All need `SkipTrivia` or a scanner over the
+  file's text, and the checker holds spans and no text (ADR-0034). A displaced
+  `return` diagnostic is the symptom this would produce.
+
 ### New this session, `diagnostics`
 
 - **TS2741 — REFUSED at 1 conversion for 8 wrong lines** (`checker-notes-diag2.md`
@@ -1089,6 +1175,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-08 | §48 landing (`adfd789`) | — | **`diagnostics` 1,175 / 5,488 = 21.41%** | **+57, 0 lost, 7 builds** | **The eleventh session, `diagnostics`.** §42 the outer-variable disjunct (+1 — `markNodeAssignments` was already ported and the handoff still named it as missing), §42.1 the named-union PRINTING guard silencing a non-printing consumer (+7), §43 TS2564's private and computed name kinds plus `is_error` for `== errorType` (+14), §44 the same correction at `pair_is_reportable` (a measured zero, kept), §45 TS2367 (+15 — §31's inherited decline was a stand-in for `getBaseTypeOfLiteralType`, not for the relation), §46 TS2352 ported to the real widening (zero, kept), §47 `checkTruthinessOfType` (+21, the top of its forecast), §48 `GetErrorRangeForNode` centrally (0 converted, 4 wrong lines removed, **0 lost across 36 report sites**). New instruments: `diagmissing.rs`, `diagcase.rs` |
 | 2026-08-07 | §49 landing | **82.62%** | **3,659** | **+734/268** | **Builds 71–74: the reference/member block.** Alias bodies carry members (§46, +46), `this` results answer receivers (§29-callres, +66), plain binding patterns render (§48, +149 — the token-kind trap's second firing caught by the pair), union property projection (§49, +734 — the dependent-flow family's prerequisite laid). The shipped-red protocol now reads: FULL suite before the landing commit |
 | 2026-08-07 | build-70 landing | **82.41%** | **3,645** | **+891/147** | **Builds 67–70: the typed-array chase.** Three probes walked the row's decline inward — class defaults (§43, +4), all-defaulted construct signatures (§44, +4), and the real gate: the candidates loop's `?` letting ONE unbuildable overload kill the interface. Skip-with-agreement converted typed arrays and every uniform-return constructor interface; §45's `Record<string, V>` (+274) and its measured-and-reverted option refinement (−6) round out the block |
 | 2026-08-07 | §42-v2 landing | **82.18%** | **3,641** | **+4/0, 18 W→G; v1 refused at +4/352** | **Build 66: generic qualified references** — the refusal-names-the-design loop inside one build: v1's unqualified prints fired 352 R→W and were reverted; v2 carries the qualified text and registers the seam |
