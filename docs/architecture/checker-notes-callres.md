@@ -986,3 +986,21 @@ would trade 63 right lines and 17 cases for fidelity to a guessed number.
 Residue with owners: `yield*` (iteration protocol), multi-type yields
 (`UnionReductionSubtype`), bare `yield;` (undefined-vs-any option modelling),
 contextual-position yields (contextual typing, refused), async generators.
+
+## §16 Async valued returns, the primitive slice — bar (ninth session, third leg)
+
+The §14 residue's first row: 39 async-declaration lines whose body has valued
+returns. Upstream: the aggregate goes through `checkAwaitedType` /
+`unwrapAwaitedType` (`checker.go:20149`) and wraps in `createPromiseType`
+(`:20348`) — `Promise<awaited T>`. The full awaited walk reads the `then`
+member's signatures; the slice buildable without it is the shapes where
+`awaited T == T` **by construction**: a type that cannot carry a `then`
+member — primitives, literals after the same widening the plain path does,
+enums. Everything with members (objects, references including `Promise`
+itself, unions, type parameters) declines with the awaited machinery named
+as owner. Same declaration-only gate as §14, same reason.
+
+**Bar:** net ≥ **+12** (the 39 minus the returned-Promise share, unsized);
+own ≤ **6** — falsifier: a wrong line whose want is `Promise<T>` with `T` a
+non-primitive → the "cannot carry `then`" test admitted something it should
+not; regressed == 0; lost == 0.
