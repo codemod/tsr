@@ -1031,3 +1031,19 @@ Final: **GAP→RIGHT 15, and no other transition of any kind.**
 The lesson worth a line: a passing ratio was again not permission to stop
 reading — the 4 wrongs sat inside leg 2's ceiling and both would have shipped
 as latent wrong-rules.
+
+## §17 The same two arms for CLASS methods — bar (ninth session, fourth leg)
+
+§14/§15 gate on `FunctionDeclaration` because a non-declaration can take a
+contextual return type. A **class method** cannot — contextual typing reaches
+function expressions, arrows and *object-literal* methods
+(`getContextualSignatureForFunctionLikeDeclaration`, `checker.go:29711`), and
+the object-literal case is exactly what `may_return_never` already
+discriminates. So the gate widens to `MethodDeclaration` whose parent is not
+an object literal, for both the async and generator arms. Population unsized
+(the dump cannot tell a class-method name line from other member lines
+cheaply); the bar is conservative and the pair decides.
+
+**Bar:** net ≥ **+10**; own ≤ **6** — falsifier: wrong lines in
+object-literal-method positions → the `may_return_never` proxy is not the
+contextual-typing boundary this section assumed; regressed == 0; lost == 0.
