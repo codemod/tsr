@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §41 landing, 2026-08-07 (ninth session, continued: builds 25–65).
+Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25–66).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §41 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,640/9,538** | **38.16%** | **gradient 82.17%** — the target |
+| **`checker_types`** | **3,641/9,538** | **38.17%** | **gradient 82.18%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-393,549 / 478,954 assertion lines = 82.17%      (measured at the §41 landing)
-  right 393,549 | gap 51,479 | wrong 23,887        right+gap+wrong = 468,915 exactly
+393,553 / 478,954 assertion lines = 82.18%      (measured at the §42-v2 landing)
+  right 393,553 | gap 51,496 | wrong 23,866        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -140,7 +140,9 @@ prints with concrete-rest splicing — the fired falsifier named the split)
 = 392,547; then + 1,002 net (§41: qualified
 type references carry their target's members — three standing rows
 converted at once, 264 of the double-refused `underscoreTest1` among
-them) = 393,549 exactly — builds 25–65. §35 records a FINDING: tsgo prints
+them) = 393,549; then + 4 with 18 W→G (§42 v2:
+generic qualified references — v1 refused at +4/352 for unqualified
+prints, the named design landed clean) = 393,553 exactly — builds 25–66. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
@@ -1063,6 +1065,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §42-v2 landing | **82.18%** | **3,641** | **+4/0, 18 W→G; v1 refused at +4/352** | **Build 66: generic qualified references** — the refusal-names-the-design loop inside one build: v1's unqualified prints fired 352 R→W and were reverted; v2 carries the qualified text and registers the seam |
 | 2026-08-07 | §41 landing | **82.17%** | **3,640** | **+1,016/97 — three rows at once** | **Build 65: qualified references carry members.** The mini-namespace probe found the temporal root in one shot: resolution existed, the answer was print-only. The members-carrying qualified mint converted `temporal` (193), the enum-literal families (211), and — the surprise — 264 lines of the DOUBLE-REFUSED `underscoreTest1`, which was never mostly a `_1`-rename problem |
 | 2026-08-07 | §40 landing | **81.96%** | **3,639** | **+525/129** | **Build 64: variadic tuples print, concrete rests splice** — the print-only citizen pattern earns a fourth application; a five-session-old refusal's fixture came due with its property intact |
 | 2026-08-07 | §39 landing | **81.85%** | **3,638** | **+672/140, +9 cases** | **Build 63: plain-function `this` is `any`** — `tryGetThisTypeAtEx`'s fallthrough; the diagnostic/type boundary again |
