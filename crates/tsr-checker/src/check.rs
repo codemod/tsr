@@ -344,6 +344,10 @@ impl Checker<'_, '_> {
                 self.check_assertion_overlap(node, ambient);
                 ambient
             }
+            Node::BinaryExpression(_) => {
+                self.check_comparison_overlap(node, ambient);
+                ambient
+            }
             Node::CallExpression(_) => {
                 self.check_call_arity(node);
                 ambient
@@ -1263,7 +1267,7 @@ impl Checker<'_, '_> {
     }
 
     /// Does the subtree rooted at `node` contain an identifier spelled `text`?
-    fn subtree_mentions(&self, node: NodeId, text: &str, depth: u32) -> bool {
+    pub(crate) fn subtree_mentions(&self, node: NodeId, text: &str, depth: u32) -> bool {
         if depth > 32 {
             return false;
         }

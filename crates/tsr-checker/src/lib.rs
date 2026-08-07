@@ -107,6 +107,7 @@ pub mod call_arity;
 pub mod calls;
 pub mod check;
 pub mod checker;
+pub mod comparison_overlap;
 pub mod contextual;
 pub mod declared;
 pub mod destructure;

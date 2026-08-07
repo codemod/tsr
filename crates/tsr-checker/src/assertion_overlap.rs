@@ -85,7 +85,7 @@ impl Checker<'_, '_> {
     /// `stringLiteralsWithTypeAssertions01` and
     /// `stringLiteralsAssertionsInEqualityComparisons02` were 6 of this rule's
     /// first 7 wrong lines and its only loss.
-    fn same_primitive_family(&self, source: TypeId, target: TypeId) -> bool {
+    pub(crate) fn same_primitive_family(&self, source: TypeId, target: TypeId) -> bool {
         let family = |flags: crate::flags::TypeFlags| -> Option<u8> {
             use crate::flags::TypeFlags as F;
             if flags.intersects(F::STRING.union(F::STRING_LITERAL)) {
@@ -100,16 +100,7 @@ impl Checker<'_, '_> {
                 None
             }
         };
-        // A **union** on either side is declined whole. `fooOrBar as "baz"` with
-        // `fooOrBar: "foo" | "bar"` is comparable upstream — the constituents and
-        // the target are one primitive family — and this port's union carries
-        // `UNION` rather than its constituents' flags, so the family test cannot
-        // see through it. `stringLiteralsWithTypeAssertions01` lines 7 and 8 are
-        // that, and they were this rule's last two wrong lines and its only loss.
-        let composite = crate::flags::TypeFlags::UNION.union(crate::flags::TypeFlags::INTERSECTION);
-        if self.type_of(source).flags.intersects(composite)
-            || self.type_of(target).flags.intersects(composite)
-        {
+        if self.either_is_composite(source, target) {
             return true;
         }
         let (Some(left), Some(right)) =
@@ -118,5 +109,24 @@ impl Checker<'_, '_> {
             return false;
         };
         left == right
+    }
+
+    /// A **union or intersection** on either side, which every rule that
+    /// substitutes assignability for comparability must decline.
+    ///
+    /// `fooOrBar as "baz"` with `fooOrBar: "foo" | "bar"` is comparable
+    /// upstream — the constituents and the target are one primitive family —
+    /// and this port's union carries `UNION` rather than its constituents'
+    /// flags, so no flag test can see through it.
+    /// `stringLiteralsWithTypeAssertions01` lines 7 and 8 are that, and they
+    /// were `check_assertion_overlap`'s last two wrong lines and its only loss.
+    ///
+    /// Shared with [`Checker::check_comparison_overlap`], which needs **this**
+    /// decline and not the literal-family one above —
+    /// `checker-notes-diag2.md` §45.
+    pub(crate) fn either_is_composite(&self, source: TypeId, target: TypeId) -> bool {
+        let composite = crate::flags::TypeFlags::UNION.union(crate::flags::TypeFlags::INTERSECTION);
+        self.type_of(source).flags.intersects(composite)
+            || self.type_of(target).flags.intersects(composite)
     }
 }

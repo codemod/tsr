@@ -3135,3 +3135,137 @@ same wrong line §43 measured in TS2564.
 **A zero is a fact about the corpus at this commit, not about the predicate.**
 Recorded here so the next session does not re-run it hoping for a number, and so
 that if a future build *does* see this fire, the date it started is findable.
+
+---
+
+## 45. TS2367 — the comparison overlap, §31's substitution at its second site
+
+The handoff's item 0: *"TS2367 (no-overlap comparison, 23 cases) remains and is
+the same substitution at a different site."* `diaggap.rs` at `HEAD` reads
+**49 cases contain it, 23 would convert alone.**
+
+`checkBinaryLikeExpression`'s equality arm (`checker.go:12487`):
+
+```go
+c.reportOperatorErrorUnless(leftType, operator, rightType, errorNode, func(left, right *Type) bool {
+    return c.isTypeEqualityComparableTo(left, right) || c.isTypeEqualityComparableTo(right, left)
+})
+```
+
+and `isTypeEqualityComparableTo` (`checker.go:12861`) is
+
+```go
+return (target.flags&TypeFlagsNullable) != 0 || c.isTypeComparableTo(source, target)
+```
+
+Two facts fall straight out of that, and both are cheaper than the relation:
+
+1. **Either side nullable is silence.** The predicate is asked in both
+   directions, so `l == null` and `null == l` both take the `Nullable` disjunct
+   before comparability is consulted. No relation runs.
+2. **What is left is `isTypeComparableTo` in both directions** — exactly §31's
+   substitution, and it comes with §31's two declines already measured: the same
+   primitive family (`"foo" === "bar"` is comparable and not assignable), and a
+   union or intersection on either side (this port's union carries `UNION`
+   rather than its constituents' flags, so the family test cannot see through
+   it).
+
+`same_primitive_family` is `crate::assertion_overlap`'s and is reused **as is**.
+That is the point of building this second: if the substitution needs a *third*
+decline here that it did not need there, the difference is a property of the
+site rather than of the relation, and that is worth knowing. If it needs none,
+§31's two are the whole of what `isTypeComparableTo` would buy.
+
+The error node is the **whole binary expression** (`checker.go:12333` passes
+`node`), not the operator and not either operand.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,139**. Forecast **+8 to +20** of the 23 |
+| 2 | `checker_types` byte-identical — 3,660 / 82.64% |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2367]` |
+| 4 | own WRONG ≤ **20** — §31 shipped at 0, and this site sees every comparison in the corpus rather than every assertion, so a wider wrong column is expected and a much wider one is a refusal |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column is dominated by shapes §31 never saw —
+enums, references, `typeof x === "…"` after a narrowing this port does not
+perform — then the two inherited declines are not the difference between the
+relations, they were the difference *at assertion sites*, and the rule needs its
+own audit rather than §31's.
+
+### Scored — **+15, past 21%**, and the falsifier fired on the first measurement
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,139, forecast +8 to +20 | **1,154 / 5,488 = 21.03%** | pass |
+| 2 | `checker_types` byte-identical | **3,660 / 82.64%**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 20 | **0** — after the decline below; **36** before it | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2367: **CONVERTS 16 · RIGHT 143 · WRONG 0 · LOST 0.**
+
+**The falsifier fired exactly as written, and it is the build's finding.** The
+first measurement, with §31's `same_primitive_family` inherited whole, read
+**2 conversions**. The declined population was
+`stringLiteralsWithEqualityChecks01–04` — `x === "bar"` with `x: "foo"` — which
+upstream **does** report.
+
+The reason is not a property of the relation. `checkAssertionDeferred`
+(`checker.go:12317`) applies `getBaseTypeOfLiteralType` to the expression before
+comparing, so `"foo" as "bar"` really compares `string` against `"bar"`. The
+equality arm applies no widening at all. **§31's `same_primitive_family` is a
+stand-in for that widening, not for the difference between comparable and
+assignable** — and §31 says otherwise:
+
+> *"`"foo" as "bar"` is not assignable in either direction and *is* comparable —
+> both reduce to `string`."*
+
+**Correcting the record: they reduce to `string` because `checkAssertionWorker`
+reduces them, not because comparability does.** The sentence is right about the
+outcome and wrong about the mechanism, and believing the stated mechanism cost
+this rule 10 of its 16 conversions until the corpus contradicted it. §31's
+*measurement* stands — the decline is correct where it is — and its explanation
+is now this paragraph. The composite decline **is** shared and is the real
+relation difference; it moved to `either_is_composite` and both rules call it.
+
+### The one decline this site needed, and it is narrower than it first looked
+
+Dropping `same_primitive_family` took the rule to 12 conversions and **36 wrong
+lines**, all four of them `capturedLetConstInLoop6/7(_ES6)`, all the same shape:
+
+```ts
+const x = 1;
+if (x == 1) { break; }
+if (x == 2) { continue; }     // <- reported here, upstream does not
+```
+
+`.types` says why in one line: upstream reads **`x : never`** at the second test.
+The failed `x == 1` empties a unit type, and `never` overlaps everything. This
+port does not perform that narrowing, so `x` is still `1`, and `1` against `2` is
+a confident negative. **Every narrowing this port does not perform leaves the
+operand wider, and a wider operand in a no-overlap check invents a diagnostic** —
+the same asymmetry §8 built `reference_is_guarded_by_a_condition_on` on.
+
+Two versions of the decline were measured before the right one:
+
+| decline | CONVERTS | WRONG | suite |
+|---|---:|---:|---:|
+| an earlier sibling `if` **mentions** the name | 10 | 0 | 1,148 |
+| …and the test is an **equality** test | 10 | 0 | 1,148 |
+| …and the compared literal **is** the operand's own unit type | **16** | **0** | **1,154** |
+
+The first two also declined `capturedLetConstInLoop8`, whose `y : 0` meets
+`if (y == 1)` four times — an equality test that does **not** empty `0`, so
+upstream reports all four and so should this. Only the third version separates
+them, and it is the faithful statement of the mechanism rather than a proxy for
+it: *a failed equality test narrows to `never` exactly when the compared literal
+is the operand's own type.* Getting from a proxy to the mechanism was worth
+**six cases and eight of the eight `capturedLetConstInLoop*` cases**.
+
+> Third time this session that the difference between +2 and +15 was a sentence
+> about **why**, not a threshold. §42.1 (a printing guard applied to a
+> non-printing consumer), §43 (a comment describing three kinds above code
+> handling one), and now a decline copied with its conclusion and not its cause.
