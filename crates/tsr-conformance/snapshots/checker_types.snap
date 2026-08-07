@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 2750/9538 (28.83%)
-Assertion lines: 347530/478954 (72.56%)  — a gradient, not a pass rate
-Failed         : 6788
+Passed         : 2767/9538 (29.01%)
+Assertion lines: 348389/478954 (72.74%)  — a gradient, not a pass rate
+Failed         : 6771
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 6788 failures:
+First 100 of 6771 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -72,29 +72,29 @@ compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a : ExtendedMapper<any, any, [any]> — expected >a : a
 compiler/aliasOnMergedModuleInterface
-  aliasOnMergedModuleInterface_1.ts: >foo : error — expected >foo : any
+  aliasOnMergedModuleInterface_1.ts: >foo : typeof foo — expected >foo : any
 compiler/aliasUsageInArray
-  aliasUsageInArray_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInArray_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInFunctionExpression
-  aliasUsageInFunctionExpression_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInFunctionExpression_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInGenericFunction
-  aliasUsageInGenericFunction_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInGenericFunction_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInIndexerOfClass
-  aliasUsageInIndexerOfClass_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInIndexerOfClass_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInObjectLiteral
-  aliasUsageInObjectLiteral_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInObjectLiteral_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInOrExpression
-  aliasUsageInOrExpression_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInOrExpression_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInTypeArgumentOfExtendsClause
-  aliasUsageInTypeArgumentOfExtendsClause_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInTypeArgumentOfExtendsClause_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsageInVarAssignment
-  aliasUsageInVarAssignment_main.ts: >VisualizationModel : typeof Model — expected >VisualizationModel : typeof Backbone.Model
+  aliasUsageInVarAssignment_main.ts: >Backbone.Model : error — expected >Backbone.Model : typeof Backbone.Model
 compiler/aliasUsedAsNameValue
   aliasUsedAsNameValue_2.ts: >a : error — expected >a : () => void
 compiler/aliasWithInterfaceExportAssignmentUsedInVarInitializer
   aliasWithInterfaceExportAssignmentUsedInVarInitializer_1.ts: >moduleA : error — expected >moduleA : any
 compiler/allowImportClausesToMergeWithTypes
-  a.ts: >zzz : error — expected >zzz : 123
+  a.ts: >x : error — expected >x : zzz
 compiler/allowJsClassThisTypeCrash
   app.js: >g.prototype.m : error — expected >g.prototype.m : any
 compiler/allowJsCrossMonorepoPackage
