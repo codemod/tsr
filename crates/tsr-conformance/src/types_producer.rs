@@ -46,6 +46,36 @@ const LIB_DIRECTORY: &str = "/.ts-lib";
 /// Empty when the submodule is absent, which degrades a case to a program with
 /// no libs — the same program this suite built before the rewire, and not an
 /// error.
+/// The files of `tests/lib`, mounted under `/.lib` — upstream's
+/// `testLibFolder` (`harnessutil.go:39`). Read once, like [`bundled_libs`],
+/// and sorted for the same first-in-wins reason.
+fn test_lib_files() -> &'static [(String, String)] {
+    static LIBS: OnceLock<Vec<(String, String)>> = OnceLock::new();
+    LIBS.get_or_init(|| {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .map(|root| root.join("vendor/typescript-go/_submodules/TypeScript/tests/lib"));
+        let Some(dir) = dir else { return Vec::new() };
+        let mut libs = Vec::new();
+        let mut walk = vec![(dir, String::new())];
+        while let Some((directory, prefix)) = walk.pop() {
+            let Ok(entries) = std::fs::read_dir(&directory) else { continue };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let path = entry.path();
+                if path.is_dir() {
+                    walk.push((path, format!("{prefix}{name}/")));
+                } else if let Ok(text) = std::fs::read_to_string(&path) {
+                    libs.push((format!("/.lib/{prefix}{name}"), text));
+                }
+            }
+        }
+        libs.sort();
+        libs
+    })
+}
+
 fn bundled_libs() -> &'static [(String, String)] {
     static LIBS: OnceLock<Vec<(String, String)>> = OnceLock::new();
     LIBS.get_or_init(|| {
@@ -916,6 +946,24 @@ fn program_for_case<'a>(
         let name = tsr_path::get_normalized_absolute_path(&unit.name, CURRENT_DIRECTORY);
         files.push((name.clone(), unit.content.clone()));
         roots.push(name);
+    }
+
+    // The `/.lib` test-library folder — `harnessutil.go:39` and the copy-in
+    // rule at `:141`: the folder is present exactly when some input file
+    // mentions it (`/// <reference path="/.lib/react.d.ts" />`), or when the
+    // case names files from it with `@libFiles`, which upstream additionally
+    // makes program **roots**. Without this mapping every such reference
+    // silently resolved to nothing, and `declare module "react"` — the module
+    // the whole tsx corpus imports — was never in any program.
+    let mentions_lib = case.files.iter().any(|unit| unit.content.contains("/.lib/"));
+    let lib_files = case.options.get("libfiles");
+    if mentions_lib || lib_files.is_some() {
+        files.extend(test_lib_files().iter().cloned());
+    }
+    if let Some(list) = lib_files {
+        for name in list.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+            roots.push(format!("/.lib/{name}"));
+        }
     }
 
     let options = crate::trace_case::apply_test_directives(
