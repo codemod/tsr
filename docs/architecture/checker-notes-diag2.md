@@ -1658,3 +1658,49 @@ time, in a third crate, on a third flag. **A declared flag with no writer is a
 landmine with one instance per reader**, and this project has now stepped on
 three. Optionality is read off the declaration's `?` here; the flag itself needs
 the binder.
+
+---
+
+## 23. TS2353 — excess properties, +6 for **zero** wrong
+
+```
+CONVERTS 904 -> 910  (+6)     LOST 0      RIGHT 9      WRONG 0
+```
+
+`hasExcessProperties` (`relater.go`), reached when a **fresh** object-literal
+type is checked against a target. Error node the offending property name:
+`arrayCast.ts(3,23)` is the `foo` of `{ foo: "s" }`.
+
+### Freshness is a syntactic question at these anchors
+
+Upstream carries freshness on the type. This port asks the syntax — *is the
+expression written as an object literal right here* — and the two agree at every
+anchor this module has, because none of them is a place a literal's type can
+arrive already widened. That is why a rule that looks like it needs the relation
+needs only [`crate::member_completeness`].
+
+The check uses the **index-signature-fatal** predicate, not the property
+enumeration TS2741 uses: an index signature on the target makes every name
+known, so it must decline. §22's note about why those are two entry points and
+not one flag is exactly this pair of callers.
+
+### One decline, and it was the only loss
+
+`class C {}` with `c = { foo: '' }` reads **TS2322** upstream, not TS2353
+(`conformance/classWithEmptyBody`): the excess check only speaks when the rest of
+the relation would have succeeded, and nothing about that literal is assignable
+to an empty class. This port runs no relation here, so *"the target has no
+properties at all"* stands in for that condition. With it: 0 wrong, 0 lost.
+
+Reporting only the **first** excess property is upstream's own behaviour —
+`hasExcessProperties` reports and returns — and under the exact-multiset rule
+reporting all of them would fail the case as surely as reporting none.
+
+### What the type-literal arm bought
+
+`declared_property_table` originally admitted only classes and interfaces, and
+answered `None` for `{ id: number }` — the single most common target shape in the
+corpus's assignability cases. A type literal is an interface's member list
+without the interface: no type parameters to instantiate, no `extends` to follow,
+so the same member test settles it. Adding the arm also took §21's TS2339 from
+11 conversions to **12** with no new wrong lines.

@@ -196,6 +196,9 @@ impl Checker<'_, '_> {
                         .iter()
                         .all(|member| self.type_member_name_is_written(*member))
             }
+            Some(Node::TypeLiteralNode(literal)) => {
+                literal.members.iter().all(|member| self.type_member_name_is_written(*member))
+            }
             _ => false,
         }
     }
@@ -270,6 +273,15 @@ impl Checker<'_, '_> {
             Some(Node::InterfaceDeclaration(interface)) => {
                 interface.type_parameters.is_empty()
                     && interface.members.iter().all(|member| self.type_member_is_plain(*member))
+            }
+            // A **type literal** — `{ id: number }` — is an interface's member
+            // list without the interface: no type parameters to instantiate and
+            // no `extends` to follow, so the same member test settles it. It is
+            // the single most common target shape in the corpus's assignability
+            // cases, and leaving it out made `declared_property_table` answer
+            // `None` for most of them.
+            Some(Node::TypeLiteralNode(literal)) => {
+                literal.members.iter().all(|member| self.type_member_is_plain(*member))
             }
             // A class merged with a namespace, an enum, a variable — the symbol's
             // member table is then assembled from somewhere this walk does not

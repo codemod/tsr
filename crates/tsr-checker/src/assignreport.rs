@@ -68,6 +68,7 @@ impl<'a> Checker<'a, '_> {
         let Some(target) = self.assignment_target_type(left_id) else { return };
         let source = self.check_expression(right);
         let Some(right_id) = right.node_id() else { return };
+        self.check_excess_properties(target, right_id);
         if self.source_is_an_unnarrowed_reference(right_id, source) {
             return;
         }
@@ -97,6 +98,7 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
+        self.check_excess_properties(target, initializer_id);
         if self.source_is_an_unnarrowed_reference(initializer_id, source) {
             return;
         }
@@ -131,6 +133,7 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
+        self.check_excess_properties(target, initializer_id);
         if self.source_is_an_unnarrowed_reference(initializer_id, source) {
             return;
         }
@@ -157,6 +160,7 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(expression);
         let Some(expression_id) = expression.node_id() else { return };
+        self.check_excess_properties(target, expression_id);
         if self.source_is_an_unnarrowed_reference(expression_id, source) {
             return;
         }
@@ -294,6 +298,128 @@ impl<'a> Checker<'a, '_> {
     /// `constDeclarations-access2` and its siblings.
     fn declaration_is_constant(&self, declaration: NodeId) -> bool {
         self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
+    }
+
+    /// TS2353 — `Object literal may only specify known properties, and '{0}'
+    /// does not exist in type '{1}'.`
+    ///
+    /// `hasExcessProperties` (`relater.go`), reached when a **fresh** object
+    /// literal type is checked against a target. Upstream's freshness marker is
+    /// on the type; here the question is asked of the syntax — is the expression
+    /// *written* as an object literal at this position — which is the same set
+    /// for every anchor this module has, because none of them is a place a
+    /// literal's type can arrive already widened.
+    ///
+    /// The error node is the offending **property name**:
+    /// `arrayCast.ts(3,23)` is the `foo` of `{ foo: "s" }`.
+    ///
+    /// # Only the first, exactly as upstream
+    ///
+    /// `hasExcessProperties` reports and returns on the first excess property it
+    /// finds. Reporting every one would fail the case under the exact-multiset
+    /// rule just as surely as reporting none.
+    fn check_excess_properties(&mut self, target: TypeId, initializer: NodeId) {
+        let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(initializer) else {
+            return;
+        };
+        // A spread contributes properties this port cannot enumerate.
+        if literal.properties.iter().any(|property| {
+            matches!(property, tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_))
+        }) {
+            return;
+        }
+        // Index-signature-fatal completeness: an index signature on the target
+        // makes every name known, so this is the predicate that must decline it
+        // — the same one `crate::nonexistent_property` uses, and *not* the
+        // property enumeration TS2741 uses.
+        if !self.declared_members_are_complete(target) {
+            return;
+        }
+        let Some(known) = self.declared_property_table(target) else { return };
+        // An **empty** target is not an excess-property site. `class C {}` with
+        // `c = { foo: '' }` reads TS2322 upstream, not TS2353
+        // (`conformance/classWithEmptyBody`), because nothing about the literal
+        // is assignable in the first place and the excess check only speaks when
+        // the rest of the relation would have succeeded. This port runs no
+        // relation here, so the emptiness test stands in for that condition —
+        // and it was this rule's only loss.
+        if known.is_empty() {
+            return;
+        }
+        let names: Vec<&str> = literal
+            .properties
+            .iter()
+            .filter_map(|property| match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    Some(assignment.name)
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => Some(method.name),
+                _ => None,
+            })
+            .filter_map(|name| {
+                let id = name.node_id()?;
+                match self.node_map.get(id) {
+                    Some(Node::Identifier(identifier)) => Some(identifier.text),
+                    Some(Node::StringLiteral(text)) => Some(text.text),
+                    _ => None,
+                }
+            })
+            .collect();
+        // A shorthand or a computed name in the literal means the name list is
+        // incomplete, and an incomplete list cannot say what is *excess*.
+        if names.len() != literal.properties.len() {
+            return;
+        }
+        for name in names {
+            if known.iter().any(|(seen, _)| seen == name) {
+                continue;
+            }
+            // A near miss is TS2561, a different code at the same position.
+            let candidates: Vec<&str> = known.iter().map(|(seen, _)| seen.as_str()).collect();
+            if crate::check::spelling_suggestion(name, &candidates).is_some() {
+                return;
+            }
+            let Some(at) = self.excess_property_name_node(literal, name) else { return };
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+            let span = self.nodes.span(at);
+            let printed = self.type_to_string(target);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::OBJECT_LITERAL_MAY_ONLY_SPECIFY_KNOWN_PROPERTIES_AND_0_DOES_NOT_EXIST_IN_TYPE_1,
+                    span,
+                    [name.to_string(), printed],
+                ),
+            );
+            return;
+        }
+    }
+
+    /// The name node of the literal's property called `name`.
+    fn excess_property_name_node(
+        &self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        name: &str,
+    ) -> Option<NodeId> {
+        for property in literal.properties {
+            let written = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    assignment.name
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => method.name,
+                _ => continue,
+            };
+            let id = written.node_id()?;
+            let text = match self.node_map.get(id) {
+                Some(Node::Identifier(identifier)) => identifier.text,
+                Some(Node::StringLiteral(literal)) => literal.text,
+                _ => continue,
+            };
+            if text == name {
+                return Some(id);
+            }
+        }
+        None
     }
 
     /// TS2741 — `Property '{0}' is missing in type '{1}' but required in type
