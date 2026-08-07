@@ -1974,3 +1974,16 @@ needs the member-signature instantiation through nested call inference —
 the seam substitutes but the chained `.merge` returns need §38-style
 inference over the alias's own signatures, the row's remaining named
 prerequisite. `checker_types` right 394,726 → **394,770 (82.42%)**.
+
+### §47 SIZING — temporal's residue decomposed (post-§41)
+
+The 420-row's remaining families, each already priced elsewhere:
+(1) `sort` returning the §28 `this` mint at call results — the receiver-
+instantiation residue (`this` should instantiate to `Temporal.Instant[]`);
+(2) call-result types minted IN-namespace print unqualified at
+out-of-namespace sites (`Instant[]` vs `Temporal.Instant[]`) — the
+site-sensitive print problem, modobj proper;
+(3) `instant.year : any` — TS2339 on lib interfaces, the §34 boundary
+(reverted there for want of a completeness discriminator; lib interfaces
+may qualify, unmeasured).
+No new mechanism; the row waits on those three owners.
