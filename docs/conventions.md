@@ -2969,3 +2969,50 @@ when the qualified name's root is an **enum** — on the stated premise that
 This document already says *a prerequisite stated in a comment is a hypothesis*.
 It applies with no discount to a prerequisite stated **by whoever is running the
 session**, and the cost of checking was one grep and one baseline lookup.
+
+### Recording an untested candidate design as untested is what lets it be tested
+
+Two agents worked the qualified-naming family in the same session from different
+instruments and never compared notes. The first, sizing the `TypeReference` gap
+root, closed its findings page with a design it explicitly refused to endorse:
+
+> One candidate design is recorded explicitly as **unmeasured**: reuse the
+> *written* dotted entity name, so the qualifier cannot fire on a line that never
+> wrote one — which is the entire blast radius that refused the chain. Nobody
+> should build it before the counterfactual is re-run.
+
+The second, running the counterfactual, arrived independently at the same
+mechanism, named it **design W**, measured it at 1,770 converts / 99 wrong / **0
+at risk**, and built it for **+3,590**.
+
+The corroboration is worth something on its own — *"two probes with different
+predicates landing on the same lines is corroboration"* is already in this
+document, and this is its stronger form, two probes landing on the same
+**mechanism**. But the transferable part is the *shape* of the first agent's
+sentence:
+
+> **A candidate design written down and labelled "unmeasured, do not build" is
+> the cheapest artefact in this repository.** It costs one paragraph, it cannot
+> mislead anyone — the label is the whole safety property — and it converts the
+> next session's *design* problem into a *measurement* problem, which this
+> project knows how to run. The alternative failure modes are both worse: not
+> writing it down at all, and writing it down as though it were reasoned.
+
+This document already forbids documenting an intention as though it were built,
+and requires a comment that is unverified to *say* it is unverified. The same
+rule pointed forwards is a recommendation rather than a prohibition: **when a
+probe suggests a design it cannot test, record it with its label.** The blast
+radius sentence above — *"the qualifier cannot fire on a line that never wrote
+one"* — is precisely the reasoning that made the design's at-risk column zero,
+and it existed in the tree before anyone measured it.
+
+#### And it caught a sixth stale prerequisite on the way
+
+`declared.rs` carried *"`resolveEntityName` … the binder does not expose yet"*.
+It was false: `Symbol::exports` is a public `SymbolTable` and
+`BindResult::resolve_name` already reads it
+(`crates/tsr-binder/src/lib.rs`). That comment is one of the reasons the
+resolution half sat unbuilt, and the agent found it by **grepping the
+declaration rather than trusting the sentence** — this document's standing rule,
+now on its sixth recorded instance. The comment is gone, removed by the build it
+had been discouraging.
