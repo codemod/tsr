@@ -47,6 +47,11 @@ use tsr_ast::{
 #[derive(Debug, Default)]
 pub struct Visible {
     ids: FxHashSet<NodeId>,
+    /// The declared names reachability actually passed through. A statement can
+    /// be visible for one of its names only — `var x = 10, m2: T` with
+    /// `export = m2` reaches `m2` and not `x` — and declarator-level filtering
+    /// needs that distinction, which `ids` alone cannot carry.
+    names: FxHashSet<String>,
 }
 
 impl Visible {
@@ -54,6 +59,12 @@ impl Visible {
     #[must_use]
     pub fn contains(&self, id: Option<NodeId>) -> bool {
         id.is_some_and(|id| self.ids.contains(&id))
+    }
+
+    /// Whether reachability passed through this declared name.
+    #[must_use]
+    pub fn reaches_name(&self, name: &str) -> bool {
+        self.names.contains(name)
     }
 
     /// How many top-level declarations are emitted.
@@ -78,7 +89,13 @@ pub fn visible_declarations<'a>(file: &'a SourceFile<'a>) -> Visible {
     // reports four errors in it.
     if !is_module(file.statements) {
         let ids = file.statements.iter().filter_map(Statement::node_id).collect();
-        return Visible { ids };
+        let names = file
+            .statements
+            .iter()
+            .flat_map(|statement| declared_names(statement))
+            .map(ToString::to_string)
+            .collect();
+        return Visible { ids, names };
     }
 
     visible_module_members(file.statements)
@@ -95,6 +112,7 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
     let by_name = index_by_name(statements);
 
     let mut visible: FxHashSet<NodeId> = FxHashSet::default();
+    let mut names: FxHashSet<String> = FxHashSet::default();
     let mut queue: Vec<&Statement<'a>> = Vec::new();
 
     for statement in statements {
@@ -112,6 +130,7 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
             if let Some(id) = statement.node_id() {
                 visible.insert(id);
             }
+            names.extend(declared_names(statement).into_iter().map(ToString::to_string));
             queue.push(statement);
         }
         // `export { a, b }` names declarations elsewhere in the file. The
@@ -126,6 +145,7 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
                 if let Some(name) = local.and_then(module_export_name)
                     && let Some(targets) = by_name.get(name)
                 {
+                    names.insert(name.to_string());
                     for target in targets {
                         if let Some(id) = target.node_id()
                             && visible.insert(id)
@@ -144,6 +164,7 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
         collector.visit_node(tsr_ast::Node::from(*statement));
         for name in collector.names {
             if let Some(targets) = by_name.get(name) {
+                names.insert(name.to_string());
                 for target in targets {
                     if let Some(id) = target.node_id()
                         && visible.insert(id)
@@ -155,7 +176,7 @@ pub fn visible_module_members<'a>(statements: &'a [Statement<'a>]) -> Visible {
         }
     }
 
-    Visible { ids: visible }
+    Visible { ids: visible, names }
 }
 
 /// Index top-level declarations by the name they introduce.

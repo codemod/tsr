@@ -207,6 +207,14 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         Statement::ImportDeclaration(import) if import.import_clause.is_none()
                     )
             });
+            // A statement can be visible for one declarator only: `var x = 10,
+            // m2: T` with `export = m2` keeps `m2` and drops `x`. Upstream
+            // filters per binding name (`getBindingNameVisible`,
+            // `transform.go:2216`).
+            statements = statements
+                .iter()
+                .map(|statement| self.prune_invisible_declarators(statement, &visible))
+                .collect();
             self.result_has_external_module_indicator =
                 statements.iter().any(is_external_module_indicator);
             self.needs_scope_fix_marker = statements.iter().any(needs_scope_marker);
@@ -578,6 +586,45 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // rather than panicking keeps a corpus run from dying on one case.
             _ => Vec::new(),
         }
+    }
+
+    /// Drop variable declarators visibility never passed through, keeping the
+    /// statement itself when at least one declarator is reachable.
+    fn prune_invisible_declarators(
+        &mut self,
+        statement: &Statement<'a>,
+        visible: &tsr_dts::visibility::Visible,
+    ) -> Statement<'a> {
+        let Statement::VariableStatement(node) = statement else { return *statement };
+        let Some(list) = node.declaration_list else { return *statement };
+        let kept: Vec<_> = list
+            .declarations
+            .iter()
+            .copied()
+            .filter(|declaration| match &declaration.name {
+                Some(tsr_ast::BindingName::Identifier(name)) => visible.reaches_name(name.text),
+                // A binding pattern introduces several names; filtering it
+                // partially would change its shape, so it stays whole.
+                _ => true,
+            })
+            .collect();
+        if kept.len() == list.declarations.len() || kept.is_empty() {
+            return *statement;
+        }
+        let declarations = self.factory.slice(&kept);
+        let list_flags = self.factory.flags_of(list.node_id);
+        let new_list = self.factory.alloc(
+            tsr_ast::VariableDeclarationList::new(declarations),
+            SyntaxKind::VariableDeclarationList,
+            self.span_of(list.node_id),
+            list_flags,
+        );
+        Statement::VariableStatement(self.factory.alloc(
+            tsr_ast::VariableStatement::new(node.modifiers, Some(new_list)),
+            SyntaxKind::VariableStatement,
+            self.span_of(node.node_id),
+            NodeFlags::empty(),
+        ))
     }
 
     /// Ported from `transformVariableStatement` (`transform.go:2207`).

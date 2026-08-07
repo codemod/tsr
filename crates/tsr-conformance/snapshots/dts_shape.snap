@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 743/918 (80.94%)
-Failed         : 175
+Passed         : 744/918 (81.05%)
+Failed         : 174
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 175 failures:
+First 100 of 174 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -117,8 +117,6 @@ compiler/declarationsForIndirectTypeAliasReference
   #0: want `import`, got `export{}`
 compiler/declarationsIndirectGeneratedAliasReference
   #0: want `import`, got `var MyComp`
-compiler/declareFileExportAssignmentWithVarFromVariableStatement
-  #3: want `var m2`, got `var x, m2`
 compiler/defaultDeclarationEmitDefaultImport
   #0: want `import`, got `var instance`
 compiler/defaultDeclarationEmitShadowedNamedCorrectly
@@ -213,3 +211,5 @@ compiler/nodeNextPackageSelfNameWithOutDirDeclDirNestedDirs
   emitted src/thing.d.ts, upstream emitted no declaration file
 compiler/objectLiteralComputedNameNoDeclarationError
   #0: want `var Baa`, got `var Foo`
+compiler/privacyCannotNameVarTypeDeclFile
+  #0: want `import= Widgets`, got `function createExportedWidget1`

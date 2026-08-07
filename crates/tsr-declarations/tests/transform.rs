@@ -97,8 +97,6 @@ fn preserved_references_precede_declarations_in_source_order() {
     );
 }
 
-/// Assert the emitted text exactly, so spacing and ordering are covered too.
-#[track_caller]
 /// Emit with the original text available, as the conformance harness does.
 fn emit_with_source(source: &str) -> String {
     let arena = Arena::new();
@@ -120,6 +118,8 @@ fn emit_with_source(source: &str) -> String {
     .text
 }
 
+/// Assert the emitted text exactly, so spacing and ordering are covered too.
+#[track_caller]
 fn assert_emits(source: &str, expected: &str) {
     assert_eq!(emit(source).trim_end(), expected.trim_end(), "\nfrom: {source}");
 }
@@ -378,6 +378,13 @@ fn a_source_declare_modifier_is_dropped_inside_a_namespace_body() {
         "export namespace M { export declare var v: number; export var w: string; }",
         "export declare namespace M {\n    var v: number;\n    var w: string;\n}",
     );
+}
+
+#[test]
+fn an_invisible_declarator_is_pruned_from_a_retained_var_statement() {
+    // `getBindingNameVisible` (`transform.go:2216`): `export = m2` reaches
+    // `m2` and not `x`, so only `m2` survives from the shared statement.
+    assert_emits("var x = 10, m2: number;\nexport = m2;", "declare var m2: number;\nexport = m2;");
 }
 
 #[test]
