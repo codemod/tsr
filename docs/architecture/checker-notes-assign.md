@@ -655,3 +655,15 @@ fixtures answer their unions — the corpus pin is
 `capturedLetConstInLoop8.types`' kept literals, against the old comment's
 *"upstream reduces and then widens to `number`"*, which was intuition and
 wrong (the sixth such comment).
+
+## §12 The yield aggregate alone — bar (ninth session)
+
+The last §10 consumer with no located divergence of its own: the ≥2-distinct
+yield aggregate takes the §9 reduction, with §11.2's JS decline (the
+generator arm already gates on declarations and statement/computed-name
+positions, §15/§17 of `checker-notes-callres.md`).
+
+**Bar:** net ≥ **+10**; own ≤ **6** — falsifier: wrong lines wanting a
+`Generator` yield slot that keeps constituents this reduced → same readonly/
+modifier or freshness family §9/§10 catalogued, read before touching;
+regressed == 0; lost == 0.
