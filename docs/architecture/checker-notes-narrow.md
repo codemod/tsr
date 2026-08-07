@@ -1790,3 +1790,14 @@ the arm reads only what the list holds.
 are default-shape edges inside the same two cases (`genericDefaults` deep
 forms, its Js twin) and one binding-pattern inference line.
 `checker_types` right 388,682 → **388,917 (81.20%)**.
+
+### §38 Written type arguments fill their missing tail
+
+`f04<A>()` against `<A, B = A>`: `checkTypeArguments` accepts a PARTIAL
+list when defaults cover the tail — `fillMissingTypeArguments`
+(`checker.go:19458`), the written half this time: tail positions take
+their default instantiated with the map so far, else `unknown`. The arity
+guard keeps rejecting lists LONGER than the parameters and lists shorter
+than the non-defaulted prefix. Falsifier: a written-args call whose want
+shows the UNfilled arity error stays a gap — those wants print the error
+signature's shape, counted by the measure.
