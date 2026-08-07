@@ -1704,3 +1704,13 @@ recorded as its own future rule, same class as §31's accepted residue.
 `checker_types` right 380,563 → **384,826 (80.35%)**, gap 65,508 →
 **60,765** — the fourth consecutive thousand-line build; the port crossed
 80%.
+
+### §33 `globalThis` is `typeof globalThis`, and its members are the globals
+
+The recorded §31 port-miss becomes its rule (338 lines,
+`declarationEmitGlobalThisPreserved` head): the identifier `globalThis`
+answers a memoized type printing `typeof globalThis`, and member access
+through it looks the name up in the binder's merged globals table — the
+same table `resolveNameHelper`'s fallthrough already ends at. Misses gap.
+Falsifier: `Window & typeof globalThis` positions (DOM-flavored) stay
+gaps — no Window interface is modeled.
