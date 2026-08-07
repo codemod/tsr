@@ -223,3 +223,28 @@ regressed == 0; lost ≤ 5 (the arm is additive on kinds with no arm today).
 Falsifier: if new wrong lands in `want any` JSX lines, the 256-line
 unresolved bucket is being answered instead of refused — the arm must gap
 when `JSX` or `Element` is absent, not answer `error`-adjacent text.
+
+## The element arm scored — every leg passed, and the residual names the composite-print boundary
+
+`verdictdump` pair at the arm's commit:
+
+```
+right  348,389 -> 349,542   +1,153     GAP→RIGHT 1,157, RIGHT→WRONG 4
+gap     80,875 ->  79,429   −1,446
+wrong   39,651 ->  39,944   +293       GAP→WRONG 289
+cases    2,767 ->   2,786   +19, 0 regressed
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +500 | **+1,153** (152% — the cascade is arrow-function *return* lines) | pass |
+| 2 | own ≤ 30, global beside | **4 own · +293 global** | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost ≤ 5 | **4** — all `compiler/tsxUnionSpread`, where the *baseline itself* records `error` (upstream's union-component spread resolution fails and says so); this port now computes `JSX.Element` where upstream refused. ADR-0038's boundary from the other side | pass |
+
+The own/downstream split of the 289 is one predicate over the dump: **4**
+lines print the arm's own answer where upstream wanted something else; **285**
+are composite *signature* prints — `() => Element` where `() => JSX.Element`
+is wanted — the baked-text-inside-composites boundary design P has always
+had, now with its largest single population. That family is the next naming
+shard and it is NOT this arm's defect: the return type it embeds is correct.

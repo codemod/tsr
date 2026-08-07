@@ -182,8 +182,39 @@ impl Checker<'_, '_> {
             Expression::TaggedTemplateExpression(node) => {
                 self.check_tagged_template_expression(node)
             }
+            // `checkJsxElement` (`jsx.go:72`) → `getJsxElementTypeAt`
+            // (`jsx.go:1275`): an element or fragment expression has the
+            // declared type of the in-scope `JSX` namespace's `Element`
+            // export. Sized at 759 forecast lines with the bar in
+            // `checker-notes-jsx.md`; when `JSX` or `Element` is absent the
+            // arm gaps — that refusal is the bar's registered falsifier.
+            Expression::JsxElement(node) => self.check_jsx_element(node.node_id),
+            Expression::JsxSelfClosingElement(node) => self.check_jsx_element(node.node_id),
+            Expression::JsxFragment(node) => self.check_jsx_element(node.node_id),
             _ => self.intrinsics.error,
         }
+    }
+
+    /// `getJsxType(JsxNames.Element, location)` (`jsx.go:1275`, `:1295`),
+    /// reduced to the resolving path: the `JSX` namespace in scope at the
+    /// element, its `Element` export, that symbol's declared type. Every
+    /// missing hop is a gap — `errorType` — never a substitute.
+    fn check_jsx_element(&mut self, id: Option<tsr_ast::NodeId>) -> TypeId {
+        let Some(id) = id else { return self.intrinsics.error };
+        let Some(jsx) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            id,
+            "JSX",
+            tsr_binder::SymbolFlags::NAMESPACE,
+        ) else {
+            return self.intrinsics.error;
+        };
+        let jsx = self.binder.merged_symbol(jsx);
+        let Some(&element) = self.binder.symbols().get(jsx).exports.get("Element") else {
+            return self.intrinsics.error;
+        };
+        self.get_declared_type_of_symbol(element)
     }
 
     /// Ported from `Checker.checkTypeOfExpression` (`checker.go:10617`).
