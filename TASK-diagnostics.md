@@ -91,6 +91,15 @@ RANKED NEXT ITEMS, with what each is actually blocked on
      `markNodeAssignments`, which records assignments *per symbol* during the
      bind, and a name-based scan cannot tell one `x` from another's. The build is
      `markNodeAssignments` in the binder, not a walk in the checker.
+  0a1. **THE DECLINE AUDIT IS EXHAUSTED — do not re-run it from scratch.**
+     Every condition in every rule of this workstream was disabled and measured
+     at the tenth session's close. Twelve paid (+34 cases, `checker-notes-diag2.md`
+     §35–§40.6); **~25 more returned zero or negative** and are listed there as
+     confirmed-exact. Re-running the whole set costs about 25 coverage runs for
+     nothing. **Run it again only after a build that changes what the port can
+     *decide*** — §25 (`relate_ternary`) and §35 (`Anonymous` completeness) are
+     the two that invalidated gates written before them, and both were
+     invisible until the audit.
   0a2. **BUILD A PASS-SET DIFF PROBE BEFORE ANY MORE POSITION WORK.**
      `diag2307.rs`'s *before* side removes a code entirely, so it cannot see a
      rule being **moved**: TS2300's `export =` arm measured +2 converts / −17
