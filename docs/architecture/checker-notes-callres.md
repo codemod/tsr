@@ -1399,3 +1399,42 @@ regress the written-return road it broke by erroring.
 (`fluentInterfaces`' derived-through-base chains — the receiver answer is
 the BASE-typed receiver where upstream keeps the derived; the polymorphic
 half, recorded). `checker_types` right 394,770 → **394,836 (82.44%)**.
+
+### §30 `new` consults the untyped-call gate
+
+`duplicateLocalVariable1` (241 GAP want-`any`): `new FileManager.FileBuffer(f)`
+where `declare var FileManager: any` — upstream's `resolveNewExpression`
+reaches the SAME `resolveUntypedCall` the call arm does (`checker.go:8490`,
+`IsTypeAny(expressionType)` → `anyType`), but this port's
+`check_new_expression` never consults `is_untyped_call_target`, so an
+any-callee construction gapped to `error` unless it matched §25's narrow
+identifier/§31 shape.
+
+**The bar.** In `check_new_expression`, after checking the callee, run the
+existing `is_untyped_call_target` (written-annotation / §31-identifier /
+any-receiver arms, all its calibrated narrowings inherited) and answer
+`any` on a hit. §25's arm is subsumed but left in place — it fires first
+and identically.
+
+**Falsifiers.** (a) The gate's own fired legs recur here — if construction
+sites systematically differ from call sites (e.g. `new` through evolved
+anys upstream types via construct signatures), G→W appears — narrow with a
+construction-specific exclusion. (b) If JS AMD shapes construct through
+any-receivers, the in-JS exclusion already declines them; R→ anything on
+JS cases says the exclusion is mis-scoped for `new`.
+
+**§30 score — LANDED (narrowed once).** First pair **+282 G→R / 5 G→W**
+(`classBlockScoping`): falsifier (a) fired in a specific costume — `new
+Foo()` INSIDE `Foo = class Foo {...}` resolves to the class-expression's
+own name upstream (the class name is in scope in its body), while this
+port's resolver reaches the outer `let Foo: any`, a written annotation.
+The narrowing is scoping-shaped, not construction-shaped: the gate now
+declines an identifier callee lexically inside a class declaration or
+class expression bearing that name — the resolver's miss contained at the
+gate. A second leg fired in the same pair: `new.targ`
+(`misspelledNewMetaProperty`) — the parser's recovery mints an EMPTY
+identifier receiver, §31 answers the empty name `any`, and the receiver
+arm read that as a source `any`; a missing-receiver decline contains it
+(costing 3 lines that had ridden through empty receivers, back to GAP).
+Final pair: **+279 (G→R), ZERO adverse.** `checker_types` right 395,803 →
+**396,082 (82.70%)**.

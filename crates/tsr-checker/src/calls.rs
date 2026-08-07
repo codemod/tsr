@@ -1077,7 +1077,11 @@ impl Checker<'_, '_> {
     /// so [`Checker::any_is_written_in_an_annotation`] already excludes it. The
     /// explicit predicate was deleted rather than left as dead code, and this
     /// paragraph is why the family is still refused without one.
-    fn is_untyped_call_target(&mut self, callee: Expression<'_>, callee_type: TypeId) -> bool {
+    pub(crate) fn is_untyped_call_target(
+        &mut self,
+        callee: Expression<'_>,
+        callee_type: TypeId,
+    ) -> bool {
         if !self.store.get(callee_type).flags.intersects(TypeFlags::ANY) {
             return false;
         }
@@ -1098,6 +1102,29 @@ impl Checker<'_, '_> {
         // `any`". That is the only form in which this port's `any` and
         // upstream's are the same claim.
         if self.any_is_written_in_an_annotation(callee) {
+            // §30's narrowing: a named class expression's name is in scope
+            // inside its own body upstream; this port's resolver reaches the
+            // outer binding instead (`classBlockScoping`, 5 G→W in the §30
+            // first pair). An identifier callee lexically inside a class
+            // bearing its name is that resolver miss — contained here.
+            if let Expression::Identifier(identifier) = callee
+                && let Some(id) = identifier.node_id
+            {
+                let mut ancestor = self.nodes.parent(id);
+                while let Some(node) = ancestor {
+                    let name = match self.node_map.get(node) {
+                        Some(tsr_ast::Node::ClassExpression(class)) => class.name,
+                        Some(tsr_ast::Node::ClassDeclaration(class)) => class.name,
+                        _ => None,
+                    };
+                    if let Some(name) = name
+                        && name.text == identifier.text
+                    {
+                        return false;
+                    }
+                    ancestor = self.nodes.parent(node);
+                }
+            }
             return true;
         }
         // §23 (`checker-notes-callres.md`): a property/element access whose
@@ -1130,6 +1157,12 @@ impl Checker<'_, '_> {
             return true;
         }
         let Some(receiver) = receiver else { return false };
+        // §30's second narrowing: a parser-minted MISSING receiver (the
+        // empty identifier `new.targ` recovery produces) is not a source
+        // `any` — its `any` is §31 answering an empty name.
+        if matches!(receiver, Expression::Identifier(identifier) if identifier.text.is_empty()) {
+            return false;
+        }
         let receiver_type = self.check_expression(receiver);
         if self.unresolved_types.contains(&receiver_type) {
             return true;

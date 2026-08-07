@@ -1194,6 +1194,13 @@ impl Checker<'_, '_> {
         {
             return self.intrinsics.any;
         }
+        // §30 (`checker-notes-callres.md`): `new` through an `any` callee is
+        // the SAME untyped call the call arm answers (`checker.go:8490`,
+        // `resolveUntypedCall`) — the gate's calibrated narrowings inherited
+        // whole.
+        if self.is_untyped_call_target(callee, callee_type) {
+            return self.intrinsics.any;
+        }
         // The callee's type is the class's *static* side, which
         // `getTypeOfFuncClassEnumModule` gives as an anonymous type carrying the
         // class symbol. Reaching the symbol through the type rather than through
