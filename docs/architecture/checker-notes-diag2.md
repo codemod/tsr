@@ -2668,3 +2668,9 @@ operators that reach `checkArithmeticOperandType`".
 **A list is a claim about upstream and should be read off upstream**, the way
 §19's `getMinTypeArgumentCount` and §30's lib table were. This one was written
 from the inside out.
+
+The compound arithmetic assignments — `-=`, `*=`, `/=`, `%=` — are one more
+(+1). `checkAssignmentOperator` routes them through the same operand check as
+their bare forms, and the set is now closed: **+7 across three widenings of one
+`matches!`**, from a rule §32 shipped believing its operator list was the
+decision it had made rather than a fact it had guessed.

@@ -83,5 +83,9 @@ fn is_numeric_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::GreaterThanToken
             | SyntaxKind::LessThanEqualsToken
             | SyntaxKind::GreaterThanEqualsToken
+            | SyntaxKind::MinusEqualsToken
+            | SyntaxKind::AsteriskEqualsToken
+            | SyntaxKind::SlashEqualsToken
+            | SyntaxKind::PercentEqualsToken
     )
 }
