@@ -334,6 +334,16 @@ impl Checker<'_, '_> {
             }
             // `checkPrefixUnaryExpression` (`checker.go:10855`).
             Expression::PrefixUnaryExpression(node) => self.check_prefix_unary_expression(node),
+            // `checkNonNullAssertion` (`checker.go:12266`): the operand's
+            // non-nullable remainder (`checker-notes-narrow.md` §26).
+            Expression::NonNullExpression(node) => {
+                let Some(operand) = node.expression else { return self.intrinsics.error };
+                let checked = self.check_expression(operand);
+                if checked == self.intrinsics.error {
+                    return self.intrinsics.error;
+                }
+                self.get_non_nullable_type(checked)
+            }
             // `checkPostfixUnaryExpression` (`checker.go:10909`).
             Expression::PostfixUnaryExpression(node) => self.check_postfix_unary_expression(node),
             // `checkConditionalExpression` (`checker.go:10934`).

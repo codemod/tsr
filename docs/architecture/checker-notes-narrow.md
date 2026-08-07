@@ -1544,3 +1544,10 @@ property chains use). A gapping operand gaps; everything else answers.
 Falsifier: `unknown!` and `never`-remainder shapes — upstream substitutes
 `nonNullUnknown`/reports rather than gapping; measured, and if they
 surface as wrongs the arm gains upstream's two special cases.
+
+**§26 score — LANDED.** **+167 GAP→RIGHT / 82 GAP→WRONG**, and the
+falsifier's predicted refinement was measured and REFUSED: keeping the
+operand on an empty remainder (the `null!` shape) read +102/147 — worse
+both ways — so the plain remainder stands and the 82 stay owned by the
+chain-interplay and `null!` families with both variants' numbers recorded.
+`checker_types` right 371,977 → **372,144**.
