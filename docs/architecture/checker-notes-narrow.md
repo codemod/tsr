@@ -1875,3 +1875,10 @@ count checks the argument count and `get_instantiated_type_reference`
 builds the reference (the tsr-4qx seam then substitutes members) — with
 the qualified TEXT carried the §41 way. Falsifier: arity mismatches stay
 errors, exactly as the unqualified arm's `checkNoTypeArguments` twin.
+
+**§42 — REFUSED at +4/352, reverted whole.** The instantiated reference
+renders UNQUALIFIED (`C<T>`, not `NS.C<T>`), so every print-only mint that
+was RIGHT with its qualified spelling turned wrong. The prerequisite is
+qualified-text carriage through `get_instantiated_type_reference` (the
+reference renderer would need a per-site name override, the same design
+§41 used for the argument-less case). Recorded with the number.
