@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,641/9,538** | **38.17%** | **gradient 82.23%** — the target (builds 25–69) |
+| **`checker_types`** | **3,645/9,538** | **38.22%** | **gradient 82.41%** — the target (builds 25–70) |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
@@ -148,7 +148,9 @@ constructor-interface signature) + 4 (§44: all-defaulted construct
 signatures instantiate; the row's remaining decline queued for a
 per-overload trace) = 393,561; then + 274 (§45:
 `Record<string, V>` answers its reads — the one mapped alias
-special-cased) = 393,835 exactly — builds 25–69. §35 records a FINDING: tsgo prints
+special-cased) = 393,835; then + 891 (§44 build 70: skip-
+with-agreement over constructor overloads — the queued trace's one-line
+answer, typed arrays whole) = 394,726 exactly — builds 25–70. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
@@ -1071,6 +1073,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | build-70 landing | **82.41%** | **3,645** | **+891/147** | **Builds 67–70: the typed-array chase.** Three probes walked the row's decline inward — class defaults (§43, +4), all-defaulted construct signatures (§44, +4), and the real gate: the candidates loop's `?` letting ONE unbuildable overload kill the interface. Skip-with-agreement converted typed arrays and every uniform-return constructor interface; §45's `Record<string, V>` (+274) and its measured-and-reverted option refinement (−6) round out the block |
 | 2026-08-07 | §42-v2 landing | **82.18%** | **3,641** | **+4/0, 18 W→G; v1 refused at +4/352** | **Build 66: generic qualified references** — the refusal-names-the-design loop inside one build: v1's unqualified prints fired 352 R→W and were reverted; v2 carries the qualified text and registers the seam |
 | 2026-08-07 | §41 landing | **82.17%** | **3,640** | **+1,016/97 — three rows at once** | **Build 65: qualified references carry members.** The mini-namespace probe found the temporal root in one shot: resolution existed, the answer was print-only. The members-carrying qualified mint converted `temporal` (193), the enum-literal families (211), and — the surprise — 264 lines of the DOUBLE-REFUSED `underscoreTest1`, which was never mostly a `_1`-rename problem |
 | 2026-08-07 | §40 landing | **81.96%** | **3,639** | **+525/129** | **Build 64: variadic tuples print, concrete rests splice** — the print-only citizen pattern earns a fourth application; a five-session-old refusal's fixture came due with its property intact |
