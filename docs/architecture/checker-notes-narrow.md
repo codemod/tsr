@@ -1376,3 +1376,13 @@ port's `get_widened_type_for_variable_like_declaration` answered plain
 the fallback: a `Parameter` with `dot_dot_dot_token` and no binding
 pattern answers `any[]`. Falsifier: non-rest parameters and variables
 must not move.
+
+**§19 score — LANDED.** **+374 WRONG→RIGHT, +2 GAP→RIGHT / 6 RIGHT→WRONG.**
+The six are the standing written-annotation node-reuse row (`tsr-5o2`),
+newly reachable: upstream prints a WRITTEN `(...args)` fn-type verbatim as
+`(...args: any)` while typing the symbol `any[]`
+(`declFileRestParametersOfFunctionAndFunctionType.types` shows both on
+adjacent lines); this port prints from the computed type, so those six
+positions now print the — correct — `any[]` where the baseline reuses the
+written text. `checker_types` right 369,673 → **370,043**, wrong 22,462 →
+**22,094**.

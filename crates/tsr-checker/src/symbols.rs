@@ -1539,13 +1539,33 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         declaration: NodeId,
     ) -> TypeId {
-        match self.get_type_for_variable_like_declaration(declaration) {
-            Some(id) => id,
+        if let Some(id) = self.get_type_for_variable_like_declaration(declaration) {
+            id
+        } else {
             // Upstream returns `anyType` for a declaration with neither an
             // annotation nor an initialiser (`checker.go:18264`) — a genuine
             // answer, the implicit any, not a gap. So `anyType` is right here
-            // where `errorType` is right for an unported form.
-            None => self.intrinsics.any,
+            // where `errorType` is right for an unported form. A REST
+            // parameter's implicit any is `anyArrayType`
+            // (`checker-notes-narrow.md` §19).
+            {
+                if let Some(Node::ParameterDeclaration(parameter)) =
+                    self.node_map.get(declaration)
+                    && parameter.dot_dot_dot_token.is_some()
+                    // A written annotation that merely did not reach this
+                    // path must print verbatim
+                    // (`declFileRestParametersOfFunctionAndFunctionType`'s
+                    // `...args: any`) — only a truly annotation-less rest
+                    // parameter is `any[]`.
+                    && parameter.r#type.is_none()
+                {
+                    let any = self.intrinsics.any;
+                    if let Some(array) = self.global_type_symbol("Array") {
+                        return self.create_type_reference(array, vec![any]);
+                    }
+                }
+                self.intrinsics.any
+            }
         }
     }
 
