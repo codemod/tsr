@@ -119,6 +119,9 @@ struct Report {
     churn: usize,
     at_risk: usize,
     gap_return: usize,
+    /// Wrong-today lines whose type carries 2+ signatures — the overload
+    /// shard's population ceiling, not a forecast.
+    multi_signature_wrong: usize,
     lines: BTreeMap<String, usize>,
 }
 
@@ -129,6 +132,7 @@ impl Report {
         self.churn += other.churn;
         self.at_risk += other.at_risk;
         self.gap_return += other.gap_return;
+        self.multi_signature_wrong += other.multi_signature_wrong;
         for (key, n) in &other.lines {
             *self.lines.entry(key.clone()).or_default() += n;
         }
@@ -174,8 +178,13 @@ fn measure(case: &tsr_conformance::CaseEntry) -> Option<Report> {
             let type_id = types_producer::type_id_at_location(&mut checker, bound, nodes, map, id);
             let Some(signatures) = checker.signatures_of_type(type_id) else { continue };
             // The single-signature arrow/function shape only: the overload and
-            // construct forms bake differently and are a later shard.
+            // construct forms bake differently and are a later shard — its
+            // wrong-today population tallied here (reusing `at_risk`... no:
+            // counted in `churn`-adjacent field below).
             if signatures.len() != 1 {
+                if !is_right {
+                    report.multi_signature_wrong += 1;
+                }
                 continue;
             }
             let signature = signatures[0].clone();
@@ -230,6 +239,10 @@ fn main() {
     println!("  WOULD-WRONG   wrong today, still not the want        {:>7}", report.churn);
     println!("  AT RISK       right today, forecast changes it       {:>7}", report.at_risk);
     println!("  (self-check misses — format model != composer: {})", report.gap_return);
+    println!(
+        "  multi-signature wrong-today lines (overload shard ceiling): {}",
+        report.multi_signature_wrong
+    );
     println!();
     let mut rows: Vec<_> = report.lines.iter().collect();
     rows.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
