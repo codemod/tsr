@@ -766,3 +766,18 @@ printed line. The expression arm therefore had no population of its own to
 convert (+23 were coincidental), and the 388 wrongs were its whole effect.
 Confirms TASK item 8: the consumer (spread-aware call resolution) is the
 only road into this row.
+
+## §7 Literal-free element unions are context-independent
+
+The contextual refusal's mechanism-level re-open, for one provable slice:
+`isLiteralOfContextualType` (the refusal's engine) preserves LITERAL
+types under a contextual type — an element union with **no fresh-literal
+constituent** cannot differ between contextual and uncontextual positions,
+so the §13 admission extends: two-object arrays whose elements carry no
+FRESHABLE literal admit REGARDLESS of position.
+`generatedContextualTyping`'s 900 lines are the head (class-instance
+elements under annotated targets; the wants equal the uncontextual
+answers throughout). Falsifiers: (a) an admitted line whose want differs
+from the uncontextual union — the context-independence claim is then
+WRONG for that shape and the slice narrows; (b) the §13-admitted
+population must not move.
