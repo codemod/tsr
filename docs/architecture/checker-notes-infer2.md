@@ -99,7 +99,8 @@ number a less careful build would have shipped on.
   moved the table from **161 converts / 59 misses (2.7:1)** to **157 / 35
   (4.5:1)**.
 - **A `null` or `undefined` candidate.** With `strictNullChecks` off upstream
-  widens it to `any` (`getWidenedType`, `checker.go:16090`); nothing on this
+  widens it to `any` (`getWidenedType`, `checker.go:18355` — **corrected from
+  `:16090`, see §7.2**); nothing on this
   port's inference path widens. Nineteen of the remaining misses were
   `want Promise<any>, forecast Promise<null>` and its variants. Refusing it
   moved **157 / 35 (4.5:1)** to **131 / 16 (8.2:1)** — it cost 26 conversions
@@ -364,7 +365,8 @@ C3 bare-only rule converts: 4    (expect 0)  <-- FIRED
 requires. Four classified lines are answered by the *already-shipped* rule when
 run through this harness, which means the harness and `check_generic_call`
 disagree on four lines — the probe does not model the `hasCorrectArity` guard
-(`checker.go:8710`) that gaps a call missing a required argument. It does not
+(`checker.go:9107` — **corrected from `:8710`, see §7.2**) that gaps a call
+missing a required argument. It does not
 change the verdict; it makes it **stronger**, because up to four of the six
 conversions could be that same artefact. The honest reading of the gain is
 **between 2 and 6 own-node lines.**
@@ -516,3 +518,266 @@ mechanism substitution this project has now made and caught four times.
 
 **`bd tsr-g30h` closes.** Its first slice landed (+372); its remaining legs are
 refused with the numbers above.
+
+## 8. The row re-sized at `8ac225d`, and the bar for what is left
+
+Sixth session, continued. `STATUS.md` §4.2 carries this as its **top live row**
+at **2,056 lines / score ~1,400**, describing the remainder as *"the priority
+lattice and contravariant tracking"*. This section sizes that remainder as a
+**mechanism** rather than quoting the row, and the two numbers are not close.
+
+§6 refused the contravariant bucket at 6 own-node lines. That refusal is
+re-taken here and it **stands** — but §6 measured only one of the two mechanisms
+the row names, and the other one had never been measured at all.
+
+### 8.1 The row against the mechanism, reconciled rather than asserted
+
+`callgate.rs` at `8ac225d`: of **7,303** admitted call lines, **2,056** stop at
+`inference gapped`, want-any **33 (1.6%)**. `infergen.rs` admits **1,231** of
+them — own node *is* the call, no written type arguments, no optional chain, the
+callee resolves through `resolve_call_signature` to a single generic candidate,
+and the line is a gap. The residue of ~825 is cascade, written-type-argument and
+multi-candidate lines; cascade is upside and is priced below at the **2.8×** this
+mechanism measured on itself (§5: 131 forecast, 372 delivered).
+
+The 1,231, decomposed by **what specifically stops it**, with each bucket's
+want-any and top-1 case share:
+
+| own-node lines | want-any | top-1 case | what stops it | owner |
+|---:|---:|---|---|---|
+| **494** | 3.0% | `promiseTypeStrictNull` 10.3% | no candidate — the walk finds nothing for some type parameter | five sub-families, §6.5; none has a reverse index |
+| **458** | 0.4% | `inferFromGenericFunctionReturnTypes2` 7.4% | an argument's own type is already a gap | **downstream — not this module's** |
+| **88** | 0.0% | `genericDefaults` 45.5% | the return type is not rebuildable | `instantiate_type` limit: `[T, U]` 32, `[T, U, V]` 10, `T & U` 8, `{ value: V }` 6, call/construct literals 9 |
+| **56** | 0.0% | `promiseTry` 30.4% | a rest parameter | `getSpreadArgumentType`, unported |
+| **52** | 3.8% | `genericCallWithNonSymmetricSubtypes` 19.2% | **two candidates disagree** | **`getCovariantInference` — measured below** |
+| **39** | 0.0% | `genericRestParameters1` 46.2% | a spread argument | no position to land on |
+| **32** | 3.1% | `promiseType` 93.8% | a `null`/`undefined` candidate | `getWidenedType` (`checker.go:18355`) |
+| **6** | 0.0% | `strictFunctionTypes1` 83.3% | — converts | **the contravariant bucket** |
+| **5** | 0.0% | `genericCallWithGenericSignatureArguments3` 60.0% | contravariant candidates disagree | `getCommonSubtype` (`inference.go:1579`) |
+| **1** | — | — | miss | |
+
+**So the two mechanisms `STATUS.md` §4.2 names own 63 of the 1,231 lines as a
+ceiling**: the 52 disagreement lines plus the 6 + 5 contravariant ones.
+Everything else in the row belongs to a named owner, and the largest single
+entry — 458 lines — is somebody else's gap arriving here.
+
+### 8.2 The three columns, computed in one pass, for three designs
+
+`infergen.rs` now runs the **same walk** with the contravariant bucket consulted
+and not consulted, and with the common-supertype pick on and off. Every column
+below is therefore a **delta attributable to the mechanism**, not a difference
+between the probe and the compiler — which is what §6.2's CONVERTS column could
+not distinguish, and why it had to report its gain as "between 2 and 6".
+
+`docs/conventions.md` requires the at-risk column in the **same pass** as the
+target one when a mechanism fires on a POSITION rather than on a defect. This
+one fires on every generic call, so it does: **792 lines that are RIGHT today**
+are admitted by the identical classifier and re-forecast.
+
+| design | CONVERTS | WOULD PRINT WRONG | AT RISK | ratio |
+|---|---:|---:|---:|---:|
+| **C** — the contravariant bucket alone (§6's design) | **6** | **1** | **0** | 6.0 : 1 |
+| **L** — the common-supertype pick alone | **11** | **4** | **0** | 2.8 : 1 |
+| **C + L** — both | **17** | **2** | **0** | **8.5 : 1** |
+
+**C + L is strictly better than L**, which is the finding that makes this table
+worth having: two of L's four wrong lines are `want B, got A` and `want B[], got
+A[]`, and the contravariant bucket is what tells `B` from `A`. Adding C both
+converts 6 more lines and removes 2 of L's wrong ones.
+
+**Design L is `getCommonSupertype` (`inference.go:1530`) restricted to its
+unambiguous case** — exactly one candidate that every other is assignable to, so
+the union reduces to it and no subtype decision is invented.
+`getCovariantInference` (`inference.go:1434`) reaches it whenever
+`InferencePriorityPriorityImpliesCombination` is clear; the other branch is a
+`UnionReductionSubtype` union, which is `removeSubtypes`, refused at
+`bd tsr-eak`. Neither `getCommonSupertype`'s literal-types-with-a-common-base
+branch nor `getCovariantInference`'s literal widening is modelled, so **L is a
+floor on its own family, not a ceiling**.
+
+**L is not the priority lattice.** The row's phrase is inherited and it is
+imprecise: `InferencePriority` (`checker.go:299`) ranks *where* a candidate was
+found and discards all but the best-priority ones. That is a different rule,
+its population is a subset of the same 52, and **it is still unsized**. What is
+sized here is how a surviving disagreement is *resolved*.
+
+#### Controls, with the values stated before the run
+
+- **C1** classified-but-not-gap: expect 0, read **0**.
+- **C2** buckets sum 1,231 = classified 1,231. Arithmetic, and as
+  `docs/conventions.md` records it cannot see a wrong partition.
+- **C3** the pre-`tsr-g30h` bare-only rule converts: expect 0, read **4** —
+  unchanged from §6.2, and still the `hasCorrectArity` guard (`checker.go:9107`)
+  the probe does not model. **Anchor corrected**: §6.2 cited `checker.go:8710`,
+  which is `someSignature`. `xtask -- anchors` scans Rust sources and not this
+  page, so the citation was never gated; the two stale ones §7 repeated are
+  fixed here and left visible.
+- **C5** — the control pinned to the **upstream construct** rather than to
+  arithmetic, and it is the one that upgrades §6.2. `structural + consult_contra
+  off` is `getInferredType`'s single-bucket path *before*
+  `inferFromContravariantTypes` (`inference.go:308`) exists — i.e. exactly what
+  `inference.rs` ships. Every classified line is a gap in the real compiler, so
+  the shipped rule must convert **0** of them. **Predicted 4** (the same arity
+  artefact C3 sees); **read 0**. The prediction was wrong in the useful
+  direction: the structural walk finds a second, disagreeing candidate on those
+  four lines and gaps, so the bare rule's artefact does not reach the CONVERTS
+  column. **§6.2's "the honest reading of the gain is between 2 and 6" is
+  therefore corrected to a firm 6.**
+- **C4** — the at-risk column's own control. Of 792 right lines, the probe
+  cannot reproduce **239**, and the split is the diagnosis: **239 of 239 are
+  lines the probe GAPS and the compiler answers, 0 are lines it answers
+  differently.** The probe is strictly *more conservative* than the shipped arm
+  — it models neither `fillMissingTypeArguments`' default fallback nor the arity
+  guard. **AT RISK 0 is therefore a zero over the 553 right lines the probe
+  reproduces, and a lower bound overall**, in the same sense C4 made `valgap.rs`'s
+  70 a lower bound (`STATUS.md` §4.3).
+
+### 8.3 Two numbers in §6.4 are corrected, both downward
+
+§6.4 summed the ledger as `6 conversions + 4 wrong fixed + 3 lost recovered = 13
+own-node reach`. Both added terms are wrong, and `STATUS.md`'s third rule says
+so here rather than silently.
+
+- **"Wrong lines it would fix: 4" re-takes to 0.** That figure was counted by
+  hand at the merge commit, before design W and design P landed (+6,563 lines
+  between them). The same instrument now admits **202 wrong lines** by the
+  identical classifier and the mechanism fixes **0**. The contravariant-named
+  case is still there — `contravariantOnlyInferenceWithAnnotatedOptionalParameter`
+  contributes **2** admitted wrong own-node lines — and the bucket does not
+  reach them. §6.3's 4 also counted 2 *cascade* lines (`:13`, `:21` of that
+  baseline) against an own-node ledger.
+- **"Lost lines recovered: 3" was double-counted.** §5.2's three lost lines are
+  `compiler/strictFunctionTypes1` 2 and
+  `conformance/genericCallWithFunctionTypedArguments` 1; the CONVERTS bucket's
+  cases are `strictFunctionTypes1` 5 and `genericCallWithFunctionTypedArguments`
+  1. They are gap lines today and they are **inside the 6**, not additional to
+  it. (Established by case coincidence, not line by line — stated as the weaker
+  claim it is.)
+
+**So §6.4's own-node reach of 13 was really 6.** The refusal was right and its
+arithmetic was generous to the thing it refused.
+
+### 8.4 What this does to `STATUS.md` §4.2's top row
+
+```
+the row                                         2,056 lines, score ~1,400
+own-node lines the row's two named mechanisms own   63   (ceiling)
+own-node lines they CONVERT                         17
+  x 2.8 cascade, this mechanism's own measured multiplier
+                                                   ~48 lines  =  0.010% of 478,954
+```
+
+**The board's top live row is worth about 48 lines, not about 1,400.** That is
+`STATUS.md`'s fourth rule again — a population is a ceiling — and it is the
+third time in two sessions that the rule has caught a row scored by its size.
+
+### 8.5 The bar, registered before the arm — design C + L
+
+**Not built. This section is the registration and nothing else.** Measure over a
+`git stash` pair with `casedelta.rs`, `wrongdelta.rs` and `verdictdump.rs`.
+
+**Keep only if all four hold. Any leg fires → the first hypothesis is that the
+build is wrong, the second that a premise here is wrong, and there is no third.**
+
+| leg | rule | why that number |
+|---|---|---|
+| **1 — net floor** | net **≥ +15** | The forecast is **17 own-node** conversions and cascade is excluded, exactly as §4's leg 1 was. `tsr-g30h` set its floor at 92% of its own-node forecast (120 against 131) and delivered 2.8×; 15 is 88% of 17. Below 15 means the own-node conversions did not materialise — the probe's resolution rule and the arm's diverge — which is the failure **C5 cannot see**, because C5 only proves the *shipped* rule agrees. |
+| **2 — lost** | **lost ≤ 3**, and `tsr-g30h`'s own 3 residual losses must be **recovered** | An absolute, not a ratio, and the shape is chosen from the measurement: **AT RISK read 0** in the same pass, so there is no designed-in at-risk population for a ratio to price — this is design W's situation and not design P's. It is 3 rather than 0 because C4 makes that zero a lower bound over 553 of 792 right lines, and because §5.1 measured *this exact walk* losing **15, then 9, then 3** as its rules were corrected. A loss is evidence of a wrong rule, not of a bad trade. The recovery clause is separable: §5.2's three lost lines are inside the 6 conversions, so a build that converts 6 and does not recover them has converted different lines than forecast. |
+| **3 — cases** | cases regressed **== 0** | Stricter than `tsr-g30h`'s `regressed < finished`, and deliberately, on design P's leg-4 move: register the zero the construct implies so that a non-zero reading is a **diagnosis** rather than a trade. C + L changes **29 own-node lines corpus-wide** (13 + 16) and only where candidates disagree or arrive contravariantly. A whole baseline flipping to worse cannot come from 29 lines unless the change reached somewhere this page did not model. |
+| **4 — gap→wrong** | **new wrong attributable to `inference.rs` ≤ 8**, by `verdictdump.rs`'s `GAP→WRONG` matrix. Global Δwrong is **reported beside it, not gated** | `docs/conventions.md`'s post-W rule: *an absolute on GLOBAL Δwrong tightens as the build improves*, because conversions expose other mechanisms' defects — design W's leg fired at 84 against 40 and had to be overridden for exactly that reason. So the absolute is written against **the mechanism's own new wrong**: forecast **2** own-node, × 2.8 cascade = 6, plus a third for the asymmetry the own-node cut cannot measure = **8**. The downstream bucket to report beside it is named in advance: **the 458 lines whose argument's own type is a gap**, which this build does not touch and which will supply most of any global movement. |
+
+**Falsifier for this section.** The claim is that *resolving a candidate
+disagreement by `getCommonSupertype`'s unambiguous case, with a contravariant
+bucket to tell `B` from `A`, converts ~17 own-node lines and risks none*. It is
+refuted by fewer than 15 net lines, more than 3 lost, any regressed case, or more
+than 8 new wrong lines attributable to inference. Any of those and the arm
+reverts and the number goes to `STATUS.md` §5.
+
+**And the residual wrong lines get read even if leg 4 passes**, which is the
+discipline that found a one-line printer defect worth +114 in the fifth session
+and found §5.1's two candidate-resolution bugs behind a passing net.
+
+### 8.6 The verdict, and what stays refused
+
+- **The contravariant bucket stays REFUSED as a standalone item.** Its own delta
+  is **6 own-node / ~17 with cascade**, its ledger is *smaller* than §6.4
+  recorded (§7.3), and it still costs a `strictFunctionTypes` default this port
+  would be inventing — **83.3% of its conversions are in `strictFunctionTypes1`,
+  a case whose directives are `@strict: true`**, so the guess is not incidental
+  to the gain, it *is* the gain.
+- **Design L — the common-supertype pick — is new, and it is not refused.** 11
+  own-node conversions, 4 would-be-wrong, **0 at risk**, no compiler option
+  invented, and it lives in candidate *resolution* rather than in the walk. It
+  is the cheaper half of a small item.
+- **Design C + L, at 17 / 2 / 0 and 8.5 : 1, is the one with a registered bar.**
+  ~48 lines with cascade is small — but it is not below what this project has
+  shipped (`tsr-xs0` +37 for a four-line fix, the defaults arm +66), and it is
+  well above what this project has refused (`removeSubtypes` at 1.03 gained per
+  lost, `TemplateExpression` at 0.76 gained per wrong, the multi-distinct return
+  aggregate at 81 lines for 12–46 converted). **The refusal test here is effort,
+  not ratio**: if the build is a variance flag through the walk plus a second
+  bucket plus a preference rule, §6.4's judgement holds and 48 lines does not pay
+  for it. If it is the resolution rule alone — design L — it is two arms on
+  machinery that exists.
+- **`STATUS.md` §4.2's top row must be re-scored from ~1,400 to ~48** (§7.4).
+  Its mass is not this mechanism's: 458 lines are downstream, 494 have no
+  reverse index to walk, 88 are an `instantiate_type` limit whose largest
+  buildable family is still **tuple return types (42 lines)** — unchanged since
+  §6.5, and still waiting on a structured `TypeData` for tuples rather than on
+  anything in the inference walk.
+
+
+## 9. Adjudication — design L is REFUSED, on size rather than on ratio
+
+§7 and §8 were written independently, in the same session, from the same
+instrument, and they do not agree about one leg. §8 concludes *"design L — the
+common-supertype pick — is new, and it is not refused"*, and registers a bar for
+**C + L**. §7 refused both. This section settles it rather than leaving two
+verdicts in one file, and the difference is **not** a disagreement about any
+measurement — every number below is §8's own.
+
+**§8 is right that L's ratio is good.** 11 converts against 1 would-be-wrong,
+at-risk 0 over 792 admitted right lines, and it fixes none of the 202 admitted
+wrong lines but breaks none either. On ratio alone, `removeSubtypes` was refused
+at 1.03 gained per lost and L is an order of magnitude better than that.
+
+**It is refused anyway, and the test is the one §8 itself names: effort.** Priced
+honestly, using §8's own cascade multiplier rather than a fresh guess — this
+mechanism measured **2.8×** on itself (§5: 131 forecast, 372 delivered):
+
+```
+  design L, own-node                        11 converts
+  × 2.8 cascade, the mechanism's own rate  ≈ 31 lines
+  effort                                     5  (a priority lattice is a subsystem)
+```
+
+**~31 lines for an effort-5 subsystem.** The two builds either side of it in this
+session converted **3,590** and **2,973** at effort 2, and both came from
+re-measuring a refusal rather than from new machinery. There is no reading of
+`score = (reachable / effort) × feasibility` on which 31/5 competes.
+
+Three things keep this from being a ratio argument dressed as a size argument:
+
+1. **It is not close.** A 100× error in the cascade estimate would be needed to
+   reach the board's next-smallest live item.
+2. **The row cannot rescue it.** §8's own reconciliation is what makes this
+   safe to say: the 2,056-line row's mechanism population is 1,231, and **494 +
+   458 = 77.3% of that is elsewhere** — no candidate found at all, and downstream
+   of a gapping argument. Neither is a lattice item, so there is no larger
+   version of L waiting behind the row.
+3. **§8 strengthens §6 rather than weakening it.** Its §8.4 found that *"§6.4's
+   own-node reach of 13 was really 6 — the refusal was right and its arithmetic
+   was generous to the thing it refused."* The contravariant refusal is now
+   confirmed by a second pass that was actively looking for a reason to overturn
+   it.
+
+**§8.5's registered bar is therefore not spent and not fired — it is
+unexercised**, and it is left in place deliberately. If the 494 "no candidate"
+population is ever built, L's 11 lines may arrive free on top of it, and that bar
+is the right one to score the combination against. What must not happen is L
+being built *for its own sake* on the strength of its ratio.
+
+> **A good ratio on a small population is still a small population.** This board
+> has refused items for bad ratios five times and this is the first refused for
+> size against a good one — worth naming, because the two arguments feel alike
+> and only one of them is about whether the work is worth doing.
