@@ -107,6 +107,8 @@
 //! compares it to the wanted string, which is `docs/conventions.md`'s match test
 //! rather than a shape test.
 
+#![allow(clippy::cast_precision_loss)] // percentage prints only; see the header
+
 use std::collections::BTreeMap;
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -663,7 +665,7 @@ fn main() {
             if lines == 0 { 0.0 } else { 100.0 * n as f64 / lines as f64 }
         };
         println!("\n## GATE `{gate}` — {lines} lines, want-any {any} ({:.1}%)\n", share(any));
-        println!("  {:>6} {:>8} {:>7}  {:<7} {}", "lines", "want-any", "top-1", "match", "bucket");
+        println!("  {:>6} {:>8} {:>7}  {:<7} bucket", "lines", "want-any", "top-1", "match");
         // BTreeMap over the numeric-prefixed labels: B0 first, by construction.
         for (label, bucket) in buckets {
             let top = bucket.cases.values().max().copied().unwrap_or(0);
