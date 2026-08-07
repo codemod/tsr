@@ -698,3 +698,20 @@ so the dropping arm is not reached).
 Falsifier bis: if conversions land far *below* 150, the 212 lines are not at
 the literal's own node (wrongflip ROOT classification wrong for this row) —
 re-read the dump before touching the arm.
+
+## §5 The identical-constituent union — `E | E` needs no origin machinery
+
+`enumLiteralsSubtypeReduction` (513 wrong lines, want `E[]` got `error[]`)
+decodes in `union_type_worker`'s named-union decline (`unions.rs`): the
+512-member enum's declared type is a NAMED union, and a union containing
+one expands its members, so the decline answers `error` to avoid printing
+`E.E0 | E.E1 | …` where upstream writes `E` (the missing denormalised
+`origin`, `checker.go:25705`). But `[E.E0, E.E1]`'s element union is
+`union(E, E)` — every input is the SAME type, and `T | T = T` for any `T`
+by identity, named or not. The fast path answers before expansion ever
+happens.
+
+**The bar**: the case's 513 flip to `E[]`. Falsifiers: (a) any change
+outside identical-input unions — the path must trigger only when every
+input `TypeId` is equal; (b) the named-union decline for genuinely mixed
+inputs must stay (its falsifier population: `E | string` prints).
