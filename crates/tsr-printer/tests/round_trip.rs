@@ -62,6 +62,13 @@ fn nested_type_arguments_close_without_inserted_spaces() {
 }
 
 #[test]
+fn mapped_types_use_the_upstream_multiline_default() {
+    let output = printed("type T<U> = { readonly [K in keyof U]?: U[K] };");
+    assert_eq!(output.trim_end(), "type T<U> = {\n    readonly [K in keyof U]?: U[K];\n};");
+    assert!(round_trips("type T<U> = { readonly [K in keyof U]?: U[K] };"));
+}
+
+#[test]
 fn a_negative_numeric_literal_type_keeps_its_sign() {
     let output = printed("type T = -1e999;");
     assert!(output.contains("-1e999"), "{output}");

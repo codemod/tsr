@@ -144,6 +144,9 @@ pub(crate) struct Printer<'t> {
     /// Source ranges already emitted. Several synthesized declaration nodes can
     /// share one original span, and a comment must not be duplicated for each.
     emitted_comments: std::collections::HashSet<(usize, usize)>,
+    /// Nesting depth of synthesized function-signature return types. Upstream
+    /// applies its `SingleLine` emit context while printing these copied types.
+    single_line_type_depth: usize,
 }
 
 impl<'t> Printer<'t> {
@@ -155,6 +158,7 @@ impl<'t> Printer<'t> {
             nodes,
             source_text: None,
             emitted_comments: std::collections::HashSet::new(),
+            single_line_type_depth: 0,
         }
     }
 

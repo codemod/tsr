@@ -319,6 +319,14 @@ fn an_import_used_by_a_written_arrow_signature_is_retained() {
 }
 
 #[test]
+fn mapped_types_in_synthesized_arrow_signatures_stay_single_line() {
+    assert_emits(
+        "export const map = <T>(value: T): { [K in keyof T]: T[K] } => ({} as any);",
+        "export declare const map: <T>(value: T) => { [K in keyof T]: T[K]; };",
+    );
+}
+
+#[test]
 fn a_deferred_import_becomes_an_ordinary_declaration_import() {
     assert_emits(
         "import defer * as ns from \"./m.js\";\nexport type T = ns.Value;\n",

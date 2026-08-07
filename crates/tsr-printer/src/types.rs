@@ -190,7 +190,16 @@ impl Printer<'_> {
                 self.emit_parameters(function.parameters);
                 self.write(" => ");
                 if let Some(r#type) = &function.r#type {
+                    let synthesized = function.node_id.is_some_and(|id| {
+                        self.nodes.flags(id).contains(tsr_ast::NodeFlags::SYNTHESIZED)
+                    });
+                    if synthesized {
+                        self.single_line_type_depth += 1;
+                    }
                     self.emit_type_node(r#type);
+                    if synthesized {
+                        self.single_line_type_depth -= 1;
+                    }
                 }
             }
             // Ported from `Printer.emitConstructorType` (`internal/printer/printer.go`).
@@ -224,11 +233,22 @@ impl Printer<'_> {
             // Ported from `Printer.emitMappedType` (`internal/printer/printer.go`).
             TypeNode::MappedTypeNode(mapped) => {
                 self.write("{");
-                if let Some(token) = mapped.readonly_token {
+                // Upstream's default is multiline; only an explicit SingleLine
+                // emit flag uses the compact form. This tree has no emit-context
+                // override yet, so source and declaration mapped types take the
+                // default path rather than silently behaving as SingleLine.
+                let single_line = self.single_line_type_depth > 0;
+                if single_line {
                     self.write(" ");
-                    self.emit_token_node(token);
+                } else {
+                    self.write_line();
+                    self.increase_indent();
                 }
-                self.write(" [");
+                if let Some(token) = mapped.readonly_token {
+                    self.emit_token_node(token);
+                    self.write(" ");
+                }
+                self.write("[");
                 if let Some(parameter) = mapped.type_parameter {
                     if let Some(name) = parameter.name {
                         self.write(name.text);
@@ -250,7 +270,14 @@ impl Printer<'_> {
                     self.write(": ");
                     self.emit_type_node(r#type);
                 }
-                self.write("; }");
+                self.write(";");
+                if single_line {
+                    self.write(" ");
+                } else {
+                    self.write_line();
+                    self.decrease_indent();
+                }
+                self.write("}");
             }
             // Ported from `Printer.emitTemplateType` (`internal/printer/printer.go`).
             TypeNode::TemplateLiteralTypeNode(template) => {

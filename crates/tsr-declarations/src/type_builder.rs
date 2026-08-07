@@ -406,7 +406,7 @@ fn function_type<'a>(
         tsr_ast::FunctionTypeNode::new(type_parameters, parameters, Some(return_type), &[], None),
         SyntaxKind::FunctionType,
         span,
-        NodeFlags::empty(),
+        NodeFlags::SYNTHESIZED,
     )))
 }
 

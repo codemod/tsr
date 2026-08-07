@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  261/341  = 76.54%  (up from 161/339)
+  dts_emit                  267/341  = 78.30%  (up from 161/339)
   dts_shape                 743/918  = 80.94%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -146,6 +146,12 @@ therefore no longer retains a same-named file-level import, while member types
 that genuinely name an external declaration still retain their imports. This
 closes seven declaration-shape cases and eight byte-exact cases without changing
 any suite population.
+
+Mapped types now follow upstream's multiline printer default instead of silently
+assuming a SingleLine emit flag. Types copied into synthesized arrow-function
+signatures retain the compact form through an explicit synthesized-signature
+print context. Together these layout paths close six byte-exact cases without
+changing declaration shape, suite populations, or printer round-trip semantics.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

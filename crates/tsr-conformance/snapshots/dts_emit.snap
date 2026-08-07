@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 261/341 (76.54%)
-Failed         : 80
+Passed         : 267/341 (78.30%)
+Failed         : 74
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -20,8 +20,6 @@ compiler/conflictingDeclarationsImportFromNamespace1
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
 compiler/conflictingDeclarationsImportFromNamespace2
   line 1: want `/// <reference path="./object.d.ts" />`, got `export declare const pick: any;`
-compiler/declarationEmitArrowFunctionNoRenaming
-  line 1: want `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & {`, got `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & { [K in ReservedName]: Branding; } & {`
 compiler/declarationEmitClassAccessorsJs1
   line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
@@ -35,7 +33,7 @@ compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
-  line 1: want `declare type requiredKeys<T extends object> = {`, got `declare type requiredKeys<T extends object> = { [k in keyof T]: undefined extends T[k] ? never : k; }[keyof T];`
+  line 29: want `    [k in keyof o]-?: [k, o[k] & ({} | null)];`, got `    [k in keyof o]: [k, o[k] & ({} | null)];`
 compiler/declarationEmitNameConflicts2
   line 12: want `    var f: typeof base.f;`, got `    var f: any;`
 compiler/declarationEmitNoNonRequiredParens
@@ -64,8 +62,6 @@ compiler/declareDottedModuleName
   line 4: want `    namespace R.S { }`, got `    namespace R.S {`
 compiler/declareFileExportAssignmentWithVarFromVariableStatement
   line 10: want `declare var m2: {`, got `declare var x: number, m2: {`
-compiler/deferredLookupTypeResolution2
-  line 1: want `type StringContains<S extends string, L extends string> = ({`, got `type StringContains<S extends string, L extends string> = ({ [K in S]: 'true'; } & {`
 compiler/destructuredDeclarationEmit
   line 3: want `declare const { bar: baz, bat, bam: { bork: { bar: ibar, baz: ibaz } } }: {`, got `export { baz, ibaz };`
 compiler/functionExpressionReturningItself
@@ -89,11 +85,11 @@ compiler/libTypeScriptOverrideSimple
 compiler/libTypeScriptSubfileResolving
   line 1: want `// NOOP`, got `declare const a: DOMIterable;`
 compiler/mappedTypeGenericInstantiationPreservesHomomorphism
-  line 2: want `type PrivateMapped<Obj> = {`, got `type PrivateMapped<Obj> = { [K in keyof Obj]: Obj[K]; };`
+  line 1: want `export declare const mappedUnionWithPrivateType: <T extends unknown[]>(...args: T) => T[any] extends infer T_1 ? { [K in keyof T_1]: T_1[K]; } : never;`, got `export declare const mappedUnionWithPrivateType: any;`
 compiler/mappedTypeNoTypeNoCrash
-  line 1: want `type T0<T> = ({`, got `type T0<T> = ({ [K in keyof T]; }) extends ({ [key in K]: T[K]; }) ? number : never;`
+  line 2: want `    [K in keyof T]: any;`, got `    [K in keyof T];`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
-  line 1: want `export declare const thing: {`, got `export declare const thing: { [K in keyof number[] as Exclude<K, "length">]: (number[])[K]; };`
+  line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   line 1: want `export * from "./account";`, got `declare global {`
 compiler/moduleDetectionIsolatedModulesCjsFileScope
@@ -112,12 +108,8 @@ compiler/nodeNextPackageSelfNameWithOutDirDeclDirCompositeNestedDirs
   emitted src/thing.d.ts, upstream emitted no declaration file
 compiler/nodeNextPackageSelfNameWithOutDirDeclDirNestedDirs
   emitted src/thing.d.ts, upstream emitted no declaration file
-compiler/numericEnumMappedType
-  line 11: want `type Bins1 = {`, got `type Bins1 = { [k in E1]?: string; };`
 compiler/paramterDestrcuturingDeclaration
   line 2: want `    ({ p: name }: {`, got `    ({ p: name }: any): any;`
-compiler/parenthesisDoesNotBlockAliasSymbolCreation
-  line 1: want `export type InvalidKeys<K extends string | number | symbol> = {`, got `export type InvalidKeys<K extends string | number | symbol> = { [P in K]?: never; };`
 compiler/privacyVarDeclFile
   line 61: want `    export var publicAmbientVarWithPrivatePropertyTypes: privateClass;`, got `    export declare var publicAmbientVarWithPrivatePropertyTypes: privateClass;`
 compiler/referenceTypesPreferedToPathIfPossible
@@ -154,14 +146,10 @@ conformance/jsdocTemplateTagNameResolution
   line 6: want `type Foo<T, K extends keyof T> = T[K];`, got `declare const x: {`
 conformance/legacyNodeModulesExportsSpecifierGenerationConditions
   line 1: want `export { x } from "./other.js";`, got `export declare const a: any;`
-conformance/mappedTypeErrors2
-  line 5: want `type T1<K extends keyof AB> = {`, got `type T1<K extends keyof AB> = { [key in AB[K]]: true; };`
 conformance/nodeModulesPackageImportsRootWildcard
   emitted src/foo.d.ts, upstream emitted no declaration file
 conformance/nodeModulesPackageImportsRootWildcardNode16
   emitted src/foo.d.ts, upstream emitted no declaration file
-conformance/recursiveMappedTypes
-  line 1: want `export type Circular<T> = {`, got `export type Circular<T> = { [P in keyof T]: Circular<T>; };`
 conformance/recursiveTypeReferences2
   line 1: want `/** @typedef {ReadonlyArray<Json>} JsonArray */`, got `/** @type {XMLObject<{foo:string}>} */`
 conformance/typeFromPropertyAssignment39
