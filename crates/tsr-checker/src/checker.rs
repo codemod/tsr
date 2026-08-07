@@ -121,6 +121,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
+    /// `symbol -> whether any assignment in its container targets it` — the
+    /// ever-assigned memo (`checker-notes-narrow.md` §9.7), read by the flow
+    /// START arm's outer-reference split.
+    pub(crate) symbol_assignment_scan: FxHashMap<SymbolId, bool>,
     /// `(generic symbol, type arguments) -> the instantiated reference`,
     /// upstream's `d.instantiations` keyed by `getTypeListKey`
     /// (`checker.go:17342`).
@@ -453,6 +457,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_member_owners: FxHashMap::default(),
             diagnostics: Vec::new(),
             symbol_types,
+            symbol_assignment_scan: FxHashMap::default(),
             declared_types: FxHashMap::default(),
             this_types: FxHashMap::default(),
             instantiations: FxHashMap::default(),

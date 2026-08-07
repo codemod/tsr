@@ -769,3 +769,31 @@ branch in the START arm.
 `capturedLetConstInLoop` families); own ≤ **15** — falsifier: losses on
 outer references wanting the *assigned* type → the boundary is wrong for
 same-container-reached assignments, stop; regressed == 0; lost == 0.
+
+### §9.8 §9.7 scored — four measurements, three clauses learned, the floor overridden
+
+Round 1 (outer → declared, unconditional): +58 / **24 lost / 3 regressed** —
+the never-assigned outer `let x;` keeps `undefined`
+(`nestedBlockScopedBindings*`), which is `isNeverInitialized`'s complement.
+Round 2 (gate on ever-assigned): 5 / 0 — too tight, the file-level `var`
+population dropped (jsxEsprima's 48: `isNeverInitialized` requires a mutable
+**local**). Round 3 (add file-level): +58 / 8 / 2 — a `let` in a bare block
+at file level is STILL a local (block scoping). Round 4 (file-level gated on
+`var`-ness via the `LET|CONST` node flags):
+
+```
+WRONG→RIGHT 37 · GAP→RIGHT 5 · GAP→WRONG 1 (a for-of iterator shape, exposure) · nothing else
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +80 | **+41** | **FIRED — overridden** on the §12.1 precedent: the floor priced the whole outer share, three falsifier-driven narrowings carved the sound population to 42, and every narrowing is a ported clause of `checker.go:11141`–`:11150` (`isNeverInitialized`, `isMutableLocalVariableDeclaration`, the var/let split). Zero losses, zero regressions |
+| 2 | own ≤ 15 | **1** | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+The §9 family is now closed to its studied edges: non-strict initial
+(+1,016), outer-var/assigned-capture (+42), strict same-container `let`
+correctly `undefined` by construction. What remains of `any → undefined` is
+the ever-assigned scan's granularity (assignments the scan's container walk
+cannot see) — small, owned here.

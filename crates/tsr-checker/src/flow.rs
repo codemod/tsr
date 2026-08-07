@@ -98,6 +98,10 @@ struct FlowState {
     /// the declaration instead, in [`Checker::is_auto_typed_declaration`]; see
     /// that method for why the identity trick is not reproduced.
     is_auto: bool,
+    /// Whether the reference's control-flow container differs from its
+    /// declaration's — upstream's `isOuterVariable`, deciding the START arm's
+    /// answer (`checker-notes-narrow.md` §9.7).
+    outer_reference: bool,
     /// Where this invocation's entries in `shared_flows` begin.
     shared_flow_start: usize,
     /// Recursion depth, against the 2,000 cap.
@@ -276,6 +280,7 @@ impl Checker<'_, '_> {
                 None => declared_type,
             },
             is_auto,
+            outer_reference: self.is_outer_reference(reference, symbol),
             shared_flow_start: self.shared_flows.len(),
             depth: 0,
         };
@@ -339,8 +344,34 @@ impl Checker<'_, '_> {
                 }
                 break self.get_type_at_flow_branch_label(state, flow);
             } else if flags.contains(FlowFlags::START) {
-                // `flowContainer` is not ported, so this never continues outward
-                // into an enclosing function — see this method's siblings.
+                // Every container has its own START (`binder.rs:903`), so the
+                // walk stops at the function boundary by construction —
+                // upstream's `flowContainer` bound, already in the graph. The
+                // ANSWER at the stop splits (`checker-notes-narrow.md` §9.7):
+                // a reference whose declaration lives in THIS container takes
+                // the substituted initial; an OUTER reference takes the
+                // declared type, exactly as upstream's bounded walk returns
+                // `t` — and an auto declaration's declared type here already
+                // IS `anyType`, which is `convertAutoToAny` with no code.
+                // …and only when the variable is EVER assigned: upstream's
+                // `assumeInitialized = isOuterVariable && !isNeverInitialized`
+                // — a never-assigned outer `let x;` keeps `undefined`
+                // (`nestedBlockScopedBindings*`, the §9.7 bar's first
+                // measurement: 24 such losses), while an assigned-elsewhere
+                // capture takes the declared auto → `any`
+                // (`capturedLetConstInLoop*`).
+                if state.outer_reference
+                    && (state.symbol.is_some_and(|s| self.symbol_has_any_assignment(s))
+                        // `isNeverInitialized` requires a mutable LOCAL
+                        // (`checker.go:11147`, `isMutableLocalVariableDeclaration`):
+                        // a file-level declaration referenced inside a
+                        // function is assumed initialized whatever its
+                        // initializer says — the jsxEsprima half of the §9.7
+                        // population, 48 lines the first refinement dropped.
+                        || state.symbol.is_some_and(|s| self.declaration_is_file_level(s)))
+                {
+                    break FlowType { t: state.declared_type, incomplete: false };
+                }
                 break FlowType { t: state.initial_type, incomplete: false };
             } else if flags.contains(FlowFlags::UNREACHABLE) {
                 // Upstream's default arm: unreachable-code errors belong to the
@@ -468,6 +499,163 @@ impl Checker<'_, '_> {
         Some(FlowType { t: state.declared_type, incomplete: false })
     }
 
+    /// Whether ANY assignment in the declaration's control-flow container
+    /// targets this symbol — upstream's `isNeverInitialized` complement,
+    /// approximated syntactically and memoized per symbol
+    /// (`checker-notes-narrow.md` §9.7): assignment operators and `++`/`--`
+    /// whose target identifier resolves back to the symbol.
+    fn symbol_has_any_assignment(&mut self, symbol: SymbolId) -> bool {
+        if let Some(&cached) = self.symbol_assignment_scan.get(&symbol) {
+            return cached;
+        }
+        let answer = (|| {
+            let declaration = self.binder.symbols().get(symbol).value_declaration?;
+            let name = self.binder.symbols().get(symbol).name;
+            // The scan root: the declaration's control-flow container body.
+            let mut root = declaration;
+            while let Some(parent) = self.nodes.parent(root) {
+                root = parent;
+                if matches!(
+                    self.nodes.kind(root),
+                    tsr_ast::SyntaxKind::FunctionDeclaration
+                        | tsr_ast::SyntaxKind::FunctionExpression
+                        | tsr_ast::SyntaxKind::ArrowFunction
+                        | tsr_ast::SyntaxKind::MethodDeclaration
+                        | tsr_ast::SyntaxKind::GetAccessor
+                        | tsr_ast::SyntaxKind::SetAccessor
+                        | tsr_ast::SyntaxKind::Constructor
+                        | tsr_ast::SyntaxKind::SourceFile
+                ) {
+                    break;
+                }
+            }
+            let root_node = self.node_map.get(root)?;
+            let mut stack = vec![root_node];
+            let mut children = Vec::new();
+            while let Some(node) = stack.pop() {
+                let target = match node {
+                    Node::BinaryExpression(binary)
+                        if binary.operator_token.is_some_and(|t| {
+                            tsr_ast::SyntaxKind::EqualsToken == t.kind
+                                || matches!(
+                                    t.kind,
+                                    tsr_ast::SyntaxKind::PlusEqualsToken
+                                        | tsr_ast::SyntaxKind::MinusEqualsToken
+                                        | tsr_ast::SyntaxKind::AsteriskEqualsToken
+                                        | tsr_ast::SyntaxKind::SlashEqualsToken
+                                        | tsr_ast::SyntaxKind::PercentEqualsToken
+                                        | tsr_ast::SyntaxKind::BarEqualsToken
+                                        | tsr_ast::SyntaxKind::AmpersandEqualsToken
+                                        | tsr_ast::SyntaxKind::CaretEqualsToken
+                                        | tsr_ast::SyntaxKind::BarBarEqualsToken
+                                        | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
+                                        | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
+                                )
+                        }) =>
+                    {
+                        binary.left
+                    }
+                    Node::PrefixUnaryExpression(unary)
+                        if matches!(
+                            unary.operator.kind,
+                            tsr_ast::SyntaxKind::PlusPlusToken
+                                | tsr_ast::SyntaxKind::MinusMinusToken
+                        ) =>
+                    {
+                        unary.operand
+                    }
+                    Node::PostfixUnaryExpression(unary) => unary.operand,
+                    _ => None,
+                };
+                if let Some(tsr_ast::Expression::Identifier(identifier)) = target
+                    && identifier.text == name
+                    && let Some(id) = identifier.node_id
+                    && self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        id,
+                        name,
+                        SymbolFlags::VALUE,
+                    ) == Some(symbol)
+                {
+                    return Some(true);
+                }
+                children.clear();
+                tsr_ast::push_children(node, &mut children);
+                stack.extend(children.iter().copied());
+            }
+            Some(false)
+        })()
+        .unwrap_or(false);
+        self.symbol_assignment_scan.insert(symbol, answer);
+        answer
+    }
+    /// Whether the symbol's value declaration sits at file level — its
+    /// control-flow container is the `SourceFile`. The §9.7 outer split's
+    /// second disjunct.
+    fn declaration_is_file_level(&self, symbol: SymbolId) -> bool {
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        // `var` only: a `let`/`const` is block-scoped and stays a mutable
+        // LOCAL wherever its block sits (`nestedBlockScopedBindings9/11`
+        // regressed on a file-level bare block before this gate — round 3 of
+        // the §9.7 measurements).
+        let is_var = self.nodes.parent(declaration).is_some_and(|list| {
+            self.nodes.kind(list) == tsr_ast::SyntaxKind::VariableDeclarationList
+                && !self
+                    .nodes
+                    .flags(list)
+                    .intersects(tsr_ast::NodeFlags::LET | tsr_ast::NodeFlags::CONST)
+        });
+        if !is_var {
+            return false;
+        }
+        let mut id = declaration;
+        while let Some(parent) = self.nodes.parent(id) {
+            match self.nodes.kind(parent) {
+                tsr_ast::SyntaxKind::SourceFile => return true,
+                tsr_ast::SyntaxKind::FunctionDeclaration
+                | tsr_ast::SyntaxKind::FunctionExpression
+                | tsr_ast::SyntaxKind::ArrowFunction
+                | tsr_ast::SyntaxKind::MethodDeclaration
+                | tsr_ast::SyntaxKind::GetAccessor
+                | tsr_ast::SyntaxKind::SetAccessor
+                | tsr_ast::SyntaxKind::Constructor => return false,
+                _ => {}
+            }
+            id = parent;
+        }
+        false
+    }
+
+    /// Upstream's `isOuterVariable` (`checker.go:11130`): the reference's
+    /// control-flow container is not the declaration's. The container walk is
+    /// `closuregap.rs`'s predicate brought in-tree.
+    fn is_outer_reference(&self, reference: NodeId, symbol: Option<SymbolId>) -> bool {
+        let Some(symbol) = symbol else { return false };
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let container = |mut id: NodeId| -> Option<NodeId> {
+            while let Some(parent) = self.nodes.parent(id) {
+                match self.nodes.kind(parent) {
+                    tsr_ast::SyntaxKind::FunctionDeclaration
+                    | tsr_ast::SyntaxKind::FunctionExpression
+                    | tsr_ast::SyntaxKind::ArrowFunction
+                    | tsr_ast::SyntaxKind::MethodDeclaration
+                    | tsr_ast::SyntaxKind::GetAccessor
+                    | tsr_ast::SyntaxKind::SetAccessor
+                    | tsr_ast::SyntaxKind::Constructor
+                    | tsr_ast::SyntaxKind::SourceFile => return Some(parent),
+                    _ => {}
+                }
+                id = parent;
+            }
+            None
+        };
+        container(reference) != container(declaration)
+    }
     /// Whether `symbol`'s declaration is one upstream gives `autoType`
     /// (`getTypeForVariableLikeDeclaration`, `checker.go:16697`).
     ///
