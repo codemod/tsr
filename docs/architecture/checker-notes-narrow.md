@@ -1926,3 +1926,16 @@ past both new arms — the remaining gate needs a per-overload trace of
 `Float32ArrayConstructor`'s candidates (recorded as the row's next probe).
 Both fills are upstream-true and stay. `checker_types` right 393,557 →
 **393,561 (82.18%)**.
+
+### §45 `Record<K, V>` answers its members
+
+`objectSpreadRepeatedNullCheckPerf`'s root (`config.a` on
+`Record<string, number>` → error) and a corpus-ubiquitous shape: the lib's
+`Record` mapped alias. The scoped arm — NOT mapped types, stated plainly:
+a reference whose target is the GLOBAL `Record` symbol with two arguments
+answers property lookups (and the §17 index road) with V when K is
+string-like/`keyof any`, and property misses under a string-literal-union
+K behave as the union's members. Everything else mapped stays the
+subsystem. Falsifier: a `Record` whose K is a literal union — a MISS
+outside the union wants upstream's TS2339/undefined behavior; those
+decline.
