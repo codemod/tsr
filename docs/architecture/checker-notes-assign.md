@@ -629,3 +629,29 @@ literal aggregate), written-param prints 5, accessor/field flow 2.
 that sets `JAVASCRIPT_FILE`, or any node→file-kind route the checker can
 read.** With that flag real, re-run this §'s measurement; without it, 10 of
 the wrongs are unremovable by design.
+
+### §11.2 Re-landed — the prerequisite was one flag, and the flag was two stamps
+
+`NodeFlags::JAVASCRIPT_FILE` is now **set**: the program's two parse sites
+(`Program::new`, the loader) stamp the source-file root from the file name —
+upstream's parser does it from `ScriptKind`, and this parser never sees the
+name (ADR-0016). `Checker::in_js_file` climbs to the root and reads it. The
+§11 consumer re-landed with the JS decline beside the bare-return one:
+
+```
+GAP→RIGHT 84 · GAP→WRONG 15 · nothing else · 0 regressed · suite +10 cases (2,932 → 2,942)
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +20 | **+84** | pass |
+| 2 | own ≤ 8 | **0 own · 15 exposure, global beside** | pass — `overloadTag1` is GONE (the falsifier's family, excluded as instructed); every one of the 15 is an un-narrowed or mis-printed *input* with a named owner: switch-case narrowing 4 (`tsr-5kii`), if-guard narrowing 3, written-param union reuse 4 (`tsr-5o2`), auto-accessor/private-field flow 2, misc 2 — the reduction reduced what it was given |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+Two fixture pairs came due (the sixteenth and seventeenth): the accessor
+multi-return now answers `"a" | 1` and `return_inference`'s two-distinct
+fixtures answer their unions — the corpus pin is
+`capturedLetConstInLoop8.types`' kept literals, against the old comment's
+*"upstream reduces and then widens to `number`"*, which was intuition and
+wrong (the sixth such comment).

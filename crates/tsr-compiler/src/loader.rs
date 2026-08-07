@@ -559,6 +559,18 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // would give two files the same `NodeId`s.
         let parsed =
             tsr_parser::parse_into(arena, text, options, &mut self.nodes, &mut self.node_map);
+        // Upstream's parser stamps `NodeFlagsJavaScriptFile` from its
+        // `ScriptKind`; this parser never sees the file name (ADR-0016), so
+        // the loader — which holds both the name and the table — stamps the
+        // root. The second of the two parse sites; `Program::new` is the
+        // other, and `checker-notes-assign.md` §11.1 is the consumer that
+        // found the flag declared and set by nothing.
+        let lowered = name.to_ascii_lowercase();
+        if [".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
+            && let Some(root) = tsr_ast::Node::SourceFile(parsed.source_file).node_id()
+        {
+            self.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+        }
         let file = ProgramFile::new(self.tasks[index].path.clone(), name, text, parsed);
 
         // `/// <reference path="…" />` — a file, not a module: no resolver, no

@@ -97,21 +97,21 @@ fn an_aggregate_this_slice_cannot_reduce_is_still_a_gap() {
     // UnionReductionSubtype)` (`checker.go:20191`), and subtype reduction is
     // unported. An unreduced union would print constituents upstream collapses,
     // which is a wrong answer wearing the shape of a result.
+    // §11's reduction now answers both of these — the seventeenth stand-in
+    // pair to come due. Distinct primitives union unreduced (`string | number`
+    // — nothing is a subtype of anything), and two numeric literals keep
+    // their regular forms exactly as `capturedLetConstInLoop8.types` pins for
+    // string literals.
     assert_eq!(
         type_of_declaration(
             "function f(s: string, n: number, c: boolean) { if (c) { return s; } return n; }",
             "f"
         ),
-        "error"
+        "(s: string, n: number, c: boolean) => string | number"
     );
-
-    // Two numeric *literals* are two distinct types before any widening, and the
-    // aggregate is taken on the unwidened types exactly as upstream's
-    // `AppendIfUnique` is. Upstream reduces and then widens to `number`; this
-    // port stops at the union it cannot build.
     assert_eq!(
         type_of_declaration("function f(c: boolean) { if (c) { return 1; } return 2; }", "f"),
-        "error"
+        "(c: boolean) => 1 | 2"
     );
 
     // A bare `return;` beside a valued one is the one configuration where

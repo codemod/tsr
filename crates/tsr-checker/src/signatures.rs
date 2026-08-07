@@ -878,8 +878,24 @@ impl<'a> Checker<'a, '_> {
             // would be a confident wrong answer on half of them. Gapped.
             [_] if has_bare_return => return None,
             [single] => return self.inferred_return_type(declaration, *single),
-            // Two or more distinct types. `bd tsr-4sc.9`.
-            _ => return None,
+            // Two or more distinct types: upstream reduces with
+            // `UnionReductionSubtype` (`checker.go:20191`) — the §9
+            // decidability-gated reduction, wired under
+            // `checker-notes-assign.md` §11 with the three declines its two
+            // refused measurements named: a bare `return;` beside the valued
+            // ones (`checker.go:20301`'s strict-mode `| undefined`), and a
+            // **JS file**, whose JSDoc `@overload` signatures this port does
+            // not model — 10 of §11.1's 26 wrong lines, excludable only once
+            // `JAVASCRIPT_FILE` was actually set by something.
+            _ if has_bare_return => return None,
+            many => {
+                if self.in_js_file(declaration) {
+                    return None;
+                }
+                let candidates = many.to_vec();
+                let reduced = self.union_with_subtype_reduction(&candidates)?;
+                return self.inferred_return_type(declaration, reduced);
+            }
         }
         if !may_return_never {
             // Zero return statements and `mayReturnNever` false, so upstream's

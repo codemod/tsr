@@ -223,6 +223,19 @@ impl NodeTable {
         self.parent[id.as_u32() as usize] = Some(parent);
     }
 
+    /// Add flags to a node — the caller that motivated it stamps
+    /// [`NodeFlags::JAVASCRIPT_FILE`] on a source-file root after parsing,
+    /// which upstream's parser does from its `ScriptKind` and this parser
+    /// cannot: it never sees the file name (ADR-0016). Additive only, like
+    /// upstream's `node.Flags |= …` sites; there is deliberately no clearing
+    /// counterpart.
+    ///
+    /// # Panics
+    /// Panics if `id` is out of bounds.
+    pub fn add_flags(&mut self, id: NodeId, flags: NodeFlags) {
+        self.flags[id.as_u32() as usize] |= flags;
+    }
+
     /// Discard rows from `len` onward.
     ///
     /// Used by speculative parsing: a rejected attempt registers nodes that never

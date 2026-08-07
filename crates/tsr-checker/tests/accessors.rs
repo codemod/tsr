@@ -147,11 +147,16 @@ fn an_inference_this_port_cannot_make_is_error_and_never_a_plausible_any() {
     // print a plausible, wrong, indistinguishable-from-computed line on exactly
     // the accessors that have a real answer.
     //
-    // Two return statements of distinct types: an aggregate this port cannot
-    // reduce (`tests/return_inference.rs`), so the inference answers `None`.
+    // Two return statements of distinct literal types: the sixteenth
+    // unported-stand-in fixture to come due. Until the ninth session the
+    // aggregate declined and this asserted `error`; §11's reduction answers,
+    // and the corpus pins the shape — a multi-return union keeps its regular
+    // literals (`compiler/capturedLetConstInLoop8.types` records
+    // `() => "123" | "456" | undefined`), strings ordering before numbers by
+    // `TypeFlags`.
     assert_eq!(
         type_of_member("class C { get foo() { if (1) { return 1; } return \"a\"; } }", "foo"),
-        "error"
+        "\"a\" | 1"
     );
     // The discriminator for the `unwrap_or`: an accessor with NO body and no
     // annotation reaches case 5 and is a computed `any`. Same test, two

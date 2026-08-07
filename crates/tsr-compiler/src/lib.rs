@@ -263,6 +263,17 @@ impl<'a> Program<'a> {
             };
             let into =
                 tsr_parser::parse_into(arena, text, parse_options, &mut nodes, &mut node_map);
+            // Upstream's parser stamps `NodeFlagsJavaScriptFile` from its
+            // `ScriptKind`; this parser never sees the file name (ADR-0016),
+            // so the program — the one place that holds both the name and the
+            // table — stamps the root. `checker-notes-assign.md` §11.1 is the
+            // consumer that found the flag declared and set by nothing.
+            let lowered = file_name.to_ascii_lowercase();
+            if [".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
+                && let Some(root) = tsr_ast::Node::SourceFile(into.source_file).node_id()
+            {
+                nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+            }
             parsed.push(ProgramFile::new(path, file_name, text, into));
         }
 

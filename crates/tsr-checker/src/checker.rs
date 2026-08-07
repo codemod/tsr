@@ -927,6 +927,23 @@ impl<'a, 'n> Checker<'a, 'n> {
         })
     }
 
+    /// `ast.IsInJSFile`: whether the node's source file was a `.js`-family
+    /// file. Reads [`tsr_ast::NodeFlags::JAVASCRIPT_FILE`] off the **root**,
+    /// because that is the one node the program stamps
+    /// (`tsr-compiler/src/lib.rs`) — upstream stamps every node from the
+    /// parser, which this parser cannot (it never sees the file name,
+    /// ADR-0016). Climbing is O(depth); depth is bounded by the source.
+    ///
+    /// `false` for a checker built without a program: the unit-test
+    /// constructors have no file names, and every fixture is TypeScript.
+    pub(crate) fn in_js_file(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            current = parent;
+        }
+        self.nodes.flags(current).contains(NodeFlags::JAVASCRIPT_FILE)
+    }
+
     /// `needsQualification` (`internal/checker/symbolaccessibility.go:688`):
     /// does the symbol's own name, resolved from the reference site, come back
     /// as this same symbol?
