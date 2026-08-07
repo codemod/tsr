@@ -312,7 +312,14 @@ impl Checker<'_, '_> {
             let mut ancestor = Some(reference);
             while let Some(id) = ancestor {
                 if self.flow_disabled_containers.contains(&id) {
-                    return self.intrinsics.any;
+                    // §14.1: in a JS file the give-up value reaches the
+                    // baseline printer VERBATIM (` : error`, the §35
+                    // shape); the `any` rendering is the TS half only.
+                    return if self.in_js_file(reference) {
+                        self.intrinsics.error
+                    } else {
+                        self.intrinsics.any
+                    };
                 }
                 ancestor = self.nodes.parent(id);
             }
@@ -380,7 +387,13 @@ impl Checker<'_, '_> {
             if let Some(container) = self.function_or_source_file_ancestor(state.reference) {
                 self.flow_disabled_containers.insert(container);
             }
-            return FlowType { t: self.intrinsics.any, incomplete: false };
+            // §14.1: the JS half prints `error` verbatim.
+            let t = if self.in_js_file(state.reference) {
+                self.intrinsics.error
+            } else {
+                self.intrinsics.any
+            };
+            return FlowType { t, incomplete: false };
         }
         state.depth += 1;
 

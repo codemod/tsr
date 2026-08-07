@@ -2108,3 +2108,39 @@ projection), R→W appears in the equality cases.
 fired — the ordinary walk composes cleanly on top of the projection.
 (A first draft of this score guessed +10 before the run; corrected to the
 measured +6.) `checker_types` right 395,797 → **395,803 (82.64%)**.
+
+## §14.1 — the JS half of the flow-disabled bail prints `error`
+
+`parsingDeepParenthensizedExpression` (a JS file, 330 WRONG) shows the §14
+observable is FILE-SENSITIVE: inside its TS2563-disabled container the
+baseline prints `v : any` (declared type of an assignment target) but
+`v = f : error` and the whole comma-chain ` : error` — upstream's
+`errorType` reaches the printer VERBATIM here, exactly §35's JS
+` : error` finding. §14's blanket `any` was calibrated on TS cases
+(`largeControlFlowGraph`), where it scored +10,000; the JS half of the
+same admission manufactures WRONGs.
+
+**The bar.** At both §14 bail sites (the disabled-container ancestor check
+and the depth trip), answer `intrinsics.error` when `in_js_file(reference)`
+and keep `any` otherwise.
+
+**Falsifiers.** (a) If JS cases exist where the disabled read renders
+`any`, W→R is offset by R→W in those — split further by print position.
+(b) If §14's TS wins ever routed through a JS-file reference, they revert
+(R→G on `largeControlFlowGraph`).
+
+**§14.1 score — KEPT AT ZERO.** The pair moved NOTHING: this port never
+trips the cap in that file, because the trip upstream happens while
+computing the AUTO VAR's DECLARED type — `var v` with no initializer in a
+JS file is typed by a container-wide flow walk (upstream's auto/evolving
+mechanism), and THAT walk crosses the 4,000-line function's thousands of
+condition nodes, trips `f.depth == 2000` (`flow.go:118`), sets the GLOBAL
+`flowAnalysisDisabled`, and makes `v`'s declared type `errorType` — while
+parameters keep `any` (`A = t : any` beside `T = v : error` in the same
+chain). A hop-counting variant was tried and REVERTED unfaithful:
+upstream's own loop skips straight-line antecedent hops without
+incrementing (`flow.go:129-160`). The split itself is upstream-faithful
+(the give-up value prints ` : error` in JS) and stays, priced at zero
+until the auto-var container walk exists. The real owner of the 324 lines
+is that mechanism — a largeControlFlowGraph-class single-case mountain;
+queued, not refused.
