@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`93b540a`**, 2026-08-07 (seventh session).
+Measured at **`67949ee`**, 2026-08-07 (seventh session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,19 +40,19 @@ Measured at **`93b540a`**, 2026-08-07 (seventh session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,754/9,538** | **28.87%** | **gradient 72.65%** — the target |
+| **`checker_types`** | **2,762/9,538** | **28.96%** | **gradient 72.72%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-347,951 / 478,954 assertion lines = 72.65%      (measured at 93b540a, seventh session)
-  right 347,951 | gap 81,355 | wrong 39,609        right+gap+wrong = 468,915 exactly
+348,306 / 478,954 assertion lines = 72.72%      (measured at 67949ee, seventh session)
+  right 348,306 | gap 80,920 | wrong 39,689        right+gap+wrong = 468,915 exactly
 ```
 
-**Re-taken from one `verdictdump.rs` run at `93b540a`**, and the arithmetic
-check against the sixth session's triple names the session's two builds:
-347,530 + 128 + 293 = 347,951.
+**Re-taken from one `verdictdump.rs` run at `67949ee`**, and the arithmetic
+check against the sixth session's triple names the session's four builds:
+347,530 + 128 + 293 + 297 + 58 = 348,306.
 
 **Re-taken, not carried.** This block read `347,384 / 81,977 / 39,554` for two
 builds after those numbers stopped being true — the namespace deletion (+32) and
@@ -185,6 +185,8 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| `67949ee` | **a chain segment prints under its best name** — `React.Component`, never `__React.Component`. One edit on `symbol_chain`'s parent segment; measured WRONG→RIGHT 58 with **no other transition of any kind** (`checker-notes-modobj.md` §10.10) | **+58** |
+| `952b328` | **`export = X` resolves through the assignment, and the rename prints the alias** — `resolve_alias`'s `ExportAssignment` arm (`checker.go:14889`), `import a = require` following `resolveExternalModuleSymbol` (`:15556`), and `Checker::best_name` (the innermost-table walk of `getAccessibleSymbolChain`). Sized at 302 seed converts / 23 would-wrong (§10.8). **Leg 4 FIRED at 130 lost on the first measurement** — a same-file `import a = b` alias renamed `privacyGloImport`'s namespaces, and the counterfactual's alias reduction was blind to that form, a false 0 at-risk — fixed with upstream's own `useOnlyExternalAliasing` flag (`symbolaccessibility.go:568`) and re-measured at **RIGHT→WRONG 0** (§10.9). The React/tsx `typeof React` family converts | **+297** |
 | `897abdd` | **a chain through a module container qualifies** — `symbol_chain`'s three new arms in upstream's order: `trySymbolTable`'s direct-alias guard (an in-scope alias naming the symbol itself stops the chain), the container-alias arm via the tri-state `module_alias_at` (ambiguity declines outright), and the ambient `import("x").` branch (`nodebuilderimpl.go:1260`). Sized at 104 strict converts (§10.6), landed **283%** of that through composite prints; RIGHT→WRONG was **exactly the 3 at-risk lines the counterfactual named in advance** (`checker-notes-modobj.md` §10.7) | **+293** |
 | `f62582e` | **`tryFindAmbientModule`** — `declare module "x"` is a resolution target, consulted before the host (`checker.go:15533`, `:15154`), selected by declaration shape because this binder stores ambient names unquoted. The type-creation refusal for bodied ambient modules moved to the rendering path (the thirteenth unported-stand-in fixture came due). Mechanism-own new wrong ~15; 328 more GAP→WRONG were correct types wearing unqualified names — attributed by arithmetic over two `verdictdump` runs and converted by `897abdd` the same session | **+128** |
 | `93b540a` | **the `/.lib` test-library folder mounts** (`harnessutil.go:39`, `:141`) — measured at **zero** and shipped with the zero stated: react.d.ts loads and `"react"` is in globals, but the tsx corpus's `typeof React` head is blocked one mechanism later, on `export = __React` (the export= arm, `tsr-e2u` family) plus alias-preferred naming | 0, stated |
@@ -486,6 +488,7 @@ it means the item returns to §4 needing a fresh bar, not that it is now good.
 | `ArrayLiteral` wrong bucket | 1,773 | 36.7% one case; 42.3% is tuple inference in `contextual.rs` |
 | wrong bucket case-flips | 37,709 | **81% symptom**; best actionable row flips 37 cases |
 | `hadErrorBaseline` | 40,759 | ADR-0039 |
+| **WITHDRAWN** — the export= follow (`tsr-e2u`'s stated blocker) | 218 C9 lines + the react/tsx head | The ALIAS-row refusal's spellability leg (0.0% export=) priced a compiler with no alias naming and no export= arm. **Both shipped, seventh session** (`952b328`): the chain converts 302 seed lines at 23 would-wrong measured, and the ALIAS row itself needs a fresh `nameres.rs` re-take before anything further is claimed about it |
 | **`tsr-jle` naming** | 11,008 | **10,000 of 11,004 are one case** — `largeControlFlowGraph`, ADR-0038's ceiling. Real size 1,004 in 566 pairs, head **21 lines** |
 | **`BinaryExpression` addition fallthrough** | 297 | **277 (93.3%) want `any`** — ADR-0038/0039 forbid it |
 | **`BinaryExpression` arithmetic (bigint mixing)** | 43 | 42 of 43 want `any`, and **97.7% is one case** |
