@@ -723,3 +723,14 @@ head `bitwiseCompoundAssignmentOperators`.
 **Bar:** net ≥ **+6**; own ≤ **4** — falsifier: losses on PLAIN `=` targets
 (the widening must gate on compound operators only); regressed == 0;
 lost == 0.
+
+### §10.1 Scored — clean at the floor
+
+```
+WRONG→RIGHT 6 · nothing else · +1 case (2,982 → 2,983)
+```
+
+Legs: net **+6** (= the floor exactly) · own **0** (the plain-`=` falsifier
+silent) · regressed **0** · lost **0**. `get_base_type_of_literal_type`
+lands with the enum-like arm deliberately identity (its base walk lives with
+`enum_member_owners`' consumers), which is the shape §10's bar did not size.

@@ -118,7 +118,19 @@ impl Checker<'_, '_> {
                         // does not ask.
                         if self.is_narrowable_symbol(symbol) {
                             let node_id = node.node_id.expect("checked above");
-                            self.get_flow_type_of_reference(node_id, Some(symbol), declared)
+                            let flowed =
+                                self.get_flow_type_of_reference(node_id, Some(symbol), declared);
+                            // `checker.go:11196`: the TARGET of a compound
+                            // assignment reads at the literal's base — `x |= …`
+                            // sees `boolean`, not the narrowed `true`
+                            // (`bitwiseCompoundAssignmentOperators.types`;
+                            // `checker-notes-narrow.md` §10). Plain `=` targets
+                            // are untouched, which is the bar's falsifier.
+                            if self.is_compound_assignment_target(node_id) {
+                                self.get_base_type_of_literal_type(flowed)
+                            } else {
+                                flowed
+                            }
                         } else {
                             declared
                         }
@@ -1123,4 +1135,74 @@ fn negate_number_text(normalised: &str) -> Option<String> {
     } else {
         format!("{negated}")
     })
+}
+
+impl Checker<'_, '_> {
+    /// Whether this identifier is the left-hand side of a COMPOUND assignment
+    /// — `getAssignmentTargetKind`'s compound half, reduced to the one
+    /// consumer at `checker.go:11196`.
+    fn is_compound_assignment_target(&self, id: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(id) else { return false };
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else {
+            return false;
+        };
+        if binary.left.and_then(|l| Node::from(l).node_id()) != Some(id) {
+            return false;
+        }
+        binary.operator_token.is_some_and(|token| {
+            matches!(
+                token.kind,
+                SyntaxKind::PlusEqualsToken
+                    | SyntaxKind::MinusEqualsToken
+                    | SyntaxKind::AsteriskEqualsToken
+                    | SyntaxKind::AsteriskAsteriskEqualsToken
+                    | SyntaxKind::SlashEqualsToken
+                    | SyntaxKind::PercentEqualsToken
+                    | SyntaxKind::LessThanLessThanEqualsToken
+                    | SyntaxKind::GreaterThanGreaterThanEqualsToken
+                    | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+                    | SyntaxKind::AmpersandEqualsToken
+                    | SyntaxKind::BarEqualsToken
+                    | SyntaxKind::CaretEqualsToken
+                    | SyntaxKind::AmpersandAmpersandEqualsToken
+                    | SyntaxKind::BarBarEqualsToken
+                    | SyntaxKind::QuestionQuestionEqualsToken
+            )
+        })
+    }
+
+    /// `getBaseTypeOfLiteralType` (`checker.go`, the literal arms): a literal
+    /// widens to its base primitive; a union maps constituents; everything
+    /// else — including enum-like, whose base walk lives elsewhere — returns
+    /// unchanged, which preserves current behaviour for the shapes §10's bar
+    /// did not size.
+    fn get_base_type_of_literal_type(&mut self, id: TypeId) -> TypeId {
+        let flags = self.store.get(id).flags;
+        if flags.intersects(TypeFlags::ENUM_LIKE) {
+            return id;
+        }
+        if flags.intersects(TypeFlags::STRING_LITERAL) {
+            return self.intrinsics.string;
+        }
+        if flags.intersects(TypeFlags::NUMBER_LITERAL) {
+            return self.intrinsics.number;
+        }
+        if flags.intersects(TypeFlags::BIG_INT_LITERAL) {
+            return self.intrinsics.bigint;
+        }
+        if flags.intersects(TypeFlags::BOOLEAN_LITERAL) {
+            return self.intrinsics.boolean;
+        }
+        if flags.intersects(TypeFlags::UNION) {
+            if let TypeData::Union { types, .. } = &self.store.get(id).data {
+                let constituents = types.clone();
+                let mapped: Vec<TypeId> = constituents
+                    .into_iter()
+                    .map(|constituent| self.get_base_type_of_literal_type(constituent))
+                    .collect();
+                return self.get_union_type(&mapped);
+            }
+        }
+        id
+    }
 }
