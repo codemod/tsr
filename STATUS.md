@@ -41,7 +41,7 @@ Measured at **`225451f`**, 2026-08-07 (ninth session).
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,043/9,538** | **31.90%** | **gradient 74.46%** — the target |
-| `diagnostics` | **910/5,488** | **16.58%** | **tenth session, +193** — 717 → 910 across ten builds and three measured refusals; the running total is 80 → 910, 11.4× |
+| `diagnostics` | **947/5,488** | **17.26%** | **tenth session, +230** — 717 → 947 across fourteen builds and three measured refusals; the running total is 80 → 947, 11.8× |
 
 ### `checker_types`, the number the project is steered by
 
@@ -216,8 +216,12 @@ them (the parallel `.types` workstream's 3,043 / 74.46% is theirs).
 | `50bc406` | TS2554 / TS2555 — call arity | +6 | **0** |
 | `~` | **TS2339 — §9's refusal retired** on the completeness walk | +12 | 11 |
 | `~` | TS2741 — built on the same walk, **REFUSED** at 1 for 8 | 0 | — |
-| `HEAD` | TS2353 — excess properties | +6 | **0** |
+| `~` | TS2353 — excess properties | +6 | **0** |
 | `~` | TS2403 — built, **REFUSED** at 6 losses (`isTypeIdenticalTo` unported) | 0 | — |
+| `~` | **TS2322 re-gated on `relate_ternary`; §16's primitives gate deleted** | +7 | 50 |
+| `~` | TS2345 — argument assignability on the sole-signature gate | +11 | 8 |
+| `~` | TS2415 / TS2420 / TS2430 — heritage conformance | +19 | 21 |
+| `HEAD` | TS2416 — per-property overrides, shipped at a measured **zero** | 0 | **0** |
 
 **The session was asked for 50%. It is not reachable from here, and the session
 measured that three separate ways rather than asserting it once.** `diaggap.rs`'s single-code column — the
@@ -259,14 +263,39 @@ members table together are worth on the order of 800–1,000 cases, which lands 
 suite near **30%**, and the remainder is a long tail of rows worth 10–30 cases
 each. That is a multi-session number and it is now a costed one.
 
-**What the session establishes for the next one, in one number.** The first
-TS2322 build was gated on nothing but the error type and measured **947 right
-against 988 wrong** — the relation disagreeing with upstream *almost exactly half
-the time*. That is `checker_types`' 26% non-gradient arriving as diagnostics, and
-it is the first direct measurement of a thing the project had only asserted: **an
-incomplete relation does not report less, it reports wrongly.** Every gate in
-`checker-notes-diag2.md` §16 exists to bound that, and the surviving rule is
-confined to types whose assignability is settled by flags alone.
+**And the third measurement is the one to act on.** After the `relate_ternary`
+correction the TS2322 row fell 511 → 496 while the rule emitted **294 correct
+lines** — fifteen cases finished out of 294 right diagnostics. That ratio, not
+the row sizes, is what prices the remaining board.
+
+**CORRECTED, same session, and the correction is the session's most useful
+result.** This block read: *"The first TS2322 build measured 947 right against
+988 wrong — the relation disagreeing with upstream almost exactly half the time.
+That is `checker_types`' 26% non-gradient arriving as diagnostics […] an
+incomplete relation does not report less, it reports wrongly."*
+
+**The number was right and the diagnosis was wrong.** `crate::relater` is
+**three-valued**: `Ternary::NotRelated` means *"does not hold, and this port is
+entitled to say so"*, `Ternary::Unknown` means *"cannot decide"*. The rule was
+calling `is_type_assignable_to`, the **binary projection**, which collapses
+`Unknown` into `false`. The 988 was not disagreement — it was **every undecidable
+pair being reported as an error**, and the primitives-only gate built on top of it
+was a bound drawn around a defect rather than around the relation.
+
+Switching to `relate_ternary` and **deleting that gate entirely**
+(`checker-notes-diag2.md` §25) took TS2322 from 35 conversions / 24 wrong to
+**42 / 50 with 0 lost**, and then unlocked three rows that had never been
+attempted, because a conformance check is the purest consumer of a negative:
+TS2345 **+11**, TS2415/2420/2430 **+19**. **+37 cases from one corrected function
+call.**
+
+> This is the third time this project has drawn a bound around the wrong thing
+> and measured it honestly: `checker-notes-selectable.md`'s `SELECTABLE` flag set
+> (*"the blocker was the gate, not the relation"*), §9's `members: Some(_)`, and
+> now this. In all three the numbers were right and the premise under them was
+> not. **The tell is the same each time: a bound that has to model a subsystem's
+> incompleteness is a bound in the wrong place, because the subsystem already
+> knows.**
 
 **Three rules reported zero or one wrong line**, and all three report on a
 *syntactic* fact — §14's ordering rule holding for a third and fourth kind of
