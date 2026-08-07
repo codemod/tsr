@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the arrays-§5 landing, 2026-08-07 (ninth session, continued: builds 25–32).
+Measured at the §16 landing, 2026-08-07 (ninth session, continued: builds 25–33).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the arrays-§5 landing, 2026-08-07 (ninth session, continued: builds
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,078/9,538** | **32.27%** | **gradient 77.09%** — the target |
+| **`checker_types`** | **3,080/9,538** | **32.29%** | **gradient 77.12%** — the target |
 | `diagnostics` | **993/5,488** | **18.09%** | **tenth session, +276** — 717 → 993 across twenty-two builds and four measured refusals; the running total is 80 → 993, 12.4× |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-369,246 / 478,954 assertion lines = 77.09%      (measured at the arrays-§5 landing)
-  right 369,246 | gap 76,981 | wrong 22,688        right+gap+wrong = 468,915 exactly
+369,354 / 478,954 assertion lines = 77.12%      (measured at the §16 landing)
+  right 369,354 | gap 76,991 | wrong 22,570        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -72,7 +72,9 @@ assignments do not narrow, `flow.go:229`'s skip at the literal's base —
 plumbing gap `bd tsr-4sc.11`; the fired leg taught that catch variables are
 not auto) = 368,720; then + 526 (arrays §5: `T | T` is `T` by
 identity, so the named-union decline never fires on identical inputs —
-`enumLiteralsSubtypeReduction` whole) = 369,246 exactly.
+`enumLiteralsSubtypeReduction` whole) = 369,246; then + 108 (§16: the switch-clause
+arm — typeof witnesses and identifier discriminants, two fired legs
+honoured, 27 more wrongs converted to honest gaps) = 369,354 exactly.
 
 **The ninth session's chain, every figure from one `verdictdump` pair per
 build:** 352,727 + 246 (empty literal non-strict) + 377 (alias rename, split
@@ -987,6 +989,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §16 landing | **77.12%** | **3,080** | **+108/6, 27 W→G** | **Build 33: SWITCH_CLAUSE.** `getTypeAtSwitchClause`'s two matching arms with Kleene declines. The build's transferable lesson repeated §12.5's: the first pair read +14/17 and ONE trace print named it — the clause node's `kind` token is `CaseKeyword`, not the node kind, so every witness read as default and every case narrowed to `never`. Second leg: JSDoc parenthesized casts don't narrow (paren skip declines in JS files — the JS trap's fourth appearance). Priced residue: typeof-facts granularity for `function`/`object`, type-parameter narrowing, the 1,298-line discriminant-property row |
 | 2026-08-07 | arrays-§5 landing | **77.09%** | **3,078** | **+526/2** | **Build 32: `union(E, E)` is `E`.** The `E[] ← error[]` board row (512) was the named-union decline firing on IDENTICAL inputs — `[E.E0, E.E1]` widens both elements to the same named `E`, and `T \| T = T` needs none of upstream's `origin` denormalisation. One identity fast path in `get_union_type`. The 2 adverse are the recorded null-widening intrinsic gap surfacing one step closer (`error`→`null` against widened-`any` wants). Diagnostics 993 → 998 |
 | 2026-08-07 | §15 landing | **76.98%** | **3,078** | **+1,147/5 (229×), +3 cases** | **Build 31: compound assignments do not narrow.** The `2,624 number ← any` board row decoded at `flow.go:229`: upstream's assignment arm SKIPS a compound target's effect, answering the antecedent's type at the literal's base — the md5 chains stay `number` through every `a += any` because the plain shift re-anchors and `+=` never injects. `binaryArithmeticControlFlowGraphNotTooLarge` whole (968) plus `controlFlowSelfReferentialLoop`'s remaining 131. Fired leg: catch variables were misclassified auto and the skip exposed it (`useUnknownInCatchVariables01` — `is_auto_typed_declaration` now excludes catch clauses). 3 residual = `noImplicitAny`-off, options unplumbed, `bd tsr-4sc.11`. Diagnostics rode along 964 → 993 (+29 across two builds) |
 | 2026-08-07 | §14 landing | **76.75%** | **3,075** | **+10,000/0 — one build, one case, +2.09 points** | **Build 30: the too-large bail.** The wrong board's head was ONE case — `largeControlFlowGraph`, 10,001 lines want-`any`, 29% of the entire wrong column. Mechanism: upstream's DELIBERATE give-up — 10k chained `data[0] = 0` against `const data = []` (autoArrayType) trips the flow depth cap through `getTypeAtFlowArrayMutation`'s per-mutation recursion (`flow.go:118`/`1404`), TS2563 reports once at the declaration, `flowAnalysisDisabled` poisons the containing body (`checkBlock` save/restore, `checker.go:3791`), and every flow reference answers `errorType` — **which upstream prints as `any`**. The port: a mutation-count stand-in for the recursion (≥2,000 same-name element assignments in the container), a per-container disabled set scoped by lexical containment, and the `any` intrinsic as the bail's answer — with the ADR-0038 boundary argued in `checker-notes-narrow.md` §14: `error`-printing is for THIS port's failures; TS2563 is upstream's own, and its observable IS `any`. One leg fired in-build: the declaration keeps its widened `any[]` (the poison is for references, not the symbol). Falsifier (a) held: `binaryArithmeticControlFlowGraphNotTooLarge` (10k nodes, iterative walk upstream, no trip) untouched |
