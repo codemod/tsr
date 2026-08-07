@@ -566,6 +566,22 @@ impl<'a, 'n> Checker<'a, 'n> {
         let Some(symbol) = symbol else { return printed };
         let name = self.binder.symbols().get(symbol).name;
         let Some(suffix_at) = Self::split_around_name(&printed, name) else { return printed };
+        // The RENAME (`checker-notes-modobj.md` §10.8): the innermost
+        // accessible name for the symbol may be an *alias's* — `typeof React`
+        // for a type whose symbol is the global `__React`, because the file's
+        // own table holds the alias and upstream's scope walk stops at the
+        // first table that reaches the symbol. Measured over every printed
+        // line in the corpus before building: it changes zero of them — its
+        // whole population is lines that gap today.
+        if let Some(better) = self.best_name(symbol, reference)
+            && better != name
+        {
+            let mut out = String::with_capacity(printed.len() + better.len());
+            out.push_str(&printed[..suffix_at - name.len()]);
+            out.push_str(better);
+            out.push_str(&printed[suffix_at..]);
+            return out;
+        }
         let Some(qualifier) =
             self.symbol_chain(symbol, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)
         else {
@@ -812,6 +828,82 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         found.ok_or(false)
+    }
+
+    /// The name upstream's `getAccessibleSymbolChain` scope walk prints for
+    /// `symbol` at `reference` — **the innermost table wins**, and within a
+    /// table the direct hit is checked before the aliases (`trySymbolTable`,
+    /// `symbolaccessibility.go:543` then `:562`).
+    ///
+    /// `Some(name)` — the symbol's own name on a direct hit, or the unique
+    /// alias name in the first table that reaches the symbol. `None` when no
+    /// table reaches it, or when one table holds ≥2 distinct alias names for
+    /// it — the chain-choice rule this port declines to guess
+    /// (`checker-notes-nameres.md` §14 measured both tie-breaks at ~96%
+    /// coincidence).
+    fn best_name(&mut self, symbol: SymbolId, reference: NodeId) -> Option<&'a str> {
+        let own = self.binder.symbols().get(symbol).name;
+        let target = self.binder.merged_symbol(symbol);
+        let mut tables: Vec<Vec<(&'a str, SymbolId)>> = Vec::new();
+        let mut current = Some(reference);
+        while let Some(node) = current {
+            if let Some(locals) = self.binder.locals(node) {
+                tables.push(locals.iter().map(|(&name, &id)| (name, id)).collect());
+            }
+            current = self.nodes.parent(node);
+        }
+        tables.push(self.binder.globals().iter().map(|(&name, &id)| (name, id)).collect());
+        for table in tables {
+            if let Some(&(_, hit)) = table.iter().find(|&&(name, _)| name == own)
+                && self.binder.merged_symbol(hit) == target
+            {
+                return Some(own);
+            }
+            let mut found: Option<&'a str> = None;
+            for (name, candidate) in table {
+                if !self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
+                    continue;
+                }
+                // `useOnlyExternalAliasing` (`trySymbolTable`,
+                // `symbolaccessibility.go:568`): the `.types` writer only lets
+                // an **external** `import a = require("…")` rename a symbol.
+                // Without this filter a same-file `import a = b` alias renamed
+                // `typeof m1_M1_public` to `typeof m1_im1_private` — 130
+                // right lines lost in the first measurement, the fired leg 4
+                // §10.9 records.
+                if !self.is_external_import_equals(candidate) {
+                    continue;
+                }
+                if self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
+                    != Some(target)
+                {
+                    continue;
+                }
+                match found {
+                    Some(existing) if existing == name => {}
+                    Some(_) => return None,
+                    None => found = Some(name),
+                }
+            }
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+
+    /// `ast.IsExternalModuleImportEqualsDeclaration`: `import a = require("m")`.
+    fn is_external_import_equals(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            matches!(
+                self.node_map.get(declaration),
+                Some(Node::ImportEqualsDeclaration(node))
+                    if matches!(
+                        node.module_reference,
+                        Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                    )
+            )
+        })
     }
 
     /// Whether any in-scope alias resolves to `target` itself at `reference` —

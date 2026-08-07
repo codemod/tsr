@@ -539,6 +539,12 @@ impl<'a> Checker<'a, '_> {
             SyntaxKind::ExportSpecifier => return self.export_specifier_target(declaration),
             // `getTargetOfImportSpecifier` (`checker.go:14647`).
             SyntaxKind::ImportSpecifier => return self.import_specifier_target(declaration),
+            // `getTargetOfExportAssignment` (`checker.go:14889`) — `export = X`
+            // where `X` is an identifier, resolved where it is written. Every
+            // other expression shape declines (upstream's
+            // `getTargetOfAliasLikeExpression` handles more; each unported
+            // shape is a miss, never a wrong target).
+            SyntaxKind::ExportAssignment => return self.export_assignment_target(declaration),
             _ => {}
         }
         // `getTargetOfNamespaceImport` (`checker.go:14724`) and
@@ -615,9 +621,22 @@ impl<'a> Checker<'a, '_> {
             // the `require(...)` on the declaration itself rather than a
             // `module_specifier` on any ancestor — a distinction that cost one
             // probe run to find (§10).
+            //
+            // Unlike the namespace-import forms above, this arm **follows an
+            // `export =`** (`resolveExternalModuleSymbol`, `checker.go:15556`)
+            // through the assignment alias to its target — the §10.8 chain.
+            // The naming constraint that used to forbid it (the target prints
+            // under its own name, `typeof __React`, where upstream prints the
+            // importing alias's) is answered by the rename in
+            // [`crate::Checker::type_to_string_at`]'s path.
             ModuleReference::ExternalModuleReference(reference) => {
                 let specifier = reference.expression?.node_id()?;
-                self.module_object_of(declaration, specifier)
+                let module = self.resolve_external_module_name(declaration, specifier)?;
+                let resolved = self.resolve_external_module_symbol(module);
+                if resolved == module {
+                    return Some(module);
+                }
+                self.resolve_alias(resolved)
             }
             // A qualified name RESOLVES fine and prints wrong, for want of
             // symbol accessibility. Unchanged, and not the same problem as the
@@ -656,16 +675,46 @@ impl<'a> Checker<'a, '_> {
     /// target.
     fn declaration_of_alias_symbol(&self, symbol: SymbolId) -> Option<NodeId> {
         self.binder.symbols().get(symbol).declarations.iter().rev().copied().find(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
+            match self.nodes.kind(declaration) {
                 SyntaxKind::ImportEqualsDeclaration
-                    | SyntaxKind::NamespaceExportDeclaration
-                    | SyntaxKind::NamespaceImport
-                    | SyntaxKind::NamespaceExport
-                    | SyntaxKind::ImportSpecifier
-                    | SyntaxKind::ExportSpecifier
-            )
+                | SyntaxKind::NamespaceExportDeclaration
+                | SyntaxKind::NamespaceImport
+                | SyntaxKind::NamespaceExport
+                | SyntaxKind::ImportSpecifier
+                | SyntaxKind::ExportSpecifier => true,
+                // `KindExportAssignment` needs `ExpressionIsAlias`
+                // (`ast/utilities.go:2631`); the shape this port resolves is an
+                // identifier, and testing it here rather than answering by kind
+                // keeps the predicate honest — see the doc above.
+                SyntaxKind::ExportAssignment => matches!(
+                    self.node_map.get(declaration),
+                    Some(Node::ExportAssignment(node))
+                        if matches!(node.expression, Some(tsr_ast::Expression::Identifier(_)))
+                ),
+                _ => false,
+            }
         })
+    }
+
+    /// `getTargetOfExportAssignment` (`checker.go:14889`) for the identifier
+    /// shape: resolve `X` of `export = X` where it is written, with the full
+    /// alias meaning (`SymbolFlagsValue | Type | Namespace`,
+    /// `checker.go:15751`).
+    fn export_assignment_target(&mut self, declaration: NodeId) -> Option<SymbolId> {
+        let Node::ExportAssignment(node) = self.node_map.get(declaration)? else {
+            return None;
+        };
+        let Some(tsr_ast::Expression::Identifier(name)) = node.expression else {
+            return None;
+        };
+        let found = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            name.node_id?,
+            name.text,
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+        )?;
+        Some(self.binder.merged_symbol(found))
     }
 
     /// The symbol an **export specifier** names, for the half that resolves

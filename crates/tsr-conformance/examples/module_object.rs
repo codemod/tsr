@@ -899,6 +899,7 @@ fn mock_namespace(
 ///    for a seed's declaration-name line is the seed's own alias.
 ///
 /// Returns `(outcome, example)`.
+#[allow(clippy::too_many_arguments)]
 fn mock_export_equals_chain(
     checker: &mut tsr_checker::Checker<'_, '_>,
     bound: &tsr_binder::BindResult<'_>,
@@ -912,9 +913,7 @@ fn mock_export_equals_chain(
     let Some(&assignment_symbol) = bound.symbols().get(module).exports.get("export=") else {
         return ("no export=", String::new());
     };
-    let Some(&declaration) =
-        bound.symbols().get(assignment_symbol).declarations.first()
-    else {
+    let Some(&declaration) = bound.symbols().get(assignment_symbol).declarations.first() else {
         return ("export= symbol has no declaration", String::new());
     };
     let Some(Node::ExportAssignment(assignment)) = node_map.get(declaration) else {

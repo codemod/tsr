@@ -568,3 +568,44 @@ baked name; (2) net far below 230 → the assignment resolution's meaning
 flags — upstream resolves with all meanings, compare on
 `es6ExportEqualsInterop`; (3) new wrong far above 46 concentrated in member
 reads → the cascade is minting, read the owners before reverting.
+
+### 10.9 §10.8 scored — leg 4 FIRED on the first build, and the fix is upstream's own flag
+
+First measurement: **RIGHT→WRONG 130** against a registered ≤ 10. Per the
+rule, first hypothesis is the build, and it was: the head
+(`privacyGloImport`, `typeof m1_M1_public` → `typeof m1_im1_private`) is a
+**same-file `import a = b` alias** the rename preferred over the symbol's own
+name. Upstream's `trySymbolTable` guards exactly this with
+`useOnlyExternalAliasing` (`symbolaccessibility.go:568`): only an external
+`import a = require("…")` may rename. **The probe's 0-at-risk measurement was
+wrong for the same population** — its `alias_target` reduction cannot resolve
+same-file `import a = b` at all, so the family was invisible to the
+counterfactual: a probe blind spot and a build defect cancelling in the
+model and colliding in the corpus. The filter
+(`Checker::is_external_import_equals`) restores upstream's rule.
+
+Second measurement, `verdictdump` against the same before-dump:
+
+```
+right  347,951 -> 348,248   +297      GAP→RIGHT 297
+gap     81,355 ->  80,920   −435
+wrong   39,609 ->  39,747   +138      GAP→WRONG 138, RIGHT→WRONG 0
+cases    2,754 ->   2,761   finished +7, regressed 0
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +230 | **+297** | pass |
+| 2 | own ≤ 46, global beside | **~4–10 own · +138 global** | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost ≤ 10 | **0** (was 130 before the filter) | pass |
+
+The 138 by owner, split by the same string arithmetic as §10.5: **67**
+missing dotted qualifiers (the chain families — `typeof __React.Component`
+wanting `typeof React.Component`: the rename fires on the root symbol, not on
+a *qualified* chain through the renamed root, which is the next shard of this
+family); **4** rename-misses (`EnumE`); **67** downstream shapes with owners
+elsewhere — class-instance typing through JSX heritage
+(`React.Component<P>` wanted where the class *object* type is printed),
+ADR-0039 `any` baselines, the `() => any` vs `{ (): any; }` signature print
+form, narrowing, and the file-module `import("…")` form.

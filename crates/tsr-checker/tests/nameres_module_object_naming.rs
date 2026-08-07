@@ -149,12 +149,17 @@ fn a_module_named_by_two_aliases_is_a_gap() {
 }
 
 #[test]
-fn a_module_writing_export_equals_is_left_alone() {
-    // `resolveExternalModuleSymbol` (`checker.go:15556`) would hand back the
-    // `export =` target, which has a declared name and prints through the baked
-    // text. That is a DIFFERENT population — 218 lines the probe excluded — and
-    // shipping it here would be unmeasured surface on a slice whose whole
-    // argument is that the surface was measured. `bd tsr-e2u`.
+fn a_module_writing_export_equals_resolves_through_the_assignment() {
+    // This fixture pinned the export= REFUSAL for two builds ("shipping it
+    // would be unmeasured surface") — the fourteenth unported-stand-in
+    // fixture to come due. The surface is now measured
+    // (`checker-notes-modobj.md` §10.8: 302 seed converts / 23 would-wrong)
+    // and the chain is built: `resolveExternalModuleSymbol`
+    // (`checker.go:15556`) hands back the export= alias, whose
+    // `ExportAssignment` arm (`getTargetOfExportAssignment`,
+    // `checker.go:14889`) resolves the written identifier. Baseline shape:
+    // `conformance/exportAssignTypes.types` records `>iValue : number` for
+    // exactly this pair of files.
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -163,7 +168,7 @@ fn a_module_writing_export_equals_is_left_alone() {
             ("b", "import mod = require(\"./m\");\n"),
         ],
     );
-    assert_eq!(rendered_at(&fixture, "mod", SyntaxKind::ImportEqualsDeclaration), "error");
+    assert_eq!(rendered_at(&fixture, "mod", SyntaxKind::ImportEqualsDeclaration), "string");
 }
 
 #[test]
@@ -348,4 +353,27 @@ fn a_member_of_an_ambient_module_with_no_alias_prints_the_import_form() {
         ],
     );
     assert_eq!(variable_rendered_at(&fixture, "w"), "import(\"GlobalWidgets\").Widget3");
+}
+
+#[test]
+fn an_export_equals_namespace_prints_the_importing_alias_name() {
+    // The RENAME (`checker-notes-modobj.md` §10.8). Pinned to the React shape
+    // every tsx baseline records — `react.d.ts` writes
+    // `declare namespace __React {…} declare module "react" { export = __React }`
+    // and `conformance/tsxUnionElementType3.types:…` records
+    // `>React : typeof React`, never `typeof __React`: the innermost table
+    // (the importing file's locals) reaches the symbol through the alias
+    // before any table holds `__React` directly.
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            (
+                "decl",
+                "declare namespace __X { export class C { x: string } }\ndeclare module 'm' { export = __X }\n",
+            ),
+            ("core", "import X = require(\"m\");\n"),
+        ],
+    );
+    assert_eq!(rendered_at(&fixture, "X", SyntaxKind::ImportEqualsDeclaration), "typeof X");
 }

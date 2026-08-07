@@ -556,7 +556,7 @@ fn best_name<'a>(
         }
         // Aliases: any entry resolving to the symbol.
         let mut found: Option<&'a str> = None;
-        for (&name, &candidate) in table.iter() {
+        for (&name, &candidate) in table {
             if !binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS) {
                 continue;
             }
