@@ -125,6 +125,7 @@ pub(crate) fn type_of_expression<'a>(
     factory: &mut Factory<'a, '_>,
     expression: &Expression<'a>,
     freshness: Freshness,
+    strict_null_checks: bool,
 ) -> Option<TypeNode<'a>> {
     let span = factory.span_of(expression.node_id());
     match expression {
@@ -153,17 +154,9 @@ pub(crate) fn type_of_expression<'a>(
             SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword => {
                 widen_or_literal(factory, expression, freshness, SyntaxKind::BooleanKeyword, span)
             }
-            // `null` widens to `any`, in both contexts. `compiler/constDeclarations`
-            // writes `const c3 = 0, c4: string, c5 = null` and its baseline reads
-            // `declare const c3 = 0, c4: string, c5: any` — so `null` is neither a
-            // literal-const value (it is not in `IsPrimitiveLiteralValue`) nor a
-            // literal type here.
-            //
-            // This is the corpus's default, which is `strictNullChecks` off. Under
-            // `strict`, `null` stays `null`, and this port has no compiler options
-            // to consult — the option plumbing arrives with the `Program`
-            // (`bd tsr-49v.6`). Emitting `any` is the answer that matches every
-            // baseline currently in the target.
+            SyntaxKind::NullKeyword if strict_null_checks => {
+                Some(literal_type(factory, Node::from(*expression), span))
+            }
             SyntaxKind::NullKeyword => Some(factory.keyword_type(SyntaxKind::AnyKeyword, span)),
             _ => None,
         },
@@ -188,13 +181,18 @@ pub(crate) fn type_of_expression<'a>(
             Freshness::Const => None,
         },
         Expression::ParenthesizedExpression(inner) => {
-            type_of_expression(factory, inner.expression.as_ref()?, freshness)
+            type_of_expression(factory, inner.expression.as_ref()?, freshness, strict_null_checks)
         }
         // `x as const` enters a const context; `x as T` states `T` outright, and
         // the annotation is reused rather than rebuilt.
         Expression::AsExpression(as_expression) => {
             if is_const_assertion(as_expression.r#type.as_ref()) {
-                type_of_expression(factory, as_expression.expression.as_ref()?, Freshness::Const)
+                type_of_expression(
+                    factory,
+                    as_expression.expression.as_ref()?,
+                    Freshness::Const,
+                    strict_null_checks,
+                )
             } else {
                 as_expression.r#type
             }
@@ -202,11 +200,14 @@ pub(crate) fn type_of_expression<'a>(
         Expression::TypeAssertion(assertion) => assertion.r#type,
         // `satisfies` constrains without naming the type, so the operand still
         // has to produce one.
-        Expression::SatisfiesExpression(satisfies) => {
-            type_of_expression(factory, satisfies.expression.as_ref()?, freshness)
-        }
+        Expression::SatisfiesExpression(satisfies) => type_of_expression(
+            factory,
+            satisfies.expression.as_ref()?,
+            freshness,
+            strict_null_checks,
+        ),
         Expression::ObjectLiteralExpression(object) => {
-            object_literal_type(factory, object, freshness, span)
+            object_literal_type(factory, object, freshness, strict_null_checks, span)
         }
         // Only a const array is inferable — `tsr_dts` reports `TS9017` for a
         // mutable one — and a const array is a `readonly` tuple of its elements'
@@ -217,7 +218,12 @@ pub(crate) fn type_of_expression<'a>(
             }
             let mut elements = Vec::with_capacity(array.elements.len());
             for element in array.elements {
-                elements.push(type_of_expression(factory, element, Freshness::Const)?);
+                elements.push(type_of_expression(
+                    factory,
+                    element,
+                    Freshness::Const,
+                    strict_null_checks,
+                )?);
             }
             let elements = factory.slice(&elements);
             let tuple = TypeNode::TupleTypeNode(factory.alloc(
@@ -229,7 +235,8 @@ pub(crate) fn type_of_expression<'a>(
             Some(readonly_operator(factory, tuple, span))
         }
         Expression::ArrowFunction(arrow) => {
-            let inferred = arrow_return_type(factory, arrow.body.as_ref(), span);
+            let inferred =
+                arrow_return_type(factory, arrow.body.as_ref(), strict_null_checks, span);
             function_type(
                 factory,
                 arrow.type_parameters,
@@ -281,6 +288,7 @@ fn object_literal_type<'a>(
     factory: &mut Factory<'a, '_>,
     object: &tsr_ast::ObjectLiteralExpression<'a>,
     freshness: Freshness,
+    strict_null_checks: bool,
     span: Span,
 ) -> Option<TypeNode<'a>> {
     use tsr_ast::ObjectLiteralElementLike as Member;
@@ -290,7 +298,7 @@ fn object_literal_type<'a>(
         let member = match property {
             Member::PropertyAssignment(assignment) => {
                 let value = assignment.initializer.as_ref()?;
-                let r#type = type_of_expression(factory, value, freshness)?;
+                let r#type = type_of_expression(factory, value, freshness, strict_null_checks)?;
                 property_signature(factory, assignment.name, Some(r#type), freshness, span)
             }
             // A method's type needs its return annotation. Without one this is
@@ -457,6 +465,7 @@ fn strip_binding_initializers<'a>(
 fn arrow_return_type<'a>(
     factory: &mut Factory<'a, '_>,
     body: Option<&tsr_ast::ConciseBody<'a>>,
+    strict_null_checks: bool,
     span: Span,
 ) -> Option<TypeNode<'a>> {
     let body = body?;
@@ -467,7 +476,7 @@ fn arrow_return_type<'a>(
             .then(|| factory.keyword_type(SyntaxKind::VoidKeyword, span));
     }
     let expression = Expression::try_from(Node::from(*body)).ok()?;
-    type_of_expression(factory, &expression, Freshness::Widening)
+    type_of_expression(factory, &expression, Freshness::Widening, strict_null_checks)
 }
 
 fn empty_function_body_return_type<'a>(

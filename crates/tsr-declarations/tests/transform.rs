@@ -49,6 +49,7 @@ fn emit_stripping_internal(source: &str) -> String {
             source_text: Some(source),
             strip_internal: true,
             remove_comments: false,
+            strict_null_checks: false,
         },
     )
     .text
@@ -150,6 +151,31 @@ fn default_export_expression_gets_a_collision_free_binding() {
     let export_equals = emit("export = { answer: 42 };");
     assert!(export_equals.contains("declare const _default"), "{export_equals}");
     assert!(export_equals.contains("export = _default;"), "{export_equals}");
+}
+
+#[test]
+fn strict_null_checks_controls_null_widening() {
+    let source = "export default null;";
+    let emit_with_strict_null_checks = |strict_null_checks| {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let mut nodes = parsed.nodes;
+        tsr_declarations::emit_with_options(
+            &arena,
+            &mut nodes,
+            parsed.source_file,
+            tsr_declarations::DeclarationEmitOptions {
+                source_text: Some(source),
+                strip_internal: false,
+                remove_comments: false,
+                strict_null_checks,
+            },
+        )
+        .text
+    };
+
+    assert!(emit_with_strict_null_checks(true).contains("declare const _default: null;"));
+    assert!(emit_with_strict_null_checks(false).contains("declare const _default: any;"));
 }
 
 // ----- namespaces, and the three-way scope-marker choice -------------------
@@ -483,6 +509,7 @@ fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
             source_text: Some(source),
             strip_internal: false,
             remove_comments: false,
+            strict_null_checks: false,
         },
     );
     assert_eq!(
@@ -501,6 +528,7 @@ fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
             source_text: Some(source),
             strip_internal: false,
             remove_comments: true,
+            strict_null_checks: false,
         },
     );
     assert!(!result.text.contains("docs"), "removeComments leaked JSDoc: {}", result.text);

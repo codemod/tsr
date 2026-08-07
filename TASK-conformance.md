@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  237/341  = 69.50%  (up from 161/339)
+  dts_emit                  238/341  = 69.79%  (up from 161/339)
   dts_shape                 708/918  = 77.12%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -111,6 +111,12 @@ synthesized nodes share an original range and honoring `removeComments`. Structu
 `@overload`/`@constructor` blocks remain excluded until they can be mapped to the
 right transformed overload nodes. This closed `commentsVariableStatement1`,
 `seeTag1`, and `seeTag2` without changing declaration shape.
+
+Declaration emit now carries `strictNullChecks` into the syntax-only type builder.
+Strict cases preserve `null` as a literal type recursively, while explicit
+non-strict cases continue widening it to `any`. This closed
+`conformance/exportDefaultExpressionComments` without changing declaration shape
+or any checker-owned behavior.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

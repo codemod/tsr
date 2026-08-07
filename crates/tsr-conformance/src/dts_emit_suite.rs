@@ -356,6 +356,11 @@ pub(crate) fn declaration_emit_options<'a>(
             .options
             .get("removecomments")
             .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        strict_null_checks: case
+            .options
+            .get("strictnullchecks")
+            .or_else(|| case.options.get("strict"))
+            .is_none_or(|value| value.eq_ignore_ascii_case("true")),
     }
 }
 
@@ -381,6 +386,23 @@ mod tests {
         assert!(is_declaration_file_name("lib.d.ts"));
         assert!(is_declaration_file_name("a.d.mts"));
         assert!(!is_declaration_file_name("a.ts"));
+    }
+
+    #[test]
+    fn declaration_emit_options_follow_strict_null_directives() {
+        let default_case = crate::TestCase::parse("compiler/default", "default.ts", "");
+        assert!(declaration_emit_options(&default_case, "").strict_null_checks);
+
+        let non_strict =
+            crate::TestCase::parse("compiler/nonStrict", "nonStrict.ts", "// @strict: false\n");
+        assert!(!declaration_emit_options(&non_strict, "").strict_null_checks);
+
+        let override_case = crate::TestCase::parse(
+            "compiler/override",
+            "override.ts",
+            "// @strict: false\n// @strictNullChecks: true\n",
+        );
+        assert!(declaration_emit_options(&override_case, "").strict_null_checks);
     }
 
     #[test]

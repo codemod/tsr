@@ -126,6 +126,8 @@ pub struct DeclarationEmitOptions<'a> {
     pub strip_internal: bool,
     /// Suppress comments in declaration output.
     pub remove_comments: bool,
+    /// Preserve `null` as a literal type instead of widening it to `any`.
+    pub strict_null_checks: bool,
 }
 
 /// The kind of a preserved triple-slash declaration reference.
@@ -216,7 +218,7 @@ pub fn emit_with_references_and_options<'a>(
     options: DeclarationEmitOptions<'a>,
 ) -> DeclarationEmit {
     let diagnostics = tsr_dts::analyze(file, nodes);
-    let resolver = SyntacticResolver::new(file);
+    let resolver = SyntacticResolver::new(file, options.strict_null_checks);
 
     let (declaration_file, inference_required) = {
         let factory = Factory::new(arena, nodes);

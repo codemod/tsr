@@ -166,6 +166,7 @@ impl<'a> LiteralConstHost<'_, 'a> {
 /// front of it. It never looks at a type.
 pub struct SyntacticResolver {
     visible: tsr_dts::visibility::Visible,
+    strict_null_checks: bool,
     /// Every *top-level* statement of the file.
     ///
     /// Needed to tell "this declaration is not visible" from "this pass has
@@ -178,9 +179,10 @@ pub struct SyntacticResolver {
 impl SyntacticResolver {
     /// Build the resolver for one file.
     #[must_use]
-    pub fn new(file: &tsr_ast::SourceFile<'_>) -> Self {
+    pub fn new(file: &tsr_ast::SourceFile<'_>, strict_null_checks: bool) -> Self {
         Self {
             visible: tsr_dts::visibility::visible_declarations(file),
+            strict_null_checks,
             top_level: file.statements.iter().filter_map(Statement::node_id).collect(),
         }
     }
@@ -269,7 +271,7 @@ impl<'a> EmitResolver<'a> for SyntacticResolver {
         initializer: Option<&Expression<'a>>,
         freshness: Freshness,
     ) -> Option<TypeNode<'a>> {
-        type_builder::type_of_expression(factory, initializer?, freshness)
+        type_builder::type_of_expression(factory, initializer?, freshness, self.strict_null_checks)
     }
 
     /// A return type is never recoverable from syntax: it is the type of whatever
