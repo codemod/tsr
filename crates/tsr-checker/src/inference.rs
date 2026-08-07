@@ -811,7 +811,7 @@ impl Checker<'_, '_> {
     /// `None` when the declaration is not function-like or any type parameter
     /// has no symbol, which keeps a partial map from producing a partial
     /// substitution.
-    fn type_parameter_types(&mut self, signature: &Signature) -> Option<Vec<TypeId>> {
+    pub(crate) fn type_parameter_types(&mut self, signature: &Signature) -> Option<Vec<TypeId>> {
         let declarations = match self.node_map.get(signature.declaration)? {
             Node::FunctionDeclaration(node) => node.type_parameters,
             Node::FunctionExpression(node) => node.type_parameters,

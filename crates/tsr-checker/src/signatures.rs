@@ -330,9 +330,40 @@ impl<'a> Checker<'a, '_> {
         }
         let mut candidates: Vec<Signature> = Vec::new();
         for element in elements {
-            let signature = self.get_signature_from_declaration(element)?;
+            let mut signature = self.get_signature_from_declaration(element)?;
             if !signature.type_parameters.is_empty() {
-                return None;
+                // §44 (`checker-notes-narrow.md`): ALL-defaulted generics
+                // instantiate their return with the default map and join as
+                // concrete; anything else keeps the decline.
+                let parameters = self.type_parameter_types(&signature)?;
+                let names: Vec<&str> =
+                    signature.type_parameters.iter().map(|p| p.name.as_str()).collect();
+                let names_owned: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
+                let mut map = Vec::with_capacity(parameters.len());
+                for (position, &parameter) in parameters.iter().enumerate() {
+                    let default = signature.type_parameters[position].default?;
+                    let image = self.instantiate_type(
+                        default,
+                        &map,
+                        &parameters,
+                        &names_owned.iter().map(String::as_str).collect::<Vec<_>>(),
+                    );
+                    if image == self.intrinsics.error {
+                        return None;
+                    }
+                    map.push((parameter, image));
+                }
+                let instantiated = self.instantiate_type(
+                    signature.r#type,
+                    &map,
+                    &parameters,
+                    &names_owned.iter().map(String::as_str).collect::<Vec<_>>(),
+                );
+                if instantiated == self.intrinsics.error {
+                    return None;
+                }
+                signature.r#type = instantiated;
+                signature.type_parameters = Vec::new();
             }
             candidates.push(signature);
         }

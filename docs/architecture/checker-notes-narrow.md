@@ -1920,3 +1920,9 @@ instantiates its return with the default map and joins as concrete; any
 undefaulted parameter keeps the decline. Falsifier: defaults mentioning
 sibling parameters instantiate against the filled prefix or decline —
 the §38 twins.
+
+**§44 score — LANDED SMALL: +4/0.** The typed-array row still declines
+past both new arms — the remaining gate needs a per-overload trace of
+`Float32ArrayConstructor`'s candidates (recorded as the row's next probe).
+Both fills are upstream-true and stay. `checker_types` right 393,557 →
+**393,561 (82.18%)**.
