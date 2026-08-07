@@ -619,3 +619,29 @@ mechanisms and excluded). Net ≥ **+350**; own ≤ **30** — falsifier: losses
 on references AFTER a reaching assignment (`let x; x = 1; x` must stay
 `number` — if the flag leaks through assignment arms the provenance model is
 wrong, stop); regressed == 0; lost == 0.
+
+### §9.2 REFUSED for now — +989 measured and forfeited, on two fired legs and a structural unsoundness
+
+The sentinel build measured **WRONG→RIGHT 735, GAP→RIGHT 343 (+989 net)** —
+and fired legs 2 and 3: **79 RIGHT→WRONG, 10 RIGHT→GAP, 7 cases regressed.**
+Reverted whole. Three findings, each load-bearing for the next attempt:
+
+1. **Both behaviours exist in the corpus.** `want undefined` same-container
+   lines (`deleteOperator1`, `assignmentToParenthesizedExpression1`,
+   `commentsArgumentsOfCallExpression2`) sit beside the 276 `want any` ones —
+   the discriminator is somewhere in var-vs-let, strictness, or the
+   `isMutableLocalVariableDeclaration` refinements this cycle did not model.
+   A per-case study of the two want-populations is the prerequisite.
+2. **The loop-label leak.** `nestedBlockScopedBindings*` regressions are
+   `let` in loops — the sentinel provenance mis-reports through loop-label
+   merges (the unported incomplete-types fixpoint family, again).
+3. **The re-walk is structurally unsound**, independent of semantics:
+   `~ANY1 : number → error` shapes show sentinel-derived types leaking into
+   the node-type memo and interned unions — a second walk over machinery
+   with write-through caches contaminates them. **Provenance must be a flag
+   on `FlowType`, threaded through every arm — never a second walk.**
+
+The +989 stays on the table with its price list: the discriminator study,
+the loop-label handling, and the `FlowType` provenance flag. Nothing about
+the §9.1 derivation of upstream's exits is retracted — `checker.go:11182`'s
+two exits are the mechanism; the port's implementation shape is what failed.
