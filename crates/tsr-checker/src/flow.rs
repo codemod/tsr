@@ -1122,6 +1122,13 @@ impl Checker<'_, '_> {
             return declared;
         };
         let constituents = types.clone();
+        // A one-constituent union exists in this port only as the one-member
+        // enum deviation (`unions.rs`, `get_named_union_type`); upstream's
+        // declared type there IS the member — no union, no reduction
+        // (`enumOperations`, the §18 measurement's largest fired leg).
+        if constituents.len() == 1 {
+            return declared;
+        }
         let mut kept = Vec::with_capacity(constituents.len());
         for constituent in constituents {
             if self.type_maybe_assignable_to(assigned, constituent) {

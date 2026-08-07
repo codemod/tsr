@@ -14,6 +14,12 @@ impl Checker<'_, '_> {
     /// Ported from `Checker.getRegularTypeOfLiteralType`. A no-op for anything
     /// that is not a fresh literal.
     pub fn get_regular_type_of_literal_type(&mut self, id: TypeId) -> TypeId {
+        // An enum member's regular form is the union's own constituent —
+        // interning would mint a twin the relater cannot match
+        // (`checker-notes-narrow.md` §18).
+        if let Some(&regular) = self.enum_member_regular.get(&id) {
+            return regular;
+        }
         let ty = self.store.get(id);
         if !ty.fresh {
             return id;

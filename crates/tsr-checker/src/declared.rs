@@ -1236,6 +1236,9 @@ impl<'a> Checker<'a, '_> {
                 // about the type rather than about how it was reached.
                 self.enum_member_owners.insert(member_type, symbol);
                 self.enum_member_owners.insert(fresh, symbol);
+                // The §18 back-link: the fresh form's REGULAR twin is the
+                // union's own constituent, not an interned lookalike.
+                self.enum_member_regular.insert(fresh, member_type);
                 members.push(member_type);
             }
         }

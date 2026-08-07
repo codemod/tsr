@@ -129,6 +129,10 @@ pub struct Checker<'a, 'n> {
     /// nested-function assignments — upstream's `markedAssignmentSymbolLinks`
     /// (`flow.go:2668` family). 0 means "never assigned".
     pub(crate) last_assignment_pos: FxHashMap<SymbolId, i64>,
+    /// The regular form of a FRESH enum member type — upstream's
+    /// `freshType`/`regularType` back-link (`types.go`), which interning
+    /// cannot reproduce for `new_named` ids (`checker-notes-narrow.md` §18).
+    pub(crate) enum_member_regular: FxHashMap<TypeId, TypeId>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -517,6 +521,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             symbol_types,
             symbol_assignment_scan: FxHashMap::default(),
             last_assignment_pos: FxHashMap::default(),
+            enum_member_regular: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),

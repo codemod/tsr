@@ -1352,3 +1352,15 @@ reduction and equality narrowing over enum unions start deciding.
 Falsifiers: (a) any change to non-enum literals — the map only ever holds
 enum members; (b) `E`-vs-`E.A` printing must not move (the §10.16 bar
 re-asserted).
+
+**§18 score — LANDED.** **+142 (139 W→R, 3 G→R) / 6 R→W + 3 R→G.** The
+back-link plus one fired leg: a one-constituent union (the one-member-enum
+deviation) declines assignment reduction, since upstream's declared type
+there is the member itself — `enumOperations` was the leg's head (11 of
+the first pair's 17 adverse). Residue: `incrementAndDecrement` ×4 (the
+`++` read-at-base family meeting the newly-decidable enum relation),
+`controlFlowBreakContinueWithLabel` ×1, `exhaustiveSwitchStatements1` ×3
+R→G. `checker_types` right 369,540 → **369,673**, wrong 22,595 →
+**22,462**. The fix's reach is wider than the head case: enum equality
+narrowing and assignment reduction now DECIDE (`enumLiteralTypes3`,
+`stringEnumLiteralTypes3`, `enumPropertyAccess` all moved).
