@@ -741,3 +741,11 @@ counted by the measure.
 falsifier's own population (contextual and tuple spread positions wanting
 per-element results), measured and accepted. `checker_types` right
 372,144 → **372,229**.
+
+## §6.1 The spread's own line
+
+The TERMINAL row survived §6 whole because it counts the `SpreadElement`
+node's OWN assertion line — `...xs : number[]` prints the operand's type
+verbatim (`checkSpreadExpression`, `checker.go` — `checkExpression(node.
+Expression())` is the whole of it), and `check_expression` had no arm.
+Falsifier: none beyond the measure; the rule has no alternative.
