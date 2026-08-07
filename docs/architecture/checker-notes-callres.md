@@ -916,3 +916,32 @@ RIGHT→WRONG 0 · RIGHT→GAP 0 · regressed 0 · suite +4 cases (2,848 → 2,8
 Residue with owners: async valued returns 39 (`getAwaitedType`), generators
 173 + 43 (`Generator`/`AsyncGenerator` construction), the `extends any`
 constraint print (type-parameter constraint defaults, one line here).
+
+## §15 The generator-declaration arm — bar (ninth session, second leg)
+
+`fnsiggap.rs`'s form split leaves generators 173 + async generators 43;
+corpus-wide, 541 gap lines want a `Generator<…>` instantiation, head shapes
+`Generator<number, void, unknown>` 109, `Generator<never, void, unknown>` 82.
+
+**Mechanism, anchored** (`getReturnTypeFromBody`, `checker.go:20151`–`:20247`):
+yield type = union of yield operand types, **`never` when there are none**
+(`:20239`); return type = the return aggregate's fallback `void`; next type =
+intersection of contextual next types, and **for a declaration there is no
+contextual signature, so it is always `unknownType`** (`:20242`–`:20245`) —
+which is what makes the declaration-only gate sound, exactly as §14's async
+arm. `createGeneratorType` is a reference to global `Generator`.
+
+**The slice declines, each with its blocker named:** `yield*` (needs the
+iteration protocol), ≥2 distinct operand types (needs `UnionReductionSubtype`
+— the same reason the return aggregate declines), valued `return`s beside the
+generator shape (same), async generators (`AsyncGenerator` + awaited yields),
+non-declarations (contextual `next`), no global `Generator` in scope.
+
+**Bar, before any code:**
+1. net ≥ **+80** (conservative: the 173-line row minus the multi-yield and
+   `yield*` shares, which are unsized).
+2. own new wrong ≤ **12**. Falsifier: wrong lines wanting `Generator<…, any>`
+   or a union yield slot → the next-type or aggregate model is off — read the
+   residual before widening anything.
+3. regressed == **0**.
+4. lost == **0** — the arm only converts a refusal into an answer.
