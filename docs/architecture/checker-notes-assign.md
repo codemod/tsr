@@ -769,3 +769,20 @@ lines that are unreachable by construction under ADR-0038's own terms.
 The relation's remaining unread modifiers (`?`, privacy, property-vs-method,
 index/call signatures) keep their §9 declines; each is a future §14-shaped
 slice with its own anchor.
+
+## §15 Optional target properties enter the relation — bar (ninth session)
+
+The second §14-shaped slice. Upstream (`propertiesRelatedTo`): an optional
+target property missing from the source is fine under **assignability**, and
+under the subtype relations only when the source is an **object-literal
+type** (`requireOptionalProperties` — subtype/strictSubtype require optional
+matching from interface-backed sources, which is what keeps
+`interface I {} ⊄ { a?: number }` ordered). Optionality is read off the
+declaration's postfix `?` — NEVER `SymbolFlags::OPTIONAL`, which this binder
+never writes (the `acdeed5` trap, 13 lines once).
+
+With the arm in, the §9 decline drops its `?` clause.
+
+**Bar:** net ≥ **+10**; own ≤ **8** — falsifier: wrong lines where an
+interface-backed source was skipped past a required-optional target → the
+object-literal-source test leaks; regressed == 0; lost == 0.
