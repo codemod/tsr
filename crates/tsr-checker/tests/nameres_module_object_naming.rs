@@ -28,6 +28,13 @@ struct Fixtures {
 }
 
 impl ModuleHost for Fixtures {
+    /// The fixtures resolve by exact name, so "found a file" and "found a file
+    /// the program holds" are the same question here — unlike a real
+    /// `Program`, where the second is a membership hop the first does not make.
+    fn module_resolution_found(&self, importing_file: tsr_ast::NodeId, specifier: &str) -> bool {
+        self.resolved_module(importing_file, specifier).is_some()
+    }
+
     fn resolved_module(&self, _importing_file: NodeId, specifier: &str) -> Option<NodeId> {
         let name = specifier.strip_prefix("./").unwrap_or(specifier);
         self.files.iter().find(|(fixture, _)| *fixture == name).map(|&(_, id)| id)

@@ -32,7 +32,7 @@ Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
 | `scanner_clean_files` | 5,031/5,031 | 100% | |
 | `module_resolution` | 95/95 | 100% | |
 | `file_loader` | 96/96 | 100% | |
-| `printer_round_trip` | 11,681/11,737 | 99.52% | |
+| `printer_round_trip` | 11,682/11,738 | 99.52% | **corrected** — the published 11,681/11,737 was one case stale; the snapshot has read 11,682/11,738 since before this session |
 | `parser_typescript` | 5,001/5,031 | 99.40% | |
 | `binder_symbols` | 8,293/8,460 | 98.03% | |
 | `isolated_declarations` | 13/15 | 86.67% | |

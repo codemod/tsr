@@ -228,3 +228,64 @@ the 21 residual lines are the first measurement of that gap from outside its own
 suite. If the residual is much larger than 21 on the wired run, the honest
 conclusion is that TS2307 is bounded by module resolution's completeness and not
 by this rule.
+
+---
+
+## 5. Scored — every leg passed, and the forecast was exact
+
+Wired at the commit below; full `coverage` run, snapshots regenerated.
+
+```
+diagnostics   80/5,488 (1.46%)  ->  130/5,488 (2.37%)     +50
+checker_types 2,841/9,538, gradient 73.65%  ->  unchanged, byte-identical
+every other snapshot                        ->  unchanged, byte-identical
+```
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 125 | **130** | pass |
+| 2 | `checker_types` unchanged exactly | **2,841 / 73.65%**, snapshot byte-identical | pass |
+| 3 | cases regressed == 0 | **0** — 130 = 80 + 50 exactly, and the counterfactual's LOST was 0 | pass |
+| 4 | own new wrong ≤ 25 | **21 lines across 12 cases** (`diaggap.rs`'s false-positive table now carries a `TS2307 12 cases` row) | pass |
+| 5 | every other suite unchanged | only `diagnostics.snap` differs in the whole snapshot directory | pass |
+
+**The forecast was exact: 50 forecast conversions, 50 delivered**, and it was
+exact for a reason worth keeping rather than by luck — the probe called the
+shipped traversal, so there was no second implementation to diverge from. The
+one thing that could still have gone wrong was the *merge* (the suite's
+parser/binder half is per-unit while the probe's was too, but the suite now also
+builds a program), and leg 1 landing on 80 + 50 rather than above it is what
+rules that out. **Falsifier 1 did not fire.**
+
+`STATUS.md`'s §4.1 conversion band — 15% to 57% of a sized population — does not
+apply to this build and should not be quoted against it. That band is for
+`.types` *lines* sized off a `depend.rs` row, where a mechanism can reach wider
+than the row that sized it. Here the unit is a **case**, the sizing was a
+counterfactual over the identical predicate, and 100% is the expected reading
+rather than a surprise.
+
+### One correction to `STATUS.md` §1, found by this run
+
+The table carried `printer_round_trip 11,681/11,737`; the snapshot at `7299a14`
+and at this commit both read **11,682/11,738**. Nothing in this build touches
+the printer and `printer_round_trip.snap` is byte-identical across it — the
+published figure was one case stale. Corrected in place.
+
+### What the next session should take, and why the order is this one
+
+`diaggap.rs` re-runs in ~4 minutes and its single-code column is the board:
+
+| code | converts alone | what it needs |
+|---|---:|---|
+| TS2322 | 475 | assignability *plus* the reporting positions — ADR-0040's falsifier 3 measured 28 distinct anchors and the modal one is `BinaryExpression`, not `VariableDeclaration` |
+| TS2454 | 255 | definite-assignment analysis over the flow graph this port already builds |
+| TS2304 | 192 | a full identifier walk. The resolution is ported; the traversal is not |
+| TS2564 | 165 | `strictPropertyInitialization` — a class-member walk plus the constructor's flow |
+| TS2339 | 132 | property lookup, ported; again the walk |
+| TS6133 | 77 | `noUnusedLocals` — reference counting, no types at all |
+
+**TS6133 and TS2304 are the two that need no new analysis**, only walk plus
+something already built, which is the same argument that put TS2307 first here.
+TS6133 is the cheaper of the two and TS2304 the larger. Neither has been
+counterfactualled; do that before costing either, because both are
+*negative-acting* rules and the failure mode is the one falsifier 3 names.

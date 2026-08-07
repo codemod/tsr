@@ -8,16 +8,18 @@
 //! # Probe and build are the same function
 //!
 //! This does **not** re-implement the rule. It calls
-//! [`tsr_checker::Checker::check_source_file`] — the shipped traversal — and
-//! merges its output into the diagnostic set the `diagnostics` suite compares
-//! today. `STATUS.md` §7 records why: the composite-print twin landed on its
-//! forecast to the line because `sigprint::compose` and
-//! `signature_to_string_at` were one function, proven by a self-check leg before
-//! either ran. The same shape is used here, and the self-check is leg SC below.
+//! [`tsr_conformance::diagnostics_suite::reported_for`] — the suite's own set,
+//! which runs the shipped `Checker::check_source_file` — and reconstructs the
+//! *before* side by removing the two codes the rule emits. `STATUS.md` §7
+//! records why the shape is worth the trouble: the composite-print twin landed
+//! on a 1,500-line forecast to the line because `sigprint::compose` and
+//! `signature_to_string_at` were one function.
 //!
-//! What is therefore *not* yet true when this runs: the suite does not consult
-//! the checker. So this probe's numbers are a forecast of the wiring commit,
-//! and the wiring commit is the only thing that can move `diagnostics`.
+//! **It was written before the wiring commit and its numbers are that commit's
+//! forecast** — 50 CONVERTS, 0 LOST, 101 RIGHT, 21 WRONG, registered in
+//! `docs/architecture/checker-notes-diag2.md` §4. After the wiring it re-derives
+//! the same split from the shipped suite, which is what makes it re-runnable
+//! rather than a one-shot.
 //!
 //! # The four columns
 //!
@@ -40,10 +42,7 @@ use tsr_conformance::{
     CaseEntry, Corpus,
     errors_baseline::{self, BaselineDiagnostic},
     repo_root,
-    symbols_baseline::line_and_character,
-    types_producer::program_for_case,
 };
-use tsr_parser::ParsedFile;
 
 /// One case's before/after, in the terms the bar is written in.
 #[derive(Default)]
@@ -101,7 +100,7 @@ fn main() {
     }
 }
 
-/// The suite's judgement before and after the traversal's contribution.
+/// The suite's judgement with the rule's diagnostics and without them.
 fn measure(case: &CaseEntry) -> Option<(String, Row)> {
     if case.has_varied_errors() || case.has_known_divergence() || !case.has_any_baseline() {
         return None;
@@ -115,24 +114,25 @@ fn measure(case: &CaseEntry) -> Option<(String, Row)> {
     expected.sort_unstable();
 
     let test = case.load().ok()?;
-    let mut before = today(&test);
+    let mut after = tsr_conformance::diagnostics_suite::reported_for(&test);
+    after.sort_unstable();
+
+    let mut before: Vec<BaselineDiagnostic> =
+        after.iter().filter(|d| !RULE_CODES.contains(&d.code)).cloned().collect();
     before.sort_unstable();
 
-    let mut after = before.clone();
     let mut wrong = Vec::new();
     let mut right = 0usize;
-    for diagnostic in from_traversal(&test) {
-        if expected.binary_search(&diagnostic).is_ok() {
+    for diagnostic in after.iter().filter(|d| RULE_CODES.contains(&d.code)) {
+        if expected.binary_search(diagnostic).is_ok() {
             right += 1;
         } else {
             wrong.push(format!(
-                "{}  {}({},{})",
-                case.name, diagnostic.file, diagnostic.line, diagnostic.column
+                "{}  {}({},{}) TS{}",
+                case.name, diagnostic.file, diagnostic.line, diagnostic.column, diagnostic.code
             ));
         }
-        after.push(diagnostic);
     }
-    after.sort_unstable();
 
     let passed_before = before == expected;
     let passed_after = after == expected;
@@ -148,81 +148,10 @@ fn measure(case: &CaseEntry) -> Option<(String, Row)> {
     ))
 }
 
-/// Exactly what `diagnostics_suite::run` produces today — parser and binder,
-/// per unit, with no program.
-fn today(test: &tsr_conformance::TestCase) -> Vec<BaselineDiagnostic> {
-    let mut actual = Vec::new();
-    for unit in &test.files {
-        let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-        if kind == tsr_parser::ScriptKind::Json {
-            continue;
-        }
-        let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
-        let mut reported = parsed.diagnostics().to_vec();
-        parsed.with_ast(|file| {
-            let bound = tsr_binder::bind(
-                file,
-                parsed.nodes(),
-                tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
-            );
-            reported.extend(bound.diagnostics().iter().cloned());
-        });
-        for diagnostic in reported {
-            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
-            actual.push(BaselineDiagnostic {
-                file: unit.name.clone(),
-                line: line + 1,
-                column: character + 1,
-                code: diagnostic.message.code(),
-            });
-        }
-    }
-    actual
-}
-
-/// What the shipped `check_source_file` reports for the case's own units.
+/// The codes `Checker::check_module_specifier` can emit.
 ///
-/// The lib files are in the program and are **not** walked: upstream reports
-/// diagnostics for `lib.*.d.ts` under no configuration this corpus uses, and a
-/// diagnostic on a lib file cannot match any baseline line, so walking them
-/// could only manufacture a false positive.
-fn from_traversal(test: &tsr_conformance::TestCase) -> Vec<BaselineDiagnostic> {
-    let arena = tsr_core::Arena::new();
-    let program = program_for_case(&arena, test);
-    let mut checker = tsr_checker::Checker::with_module_host(
-        program.binder(),
-        program.nodes(),
-        program.node_map(),
-        Some(&program),
-    );
-    // `GetStrictOptionValue`-style directive read, the same shape
-    // `types_producer::render_case` uses for `strictNullChecks`. Upstream's
-    // `IsTrueOrUnknown` makes an unset option `true`.
-    checker.set_no_unchecked_side_effect_imports(
-        test.options
-            .get("nouncheckedsideeffectimports")
-            .map_or(true, |value| !value.eq_ignore_ascii_case("false")),
-    );
-    let mut units = Vec::new();
-    for unit in &test.files {
-        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
-            continue;
-        }
-        let Some(file) = program.source_file(&unit.name) else { continue };
-        let Some(id) = file.source_file().node_id else { continue };
-        checker.check_source_file(id);
-        units.push((id, unit.name.clone(), file.text()));
-    }
-    let mut out = Vec::new();
-    for (file, diagnostic) in checker.diagnostics() {
-        let Some((_, name, text)) = units.iter().find(|(id, _, _)| id == file) else { continue };
-        let (line, character) = line_and_character(text, diagnostic.span.start);
-        out.push(BaselineDiagnostic {
-            file: name.clone(),
-            line: line + 1,
-            column: character + 1,
-            code: diagnostic.message.code(),
-        });
-    }
-    out
-}
+/// Removing them from the suite's set is what reconstructs the *before* side.
+/// It is exact rather than approximate because no other producer in this port
+/// emits either code — the parser and binder have no notion of module
+/// resolution at all.
+const RULE_CODES: &[u32] = &[2307, 2882];

@@ -54,6 +54,23 @@
 //!   configuration. There is no single expected output to compare against.
 //! - **Known divergences** (`.errors.txt.diff`): upstream records that its own
 //!   output differs from TypeScript's, so the baseline is not a specification.
+//! # The checker's contribution comes from a *second* traversal
+//!
+//! `Checker::check_source_file` ([`tsr_checker::check`], ADR-0040 decisions (1)
+//! and (2)), run over a program built exactly the way the `checker_types`
+//! gradient builds one — `types_producer::program_for_case`, called rather than
+//! copied, because `docs/conventions.md`'s *"a probe that re-implements the
+//! harness is measuring a different compiler"* applies to suites first of all.
+//!
+//! **The parser and binder half above is deliberately left as it was**, per unit
+//! and with no program, even though the program binds every file too. Two
+//! reasons, and the second is the load-bearing one: `BindResult` holds one flat
+//! diagnostic list for the whole program with no per-file attribution, so
+//! switching would need new machinery; and re-deriving a set that 80 passing
+//! cases already depend on, in the same commit that adds a new source of
+//! diagnostics, would make any movement unattributable. The cost accepted is
+//! that each judged case is bound twice.
+//!
 //! - **Cases upstream recorded no output for at all.** 617 of them. A missing
 //!   `.errors.txt` means "no diagnostics" only when some other baseline proves the
 //!   case ran; without that the absence proves nothing, and reading it as a clean
@@ -66,6 +83,7 @@ use crate::{
     errors_baseline::{self, BaselineDiagnostic},
     suite::{Outcome, Suite},
     symbols_baseline::line_and_character,
+    types_producer::program_for_case,
 };
 
 /// The `diagnostics` suite.
@@ -113,34 +131,7 @@ impl Suite for Diagnostics {
             return Outcome::Failed { reason: "case did not load".into() };
         };
 
-        let mut actual = Vec::new();
-        for unit in &test.files {
-            let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-            if kind == tsr_parser::ScriptKind::Json {
-                continue;
-            }
-            let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
-            let mut reported = parsed.diagnostics().to_vec();
-            // The binder reports strict-mode and grammar diagnostics that the
-            // parser does not, and they appear in the same baselines.
-            parsed.with_ast(|file| {
-                let bound = tsr_binder::bind(
-                    file,
-                    parsed.nodes(),
-                    tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
-                );
-                reported.extend(bound.diagnostics().iter().cloned());
-            });
-            for diagnostic in reported {
-                let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
-                actual.push(BaselineDiagnostic {
-                    file: unit.name.clone(),
-                    line: line + 1,
-                    column: character + 1,
-                    code: diagnostic.message.code(),
-                });
-            }
-        }
+        let mut actual = reported_for(&test);
         actual.sort_unstable();
 
         if actual == expected {
@@ -148,6 +139,100 @@ impl Suite for Diagnostics {
         }
         Outcome::Failed { reason: summarise(&expected, &actual) }
     }
+}
+
+/// Every diagnostic this port reports for a case: parser, binder, and the check
+/// traversal.
+///
+/// **Public, and the suite calls it rather than inlining it**, because
+/// `examples/diaggap.rs` ranks the suite's failures by code and a probe that
+/// re-derives this set is ranking a different compiler's failures
+/// (`docs/conventions.md`). Unsorted: the caller sorts, because the comparison
+/// is a sorted-multiset equality and doing it twice hides which side is which.
+#[must_use]
+pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
+    let mut actual = Vec::new();
+    for unit in &test.files {
+        let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
+        if kind == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
+        let mut reported = parsed.diagnostics().to_vec();
+        // The binder reports strict-mode and grammar diagnostics that the
+        // parser does not, and they appear in the same baselines.
+        parsed.with_ast(|file| {
+            let bound = tsr_binder::bind(
+                file,
+                parsed.nodes(),
+                tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
+            );
+            reported.extend(bound.diagnostics().iter().cloned());
+        });
+        for diagnostic in reported {
+            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+            actual.push(BaselineDiagnostic {
+                file: unit.name.clone(),
+                line: line + 1,
+                column: character + 1,
+                code: diagnostic.message.code(),
+            });
+        }
+    }
+    actual.extend(from_check_traversal(test));
+    actual
+}
+
+/// Every diagnostic `Checker::check_source_file` reports for the case's own
+/// units.
+///
+/// **The lib files are in the program and are not walked.** Upstream reports
+/// nothing in `lib.*.d.ts` under any configuration this corpus uses, and a
+/// diagnostic positioned in a lib file can match no baseline line — so walking
+/// them could only manufacture a false positive.
+fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
+    let arena = tsr_core::Arena::new();
+    let program = program_for_case(&arena, test);
+    let mut checker = tsr_checker::Checker::with_module_host(
+        program.binder(),
+        program.nodes(),
+        program.node_map(),
+        Some(&program),
+    );
+    // Upstream's `IsTrueOrUnknown` (`checker.go:5321`) makes an unset option
+    // `true`, so only an explicit `false` turns the side-effect-import
+    // diagnostic off.
+    checker.set_no_unchecked_side_effect_imports(
+        test.options
+            .get("nouncheckedsideeffectimports")
+            .is_none_or(|value| !value.eq_ignore_ascii_case("false")),
+    );
+
+    let mut units = Vec::new();
+    for unit in &test.files {
+        if tsr_parser::ScriptKind::from_file_name(&unit.name) == tsr_parser::ScriptKind::Json {
+            continue;
+        }
+        let Some(file) = program.source_file(&unit.name) else { continue };
+        let Some(id) = file.source_file().node_id else { continue };
+        checker.check_source_file(id);
+        units.push((id, unit.name.clone(), file.text()));
+    }
+
+    let mut out = Vec::new();
+    for (file, diagnostic) in checker.diagnostics() {
+        let Some((_, unit_name, source)) = units.iter().find(|(id, _, _)| id == file) else {
+            continue;
+        };
+        let (line, character) = line_and_character(source, diagnostic.span.start);
+        out.push(BaselineDiagnostic {
+            file: unit_name.clone(),
+            line: line + 1,
+            column: character + 1,
+            code: diagnostic.message.code(),
+        });
+    }
+    out
 }
 
 /// A one-line summary of how the two sets differ.

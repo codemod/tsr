@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 80/5488 (1.46%)
-Failed         : 5408
+Passed         : 130/5488 (2.37%)
+Failed         : 5358
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5408 failures:
+First 100 of 5358 failures:
 compiler/ArrowFunctionExpression1
   1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
 compiler/ClassDeclaration10
@@ -147,9 +147,9 @@ compiler/ambientErrors1
 compiler/ambientExportDefaultErrors
   4 missing (first TS2714 at foo.d.ts(1,16))
 compiler/ambientExternalModuleInAnotherExternalModule
-  2 missing (first TS2664 at ambientExternalModuleInAnotherExternalModule.ts(4,16))
+  1 missing (first TS2664 at ambientExternalModuleInAnotherExternalModule.ts(4,16))
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
-  2 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
+  1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
 compiler/ambientExternalModuleWithRelativeModuleName
   2 missing (first TS2436 at ambientExternalModuleWithRelativeModuleName.ts(1,16))
 compiler/ambientPropertyDeclarationInJs
@@ -160,10 +160,6 @@ compiler/ambiguousGenericAssertion1
   4 unexpected (first TS1005 at ambiguousGenericAssertion1.ts(4,16)), 2 missing
 compiler/ambiguousOverload
   2 missing (first TS2322 at ambiguousOverload.ts(5,5))
-compiler/amdDependencyComment1
-  1 missing (first TS2307 at amdDependencyComment1.ts(3,21))
-compiler/amdDependencyCommentName1
-  1 missing (first TS2307 at amdDependencyCommentName1.ts(3,21))
 compiler/anonymousClassExpression2
   1 missing (first TS2551 at anonymousClassExpression2.ts(13,18))
 compiler/anonymousModules
@@ -212,3 +208,7 @@ compiler/arrayAssignmentTest5
   3 missing (first TS2366 at arrayAssignmentTest5.ts(21,66))
 compiler/arrayAssignmentTest6
   1 missing (first TS2322 at arrayAssignmentTest6.ts(16,13))
+compiler/arrayBestCommonTypes
+  31 missing (first TS2769 at arrayBestCommonTypes.ts(16,37))
+compiler/arrayBindingPatternOmittedExpressions
+  1 missing (first TS2454 at arrayBindingPatternOmittedExpressions.ts(4,22))

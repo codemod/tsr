@@ -52,9 +52,7 @@ use tsr_conformance::{
     CaseEntry, Corpus,
     errors_baseline::{self, BaselineDiagnostic},
     repo_root,
-    symbols_baseline::line_and_character,
 };
-use tsr_parser::ParsedFile;
 
 /// One judged case's verdict, in the terms the ranking needs.
 struct CaseVerdict {
@@ -105,7 +103,7 @@ fn main() {
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
     println!("== cases blocked on EXACTLY ONE missing code, nothing extra ==");
-    println!("{:>6}  {:>6}  {}", "code", "cases", "example cases");
+    println!("{:>6}  {:>6}  example cases", "code", "cases");
     let mut cumulative = 0usize;
     for (code, count, examples) in &ranked {
         cumulative += count;
@@ -130,7 +128,7 @@ fn main() {
         }
     }
     let mut extras: Vec<(u32, usize)> = extras.into_iter().collect();
-    extras.sort_by(|a, b| b.1.cmp(&a.1));
+    extras.sort_by_key(|&(code, count)| (std::cmp::Reverse(count), code));
     println!("\n== FALSE POSITIVES: codes we emit that the baseline does not ==");
     for (code, count) in extras.iter().take(25) {
         println!("TS{code:<4}  {count:>6} cases");
@@ -149,7 +147,7 @@ fn main() {
         }
     }
     let mut appears: Vec<(u32, usize)> = appears.into_iter().collect();
-    appears.sort_by(|a, b| b.1.cmp(&a.1));
+    appears.sort_by_key(|&(code, count)| (std::cmp::Reverse(count), code));
     println!("\n== CEILING ONLY: cases missing a code at all (not a forecast) ==");
     for (code, count) in appears.iter().take(30) {
         let converts = single.get(code).map_or(0, Vec::len);
@@ -174,32 +172,9 @@ fn judge(case: &CaseEntry) -> Option<CaseVerdict> {
     expected.sort_unstable();
 
     let test = case.load().ok()?;
-    let mut actual = Vec::new();
-    for unit in &test.files {
-        let kind = tsr_parser::ScriptKind::from_file_name(&unit.name);
-        if kind == tsr_parser::ScriptKind::Json {
-            continue;
-        }
-        let parsed = ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
-        let mut reported = parsed.diagnostics().to_vec();
-        parsed.with_ast(|file| {
-            let bound = tsr_binder::bind(
-                file,
-                parsed.nodes(),
-                tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
-            );
-            reported.extend(bound.diagnostics().iter().cloned());
-        });
-        for diagnostic in reported {
-            let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
-            actual.push(BaselineDiagnostic {
-                file: unit.name.clone(),
-                line: line + 1,
-                column: character + 1,
-                code: diagnostic.message.code(),
-            });
-        }
-    }
+    // The suite's own set, called rather than re-derived: a probe that
+    // re-implements the harness ranks a different compiler's failures.
+    let mut actual = tsr_conformance::diagnostics_suite::reported_for(&test);
     actual.sort_unstable();
 
     Some(CaseVerdict {
