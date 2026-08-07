@@ -3312,35 +3312,3 @@ context, `-C n` both sides. All three checked.
 > whether an item could exist at all. Ask for it explicitly with `-A`; do not
 > rely on an imprecise read to stumble over it.
 
-#### CORRECTED, minutes after this section was committed
-
-The paragraph above originally read:
-
-> *"The precise tool has one cost worth naming … a pattern match would have
-> returned exactly the function requested and missed the neighbour."*
-
-**That was wrong, and it was wrong in a way worth recording rather than quietly
-fixing.** The tool has the feature; I had not looked for it. Having just found a
-real trap in `ast-grep`, I wrote a *second* limitation from memory instead of
-checking — and the invented limitation happened to justify the sloppier method I
-had actually used all session.
-
-> **A tool's limitation is a claim about the tool, and claims get checked.** This
-> document already says *a prerequisite stated in a comment is a hypothesis*;
-> the same applies to *"the tool cannot do X"*, and it applies most strongly when
-> the limitation conveniently excuses what you already did.
-
-**This section needed three corrections in under an hour**, each supplied by the
-reader rather than found by its author: `-A`/`-B`/`-C` exist; `--selector` works
-with a context wrapper (it was written off after being tested against the
-already-broken bare pattern — **a fix tested on top of an unfixed input tests
-nothing**); and the tool was not used at all for a whole session despite being
-recommended in the brief.
-
-The corrections are consolidated into the text above rather than stacked as
-three apologies, because a reader needs the working commands more than the
-sequence. What is kept is the pattern, which is the part that generalises: every
-one of the three errors made the author's existing habits look better than they
-were. **Four unmeasured claims were caught in this session and all four ran that
-direction.** A claim that flatters the process it describes should be checked
-before it is written, not after.
