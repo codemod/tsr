@@ -750,3 +750,22 @@ family answers `declared` when the start belongs to a different container.
 Whether the binder's flow graph marks container starts is the open question
 that decides the effort — check `tsr-binder`'s flow construction before
 costing.
+
+### §9.7 The outer arm falls out of the START node — bar
+
+§9.6's open question is answered by the binder's own construction: **every
+container gets its own `START`** (`binder.rs:903`), so the walk already
+stops at the function boundary — the port never needed `flowContainer`
+because the graph never crosses. The divergence is the START arm's answer:
+this port answers the substituted `initial_type`; upstream, for a reference
+whose declaration lives OUTSIDE the container, answers the **declared**
+type — and an auto declaration's declared type in this port already IS
+`anyType` (the UNREACHABLE arm's comment records the identity). So the
+outer-strict remainder is one test at entry (the reference's control-flow
+container vs the declaration's — `closuregap.rs`'s own predicate) and one
+branch in the START arm.
+
+**Bar:** net ≥ **+80** (the 197 residue's outer share plus the
+`capturedLetConstInLoop` families); own ≤ **15** — falsifier: losses on
+outer references wanting the *assigned* type → the boundary is wrong for
+same-container-reached assignments, stop; regressed == 0; lost == 0.
