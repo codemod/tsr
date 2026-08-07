@@ -41,7 +41,7 @@ Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **2,841/9,538** | **29.79%** | **gradient 73.65%** — the target |
-| `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
+| `diagnostics` | **378/5,488** | **6.89%** | **the check traversal landed, eighth session** — 80 → 378 across three rules, see below |
 
 ### `checker_types`, the number the project is steered by
 
@@ -122,13 +122,41 @@ cross-instrument, cross-session subtraction is not a measurement. Re-run
 nearly orthogonal** — a change can add 2,733 lines and flip zero cases. Say which
 you are quoting.
 
-### `diagnostics` cannot be moved by `.types` work
+### `diagnostics` — the traversal exists now, and the suite is a long tail
 
-`tsr-checker` emits no diagnostics at all. Upstream produces them from a **second
-traversal** (`checkSourceFile` → `checkSourceElement`), and this port built
-upstream's *query* road (`getTypeOfNode`) and none of the traversal road. See
-[ADR-0040](docs/adr/0040-diagnostics-come-from-a-check-traversal-and-assignability-gets-a-reporting-twin.md).
-Nothing in the checker's type answers will move this suite.
+**Corrected, eighth session.** This section read *"`tsr-checker` emits no
+diagnostics at all … nothing in the checker's type answers will move this
+suite."* Both sentences were true and the *conclusion* the project drew from
+them — recorded in two handoffs as "diagnostics is structurally blocked" — was a
+statement about **why the number was flat, not a sizing of the work**. Nobody
+had measured what the blocked cases were blocked *on*.
+
+`examples/diaggap.rs` (new) does. Over the suite's own 5,488 judged cases it
+splits the difference sets and ranks the codes by the only column that is a
+forecast — **cases missing exactly one distinct code and reporting nothing
+extra**, the bucket where one rule finishes a case on its own. At `7299a14`:
+**3,258 of 5,488 were blocked on exactly one code**, across 469 codes. That is
+59% of the suite behind single rules, not one wall.
+
+ADR-0040's decisions (1) and (2) are built: `Checker::check_source_file`
+(`crates/tsr-checker/src/check.rs`) is a second entry point beside the query
+road, with the diagnostic collection on the `Checker` and drained by the
+consumer. Three rules on top of it, each bar-scored:
+
+| commit | rule | net cases |
+|---|---|---:|
+| `bc8045b` | TS2307 / TS2882 — module specifiers (`resolveExternalModule`) | +50 |
+| `413174c` | TS2564 — `strictPropertyInitialization` | +133 |
+| `7fab616` | TS2304 — `Cannot find name` | +115 |
+
+`docs/architecture/checker-notes-diag2.md` carries the reasoning, the four gates
+per rule and the refusals. **`checker_types` is byte-identical across all
+three**: the traversal is a second road and no query-path call site invokes it.
+
+The suite's board is now `diaggap.rs`'s single-code column, re-run after every
+rule because rows *grow* as rules land (a case blocked on two codes becomes a
+case blocked on one). At 378 passing: TS2322 520, TS2454 300, TS2339 140, TS2345
+100, TS2304 82, TS6133 81, TS2564 35.
 
 ---
 
@@ -185,7 +213,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
 | **checker** | **72.56% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
-| diagnostics | **not started, and blocked** | §1 |
+| diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
 | language service / LSP | **not started** | |
 
 ### Inside the checker — what has an arm
@@ -617,6 +645,8 @@ Built and maintained; **use them, do not rebuild them.**
 | `examples/qualname.rs` · `qualnamep.rs` | the two halves of namespace-qualified naming, priced separately: `qualname` the **resolution** half (designs W and R, which convert *gap* lines), `qualnamep` the **printing** half (design P, which converts *wrong* lines and cannot touch a gap). **`qualname.rs`'s at-risk-P column of 36 is superseded by 23** — it omits `getMergedSymbol` |
 | `examples/cyclegap.rs` | **what the gap board does NOT attribute, and what the gap WANTS.** `depend.rs`'s `cycle` and `depth cap` endings resolved (the first is 98.6% a length-1 self-loop — a missing step arm, not a recursive shape), plus the whole-gap **want-shape** histogram, which is the only view of the gap that is not a node-kind histogram. Its C2 is frozen against `depend.rs`'s cycle/depth-cap counts: if they stop reproducing exactly, the copied walk has drifted and nothing it prints is readable |
 | `examples/wrongdelta.rs` | **`casedelta`'s sibling for the wrong bucket** — raw joinable `want`/`got` dump; two runs over a `git stash` attribute every gap→wrong line, which `casedelta` cannot see by construction |
+| `examples/diaggap.rs` | **the `diagnostics` board.** Ranks the suite's failures by the code each case is blocked on, and prints the only forecastable column — cases missing **exactly one** distinct code and reporting nothing extra — beside the ceiling column that must not be mistaken for one. Also the false-positive table: codes this port emits where the baseline does not, which is the cost side every diagnostic rule has to be scored against. **Re-run it after every rule**: rows grow as rules land, because a case blocked on two codes becomes a case blocked on one |
+| `examples/diag2307.rs` | the per-rule counterfactual for `diagnostics`. Calls `diagnostics_suite::reported_for` — the suite itself — and reconstructs the *before* side by removing the codes under test, so probe and build cannot diverge. `CONVERTS` / `LOST` / `RIGHT` / `WRONG`, with `LOST` the leg that must read 0 |
 | `fnexpr` · `nameres` · `evolvearray` · `thisparam` · `receiver_gap` | per-workstream |
 
 Five gates, all green before every commit — **on the toolchain
@@ -640,6 +670,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | `7fab616` | 73.65% (untouched) | 2,841 (untouched) | **`diagnostics` 80 → 378, +298 cases, 0 regressed** | **The eighth session: the suite two handoffs called "structurally blocked" moves 4.7×, and the unblocking was a measurement rather than a build.** ADR-0040's diagnosis was right about *why* the number was flat and was being quoted as a sizing; `diaggap.rs` (new) asked what the blocked cases are blocked **on** and found **3,258 of 5,488 blocked on exactly one code**. Then ADR-0040 decisions (1) and (2) — a `Checker`-owned collection and a `check_source_file` traversal — plus three rules: **TS2307/TS2882** `bc8045b` (+50; upstream's `resolveExternalModule` is 190 lines carrying fourteen messages and TS2307 is what is left when thirteen decline, so the *gates are the design* — ungated it read 45/0/100/60, gated 50/0/101/21); **TS2564** `413174c` (+133 for 6 wrong, the best ratio registered here — and its first measurement read 86 wrong because `tsr_ast::NodeFlags::AMBIENT` is **declared, documented and set by nothing**, so every `declare class` in the corpus was reported); **TS2304** `7fab616` (+115, after four refusals that were each worth more than the rule — 299/30/933 as first written, 298/0/113 after them). Forecast **exact twice** (50 and 133), because the counterfactual calls the shipped code rather than modelling it. `checker_types` byte-identical across all three. Scored in the currency that matters: a case carrying a spurious diagnostic can never pass, so the number is `passing + single-code reachable`, 3,548 → 3,604 for TS2304 — which would have been **−85** without the refusals |
 | 2026-08-07 | `7299a14` | 73.65% | 2,841 | 0 lines, by design | **the eighth session opens by falsifying the seventh's closing sentence.** Board re-run fresh: gap **80,315**, every row unchanged — and *"no unowned row remains above 1,000"* holds only over the endings `depend.rs` **attributes**. `cyclegap.rs` (new) measured the two that attribute nothing (8.4% of the gap): the `cycle` ending is **98.6% a length-1 self-loop**, every one a declaration with neither annotation nor initialiser, i.e. `NO STEP ARM` under a label that says "a real shape here". **`FunctionDeclaration`-cycle is unowned: 2,889 net, want-any 1.8%, 611 cases, 1,894 wanting a signature.** `ArrayType` 2,120 is 99.7% *propagation* (2,114 have a gapping child type node); 4,696 of 8,499 type-node roots are the same. And the first whole-gap **want-shape** histogram: **24.9% wants `any`**, and **signature/arrow is 12,606 lines (15.7%)** spread across six rows — §4.4's structured-signature capability seen from the answer side. Both `depend.rs` fixes named and not made, so the board stays comparable. `docs/architecture/checker-notes-cyclegap.md`. **Also recorded, then CORRECTED the same session: ~~the clippy gate is RED at `7299a14`~~** — reported as red on `crates/tsr-ast/tests/kind_conformance.rs:83` (`inefficient_to_string`). **It is green.** The reading came from a machine whose default toolchain was **1.89.0**; on the 1.96.0 the workspace now pins, `clippy --workspace --all-targets -- -D warnings` finds **nothing**, and CI's `@stable` had been green on that file since the scaffold commit. The diagnosis in the original note ("toolchain drift, not a regression") was right and the *verdict* was wrong — **an unpinned lint gate is not a gate, because its answer is a property of whoever ran it**. Fixed at the cause: `rust-toolchain.toml` pins 1.96.0 and both workflows pin the same version at the action. **Left standing and unresolved: `Cargo.toml` claims `rust-version = "1.85"` and the workspace uses let-chains, stable in 1.88 — the MSRV claim is false and is NOT what this session pinned; it needs its own measurement** |
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
 | 2026-08-07 | `154653b` | **73.30%** | **2,793** | **+2,664 in the session's third act, 6 lost, +26 cases, 0 regressed** | **The JSX element arm and the composite-print seam, each a stale premise re-measured.** JSX (+1,153, `9fe8056`): the "46% cannot resolve" figure predated the `/.lib` mount; the arm is 30 lines and converted 152% of forecast. The seam (`bd tsr-2ghn`, filed, sized and SHIPPED in one session): symbol-exact counterfactual (`sigprint.rs`, self-check leg) → the Union/Intersection naming arm it exposed (+11, `0796633` — a class-typed return qualified while an alias-typed parameter did not, ONE missing match arm) → the site-aware twin `signature_to_string_at` (+1,500 — **forecast delivered to the line**, RIGHT→WRONG exactly the measured 2, because probe and build are the same function). Plus the default-import arm (+83, `cc8c422`) with the `default`-never-prints refusal cleaning 67 pre-existing wrongs |
