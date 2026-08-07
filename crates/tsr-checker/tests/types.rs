@@ -1352,12 +1352,12 @@ fn an_overload_set_carrying_expando_properties_is_still_a_gap() {
         ),
         "error"
     );
-    // And a signature this port cannot answer gaps the whole set, not just its
-    // own member: `getSignaturesOfSymbol` yields `None`, exactly as it does for
-    // a lone declaration.
+    // §48 rendered the plain pattern, so the second overload answers now
+    // and the set prints whole — the gapping-member property this pinned
+    // moved to DECORATED patterns, which still gap sets.
     assert_eq!(
         type_of_declaration("function f(x: number);\nfunction f({ a }: any);", "f"),
-        "error"
+        "{ (x: number): any; ({ a }: any): any; }"
     );
 }
 
@@ -1500,10 +1500,12 @@ fn a_type_query_answers_from_exports_and_never_from_members() {
 
 #[test]
 fn a_signature_this_port_cannot_print_exactly_is_a_gap() {
-    // A destructuring parameter: `parameterToParameterDeclarationName` invents a
-    // name for a binding pattern, and an invented name compared verbatim is a
-    // guess.
-    assert_eq!(type_of_declaration("function f({ a }: { a: string }) {}", "f"), "error");
+    // §48 (`checker-notes-narrow.md`): a PLAIN pattern renders verbatim;
+    // the invented-name fear applies only to decorated shapes now.
+    assert_eq!(
+        type_of_declaration("function f({ a }: { a: string }) {}", "f"),
+        "({ a }: { a: string; }) => void"
+    );
     // A parameter whose own type is a gap makes the whole signature a gap.
     // `string[]` is an array type node, still unported (`bd tsr-9or.1`).
     assert_eq!(type_of_declaration("function f(...r: string[]) {}", "f"), "error");
