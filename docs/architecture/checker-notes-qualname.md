@@ -1169,3 +1169,207 @@ Recorded against it, because the honest report is not the flattering one:
 4. **No positional refusal is recommended**, and the INSIDE one is declined on
    principle rather than on trade — the mirror image of §6, and for the same
    upstream reason read the other way round.
+
+---
+
+# 11. The build. **All four legs PASS, and the forecast landed on the line.**
+
+**Measured on a working tree over `90c4e70`** — the commit that registered §10.5's
+bar before any code existed. The code is `Checker::qualified_name_at`,
+`Checker::symbol_chain`, `Checker::needs_qualification`,
+`Checker::split_around_name` and `Checker::is_ambient_module` in
+`crates/tsr-checker/src/checker.rs`, with
+`crates/tsr-checker/tests/symbol_chain.rs`. Reproduce with the new
+`examples/verdictdump.rs` at both ends of a path-limited `git stash`.
+
+```
+                          before        after       delta
+aligned lines            468,915      468,915           0
+  right                  344,411      347,384      +2,973
+  gap                     81,977       81,977           0
+  wrong                   42,527       39,554      -2,973
+casedelta matched        344,411      347,384      +2,973
+complete cases             2,702        2,763         +61
+coverage, lines           71.91%       72.53%      +0.62pp
+```
+
+**The transition matrix, which is the whole measurement:**
+
+```
+  WRONG -> RIGHT   2,990      the forecast was 2,990
+  RIGHT -> WRONG      17      the forecast was 14
+  GAP   -> WRONG       0
+  GAP   -> RIGHT       0
+  RIGHT -> GAP         0
+```
+
+## 11.1 The four legs, scored as registered — not restated, not adjusted
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| **1** net floor | `gained − lost ≥ 800` | **2,973** | **PASS** (3.7×) |
+| **2** trade | `gained / lost ≥ 20` | **175.9** | **PASS** (8.8×) |
+| | `lost ≤ 45` | **17** | **PASS** |
+| **3** case regression | `cases regressed ≤ 3` | **0** | **PASS** |
+| | `cases gaining ≥ 60` | **174** | **PASS** (2.9×) |
+| **4** gap→wrong | `from GAP == 0` | **0** | **PASS** |
+| | `from RIGHT ≤ 45` | **17** | **PASS** |
+
+**The forecast's conversion column is exact.** §10 forecast 2,990 conversions
+and the build converted **2,990** — not 2,990 lines' worth in aggregate, the same
+number. §10.5 registered *"this forecast is a point estimate and not a floor …
+do not expect a 211% again"*, and that is what happened: 100.0% of forecast,
+against W's 211%. The reason is stated there and it held — the strict gate is the
+design, so there was no unscored bucket to break either way.
+
+**The at-risk column missed by 3 and the miss is reported, not rounded.**
+Forecast 14, measured 17. All three extra lines are `compiler/giant`, which §10.2
+listed at 1 and which lost 4. §11.3 says why.
+
+### Leg 4 is the one worth reading, because it is the leg §9.6 could not write
+
+`Δgap` is **exactly 0**. Not approximately: the gap bucket has the same 81,977
+lines before and after, and no line entered the wrong set from it. §10.5
+registered that at zero *by construction* — *"P is a renaming. It cannot make a
+gap line computable"* — and made a non-zero reading a **diagnosis** rather than a
+trade: it would have said the build changed resolution as well as printing.
+
+This is the `docs/conventions.md` rule the W build bought, used in anger:
+
+> *"Write the absolute against the mechanism's own new wrong, and report the
+> downstream bucket beside it as its own number."*
+
+For P the two numbers are **17 and 0**. The W build's `Δwrong` of +84 could not be
+told from 37 without a hand reading of the residual; here the split falls out of
+the instrument, and the instrument that produces it —
+`examples/verdictdump.rs` — is new and is the reusable part of this build.
+`wrongdelta` dumps the wrong bucket and therefore cannot see where a line came
+from; `casedelta` reports per-case tallies and cannot see a line at all.
+
+## 11.2 The `getMergedSymbol` clause, measured ON against OFF
+
+§10.4 corrected `qualname.rs`'s published at-risk column from 36 to 23, on the
+grounds that upstream reads `getMergedSymbol` (`symbolaccessibility.go:696`)
+before the identity test at `:702`. That correction was arithmetic over an
+instrument. It has now been measured on the **build**, the `bd tsr-4sa` way —
+one clause deleted, whole corpus re-run:
+
+```
+                       merge ON    merge OFF
+  WRONG -> RIGHT          2,990        2,990
+  RIGHT -> WRONG             17           30
+
+  the clause costs   0 conversions
+  the clause removes 13 losses
+```
+
+**Exactly the 13 lines §10.4 predicted, at zero cost.** A correctness clause that
+pays 13 lines for nothing is not a trade and was never priced as one; it is
+recorded because the prediction was made from reading upstream and the number
+came out to the line.
+
+### And the test that was written to pin it does not
+
+`symbol_chain.rs`'s merged-declaration fixture was written believing it pinned
+this clause. Checked the only way that settles it — delete the merge, re-run —
+**it still passes.** The binder resolves a *single-file* merge into one symbol as
+it binds, so `resolve_name` already returns the same id and there is nothing for
+`merged_symbol` to do. Every one of the 13 protected lines is a **cross-file**
+namespace merge (`compiler/emitMemberAccessExpression` declares
+`namespace Microsoft.PeopleAtWork.Model` in two files), which no single-file
+fixture in `tsr-checker`'s test crate can reach.
+
+The test's own doc comment now says so, and says what it *does* cover. The
+protection lives in the corpus number above until a multi-file fixture through
+`Checker::with_module_host` exists — filed, not absorbed.
+
+> This is `docs/conventions.md`'s *"a comment that claims a safety property it
+> does not have"* caught before it shipped, and the thing that caught it was
+> spending one corpus run on *"does this test fail when I break the thing it
+> names?"* A green test is evidence only that it ran.
+
+## 11.3 The residual, read even though every leg passed
+
+**The 17 losses are two named families and no third.**
+
+**Nine are import aliases** — upstream reaches a *shorter* name than the chain
+does, through `getAccessibleSymbolChain` (`symbolaccessibility.go:373`), whose
+`trySymbolTable` iterates the **alias** symbols of every table in scope and
+returns one that resolves to the target. This port's chain climbs containers and
+never consults an alias, so where an alias is in scope upstream prints it and
+this prints the container path:
+
+```
+  1  Point : Point            ->  clodule.Point      [importAliasIdentifiers]
+  1  Point : Point            ->  fundule.Point      [importAliasIdentifiers]
+  2  N / M.N : typeof N       ->  typeof M.N         [importAliasWithDottedName]
+  1  M : typeof M             ->  typeof A.M         [moduleSharesNameWithImportDeclarationInsideIt5]
+  1  undefined : typeof undefined -> typeof ns.undefined [typeNamedUndefined2]
+```
+
+That is **`bd tsr-4jk`'s family**, and it is the same one §9.6 conceded for design
+W — *"4 alias chains where upstream reaches a shorter name than the one written"*.
+Two builds have now hit it from opposite directions, which is the strongest
+argument yet that `getAccessibleSymbolChain`'s alias walk is a real item rather
+than a rounding error.
+
+**Eight are name conflicts** where the chain picks a container upstream does not:
+
+```
+  4  A : typeof A   ->  typeof X.A     [declFileWithInternalModuleNameConflictsInExtendsClause1, 3]
+  2  B : typeof B   ->  typeof A.B     [interMixingModulesInterfaces4, 5]
+  1  Bar : typeof Bar -> typeof Foo3.Bar [moduleAndInterfaceWithSameName]
+  1  M : typeof M   ->  typeof eaM.M   [compiler/giant]
+```
+
+**`compiler/giant` is the one that names an unported upstream arm**, and it is
+also the 3-line forecast miss. Its three `eM : typeof eM` losses take **three
+different qualifiers** — `eaM.eM`, `eM.eM`, `M.eM`. One symbol reached through
+three containers is not ambiguity in this port; it is
+`getContainersOfSymbol` (`symbolaccessibility.go:280`) legitimately returning
+**several** parents, which upstream then orders with `sortByBestName` before
+taking the first (`nodebuilderimpl.go:1108`). This port takes `Symbol.parent` and
+has no ordering step, so it takes whichever container the binder recorded. The
+forecast could not see this because `qualnamep.rs` models the same single parent.
+
+**The churn behaved as forecast and its head is unchanged.** 507 lines
+(forecast 450) are wrong before and wrong after; 288 of them are the
+`privacyImport*` family, where P reaches the declaring container and upstream
+reaches an alias container — `getWithAlternativeContainers`
+(`symbolaccessibility.go:117`), declined by construction in §10.1. Those lines
+cost nothing and they are the sized, named cap on this mechanism.
+
+## 11.4 The 64.1% concentration **held exactly**, which is the answer to §10.2's warning
+
+```
+  forecast   top-1 compiler/temporal  1,916 of 2,990  = 64.1%
+  measured   top-1 compiler/temporal  1,916 of 2,988  = 64.1%
+```
+
+The per-case gain list reproduces the forecast case for case —
+`complexNarrowingWithAny` 166, `privacyFunctionReturnTypeDeclFile` 54,
+`resolvingClassDeclarationWhenInBaseTypeResolution` 46, `localesObjectArgument`
+44. §10.2's objection therefore stands in full and is **not** dissolved by the
+build: outside its largest case this mechanism is **1,072 lines**.
+
+**Leg 3's `cases gaining ≥ 60` was registered for exactly this and it did its
+job**, reading 174. `compiler/temporal` is one case; it cannot satisfy that leg
+alone, so the build is demonstrably not a one-case build even though 64% of its
+lines are. Recording both numbers is the point — a net of +2,973 quoted without
+the 64.1% would be this file's fourth rule broken by its own author.
+
+## 11.5 What is NOT concluded here
+
+Every leg passed, so there is nothing to adjudicate and no override to write.
+Two things are conceded rather than absorbed:
+
+- **17 lines are lost and they are real**, against a forecast of 14. Nine belong
+  to `bd tsr-4jk` (the alias chain), and of the eight conflicts, four are
+  `getContainersOfSymbol`'s multi-parent ordering, which is unported and now has
+  a named case (`compiler/giant`) and a named upstream arm (`sortByBestName`).
+- **The merged-declaration fixture does not test what it was written to test.**
+  §11.2. The clause is protected by a corpus number, not by CI, until a
+  multi-file fixture exists.
+
+Neither is a reason to hold the build; both are reasons the next session should
+not have to rediscover them.

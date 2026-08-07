@@ -20,8 +20,8 @@
 //! below are `pub(crate)` because every one of those modules writes to a memo.
 
 use rustc_hash::FxHashMap;
-use tsr_ast::{NodeFlags, NodeId, NodeMap, NodeTable, SyntaxKind};
-use tsr_binder::{BindResult, SymbolId};
+use tsr_ast::{Node, NodeFlags, NodeId, NodeMap, NodeTable, SyntaxKind};
+use tsr_binder::{BindResult, SymbolFlags, SymbolId};
 
 use crate::{
     intrinsics::Intrinsics,
@@ -455,6 +455,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.signature_types.get(&id)
     }
 
+    /// Chain-depth cap for [`Checker::symbol_chain`]. Upstream has none.
+    const MAX_SYMBOL_CHAIN: usize = 8;
+
     /// Render a type as a `.types` baseline would print it.
     #[must_use]
     pub fn type_to_string(&self, id: TypeId) -> String {
@@ -515,8 +518,201 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             _ => None,
         };
-        let Some(module) = module else { return Some(self.type_to_string(id)) };
+        let Some(module) = module else {
+            let printed = self.type_to_string(id);
+            return Some(self.qualified_name_at(id, printed, reference));
+        };
         self.module_name_at(module, reference).map(|name| format!("typeof {name}"))
+    }
+
+    /// **Design P** — prepend the namespace qualifier a name needs to be read
+    /// correctly from `reference`.
+    ///
+    /// `lookupSymbolChainWorker` (`internal/checker/nodebuilderimpl.go:1066`)
+    /// puts every printed name through `getSymbolChain`
+    /// (`internal/checker/nodebuilderimpl.go:1087`), which walks up to the
+    /// symbol's containers for as long as `needsQualification`
+    /// (`internal/checker/symbolaccessibility.go:688`) says the bare name would
+    /// not resolve back to this symbol at the reference site. This port bakes a
+    /// bare name into the type at creation, so the qualifier is recovered here,
+    /// at print time, where the site is known.
+    ///
+    /// Sized before it was built, in
+    /// [`docs/architecture/checker-notes-qualname.md`](../../../docs/architecture/checker-notes-qualname.md)
+    /// §10: **2,990 conversions against 14 lines at risk**, the mechanism
+    /// `STATUS.md` refused for four cycles on a 3,202-line loss that its own
+    /// named cause (`bd tsr-56r`, landed at `3b7fa44`) had already removed.
+    ///
+    /// # The gate is the design, and it is narrow on purpose
+    ///
+    /// [`Checker::split_around_name`] fires only where the printed form **is**
+    /// the symbol's own name. `checker-notes-nameres.md` §49 records what the
+    /// ungated form does: *"without that gate it climbs from an anonymous
+    /// `__function` symbol to no parent and gaps every function and object type
+    /// in the corpus."* Qualifying names *inside* signature and type-literal
+    /// renderings is a different and much worse design — measured in §10 at
+    /// 3,859 conversions against **717** lines lost, 5.4:1 against this
+    /// mechanism's 213:1 — and it is deliberately not built here.
+    fn qualified_name_at(&self, id: TypeId, printed: String, reference: NodeId) -> String {
+        let symbol = match &self.store.get(id).data {
+            crate::types::TypeData::Named { members, .. } => *members,
+            crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            _ => None,
+        };
+        let Some(symbol) = symbol else { return printed };
+        let name = self.binder.symbols().get(symbol).name;
+        let Some(suffix_at) = Self::split_around_name(&printed, name) else { return printed };
+        let Some(qualifier) =
+            self.symbol_chain(symbol, reference, SymbolFlags::TYPE | SymbolFlags::VALUE, 0)
+        else {
+            return printed;
+        };
+        let mut out = String::with_capacity(printed.len() + qualifier.len());
+        out.push_str(&printed[..suffix_at - name.len()]);
+        out.push_str(&qualifier);
+        out.push_str(&printed[suffix_at - name.len()..]);
+        out
+    }
+
+    /// Where `name` sits in `printed`, if `printed` is that name possibly under
+    /// `typeof` and possibly with type arguments. Returns the offset just past
+    /// the name.
+    ///
+    /// `Some` is the gate [`Checker::qualified_name_at`] documents. `None` for
+    /// anything else — a union, a signature, a type literal — because a
+    /// qualifier belongs on a *name*, and a name that is only a fragment of a
+    /// larger rendering is reached by machinery this port does not have.
+    fn split_around_name(printed: &str, name: &str) -> Option<usize> {
+        if name.is_empty() {
+            return None;
+        }
+        // `typeof C` — the static side, which is the majority of the sized
+        // population (705 of 2,990 conversions are `typeof` positions, §10.3).
+        if let Some(rest) = printed.strip_prefix("typeof ") {
+            return (rest == name).then_some(printed.len());
+        }
+        if printed == name {
+            return Some(printed.len());
+        }
+        // `C<string>` — the qualifier goes on `C`, never inside the arguments.
+        printed.strip_prefix(name).filter(|rest| rest.starts_with('<')).map(|_| name.len())
+    }
+
+    /// `getSymbolChain` (`internal/checker/nodebuilderimpl.go:1087`), reduced to
+    /// the arms this port can answer. Returns the dotted prefix — `"M."`,
+    /// `"A.B."` — or `None` when no qualifier is owed or none can be built.
+    ///
+    /// The two tests, in upstream's order:
+    ///
+    /// 1. [`Checker::needs_qualification`] — the stop condition at
+    ///    `internal/checker/nodebuilderimpl.go:1094`. **This is the entire
+    ///    difference between 14 lines at risk and 717**, and it is why the
+    ///    ungated design lost 3,202 lines in cycle 20b.
+    /// 2. `getContainersOfSymbol`
+    ///    (`internal/checker/symbolaccessibility.go:280`), whose first and
+    ///    normal answer is `getParentOfSymbol` (`internal/checker/checker.go:14365`)
+    ///    — the symbol whose table this one lives in. Recursion then continues
+    ///    with `getQualifiedLeftMeaning`, i.e. `SymbolFlagsNamespace`
+    ///    (`internal/checker/nodebuilderimpl.go:1111`).
+    ///
+    /// # What it refuses, and why a refusal beats a wrong name
+    ///
+    /// - **An external-module container.** Upstream does not print a dotted
+    ///   name through one; it calls `getSpecifierForModuleSymbol`
+    ///   (`internal/checker/nodebuilderimpl.go:1104`) and emits an import
+    ///   specifier. Printing the file symbol's own name would emit a stripped
+    ///   file path, which is exactly what got `bd tsr-6ph` refused twice at 2.1
+    ///   and 2.5 wrong per right. Measured: **1,094** lines, left bare.
+    /// - **No container at all** — `Symbol.parent` unset, which is what the
+    ///   binder records for a namespace *local* rather than an export. Upstream
+    ///   agrees: `getParentOfSymbol` answers nil and the fallback loop
+    ///   (`internal/checker/symbolaccessibility.go:288`) only recovers
+    ///   containers for external-module children. Measured: **229** lines.
+    /// - **`getWithAlternativeContainers`**
+    ///   (`internal/checker/symbolaccessibility.go:117`) — the re-export and
+    ///   `export =` routes — is **not** ported. §10.3 measures its absence at
+    ///   288 lines that get a different container than upstream's; every one of
+    ///   them is a line that is wrong today and stays wrong, so the omission
+    ///   costs conversions rather than manufacturing losses.
+    fn symbol_chain(
+        &self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+        depth: usize,
+    ) -> Option<String> {
+        // Upstream has no cap; a cycle in `parent` would be a binder defect and
+        // this guard exists so that one cannot hang the corpus.
+        if depth >= Self::MAX_SYMBOL_CHAIN {
+            return None;
+        }
+        let name = self.binder.symbols().get(symbol).name;
+        if !self.needs_qualification(symbol, name, reference, meaning) {
+            return None;
+        }
+        let parent = self.binder.merged_symbol(self.binder.symbols().get(symbol).parent?);
+        if self.is_module_symbol(parent) || self.is_ambient_module(parent) {
+            return None;
+        }
+        if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
+            return None;
+        }
+        let parent_name = self.binder.symbols().get(parent).name;
+        Some(match self.symbol_chain(parent, reference, SymbolFlags::NAMESPACE, depth + 1) {
+            Some(prefix) => format!("{prefix}{parent_name}."),
+            // The container itself resolves bare here: the chain stops, which
+            // is the recursion's base case rather than a refusal.
+            None => format!("{parent_name}."),
+        })
+    }
+
+    /// `needsQualification` (`internal/checker/symbolaccessibility.go:688`):
+    /// does the symbol's own name, resolved from the reference site, come back
+    /// as this same symbol?
+    ///
+    /// Upstream walks every symbol table in scope and answers *no qualification
+    /// needed* the moment one holds the symbol itself
+    /// (`internal/checker/symbolaccessibility.go:702`). `resolve_name` walks the
+    /// same tables in the same order, so it agrees on the first hit.
+    ///
+    /// # The `getMergedSymbol` call is load-bearing and was got wrong once
+    ///
+    /// Upstream reads `symbolFromSymbolTable := c.getMergedSymbol(res)`
+    /// (`internal/checker/symbolaccessibility.go:696`) **before** the identity
+    /// test six lines later. `examples/qualname.rs` omitted that merge and so
+    /// scored 13 merged declarations — a class and a namespace sharing a name —
+    /// as needing a qualifier, publishing an at-risk column of 36 where the
+    /// correct figure is 23. `checker-notes-qualname.md` §10.4 carries the
+    /// correction. Dropping the merge here re-introduces those 13 lines as real
+    /// losses, and `symbol_chain_does_not_split_a_merged_declaration` is the
+    /// test that says so.
+    fn needs_qualification(
+        &self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> bool {
+        match self.binder.resolve_name(self.nodes, self.node_map, reference, name, meaning) {
+            Some(found) => self.binder.merged_symbol(found) != self.binder.merged_symbol(symbol),
+            None => true,
+        }
+    }
+
+    /// Whether a symbol is an ambient external module — `declare module "x"`.
+    ///
+    /// The sibling refusal to [`Checker::is_module_symbol`]: upstream reaches
+    /// both through `getSpecifierForModuleSymbol`
+    /// (`internal/checker/nodebuilderimpl.go:1104`) rather than through a dotted
+    /// name, so neither may become a qualifier.
+    fn is_ambient_module(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            matches!(
+                self.node_map.get(declaration),
+                Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+            )
+        })
     }
 
     /// Whether a symbol is a **file's** module symbol.
