@@ -3266,22 +3266,25 @@ ast-grep run -p 'c.resolveUntypedCall($$$)' -l go --debug-query=ast <file>
 #   Debug AST:  source_file -> ERROR -> qualified_type …     <- the pattern is broken
 ```
 
-The fix is a rule file giving the expression a valid **context** and selecting
-the node you actually want:
+The fix is to give the expression a **valid context** and select the node you
+actually want. One line, no rule file:
 
-```yaml
-# /tmp/callsite.yml
-id: callsite
-language: go
-rule:
-  pattern:
-    context: 'func f() { c.resolveUntypedCall($$$A) }'
-    selector: call_expression
-```
 ```sh
-ast-grep scan -r /tmp/callsite.yml vendor/typescript-go/internal/checker/checker.go
-#   -> :2514, :2533, :8490
+ast-grep run -p 'func f() { c.resolveUntypedCall($$$A) }' \
+  -l go --selector call_expression vendor/typescript-go/internal/checker/checker.go
+#   -> all 10 call sites, identical to `grep -n`
 ```
+
+The wrapper `func f() { … }` is throwaway scaffolding that makes the pattern
+parse; `--selector` then picks the `call_expression` inside it. The same
+`context` / `selector` pair is available in a YAML rule
+(`rule: pattern: {context: …, selector: …}`) when the query is worth keeping,
+but the one-liner is the everyday form.
+
+**`--selector` alone does not rescue a bare pattern** — `-p 'c.f($$$)'
+--selector call_expression` errors with *"Cannot parse query as a valid
+pattern"*, because the pattern is still the thing that fails to parse. The
+context wrapper is what does the work.
 
 > **Before trusting an `ast-grep` pattern that returns zero, prove the zero.**
 > Either `--debug-query=ast` it, or cross-check one hit with `grep`. A tool that
@@ -3325,6 +3328,19 @@ had actually used all session.
 > **A tool's limitation is a claim about the tool, and claims get checked.** This
 > document already says *a prerequisite stated in a comment is a hypothesis*;
 > the same applies to *"the tool cannot do X"*, and it applies most strongly when
-> the limitation conveniently excuses what you already did. Three unmeasured
-> claims were caught in this session, all of them flattering the author's own
-> process. This is the fourth.
+> the limitation conveniently excuses what you already did.
+
+**This section needed three corrections in under an hour**, each supplied by the
+reader rather than found by its author: `-A`/`-B`/`-C` exist; `--selector` works
+with a context wrapper (it was written off after being tested against the
+already-broken bare pattern — **a fix tested on top of an unfixed input tests
+nothing**); and the tool was not used at all for a whole session despite being
+recommended in the brief.
+
+The corrections are consolidated into the text above rather than stacked as
+three apologies, because a reader needs the working commands more than the
+sequence. What is kept is the pattern, which is the part that generalises: every
+one of the three errors made the author's existing habits look better than they
+were. **Four unmeasured claims were caught in this session and all four ran that
+direction.** A claim that flatters the process it describes should be checked
+before it is written, not after.
