@@ -476,8 +476,7 @@ item, but two things fell out of splitting it, both effort 1:
 
 **Small, owned, and honest about being small**: accessors 78 (`bd tsr-32y`),
 computed names 219, design P's outer symbol chain 13, discriminated-union
-narrowing on `switch` (`bd tsr-5kii`, **unsized** — do not quote the 20 that
-exposed it), the value-name convertible bucket 70 (a *lower* bound).
+narrowing on `switch` (`bd tsr-5kii`, **SIZED, ninth session: ≤104 reachable lines** — `switchgap.rs`, `checker-notes-narrow.md` §8.1; an effort-3 mechanism that does not clear the board), the value-name convertible bucket 70 (a *lower* bound).
 
 **The ninth session's builds point the next session at ONE re-measure:**
 `removeSubtypes` (`tsr-eak`, refused at 1.03 gained-per-lost) was priced

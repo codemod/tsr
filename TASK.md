@@ -22,25 +22,20 @@ WHAT THE SESSION OPENED, in value order:
      provably-uncontextual position. The annotated positions stay gaps —
      their members keep literals under contextual typing
      (isLiteralOfContextualType), which is that refused subsystem's row.
-  2. tsr-5kii (switch-case narrowing) now has a measured cost: 4 wrong lines
-     minted per §11.2 measurement through un-narrowed aggregate inputs, plus
-     its own unsized row. Probe first; the equality-narrowing machinery in
-     flow.rs is the base.
+  2. DONE as a sizing (switchgap.rs, narrow notes §8.1): tsr-5kii is <=104
+     reachable lines across ~23 cases — an effort-3 mechanism that does NOT
+     clear the board. The 4 aggregate-exposure wrongs stay priced at that.
   3. The `_1` type-parameter disambiguation family: 625 wrong lines, 128
      cases, the largest unowned naming family (STATUS §7 ninth-session row).
      Needs a per-print naming context — investigate whether
      signature_to_string_at can thread one before costing.
   4. tsr-5o2 (written-annotation reuse in signature prints) surfaced 4 more
      lines in §11.2 — its row keeps growing as aggregates land.
-  5. The modifier-bearing population of removeSubtypes returns to the board
-     owned by properties_related_to (readonly/optional/private unread —
-     §9.1). Teaching the relation READONLY alone is the first slice: the
-     direction is pinned by readonlyPropertySubtypeRelationDirected
-     (`{ a }` <: `{ readonly a }`, never the reverse, for the subtype
-     relations only), the declarations carry the modifier syntactically, and
-     landing it deletes the §9 syntactic decline's readonly half. Mind that
-     readonly participates ONLY in Subtype/StrictSubtype upstream — the
-     assignable relation ignores it.
+  5. DONE same session, all three verses (assign notes §14/§15/§16):
+     readonly, optionality (both directions) and privacy live in the relation
+     now; the §9 syntactic decline is deleted whole. The relation's remaining
+     unread axes: property-vs-method, index/call signatures — each a future
+     verse with the same recipe.
 
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
