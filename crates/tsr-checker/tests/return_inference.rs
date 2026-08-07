@@ -176,9 +176,20 @@ fn an_async_declaration_with_no_valued_return_is_promise_void() {
         type_of_declaration_with_promise("async function f() { return; }", "f"),
         "() => Promise<void>"
     );
-    // A VALUED return needs `getAwaitedType` and stays a gap — `error` is the
-    // gap sentinel, not an answer.
-    assert_eq!(type_of_declaration_with_promise("async function f() { return 1; }", "f"), "error");
+    // A valued PRIMITIVE return is its own awaited type (`checker.go:20149`
+    // is an identity on a type that cannot carry a `then` member) —
+    // `compiler/awaitInClassInAsyncFunction.types` records
+    // `>foo : () => Promise<number>` for this shape.
+    assert_eq!(
+        type_of_declaration_with_promise("async function f() { return 1; }", "f"),
+        "() => Promise<number>"
+    );
+    // A returned OBJECT could be a thenable and needs the awaited machinery —
+    // `error` is the gap sentinel, not an answer.
+    assert_eq!(
+        type_of_declaration_with_promise("async function f() { return { a: 1 }; }", "f"),
+        "error"
+    );
 }
 
 /// The printed type of `name`, bound beside a stand-in lib declaring `Generator`.

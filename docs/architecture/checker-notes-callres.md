@@ -1004,3 +1004,30 @@ as owner. Same declaration-only gate as §14, same reason.
 own ≤ **6** — falsifier: a wrong line whose want is `Promise<T>` with `T` a
 non-primitive → the "cannot carry `then`" test admitted something it should
 not; regressed == 0; lost == 0.
+
+### §16.1 Scored — the residual reshaped the arm twice, then every leg passed clean
+
+First form (+20 / 4 own wrong, inside both numeric legs): the residual was
+read anyway, per the bar's own falsifier, and named two real model errors —
+under NON-strict options `undefined`/`null` widen to `any`
+(`asyncFunctionDeclaration15_es6` wants `Promise<any>`), and a **reachable
+body end** appends `undefined` to the aggregate under strict
+(`functionHasImplicitReturn`, `checker.go:20298`; `promiseTypeStrictNull`
+wants `Promise<1 | undefined>`). Both admitted shapes were declined: the
+nullable domains are out, and the valued slice now requires
+`block_completes_normally == Some(false)` — which needed a `ReturnStatement`
+arm in the completion classifier, whose doc had said "only called for bodies
+with no `return`"; §16 is the caller that ended that.
+
+Final: **GAP→RIGHT 15, and no other transition of any kind.**
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | net ≥ +12 | **+15** | pass |
+| 2 | own ≤ 6 | **0** | pass |
+| 3 | regressed == 0 | **0** | pass |
+| 4 | lost == 0 | **0** | pass |
+
+The lesson worth a line: a passing ratio was again not permission to stop
+reading — the 4 wrongs sat inside leg 2's ceiling and both would have shipped
+as latent wrong-rules.

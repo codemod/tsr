@@ -34,7 +34,7 @@ use tsr_ast::{
 };
 use tsr_binder::SymbolId;
 
-use crate::{checker::Checker, types::TypeId};
+use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
 /// One parameter of a [`Signature`], reduced to what a printed line needs.
 ///
@@ -770,12 +770,59 @@ impl<'a> Checker<'a, '_> {
             }
             let Body::Block(block) = body else { return None };
             let returns = self.return_expressions_of(block, declaration);
-            if returns.iter().any(Option::is_some) {
-                return None;
+            let mut valued: Vec<TypeId> = Vec::new();
+            let mut has_bare_return = false;
+            for expression in &returns {
+                let Some(expression) = expression else {
+                    has_bare_return = true;
+                    continue;
+                };
+                let id = self.check_expression(*expression);
+                if id == self.intrinsics.error {
+                    return None;
+                }
+                let widened = self.get_widened_literal_type(id);
+                if !valued.contains(&widened) {
+                    valued.push(widened);
+                }
             }
+            let promised = match valued.as_slice() {
+                // The empty aggregate — `Promise<void>` (`checker.go:20184`).
+                [] => self.intrinsics.void,
+                // §16: one distinct valued return whose type **cannot carry a
+                // `then` member** — a primitive — is its own awaited type, so
+                // `unwrapAwaitedType`/`checkAwaitedType` (`checker.go:20149`)
+                // are identities on it. A bare `return;` beside it is the
+                // strictness-dependent `T | undefined` the plain path also
+                // declines. Everything with members — objects, references
+                // including `Promise` itself, unions, type parameters —
+                // declines with the awaited machinery as the named owner.
+                [single]
+                    if !has_bare_return
+                        && self.store.get(*single).flags.intersects(TypeFlags::PRIMITIVE)
+                        // Not every primitive survives: under NON-strict
+                        // options `undefined` and `null` widen to `any`
+                        // (`asyncFunctionDeclaration15_es6` wants
+                        // `Promise<any>`), so the nullable domains decline
+                        // rather than model the option.
+                        && !self
+                            .store
+                            .get(*single)
+                            .flags
+                            .intersects(TypeFlags::VOID_LIKE.union(TypeFlags::NULL))
+                        // A reachable body end appends `undefined` to the
+                        // aggregate under strict (`functionHasImplicitReturn`,
+                        // `checker.go:20298` — `promiseTypeStrictNull` wants
+                        // `Promise<1 | undefined>`), so the valued slice
+                        // requires the end provably unreachable.
+                        && self.block_completes_normally(block, declaration) == Some(false) =>
+                {
+                    *single
+                }
+                _ => return None,
+            };
             let promise = self.global_type_symbol("Promise")?;
-            let void = self.intrinsics.void;
-            return Some(self.create_type_reference(promise, vec![void]));
+            return Some(self.create_type_reference(promise, vec![promised]));
         }
         let block = match body {
             // `getReturnTypeFromBody`'s first arm, `!ast.IsBlock(body)`
@@ -1118,7 +1165,13 @@ impl<'a> Checker<'a, '_> {
     /// One statement's contribution to [`Checker::block_completes_normally`].
     fn statement_completes_normally(&self, id: NodeId, owner: NodeId) -> Option<bool> {
         match self.nodes.kind(id) {
-            SyntaxKind::ThrowStatement => Some(false),
+            // A `return` ends the block as surely as a `throw`. The helper's
+            // doc said it was only called for bodies with no `return`; §16's
+            // valued-return arm is the first caller for which that stopped
+            // being true, and the `ReturnStatement` arm is what makes the
+            // common shape — a body *ending* in `return e` — read as
+            // end-unreachable.
+            SyntaxKind::ThrowStatement | SyntaxKind::ReturnStatement => Some(false),
             SyntaxKind::Block => self.block_completes_normally(id, owner),
             SyntaxKind::IfStatement => {
                 let Some(Node::IfStatement(node)) = self.node_map.get(id) else { return None };
