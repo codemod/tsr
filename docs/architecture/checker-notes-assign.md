@@ -681,3 +681,21 @@ the build is right (both lines convert, zero traffic anywhere else, legs
 2–4 at 0/0/0) and the floor was a guess about an unsized population that
 turned out to be exactly its own §15.1 leftovers. A revert would trade two
 right lines for fidelity to that guess.
+
+## §13 The array-literal consumer, gated on a provably-uncontextual position — bar (ninth session)
+
+§10.1 located the array consumer's blocker: `arrayBestCommonTypes`' failures
+are all **annotated** declarations, where contextual typing keeps literal
+members (`isLiteralOfContextualType` — `x: true` under `x: boolean` stays a
+literal). In a position with **no** contextual type the members widen first,
+and there the §9 reduction is upstream's own `UnionReductionSubtype` call at
+`checker.go:8096`. `has_no_contextual_type` (`signatures.rs`) already
+recognises exactly the provable shape — an un-annotated `var`/`let`/`const`
+initialiser — and refuses every other position.
+
+**Bar:** net ≥ **+8** (unsized; §12.1's precedent for small floors noted —
+this one is a floor on a *shape*, not a mechanism forecast); own ≤ **6** —
+falsifier: wrong lines in un-annotated positions whose want keeps two
+same-printing constituents → the §9 identity test collapsed two distinct
+object-literal types, `check_array_literal`'s own documented hazard;
+regressed == 0; lost == 0.
