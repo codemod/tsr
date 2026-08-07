@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §36 landing, 2026-08-07 (ninth session, continued: builds 25–56).
+Measured at the §37 landing, 2026-08-07 (ninth session, continued: builds 25–57).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §36 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,575/9,538** | **37.48%** | **gradient 81.15%** — the target |
+| **`checker_types`** | **3,575/9,538** | **37.48%** | **gradient 81.20%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-388,682 / 478,954 assertion lines = 81.15%      (measured at the §36 landing)
-  right 388,682 | gap 56,247 | wrong 23,986        right+gap+wrong = 468,915 exactly
+388,917 / 478,954 assertion lines = 81.20%      (measured at the §37 landing)
+  right 388,917 | gap 55,979 | wrong 24,019        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -120,7 +120,9 @@ mints its type, members read the merged globals) = 388,533; then + 0 (§34: prop
 complete-tables — measured zero, REVERTED: the population is callee-side
 only, and the arm touched the ADR-0038 boundary for no payoff) + 149 (§36:
 uninferred type parameters fall back to `unknown`, `inference.go:1406`) =
-388,682 exactly — builds 25–56. §35 records a FINDING: tsgo prints
+388,682; then + 235 net (§37: tuples
+instantiate — arm 6 over `tuple_element_lists`) = 388,917 exactly —
+builds 25–57. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
@@ -1043,6 +1045,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §37 landing | **81.20%** | **3,575** | **+236/33** | **Build 57: tuples instantiate** — `tsr-5ll`'s element lists close `instantiate_type`'s oldest decline |
 | 2026-08-07 | §36 landing | **81.15%** | **3,575** | **+149/39; §34 zero-reverted; §35 finding** | **Build 56: the `unknown` fallback** (`getInferredType`'s last leg). §34 measured zero and REVERTED (callee-side-only population; the arm touched the ADR boundary for nothing). §35: tsgo prints `error` in JS chains — 123 baseline files carry want-`error` lines, matchable by honest gaps; recorded with the no-oracle-peeking constraint |
 | 2026-08-07 | §33 landing | **81.12%** | **3,574** | **+378/24** | **Build 55: `globalThis`** — the §31 exclusion became its own rule; a binder accessor opens the merged globals to member access |
 | 2026-08-07 | callres-§26 landing | **81.04%** | **3,571** | **+377/19** | **Build 54: the unique-symbol mint** — one distinct type per valid declaration position; the positional gate's error became the mint it was guarding for |
