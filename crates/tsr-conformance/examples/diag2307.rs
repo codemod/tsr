@@ -154,5 +154,7 @@ fn measure(case: &CaseEntry) -> Option<(String, Row)> {
 /// It is exact rather than approximate because no other producer in this port
 /// emits either code — the parser and binder have no notion of module
 /// resolution at all.
-const RULE_CODES: &[u32] =
-    &[2307, 2882, 2564, 2304, 2454, 2369, 2695, 1104, 1105, 1107, 1115, 1116, 1036, 1183];
+const RULE_CODES: &[u32] = &[
+    2307, 2882, 2564, 2304, 2454, 2369, 2695, 1104, 1105, 1107, 1115, 1116, 1036, 1183, 2384, 2389,
+    2390, 2391, 2392, 2393,
+];

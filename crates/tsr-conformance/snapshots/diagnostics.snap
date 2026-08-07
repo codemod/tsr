@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 700/5488 (12.76%)
-Failed         : 4788
+Passed         : 717/5488 (13.06%)
+Failed         : 4771
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,31 +11,25 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4788 failures:
+First 100 of 4771 failures:
 compiler/ClassDeclaration10
-  2 missing (first TS2390 at ClassDeclaration10.ts(2,4))
+  1 missing (first TS2390 at ClassDeclaration10.ts(2,4))
 compiler/ClassDeclaration11
   1 missing (first TS2390 at ClassDeclaration11.ts(2,4))
 compiler/ClassDeclaration13
   1 missing (first TS2389 at ClassDeclaration13.ts(3,4))
 compiler/ClassDeclaration14
-  2 missing (first TS2391 at ClassDeclaration14.ts(2,4))
-compiler/ClassDeclaration15
-  1 missing (first TS2391 at ClassDeclaration15.ts(2,4))
+  1 missing (first TS2390 at ClassDeclaration14.ts(3,4))
 compiler/ClassDeclaration21
   1 missing (first TS2389 at ClassDeclaration21.ts(3,5))
 compiler/ClassDeclaration22
   1 missing (first TS2389 at ClassDeclaration22.ts(3,5))
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
-compiler/ClassDeclaration25
-  2 missing (first TS2391 at ClassDeclaration25.ts(6,5))
 compiler/ClassDeclaration26
   2 unexpected (first TS1005 at ClassDeclaration26.ts(2,22)), 5 missing
 compiler/ClassDeclaration8
   1 missing (first TS2390 at ClassDeclaration8.ts(2,3))
-compiler/ClassDeclaration9
-  1 missing (first TS2391 at ClassDeclaration9.ts(2,4))
 compiler/ClassDeclarationWithInvalidConstOnPropertyDeclaration
   1 missing (first TS1248 at ClassDeclarationWithInvalidConstOnPropertyDeclaration.ts(2,16))
 compiler/ExportAssignment7
@@ -43,13 +37,13 @@ compiler/ExportAssignment7
 compiler/ExportAssignment8
   1 missing (first TS2309 at ExportAssignment8.ts(1,1))
 compiler/FunctionDeclaration3
-  2 missing (first TS2391 at FunctionDeclaration3.ts(1,10))
+  1 missing (first TS7010 at FunctionDeclaration3.ts(1,10))
 compiler/FunctionDeclaration4
   2 missing (first TS7010 at FunctionDeclaration4.ts(1,10))
 compiler/FunctionDeclaration6
   2 missing (first TS7010 at FunctionDeclaration6.ts(2,14))
 compiler/FunctionDeclaration7
-  2 missing (first TS2391 at FunctionDeclaration7.ts(2,13))
+  1 missing (first TS7010 at FunctionDeclaration7.ts(2,13))
 compiler/InterfaceDeclaration8
   1 missing (first TS2427 at InterfaceDeclaration8.ts(1,11))
 compiler/ParameterList13
@@ -212,3 +206,9 @@ compiler/arrowExpressionBodyJSDoc
   2 missing (first TS2322 at mytest.js(6,44))
 compiler/arrowFunctionErrorSpan
   11 missing (first TS2345 at arrowFunctionErrorSpan.ts(4,3))
+compiler/arrowFunctionWithObjectLiteralBody1
+  1 missing (first TS7006 at arrowFunctionWithObjectLiteralBody1.ts(1,9))
+compiler/arrowFunctionWithObjectLiteralBody2
+  1 missing (first TS7006 at arrowFunctionWithObjectLiteralBody2.ts(1,9))
+compiler/arrowFunctionsMissingTokens
+  57 unexpected (first TS1109 at arrowFunctionsMissingTokens.ts(2,14)), 15 missing

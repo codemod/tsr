@@ -253,6 +253,13 @@ pub struct Checker<'a, 'n> {
     /// three fails the case as surely as reporting none — so it is part of the
     /// rule, not an optimisation.
     pub(crate) ambient_statement_reported: rustc_hash::FxHashSet<NodeId>,
+    /// Symbols `checkFunctionOrConstructorSymbol` has already visited.
+    ///
+    /// Upstream's `links.functionOrConstructorChecked` (`checker.go:3463`,
+    /// commented *"Only check the symbol once"*). Without it a three-overload
+    /// function reports three times and the `diagnostics` suite compares
+    /// multisets.
+    pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -462,6 +469,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             file_has_parse_errors: false,
             allow_unreachable_code: false,
             ambient_statement_reported: rustc_hash::FxHashSet::default(),
+            function_symbol_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),

@@ -889,8 +889,7 @@ reasoning that produced it was completely different.
 | 4 | own new wrong == **0** | **0** | pass |
 | 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
 
-**`diagnostics` closes the session at 700/5,488 = 12.76%, from 80/5,488 =
-1.46%.** Eight builds, one refusal, `checker_types` byte-identical throughout.
+(Superseded by §14's closing figure.)
 
 ---
 
@@ -939,3 +938,85 @@ A bound was considered and declined: refusing whenever the program contains a
 global augmentation would be sound, but the checker cannot enumerate the
 program's files and the harness testing for the *text* `declare global` is not a
 predicate, it is a grep. Recorded so the next attempt does not spend the cycle.
+
+---
+
+## 14. `checkFunctionOrConstructorSymbol` — the implementation-expected arms
+
+TS2391/2390/2392/2393 — "an overload set has no implementation". 17 cases for
+TS2391 alone on the board; the family delivered 17 net.
+
+Upstream's worker (`checker.go:3469`) is 240 lines doing five unrelated jobs:
+implementation presence, modifier agreement across overloads, question-token
+agreement, class/function merging, and an implementation-versus-overload
+*relation* check. **Only the first is ported.** The last needs the relation and
+the middle three are their own rows.
+
+```
+CONVERTS 620 -> 637   (+17)      LOST 0      WRONG 206 -> 217   (+11)
+```
+
+### The 480-line measurement that was one expression
+
+The first build read **686 wrong**, and every extra line came from one
+transliteration:
+
+```go
+previousDeclaration.End() != node.Pos()      // upstream
+self.nodes.span(earlier).end != self.nodes.span(declaration).start   // here
+```
+
+Upstream's `Pos()` is the **full start** — the end of the preceding token,
+trivia included — so two declarations on consecutive lines satisfy
+`prev.End() == next.Pos()`. `tsr_core::Span` records the token start *after*
+trivia, so the same expression is false for **every** pair of declarations
+separated by a newline, and the port reported TS2391 on 480 lines of perfectly
+ordinary overload sets.
+
+> **A faithful transliteration of an expression is not a faithful port of its
+> meaning when the two ASTs disagree about what a position *is*.** The fix is not
+> a tolerance; it is asking the question upstream's expression was asking —
+> *is this the next sibling* — which the child walk answers exactly.
+
+This is `docs/conventions.md`'s "a ported predicate can be sound upstream and
+unsound here" with a new cause: not an incomplete subsystem, but a different
+position model. `Pos()`/`End()` appear ~2,000 times in `checker.go`; every one is
+this trap.
+
+### Three declines, each read out of upstream's branch structure
+
+| decline | why | lines removed |
+|---|---|---:|
+| the next sibling is the same kind, and either names match or it has a body | `checker.go:3567`'s subsequent-node scan reports TS2387/2388 or TS2389 there, or returns — it **never** reaches TS2391 | ~14 |
+| any declaration is class-like | `hasNonAmbientClass` (`checker.go:3660`) has its own arm, TS2813/2814 | 18 |
+| the declarations do not share one parent | upstream's overloads are siblings; `class Point { static Origin(){} }` beside `namespace Point { export function Origin(){} }` is **two** symbols upstream, reported by the binder as TS2300 and never reaching this function | 18 |
+
+Plus the two bounds registered up front: single-file symbols only (a declaration
+in another file has no reachable ambient bit here, since this port's is per-file
+caller state rather than a node flag), and once per symbol —
+`links.functionOrConstructorChecked`, without which a three-overload function
+reports three times.
+
+### The residual 11
+
+Ten lines are two cases and one cause: `parserConstructorDeclaration12`
+(`constructor<>() { }` eight times) reports TS2393 where upstream reports TS2392,
+because this parser produces a `MethodDeclaration` named `constructor` for a
+constructor carrying type parameters where upstream produces a
+`ConstructorDeclaration`. A parser divergence on a deliberately malformed input;
+filed rather than worked around. The other two are `jsFileCompilation*` overload
+syntax in JS files.
+
+### The bar
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 (confirmation) | `diagnostics` passes == 717 | **717/5,488 = 13.06%** | pass |
+| 2 | `checker_types` unchanged, byte-identical | **2,848 / 73.70%**, identical | pass |
+| 3 | cases regressed == 0 | **0** — 717 = 700 + 17 | pass |
+| 4 | own new wrong ≤ 15 | **11** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+**`diagnostics` closes the session at 717/5,488 = 13.06%, from 80/5,488 =
+1.46% — 8.96×.** Nine builds, two refusals, `checker_types` byte-identical
+throughout.

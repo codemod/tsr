@@ -221,6 +221,7 @@ impl Checker<'_, '_> {
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
+                self.check_function_or_constructor_symbol(node, ambient);
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::EnumDeclaration(declaration) => {
@@ -281,6 +282,10 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::CommaToken) =>
             {
                 self.check_comma_left(node, binary.left.and_then(|left| left.node_id()));
+                ambient
+            }
+            Node::MethodDeclaration(_) | Node::ConstructorDeclaration(_) => {
+                self.check_function_or_constructor_symbol(node, ambient);
                 ambient
             }
             Node::Identifier(identifier) => {
@@ -1389,6 +1394,337 @@ impl Checker<'_, '_> {
         // "We must be parented by a statement. If so, there's no need to report
         // the error as our parent will have already done it."
         false
+    }
+
+    /// `checkFunctionOrConstructorSymbol` (`checker.go:3461`) — the
+    /// **implementation-expected** arms only.
+    ///
+    /// | code | message |
+    /// |---|---|
+    /// | TS2391 | `Function implementation is missing or not immediately following the declaration.` |
+    /// | TS2390 | `Constructor implementation is missing.` |
+    /// | TS2392 | `Multiple constructor implementations are not allowed.` |
+    /// | TS2393 | `Duplicate function implementation.` |
+    /// | TS2389 | `Function implementation name must be '{0}'.` |
+    /// | TS2384 | `Overload signatures must all be ambient or non-ambient.` — *not ported* |
+    ///
+    /// Upstream's worker (`checker.go:3469`) is 240 lines doing five unrelated
+    /// jobs: implementation presence, modifier agreement across overloads,
+    /// question-token agreement, class/function merging, and an
+    /// implementation-versus-overload *relation* check. Only the first is
+    /// ported; the rest are their own items and the last needs the relation.
+    ///
+    /// # Two bounds, both refusals rather than approximations
+    ///
+    /// - **Single-file symbols only.** A symbol whose declarations span files
+    ///   needs each declaration's own ambient context, and this port's ambient
+    ///   bit is per-file state supplied by the caller
+    ///   ([`FileContext`]) rather than a flag on the node — so for a declaration
+    ///   in another file it is simply not available. Upstream reads
+    ///   `node.Flags&NodeFlagsAmbient` and has no such problem.
+    /// - **Checked once per symbol**, upstream's
+    ///   `links.functionOrConstructorChecked` (`checker.go:3463`). Without it a
+    ///   three-overload function reports three times, and the suite compares
+    ///   multisets.
+    fn check_function_or_constructor_symbol(&mut self, node: NodeId, ambient: bool) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.function_symbol_checked.insert(symbol) {
+            return;
+        }
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        // The single-file bound: anything else and the per-declaration ambient
+        // context is unavailable, so nothing is said.
+        if declarations
+            .iter()
+            .any(|&declaration| self.source_file_of_for_diagnostics(declaration) != Some(file))
+        {
+            return;
+        }
+
+        // `hasNonAmbientClass` (`checker.go:3660`): a symbol that merges a class
+        // with a function has its own arm upstream — TS2813
+        // `Class declaration cannot implement overload list for '{0}'` and
+        // TS2814 `Function with bodies can only merge with classes that are
+        // ambient` — reached *instead of* the duplicate-implementation report.
+        // Neither is ported, so the whole symbol is declined: it was 18 of the
+        // 34 wrong lines this rule's second measurement produced, all in the
+        // `ClassAndModuleThatMerge…` family.
+        if declarations.iter().any(|&declaration| {
+            matches!(
+                self.nodes.kind(declaration),
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+            )
+        }) {
+            return;
+        }
+        // **All declarations must share one parent.** Upstream's overloads are
+        // siblings; a symbol whose declarations sit in *different containers* is
+        // one this binder merged and upstream did not — `class Point { static
+        // Origin() {} }` beside `namespace Point { export function Origin() {} }`
+        // is two symbols upstream, which reports TS2300 `Duplicate identifier`
+        // from the binder and never reaches this function. Declining is
+        // silence where upstream says something else, and it was 18 of the 21
+        // wrong lines left after the class-merge decline above.
+        let parents_agree = {
+            let mut parents = declarations.iter().filter_map(|&d| self.nodes.parent(d));
+            let first = parents.next();
+            parents.all(|parent| Some(parent) == first)
+        };
+        if !parents_agree {
+            return;
+        }
+        let is_constructor = self.nodes.kind(node) == SyntaxKind::Constructor;
+        let mut previous: Option<NodeId> = None;
+        let mut body_declaration: Option<NodeId> = None;
+        let mut last_non_ambient: Option<NodeId> = None;
+        let mut function_declarations: Vec<NodeId> = Vec::new();
+        let mut multiple_constructor_implementations = false;
+        let mut duplicate_function_implementation = false;
+
+        for &declaration in &declarations {
+            // `inAmbientContextOrInterface` (`checker.go:3606`): ambient and
+            // interface declarations may be interleaved, so they reset the
+            // adjacency chain rather than breaking it.
+            let parent_kind = self.nodes.parent(declaration).map(|p| self.nodes.kind(p));
+            let in_ambient_or_interface = ambient
+                || self.declaration_is_ambient(declaration)
+                || matches!(
+                    parent_kind,
+                    Some(SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeLiteral)
+                );
+            if in_ambient_or_interface {
+                previous = None;
+            }
+            if !self.is_function_or_method_or_constructor(declaration) {
+                continue;
+            }
+            function_declarations.push(declaration);
+            let body_present = self.declaration_has_body(declaration);
+            if body_present && body_declaration.is_some() {
+                if is_constructor {
+                    multiple_constructor_implementations = true;
+                } else {
+                    duplicate_function_implementation = true;
+                }
+            } else if let Some(earlier) = previous
+                && self.nodes.parent(earlier) == self.nodes.parent(declaration)
+                && self.next_sibling(earlier) != Some(declaration)
+            {
+                self.report_implementation_expected(earlier, is_constructor);
+            }
+            if body_present && body_declaration.is_none() {
+                body_declaration = Some(declaration);
+            }
+            previous = Some(declaration);
+            if !in_ambient_or_interface {
+                last_non_ambient = Some(declaration);
+            }
+        }
+
+        if multiple_constructor_implementations {
+            for &declaration in &function_declarations {
+                let span = self.nodes.span(declaration);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::MULTIPLE_CONSTRUCTOR_IMPLEMENTATIONS_ARE_NOT_ALLOWED,
+                        span,
+                    ),
+                );
+            }
+        }
+        if duplicate_function_implementation {
+            for &declaration in &function_declarations {
+                let at = self.declaration_name_of(declaration).unwrap_or(declaration);
+                let span = self.nodes.span(at);
+                self.report(
+                    file,
+                    Diagnostic::new(&messages::DUPLICATE_FUNCTION_IMPLEMENTATION, span),
+                );
+            }
+        }
+        // "Abstract methods can't have an implementation -- in particular, they
+        // don't need one." (`checker.go:3679`)
+        if let Some(last) = last_non_ambient
+            && !self.declaration_has_body(last)
+            && !self.declaration_is_abstract(last)
+            && !self.declaration_is_optional(last)
+        {
+            self.report_implementation_expected(last, is_constructor);
+        }
+    }
+
+    /// `reportImplementationExpectedError` (`checker.go:3549`), reduced to its
+    /// two terminal messages.
+    ///
+    /// The subsequent-node scan above them selects TS2389
+    /// `Function implementation name must be '{0}'` and the static/instance
+    /// overload pair, and needs the *parent's* child order. It is not ported;
+    /// the effect is that a case wanting TS2389 gets TS2391 instead, which is a
+    /// wrong code — so the scan's guard is reproduced instead: if the next
+    /// sibling is adjacent, of the same kind and carries a body, say nothing.
+    fn report_implementation_expected(&mut self, node: NodeId, is_constructor: bool) {
+        if self.next_sibling_is_the_implementation(node) {
+            return;
+        }
+        let at = self.declaration_name_of(node).unwrap_or(node);
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        let message = if is_constructor {
+            &messages::CONSTRUCTOR_IMPLEMENTATION_IS_MISSING
+        } else if self.declaration_is_abstract(node) {
+            &messages::ALL_DECLARATIONS_OF_AN_ABSTRACT_METHOD_MUST_BE_CONSECUTIVE
+        } else {
+            &messages::FUNCTION_IMPLEMENTATION_IS_MISSING_OR_NOT_IMMEDIATELY_FOLLOWING_THE_DECLARATION
+        };
+        self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// The guard `reportImplementationExpectedError` puts in front of its
+    /// terminal messages (`checker.go:3566`): a *subsequent* node that starts
+    /// exactly where this one ends, of the same kind, carrying a body, is the
+    /// implementation — upstream reports TS2389 there instead, and this port
+    /// stays silent rather than report the wrong code.
+    fn next_sibling_is_the_implementation(&self, node: NodeId) -> bool {
+        let Some(next) = self.next_sibling(node) else { return false };
+        if self.nodes.kind(next) != self.nodes.kind(node) {
+            return false;
+        }
+        // Upstream's branch structure at `checker.go:3567`, read exactly: with
+        // an adjacent subsequent node of the **same kind**, it reports the
+        // static/instance mismatch (TS2387/TS2388) or returns when the names
+        // match, and TS2389 `Function implementation name must be '{0}'` when
+        // they do not and the subsequent node has a body. In none of those does
+        // it reach TS2391. So the decline is exact rather than approximate: the
+        // only path that falls through is *different name, no body*.
+        let names_match = match (self.declaration_name_of(node), self.declaration_name_of(next)) {
+            (Some(left), Some(right)) => self.identifier_text(left) == self.identifier_text(right),
+            _ => false,
+        };
+        names_match || self.declaration_has_body(next)
+    }
+
+    /// The text of an identifier or private identifier used as a declaration
+    /// name, for the name comparison above.
+    fn identifier_text(&self, node: NodeId) -> Option<&str> {
+        match self.node_map.get(node)? {
+            Node::Identifier(identifier) => Some(identifier.text),
+            Node::PrivateIdentifier(identifier) => Some(identifier.text),
+            Node::StringLiteral(literal) => Some(literal.text),
+            Node::NumericLiteral(literal) => Some(literal.text),
+            _ => None,
+        }
+    }
+
+    /// The node immediately after `node` in its parent's child order.
+    ///
+    /// **This stands in for upstream's `previousDeclaration.End() == node.Pos()`
+    /// and it is not a cosmetic substitution.** `Pos()` upstream is the *full*
+    /// start — the end of the preceding token, trivia included — so two
+    /// declarations separated by a newline still satisfy it. `tsr_core::Span`
+    /// records the token start *after* trivia, so the same expression is false
+    /// for every pair of declarations on separate lines, and writing it that way
+    /// reported TS2391 on **480 lines** of perfectly ordinary overload sets
+    /// (`overloadAssignmentCompat`, `functionOverloadErrors`, and every other
+    /// overload case in the corpus).
+    ///
+    /// Sibling adjacency is what upstream's expression *means*: nothing else was
+    /// parsed between them. It is exact where the span test was an accident of a
+    /// different position model.
+    fn next_sibling(&self, node: NodeId) -> Option<NodeId> {
+        let parent = self.nodes.parent(node)?;
+        let typed = self.node_map.get(parent)?;
+        let mut seen = false;
+        let mut next = None;
+        tsr_ast::for_each_child_id(typed, |child| {
+            if next.is_none() {
+                if seen {
+                    next = Some(child);
+                } else if child == node {
+                    seen = true;
+                }
+            }
+        });
+        next
+    }
+
+    fn is_function_or_method_or_constructor(&self, node: NodeId) -> bool {
+        matches!(
+            self.nodes.kind(node),
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::Constructor
+        )
+    }
+
+    /// `ast.NodeIsPresent(node.Body())`.
+    fn declaration_has_body(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(declaration)) => declaration.body.is_some(),
+            Some(Node::MethodDeclaration(declaration)) => declaration.body.is_some(),
+            Some(Node::ConstructorDeclaration(declaration)) => declaration.body.is_some(),
+            _ => false,
+        }
+    }
+
+    fn declaration_is_abstract(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(declaration)) => {
+                has_modifier(declaration.modifiers, SyntaxKind::AbstractKeyword)
+            }
+            Some(Node::MethodDeclaration(declaration)) => {
+                has_modifier(declaration.modifiers, SyntaxKind::AbstractKeyword)
+            }
+            _ => false,
+        }
+    }
+
+    /// `ast.IsOptionalDeclaration` for the two kinds this rule sees.
+    fn declaration_is_optional(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::MethodDeclaration(declaration)) => declaration
+                .postfix_token
+                .is_some_and(|token| token.kind == SyntaxKind::QuestionToken),
+            Some(Node::MethodSignatureDeclaration(signature)) => {
+                signature.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+            }
+            _ => false,
+        }
+    }
+
+    /// A `declare` modifier on the declaration itself.
+    ///
+    /// The *file* half of the ambient context comes from [`FileContext`]; this
+    /// is the declaration half, and together they are what upstream reads off
+    /// `node.Flags` in one test.
+    fn declaration_is_ambient(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(declaration)) => {
+                has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+            }
+            Some(Node::MethodDeclaration(declaration)) => {
+                has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+            }
+            _ => false,
+        }
+    }
+
+    /// `ast.GetNameOfDeclaration` for the kinds this rule reports on.
+    fn declaration_name_of(&self, node: NodeId) -> Option<NodeId> {
+        match self.node_map.get(node)? {
+            Node::FunctionDeclaration(declaration) => {
+                declaration.name.and_then(|name| name.node_id)
+            }
+            Node::MethodDeclaration(declaration) => declaration.name.node_id(),
+            Node::MethodSignatureDeclaration(signature) => signature.name.node_id(),
+            _ => None,
+        }
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`
