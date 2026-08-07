@@ -1386,3 +1386,15 @@ adjacent lines); this port prints from the computed type, so those six
 positions now print the — correct — `any[]` where the baseline reuses the
 written text. `checker_types` right 369,673 → **370,043**, wrong 22,462 →
 **22,094**.
+
+### §20 A nullable initializer widens to `any`
+
+The `any ← null`/`any ← undefined` rows (~320 lines,
+`classPropertyAsPrivate` et al.): upstream's `getWidenedTypeWithContext`
+(`checker.go:18368`) maps a nullable widening type to `anyType` — `let x =
+null` is `any` in every mode; only a `const` keeps `null`. The port's
+initializer widening stopped at literals. One arm after the literal
+widening: a mutable declaration whose widened initializer is purely
+nullable answers `any`. Falsifiers: (a) `const` declarations keep their
+`null` (the CONSTANT early-return already guards); (b) annotated `null`
+TYPES never pass through this path.
