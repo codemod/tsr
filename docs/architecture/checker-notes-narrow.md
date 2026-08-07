@@ -2144,3 +2144,45 @@ incrementing (`flow.go:129-160`). The split itself is upstream-faithful
 until the auto-var container walk exists. The real owner of the 324 lines
 is that mechanism — a largeControlFlowGraph-class single-case mountain;
 queued, not refused.
+
+## §50.3 — the tuple-parameter dependent case
+
+Upstream's second `getNarrowedTypeOfSymbol` shape (`checker.go:13806`): an
+unannotated, uninitialized, non-rest parameter of a ≥2-parameter function
+contextually typed by a signature with a SINGLE REST parameter of a union
+of tuples. The function node itself is the pseudo-reference; conditions on
+sibling PARAMETERS discriminate the tuple union by ELEMENT INDEX; the
+answer indexes the narrowed union at the parameter's position
+(`dependentDestructuredVariables`'s `(kind, payload) => ...` under
+`(...args: Action) => void`).
+
+**The reduction.** The general `getContextualSignature` is the refused
+contextual subsystem; this arm takes only the WRITTEN-annotation slice:
+the function expression/arrow is the direct initializer of a variable
+whose type annotation is syntactically a function type with one
+`...rest` parameter. The rest type must be a union with every constituent
+a tuple (`tuple_element_lists`). The inference-context mapper
+(`checker.go:13816`) is not taken — a generic contextual signature
+declines. `isSomeSymbolAssigned` is approximated by nothing: a parameter
+reassigned before the read makes the walk answer the assignment, which is
+the §12 write gate's territory, and any miss there is measured by the
+pair.
+
+**The mechanism.** `sibling_member_of_pattern` learns the parameter form:
+an identifier whose declaration is a Parameter with parent == the
+pseudo-pattern function answers its INDEX as the member name — tuples
+already answer numeric member names from `tuple_element_lists` (tuple §8),
+so the §50/§50.1 filters compose unchanged. Projection is
+`get_type_of_property_of_type(narrowed, index)` — §49's union projection.
+
+**Falsifiers.** (a) If the equality/switch filters mis-answer on tuple
+constituents (comparable against element unions), R→W in the tuple cases.
+(b) If the annotation slice misfires where upstream's contextual signature
+is NOT the annotation (generic instantiation changes the rest type), G→W
+— narrow by declining type-parameter-containing rest types.
+
+**§50.3 score — LANDED.** **+28 W→R, 1 W→G, ZERO adverse.** Neither
+falsifier fired. `checker_types` right 396,472 → **396,500 (82.79%)**.
+Residue: the generic contextual slice (declined by construction), and the
+non-annotation contextual roads (argument-position arrows) behind the
+contextual refusal.

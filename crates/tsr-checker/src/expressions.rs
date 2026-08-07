@@ -189,6 +189,11 @@ impl Checker<'_, '_> {
         reference: NodeId,
     ) -> Option<TypeId> {
         let declaration = self.binder.symbols().get(symbol).value_declaration?;
+        // §50.3: the tuple-parameter shape (`checker.go:13806`), reduced to
+        // the written-annotation slice (`checker-notes-narrow.md`).
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter {
+            return self.dependent_tuple_parameter_type(declaration, reference);
+        }
         let Node::BindingElement(element) = self.node_map.get(declaration)? else {
             return None;
         };
@@ -227,6 +232,69 @@ impl Checker<'_, '_> {
             return None;
         }
         let projected = self.project_binding_element(declaration, narrowed);
+        (projected != self.intrinsics.error).then_some(projected)
+    }
+
+    /// §50.3's arm: an unannotated parameter of a function whose VARIABLE
+    /// annotation is a single-rest function type over a union of tuples;
+    /// the function node is the pseudo-reference and the answer indexes the
+    /// narrowed union at the parameter's position (`checker.go:13806`,
+    /// `checker-notes-narrow.md` §50.3).
+    fn dependent_tuple_parameter_type(
+        &mut self,
+        declaration: NodeId,
+        reference: NodeId,
+    ) -> Option<TypeId> {
+        let Node::ParameterDeclaration(parameter) = self.node_map.get(declaration)? else {
+            return None;
+        };
+        if parameter.r#type.is_some()
+            || parameter.initializer.is_some()
+            || parameter.dot_dot_dot_token.is_some()
+        {
+            return None;
+        }
+        let fn_id = self.nodes.parent(declaration)?;
+        let parameters = match self.node_map.get(fn_id)? {
+            Node::ArrowFunction(function) => function.parameters,
+            Node::FunctionExpression(function) => function.parameters,
+            _ => return None,
+        };
+        if parameters.len() < 2 {
+            return None;
+        }
+        let index = parameters.iter().position(|p| p.node_id == Some(declaration))?;
+        // The written-annotation slice of `getContextualSignature`: the
+        // function is the DIRECT initializer of a variable whose annotation
+        // is syntactically a function type with one `...rest` parameter.
+        let holder = self.nodes.parent(fn_id)?;
+        let Node::VariableDeclaration(variable) = self.node_map.get(holder)? else {
+            return None;
+        };
+        if variable.initializer.and_then(|e| e.node_id()) != Some(fn_id) {
+            return None;
+        }
+        let tsr_ast::TypeNode::FunctionTypeNode(annotation) = variable.r#type? else {
+            return None;
+        };
+        let [rest] = annotation.parameters else { return None };
+        rest.dot_dot_dot_token?;
+        let rest_type = self.get_type_from_type_node(rest.r#type?);
+        if !self.store.get(rest_type).flags.intersects(TypeFlags::UNION) {
+            return None;
+        }
+        let TypeData::Union { types, .. } = &self.store.get(rest_type).data else {
+            return None;
+        };
+        let constituents = types.clone();
+        if !constituents.iter().all(|t| self.tuple_element_lists.contains_key(t)) {
+            return None;
+        }
+        let narrowed = self.narrow_destructured_parent(reference, fn_id, rest_type);
+        if narrowed == rest_type {
+            return None;
+        }
+        let projected = self.get_type_of_property_of_type(narrowed, &index.to_string())?;
         (projected != self.intrinsics.error).then_some(projected)
     }
 

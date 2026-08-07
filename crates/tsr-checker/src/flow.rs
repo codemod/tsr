@@ -1791,6 +1791,20 @@ impl Checker<'_, '_> {
         for _ in 0..2 {
             let node = current?;
             if self.nodes.parent(node) == Some(pattern) {
+                // §50.3: a PARAMETER sibling of a pseudo-pattern FUNCTION
+                // discriminates the tuple union by ELEMENT INDEX — tuples
+                // answer numeric member names (tuple §8), so the filters
+                // compose unchanged.
+                if self.nodes.kind(node) == SyntaxKind::Parameter {
+                    let parameters = match self.node_map.get(pattern)? {
+                        Node::ArrowFunction(function) => function.parameters,
+                        Node::FunctionExpression(function) => function.parameters,
+                        _ => return Some(identifier.text.to_string()),
+                    };
+                    let index =
+                        parameters.iter().position(|parameter| parameter.node_id == Some(node))?;
+                    return Some(index.to_string());
+                }
                 return Some(identifier.text.to_string());
             }
             current = self.nodes.parent(node);
