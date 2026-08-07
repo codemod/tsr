@@ -851,3 +851,11 @@ private INHERITED relates upstream (same declaration through heritage);
 the arm therefore requires NO heritage clause on either, the conservative
 containment; (b) privacy-free class pairs stay Unknown (structural, needs
 the members slice).
+
+**§17 — REFUSED after two measured variants (0 gains / 2 wrongs), reverted
+whole.** The arm never reached the head case: non-generic class INSTANCE
+types are `Named { members: None }`, exposing no symbol for the pair test
+to read — the same missing-members fact that makes the relater answer
+Unknown is what starves the syntactic shortcut. The prerequisite is
+`bd tsr-4sc.7`'s class members slice, full stop; recorded so the next
+session builds THAT and not a third variant of this.
