@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the callres-§26 landing, 2026-08-07 (ninth session, continued: builds 25–54).
+Measured at the §33 landing, 2026-08-07 (ninth session, continued: builds 25–55).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the callres-§26 landing, 2026-08-07 (ninth session, continued: buil
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,571/9,538** | **37.44%** | **gradient 81.04%** — the target |
+| **`checker_types`** | **3,574/9,538** | **37.47%** | **gradient 81.12%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-388,155 / 478,954 assertion lines = 81.04%      (measured at the callres-§26 landing)
-  right 388,155 | gap 56,835 | wrong 23,925        right+gap+wrong = 468,915 exactly
+388,533 / 478,954 assertion lines = 81.12%      (measured at the §33 landing)
+  right 388,533 | gap 56,435 | wrong 23,947        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -115,8 +115,9 @@ untyped calls through §31/§32-provenance receivers, zero RIGHT losses,
 unresolved-identifier callees and `super()` → `void`, +106 cases) =
 387,098; then + 680 (callres §25: `new`
 through unresolveds, near clean) = 387,778; then + 377 (callres §26: the
-unique-symbol mint — the twenty-eighth stand-in came due) = 388,155
-exactly — builds 25–54.
+unique-symbol mint — the twenty-eighth stand-in came due) = 388,155; then + 378 (§33: `globalThis`
+mints its type, members read the merged globals) = 388,533 exactly —
+builds 25–55.
 
 **CORRECTED, and said so:** this chain sat at 369,673 for five builds while
 the table above moved to 77.29% — the very "figure that appears twice will
@@ -1036,6 +1037,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | §33 landing | **81.12%** | **3,574** | **+378/24** | **Build 55: `globalThis`** — the §31 exclusion became its own rule; a binder accessor opens the merged globals to member access |
 | 2026-08-07 | callres-§26 landing | **81.04%** | **3,571** | **+377/19** | **Build 54: the unique-symbol mint** — one distinct type per valid declaration position; the positional gate's error became the mint it was guarding for |
 | 2026-08-07 | callres-§25 landing | **80.96%** | **3,565** | **+680/7** | **Build 53: `new Unresolved()` — the sixth hop, near clean** |
 | 2026-08-07 | callres-§24 landing | **80.82%** | **3,559** | **+856/162, +106 cases** | **Build 52: the chain's fifth hop.** §31-provenance IDENTIFIER callees are untyped calls; `super(...)` is `void`. The `f()` stand-in fixtures re-anchored to `satisfies` — their premise became upstream-true |
