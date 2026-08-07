@@ -133,6 +133,9 @@ pub struct Checker<'a, 'n> {
     /// `freshType`/`regularType` back-link (`types.go`), which interning
     /// cannot reproduce for `new_named` ids (`checker-notes-narrow.md` §18).
     pub(crate) enum_member_regular: FxHashMap<TypeId, TypeId>,
+    /// One NAMED placeholder per alias symbol, served to mentions of the
+    /// alias inside its own resolution (`checker-notes-narrow.md` §29).
+    pub(crate) alias_placeholders: FxHashMap<SymbolId, TypeId>,
     /// Function/source-file roots whose assignments have been marked —
     /// `NodeCheckFlagsAssignmentsMarked`.
     pub(crate) assignments_marked: rustc_hash::FxHashSet<NodeId>,
@@ -526,6 +529,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             symbol_assignment_scan: FxHashMap::default(),
             last_assignment_pos: FxHashMap::default(),
             enum_member_regular: FxHashMap::default(),
+            alias_placeholders: FxHashMap::default(),
             assignments_marked: rustc_hash::FxHashSet::default(),
             flow_loop_cache: FxHashMap::default(),
             flow_loop_stack: Vec::new(),

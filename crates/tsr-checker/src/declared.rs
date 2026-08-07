@@ -1306,6 +1306,19 @@ impl<'a> Checker<'a, '_> {
         else {
             return error;
         };
+        // §29: a mention of the alias inside its own resolution answers the
+        // memoized NAME placeholder — upstream's laziness, at the one seam
+        // print-at-creation permits. No failure marking, so the outer
+        // resolution completes.
+        if self.resolutions.on_stack(symbol, PropertyName::DeclaredType) {
+            if let Some(&placeholder) = self.alias_placeholders.get(&symbol) {
+                return placeholder;
+            }
+            let name = self.binder.symbols().get(symbol).name.to_string();
+            let placeholder = self.store.new_named(TypeFlags::OBJECT, name, None);
+            self.alias_placeholders.insert(symbol, placeholder);
+            return placeholder;
+        }
         if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
             return error;
         }

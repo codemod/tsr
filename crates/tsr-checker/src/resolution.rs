@@ -182,6 +182,14 @@ impl<K: Copy + PartialEq> Resolutions<K> {
         self.stack.len()
     }
 
+    /// Whether `(target, property)` is currently resolving, WITHOUT marking
+    /// the cycle as failed — the §29 alias placeholder's read-only probe
+    /// (`checker-notes-narrow.md`).
+    #[must_use]
+    pub fn on_stack(&self, target: K, property: PropertyName) -> bool {
+        self.stack.iter().any(|r| r.target == target && r.property == property)
+    }
+
     /// Begin resolving `property` of `symbol`.
     ///
     /// Returns `false` if that is already in progress — a cycle — having first

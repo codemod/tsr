@@ -1627,3 +1627,13 @@ Falsifiers: (a) the placeholder must never carry members — a lookup
 through it would answer from nothing; (b) non-circular aliases must be
 byte-identical (the placeholder is reachable only under the alias's own
 frame).
+
+**§29 score — LANDED: +2,107 GAP→RIGHT / 68 GAP→WRONG, the continuation's
+second-largest conversion.** The mountain case flipped whole (2,001), and
+the placeholder reached recursive aliases corpus-wide
+(`subtypeReductionUnionConstraints`, `recursiveTypeReferences1`,
+`controlFlowOptionalChain`'s recursive shapes). The 68 are recursive-alias
+positions wanting the EXPANDED form where the placeholder's name now
+prints (`recursiveArrayNotCircular` head) — the same node-reuse-vs-computed
+boundary as `tsr-5o2`, recorded against it. `checker_types` right 372,384
+→ **374,491**, gap 74,218 → **72,043**.
