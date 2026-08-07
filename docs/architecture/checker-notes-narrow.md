@@ -1841,3 +1841,19 @@ splices them flat) while parameter rests print — the splice arm recovered
 (tuple-lambda assignability shapes, the print-only citizen meeting the
 relater — the recorded residue). `checker_types` right 392,022 →
 **392,547 (81.96%)**.
+
+### §41 Qualified type references carry their target's members
+
+`temporal`'s 420-row root, found by a mini-namespace probe: `NS.Inst`
+resolves (the validating half exists) and then deliberately answers the
+PRINT-ONLY mint — so every member access through a namespace-qualified
+annotation flows into the §32 `any` chain where upstream has real
+signatures. The upgrade: a successfully-resolved qualified TYPE reference
+with no type arguments answers a memoized `Named` whose TEXT is the
+written qualified spelling (the print the corpus wants at
+out-of-namespace sites) and whose MEMBERS field is the resolved symbol —
+prints qualified, looks up real. Generic qualified references stay
+mints. Falsifiers: (a) in-namespace sites keep the local unqualified
+print (the existing site test guards); (b) the §32 chain must stop firing
+for these receivers (they leave `unresolved_types`), so any want-`any`
+lines that were RIGHT through the chain get counted.
