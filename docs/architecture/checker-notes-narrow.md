@@ -559,3 +559,34 @@ for a ≤104-line ceiling at the observed conversion band — **it does not
 clear the board**, and `tsr-5kii` carries this number now instead of
 "unsized". The 4 aggregate-exposure wrongs (§11.2) stay as they are: their
 fix is this mechanism, at this price, whenever the price is worth it.
+
+## §9 The `any → undefined` family split — the closure sketch is DISPROVED, the auto conversion is the spine
+
+`closuregap.rs` (new, ninth session), classifying every `want any / got
+undefined` wrong line by upstream's own first two axes
+(`checker.go:11120`–`:11175`):
+
+```
+   316  OUTER reference, declaration has NO initializer   (50 cases, top-1 5.4%)
+   276  SAME container, declaration has NO initializer    (86 cases)
+    52  same container, WITH initializer
+    32  non-identifier / unresolved / no-value-decl tails
+   676  total (W2's 548 is the ROOT-only subset; the delta is propagation)
+```
+
+**TASK.md's staged sketch — "different container → any" — is disproved
+before it cost a build**: 276 lines sit in the SAME container, so the
+family's spine is not the closure boundary at all. It is the **auto-type
+conversion**: `let x;` with no reaching assignment answers `any` upstream
+(the implicit-any widening of `autoType`) where this port's flow answers the
+`undefined` initial type. The closure axis is real but secondary — the OUTER
+316 need the flow-container extension AND the same conversion.
+
+**The open question that gates the build, named precisely:** locate
+upstream's site where an auto-typed variable's flow result becomes `any` —
+the `convertAutoToAny` family and its strictness interaction (jsxEsprima's
+head is non-strict; capturedLetConstInLoop is strict) — and write the
+ADR-0038 argument (this is `anyType` from a computation, the `anySignature`
+precedent, not a rendered `errorType`). Only then bar the two arms
+separately: same-container first (276, no closure machinery needed), outer
+second.
