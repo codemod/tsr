@@ -60,6 +60,91 @@ impl Checker<'_, '_> {
         computed
     }
 
+    /// `checkTemplateExpression` (`checker.go:7976`) — see the dispatch
+    /// arm's comment and `checker-notes-narrow.md` §24 for the decline set.
+    fn check_template_expression(&mut self, node: &tsr_ast::TemplateExpression<'_>) -> TypeId {
+        let error = self.intrinsics.error;
+        let mut span_types = Vec::with_capacity(node.template_spans.len());
+        for span in node.template_spans {
+            let Some(expression) = span.expression else { return error };
+            span_types.push(self.check_expression(expression));
+        }
+        if span_types.contains(&error) {
+            return error;
+        }
+        // The fold: every span a string/number literal whose stored data IS
+        // the evaluated text. A part whose SOURCE is longer than its cooked
+        // text carries escape sequences — the scanner's legacy-octal cooking
+        // diverges from upstream's there (`octalLiteralAndEscapeSequence`,
+        // the §24 measurement's second family), so escaped templates decline
+        // to gaps rather than fold wrongly.
+        let escaped = |id: Option<tsr_ast::NodeId>, text: &str, delimiters: usize| {
+            id.is_some_and(|id| {
+                let span = self.nodes.span(id);
+                (span.end - span.start) as usize != text.len() + delimiters
+            })
+        };
+        let head_escaped = node.head.is_some_and(|head| escaped(head.node_id, head.text, 3));
+        let any_part_escaped = head_escaped
+            || node.template_spans.iter().any(|span| match span.literal {
+                Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part)) => {
+                    escaped(part.node_id, part.text, 3)
+                }
+                Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(part)) => {
+                    escaped(part.node_id, part.text, 2)
+                }
+                None => true,
+            });
+        let mut folded: Option<String> =
+            if any_part_escaped { None } else { node.head.map(|head| head.text.to_string()) };
+        for (span, &span_type) in node.template_spans.iter().zip(&span_types) {
+            let Some(previous) = folded else { break };
+            let piece = match &self.store.get(span_type).data {
+                crate::types::TypeData::StringLiteral(text)
+                | crate::types::TypeData::NumberLiteral(text) => Some(text.clone()),
+                _ => None,
+            };
+            folded = match (piece, span.literal) {
+                (Some(piece), Some(literal)) => {
+                    let tail = match literal {
+                        tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part) => part.text,
+                        tsr_ast::TemplateMiddleOrTail::TemplateTail(part) => part.text,
+                    };
+                    Some(previous + &piece + tail)
+                }
+                _ => None,
+            };
+        }
+        if let Some(value) = folded {
+            return self.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral(value),
+                true,
+            );
+        }
+        // The three §24 declines: a const context, the element-access
+        // argument position (a template-literal context), and any span whose
+        // literal kind the fold cannot evaluate is NOT declined — only the
+        // CONTEXT questions are, because they change the ANSWER's shape.
+        if let Some(id) = node.node_id {
+            let mut current = self.nodes.parent(id);
+            while let Some(parent) = current {
+                match self.nodes.kind(parent) {
+                    SyntaxKind::AsExpression
+                    | SyntaxKind::TypeAssertionExpression
+                    | SyntaxKind::ElementAccessExpression => {
+                        return error;
+                    }
+                    SyntaxKind::ParenthesizedExpression => {
+                        current = self.nodes.parent(parent);
+                    }
+                    _ => break,
+                }
+            }
+        }
+        self.intrinsics.string
+    }
+
     fn check_expression_worker(&mut self, expression: Expression<'_>) -> TypeId {
         match expression {
             // Literal *expressions* produce **fresh** literal types, which is
@@ -182,6 +267,13 @@ impl Checker<'_, '_> {
             Expression::ParenthesizedExpression(node) => {
                 node.expression.map_or(self.intrinsics.error, |inner| self.check_expression(inner))
             }
+            // `checkTemplateExpression` (`checker.go:7976`): spans check;
+            // an all-literal template folds to the fresh string literal
+            // (the evaluator's observable for string/number parts); else
+            // `string` — with the const-context, element-access-argument,
+            // and unfoldable-literal shapes declined to gaps
+            // (`checker-notes-narrow.md` §24).
+            Expression::TemplateExpression(node) => self.check_template_expression(node),
             Expression::BinaryExpression(node) => self.check_binary_expression(node),
             Expression::PropertyAccessExpression(node) => {
                 self.check_property_access_expression(node)

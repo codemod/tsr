@@ -1506,3 +1506,19 @@ evaluator byte-for-byte — number rendering divergence shows here first;
 (b) want-template-literal-type lines turning WRONG (the contextual blind
 spot) get counted and, if material, gate the whole arm on
 provably-uncontextual positions like arrays §13 did.
+
+**§24 score — LANDED at the best of three measured variants.**
+**+1,342 (1,335 GAP→RIGHT, 7 W→R) / 422 GAP→WRONG** — the largest gap
+conversion since §14. The 422 are four owned families, each named: (1)
+`templateStringBinaryOperations*Invalid` ×216 — the template's own lines
+flipped RIGHT and the DOWNSTREAM arithmetic (`` `x` - 1 ``) answers
+`number` where the baselines render upstream's operand error as `any`; a
+string-operand→error arithmetic variant was measured and REFUSED at
+−562 R→G (`compiler/expr`'s valid `string * number : number` positions —
+the two corpora want opposite things and the discriminator is the
+diagnostic, not the type). (2) escape-bearing templates ×66 — the
+span-length decline catches most but the scanner's legacy-octal cooking
+still diverges on the rest (a scanner item, not a checker one). (3)
+`templateLiteralTypes2` ×19 — the contextual template-literal blind spot,
+falsifier (b) measured and accepted. (4) tagged-overloads ×10.
+`checker_types` right 370,197 → **371,539**, gap 76,774 → **75,017**.

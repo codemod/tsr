@@ -97,6 +97,10 @@ fn the_refused_shapes_stay_gaps() {
     // and `a` read `number`. That is the sixth expectation this project has
     // written from intuition and had corrected by the code, and the third in
     // the pessimistic direction.
+    // The stand-in came due (the twenty-fifth): the template expression
+    // landed (`checker-notes-narrow.md` §24) and `` `x${1}` `` FOLDS to the
+    // fresh `"x1"`, so the tuple types and `a` reads its widened `number` —
+    // upstream's own answer for this destructuring.
     let gapped = "var [a, b] = [1, `x${1}`];";
-    assert_eq!(type_of_binding(gapped, "a"), "error");
+    assert_eq!(type_of_binding(gapped, "a"), "number");
 }
