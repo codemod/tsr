@@ -1598,3 +1598,12 @@ arm); restricted to plain-`number` indices it is byte-identical and stays
 as the lib-less fallback, per the §12.8/§23 precedent. The 640-line
 `ElementAccess` TERMINAL row is therefore NOT this rule — its next probe
 must trace one line before any further code.
+
+**§28 postscript — the mandated trace ran.** The `ElementAccess` row's gap
+lines are TYPE-position indexed-access and array-type prints —
+`BigUnion[]` behind a conditional-type case (2,000 lines in ONE case),
+`Partial<T>[K]` (mapped indexed access), variadic tuple spreads — not
+expression-position accesses at all. The row belongs to the type-node
+subsystems (conditional, mapped, variadic), confirming the closed
+frontier: after builds 25–47, every remaining board road enters a
+subsystem the handoff already names.
