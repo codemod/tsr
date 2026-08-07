@@ -23,13 +23,22 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{checker::Checker, relater::Relation, relater::Ternary, types::TypeId};
 
+/// Which of the three (declaration, keyword) pairs is being checked.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Heritage {
+    /// A `class`, whose `extends` is TS2415 and whose `implements` is TS2420.
+    Class,
+    /// An `interface`, whose `extends` is TS2430.
+    Interface,
+}
+
 impl Checker<'_, '_> {
     /// The conformance check for one class or interface declaration.
     pub(crate) fn check_heritage_conformance(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
-        let (name, clauses, implements) = match self.node_map.get(node) {
+        let (name, clauses, kind) = match self.node_map.get(node) {
             Some(Node::ClassDeclaration(class)) => {
                 // A generic declaration's members are written in terms of type
                 // parameters this port does not instantiate — the same decline
@@ -37,13 +46,17 @@ impl Checker<'_, '_> {
                 if !class.type_parameters.is_empty() {
                     return;
                 }
-                (class.name.and_then(|n| n.node_id), class.heritage_clauses, true)
+                (class.name.and_then(|n| n.node_id), class.heritage_clauses, Heritage::Class)
             }
             Some(Node::InterfaceDeclaration(interface)) => {
                 if !interface.type_parameters.is_empty() {
                     return;
                 }
-                (interface.name.and_then(|n| n.node_id), interface.heritage_clauses, false)
+                (
+                    interface.name.and_then(|n| n.node_id),
+                    interface.heritage_clauses,
+                    Heritage::Interface,
+                )
             }
             _ => return,
         };
@@ -62,16 +75,26 @@ impl Checker<'_, '_> {
         }
         let source = self.get_declared_type_of_class_or_interface(symbol);
 
-        let wanted = if implements {
-            tsr_ast::SyntaxKind::ImplementsKeyword
-        } else {
-            tsr_ast::SyntaxKind::ExtendsKeyword
-        };
-        let mut targets: Vec<TypeId> = Vec::new();
+        let mut targets: Vec<(TypeId, &'static tsr_diagnostics::Message)> = Vec::new();
         for clause in clauses {
-            if clause.token.kind != wanted {
-                continue;
-            }
+            // Three (declaration, keyword) pairs, three codes. A class's
+            // `extends` is TS2415, its `implements` TS2420, an interface's
+            // `extends` TS2430 — `checkClassDeclaration` and
+            // `checkInterfaceDeclaration` run the same
+            // `checkTypeAssignableTo(typeWithThis, baseWithThis, node.Name())`
+            // at all three and differ only in the message.
+            let message = match (kind, clause.token.kind) {
+                (Heritage::Class, tsr_ast::SyntaxKind::ExtendsKeyword) => {
+                    &messages::CLASS_0_INCORRECTLY_EXTENDS_BASE_CLASS_1
+                }
+                (Heritage::Class, tsr_ast::SyntaxKind::ImplementsKeyword) => {
+                    &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
+                }
+                (Heritage::Interface, tsr_ast::SyntaxKind::ExtendsKeyword) => {
+                    &messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1
+                }
+                _ => continue,
+            };
             for entry in clause.types {
                 // A base with type arguments needs instantiation
                 // (`members::base_symbol_of_heritage_entry`'s first decline);
@@ -94,31 +117,27 @@ impl Checker<'_, '_> {
                     return;
                 };
                 let base = self.binder.merged_symbol(base);
-                if !self
-                    .binder
-                    .symbols()
-                    .get(base)
-                    .flags
-                    .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                let base_entry = self.binder.symbols().get(base);
+                if !base_entry.flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+                    // The merged-declaration decline applies to the **base** as
+                    // well as to the source, and for the same reason: a target
+                    // whose members come from several declarations is a table
+                    // this port assembles differently from upstream.
+                    || base_entry.declarations.len() > 1
                 {
                     return;
                 }
-                targets.push(self.get_declared_type_of_class_or_interface(base));
+                targets.push((self.get_declared_type_of_class_or_interface(base), message));
             }
         }
 
-        for target in targets {
+        for (target, message) in targets {
             if !self.pair_is_reportable(source, target) {
                 continue;
             }
             if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated {
                 continue;
             }
-            let message = if implements {
-                &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
-            } else {
-                &messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1
-            };
             let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
             let span = self.nodes.span(name);
             let source_text = self.type_to_string(source);

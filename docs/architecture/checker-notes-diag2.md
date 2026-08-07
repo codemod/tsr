@@ -1845,10 +1845,10 @@ the ones about its **inputs**.
 
 ---
 
-## 27. TS2420 / TS2430 — heritage conformance, +9 for 16 wrong
+## 27. TS2415 / TS2420 / TS2430 — heritage conformance, +19 for 21 wrong
 
 ```
-CONVERTS 928 -> 937  (+9)     LOST 0      RIGHT 38      WRONG 16
+CONVERTS 928 -> 947  (+19)     LOST 0      RIGHT 54      WRONG 21
 ```
 
 `checkClassDeclaration`'s `implements` loop and `checkInterfaceDeclaration`'s
@@ -1871,4 +1871,16 @@ this port's for private and inherited members
 `implementingAnInterfaceExtendingClassWithPrivates2`,
 `interfacePropertiesWithSameName3`, `interfaceDeclaration3`).
 
-Ratio 0.56, inside the project's 0.47–1.03 refusal band.
+The decline applies to the **base** as well as the source, and for the same
+reason: a target whose members come from several declarations is a table this
+port assembles differently from upstream.
+
+**Three (declaration, keyword) pairs, three codes, one function.** A class's
+`extends` is TS2415, its `implements` TS2420, an interface's `extends` TS2430;
+`checkClassDeclaration` and `checkInterfaceDeclaration` run the same
+`checkTypeAssignableTo(typeWithThis, baseWithThis, node.Name())` at all three and
+differ only in the message. Adding the class-`extends` arm to the two that were
+already there was **+10 conversions for +5 wrong lines** — the cheapest edit in
+this file since §12.
+
+Ratio 0.90, near the top of the project's 0.47–1.03 refusal band.
