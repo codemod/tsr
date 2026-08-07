@@ -1347,3 +1347,12 @@ adverse, the mint narrows to declaration lines only.
 are `typeof s`-reuse and computed-property positions, the falsifier's
 named family, small enough to stand). `checker_types` right 387,778 →
 **388,155 (81.04%)**.
+
+### §27 The written `unique symbol` type node
+
+The §26 residue's big half (355 want-`unique symbol` gaps): the WRITTEN
+form — `declare const s: unique symbol` is a `TypeOperatorNode` with
+`UniqueKeyword` (`getTypeFromTypeOperatorNode`'s ESSymbol arm,
+`checker.go:22960`) — mints per declaration, memoized by NODE id so one
+declaration is one type. Falsifier: none beyond the measure — the
+declaration-position validity question was §26's and stands.
