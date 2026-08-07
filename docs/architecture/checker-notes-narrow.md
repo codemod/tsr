@@ -1866,3 +1866,12 @@ references without members), `temporal` 193, and the enum-literal
 families 211 (qualified enum-member references now carry their tables).
 The 97 head at union-disambiguation and clodule shapes, recorded.
 `checker_types` right 392,547 → **393,549 (82.17%)**.
+
+### §42 Generic qualified references instantiate through the seam
+
+§41's residue: `NS.Type<Args>` stayed a print-only mint. The upgrade
+mirrors the unqualified generic road — the resolved symbol's parameter
+count checks the argument count and `get_instantiated_type_reference`
+builds the reference (the tsr-4qx seam then substitutes members) — with
+the qualified TEXT carried the §41 way. Falsifier: arity mismatches stay
+errors, exactly as the unqualified arm's `checkNoTypeArguments` twin.
