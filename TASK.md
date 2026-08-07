@@ -25,10 +25,13 @@ WHAT THE SESSION OPENED, in value order:
   2. DONE as a sizing (switchgap.rs, narrow notes §8.1): tsr-5kii is <=104
      reachable lines across ~23 cases — an effort-3 mechanism that does NOT
      clear the board. The 4 aggregate-exposure wrongs stay priced at that.
-  3. The `_1` type-parameter disambiguation family: 625 wrong lines, 128
-     cases, the largest unowned naming family (STATUS §7 ninth-session row).
-     Needs a per-print naming context — investigate whether
-     signature_to_string_at can thread one before costing.
+  3. HALF DONE (callres §19.1, +151/0): the enclosing-scope half landed —
+     two scope rules learned from losses (shadowing chains keep the written
+     name; computed names and heritage clauses sit outside their class's
+     param scope). REMAINING: the within-print half, 322 lines — sibling
+     signatures in ONE composite text; the design is a per-composite naming
+     pass over the member loop (objects.rs signature_member_text), reusing
+     signatures.rs's apply_renames.
   4. tsr-5o2 (written-annotation reuse in signature prints) surfaced 4 more
      lines in §11.2 — its row keeps growing as aggregates land.
   5. DONE same session, all three verses (assign notes §14/§15/§16):
