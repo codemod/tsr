@@ -313,11 +313,11 @@ pub fn assertions_for_file(
 /// step lifts out without touching a single decision. That is why this is a
 /// refactor and not a change — there is no arm where the two could now
 /// disagree.
-pub fn type_at_location(
-    checker: &mut tsr_checker::Checker<'_, '_>,
-    binder: &tsr_binder::BindResult<'_>,
+pub fn type_at_location<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
     nodes: &NodeTable,
-    map: &NodeMap<'_>,
+    map: &NodeMap<'a>,
     id: NodeId,
 ) -> String {
     let computed = type_id_at_location(checker, binder, nodes, map, id);
@@ -330,11 +330,11 @@ pub fn type_at_location(
 /// This is the whole of [`type_at_location`]'s body; that function is this plus
 /// `render`. Split out for `examples/subtypes.rs`, which has to inspect a
 /// union's *constituents* and cannot do that through a rendered string.
-pub fn type_id_at_location(
-    checker: &mut tsr_checker::Checker<'_, '_>,
-    binder: &tsr_binder::BindResult<'_>,
+pub fn type_id_at_location<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
     nodes: &NodeTable,
-    map: &NodeMap<'_>,
+    map: &NodeMap<'a>,
     id: NodeId,
 ) -> tsr_checker::TypeId {
     let error = checker.intrinsics().error;
@@ -425,6 +425,31 @@ pub fn type_id_at_location(
         && let Some(symbol) =
             binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
     {
+        // With WRITTEN type arguments the heritage records the INSTANTIATED
+        // reference — `class B extends A<Base>` records `>A : A<Base>`
+        // (`subtypingWithNumericIndexer.types:50`; the `A<Base> → A<T>` W2
+        // row, ninth session). An argument that does not resolve falls
+        // through to the declared answer exactly as before — the bar's
+        // lost-leg guard (`checker-notes-jsx.md`, the ts-slice bar).
+        if let Some(Node::ExpressionWithTypeArguments(entry)) = map.get(parent)
+            && !entry.type_arguments.is_empty()
+        {
+            let mut arguments = Vec::with_capacity(entry.type_arguments.len());
+            for argument in entry.type_arguments {
+                let argument_type = checker.get_type_from_type_node(*argument);
+                if argument_type == error {
+                    arguments.clear();
+                    break;
+                }
+                arguments.push(argument_type);
+            }
+            if !arguments.is_empty() {
+                let instantiated = checker.create_type_reference_public(symbol, arguments);
+                if instantiated != error {
+                    return instantiated;
+                }
+            }
+        }
         let declared = checker.get_declared_type_of_symbol(symbol);
         // Upstream's `t == nil || IsTypeAny(t)` fallback: when the base's
         // declared type is not available, the expression's own answer is used

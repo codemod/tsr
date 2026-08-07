@@ -976,6 +976,17 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// [`Checker::create_type_reference`] for callers outside the crate — the
+    /// conformance producer's heritage-instantiation branch is the one
+    /// consumer (`checker-notes-jsx.md`, the ts-slice bar).
+    pub fn create_type_reference_public(
+        &mut self,
+        target: tsr_binder::SymbolId,
+        arguments: Vec<crate::types::TypeId>,
+    ) -> crate::types::TypeId {
+        self.create_type_reference(target, arguments)
+    }
+
     /// `createTypeReference(target, typeArguments)` (`checker.go`).
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes

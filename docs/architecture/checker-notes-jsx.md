@@ -325,3 +325,17 @@ baseline records `typeof X` for an argument-bearing heritage → the refused
 shard's population is leaking in despite the ancestor gate, stop; regressed
 == 0; lost ≤ **2** (an argument that gaps must fall through to the declared
 answer exactly as before, never to a gap).
+
+### The ts-slice scored — the 11-line row was the family's tip
+
+```
+WRONG→RIGHT 122 · nothing else at all · +27 suite cases (2,983 → 3,010) — past 3,000
+```
+
+Legs: net **+122** (15× the floor — the W2 rename-shape heuristic sees only
+single-token diffs, and most of the family's wants are multi-token) · own
+**0** (the `typeof`-leak falsifier silent) · regressed **0** · lost **0**.
+The `tsr-fpti` heritage refusal stands untouched for the tsx population —
+this branch's ancestor gate is what the refused checker-side gate lacked,
+and the argument-gap fall-through is what keeps the tsx lines exactly where
+they were.
