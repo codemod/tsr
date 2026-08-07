@@ -41,7 +41,7 @@ Measured at the §21 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **3,122/9,538** | **32.73%** | **gradient 77.29%** — the target |
-| `diagnostics` | **1,003/5,488** | **18.28%** | **tenth session, +286** — 717 → 1,003 across twenty-five builds and six measured refusals; the running total is 80 → 1,003, 12.5× |
+| `diagnostics` | **1,013/5,488** | **18.46%** | **tenth session, +296** — 717 → 1,013 across twenty-six builds and six measured refusals; the running total is 80 → 1,013, 12.7× |
 
 ### `checker_types`, the number the project is steered by
 
