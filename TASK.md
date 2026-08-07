@@ -64,17 +64,18 @@ pollution) and the discriminator studied. The binder's per-container START
 nodes turned out to BE upstream's flowContainer bound. Remainder: the
 ever-assigned scan's granularity, small, owned in §9.8.
 
-THE NEXT SUBSYSTEM: the LOOP FIXPOINT — now with a VALIDATED port sketch
-and a first refused cycle (narrow notes §12/§12.1). The protocol port
-(flow_loop_cache, in-process stack, first-antecedent rule, shared_flows
-truncation per back edge) ran WITHOUT cache poisoning and measured +241
-gained; it was reverted on three named defects that are the session's work
-plan: (1) the depth-cap interaction (196 losses in ONE pathological case —
-the cap must exclude loop-stack depth as upstream's does); (2) incomplete-
-union semantics in the condition/assignment arms (they treat provisional
-inputs as final and drop the | undefined completing pass); (3) the
-self-referential family wants upstream's `any` bail, not the honest union.
-One session, whole deliverable, per STATUS §4.4.
+THE NEXT SUBSYSTEM: the LOOP FIXPOINT — two refused attempts, §12–§12.2 of
+narrow notes. The port sketch is validated (+241 measured, no cache
+poisoning) and SEVEN interventions produced FIVE byte-identical
+measurements: the 196-line parsingDeep loss family is invariant under every
+depth/disable/placeholder refinement, and the depth-cap diagnosis is
+DISPROVED by instrumentation (the cap never trips). DO NOT attempt an
+eighth blind fix. The required first step is the trace instrument §12.2
+specifies: one lost line, walked with and without the loop arm, printing
+which flow node answers and where the error enters. The branch label's
+incomplete-propagation defect (hardcoded false) is real and documented but
+not the mechanism. Also still open: the incomplete-union completing pass
+(controlFlowLoopAnalysis's | undefined) and the self-referential any bail.
 
 TRAPS PAID FOR THIS SESSION, do not repay:
   - NodeFlags::JAVASCRIPT_FILE and AMBIENT were both declared and set by
