@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §32 landing, 2026-08-07 (ninth session, continued: builds 25–50).
+Measured at the callres-§23 landing, 2026-08-07 (ninth session, continued: builds 25–51).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,14 +40,14 @@ Measured at the §32 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,428/9,538** | **35.94%** | **gradient 80.35%** — the target |
+| **`checker_types`** | **3,453/9,538** | **36.20%** | **gradient 80.64%** — the target |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-384,826 / 478,954 assertion lines = 80.35%      (measured at the §32 landing)
-  right 384,826 | gap 60,765 | wrong 23,324        right+gap+wrong = 468,915 exactly
+386,250 / 478,954 assertion lines = 80.64%      (measured at the callres-§23 landing)
+  right 386,250 | gap 58,913 | wrong 23,752        right+gap+wrong = 468,915 exactly
 ```
 
 **The continuation's two builds** (verdictdump pairs at `490f56b` and
@@ -109,7 +109,9 @@ the one seam print-at-creation permits; the degenerate-cycle trade stated)
 free names answer upstream's TS2304 `any` — five gate sets measured, the
 third mountain range converted, +194 cases) = 380,563; then + 4,263 net (§32: member
 and element access through minted unresolved receivers answer upstream's
-`any` — **the port crossed 80%**) = 384,826 exactly — builds 25–50.
+`any` — **the port crossed 80%**) = 384,826; then + 1,424 (callres §23:
+untyped calls through §31/§32-provenance receivers, zero RIGHT losses,
++25 cases) = 386,250 exactly — builds 25–51.
 
 **CORRECTED, and said so:** this chain sat at 369,673 for five builds while
 the table above moved to 77.29% — the very "figure that appears twice will
@@ -1029,6 +1031,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-07 | callres-§23 landing | **80.64%** | **3,453** | **+1,424/452, 0 R→W** | **Build 51: `any.m()` is an untyped call.** The written-annotation gate learned the §31/§32 provenances; JS-file receivers stay declined (the fired leg) |
 | 2026-08-07 | §32 landing | **80.35%** | **3,428** | **+4,263/496 — ACROSS 80%** | **Build 50: one hop further.** Access through `tsr-eep`'s minted unresolved receivers is upstream's `errorType` access — `any` — at both access forms, behind the §31 structural gate. The 496 adverse are the port's own `export default interface` binder miss (invisible to the file gate, recorded as a future rule). Three fixtures updated to the minted-vs-otherwise split |
 | 2026-08-07 | §31 landing | **79.46%** | **3,427** | **+6,267/486, +194 cases** | **Build 49: the third mountain range.** `parserRealSource*`'s ~9,000 gap lines were names from `///<reference>` files the corpus deliberately omits — upstream reports TS2304 and answers `errorType`, printed `any` (the §14/§27 boundary argument's third application). FIVE gate sets measured and priced in §31; the landed set excludes any-meaning-resolvable names, `arguments`/`globalThis` (port misses, now their own future rules), and import-machinery files. 182 of the 195 R→W are the standing JS md5 case. Four stand-ins updated; ADR-0038's fixture renamed with its §31 truth |
 | 2026-08-07 | §29 landing | **78.19%** | **3,233** | **+2,107/68 (§29); 0 (§28, premise corrected)** | **Builds 47–48: the second mountain.** §28's numeric element-access bar had a WRONG premise (the corpus already answers through the lib's index signature; the arm stays as the lib-less fallback) and its mandated trace found the real row: type-position indexed access, subsystem-bound. §29 then took the trace's other find — 2,000 gap lines in ONE case, a self-referential alias union — with upstream's member-type laziness rebuilt at the single seam print-at-creation permits: an on-stack alias mention answers a memoized NAME placeholder (read-only probe, no failure marking). Degenerate cycles (`type T = T`) now answer their name, a stated trade (`bd tsr-5e7.6` owns the diagnostic) |
