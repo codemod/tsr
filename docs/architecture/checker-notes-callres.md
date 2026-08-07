@@ -1319,3 +1319,11 @@ the eight all `parsingDeepParenthensizedExpression`, the standing JS
 case).** The 154 head at super-call diagnostics cases and JS
 export-assignment shapes, the accepted residue classes. `checker_types`
 right 386,250 → **387,098 (80.82%)**.
+
+### §25 `new` through §31-provenance callees answers `any`
+
+The chain's sixth hop: `new Unresolved()` — upstream's callee is TS2304's
+`errorType`, and construction through it answers the same, printed `any`.
+The admission mirrors §24's identifier test and §23's receiver test at the
+NEW-expression entry; the same file gates apply. Falsifier: inherited from
+the chain.
