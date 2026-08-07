@@ -2298,3 +2298,29 @@ some other consumer of the declaration-start position that pays for it; finding
 it needs a probe that diffs the suite's pass set across a commit rather than
 across a code list. **That probe is the prerequisite for any further position
 work**, and §30's three position fixes were lucky to be additive.
+
+---
+
+## 34. `new` expressions — the same two checks, +2
+
+```
+diagnostics 1,022 -> 1,024   (+2)
+```
+
+`resolveNewExpression` reaches the same `getArgumentArityError` and
+`checkApplicableSignature` as a call; the only differences are where the
+signature comes from — the class's **sole** constructor — and that
+`getErrorNodeForCallNode` (`checker.go:9843`) unwraps only a `CallExpression`, so
+a too-few-arguments error on `new C()` reports on the whole `new` expression
+rather than on the `C`.
+
+Declined: a generic class, a class with more than one declaration, an overloaded
+constructor, a rest constructor, and a class with **no** constructor at all — the
+last because its signature comes from the base through
+`getBaseConstructorTypeOfClass`, which is `bd tsr-4sc.8`.
+
+Two cases, and it is here for a reason beyond them: §20's and §26's gates were
+written for one node kind and turned out to describe a *signature source*, not a
+call syntax. Every remaining call-shaped site — a method call through a receiver,
+a `super(…)`, a decorator — reuses the same two functions once its signature
+source is nameable.

@@ -348,6 +348,10 @@ impl Checker<'_, '_> {
                 self.check_call_arity(node);
                 ambient
             }
+            Node::NewExpression(_) => {
+                self.check_new_arity(node);
+                ambient
+            }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
                 self.check_type_argument_arity(node);
                 ambient

@@ -127,6 +127,116 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// The same two checks for a `new` expression.
+    ///
+    /// `resolveNewExpression` reaches the same `getArgumentArityError` and
+    /// `checkApplicableSignature`; the only differences are where the signature
+    /// comes from — the class's sole constructor — and that
+    /// `getErrorNodeForCallNode` (`checker.go:9843`) unwraps **only** a
+    /// `CallExpression`, so a too-few-arguments error on `new C()` reports on the
+    /// whole `new` expression rather than on `C`.
+    pub(crate) fn check_new_arity(&mut self, node: NodeId) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::NewExpression(call)) = self.node_map.get(node) else { return };
+        if !call.type_arguments.is_empty() {
+            return;
+        }
+        let Some(callee) = call.expression.and_then(|expression| expression.node_id()) else {
+            return;
+        };
+        if call.arguments.iter().any(|argument| {
+            argument.node_id().is_some_and(|id| self.nodes.kind(id) == SyntaxKind::SpreadElement)
+        }) {
+            return;
+        }
+        let Some(parameters) = self.sole_constructor_parameters(callee) else { return };
+        // Argument types first, exactly as the call arm orders them.
+        for (index, argument) in call.arguments.iter().enumerate() {
+            let Some(annotation) = parameters.get(index).copied().flatten() else { break };
+            let Some(argument_id) = argument.node_id() else { continue };
+            let Some(target) = self.type_from_annotation_id(annotation) else { continue };
+            let source = self.check_expression(*argument);
+            if self.source_is_an_unnarrowed_reference(argument_id, source) {
+                continue;
+            }
+            self.report_argument_failure(argument_id, source, target);
+        }
+        // `sole_constructor_parameters` stops at the first rest parameter and
+        // keeps every position in order, so the count is exact and the unbounded
+        // case cannot arise — a rest constructor is declined, not widened.
+        let arguments = call.arguments.len();
+        let expected = parameters.len();
+        if arguments == expected {
+            return;
+        }
+        let message = &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1;
+        let at = if arguments > expected {
+            call.arguments.get(expected).and_then(tsr_ast::Expression::node_id).unwrap_or(node)
+        } else {
+            node
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.nodes.span(at);
+        self.report(
+            file,
+            Diagnostic::with_args(message, span, [expected.to_string(), arguments.to_string()]),
+        );
+    }
+
+    /// The written parameter annotations of a class's **sole** constructor.
+    ///
+    /// Declined for a generic class, a class with more than one declaration, an
+    /// overloaded constructor (more than one, or one without a body), and a class
+    /// with **no** constructor at all — the last because its signature comes from
+    /// the base class, which is `getBaseConstructorTypeOfClass`.
+    fn sole_constructor_parameters(&mut self, callee: NodeId) -> Option<Vec<Option<NodeId>>> {
+        let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return None };
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            callee,
+            identifier.text,
+            SymbolFlags::VALUE,
+        )?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(SymbolFlags::CLASS) || entry.declarations.len() != 1 {
+            return None;
+        }
+        let Some(Node::ClassDeclaration(class)) = self.node_map.get(entry.declarations[0]) else {
+            return None;
+        };
+        if !class.type_parameters.is_empty() {
+            return None;
+        }
+        let mut constructors = class.members.iter().filter_map(|member| match member {
+            tsr_ast::ClassElement::ConstructorDeclaration(constructor) => Some(*constructor),
+            _ => None,
+        });
+        let constructor = constructors.next()?;
+        if constructors.next().is_some() || constructor.body.is_none() {
+            return None;
+        }
+        Some(
+            constructor
+                .parameters
+                .iter()
+                .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
+                .take_while(|parameter| parameter.dot_dot_dot_token.is_none())
+                .map(|parameter| parameter.r#type.and_then(|annotation| annotation.node_id()))
+                .collect(),
+        )
+    }
+
+    /// `get_type_from_type_node` reached from a [`NodeId`] — ADR-0013's
+    /// read-drop-recurse.
+    fn type_from_annotation_id(&mut self, node: NodeId) -> Option<crate::types::TypeId> {
+        let typed = tsr_ast::TypeNode::try_from(self.node_map.get(node)?).ok()?;
+        Some(self.get_type_from_type_node(typed))
+    }
+
     /// `getErrorNodeForCallNode` (`checker.go:9843`).
     fn call_error_node(&self, callee: NodeId) -> NodeId {
         match self.node_map.get(callee) {
