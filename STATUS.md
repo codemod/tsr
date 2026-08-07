@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at **`a4e3991`**, 2026-08-07 (sixth session).
+Measured at **`a57a04b`**, 2026-08-07 (sixth session).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -40,29 +40,47 @@ Measured at **`a4e3991`**, 2026-08-07 (sixth session).
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **2,680/9,538** | **28.10%** | **gradient 71.91%** — the target |
+| **`checker_types`** | **2,741/9,538** | **28.74%** | **gradient 72.53%** — the target |
 | `diagnostics` | 80/5,488 | 1.46% | **structurally blocked**, see below |
 
 ### `checker_types`, the number the project is steered by
 
 ```
-344,411 / 478,954 assertion lines = 71.91%
-  right 344,411 | gap ~82,955 | wrong ~41,606   (41,189 at b00738d; …, +104, +81, +3, +84 by same-probe pairs through the qualified-naming build)
+347,384 / 478,954 assertion lines = 72.53%      (measured at 90c4e70 + the design-P build)
+  right 347,384 | gap 81,977 | wrong 39,554
 ```
+
+**All three figures are now ONE probe's, which is what this section has been
+asking for.** `examples/verdictdump.rs` (new, this session) emits a verdict for
+every aligned line in a single pass, so `right + gap + wrong = 468,915` is an
+identity rather than a subtraction across instruments. The design-P pair read
+`344,411 / 81,977 / 42,527` before and `347,384 / 81,977 / 39,554` after, from
+the same probe at both ends — and its `wrong` before-figure of **42,527**
+reproduces the qualified-naming build's `wrongdelta` total exactly, which is the
+first time two instruments here have agreed on that number.
+
+The remaining **10,039** lines of the 478,954 denominator are **unaligned**: the
+baseline and this port disagree about the *expression*, so no comparison of
+answers is meaningful and the line is in no bucket. That is very likely what the
+"9,145 short" paragraph below was seeing — but the two sums were taken from
+different instruments at different commits, so **this is offered as the probable
+explanation and not as a reconciliation**. Re-taking the old sum with this probe
+is what would settle it, and it is now one command.
 
 **Corrected in place: §1 carried `340,719` and the snapshot at `df13a69` read
 `340,727`.** Eight lines, from commits landed after the `tsr-g30h` merge the
 figure was taken at. The gap figure is `depend.rs`'s own walk at `a4e3991`, not
 a subtraction.
 
-**An open discrepancy, recorded rather than reconciled away.** `wrongdelta.rs`'s
-raw dump reads **42,443 lines** at `a4e3991`, and `right + gap + wrong` sums to
-469,809 against a denominator of 478,954 — 9,145 short. The three instruments do
-not share a denominator (`depend` attributes gap lines it can reach; `wrongdelta`
-dumps per-case). **Do not substitute 42,443 for the carried figure**: that would
-be exactly the cross-instrument subtraction this section forbids two paragraphs
-below. One probe reconciling the three denominators is worth a future session's
-first hour.
+**An open discrepancy, recorded rather than reconciled away — and now largely
+answered.** `wrongdelta.rs`'s raw dump read **42,443 lines** at `a4e3991`, and
+`right + gap + wrong` summed to 469,809 against a denominator of 478,954 — 9,145
+short. The three instruments did not share a denominator (`depend` attributes gap
+lines it can reach; `wrongdelta` dumps per-case). **The suggested fix — "one probe
+reconciling the three denominators is worth a future session's first hour" — was
+built this session** and is `verdictdump.rs`; see the paragraph above for what it
+reads and for what it does *not* yet claim. The old warning still stands: **do not
+substitute a figure from one instrument into another's series.**
 
 **The wrong figure is carried forward by measured deltas, not re-derived.**
 It was once quoted 4,000 lines stale, which nearly failed a bar by 20 lines: a
@@ -134,7 +152,7 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
 | printer | **near done** | 99.52% round-trip |
 | declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
-| **checker** | **71.91% of lines** | the mountain; §4 and §5 |
+| **checker** | **72.53% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **not started, and blocked** | §1 |
 | language service / LSP | **not started** | |
@@ -145,6 +163,7 @@ Landed across the three sessions to date, newest first:
 
 | commit | what | net |
 |---|---|---|
+| design **P** | **`getSymbolChain` — a name declared in a namespace prints its qualifier** (`checker-notes-qualname.md` §11). The *printing* half of qualified naming, refused for four cycles on "lost 3,202 lines"; re-sized post-W at **2,990 converts / 14 at risk** and built to its registered bar. **All four legs passed**, the conversion column landed on **2,990 exactly** (100.0% of forecast), and `Δgap` was **0** — the leg that could only be written because P is a renaming and cannot make a gap line computable. `getMergedSymbol` measured ON against OFF: **13 losses removed for 0 conversions**. 64.1% of the gain is `compiler/temporal`, and leg 3's `cases gaining ≥ 60` (read 174) is what proves it is not a one-case build | **+2,973** |
 | `8e28971` | **qualified type names reprint what was written** — `resolve_entity_name` plus a written-text reprint in `declared.rs`, with the *inside-the-namespace* positional refusal kept at 1.2:1 and an *enum-root* one **declined on principle** (upstream prints `Choice.Yes` verbatim). **Its bar's third leg fired and is overridden loudly** in `checker-notes-qualname.md` §9.6, by a third party, on arithmetic over the bar's own stated rule | **+3,590** |
 | `d8590ff` | **the overload gate asks about the PAIR** — `relater.rs` made three-valued (`Related`/`NotRelated`/`Unknown`, Kleene composition) and `calls.rs`'s `SELECTABLE` **flag set deleted**, plus an `any`-parameter positional refusal priced at 40/26 → 33/2. The ternary itself converts **zero**; it is what makes removing the gate safe (`checker-notes-assign.md` §5–§6) | +94 |
 | `tsr-g30h` | **structural type-argument inference** — the candidate walk for `T[]`, `(x: T) => U` and friends; leg 2 fired **twice** and both were build defects a +311 net had hidden (`checker-notes-infer2.md`) | +372 |
@@ -248,6 +267,7 @@ score = (reachable / effort) x feasibility
 
 | score | item | reachable | eff | feas | file |
 |---:|---|---:|---:|---:|---|
+| ~~**~2,976**~~ | **LANDED, design P — `getSymbolChain`, +2,973. The board's top item, and the second refusal retired by re-measurement in two sessions** (`checker-notes-qualname.md` §10–§11). Sized post-W at **2,990 converts / 14 at risk / 213:1**, against a refusal that had stood four cycles on "lost 3,202". Bar registered at `90c4e70` **before any code**, four legs, all four PASSED — net 2,973, lost 17, cases regressed 0, cases gaining 174, and **gap→wrong exactly 0**. Conversion **100.0%** of forecast, because §10.5 registered in advance that this forecast was a point estimate rather than W's floor. Two facts that must travel with the number: **64.1% of the gain is `compiler/temporal`** (outside it, 1,072 lines), and 17 lines were lost — 9 to `bd tsr-4jk`'s alias chain, 4 to `getContainersOfSymbol`'s unported multi-parent ordering | ~~2,990~~ landed | 3 | — | `checker.rs` |
 | ~~**~1,530**~~ | **LANDED at `8e28971`, +3,590 — 211% of the forecast, the session's largest build.** ~~qualified naming, design W — the written entity name. THE TOP OF THE BOARD, and it arrived by overturning a refusal rather than by finding a new row** (`checker-notes-qualname.md`). Reprint the written qualified name for a type reference whose leftmost identifier resolves as a namespace, declining when the reference site is **inside** the namespace it qualifies — a positional refusal upstream's own `needsQualification` licenses, worth 68 conversions to remove 79 wrong lines. Forecast **1,702 converts / 20 would-be-wrong / 0 at risk = 85× **, and the forecast is a **floor, not a ceiling**: 1,302 lines are excluded as unscorable rather than declining. Bar registered in §8 of that page **before any code** — `lost == 0`, `new wrong ≤ 40`, `gained ≥ 900` — with four falsifiers named. Effort 2: `resolve_entity_name` plus a written-text reprint, on a node the parser already records Residue, each with an owner: alias naming 20 (the missing `alias_symbol_for_type_node` call on the type-reference arm), enum narrowing 6, design **P** — the symbol chain on the *outer* name — 13 and now **created** by W's conversions, so §8's "W first, then re-measure P" is load-bearing rather than tidy | ~~1,702~~ landed | 2 | — | `declared.rs` |
 | ~~869~~ **~78** | **call resolution — overload sets. RE-SCORED DOWN, fifth session.** `bd tsr-klm` is answered (`callgate.rs`, `checker-notes-callres.md` §13): the 9,660 was **the row, not the mechanism**. Summed from the gates overload selection actually owns — generic candidate 490, parameter 473, argument 28, ambiguous 50, arity 9, nothing-assignable 39, this/rest 5, spread 1 — its own population is **1,095 lines, ~880 net**, an **8× smaller** item, and third of the three the split found | 1,095 | 5 | 0.45 | `calls.rs`, `relater.rs` |
 | ~~360~~ | **type-argument inference — FIRST SLICE LANDED, +372** (`bd tsr-g30h`). The counterfactual forecast 131 own-node conversions and it converted 372 (2.8x, cascade). **`bd tsr-g30h` stays open**: the contravariant bucket / priority lattice owns both the 3 lost lines and the largest share of the 33 new wrong, which is the argument for it being the next leg. Tuples (42), object-type members and intersections refused with numbers in §5.4 of that page. ~~old row:~~ The largest gate in the corrected split: a single candidate resolves and *inference* is what stops, **2,324 lines, want-any 28**. `inference.rs`'s own doc measures the cliff — 53% of generic calls have no type parameter written bare, so the candidate must be dug out structurally. A subsystem (`inference.go:53`: priority lattice, contravariant tracking), which is why the effort is 5 and not 3 | 2,324 | 5 | 0.75 | `inference.rs` |
@@ -433,6 +453,8 @@ Built and maintained; **use them, do not rebuild them.**
 | `examples/rank_board.rs` | the gradient board, `TERMINAL`/propagated split |
 | `examples/wrongflip.rs` | the only cause split for **wrong** lines |
 | `examples/refmatch.rs` | what a narrowing **matcher** can reach — in-range lines split by guard form and by current verdict, with a strict and a loose bound reported together |
+| `examples/verdictdump.rs` | **the transition probe, and the only one that can say where a wrong line CAME FROM.** One verdict per aligned line (`case:file:position`), so two runs give the exact matrix — `WRONG→RIGHT`, `RIGHT→WRONG`, `GAP→WRONG`. `wrongdelta` cannot distinguish a gap→wrong arrival from a right→wrong one and that distinction is what `docs/conventions.md` requires a bar's absolute to be written against; design P's fourth leg is scored on it. Also the first probe whose `right + gap + wrong` is an identity rather than a cross-instrument subtraction — §1 |
+| `examples/qualname.rs` · `qualnamep.rs` | the two halves of namespace-qualified naming, priced separately: `qualname` the **resolution** half (designs W and R, which convert *gap* lines), `qualnamep` the **printing** half (design P, which converts *wrong* lines and cannot touch a gap). **`qualname.rs`'s at-risk-P column of 36 is superseded by 23** — it omits `getMergedSymbol` |
 | `examples/wrongdelta.rs` | **`casedelta`'s sibling for the wrong bucket** — raw joinable `want`/`got` dump; two runs over a `git stash` attribute every gap→wrong line, which `casedelta` cannot see by construction |
 | `fnexpr` · `nameres` · `evolvearray` · `thisparam` · `receiver_gap` | per-workstream |
 
@@ -455,6 +477,8 @@ Append one row per session. Keep it to what a future session needs.
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
 | 2026-08-05 | `058b4a9` | 61.09% | 2,173 | — | baseline for the session below |
+| 2026-08-07 | design **P** | **72.53%** | **2,741** | **+2,973, 17 lost, +61 cases, 0 regressed, gap→wrong 0** | **`getSymbolChain` — the printing half of qualified naming, and the second four-cycle refusal retired by re-measurement in two sessions** (`checker-notes-qualname.md` §10–§11). The refusal's cost (3,202 lost) was cycle 20b's; re-taken on a post-W compiler it is **14**. Sized at 2,990/14, bar registered at `90c4e70` **before any code**, **all four legs passed** — and the conversion column landed on **2,990 exactly**, 100.0% of forecast, because §10.5 registered in advance that this forecast was a *point estimate* rather than W's floor and said not to expect another 211%. **Leg 4 is the one worth copying**: P is a renaming, so it cannot make a gap line computable, and `gap→wrong == 0` was registered *by construction* — making a non-zero reading a **diagnosis** ("the build changed resolution too") rather than a trade. That is `docs/conventions.md`'s post-W rule finally written as a leg instead of a caveat, and the instrument that scores it (`verdictdump.rs`) is the reusable part. Two corrections: **`qualname.rs`'s at-risk 36 is wrong and is 23** (it omitted `getMergedSymbol`, `symbolaccessibility.go:696` before `:702`), then measured ON against OFF on the real build at **13 losses removed for 0 conversions**; and the unit fixture written to pin that clause **does not** — checked by deleting the merge and re-running, it still passes, because the binder resolves a single-file merge as it binds and all 13 lines are *cross-file*. Conceded: 17 real losses (9 to `bd tsr-4jk`'s alias chain, 4 to `getContainersOfSymbol`'s unported multi-parent `sortByBestName` ordering, named case `compiler/giant`), and **64.1% of the gain is `compiler/temporal`** — leg 3's `cases gaining ≥ 60`, read 174, is what proves it is not a one-case build |
+| 2026-08-07 | `a57a04b` | **72.53%** | **2,741** | **+2,973, 17 lost, +61 cases, 0 regressed, Δwrong −2,973** | **design P — the symbol chain**, the other half of qualified naming and the second half of a refusal that stood for four cycles. §8 sequenced it (*"W first, then re-measure P against whatever W leaves"*) and that turned out load-bearing rather than tidy: **W's conversions created P's population**. Re-sized from scratch (every prior P number was pre-W), bar registered at `90c4e70` **before any code**, and **all four legs passed** — net 2,973 against a floor of 800, trade 175.9:1, 0 cases regressed, and leg 4's `gap→wrong == 0` reading a structural **0** because P is text-only. **The forecast was exact: 2,990 forecast conversions, 2,990 delivered.** The four-cycle refusal ("lost 3,202, regressed 753") was of the design that qualifies *everything* — measured here at **717 at risk, 5.4:1** — while the design honouring upstream's `needsQualification` stop conditions loses **17**. A control (CP6) fired during sizing and was traced to a missing `getMergedSymbol` in the *earlier* instrument (`symbolaccessibility.go:696` before `:702`); §11.2 then re-measured that clause on the **build**, ON against OFF: 0 conversions cost, 13 wrong lines removed. New `verdictdump.rs` makes `right + gap + wrong` an identity from one pass, and offers 10,039 unaligned lines as the **probable** explanation of §1's "9,145 short" — flagged as a hypothesis, not a reconciliation |
 | 2026-08-07 | `8e28971` | **71.91%** | **2,680** | **+3,590, 0 lost, +17 cases, 0 regressed, Δwrong +84** | **qualified type names reprint what was written — and it exists because a REFUSAL was re-examined, not because a new row was found.** §5 had refused this on "lost 3,202 lines, regressed 753 cases"; the fresh counterfactual showed that cost was measured on the **printing** half and then quoted against the **resolution** half's population, so a 1,318-line refusal had been blocking a 4,557-line row. Design **W** (reprint the written entity name) has *no at-risk population at all* — it fires only where the line already gaps — and forecast 1,702/20/0. Built, it converted **3,590 = 211%**, because the counterfactual's own first named falsifier ("the unscored buckets are conversions") fired. **The bar's third leg fired at 84 against 40 and is OVERRIDDEN, loudly**, by a third party who wrote neither bar nor build (`checker-notes-qualname.md` §9.6): hypothesis one was eliminated *by measurement* (the refusal was disabled and re-run), and the bar's own stated rule — "twice the forecast 20" — re-evaluated against the population that turned up gives `2 × 20 × 3590/1702 = 84.4` against a measured **84**. 0 lost, 0 regressed, 0 right→wrong traffic; 47 of the 84 are other mechanisms' defects newly *exposed*, which §9.5 measured cannot be refused away except at 11.8 conversions per wrong line. Two sub-refusals priced: INSIDE kept at 1.2:1, ENUM **declined on principle** — `enumLiteralTypes3.types:9` records `>Yes : Choice.Yes`, so the lead's suggested refusal would have refused a shape the port already gets right. The rule it bought: **an absolute on *global* Δwrong tightens as the build improves**, and belongs against the mechanism's own new wrong |
 | 2026-08-07 | `8965426` | 71.16% | 2,663 | 0 lines, by design | **three rows retired by measurement, two teammates in parallel with the build above.** `typerefgap.rs`: the `TypeReference` row is **99.8% one mechanism** — namespace-qualified naming — so §4.3's "~1,867 of unknown cause" does not exist, and the qualified-naming refusal is **re-sized from 1,318 to 4,473** on this root alone. The refusal stands on its cost (lost 3,202, regressed 753) but that cost is seven builds stale, which makes it the page's strongest candidate for a fresh counterfactual. `valgap.rs`: §4.3's 1,425 was **a different cell** — the root is 7,685 — and the convertible bucket is **70 lines**, with **two controls firing** and C4's diagnosis making the 70 a *lower* bound. `fnexpr` reproduced |G| 2,082 / 14.0% a **third** time, now after three call-resolution builds: the one thing that could have moved contextual typing's entanglement did not |
 | 2026-08-07 | `a4e3991` | **71.16%** | **2,663** | **+94, 0 lost, +6 cases, 0 regressed, Δwrong +3** | **the sixth session — assignability answered, and it was not where the mass is.** `bd tsr-kmzf`'s bar said run leg 1 before writing checker code and named its own falsifier as likely; both fired. The ternary relation is real (`Related`/`NotRelated`/`Unknown`, Kleene composition, **behaviour-neutral by construction** — `is_type_related_to` is *defined* as `relate_ternary(..) == Related`, and `checker_types` was bit-identical across the refactor, which is what made the forecast readable). Leg 1 read **33 against a floor of 150**, and **control C3 fired harder**: all 33 are conversions the existing **binary** relation already makes. The blocker was `calls.rs`'s `SELECTABLE` **flag set**, not the relation — my own C3 premise had conflated the gate with the relation, the **second** time this item's diagnosis was wrong while its numbers were right. Gate deleted, `choose_overload` now asks about the **pair**; the `any`-parameter positional refusal priced at 40/26 → **33/2** before shipping. The registered falsifier (net > 60) fired and was followed: `objectCreate`/`objectCreate2` supply 18 of the 94 through a **property-access callee the counterfactual never classified**. Residual read despite a passing ratio — 2 of the 5 lines entering the wrong bucket are the already-refused qualified-naming family, 2 were wrong before and are wrong differently, **exactly 1 is new.** A workspace example failing to compile made `cargo test` print **zero** result blocks; `grep -c` caught it where `head` would not have |
