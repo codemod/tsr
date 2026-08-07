@@ -540,7 +540,7 @@ fn forecast(
             }
             (None, true) => None,
         };
-        // `getWidenedType` (`checker.go:16090`) widens a `null`/`undefined`
+        // `getWidenedType` (`checker.go:18355`) widens a `null`/`undefined`
         // inference to `any` only with `strictNullChecks` off; nothing here
         // widens, so that case is refused.
         if let Some(image) = found
