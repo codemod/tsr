@@ -2007,3 +2007,14 @@ printed as arrays. The side-table kind (the §16 CaseKeyword lesson,
 now twice-paid) reads **+149 GAP→RIGHT / 28 GAP→WRONG** (empty/optional
 pattern shapes, the decline set's edge). `checker_types` right 394,836 →
 **394,985 (82.47%)**.
+
+### §49 Property lookup on a union projects across constituents
+
+`dependentDestructuredVariables`' second slice (and the funnel's
+"receiver is a union or intersection, 141" row): `kind` from
+`Action = {kind:'A',…} | {kind:'B',…}` is the UNION of the per-constituent
+members — `getPropertyOfUnionOrIntersectionType`: every constituent must
+carry the name (a miss anywhere is a miss), and the type is the union of
+the member types. Optionality/readonly aggregation and intersections stay
+declines. Falsifier: partial-membership unions must MISS (answering the
+present half would be the confident wrong).
