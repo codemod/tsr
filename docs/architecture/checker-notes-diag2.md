@@ -1755,3 +1755,62 @@ TS2394 13 each** on the current board, ~70 cases behind one relation mode.
 The code is removed rather than switched off (contrast §22's
 `REPORT_MISSING_REQUIRED_PROPERTY`): §22's machinery is correct and waiting on
 data, and this one is waiting on a function that does not exist.
+
+---
+
+## 25. TS2322 again — the gate was reading the wrong function, and §16's 988 was that
+
+```
+CONVERTS 35 -> 42   LOST 0   RIGHT 219 -> 294   WRONG 24 -> 50
+diagnostics 910 -> 917
+```
+
+**§16's primitives-only gate is deleted**, and the reason is a one-line
+correction that this file should have made in §16 and did not.
+
+`crate::relater` is **three-valued**. `Ternary::NotRelated` means *"the relation
+does not hold, and this port is entitled to say so"*; `Ternary::Unknown` means
+*"this port cannot decide the pair"*. `relate_ternary`'s own doc comment names
+the caller the distinction exists for:
+
+> The intended caller is one that acts on a **negative** […] Such a caller must
+> refuse an `Unknown` pair rather than treat it as a rejection.
+
+**TS2322 is that caller, and §16 called `is_type_assignable_to` — the binary
+projection, which collapses `Unknown` into `false`.** So §16 build 0's *947 right
+against 988 wrong* was not "the relation disagrees with upstream half the time".
+It was **every undecidable pair being reported as an error**, and the primitives
+gate was a bound drawn around a defect rather than around the relation.
+
+> This is the third time this project has drawn a bound around the wrong thing
+> and measured it honestly: `checker-notes-selectable.md`'s `SELECTABLE` flag set
+> ("the blocker was the gate, not the relation"), §9's `members: Some(_)`, and
+> now this. In all three the numbers were right and the *premise under them* was
+> not. The tell is the same each time: **a bound that has to model a subsystem's
+> incompleteness is a bound in the wrong place**, because the subsystem already
+> knows.
+
+### What the gate is now
+
+Three declines, and none of them is about the relation being incomplete:
+
+- **`any`, `unknown`, the error type, and enums.** None can *fail* a relation
+  except by an unported arm. `unknown` alone was 25 wrong lines in
+  `conformance/unknownType2`, the largest family after the switch.
+- **An object literal against a union target**, asked of the *syntax* because the
+  literal's type is synthesised. That is
+  `getMatchingUnionConstituentForObjectLiteral` and `findMatchingDiscriminantType`,
+  and upstream reports TS2353 / TS2561 / TS2739 there — 31 lines across six cases.
+- **The unnarrowed reference**, unchanged from §16's fifth decline.
+
+Everything §16 declined for being structural — classes, interfaces, type
+literals, arrays, signatures — is now admitted, and the relater says `Unknown`
+for the parts of itself it has not finished. **The correct bound was already
+written, inside the function the rule was calling the wrong version of.**
+
+### The residual 50
+
+Diffuse: nothing above 5 lines per case. `assignmentCompatWithDiscriminatedUnion`
+5, `typeFromJSInitializer4` 4 (JSDoc — declining `.js` here costs 4 conversions
+for 5 wrong lines and is therefore not drawn), `controlFlowNoImplicitAny` 4,
+`widenedTypes` 3, `tryCatchFinallyControlFlow` 3, and a tail of 2s.

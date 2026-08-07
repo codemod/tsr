@@ -31,11 +31,7 @@ use tsr_ast::{BinaryExpression, Node, NodeId, SyntaxKind};
 use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
-use crate::{
-    checker::Checker,
-    flags::TypeFlags,
-    types::{TypeData, TypeId},
-};
+use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
 impl<'a> Checker<'a, '_> {
     /// `checkAssignmentOperator` (`checker.go:12757`), the `=` arm.
@@ -72,7 +68,7 @@ impl<'a> Checker<'a, '_> {
         if self.source_is_an_unnarrowed_reference(right_id, source) {
             return;
         }
-        self.report_assignability_failure(left_id, source, target);
+        self.report_assignability_failure(left_id, right_id, source, target);
     }
 
     /// `checkVariableLikeDeclaration` (`checker.go:9967`) — the annotation
@@ -102,7 +98,7 @@ impl<'a> Checker<'a, '_> {
         if self.source_is_an_unnarrowed_reference(initializer_id, source) {
             return;
         }
-        self.report_assignability_failure(node, source, target);
+        self.report_assignability_failure(node, initializer_id, source, target);
     }
 
     /// `checkVariableLikeDeclaration`'s other two callers: a **property
@@ -137,7 +133,7 @@ impl<'a> Checker<'a, '_> {
         if self.source_is_an_unnarrowed_reference(initializer_id, source) {
             return;
         }
-        self.report_assignability_failure(node, source, target);
+        self.report_assignability_failure(node, initializer_id, source, target);
     }
 
     /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
@@ -164,7 +160,7 @@ impl<'a> Checker<'a, '_> {
         if self.source_is_an_unnarrowed_reference(expression_id, source) {
             return;
         }
-        self.report_assignability_failure(node, source, target);
+        self.report_assignability_failure(node, expression_id, source, target);
     }
 
     /// The return annotation of the function a `return` belongs to, where this
@@ -460,7 +456,29 @@ impl<'a> Checker<'a, '_> {
     /// Report the assignability failure at `span`, choosing the code the way
     /// upstream's relation does: a single absent required property is TS2741 and
     /// everything else this port will speak about is TS2322.
-    fn report_assignability_failure(&mut self, at: NodeId, source: TypeId, target: TypeId) -> bool {
+    fn report_assignability_failure(
+        &mut self,
+        at: NodeId,
+        source_node: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        // An object literal against a **union** target is the excess-property
+        // and discriminated-union machinery
+        // (`getMatchingUnionConstituentForObjectLiteral`,
+        // `findMatchingDiscriminantType`), and upstream reports TS2353 / TS2561 /
+        // TS2739 there rather than TS2322. Asked of the *syntax* because the
+        // literal's type is synthesised and carries no declaration to enumerate:
+        // 31 wrong lines across six cases — `excessPropertyCheckWithUnions`,
+        // `assignmentCompatWithDiscriminatedUnion`, both `missingDiscriminants`.
+        if self.nodes.kind(source_node) == SyntaxKind::ObjectLiteralExpression
+            && self.type_of(target).flags.contains(TypeFlags::UNION)
+        {
+            return false;
+        }
+        if !self.pair_is_reportable(source, target) {
+            return false;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return false };
         let span = self.nodes.span(at);
         if REPORT_MISSING_REQUIRED_PROPERTY
@@ -478,8 +496,15 @@ impl<'a> Checker<'a, '_> {
             );
             return true;
         }
-        if !self.assignability_is_decidable(source, target)
-            || self.is_type_assignable_to(source, target)
+        // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
+        // three-valued (`crate::relater::Ternary`) and its own doc comment names
+        // the caller this distinction exists for: *"one that acts on a
+        // negative"*. TS2322 is exactly that caller, and the binary projection —
+        // which collapses `Unknown` into `false` — is what produced this
+        // module's first measurement of **947 right against 988 wrong**. Every
+        // undecidable pair was being reported as an error.
+        if self.relate_ternary(source, target, crate::relater::Relation::Assignable)
+            != crate::relater::Ternary::NotRelated
         {
             return false;
         }
@@ -496,50 +521,58 @@ impl<'a> Checker<'a, '_> {
         true
     }
 
-    /// The declines: situations where this port's relation cannot be trusted to
-    /// disagree with upstream.
+    /// The declines that survive `relate_ternary` — situations where the
+    /// relation answers a confident `NotRelated` that upstream would not.
     ///
-    /// Each is a *silence*, and silence costs a missing diagnostic. The
-    /// alternative — reporting on an answer this port computed from types it did
-    /// not finish computing — costs a wrong one, and a wrong one can break a
-    /// case that already passes.
+    /// # What changed, and why this list is now short
     ///
-    /// # Why the gate is *primitives only*, and what it cost to learn that
+    /// This gate used to admit **primitives only**, because the rule read
+    /// `is_type_assignable_to` and that binary projection collapses
+    /// `Ternary::Unknown` — *"this port cannot decide"* — into `false`. Every
+    /// undecidable pair was reported as an error, which is the whole of the
+    /// 988-wrong measurement in §16's build 0, and the primitives gate was the
+    /// bound that made it survivable.
     ///
-    /// The first build gated on nothing but `error`/`any`/`unknown` and measured
-    /// **947 right against 988 wrong, 100 converts and 29 losses** — the
-    /// relation disagreeing with upstream almost exactly half the time. The
-    /// wrong column was not one family: `arr_i1 = arr_c1` where `C1 implements
-    /// I1` is *assignable* upstream and not here, and every structural row
-    /// behaves the same way. That is `checker_types`' 26% non-gradient arriving
-    /// as diagnostics.
+    /// `relate_ternary` reports the negative only when the relater is
+    /// **entitled** to say so, which is precisely what
+    /// `crate::relater::Ternary`'s own doc comment says it exists for. With it
+    /// the gate no longer has to model the relation's incompleteness at all, and
+    /// what is left is three places where the relater is confidently wrong
+    /// rather than undecided:
     ///
-    /// Two other classes were in it and are separate rows rather than gate
-    /// business:
+    /// - **`unknown` on either side.** Its arms are not ported and it produced
+    ///   25 wrong lines in one case (`conformance/unknownType2`) — the largest
+    ///   single family after the switch.
+    /// - **An object literal against a union target.** That is the
+    ///   excess-property and discriminated-union machinery
+    ///   (`getMatchingUnionConstituentForObjectLiteral`,
+    ///   `findMatchingDiscriminantType`), and upstream reports TS2353 / TS2561 /
+    ///   TS2739 there. 38 wrong lines across six cases —
+    ///   `excessPropertyCheckWithUnions`, `assignmentCompatWithDiscriminatedUnion`,
+    ///   both `missingDiscriminants`, and two more.
+    /// - **`any` and the error type**, unchanged: neither can fail a relation,
+    ///   so admitting them can only produce accidents.
     ///
-    /// - `assignmentCompat1` — `x = y` where a **property is missing** from the
-    ///   source is TS2741 / TS2739 / TS2740, not TS2322. The relation's *reason*
-    ///   selects the code, so TS2322 at that position is a wrong code at a right
-    ///   position.
-    /// - `assignToEnum` — `A = undefined` for an `enum A` is TS2628, and
-    ///   upstream's `checkIdentifier` returns the error type from that arm, so
-    ///   the assignability check never runs.
-    ///
-    /// What survives is the question the relation answers *without consulting a
-    /// members table at all*: both sides primitive, literal, enum-literal, or a
-    /// union of those. That is the part of the relation this port has finished.
-    fn assignability_is_decidable(&mut self, source: TypeId, target: TypeId) -> bool {
-        // A **union source is declined outright**, and this is the narrowing
-        // decline rather than a relation one: a union arriving at an assignment
-        // position is what narrowing exists to reduce, and the two narrowing
-        // mechanisms this port has not built — aliased conditional expressions
-        // and inferred type predicates — leave it un-reduced. `controlFlowAliasing`
-        // (13 lines) and `inferTypePredicates` (5) are the whole of the family,
-        // and both write `let t: string = x` after a narrowing this port does not
-        // perform. Reporting there is a wrong diagnostic on correct code.
-        self.is_decidable_primitive(source, 0) && self.is_decidable_primitive(target, 0)
+    /// The enum veto stays where it was, in
+    /// [`Checker::assignability_is_decidable`]'s successor below.
+    fn pair_is_reportable(&mut self, source: TypeId, target: TypeId) -> bool {
+        let intrinsics = self.intrinsics();
+        let (error, unknown, any) = (intrinsics.error, intrinsics.unknown, intrinsics.any);
+        for side in [source, target] {
+            if side == error || side == unknown || side == any {
+                return false;
+            }
+            if self.type_of(side).flags.intersects(UNDECIDABLE_HERE) {
+                return false;
+            }
+        }
+        // `getMatchingUnionConstituentForObjectLiteral` and the discriminant
+        // machinery decide this pair upstream, and neither is ported.
+        true
     }
 
+    /// Is the source expression a **reference** whose type is still a union?
+    ///
     /// Is the source expression a **reference** whose type is still a union?
     ///
     /// Narrowing only ever applies to a reference, so this is the exact shape in
@@ -554,23 +587,6 @@ impl<'a> Checker<'a, '_> {
                 | SyntaxKind::PropertyAccessExpression
                 | SyntaxKind::ElementAccessExpression
         ) && self.type_of(source).flags.contains(TypeFlags::UNION)
-    }
-
-    /// Is this type one the relation can decide from flags alone?
-    fn is_decidable_primitive(&self, ty: TypeId, depth: u32) -> bool {
-        if depth > 8 {
-            return false;
-        }
-        let type_ = self.type_of(ty);
-        if type_.flags.contains(TypeFlags::UNION) {
-            let TypeData::Union { types, .. } = &type_.data else { return false };
-            // The constituent list is owned by the store, and `self` is borrowed
-            // immutably for the whole walk — so the ids are copied out first.
-            let constituents: Vec<TypeId> = types.clone();
-            return constituents.iter().all(|id| self.is_decidable_primitive(*id, depth + 1));
-        }
-        DECIDABLE_WITHOUT_MEMBERS.intersects(type_.flags)
-            && !type_.flags.intersects(UNDECIDABLE_HERE)
     }
 }
 
@@ -595,34 +611,9 @@ fn has_async(modifiers: &[tsr_ast::ModifierLike<'_>]) -> bool {
 /// the one thing `docs/conventions.md` forbids about a refusal.
 const REPORT_MISSING_REQUIRED_PROPERTY: bool = false;
 
-/// The type flags whose assignability is settled by the flags themselves.
+/// Flags that veto [`Checker::pair_is_reportable`] outright.
 ///
-/// Everything absent from this set needs a members table, a signature list or an
-/// instantiation, and each of those is a place this port's relation can still
-/// disagree with upstream — see [`Checker::assignability_is_decidable`].
-const DECIDABLE_WITHOUT_MEMBERS: TypeFlags = TypeFlags::STRING
-    .union(TypeFlags::NUMBER)
-    .union(TypeFlags::BIG_INT)
-    .union(TypeFlags::BOOLEAN)
-    .union(TypeFlags::ES_SYMBOL)
-    .union(TypeFlags::VOID)
-    .union(TypeFlags::UNDEFINED)
-    .union(TypeFlags::NULL)
-    .union(TypeFlags::NEVER)
-    .union(TypeFlags::STRING_LITERAL)
-    .union(TypeFlags::NUMBER_LITERAL)
-    .union(TypeFlags::BIG_INT_LITERAL)
-    .union(TypeFlags::BOOLEAN_LITERAL)
-    .union(TypeFlags::UNIQUE_ES_SYMBOL)
-    .union(TypeFlags::ENUM_LITERAL)
-    .union(TypeFlags::ENUM);
-
-/// Flags that veto the gate even when [`DECIDABLE_WITHOUT_MEMBERS`] would admit
-/// the type.
-///
-/// `any` and `unknown` never *fail* the relation, so admitting them can only
-/// produce accidents. The **enum** flags are here for a different and measured
-/// reason: `isTypeRelatedTo`'s enum arms (`checker.go`'s `EnumLiteral` /
+/// The **enum** flags are here for a measured reason: `isTypeRelatedTo`'s enum arms (`checker.go`'s `EnumLiteral` /
 /// `EnumLike` special cases, plus `numberAssignableToEnum`'s numeric-enum
 /// widening) are not ported, and enums accounted for 11 of one measurement's 40
 /// wrong lines *and its only loss*. They are admitted to the constant only so
