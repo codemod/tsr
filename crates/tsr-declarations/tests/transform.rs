@@ -194,6 +194,14 @@ fn an_import_used_by_a_written_arrow_signature_is_retained() {
 }
 
 #[test]
+fn a_deferred_import_becomes_an_ordinary_declaration_import() {
+    assert_emits(
+        "import defer * as ns from \"./m.js\";\nexport type T = ns.Value;\n",
+        "import * as ns from \"./m.js\";\nexport type T = ns.Value;\n",
+    );
+}
+
+#[test]
 fn an_arrow_type_parameter_does_not_retain_a_shadowed_import() {
     assert_emits(
         "import * as T from \"./m\";\nexport const identity = <T>(value: T): T => value;\n",
@@ -222,6 +230,14 @@ fn every_declaration_in_a_merged_symbol_is_retained_in_source_order() {
     assert_emits(
         "function f(): void {}\nnamespace f { export const x: number = 1; }\nexport { f };\n",
         "declare function f(): void;\ndeclare namespace f {\n    const x: number;\n}\nexport { f };\n",
+    );
+}
+
+#[test]
+fn override_is_removed_from_interface_method_signatures() {
+    assert_emits(
+        "export interface I { override method(): void; }",
+        "export interface I {\n    method(): void;\n}\n",
     );
 }
 
@@ -324,6 +340,14 @@ fn enum_members_emit_their_folded_values() {
     assert_emits(
         "export enum E {\n    A,\n    B,\n    C = 10,\n    D,\n}",
         "export declare enum E {\n    A = 0,\n    B = 1,\n    C = 10,\n    D = 11\n}",
+    );
+}
+
+#[test]
+fn ambient_enum_members_without_initializers_stay_uninitialized() {
+    assert_emits(
+        "declare namespace N { enum E { A, B = 3, C } }",
+        "declare namespace N {\n    enum E {\n        A,\n        B = 3,\n        C\n    }\n}\n",
     );
 }
 

@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  183/341  = 53.67%  (up from 161/339)
+  dts_emit                  193/341  = 56.60%  (up from 161/339)
   dts_shape                 657/918  = 71.57%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -38,6 +38,14 @@ flag. Reused module names, property names, and literal types therefore preserve
 their source delimiter instead of being unconditionally rewritten with double
 quotes. This raised byte-exact `dts_emit` by another 12 cases without changing
 declaration shape or printer round-trip.
+
+The next exactness pass removed the separator guard's spaces between nested type
+argument closers, preserved negative numeric literal type signs in the parser,
+formatted reconstructed numeric constants at JavaScript's exponent thresholds,
+kept uninitialized ambient enum members uninitialized, stripped `override` from
+interface method signatures, and lowered `import defer` to an ordinary import in
+declaration output. Together these raised `dts_emit` by another 10 cases, again
+without changing declaration shape or printer round-trip.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

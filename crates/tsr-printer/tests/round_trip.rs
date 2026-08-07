@@ -56,6 +56,18 @@ fn a_no_substitution_template_prints_in_a_literal_type() {
 }
 
 #[test]
+fn nested_type_arguments_close_without_inserted_spaces() {
+    let output = printed("type T = Outer<Middle<Inner<string>>>;");
+    assert!(output.contains("Outer<Middle<Inner<string>>>"), "{output}");
+}
+
+#[test]
+fn a_negative_numeric_literal_type_keeps_its_sign() {
+    let output = printed("type T = -1e999;");
+    assert!(output.contains("-1e999"), "{output}");
+}
+
+#[test]
 fn a_dotted_namespace_does_not_restate_its_header() {
     // `namespace A.B {}` nests two ModuleDeclarations; writing the inner one as a
     // statement gives `namespace A. export namespace B {}`.

@@ -458,11 +458,7 @@ impl<'a> Parser<'a> {
             | SyntaxKind::TrueKeyword
             | SyntaxKind::FalseKeyword
             | SyntaxKind::NullKeyword => self.parse_literal_type(),
-            SyntaxKind::MinusToken => {
-                // Negative numeric literal types: `-1`.
-                self.next_token();
-                self.parse_literal_type_from(start)
-            }
+            SyntaxKind::MinusToken => self.parse_negative_literal_type(),
             // `x as const` — a const assertion, spelled as a type.
             SyntaxKind::ConstKeyword => {
                 self.next_token();
@@ -550,6 +546,49 @@ impl<'a> Parser<'a> {
     fn parse_literal_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
         self.parse_literal_type_from(start)
+    }
+
+    /// A negative numeric literal type keeps its prefix expression as the
+    /// `LiteralTypeNode` payload. Consuming `-` before building the ordinary
+    /// numeric literal silently changed `type T = -1` into `type T = 1`.
+    fn parse_negative_literal_type(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        let operator = self.take_token();
+        let literal_start = self.pos();
+        let operand = match self.token.kind {
+            kind @ (SyntaxKind::NumericLiteral | SyntaxKind::BigIntLiteral) => {
+                let text = self.token_value();
+                let flags = self.token.ast_flags();
+                self.next_token();
+                match kind {
+                    SyntaxKind::NumericLiteral => Expression::NumericLiteral(self.finish_node(
+                        NumericLiteral::new(text, flags),
+                        SyntaxKind::NumericLiteral,
+                        literal_start,
+                    )),
+                    SyntaxKind::BigIntLiteral => Expression::BigIntLiteral(self.finish_node(
+                        BigIntLiteral::new(text, flags),
+                        SyntaxKind::BigIntLiteral,
+                        literal_start,
+                    )),
+                    _ => unreachable!(),
+                }
+            }
+            // Error recovery: keep a malformed operand in the tree rather than
+            // panicking on compiler tests such as `type T = -foo`.
+            _ => self.parse_unary_expression(),
+        };
+        let prefix = self.finish_node(
+            PrefixUnaryExpression::new(operator, Some(operand)),
+            SyntaxKind::PrefixUnaryExpression,
+            start,
+        );
+        let node = self.finish_node(
+            LiteralTypeNode::new(Some(Node::PrefixUnaryExpression(prefix))),
+            SyntaxKind::LiteralType,
+            start,
+        );
+        TypeNode::LiteralTypeNode(node)
     }
 
     fn parse_literal_type_from(&mut self, start: u32) -> TypeNode<'a> {

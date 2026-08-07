@@ -190,6 +190,18 @@ impl<'t> Printer<'t> {
         self.write(text);
     }
 
+    /// Close a type-argument or type-parameter list without the generic token
+    /// separator guard.
+    ///
+    /// In a type context, adjacent closers are intentionally written `>>`; the
+    /// parser rescans them as two `>` tokens. Treating them like arbitrary
+    /// punctuation inserted a space and produced `Outer<Inner<T> >`, unlike
+    /// upstream's declaration printer.
+    fn write_closing_angle_bracket(&mut self) {
+        self.last_was_numeric = false;
+        self.writer.write(">");
+    }
+
     /// Ported from `Printer.writeOperator`.
     pub(crate) fn write_operator(&mut self, text: &str) {
         self.write(text);
@@ -327,7 +339,11 @@ impl<'t> Printer<'t> {
             self.emit_list_items(children, format, trailing_delimiter, &mut emit);
         }
         if let Some(close) = format.closing_bracket() {
-            self.write_punctuation(close);
+            if close == ">" {
+                self.write_closing_angle_bracket();
+            } else {
+                self.write_punctuation(close);
+            }
         }
         if format.contains(ListFormat::SPACE_AFTER_LIST) && !children.is_empty() {
             self.write_space();

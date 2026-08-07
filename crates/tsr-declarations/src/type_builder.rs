@@ -417,12 +417,6 @@ fn string_literal<'a>(factory: &mut Factory<'a, '_>, text: &str, span: Span) -> 
 /// reused, and upstream's baselines carry the decimal value, because upstream is
 /// rebuilding the literal from a computed `jsnum.Number` rather than from text.
 ///
-/// **The known gap**, stated rather than left to be discovered: the formatting
-/// here is Rust's shortest round-trip for `f64`, which agrees with JavaScript's
-/// `Number::toString` on integers and ordinary decimals but not on the exponent
-/// forms JavaScript switches to at `1e21` and `1e-7`. No corpus baseline in the
-/// emitter's target exercises those, and a literal that large in a `.d.ts` would
-/// be a curiosity; the alternative is porting `jsnum`, which is Phase 4's.
 fn decimal_literal<'a>(factory: &mut Factory<'a, '_>, text: &str, span: Span) -> Expression<'a> {
     let value = numeric_value(text);
     let formatted = format_number(value);
@@ -473,8 +467,19 @@ pub(crate) fn format_number(value: f64) -> String {
     if value.is_infinite() {
         return if value > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() };
     }
+    let magnitude = value.abs();
+    if magnitude >= 1e21 || (magnitude != 0.0 && magnitude < 1e-6) {
+        let scientific = format!("{value:e}");
+        let (mantissa, exponent) = scientific.split_once('e').expect("Rust scientific notation");
+        let exponent: i32 = exponent.parse().expect("Rust scientific exponent");
+        return if exponent >= 0 {
+            format!("{mantissa}e+{exponent}")
+        } else {
+            format!("{mantissa}e{exponent}")
+        };
+    }
     #[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
-    if value.fract() == 0.0 && value.abs() < 1e21 {
+    if value.fract() == 0.0 {
         // `{}` on an integral f64 prints a trailing `.0`; a `.d.ts` never does.
         format!("{}", value as i128)
     } else {
@@ -521,5 +526,13 @@ mod tests {
         assert_eq!(format_number(1.0), "1");
         assert_eq!(format_number(-1.0), "-1");
         assert_eq!(format_number(1.5), "1.5");
+    }
+
+    #[test]
+    fn javascript_exponent_thresholds_and_sign_are_used() {
+        assert_eq!(format_number(1e21), "1e+21");
+        assert_eq!(format_number(1e-7), "1e-7");
+        assert_eq!(format_number(1e-6), "0.000001");
+        assert_eq!(format_number(1.234_567_891_234_567_8e53), "1.2345678912345678e+53");
     }
 }

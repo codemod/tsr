@@ -82,6 +82,8 @@ pub(crate) struct Transformer<'a, 't, R> {
     result_has_external_module_indicator: bool,
     /// Source and synthesized binding names, for `_default` collision avoidance.
     used_names: HashSet<String>,
+    /// Whether declarations are nested under an ambient module/namespace.
+    ambient_context: bool,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -100,6 +102,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             result_has_scope_marker: false,
             result_has_external_module_indicator: false,
             used_names: HashSet::new(),
+            ambient_context: false,
             inference_required: Vec::new(),
         }
     }
@@ -198,7 +201,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // syntactic stand-in is the same reachability set every other
             // declaration goes through. An import nobody references is dropped, and
             // the file gains an `export {}` marker instead if that was all it had.
-            Statement::ImportDeclaration(_) | Statement::ImportEqualsDeclaration(_) => {
+            Statement::ImportDeclaration(import) => {
                 // A side-effect import (`import "./polyfill";`) binds no name, so
                 // reachability has nothing to say about it and it must never be
                 // elided: dropping it changes what the *importer* of this `.d.ts`
@@ -212,6 +215,12 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 if binds_nothing {
                     return vec![*statement];
                 }
+                if parent_is_file && !self.resolver.is_declaration_visible(statement) {
+                    return Vec::new();
+                }
+                vec![self.transform_import_declaration(import)]
+            }
+            Statement::ImportEqualsDeclaration(_) => {
                 if parent_is_file && !self.resolver.is_declaration_visible(statement) {
                     return Vec::new();
                 }
@@ -233,6 +242,40 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // that nothing with a runtime body survives.
             _ => Vec::new(),
         }
+    }
+
+    /// A deferred import's runtime phase has no meaning in a declaration file.
+    /// Its bindings remain ordinary type-visible imports, while `import type`
+    /// keeps its phase modifier.
+    fn transform_import_declaration(
+        &mut self,
+        node: &'a tsr_ast::ImportDeclaration<'a>,
+    ) -> Statement<'a> {
+        let Some(clause) = node.import_clause else {
+            return Statement::ImportDeclaration(node);
+        };
+        if !clause.phase_modifier.is_some_and(|modifier| modifier.kind == SyntaxKind::DeferKeyword)
+        {
+            return Statement::ImportDeclaration(node);
+        }
+        let span = self.span_of(clause.node_id);
+        let clause = self.factory.alloc(
+            tsr_ast::ImportClause::new(None, clause.name, clause.named_bindings),
+            SyntaxKind::ImportClause,
+            span,
+            NodeFlags::empty(),
+        );
+        Statement::ImportDeclaration(self.factory.alloc(
+            tsr_ast::ImportDeclaration::new(
+                node.modifiers,
+                Some(clause),
+                node.module_specifier,
+                node.attributes,
+            ),
+            SyntaxKind::ImportDeclaration,
+            self.span_of(node.node_id),
+            NodeFlags::empty(),
+        ))
     }
 
     /// Turn `export default <expression>` into the declaration form TypeScript
@@ -389,7 +432,13 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let mut members = Vec::with_capacity(node.members.len());
                 for (member, value) in node.members.iter().zip(values) {
                     let span = self.span_of(member.node_id);
-                    let initializer = value.map(|value| self.enum_initializer(&value, span));
+                    let is_ambient = self.ambient_context
+                        || has_modifier(node.modifiers, SyntaxKind::DeclareKeyword);
+                    let initializer = if is_ambient && member.initializer.is_none() {
+                        None
+                    } else {
+                        value.map(|value| self.enum_initializer(&value, span))
+                    };
                     members.push(self.factory.alloc(
                         tsr_ast::EnumMember::new(member.name, initializer, &[], None),
                         SyntaxKind::EnumMember,
@@ -512,6 +561,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     ) -> Vec<Statement<'a>> {
         let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, true, false);
         let saved_declare = std::mem::replace(&mut self.needs_declare, false);
+        let enters_ambient = self.ambient_context
+            || self.factory.flags_of(node.node_id).contains(NodeFlags::AMBIENT)
+            || has_modifier(node.modifiers, SyntaxKind::DeclareKeyword);
+        let saved_ambient = std::mem::replace(&mut self.ambient_context, enters_ambient);
         let saved_needs_fix = std::mem::replace(&mut self.needs_scope_fix_marker, false);
         let saved_has_marker = std::mem::replace(&mut self.result_has_scope_marker, false);
 
@@ -587,6 +640,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         };
 
         self.needs_declare = saved_declare;
+        self.ambient_context = saved_ambient;
         self.needs_scope_fix_marker = saved_needs_fix;
         self.result_has_scope_marker = saved_has_marker;
 
@@ -938,6 +992,25 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                             None,
                         ),
                         SyntaxKind::PropertySignature,
+                        span,
+                        NodeFlags::empty(),
+                    )));
+                }
+                TypeElement::MethodSignatureDeclaration(node) => {
+                    let span = self.span_of(node.node_id);
+                    let modifiers =
+                        self.ensure_modifiers(node.modifiers, node.node_id, false, true);
+                    result.push(TypeElement::MethodSignatureDeclaration(self.factory.alloc(
+                        tsr_ast::MethodSignatureDeclaration::new(
+                            modifiers,
+                            node.name,
+                            node.postfix_token,
+                            node.type_parameters,
+                            node.parameters,
+                            node.r#type,
+                            node.full_signature,
+                        ),
+                        SyntaxKind::MethodSignature,
                         span,
                         NodeFlags::empty(),
                     )));

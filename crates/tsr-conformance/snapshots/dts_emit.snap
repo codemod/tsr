@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 183/341 (53.67%)
-Failed         : 158
+Passed         : 193/341 (56.60%)
+Failed         : 148
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,7 +12,7 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 158 failures:
+First 100 of 148 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
@@ -50,7 +50,7 @@ compiler/declarationEmitAliasExportStar
 compiler/declarationEmitArrowFunctionNoRenaming
   line 1: want `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & {`, got `export type Brand<Base, Branding, ReservedName extends string = "__type__"> = Base & { [K in ReservedName]: Branding; } & {`
 compiler/declarationEmitBindingPatternWithReservedWord
-  line 3: want `type LocaleConfig<T extends LocaleData = LocaleData> = Record<string, Partial<T>>;`, got `type LocaleConfig<T extends LocaleData = LocaleData> = Record<string, Partial<T> >;`
+  line 10: want `export declare const getLocales: <T extends LocaleData>({ app, name, default: defaultLocalesConfig, config: userLocalesConfig, }: GetLocalesOptions<T>) => ConvertLocaleConfig<T>;`, got `export declare const getLocales: <T extends LocaleData>({ app, name, default: defaultLocalesConfig, config: userLocalesConfig = {} }: GetLocalesOptions<T>) => ConvertLocaleConfig<T>;`
 compiler/declarationEmitBindingPatternsFunctionExpr
   line 4: want `declare let notReferenced: ({ name: alias }: Named) => void;`, got `declare let notReferenced: any;`
 compiler/declarationEmitClassAccessorsJs1
@@ -73,8 +73,6 @@ compiler/declarationEmitExportAliasVisibiilityMarking
   line 1: want `import { Suit, Rank } from './Types';`, got `declare const _default: any;`
 compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol
   emitted b.d.ts, upstream emitted no declaration file
-compiler/declarationEmitHigherOrderRetainedGenerics
-  line 44: want `    readonly productMany: <R, O, E, A>(self: Kind<F, R, O, E, A>, collection: Iterable<Kind<F, R, O, E, A>>) => Kind<F, R, O, E, [A, ...Array<A>]>;`, got `    readonly productMany: <R, O, E, A>(self: Kind<F, R, O, E, A>, collection: Iterable<Kind<F, R, O, E, A> >) => Kind<F, R, O, E, [A, ...Array<A>]>;`
 compiler/declarationEmitInlinedDistributiveConditional
   line 1: want `export declare const dropPrivateProps1: <Obj>(obj: Obj) => { [K in import("./internal").PublicKeys1<keyof Obj>]: Obj[K]; };`, got `export declare const dropPrivateProps1: any;`
 compiler/declarationEmitMappedTypePreservesTypeParameterConstraint
@@ -92,15 +90,13 @@ compiler/declarationEmitObjectLiteralAccessors1
 compiler/declarationEmitParameterProperty
   line 2: want `    bar?: string | undefined;`, got `    bar?: string;`
 compiler/declarationEmitPrivatePromiseLikeInterface
-  line 10: want `    request: <T = any, E = any>() => TPromise<HttpResponse<T, E>>;`, got `    request: <T = any, E = any>() => TPromise<HttpResponse<T, E> >;`
+  emitted Api.d.ts, upstream emitted no declaration file
 compiler/declarationEmitPrivateSymbolCausesVarDeclarationToBeEmitted
   line 1: want `declare const _data: unique symbol;`, got `export declare class User {`
 compiler/declarationEmitRetainedAnnotationRetainsImportInOutput
   line 1: want `export type Whatever<T> = {x: T};`, got `export declare const run: <E>(i: () => E.Whatever<E>) => E.Whatever<E>;`
 compiler/declarationEmitScopeConsistency3
   line 1: want `export declare const g: (v: "outer") => () => "inner";`, got `export declare const g: any;`
-compiler/declarationEmitShadowingInferNotRenamed
-  line 5: want `export declare const createClient: <D extends (new (...args: any[]) => Client) | Record<string, new (...args: any[]) => Client>>(clientDef: D) => D extends new (...args: any[]) => infer C ? UpdatedClient<C> : { [K in keyof D]: D[K] extends new (...args: any[]) => infer C ? UpdatedClient<C> : never; };`, got `export declare const createClient: <D extends (new (...args: any[]) => Client) | Record<string, new (...args: any[]) => Client> >(clientDef: D) => D extends new (...args: any[]) => infer C ? UpdatedClient<C> : { [K in keyof D]: D[K] extends new (...args: any[]) => infer C ? UpdatedClient<C> : never; };`
 compiler/declarationEmitTypeAliasWithTypeParameters1
   line 3: want `export declare const y: (x: Foo<string>) => number;`, got `export declare const y: any;`
 compiler/declarationEmitTypeAliasWithTypeParameters2
@@ -123,12 +119,8 @@ compiler/deferredLookupTypeResolution2
   line 1: want `type StringContains<S extends string, L extends string> = ({`, got `type StringContains<S extends string, L extends string> = ({ [K in S]: 'true'; } & {`
 compiler/destructuredDeclarationEmit
   line 3: want `declare const { bar: baz, bat, bam: { bork: { bar: ibar, baz: ibaz } } }: {`, got `export { baz, ibaz };`
-compiler/enumDecl1
-  line 3: want `        x,`, got `        x = 0,`
 compiler/expandoFunctionExpressionsWithDynamicNames
   line 1: want `export declare function expr(): void;`, got `export declare const expr: any;`
-compiler/fakeInfinity1
-  line 2: want `export type NegativeInfinity = -1e999;`, got `export type NegativeInfinity = 1e999;`
 compiler/functionExpressionReturningItself
   line 1: want `declare var x: () => () => /*elided*/ any;`, got `declare var x: any;`
 compiler/importAliasFromNamespace
@@ -206,10 +198,18 @@ compiler/nodeNextPackageSelfNameWithOutDirDeclDirCompositeNestedDirs
 compiler/nodeNextPackageSelfNameWithOutDirDeclDirNestedDirs
   emitted src/thing.d.ts, upstream emitted no declaration file
 compiler/numericEnumMappedType
-  line 7: want `    ONE,`, got `    ONE = 0,`
+  line 11: want `type Bins1 = {`, got `type Bins1 = { [k in E1]?: string; };`
 compiler/parameterPropertyInConstructor4
   line 3: want `    constructor(a: number[] | undefined, b: number);`, got `    constructor(a?: number[], b: number);`
 compiler/paramterDestrcuturingDeclaration
   line 2: want `    ({ p: name }: {`, got `    ({ p: name }): any;`
 compiler/parenthesisDoesNotBlockAliasSymbolCreation
   line 1: want `export type InvalidKeys<K extends string | number | symbol> = {`, got `export type InvalidKeys<K extends string | number | symbol> = { [P in K]?: never; };`
+compiler/privacyClassExtendsClauseDeclFile
+  line 7: want `    export class publicClassExtendingPublicClassInModule extends publicClassInPublicModule {`, got `    class privateClassExtendingPublicClassInModule extends publicClassInPublicModule {`
+compiler/privacyClassImplementsClauseDeclFile
+  line 6: want `    export class publicClassImplementingPublicInterfaceInModule implements publicInterfaceInPublicModule {`, got `    class privateClassImplementingPublicInterfaceInModule implements publicInterfaceInPublicModule {`
+compiler/privacyInterfaceExtendsClauseDeclFile
+  line 6: want `    export interface publicInterfaceImplementingPublicInterfaceInModule extends publicInterfaceInPublicModule {`, got `    interface privateInterfaceImplementingPublicInterfaceInModule extends publicInterfaceInPublicModule {`
+compiler/privacyTypeParametersOfClassDeclFile
+  line 11: want `export declare class publicClassWithPublicTypeParametersWithoutExtends<T> {`, got `declare class privateClassWithPrivateTypeParameters<T extends privateClass> {`
