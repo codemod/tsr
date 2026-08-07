@@ -67,9 +67,11 @@ impl Checker<'_, '_> {
         // An instantiated reference's members need substitution this port only
         // performs at `instantiate_for_reference`, one property at a time; the
         // *table* is the uninstantiated one.
-        if self.type_reference_targets.contains_key(&id) {
-            return false;
-        }
+        // §41's audit: the instantiated-reference decline is **deleted**. It
+        // was drawn because a reference's members need substitution this port
+        // performs one property at a time — true of the member *types*, and this
+        // predicate promises only the member **names**, which instantiation
+        // never changes. +4 cases.
         let owner = match &self.store.get(id).data {
             TypeData::Named { members: Some(owner), .. } => *owner,
             // `Anonymous` is `typeof X` — the symbol's `exports`, which

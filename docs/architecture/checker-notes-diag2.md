@@ -2700,3 +2700,20 @@ mechanism itself. §16 named `divergentAccessorsTypes2` and then declined *every
 property access, which is the whole class of defect §35 through §40.6 keep
 finding: **the decline is drawn around the shape the counter-example belongs to,
 not around the counter-example.**
+
+### 41.1 The instantiated-reference decline — +4, and it was answering the wrong question
+
+`declared_members_are_complete` opened by returning `false` for anything in
+`type_reference_targets`, because *"an instantiated reference's members need
+substitution this port only performs at `instantiate_for_reference`, one property
+at a time; the **table** is the uninstantiated one."*
+
+Every clause of that is true and none of it is about this predicate.
+**Instantiation changes member *types*; it never changes member *names*** — and
+the predicate's own doc comment says it promises the names and nothing else:
+*"it says nothing about whether the member types are right, only about whether
+the member names are all present. TS2339 needs exactly the second."*
+
+Deleting it is **+4**. Fourteenth audit payment, and the second in a row where
+the decline was a correct sentence about a different question than the one the
+function asks.
