@@ -1476,3 +1476,29 @@ inside a namespace; TS1147 is a grammar error, not a resolution bar. The
 position disjunct was DROPPED — findability alone decides. Final pair:
 **+390 (G→R), ZERO adverse.** `checker_types` right 396,082 →
 **396,472 (82.78%)**.
+
+### §32 Index-signature prints admit written non-union keys
+
+`indexSignatures1` (100+ GAP): the printer's key gate declined everything
+but the `string`/`number` intrinsics — tagged keys (`string & Tag1`),
+template-literal keys, alias-named keys all gapped the WHOLE object
+print. The union decline is upstream-faithful (`getIndexInfosOfIndexSymbol`
+SPLITS `[k: A | B]` into two infos, so printing one union-keyed signature
+would be confidently wrong); the rest of the gate was caution, not
+fidelity: a computable non-union key prints exactly as written.
+
+**The bar.** `index_signature_member` admits any key whose type computes
+(`!= error`) and is not a UNION; the LOOKUP gate (`index_info_of`) stays
+intrinsic-only — a print the lookup cannot serve yields a gapped access
+(honest), never a wrong one.
+
+**Falsifiers.** (a) If upstream normalizes written key aliases at print
+(`TaggedString1` → its expansion or vice versa), W appears on alias-keyed
+prints — decline aliases. (b) If the split rule extends beyond unions
+(e.g. `string & anything` also splits), W on intersection keys.
+
+**§32 score — LANDED.** **+53 (G→R), ZERO adverse.** (A draft guessed +96
+before the run; corrected to the measured +53.) `checker_types` right
+396,500 → **396,553 (82.80%)**. Residue in the case: union-keyed splits,
+`[sym]` computed members, and key types the port cannot compute
+(template-literal types among them).

@@ -232,7 +232,14 @@ impl<'a> Checker<'a, '_> {
         let [parameter] = signature.parameters else { return None };
         let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { return None };
         let key = self.get_type_from_type_node(parameter.r#type?);
-        if key != self.intrinsics.string && key != self.intrinsics.number {
+        // §32 (`checker-notes-callres.md`): any computable NON-UNION key
+        // prints as written; a union key is upstream TWO infos
+        // (`getIndexInfosOfIndexSymbol` splits it), so it still declines.
+        // The LOOKUP gate (`index_info_of`) deliberately stays narrower —
+        // a print the lookup cannot serve gaps the access, never wrongs it.
+        if key == self.intrinsics.error
+            || self.store.get(key).flags.intersects(crate::flags::TypeFlags::UNION)
+        {
             return None;
         }
         let value = self.get_type_from_type_node(signature.r#type?);
