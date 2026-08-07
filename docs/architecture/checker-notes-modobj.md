@@ -609,3 +609,13 @@ elsewhere — class-instance typing through JSX heritage
 (`React.Component<P>` wanted where the class *object* type is printed),
 ADR-0039 `any` baselines, the `() => any` vs `{ (): any; }` signature print
 form, narrowing, and the file-module `import("…")` form.
+
+### 10.10 The chain-segment rename — §10.9's 67-line residue, converted
+
+One edit: `symbol_chain`'s parent segment prints under `best_name` (same
+walk, same `useOnlyExternalAliasing` filter, falling back to the segment's
+own name), so a chain rooted at `__React` prints `React.Component`. Measured
+against §10.9's dump: **WRONG→RIGHT 58, and no other transition of any kind**
+— +58 net, RIGHT→WRONG 0, gap ±0, cases 2,761 → 2,762, 0 regressed. The
+9-line difference from the residue's 67 is the `EnumE`-style rename-misses
+and chains whose remaining defect is further out.

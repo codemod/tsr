@@ -705,7 +705,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
-        let parent_name = self.binder.symbols().get(parent).name;
+        // The RENAME applies to chain *segments* too (`§10.9`'s 67-line
+        // residue): a chain rooted at `__React` prints under the innermost
+        // accessible name for that segment — `React.Component`, not
+        // `__React.Component`. Same walk, same `useOnlyExternalAliasing`
+        // filter, falling back to the segment's own name.
+        let parent_name =
+            self.best_name(parent, reference).unwrap_or(self.binder.symbols().get(parent).name);
         Some(match self.symbol_chain(parent, reference, SymbolFlags::NAMESPACE, depth + 1) {
             Some(prefix) => format!("{prefix}{parent_name}."),
             // The container itself resolves bare here: the chain stops, which
