@@ -220,6 +220,9 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         explicit("strictnullchecks").or_else(|| explicit("strict")).unwrap_or(true),
     );
     checker.set_strict_property_initialization(strict);
+    checker.set_allow_unreachable_code(
+        test.options.get("allowunreachablecode").is_some_and(|v| v.eq_ignore_ascii_case("true")),
+    );
 
     let mut units = Vec::new();
     for unit in &test.files {

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 611/5488 (11.13%)
-Failed         : 4877
+Passed         : 651/5488 (11.86%)
+Failed         : 4837
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,9 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4877 failures:
-compiler/ArrowFunctionExpression1
-  1 missing (first TS2369 at ArrowFunctionExpression1.ts(1,10))
+First 100 of 4837 failures:
 compiler/ClassDeclaration10
   2 missing (first TS2390 at ClassDeclaration10.ts(2,4))
 compiler/ClassDeclaration11
@@ -54,20 +52,14 @@ compiler/FunctionDeclaration7
   2 missing (first TS2391 at FunctionDeclaration7.ts(2,13))
 compiler/InterfaceDeclaration8
   1 missing (first TS2427 at InterfaceDeclaration8.ts(1,11))
-compiler/MemberAccessorDeclaration15
-  1 missing (first TS2369 at MemberAccessorDeclaration15.ts(2,12))
 compiler/ParameterList13
-  3 missing (first TS7013 at ParameterList13.ts(2,5))
+  2 missing (first TS7013 at ParameterList13.ts(2,5))
 compiler/ParameterList4
-  2 missing (first TS2369 at ParameterList4.ts(1,12))
+  1 missing (first TS7006 at ParameterList4.ts(1,12))
 compiler/ParameterList5
-  4 missing (first TS2355 at ParameterList5.ts(1,15))
+  3 missing (first TS2355 at ParameterList5.ts(1,15))
 compiler/ParameterList6
-  2 missing (first TS2369 at ParameterList6.ts(2,19))
-compiler/ParameterList7
-  2 missing (first TS2369 at ParameterList7.ts(2,14))
-compiler/ParameterList8
-  3 missing (first TS2369 at ParameterList8.ts(2,14))
+  1 missing (first TS7006 at ParameterList6.ts(2,19))
 compiler/TransportStream
   4 unexpected (first TS1005 at TransportStream.ts(1,2)), 3 missing
 compiler/abstractClassInLocalScopeIsAbstract
@@ -212,3 +204,11 @@ compiler/arrayOfSubtypeIsAssignableToReadonlyArray
   2 missing (first TS2322 at arrayOfSubtypeIsAssignableToReadonlyArray.ts(13,1))
 compiler/arrayReferenceWithoutTypeArgs
   1 missing (first TS2314 at arrayReferenceWithoutTypeArgs.ts(2,17))
+compiler/arraySigChecking
+  4 missing (first TS1268 at arraySigChecking.ts(11,17))
+compiler/arrayconcat
+  2 missing (first TS18048 at arrayconcat.ts(16,25))
+compiler/arrowExpressionBodyJSDoc
+  2 missing (first TS2322 at mytest.js(6,44))
+compiler/arrowFunctionErrorSpan
+  11 missing (first TS2345 at arrowFunctionErrorSpan.ts(4,3))

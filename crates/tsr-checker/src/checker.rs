@@ -239,6 +239,10 @@ pub struct Checker<'a, 'n> {
     /// a node one parser invented is reporting about a program the other never
     /// saw. `crate::check` measures what this refusal costs.
     pub(crate) file_has_parse_errors: bool,
+    /// `compilerOptions.allowUnreachableCode`, read as `IsTrue()`
+    /// (`checker.go:12534`) — so unset is `false` and the comma-operator
+    /// diagnostic is on by default.
+    pub(crate) allow_unreachable_code: bool,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -446,6 +450,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_unchecked_side_effect_imports: true,
             strict_property_initialization: true,
             file_has_parse_errors: false,
+            allow_unreachable_code: false,
             tuple_types: FxHashMap::default(),
             tuple_element_lists: FxHashMap::default(),
             type_parameter_symbols: FxHashMap::default(),
@@ -499,6 +504,14 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// `strictNullChecks`.
     pub fn set_strict_property_initialization(&mut self, on: bool) {
         self.strict_property_initialization = on;
+    }
+
+    /// Set [`Checker::allow_unreachable_code`] from a case's compiler options.
+    ///
+    /// Read as `IsTrue()` upstream (`checker.go:12534`), so an unset option is
+    /// `false` and the comma-operator diagnostic fires.
+    pub fn set_allow_unreachable_code(&mut self, on: bool) {
+        self.allow_unreachable_code = on;
     }
 
     /// The well-known types.

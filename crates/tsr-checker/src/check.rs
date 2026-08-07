@@ -226,6 +226,16 @@ impl Checker<'_, '_> {
             Node::EnumDeclaration(declaration) => {
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
             }
+            Node::ParameterDeclaration(parameter) => {
+                self.check_parameter_property_position(node, parameter.modifiers);
+                ambient
+            }
+            Node::BinaryExpression(binary)
+                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::CommaToken) =>
+            {
+                self.check_comma_left(node, binary.left.and_then(|left| left.node_id()));
+                ambient
+            }
             Node::Identifier(identifier) => {
                 self.check_value_identifier(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
@@ -912,6 +922,220 @@ impl Checker<'_, '_> {
                     | SyntaxKind::TypeAliasDeclaration
                     | SyntaxKind::TypeLiteral
             )
+        })
+    }
+
+    /// TS2369 — `A parameter property is only allowed in a constructor
+    /// implementation.`
+    ///
+    /// `checkParameter` (`checker.go:2670`). `ModifierFlagsParameterPropertyModifier`
+    /// is `AccessibilityModifier | Readonly | Override`
+    /// (`ast/modifierflags.go:45`), and the containing function must be a
+    /// constructor **with a body** — an overload signature is not an
+    /// implementation.
+    ///
+    /// Purely syntactic: no type is computed and nothing is resolved, which is
+    /// why it needs none of the bounds the four rules above do. The one decline
+    /// is the parse-error gate every rule in this module shares.
+    fn check_parameter_property_position(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        if !modifiers.iter().any(|modifier| {
+            matches!(modifier, ModifierLike::Token(token)
+            if matches!(
+                token.kind,
+                SyntaxKind::PublicKeyword
+                    | SyntaxKind::PrivateKeyword
+                    | SyntaxKind::ProtectedKeyword
+                    | SyntaxKind::ReadonlyKeyword
+                    | SyntaxKind::OverrideKeyword
+            ))
+        }) {
+            return;
+        }
+        // `ast.GetContainingFunction` — a parameter's parent *is* its owner
+        // here, so no walk is needed.
+        let is_constructor_implementation = self.nodes.parent(node).is_some_and(|owner| {
+            matches!(
+                self.node_map.get(owner),
+                Some(Node::ConstructorDeclaration(constructor)) if constructor.body.is_some()
+            )
+        });
+        if is_constructor_implementation {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_PARAMETER_PROPERTY_IS_ONLY_ALLOWED_IN_A_CONSTRUCTOR_IMPLEMENTATION,
+                span,
+            ),
+        );
+    }
+
+    /// TS2695 — `Left side of comma operator is unused and has no side effects.`
+    ///
+    /// `checkBinaryLikeExpression`'s comma arm (`checker.go:12533`). Reported at
+    /// the **left operand**, gated on three things upstream tests in order:
+    /// `allowUnreachableCode` is not `true`, the left side is side-effect free
+    /// (`isSideEffectFree`, `checker.go:13011`), and the expression is not an
+    /// *indirect call* — `(0, x.f)()` and `(0, eval)()`, the idiom for calling
+    /// without passing `this` (`isIndirectCall`, `checker.go:13039`).
+    ///
+    /// Upstream additionally suppresses it where a
+    /// `JSX_expressions_must_have_one_parent_element` parse diagnostic covers
+    /// the position (`checker.go:12537`); that whole class is already excluded
+    /// here by the parse-error gate, which is the first time that gate has paid
+    /// for something other than tree shape.
+    fn check_comma_left(&mut self, node: NodeId, left: Option<NodeId>) {
+        if self.file_has_parse_errors || self.allow_unreachable_code {
+            return;
+        }
+        let Some(left) = left else { return };
+        if !self.is_side_effect_free(left) || self.is_indirect_call(node) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(left) else { return };
+        let span = self.nodes.span(left);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::LEFT_SIDE_OF_COMMA_OPERATOR_IS_UNUSED_AND_HAS_NO_SIDE_EFFECTS,
+                span,
+            ),
+        );
+    }
+
+    /// `isSideEffectFree` (`checker.go:13011`), kind for kind.
+    fn is_side_effect_free(&self, node: NodeId) -> bool {
+        let mut node = node;
+        // `ast.SkipParentheses`.
+        while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node) {
+            let Some(id) = inner.expression.and_then(|e| e.node_id()) else { return false };
+            node = id;
+        }
+        match self.node_map.get(node) {
+            Some(
+                Node::Identifier(_)
+                | Node::StringLiteral(_)
+                | Node::RegularExpressionLiteral(_)
+                | Node::TaggedTemplateExpression(_)
+                | Node::TemplateExpression(_)
+                | Node::NoSubstitutionTemplateLiteral(_)
+                | Node::NumericLiteral(_)
+                | Node::BigIntLiteral(_)
+                | Node::FunctionExpression(_)
+                | Node::ClassExpression(_)
+                | Node::ArrowFunction(_)
+                | Node::ArrayLiteralExpression(_)
+                | Node::ObjectLiteralExpression(_)
+                | Node::TypeOfExpression(_)
+                | Node::NonNullExpression(_)
+                | Node::JsxSelfClosingElement(_)
+                | Node::JsxElement(_),
+            ) => true,
+            // `true`, `false`, `null` and `undefined` are one kind here where
+            // upstream has four; the discriminator is the token kind.
+            Some(Node::KeywordExpression(_)) => matches!(
+                self.nodes.kind(node),
+                SyntaxKind::TrueKeyword
+                    | SyntaxKind::FalseKeyword
+                    | SyntaxKind::NullKeyword
+                    | SyntaxKind::UndefinedKeyword
+            ),
+            Some(Node::ConditionalExpression(conditional)) => {
+                conditional
+                    .when_true
+                    .and_then(|e| e.node_id())
+                    .is_some_and(|id| self.is_side_effect_free(id))
+                    && conditional
+                        .when_false
+                        .and_then(|e| e.node_id())
+                        .is_some_and(|id| self.is_side_effect_free(id))
+            }
+            Some(Node::BinaryExpression(binary)) => {
+                let assignment = binary.operator_token.is_some_and(|token| {
+                    matches!(
+                        token.kind,
+                        SyntaxKind::EqualsToken
+                            | SyntaxKind::PlusEqualsToken
+                            | SyntaxKind::MinusEqualsToken
+                            | SyntaxKind::AsteriskEqualsToken
+                            | SyntaxKind::AsteriskAsteriskEqualsToken
+                            | SyntaxKind::SlashEqualsToken
+                            | SyntaxKind::PercentEqualsToken
+                            | SyntaxKind::LessThanLessThanEqualsToken
+                            | SyntaxKind::GreaterThanGreaterThanEqualsToken
+                            | SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken
+                            | SyntaxKind::AmpersandEqualsToken
+                            | SyntaxKind::BarEqualsToken
+                            | SyntaxKind::CaretEqualsToken
+                            | SyntaxKind::BarBarEqualsToken
+                            | SyntaxKind::AmpersandAmpersandEqualsToken
+                            | SyntaxKind::QuestionQuestionEqualsToken
+                    )
+                });
+                !assignment
+                    && binary
+                        .left
+                        .and_then(|e| e.node_id())
+                        .is_some_and(|id| self.is_side_effect_free(id))
+                    && binary
+                        .right
+                        .and_then(|e| e.node_id())
+                        .is_some_and(|id| self.is_side_effect_free(id))
+            }
+            // "Unary operators ~, !, + and - have no side effects. The rest do."
+            Some(Node::PrefixUnaryExpression(unary)) => matches!(
+                unary.operator.kind,
+                SyntaxKind::ExclamationToken
+                    | SyntaxKind::PlusToken
+                    | SyntaxKind::MinusToken
+                    | SyntaxKind::TildeToken
+            ),
+            _ => false,
+        }
+    }
+
+    /// `isIndirectCall` (`checker.go:13039`): `(0, x.f)(…)` and `(0, eval)(…)`,
+    /// the idiom for calling without passing `this`.
+    fn is_indirect_call(&self, comma: NodeId) -> bool {
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(comma) else { return false };
+        let zero_left = binary
+            .left
+            .and_then(|left| left.node_id())
+            .and_then(|id| self.node_map.get(id))
+            .is_some_and(
+                |left| matches!(left, Node::NumericLiteral(literal) if literal.text == "0"),
+            );
+        if !zero_left {
+            return false;
+        }
+        let right_is_target = binary
+            .right
+            .and_then(|right| right.node_id())
+            .and_then(|id| self.node_map.get(id))
+            .is_some_and(|right| match right {
+                Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_) => true,
+                Node::Identifier(identifier) => identifier.text == "eval",
+                _ => false,
+            });
+        if !right_is_target {
+            return false;
+        }
+        let Some(parenthesis) = self.nodes.parent(comma) else { return false };
+        if self.nodes.kind(parenthesis) != SyntaxKind::ParenthesizedExpression {
+            return false;
+        }
+        self.nodes.parent(parenthesis).is_some_and(|owner| match self.node_map.get(owner) {
+            Some(Node::CallExpression(call)) => {
+                call.expression.and_then(|e| e.node_id()) == Some(parenthesis)
+            }
+            Some(Node::TaggedTemplateExpression(_)) => true,
+            _ => false,
         })
     }
 

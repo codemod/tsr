@@ -727,3 +727,63 @@ The four declines above the message in `reportNonexistentProperty` — TS2576
 static member, TS2550 newer `lib`, TS2551 spelling, TS2812 DOM — were **not** the
 problem and are not what refused this. They would each have cost a handful of
 lines against 254.
+
+---
+
+## 10. Two syntactic rules: TS2369 and TS2695, +40 for **zero** wrong lines
+
+After §9's refusal the board's next four rows all need assignability. The two
+below do not need types at all, and that turns out to be the whole story.
+
+| rule | site | sized by `diaggap.rs` at 611 |
+|---|---|---:|
+| **TS2369** `A parameter property is only allowed in a constructor implementation.` | `checkParameter` (`checker.go:2670`) | 16 cases |
+| **TS2695** `Left side of comma operator is unused and has no side effects.` | `checkBinaryLikeExpression`'s comma arm (`checker.go:12533`) | 25 cases |
+
+TS2369 is a modifier test (`ModifierFlagsParameterPropertyModifier` is
+`AccessibilityModifier | Readonly | Override`, `ast/modifierflags.go:45`) plus
+"is the owner a constructor **with a body**". TS2695 needs `isSideEffectFree`
+(`checker.go:13011`, a kind switch ported one for one) and `isIndirectCall`
+(`checker.go:13039` — `(0, x.f)()` and `(0, eval)()`, the idiom for calling
+without passing `this`), plus the `allowUnreachableCode` option.
+
+```
+CONVERTS 531 -> 571   (+40)      LOST 0      WRONG 206 -> 206   (+0)
+```
+
+**Zero new wrong lines**, which is the first build in this file where the
+residual did not need a single tightening pass. That is not luck and it is the
+point worth extracting:
+
+> **A rule that reports on a *syntactic* fact has no incompleteness to leak.**
+> Every residual in §3, §6, §7, §8 and §9 came from the same place — this port
+> answering `None` where upstream answers a symbol, a member or a resolution —
+> and none of it can reach a rule whose whole condition is "which modifiers does
+> this node carry" or "what kind is this operand". The four rules that needed
+> bounds were the four that ask a *semantic* question of an incomplete
+> subsystem.
+
+That reorders the rest of the board. `diaggap.rs` at 651 carries ~150 more cases
+in small `1xxx` and syntactic `2xxx` rows — TS1212 22, TS1036 19, TS2391 17,
+TS1029 12, TS1107 12 and a long tail — and on this evidence each is worth its
+row at roughly zero risk, where TS2322's 543 is worth a fraction of its row and
+needs a members subsystem first.
+
+Upstream's TS2695 additionally suppresses the diagnostic where a
+`JSX_expressions_must_have_one_parent_element` parse error covers the position
+(`checker.go:12537`). That whole class is already excluded by §7's parse-error
+gate — the first time that gate has paid for something other than tree shape.
+
+### The bar
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 (confirmation) | `diagnostics` passes == 651 | **651/5,488 = 11.86%** | pass |
+| 2 | `checker_types` unchanged, byte-identical | **2,841 / 73.65%**, identical | pass |
+| 3 | cases regressed == 0 | **0** — 651 = 611 + 40 | pass |
+| 4 | own new wrong == **0** | **0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+Leg 4 is registered as an exact zero rather than a ceiling. These rules read
+modifiers and token kinds; a single wrong line means a *kind* was misread, which
+is a defect rather than a trade, and rounding it into a budget would hide it.

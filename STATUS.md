@@ -41,7 +41,7 @@ Measured at **`ffb77fe`**, 2026-08-07 (seventh session).
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
 | **`checker_types`** | **2,841/9,538** | **29.79%** | **gradient 73.65%** — the target |
-| `diagnostics` | **611/5,488** | **11.13%** | **the check traversal landed, eighth session** — 80 → 611 across four rules, see below |
+| `diagnostics` | **651/5,488** | **11.86%** | **the check traversal landed, eighth session** — 80 → 651 across six rules, see below |
 
 ### `checker_types`, the number the project is steered by
 
@@ -148,10 +148,11 @@ consumer. Three rules on top of it, each bar-scored:
 | `bc8045b` | TS2307 / TS2882 — module specifiers (`resolveExternalModule`) | +50 |
 | `413174c` | TS2564 — `strictPropertyInitialization` | +133 |
 | `7fab616` | TS2304 — `Cannot find name` | +115 |
-| this commit | TS2454 — used before being assigned | +233 |
+| `1591c55` | TS2454 — used before being assigned | +233 |
+| this commit | TS2369 + TS2695 — two **syntactic** rules | +40 for **0** wrong |
 
 `docs/architecture/checker-notes-diag2.md` carries the reasoning, the gates per
-rule and the refusals. **`checker_types` is byte-identical across all four**: the traversal is a second road and no query-path call site invokes it.
+rule and the refusals. **`checker_types` is byte-identical across all six**: the traversal is a second road and no query-path call site invokes it.
 
 The suite's board is now `diaggap.rs`'s single-code column, re-run after every
 rule because rows *grow* as rules land (a case blocked on two codes becomes a
@@ -164,6 +165,15 @@ carrying a spurious diagnostic can never pass however many rules land later, so
 the figure is `passing + single-code reachable`. TS2454 read **+28** on it — and
 **−210** before its last refusal landed, which is the number that shows why the
 declines are the design rather than the polish.
+
+**And the ordering rule the sixth build bought:** a rule that reports on a
+*syntactic* fact has no incompleteness to leak. TS2369 and TS2695 converted 40
+cases for **zero** wrong lines and needed no tightening pass at all, where every
+one of the four semantic rules needed two or three. The small `1xxx` and
+syntactic `2xxx` rows — TS1212 22, TS1036 19, TS2391 17, TS1029 12, TS1107 12
+and a long tail, ~150 cases — are therefore worth roughly their row at roughly
+no risk, and rank **above** TS2322's 543, which needs a members subsystem before
+it is worth anything at all (§9).
 
 ---
 
