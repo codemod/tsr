@@ -226,6 +226,24 @@ impl Checker<'_, '_> {
             Node::EnumDeclaration(declaration) => {
                 ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
             }
+            Node::BreakStatement(statement) => {
+                self.check_break_or_continue(
+                    node,
+                    true,
+                    statement.label.map(|label| label.text),
+                    ambient,
+                );
+                ambient
+            }
+            Node::ContinueStatement(statement) => {
+                self.check_break_or_continue(
+                    node,
+                    false,
+                    statement.label.map(|label| label.text),
+                    ambient,
+                );
+                ambient
+            }
             Node::ParameterDeclaration(parameter) => {
                 self.check_parameter_property_position(node, parameter.modifiers);
                 ambient
@@ -1137,6 +1155,153 @@ impl Checker<'_, '_> {
             Some(Node::TaggedTemplateExpression(_)) => true,
             _ => false,
         })
+    }
+
+    /// `checkGrammarBreakOrContinueStatement` (`grammarchecks.go:1480`) — five
+    /// diagnostics from one upward walk.
+    ///
+    /// | code | message |
+    /// |---|---|
+    /// | TS1107 | `Jump target cannot cross function boundary.` |
+    /// | TS1104 | `A 'continue' statement can only be used within an enclosing iteration statement.` |
+    /// | TS1105 | `A 'break' statement can only be used within an enclosing iteration or switch statement.` |
+    /// | TS1115 | `A 'continue' statement can only jump to a label of an enclosing iteration statement.` |
+    /// | TS1116 | `A 'break' statement can only jump to a label of an enclosing statement.` |
+    ///
+    /// Wholly syntactic — it reads kinds and one label's text — which is why it
+    /// is ported entire rather than bounded. `checker-notes-diag2.md` §10
+    /// records why that distinction is the one that matters for a diagnostic
+    /// rule: there is no incomplete subsystem for this condition to consult, so
+    /// there is nothing for it to be wrong about.
+    ///
+    /// The walk **starts at the statement itself**, not its parent, so a `break`
+    /// whose own kind is function-like cannot occur and the first iteration is
+    /// always a no-op — kept that way because it is upstream's loop and moving
+    /// the start is the kind of edit that silently changes a boundary case.
+    fn check_break_or_continue(
+        &mut self,
+        node: NodeId,
+        is_break: bool,
+        label: Option<&str>,
+        ambient: bool,
+    ) {
+        // `checkBreakOrContinueStatement` (`checker.go:4081`) runs this grammar
+        // check **only if** `checkGrammarStatementInAmbientContext` did not
+        // report — and in an ambient context that function reports TS1036
+        // `Statements are not allowed in ambient contexts` and short-circuits.
+        // TS1036 is not ported (19 cases of its own on `diaggap.rs`'s board), so
+        // the short-circuit is reproduced as a refusal: silence where upstream
+        // says something else. It was worth exactly the two wrong lines this
+        // rule's first measurement produced, `parserBreakStatement1.d` and
+        // `parserContinueStatement1.d`, both one-line `.d.ts` files.
+        if self.file_has_parse_errors || ambient {
+            return;
+        }
+        let mut current = Some(node);
+        while let Some(id) = current {
+            if self.is_function_like_or_static_block(id) {
+                self.report_grammar(node, &messages::JUMP_TARGET_CANNOT_CROSS_FUNCTION_BOUNDARY);
+                return;
+            }
+            match self.node_map.get(id) {
+                Some(Node::LabeledStatement(labeled)) => {
+                    let matches_target = label.is_some_and(|target| {
+                        labeled.label.is_some_and(|name| name.text == target)
+                    });
+                    if matches_target {
+                        // `continue` may only target a label on an iteration
+                        // statement; `break` may target any labelled statement.
+                        let misplaced = !is_break
+                            && !labeled
+                                .statement
+                                .and_then(|statement| statement.node_id())
+                                .is_some_and(|statement| {
+                                    self.is_iteration_statement(statement, true)
+                                });
+                        if misplaced {
+                            self.report_grammar(
+                                node,
+                                &messages::A_CONTINUE_STATEMENT_CAN_ONLY_JUMP_TO_A_LABEL_OF_AN_ENCLOSING_ITERATION_STATEMENT,
+                            );
+                        }
+                        return;
+                    }
+                }
+                Some(Node::SwitchStatement(_)) => {
+                    if is_break && label.is_none() {
+                        return;
+                    }
+                }
+                _ => {
+                    if label.is_none() && self.is_iteration_statement(id, false) {
+                        return;
+                    }
+                }
+            }
+            current = self.nodes.parent(id);
+        }
+        let message = match (label.is_some(), is_break) {
+            (true, true) => &messages::A_BREAK_STATEMENT_CAN_ONLY_JUMP_TO_A_LABEL_OF_AN_ENCLOSING_STATEMENT,
+            (true, false) => {
+                &messages::A_CONTINUE_STATEMENT_CAN_ONLY_JUMP_TO_A_LABEL_OF_AN_ENCLOSING_ITERATION_STATEMENT
+            }
+            (false, true) => {
+                &messages::A_BREAK_STATEMENT_CAN_ONLY_BE_USED_WITHIN_AN_ENCLOSING_ITERATION_OR_SWITCH_STATEMENT
+            }
+            (false, false) => {
+                &messages::A_CONTINUE_STATEMENT_CAN_ONLY_BE_USED_WITHIN_AN_ENCLOSING_ITERATION_STATEMENT
+            }
+        };
+        self.report_grammar(node, message);
+    }
+
+    /// `ast.IsIterationStatement` (`ast/utilities.go:463`).
+    fn is_iteration_statement(&self, node: NodeId, look_in_labeled: bool) -> bool {
+        match self.nodes.kind(node) {
+            SyntaxKind::ForStatement
+            | SyntaxKind::ForInStatement
+            | SyntaxKind::ForOfStatement
+            | SyntaxKind::DoStatement
+            | SyntaxKind::WhileStatement => true,
+            SyntaxKind::LabeledStatement => {
+                look_in_labeled
+                    && matches!(self.node_map.get(node), Some(Node::LabeledStatement(labeled))
+                        if labeled
+                            .statement
+                            .and_then(|statement| statement.node_id())
+                            .is_some_and(|statement| self.is_iteration_statement(statement, true)))
+            }
+            _ => false,
+        }
+    }
+
+    /// `ast.IsFunctionLikeOrClassStaticBlockDeclaration`.
+    fn is_function_like_or_static_block(&self, node: NodeId) -> bool {
+        matches!(
+            self.nodes.kind(node),
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::Constructor
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::CallSignature
+                | SyntaxKind::ConstructSignature
+                | SyntaxKind::IndexSignature
+                | SyntaxKind::FunctionType
+                | SyntaxKind::ConstructorType
+                | SyntaxKind::ClassStaticBlockDeclaration
+        )
+    }
+
+    /// `grammarErrorOnNode` (`grammarchecks.go`): a diagnostic spanning the
+    /// whole node, with no arguments.
+    fn report_grammar(&mut self, node: NodeId, message: &'static tsr_diagnostics::Message) {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`

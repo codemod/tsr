@@ -787,3 +787,50 @@ gate — the first time that gate has paid for something other than tree shape.
 Leg 4 is registered as an exact zero rather than a ceiling. These rules read
 modifiers and token kinds; a single wrong line means a *kind* was misread, which
 is a defect rather than a trade, and rounding it into a budget would hide it.
+
+---
+
+## 11. `checkGrammarBreakOrContinueStatement` — five codes from one walk, +25 for zero wrong
+
+§10's finding said to take the syntactic rows next. This is the first of them and
+it is a whole upstream function rather than a single code:
+`checkGrammarBreakOrContinueStatement` (`grammarchecks.go:1480`) is one upward
+walk producing **five** diagnostics — TS1107 (crosses a function boundary),
+TS1104/TS1105 (no enclosing iteration or switch), TS1115/TS1116 (no such label).
+`diaggap.rs` sized TS1107 alone at 12 cases; the family delivered 25.
+
+```
+CONVERTS 571 -> 596   (+25)      LOST 0      WRONG 206 -> 206   (+0)
+```
+
+The first measurement read **2** wrong, and both were the same thing:
+`parserBreakStatement1.d` and `parserContinueStatement1.d`, one-line `.d.ts`
+files containing nothing but `break;`. Upstream's call site
+(`checker.go:4081`) is
+
+```go
+if !c.checkGrammarStatementInAmbientContext(node) {
+    c.checkGrammarBreakOrContinueStatement(node)
+}
+```
+
+and in an ambient context that guard reports **TS1036 `Statements are not
+allowed in ambient contexts`** and short-circuits. TS1036 is not ported — it is
+19 cases of its own on the board — so the short-circuit is reproduced as a
+refusal, and the ambient bit §6 had to introduce for `NodeFlags::AMBIENT` paid
+for itself a third time.
+
+**Three of this file's six residual diagnoses have now been the ambient flag**
+(§6's 86 wrong lines, §8's 4,781, this one's 2). A flag that is declared and set
+by nothing is not a dormant feature; it is a landmine with one instance per
+reader, and the reader count is upstream's ~40.
+
+### The bar
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 (confirmation) | `diagnostics` passes == 676 | **676/5,488 = 12.32%** | pass |
+| 2 | `checker_types` unchanged, byte-identical | **2,841 / 73.65%**, identical | pass |
+| 3 | cases regressed == 0 | **0** — 676 = 651 + 25 | pass |
+| 4 | own new wrong == **0** | **0** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
