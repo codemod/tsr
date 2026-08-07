@@ -21,6 +21,17 @@
 //! Pass B visits only the cases pass A found candidates in, because serial
 //! over 9,538 cases is minutes of lib loading for nothing.
 //!
+//! **C1 no longer reads 0, and the header carries the number rather than the
+//! intention.** It was written expecting 0 and read **53** at `a57a04b`
+//! (0.7% of 7,303), re-run on this instrument itself to confirm it is inherited
+//! drift rather than something a later probe introduced. Eight builds have
+//! landed since it was pinned, and a classified line that now *answers* is the
+//! expected consequence of the checker improving under a predicate that admits
+//! by call shape. **Do not quote a callgate figure without re-reading C1**: an
+//! expected-0 control silently reading 53 is the shape `docs/conventions.md`
+//! warns about, and the fix is to re-derive the admission predicate, not to
+//! move the control's expected value.
+//!
 //! Controls: C1 every classified line answers `errorType` today (expect 0
 //! violations). C2 buckets sum to classified. C3 an all-zero counter delta
 //! means the fresh checker did **not** reach the call at all — printed as its
@@ -226,7 +237,9 @@ fn main() {
         println!("  {lines:>6}  want-any {any:>5}  {gate}");
     }
     println!("  {unreached:>6}  {:>14}  C3 the fresh checker never reached the call", "");
-    println!("\n  C1 classified-but-not-gap: {c1}  (expect 0)");
+    println!(
+        "\n  C1 classified-but-not-gap: {c1}  (was 0 when pinned; 53 at `a57a04b` — see the header)"
+    );
     println!("  C2 buckets sum {} vs admitted {admitted_lines}", sum + unreached);
 
     println!("\n## Top cases per gate\n");
