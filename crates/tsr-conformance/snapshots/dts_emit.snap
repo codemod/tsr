@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 238/341 (69.79%)
-Failed         : 103
+Passed         : 239/341 (70.09%)
+Failed         : 102
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -12,7 +12,7 @@ Skipped        : 12103 (excluded from the denominator)
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
-First 100 of 103 failures:
+First 100 of 102 failures:
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/aliasInaccessibleModule2
@@ -87,8 +87,6 @@ compiler/isolatedDeclarationErrorsDefault
   emitted a.d.ts, upstream emitted no declaration file
 compiler/isolatedDeclarationsAddUndefined
   line 3: want `    c?: readonly [1] | undefined;`, got `    c?: readonly [N];`
-compiler/isolatedDeclarationsLiterals
-  line 2: want `    /** Value Of 1 */`, got `    readonly one: 1;`
 compiler/jsDeclarationEmitExportAssignedArray
   line 1: missing `declare const _exports: {`
 compiler/jsDeclarationEmitExportAssignedFunctionWithExtraTypedefsMembers
@@ -213,3 +211,5 @@ conformance/recursiveTypeReferences2
   line 1: want `/** @typedef {ReadonlyArray<Json>} JsonArray */`, got `/** @type {XMLObject<{foo:string}>} */`
 conformance/typeFromPropertyAssignment39
   line 1: want `declare const foo: {`, got `declare const foo: {};`
+conformance/typedefOnSemicolonClassElement
+  line 1: want `export type A = string;`, got `export declare class Preferences {`

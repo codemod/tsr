@@ -535,6 +535,29 @@ fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
 }
 
 #[test]
+fn literal_declarations_preserve_context_and_widen_negative_bigints() {
+    let source = "export const value = {\n    /** one docs */\n    one: 1,\n    /** string docs */\n    string: 'one',\n    /** template docs */\n    template: `one`,\n    /** method docs */\n    method(): void {}\n} as const;\nexport const topLevelString = 'one';\nexport const topLevelTemplate = `one`;\nexport const mutable = { negativeBigInt: -1n };";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: false,
+        },
+    );
+    assert_eq!(
+        result.text,
+        "export declare const value: {\n    /** one docs */\n    readonly one: 1;\n    /** string docs */\n    readonly string: 'one';\n    /** template docs */\n    readonly template: `one`;\n    /** method docs */\n    readonly method: () => void;\n};\nexport declare const topLevelString = \"one\";\nexport declare const topLevelTemplate = \"one\";\nexport declare const mutable: {\n    negativeBigInt: bigint;\n};"
+    );
+}
+
+#[test]
 fn destructured_parameter_properties_are_flattened_when_types_are_syntactic() {
     assert_emits(
         "export class C { constructor(public [[x], { value: [y] }, [...rest]]: any[]) {} }",

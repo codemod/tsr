@@ -100,9 +100,8 @@ pub(crate) fn literal_const_value<'a>(
         Expression::NoSubstitutionTemplateLiteral(template) => {
             Some(string_literal(factory, template.text, span))
         }
-        Expression::StringLiteral(_)
-        | Expression::BigIntLiteral(_)
-        | Expression::KeywordExpression(_) => Some(*expression),
+        Expression::StringLiteral(literal) => Some(string_literal(factory, literal.text, span)),
+        Expression::BigIntLiteral(_) | Expression::KeywordExpression(_) => Some(*expression),
         Expression::PrefixUnaryExpression(unary) => {
             let operand = unary.operand.as_ref()?;
             if unary.operator.kind == SyntaxKind::PlusToken {
@@ -132,23 +131,33 @@ pub(crate) fn type_of_expression<'a>(
         // A literal in a const context is its own type; widened, it is the base
         // primitive. This is the one place `Freshness` does real work, and every
         // other arm only threads it.
-        Expression::NumericLiteral(_) | Expression::PrefixUnaryExpression(_) => {
+        Expression::NumericLiteral(_) => {
             widen_or_literal(factory, expression, freshness, SyntaxKind::NumberKeyword, span)
+        }
+        Expression::PrefixUnaryExpression(unary) => {
+            let widened = if matches!(unary.operand.as_ref(), Some(Expression::BigIntLiteral(_))) {
+                SyntaxKind::BigIntKeyword
+            } else {
+                SyntaxKind::NumberKeyword
+            };
+            widen_or_literal(factory, expression, freshness, widened, span)
         }
         Expression::BigIntLiteral(_) => {
             widen_or_literal(factory, expression, freshness, SyntaxKind::BigIntKeyword, span)
         }
-        Expression::StringLiteral(_) => {
-            widen_or_literal(factory, expression, freshness, SyntaxKind::StringKeyword, span)
-        }
+        Expression::StringLiteral(_) => match freshness {
+            Freshness::Widening => Some(factory.keyword_type(SyntaxKind::StringKeyword, span)),
+            Freshness::Const => Some(literal_type(factory, Node::from(*expression), span)),
+        },
         Expression::NoSubstitutionTemplateLiteral(template) => {
             if freshness == Freshness::Widening {
                 return Some(factory.keyword_type(SyntaxKind::StringKeyword, span));
             }
-            // A no-substitution template's *type* is the string literal type, and
-            // upstream writes it in string form.
-            let literal = string_literal(factory, template.text, span);
-            Some(literal_type(factory, Node::from(literal), span))
+            // typescript-go reuses the source node for a template nested in a
+            // const-context type, preserving its backtick spelling. A top-level
+            // literal-const still goes through `literal_const_value` and becomes
+            // a quoted string, so the two declaration forms intentionally differ.
+            Some(literal_type(factory, Node::from(*template), span))
         }
         Expression::KeywordExpression(keyword) => match keyword.kind {
             SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword => {
@@ -299,13 +308,15 @@ fn object_literal_type<'a>(
             Member::PropertyAssignment(assignment) => {
                 let value = assignment.initializer.as_ref()?;
                 let r#type = type_of_expression(factory, value, freshness, strict_null_checks)?;
-                property_signature(factory, assignment.name, Some(r#type), freshness, span)
+                let member_span = factory.span_of(assignment.node_id);
+                property_signature(factory, assignment.name, Some(r#type), freshness, member_span)
             }
             // A method's type needs its return annotation. Without one this is
             // `TS9008` and the case is not in the target; with one, a const context
             // wants `readonly m: () => T` and a widening one wants `m(): T`.
             Member::MethodDeclaration(method) => {
                 let return_type = method.r#type?;
+                let member_span = factory.span_of(method.node_id);
                 match freshness {
                     Freshness::Const => {
                         let function = function_type(
@@ -313,9 +324,15 @@ fn object_literal_type<'a>(
                             method.type_parameters,
                             method.parameters,
                             Some(return_type),
-                            span,
+                            member_span,
                         )?;
-                        property_signature(factory, method.name, Some(function), freshness, span)
+                        property_signature(
+                            factory,
+                            method.name,
+                            Some(function),
+                            freshness,
+                            member_span,
+                        )
                     }
                     Freshness::Widening => TypeElement::MethodSignatureDeclaration(factory.alloc(
                         tsr_ast::MethodSignatureDeclaration::new(
@@ -328,7 +345,7 @@ fn object_literal_type<'a>(
                             None,
                         ),
                         SyntaxKind::MethodSignature,
-                        span,
+                        member_span,
                         NodeFlags::empty(),
                     )),
                 }

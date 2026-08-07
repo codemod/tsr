@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  238/341  = 69.79%  (up from 161/339)
+  dts_emit                  239/341  = 70.09%  (up from 161/339)
   dts_shape                 708/918  = 77.12%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -117,6 +117,13 @@ Strict cases preserve `null` as a literal type recursively, while explicit
 non-strict cases continue widening it to `any`. This closed
 `conformance/exportDefaultExpressionComments` without changing declaration shape
 or any checker-owned behavior.
+
+Syntax-built object type members now retain the original property/method spans,
+allowing source-aware declaration printing to recover their JSDoc. Nested
+const-object string and template literal types reuse source spelling, standalone
+literal-const values canonicalize to double quotes, and prefixed bigint syntax
+widens according to its operand. Together these close
+`compiler/isolatedDeclarationsLiterals` without changing declaration shape.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the
