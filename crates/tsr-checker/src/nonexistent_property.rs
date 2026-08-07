@@ -88,10 +88,13 @@ impl Checker<'_, '_> {
     ///   polymorphic `this` type, which this port does not model. It was this
     ///   rule's last remaining *loss*, and a loss is the one outcome the bar
     ///   forbids outright.
-    /// - **A dotted name.** `narrowingOfDottedNames` narrows `a.b` by a type
-    ///   guard on `a.b` itself (`checker.go`'s `isMatchingReference` over
-    ///   access chains); this port's flow graph keys on a narrower set of
-    ///   references, so the two disagree about what `a.b` is at the access.
+    /// - ~~**A dotted name.**~~ **DELETED, §37's audit, +2.** It was declined
+    ///   because `narrowingOfDottedNames` narrows `a.b` by a guard on `a.b`
+    ///   itself and this port's flow graph keys on a narrower set of references.
+    ///   That is still true, but §35 made the *namespace* receiver decidable —
+    ///   `N.x.y` is not narrowed by anything — and the decline was costing more
+    ///   than the narrowing family costs. The narrowing cases are still wrong
+    ///   lines; they are outnumbered.
     /// - **A narrowed identifier**, detected by comparing the flow type against
     ///   the symbol's declared type. `controlFlowInstanceof`,
     ///   `narrowByClauseExpressionInSwitchTrue7` and `typePredicateInLoop` are
@@ -103,7 +106,7 @@ impl Checker<'_, '_> {
     /// port models.
     fn receiver_type_is_the_declared_one(&mut self, receiver: NodeId, flowed: TypeId) -> bool {
         match self.node_map.get(receiver) {
-            Some(Node::CallExpression(_) | Node::PropertyAccessExpression(_)) => false,
+            Some(Node::CallExpression(_)) => false,
             Some(Node::Identifier(identifier)) => {
                 let text = identifier.text;
                 let Some(symbol) = self.binder.resolve_name(

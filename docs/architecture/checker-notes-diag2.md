@@ -2424,3 +2424,22 @@ missing one is not a tie-breaker here; it is the whole answer, and the suite
 number is the thing being traded away rather than the thing being served. The
 right fix is a narrower guard, not no guard, and it is worth exactly 2 cases —
 which is why it is recorded rather than attempted.
+
+
+### 37.1 TS2339's dotted-name receiver — the audit's fifth payment, +2
+
+```
+diagnostics 1,056 -> 1,058   (+2)
+```
+
+§21 declined a **dotted-name receiver** because `narrowingOfDottedNames` narrows
+`a.b` by a guard on `a.b` itself and this port's flow graph keys on a narrower
+set of references. Still true — and §35 changed the balance underneath it, by
+making a *namespace* receiver decidable. `N.x.y` is not narrowed by anything, and
+those receivers now outnumber the narrowing family the decline was drawn for.
+
+**Five declines re-run, four moved, +10 cases between them, no new machinery.**
+The procedure is cheap enough to be routine: disable the condition, run coverage,
+keep or revert. It should be the first thing a session does after any build that
+changes what the port can decide — §25 and §35 each invalidated gates written
+before them, and nothing announced it.
