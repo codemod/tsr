@@ -51,7 +51,7 @@ fixes ride into the checker rows.
 | `dts_shape` | 860/1,008 | 85.32% | the `!!!!`-marker fix moved one case in, and it passes |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 492/1,162 | 42.34% | |
-| **`checker_types`** | **3,927/9,538** | **41.17%** | measured at `2c3de45` (gradient 84.34% — member lookups by canonical numeric value resolve); **gradient 84.33% at build 135** (this row's case count was taken at build ~133 by the diagnostics session; the .types session's builds 128–135 landed §75–§77.3 on top — see §7's newest row). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
+| **`checker_types`** | **3,927/9,538** | **41.17%** | measured at `2c3de45` (gradient 84.34% — member lookups by canonical numeric value resolve); **gradient 84.40% at build 138** (this row's case count was taken at build ~133 by the diagnostics session; the .types session's builds 128–135 landed §75–§77.3 on top — see §7's newest row). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
 | `diagnostics` | **1,406/5,488** | **25.62%** | measured at `185877d`; **thirteenth session §86–§108, +59 over 15 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,417, **17.7×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
 
 ### `checker_types`, the number the project is steered by
@@ -268,7 +268,16 @@ signatures) + 204 (§76 destructuring tuple contexts, slot-walk) + 5
 written reuse, ZERO adverse) + 53 (§77.1) + 54 (§77.3) plus the
 parallel session's +117 arriving under two rebases (§88 trap, both
 caught by stash-and-remeasure) = **403,865 — builds 25–135
-(84.33%)**. §77.2 (union written order) refused TWICE — 35:249, then
+(84.33%)**; then + 14 (§78: exactOptionalPropertyTypes — missingType
+minted, the write-position removal, the long-dormant `isProperty`
+parameter finally read) + 184 (§79/§79.1: optional-element tuples
+with alias names — three measured gates: generic→structural,
+rest→variadic-road, empty→`[]`) + 71 (§80: labeled tuple members) +
+the parallel sessions' arrivals under rebases = **404,219 — builds
+25–138 (84.40%)** against a population grown to 470,657. §81 (blunt
+qualified names) REFUSED at 114:6,769 — the qualifier is decided by
+the VIEWER's position; per-site printing context now owns THREE heads
+(import-spelling, qualified names, `temporal`'s 400). §77.2 (union written order) refused TWICE — 35:249, then
 0:20 with the owner located (optionality unions, not the annotation
 mint). §73
 (JS-wide unresolved-prints-error) REFUSED at 199:1,743 — upstream
