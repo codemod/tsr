@@ -10065,3 +10065,45 @@ its candidates as candidates and wrote the probe alongside them** — the practi
 
 The row is one probe from an answer and has cost no build. That is the shape
 this board's investigations should have had from §117 onward.
+
+## §146 — one missing line, no extras: `++((M.x))`
+
+The settling measurement §145 asked for, as a set diff of the two columns:
+
+```
+MISSING:  constDeclarations-access3.ts(26,3) TS2540
+EXTRA:    (none)
+```
+
+**§145's position hypothesis is wrong too.** There is no extra at a shifted
+column — every line this port emits is at a position upstream agrees with. One
+line is simply absent.
+
+Stripped line 26 is the file's last readonly case and the only one with **two
+layers of parentheses**:
+
+```ts
+M.x--;        // reported
+++M.x;        // reported
+--M.x;        // reported
+++((M.x));    // NOT reported   <- line 26
+```
+
+`assignment_target` (`expressions.rs:1775`) climbs `ParenthesizedExpression`, so
+one layer works — the rule reports the three above it. Two layers do not, which
+points at the climb terminating rather than at any gate this row has probed.
+
+**Named, not guessed**: the next step is to read that loop's parenthesis arm and
+check whether it continues or returns after one hop. That is a five-line read,
+and the row is one line from closing.
+
+### Five attributions, five probes, no builds spent
+
+§143 receiver type → §144 no. §144 readonly gate → §145 no. §145 position →
+§146 no. **Each was corrected by the next measurement, each cost one run, and
+the row has consumed zero builds and zero reverts.**
+
+Compare §117–§130 on the type-only alias row: six inferences, three reverts, two
+implemented fixes that did nothing. **The difference is not the difficulty of
+the rows — it is that these sections wrote the disproving measurement into the
+same paragraph as the claim.**
