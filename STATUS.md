@@ -1285,6 +1285,15 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
+- **The binder-merge item is now the board's LARGEST, at ~52 cases** (§141), and
+  its refusal is quoted from a stale number. TS2451's 10 sole-obstacle cases
+  turn out to be **global and cross-file merging**, joining TS7026's 28, ~13 of
+  TS2454's (§85) and TS1362's last line (§130). **§5 has refused this for
+  thirteen sessions on §13's 12-conversions-for-47-wrong — measured against
+  TS7026 ALONE.** That is the price of one row inside the subsystem, not of the
+  subsystem. **Re-measure it as one build across all four rows before quoting
+  the refusal again.**
+
 - **A RULE CAN BE DELETED BY A MATCH ARM AND THE SUITE WILL NOT NOTICE** (§140).
   A new `Node::InterfaceDeclaration` arm landed ahead of §112's decorator arm
   and silently swallowed it; `rustc` said `unreachable pattern` and **the
