@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  311/378  = 82.28%  (denominator moved three times:
+  dts_emit                  319/378  = 84.39%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
@@ -225,6 +225,15 @@ actively wrong when two flattened outputs share a name
 reference already naming a declaration file keeps its name — rewriting produced
 `bar.d.d.ts` (`commonSourceDirectory` now fails only on outDir-relative path
 depth, which needs output-path awareness).
+
+The first slice of JSDoc-typed JavaScript declaration emit is in: constructor
+`this.X = …` assignments synthesize typed class properties before the
+constructor (typed by `@type`, else initializer widening) carrying the
+assignment's span so comment replay emits their JSDoc; `@param {T} name` types
+untyped parameters; `@implements A` appends a heritage clause. The type builder
+covers keywords and bare names only — unions, generics, and function types
+still fall to `any` (the whole `argumentsReferenceInConstructor*_Js` family
+plus three `jsdocImplements*` cases, +8 exact).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

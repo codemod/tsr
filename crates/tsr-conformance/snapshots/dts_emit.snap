@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 311/378 (82.28%)
-Failed         : 67
+Passed         : 319/378 (84.39%)
+Failed         : 59
 Skipped        : 12066 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -16,16 +16,6 @@ compiler/accessorInferredReturnTypeErrorInReturnStatement
   line 1: want `export declare var basePrototype: {`, got `export declare var basePrototype: any;`
 compiler/amdLikeInputDeclarationEmit
   line 1: missing `declare const ExtendedClass: new () => {`
-compiler/argumentsReferenceInConstructor1_Js
-  line 3: want `     * @type object`, got `     * Constructor`
-compiler/argumentsReferenceInConstructor2_Js
-  line 3: want `     * @type object`, got `     * Constructor`
-compiler/argumentsReferenceInConstructor5_Js
-  line 6: want `     * @type object`, got `     * Constructor`
-compiler/argumentsReferenceInConstructor6_Js
-  line 2: want `    /**`, got `    constructor();`
-compiler/argumentsReferenceInConstructor7_Js
-  line 2: want `    /**`, got `    constructor();`
 compiler/commonSourceDirectory
   line 1: want `/// <reference path="../../types/bar.d.ts" preserve="true" />`, got `/// <reference path="../types/bar.d.ts" preserve="true" />`
 compiler/declarationEmitClassAccessorsJs1
@@ -128,12 +118,6 @@ conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
   line 2: want `export declare const a: any | null;`, got `export declare const a: null;`
 conformance/jsDeclarationsTypedefDescriptionsPreserved
   line 1: missing `/**`
-conformance/jsdocImplements_missingType
-  line 2: want `    x: number;`, got `    constructor();`
-conformance/jsdocImplements_properties
-  line 2: want `    x: number;`, got `    constructor();`
-conformance/jsdocImplements_signatures
-  line 2: want `declare class B implements Sig {`, got `declare class B {`
 conformance/jsdocTemplateTagNameResolution
   line 6: want `type Foo<T, K extends keyof T> = T[K];`, got `declare const x: {`
 conformance/recursiveTypeReferences2

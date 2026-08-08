@@ -183,6 +183,51 @@ fn jsdoc_accessibility_tags_become_modifiers_in_javascript_files() {
     assert!(typescript.contains("\n    b: number;"), "{typescript}");
 }
 
+/// Emit a JavaScript file: parse, stamp the root flag, emit with source text.
+fn emit_javascript(source: &str) -> String {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty(), "test source must parse cleanly: {source:?}");
+    let mut nodes = parsed.nodes;
+    if let Some(root) = parsed.source_file.node_id {
+        nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+    }
+    tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: true,
+            force_module: false,
+            source_map_url: None,
+        },
+    )
+    .text
+}
+
+#[test]
+fn js_constructor_this_assignments_declare_typed_properties() {
+    // `argumentsReferenceInConstructor1_Js`: a `@type` JSDoc types the member,
+    // `@param {T} [name]` types the parameter, and the synthesized property
+    // precedes the constructor carrying the assignment's JSDoc.
+    let output = emit_javascript(
+        "class A {\n    /**\n     * @param {object} [foo={}]\n     */\n    constructor(foo = {}) {\n        /**\n         * @type object\n         */\n        this.arguments = foo;\n        this.count = 1;\n    }\n}",
+    );
+    assert!(output.contains("arguments: object;"), "{output}");
+    assert!(output.contains("count: number;"), "{output}");
+    assert!(output.contains("constructor(foo?: object);"), "{output}");
+}
+
+#[test]
+fn a_jsdoc_implements_tag_becomes_a_heritage_clause() {
+    // `jsdocImplements_properties`: braced, bare, and comment-closing forms.
+    let output = emit_javascript("class A {}\n/** @implements A*/\nclass B {}");
+    assert!(output.contains("declare class B implements A {"), "{output}");
+}
+
 /// Assert the emitted text exactly, so spacing and ordering are covered too.
 #[track_caller]
 fn assert_emits(source: &str, expected: &str) {

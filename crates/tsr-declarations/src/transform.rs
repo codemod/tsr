@@ -108,6 +108,9 @@ pub(crate) struct Transformer<'a, 't, R> {
     /// Whether the file being transformed is a JavaScript file, where JSDoc
     /// `@protected`/`@private` tags act as accessibility modifiers.
     javascript_file: bool,
+    /// `@param {T} name` types from the enclosing signature's JSDoc, active
+    /// while that signature's parameters are ensured. JavaScript files only.
+    jsdoc_param_types: HashMap<String, TypeNode<'a>>,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -135,6 +138,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             type_aliases: HashMap::new(),
             options,
             javascript_file: false,
+            jsdoc_param_types: HashMap::new(),
             inference_required: Vec::new(),
         }
     }
@@ -508,7 +512,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 } else {
                     self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false)
                 };
-                let parameters = self.update_param_list(node.parameters, false);
+                let parameters = self.update_param_list(node.parameters, false, node.node_id);
                 let return_type =
                     self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id);
                 let function = Statement::FunctionDeclaration(self.factory.alloc(
@@ -1079,6 +1083,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     ) -> Vec<Statement<'a>> {
         let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, parent_is_file, false);
         let (base_variable, heritage_clauses) = self.rewrite_class_base(node);
+        let heritage_clauses = self.with_jsdoc_implements(node, heritage_clauses);
         let mut members: Vec<ClassElement<'a>> = Vec::with_capacity(node.members.len());
 
         // `buildClassMembers`'s parameter-property pass: a `private x` in the
@@ -1097,6 +1102,18 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     members.extend(self.parameter_properties(parameter));
                 }
             }
+        }
+
+        // In JavaScript, `this.X = …` in the constructor body declares a class
+        // property; upstream binds these as members and emits them before the
+        // constructor.
+        if self.javascript_file
+            && let Some(ClassElement::ConstructorDeclaration(constructor)) = node
+                .members
+                .iter()
+                .find(|member| matches!(member, ClassElement::ConstructorDeclaration(_)))
+        {
+            members.extend(self.this_assignment_properties(constructor));
         }
 
         // `buildClassMembers`'s `#private` marker: a class with any private name
@@ -1444,6 +1461,206 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         }
     }
 
+    /// Parse a JSDoc type the syntax-only emitter can rebuild: a keyword or a
+    /// bare type name, braced or not. Anything richer needs JSDoc type-node
+    /// parsing this port does not yet do, and answers `None` (emitting `any`).
+    fn simple_jsdoc_type(&mut self, text: &str, span: Span) -> Option<TypeNode<'a>> {
+        let text = text.trim();
+        let text =
+            text.strip_prefix('{').and_then(|inner| inner.strip_suffix('}')).unwrap_or(text).trim();
+        let keyword = match text {
+            "object" => Some(SyntaxKind::ObjectKeyword),
+            "string" => Some(SyntaxKind::StringKeyword),
+            "number" => Some(SyntaxKind::NumberKeyword),
+            "boolean" => Some(SyntaxKind::BooleanKeyword),
+            "any" | "*" => Some(SyntaxKind::AnyKeyword),
+            "unknown" => Some(SyntaxKind::UnknownKeyword),
+            "undefined" => Some(SyntaxKind::UndefinedKeyword),
+            "symbol" => Some(SyntaxKind::SymbolKeyword),
+            "bigint" => Some(SyntaxKind::BigIntKeyword),
+            "never" => Some(SyntaxKind::NeverKeyword),
+            "void" => Some(SyntaxKind::VoidKeyword),
+            _ => None,
+        };
+        if let Some(kind) = keyword {
+            return Some(self.factory.keyword_type(kind, span));
+        }
+        let mut chars = text.chars();
+        let head_is_name = chars.next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$');
+        if !text.is_empty()
+            && head_is_name
+            && chars.all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+        {
+            let text = self.factory.alloc_str(text);
+            let name = self.factory.identifier(text, span);
+            return Some(TypeNode::TypeReferenceNode(self.factory.alloc(
+                tsr_ast::TypeReferenceNode::new(Some(tsr_ast::EntityName::Identifier(name)), &[]),
+                SyntaxKind::TypeReference,
+                span,
+                NodeFlags::empty(),
+            )));
+        }
+        None
+    }
+
+    /// The nearest leading JSDoc before `node_id`, when the file is JavaScript.
+    fn leading_jsdoc(&self, node_id: Option<tsr_ast::NodeId>) -> Option<&'a str> {
+        if !self.javascript_file {
+            return None;
+        }
+        let source = self.options.source_text?;
+        let start = self.span_of(node_id).start as usize;
+        let comment = nearest_leading_comment(&source[..start.min(source.len())])?;
+        comment.starts_with("/**").then_some(comment)
+    }
+
+    /// Collect `@param {T} name` types from a signature's leading JSDoc and
+    /// make them the active parameter-type context, returning the map to
+    /// restore.
+    fn begin_jsdoc_params(
+        &mut self,
+        node_id: Option<tsr_ast::NodeId>,
+    ) -> HashMap<String, TypeNode<'a>> {
+        let mut map = HashMap::new();
+        if let Some(comment) = self.leading_jsdoc(node_id) {
+            let span = self.span_of(node_id);
+            for (r#type, name) in jsdoc_param_tags(comment) {
+                if let Some(node) = self.simple_jsdoc_type(&r#type, span) {
+                    map.insert(name, node);
+                }
+            }
+        }
+        std::mem::replace(&mut self.jsdoc_param_types, map)
+    }
+
+    /// Append heritage a JS class declares through `@implements` JSDoc.
+    ///
+    /// `/** @implements A */ class B {}` emits `class B implements A`; the tag
+    /// takes braced and bare names alike.
+    fn with_jsdoc_implements(
+        &mut self,
+        node: &tsr_ast::ClassDeclaration<'a>,
+        heritage_clauses: &'a [&'a tsr_ast::HeritageClause<'a>],
+    ) -> &'a [&'a tsr_ast::HeritageClause<'a>] {
+        let Some(comment) = self.leading_jsdoc(node.node_id) else { return heritage_clauses };
+        let Some(name) = jsdoc_tag_text(comment, "implements") else { return heritage_clauses };
+        let span = self.span_of(node.node_id);
+        let name = name.trim_start_matches('{').trim_end_matches('}').trim();
+        if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+            return heritage_clauses;
+        }
+        let text = self.factory.alloc_str(name);
+        let identifier = self.factory.identifier(text, span);
+        let with_arguments = self.factory.alloc(
+            tsr_ast::ExpressionWithTypeArguments::new(
+                Some(Expression::Identifier(identifier)),
+                &[],
+            ),
+            SyntaxKind::ExpressionWithTypeArguments,
+            span,
+            NodeFlags::empty(),
+        );
+        let types = self.factory.slice(&[with_arguments]);
+        let token = self.factory.token(SyntaxKind::ImplementsKeyword, span);
+        let clause = self.factory.alloc(
+            tsr_ast::HeritageClause::new(token, types),
+            SyntaxKind::HeritageClause,
+            span,
+            NodeFlags::empty(),
+        );
+        let mut all: Vec<&tsr_ast::HeritageClause<'a>> = heritage_clauses.to_vec();
+        all.push(clause);
+        self.factory.slice(&all)
+    }
+
+    /// Class properties a JS constructor declares by assigning to `this`.
+    ///
+    /// Upstream binds these as members (`this.foo = bar` in the constructor is
+    /// a property declaration in JavaScript); the syntactic stand-in collects
+    /// first-occurrence `this.X = …` / `this["X"] = …` statements, typed by
+    /// their leading `@type` JSDoc. The property carries the assignment's span
+    /// so declaration printing replays that JSDoc.
+    fn this_assignment_properties(
+        &mut self,
+        constructor: &tsr_ast::ConstructorDeclaration<'a>,
+    ) -> Vec<ClassElement<'a>> {
+        let Some(tsr_ast::FunctionBody::Block(body)) = constructor.body else { return Vec::new() };
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut properties = Vec::new();
+        for statement in body.statements {
+            let Statement::ExpressionStatement(statement) = statement else { continue };
+            let Some(Expression::BinaryExpression(assignment)) = &statement.expression else {
+                continue;
+            };
+            if assignment.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken) {
+                continue;
+            }
+            let span = self.span_of(statement.node_id);
+            let name = match &assignment.left {
+                Some(Expression::PropertyAccessExpression(access)) => {
+                    let Some(Expression::KeywordExpression(keyword)) = &access.expression else {
+                        continue;
+                    };
+                    if keyword.kind != SyntaxKind::ThisKeyword {
+                        continue;
+                    }
+                    let Some(tsr_ast::MemberName::Identifier(name)) = &access.name else {
+                        continue;
+                    };
+                    tsr_ast::PropertyName::Identifier(self.factory.identifier(name.text, span))
+                }
+                Some(Expression::ElementAccessExpression(access)) => {
+                    let Some(Expression::KeywordExpression(keyword)) = &access.expression else {
+                        continue;
+                    };
+                    if keyword.kind != SyntaxKind::ThisKeyword {
+                        continue;
+                    }
+                    let Some(Expression::StringLiteral(literal)) = &access.argument_expression
+                    else {
+                        continue;
+                    };
+                    tsr_ast::PropertyName::StringLiteral(self.factory.alloc(
+                        tsr_ast::StringLiteral::new(literal.text, literal.token_flags),
+                        SyntaxKind::StringLiteral,
+                        span,
+                        NodeFlags::empty(),
+                    ))
+                }
+                _ => continue,
+            };
+            let key = match &name {
+                tsr_ast::PropertyName::Identifier(id) => id.text.to_string(),
+                tsr_ast::PropertyName::StringLiteral(literal) => literal.text.to_string(),
+                _ => continue,
+            };
+            if !seen.insert(key) {
+                continue;
+            }
+            // A `@type` JSDoc is the written type; otherwise the assigned
+            // expression widens like a property initializer would.
+            let r#type = self
+                .leading_jsdoc(statement.node_id)
+                .and_then(|comment| jsdoc_tag_text(comment, "type"))
+                .and_then(|text| self.simple_jsdoc_type(&text, span))
+                .or_else(|| {
+                    self.ensure_type(
+                        None,
+                        assignment.right.as_ref(),
+                        Freshness::Widening,
+                        statement.node_id,
+                    )
+                });
+            properties.push(ClassElement::PropertyDeclaration(self.factory.alloc(
+                tsr_ast::PropertyDeclaration::new(&[], name, None, r#type, None),
+                SyntaxKind::PropertyDeclaration,
+                span,
+                NodeFlags::empty(),
+            )));
+        }
+        properties
+    }
+
     /// Prepend a JSDoc-declared accessibility modifier, if any.
     fn with_jsdoc_accessibility(
         &mut self,
@@ -1532,7 +1749,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                         NodeFlags::empty(),
                     )));
                 }
-                let parameters = self.update_param_list(node.parameters, false);
+                let parameters = self.update_param_list(node.parameters, false, node.node_id);
                 let return_type =
                     self.ensure_return_type(node.r#type, node.body.as_ref(), node.node_id);
                 Some(ClassElement::MethodDeclaration(self.factory.alloc(
@@ -1557,7 +1774,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             ClassElement::ConstructorDeclaration(node) => {
                 let span = self.span_of(node.node_id);
                 let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
-                let parameters = self.update_param_list(node.parameters, private);
+                let parameters = self.update_param_list(node.parameters, private, node.node_id);
                 Some(ClassElement::ConstructorDeclaration(self.factory.alloc(
                     tsr_ast::ConstructorDeclaration::new(
                         modifiers,
@@ -1577,7 +1794,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             ClassElement::GetAccessorDeclaration(node) => {
                 let span = self.span_of(node.node_id);
                 let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
-                let parameters = self.update_param_list(node.parameters, private);
+                let parameters = self.update_param_list(node.parameters, private, node.node_id);
                 let return_type = if private {
                     None
                 } else {
@@ -1629,7 +1846,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             ClassElement::IndexSignatureDeclaration(node) => {
                 let span = self.span_of(node.node_id);
                 let modifiers = self.ensure_modifiers(node.modifiers, node.node_id, false, false);
-                let parameters = self.update_param_list(node.parameters, false);
+                let parameters = self.update_param_list(node.parameters, false, node.node_id);
                 let r#type = node
                     .r#type
                     .unwrap_or_else(|| self.factory.keyword_type(SyntaxKind::AnyKeyword, span));
@@ -1669,7 +1886,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             match member {
                 TypeElement::CallSignatureDeclaration(node) => {
                     let span = self.span_of(node.node_id);
-                    let parameters = self.update_param_list(node.parameters, false);
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
                     result.push(TypeElement::CallSignatureDeclaration(self.factory.alloc(
                         tsr_ast::CallSignatureDeclaration::new(
                             node.type_parameters,
@@ -1684,7 +1901,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 }
                 TypeElement::ConstructSignatureDeclaration(node) => {
                     let span = self.span_of(node.node_id);
-                    let parameters = self.update_param_list(node.parameters, false);
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
                     result.push(TypeElement::ConstructSignatureDeclaration(self.factory.alloc(
                         tsr_ast::ConstructSignatureDeclaration::new(
                             node.type_parameters,
@@ -1723,7 +1940,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                     let span = self.span_of(node.node_id);
                     let modifiers =
                         self.ensure_modifiers(node.modifiers, node.node_id, false, true);
-                    let parameters = self.update_param_list(node.parameters, false);
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
                     result.push(TypeElement::MethodSignatureDeclaration(self.factory.alloc(
                         tsr_ast::MethodSignatureDeclaration::new(
                             modifiers,
@@ -1741,7 +1958,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 }
                 TypeElement::IndexSignatureDeclaration(node) => {
                     let span = self.span_of(node.node_id);
-                    let parameters = self.update_param_list(node.parameters, false);
+                    let parameters = self.update_param_list(node.parameters, false, node.node_id);
                     result.push(TypeElement::IndexSignatureDeclaration(self.factory.alloc(
                         tsr_ast::IndexSignatureDeclaration::new(
                             node.modifiers,
@@ -1782,12 +1999,16 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         &mut self,
         parameters: &'a [&'a ParameterDeclaration<'a>],
         is_private: bool,
+        host: Option<tsr_ast::NodeId>,
     ) -> &'a [&'a ParameterDeclaration<'a>] {
         // A private member's parameters are not part of the public shape, so
         // upstream emits an empty list rather than the real one.
         if is_private || parameters.is_empty() {
             return &[];
         }
+        // In JavaScript, the signature's leading `@param {T} name` JSDoc is
+        // the parameters' written type context.
+        let saved = self.begin_jsdoc_params(host);
         let mut result = Vec::with_capacity(parameters.len());
         for (index, parameter) in parameters.iter().enumerate() {
             let ensured = self.ensure_parameter(parameter);
@@ -1800,6 +2021,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 result.push(ensured);
             }
         }
+        self.jsdoc_param_types = saved;
         self.factory.slice(&result)
     }
 
@@ -1913,9 +2135,16 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         };
         // `ensureType(p, /*ignorePrivate*/ true)`: a parameter property's type is
         // visible even when the property is private.
-        let r#type = self
-            .ensure_type(parameter.r#type, None, Freshness::Widening, parameter.node_id)
-            .map(|r#type| {
+        let written = parameter.r#type.or_else(|| {
+            // In JavaScript the enclosing signature's `@param {T} name` is the
+            // written type.
+            let Some(tsr_ast::BindingName::Identifier(name)) = &parameter.name else {
+                return None;
+            };
+            self.jsdoc_param_types.get(name.text).copied()
+        });
+        let r#type =
+            self.ensure_type(written, None, Freshness::Widening, parameter.node_id).map(|r#type| {
                 if parameter.question_token.is_some()
                     && modifiers::modifier_flags(parameter.modifiers)
                         .intersects(PARAMETER_PROPERTY_MODIFIER)
@@ -2331,6 +2560,63 @@ fn statement_modifiers<'a>(statement: &Statement<'a>) -> Option<&'a [ModifierLik
 ///
 /// Returning one comment is intentional: an intervening non-internal comment
 /// prevents an older `@internal` comment from being attached to the declaration.
+/// The text following `@<tag>` in a JSDoc comment — braced (`{T}`) or the
+/// bare first token. The boundary check keeps `@type` from matching
+/// `@typedef`.
+fn jsdoc_tag_text(comment: &str, tag: &str) -> Option<String> {
+    let marker = format!("@{tag}");
+    let mut search = comment;
+    loop {
+        let index = search.find(&marker)?;
+        let after = &search[index + marker.len()..];
+        if after.chars().next().is_none_or(char::is_whitespace) {
+            let rest = after.trim_start();
+            if let Some(inner) = rest.strip_prefix('{') {
+                let end = inner.find('}')?;
+                return Some(inner[..end].trim().to_string());
+            }
+            // `@implements A*/` closes the comment right after the name.
+            let token = rest
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('/')
+                .trim_end_matches('*')
+                .to_string();
+            return (!token.is_empty()).then_some(token);
+        }
+        search = after;
+    }
+}
+
+/// Every `@param {T} name` pair in a JSDoc comment. A bracketed name
+/// (`[name]`, `[name=default]`) is JSDoc's optional syntax; the brackets and
+/// default are not part of the name.
+fn jsdoc_param_tags(comment: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    let mut search = comment;
+    while let Some(index) = search.find("@param") {
+        let after = &search[index + "@param".len()..];
+        search = after;
+        if !after.chars().next().is_none_or(char::is_whitespace) {
+            continue;
+        }
+        let rest = after.trim_start();
+        let Some(inner) = rest.strip_prefix('{') else { continue };
+        let Some(end) = inner.find('}') else { continue };
+        let r#type = inner[..end].trim().to_string();
+        let name_part = inner[end + 1..].trim_start();
+        let raw = name_part.split_whitespace().next().unwrap_or("");
+        let raw = raw.strip_prefix('[').unwrap_or(raw);
+        let name: String =
+            raw.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
+        if !name.is_empty() && !r#type.is_empty() {
+            result.push((r#type, name));
+        }
+    }
+    result
+}
+
 fn nearest_leading_comment(prefix: &str) -> Option<&str> {
     let trimmed = prefix.trim_end_matches(char::is_whitespace);
     if trimmed.ends_with("*/") {
