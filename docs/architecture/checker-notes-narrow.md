@@ -2942,3 +2942,14 @@ same class as the `head`-piped gate and `180bcb0`: instrument correct,
 reading skipped. Fixed in the follow-up commit; the pins flipped to
 `Box<1>`. Rule reaffirmed: the landing commit runs AFTER the gate
 counts are READ, never in the same command.
+
+## §74.1 — inference BEFORE the default-map: measured −2, reverted
+
+Reordering §74 ahead of `get_signature_of_named_type` (so arguments
+beat §44's default instantiation) converted NOTHING — `new Set([1, 2,
+3])` stays `Set<any>` because SetConstructor's two lib overloads do
+not converge under this inference — and regressed `genericDefaults`
+by 2: a defaulted generic construct's default map IS upstream's
+answer at those positions. The landed order (default-map first,
+inference as fallback) is correct as measured. The Set family is
+overload SELECTION, still priced.
