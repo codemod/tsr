@@ -9550,3 +9550,57 @@ confident wrong answer here.
 
 **Next action: probe the SYMBOL at `component.ts(32,12)`** — its flags and
 declarations, the way §128 did for `Row` — before touching another clause.
+
+## §134 — the symbol probe closes the row: `declare` on the MEMBER
+
+§133's prescribed probe, at the reporting site:
+
+```
+5 × SYM onInit flags=ALIAS decls=[ImportSpecifier] valid=false
+4 × SYM onInit flags=ALIAS decls=[ImportSpecifier] valid=true
+```
+
+**Five report and four are expected, and the symbol is byte-identical at all
+nine sites.** So the discriminator was never the symbol — it is the site, and
+one of the five is a site the ported clauses do not excuse.
+
+That site is `class G { declare [onInit]: any }`. §132's ambient clause routes
+through `declaration_is_in_an_ambient_context`, which reads `declare` on the
+declaration kinds that *contain* members — `ClassDeclaration`,
+`ModuleDeclaration`, `VariableStatement`, `FunctionDeclaration`,
+`EnumDeclaration` — and **never on a member itself**. `declare class H` was
+caught; `declare [onInit]` was not.
+
+**§81 recorded this exact gap**, for TS7010, in those words: *"any rule asking
+'is this ambient' of a class member must read the member's own `declare`
+modifier"*, and noted that every rule taking `ambient` for a member is one
+`declare` away from it. Three sessions later, this is that rule.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §132 | 5 | 0 | 22 | 2 |
+| **§134** | **6** | **0** | **22** | **1** |
+
+**+1 case and wrong 2 → 1.** `conformance/computedPropertyName` converts.
+Coverage `1,431 → 1,432 / 5,488` (**26.09%**); `checker_types` identical at
+3,935/9,538 · 84.43%; all five gates green.
+
+### The row is finished as far as this workstream can take it
+
+One wrong line remains — `mergeSymbolRexportFunction main.ts(2,1)` — and §130
+established by measurement that it is **`tsr_binder`'s missing merge**, not this
+rule's. There is nothing left here to build.
+
+### What the thirteen attributions cost, and what finally worked
+
+Every artefact except a probe produced at least one confident wrong answer on
+this row: the wrong column (§122), the baseline (§124), upstream's Go (§129),
+the fixture (§132). Every probe was right, and each was right about a different
+layer — §128 the symbol, §130 the loop, §133 the member kind, §134 the symbol at
+the site.
+
+**And the answer was in this project's own notes the whole time.** §81 had
+written the finding, in the general form, with the warning attached. Nine
+sections of investigation rediscovered it. **Before probing a fourth layer,
+grep `checker-notes-diag2.md` for the symptom** — this file is now 134 sections
+and is itself an instrument nobody has been reading.

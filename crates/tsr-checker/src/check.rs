@@ -1054,7 +1054,9 @@ impl Checker<'_, '_> {
         // flags. §99 already built the substitute: walk the `declare`
         // modifiers. `declare class H { [onInit]: any }` and
         // `class G { declare [onInit]: any }` are both this. §132.
-        if self.declaration_is_in_an_ambient_context(member) {
+        if self.declaration_is_in_an_ambient_context(member)
+            || self.member_has_declare_modifier(member)
+        {
             return true;
         }
         self.nodes.parent(member).is_some_and(|owner| {
@@ -1063,6 +1065,24 @@ impl Checker<'_, '_> {
                 SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeLiteral
             )
         })
+    }
+
+    /// Does this class member carry its **own** `declare` modifier?
+    ///
+    /// `class G { declare [onInit]: any }` is ambient at the member, and
+    /// `declaration_is_in_an_ambient_context` reads `declare` on the
+    /// *declaration kinds that contain members*, never on a member itself —
+    /// §81 recorded exactly this gap for TS7010 and it is the same one here.
+    /// `NodeFlags::AMBIENT` would answer both and is never set. §134.
+    fn member_has_declare_modifier(&self, member: NodeId) -> bool {
+        let modifiers = match self.node_map.get(member) {
+            Some(Node::PropertyDeclaration(n)) => n.modifiers,
+            Some(Node::MethodDeclaration(n)) => n.modifiers,
+            Some(Node::GetAccessorDeclaration(n)) => n.modifiers,
+            Some(Node::SetAccessorDeclaration(n)) => n.modifiers,
+            _ => return false,
+        };
+        has_modifier(modifiers, SyntaxKind::DeclareKeyword)
     }
 
     /// `HasSyntacticModifier(node.Parent, ModifierFlagsAbstract)`.
