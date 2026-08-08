@@ -10107,3 +10107,43 @@ Compare §117–§130 on the type-only alias row: six inferences, three reverts,
 implemented fixes that did nothing. **The difference is not the difficulty of
 the rows — it is that these sections wrote the disproving measurement into the
 same paragraph as the claim.**
+
+## §147 — the parenthesis arm is correct; §146's pointer was wrong too
+
+§146 pointed at `assignment_target`'s parenthesis handling terminating after one
+hop. Read (`expressions.rs:1823`):
+
+```rust
+Node::ParenthesizedExpression(_)
+| Node::ArrayLiteralExpression(_)
+| Node::SpreadElement(_)
+| Node::NonNullExpression(_) => current = parent,
+```
+
+**It loops.** `current = parent` and round again — two layers of parentheses
+climb exactly as one does. §146's pointer is wrong, which makes **six**
+consecutive attributions on this row corrected by the next look.
+
+So `++((M.x))` is not failing in the climb. What has now been *measured* to pass
+for this row's other lines and *read* to be correct: every receiver-type gate
+(§144), the readonly gate (§145), the position (§146), the parenthesis climb
+(§147). What has never been checked for **this specific node** is whether
+`check_readonly_assignment_target` is called on it at all.
+
+**That is the next probe and it is the one this row started needing at §143**:
+an `eprintln!` at the rule's *entry*, printing the node kind, run on this one
+case. §118 established that a probe below an early return measures its own
+position; every probe since has been placed at an entry and every one has been
+right. This row has instead probed *gates*, one per section, and each answered
+truthfully about a gate that was not the problem.
+
+**The lesson is now unambiguous and it cost six sections to make it so: probe
+whether the rule RUNS before probing what it decided — even when you are certain
+it runs, and especially when the gates all pass.** §143–§147 each confirmed a
+gate; none confirmed the call.
+
+### State of the row
+
+One missing line, no extras, five gates cleared, one unchecked assumption. Zero
+builds and zero reverts spent. The row is genuinely one probe from an answer,
+and this session does not have the budget to run it well.
