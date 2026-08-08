@@ -51,6 +51,26 @@ fn main() {
         }
     }
 
+    // The split the eleventh session's closing question needs: of the cases
+    // reachable by deepening existing rules, how many want **only** codes whose
+    // rule is bound by the structural relation or the members table — the
+    // subsystem `STATUS.md` §5 refuses — and how many want none of them?
+    let (mut relation_only, mut mixed, mut relation_free) = (0usize, 0usize, 0usize);
+    for (_, codes) in &rows {
+        let bound = codes.iter().filter(|code| RELATION_BOUND.contains(code)).count();
+        if bound == 0 {
+            relation_free += 1;
+        } else if bound == codes.len() {
+            relation_only += 1;
+        } else {
+            mixed += 1;
+        }
+    }
+    println!("\n== reachable cases, split by whether the RELATION/MEMBERS subsystem is needed ==");
+    println!("wants only relation-bound codes : {relation_only}");
+    println!("wants a mix                     : {mixed}");
+    println!("wants NO relation-bound code    : {relation_free}");
+
     let mut per_code: BTreeMap<u32, usize> = BTreeMap::new();
     for (_, codes) in &rows {
         for code in codes {
@@ -101,3 +121,9 @@ const RULE_CODES: &[u32] = &[
     2552, 2367, 2872, 2873, 1345, 2365, 18047, 18048, 18049, 2531, 2532, 2533, 2464, 2540, 2362,
     2363, 2356, 2341, 2445, 2374,
 ];
+
+/// The codes whose rule is gated on the structural relation or on a resolved
+/// members table — the subsystem `STATUS.md` §5 refuses. Everything else in
+/// [`RULE_CODES`] answers from scope, flow, flags or syntax.
+const RELATION_BOUND: &[u32] =
+    &[2322, 2345, 2339, 2741, 2353, 2352, 2416, 2430, 2420, 2415, 2403, 2411];

@@ -5506,3 +5506,43 @@ unreliable"**, and only the arms that read an annotation pay for it. A type
 
 The decline returns if JSDoc types land: the population it would then protect is
 real, and it is the same one §5's row names.
+
+---
+
+## 75. How much of the remaining work is independent of the relation?
+
+`diagreach.rs` gained the split that answers it. Of the cases reachable by
+deepening rules that already exist, it partitions by whether **every** missing
+code's rule is gated on the structural relation or a resolved members table —
+TS2322, TS2345, TS2339, TS2741, TS2353, TS2352, TS2416, TS2430, TS2420, TS2415,
+TS2403, TS2411, the subsystem `STATUS.md` §5 refuses.
+
+```
+cases reachable by deepening existing rules : 1,305   (against 1,301 passing)
+  wants only relation-bound codes           :   937
+  wants a mix                               :    52
+  wants NO relation-bound code              :   316
+```
+
+**316 cases, plus a share of 52, are reachable without the relation at all** —
+roughly a quarter of the reachable set and about the size of everything this
+session converted. **937 are the assignability family**, and they are not a
+diagnostics build: they are `checker_types`' structural relation and members
+table arriving through a second door, exactly as §54 priced them.
+
+### What "incorporate the checker" already means here
+
+Every rule in this workstream already calls the checker — `check_expression`,
+`relate_ternary`, `get_property_of_type`, `declared_members_are_complete`. The
+question is not whether to use it but whether to **wait on the parts of it that
+are incomplete**, and the answer this split gives is: not yet. There is a
+quarter of the reachable set that does not touch them, and it is the cheaper
+quarter — this session's builds averaged five cases each against a relation-free
+population, while the three attempts that reached into the relation (§16's
+TS2322, §24's TS2403, §49's type parameters) were all refused or bounded.
+
+**The order that falls out:** finish the 316 and the small unported rows
+`diagemit.rs` ranks (TS7027 12 sole-obstacle, TS7010 11, TS2449 10, TS2693 9,
+TS2364 7, TS2703 7, TS2558 6), then re-take this split. It moves whenever the
+`.types` workstream lands relation work, and 937 is the number that says how
+much of `diagnostics` that workstream is carrying.
