@@ -9038,3 +9038,64 @@ and did not run before concluding.
 Three sections attributed this residual and two were wrong. **The one that was
 right — §121's — was right for a reason it could not justify at the time**, and
 was overturned by an argument that felt more rigorous and was less so.
+
+## §124 — the five residual TS1361 lines, read and named
+
+§123 left five and declined to attribute them. Isolated (`RULE_CODES =
+[1361, 1362]`) and read in full, they are **three families, not one**:
+
+```
+compiler/mergeSymbolRexportFunction   main.ts(2,1)     TS1362
+conformance/computedPropertyName      component.ts(32,12) TS1361
+conformance/computedPropertyName      component.ts(36,4)  TS1361
+conformance/exportDefault             /b.ts(2,16)      TS1361
+conformance/importEquals1             /b.ts(2,10)      TS1361
+```
+
+### Family one — `export =` / `export default` of a type-only alias (2 lines)
+
+Both fixtures are the same three lines:
+
+```ts
+// /b.ts
+import type * as types from './a';
+export = types;            // importEquals1
+export default types;      // exportDefault
+```
+
+Upstream reports here — `importEquals1`'s own comment says `// Error` — but
+**not TS1361 at this position**, which is why these sit in the wrong column
+rather than the right one. `ExportAssignment.expression` is an expression node,
+so `IsValidTypeOnlyAliasUseSite` does *not* excuse it; the divergence is the
+**code or the position**, not the decision to report.
+
+**Do not decline these blind.** Read
+`baselines/reference/importEquals1.errors.txt` first and find out what upstream
+writes; a decline would trade two wrong lines for two missing ones and the row
+would not move.
+
+### Family two — the remaining two computed property names (2 lines)
+
+§123's clause took three of `computedPropertyName`'s lines and left two, at
+`(32,12)` and `(36,4)`. Since the clause fires on the *same file*, these two
+differ in some way the ported test misses — the likeliest candidates are
+upstream's other two disjuncts, `HasSyntacticModifier(…Abstract)` on a member
+kind this port's `member_is_abstract` does not enumerate, or a parent that is a
+`TypeLiteral` reached through a shape the walk exits early on.
+
+### Family three — `mergeSymbolRexportFunction` (1 line, TS1362)
+
+Unread. The only TS1362 in the residual and the only one in a merge fixture.
+
+### Why this is the last thing this session does with the row
+
+**Each family needs its baseline read, and each would be a separate
+measurement.** §121 → §122 → §123 was three sections spent on one residual
+because each attributed before reading; the pattern only broke when the codes
+were isolated and the lines printed in full. Naming three families and stopping
+is the state that lets the next session pick one and measure it, rather than
+inheriting a single number with a guess attached.
+
+**Standing instruction for this row: read the upstream baseline before writing
+any decline.** Two of these five are cases where upstream reports *something* —
+declining there converts a wrong line into a missing one and gains nothing.
