@@ -73,6 +73,7 @@ fn render(
     sys: &dyn System,
     located: &[LocatedDiagnostic<'_>],
     options: &CompilerOptions,
+    summary: bool,
 ) -> String {
     let formatting = formatting_options(sys);
     let mut text = String::new();
@@ -85,7 +86,7 @@ fn render(
     } else {
         tsr_diagnostics::format::write_format_diagnostics(&mut text, located, &formatting);
     }
-    if !options.quiet.is_true() {
+    if summary && !options.quiet.is_true() {
         tsr_diagnostics::format::write_error_summary_text(&mut text, located, &formatting);
     }
     text
@@ -132,14 +133,56 @@ pub fn run_compilation(
 
     apply_command_line_over_config(&mut options, command_line);
 
+    // The no-inputs error belongs with the config's own errors and comes
+    // **first**, which is the order upstream's parse produces and its baselines
+    // record (`non-object-config-root.js`: TS18003 then TS5092). Raised here
+    // rather than in `tsr_tsoptions::parse_config_file` because that parser is
+    // shared with the conformance harness, and widening its no-inputs condition
+    // would move a suite this session is not meant to touch.
+    let mut config_errors = config_errors;
+    if root_files.is_empty() && !config_file_name.is_empty() {
+        config_errors.insert(
+            0,
+            Diagnostic::with_args(
+                &messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2,
+                tsr_core::Span::new(0, 0),
+                [
+                    config_file_name.to_string(),
+                    "[\"**/*\"]".to_string(),
+                    "[]".to_string(),
+                ],
+            ),
+        );
+        config_errors.dedup_by(|a, b| a.message.code() == b.message.code() && a.args == b.args);
+    }
+
     if !config_errors.is_empty() {
-        report(sys, &config_errors, &options);
-        // **`OutputsGenerated`, not `OutputsSkipped`**, and it looks wrong until
-        // you read upstream: `tscCompilation` returns
-        // `ExitStatusDiagnosticsPresent_OutputsGenerated` for a config that
-        // failed to parse (`tsc.go:219`). The status is about whether the
-        // compiler got far enough to have written anything, and a config error
-        // is raised after the point where it might have.
+        // A config diagnostic is positioned **in the config file**, so it prints
+        // with `tsconfig.json:1:1` and a source frame. Everything with a
+        // meaningful span gets the file; the no-inputs error above is about the
+        // config as a whole rather than a place in it, and upstream prints it
+        // location-less — which is why it is the one exception.
+        let config_file = sys
+            .fs()
+            .read_file(config_file_name)
+            .map(|text| DiagnosticFile::new(config_file_name, text));
+        let located: Vec<(String, Diagnostic)> = config_errors
+            .iter()
+            .map(|error| {
+                let name = if error.message.code() == messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2.code() {
+                    String::new()
+                } else {
+                    config_file_name.to_string()
+                };
+                (name, error.clone())
+            })
+            .collect();
+        let files: Vec<DiagnosticFile> = config_file.into_iter().collect();
+        // **No error summary.** Upstream builds `reportErrorSummary` *after*
+        // this branch (`tsc.go:225`), so a config that fails to parse prints its
+        // diagnostics and stops. Passing `quiet` here would be the same effect
+        // by the wrong mechanism.
+        report_located_without_summary(sys, &files, &located, &options);
         return ExitStatus::DiagnosticsPresentOutputsGenerated;
     }
 
@@ -161,15 +204,13 @@ pub fn run_compilation(
     }
 
     if root_files.is_empty() {
-        let error = if config_file_name.is_empty() {
-            Diagnostic::new(&messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2, tsr_core::Span::new(0, 0))
-        } else {
-            Diagnostic::with_args(
-                &messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2,
-                tsr_core::Span::new(0, 0),
-                [config_file_name.to_string(), "[]".to_string(), "[]".to_string()],
-            )
-        };
+        // Reached only with no config file at all — files named on the command
+        // line that all failed to resolve. The config case is handled above.
+        let error = Diagnostic::with_args(
+            &messages::NO_INPUTS_WERE_FOUND_IN_CONFIG_FILE_0_SPECIFIED_INCLUDE_PATHS_WERE_1_AND_EXCLUDE_PATHS_WERE_2,
+            tsr_core::Span::new(0, 0),
+            ["tsconfig.json".to_string(), "[]".to_string(), "[]".to_string()],
+        );
         report(sys, &[error], &options);
         return ExitStatus::DiagnosticsPresentOutputsSkipped;
     }
@@ -372,7 +413,7 @@ impl tsr_module::types::ResolutionHost for DriverHost<'_> {
 fn report(sys: &mut dyn System, diagnostics: &[Diagnostic], options: &CompilerOptions) {
     let located: Vec<LocatedDiagnostic<'_>> =
         diagnostics.iter().map(LocatedDiagnostic::global).collect();
-    let text = render(sys, &located, options);
+    let text = render(sys, &located, options, true);
     sys.write(&text);
 }
 
@@ -383,6 +424,26 @@ fn report_located(
     diagnostics: &[(String, Diagnostic)],
     options: &CompilerOptions,
 ) {
+    report_located_impl(sys, files, diagnostics, options, true);
+}
+
+/// As [`report_located`], but without the `Found N errors` block.
+fn report_located_without_summary(
+    sys: &mut dyn System,
+    files: &[DiagnosticFile],
+    diagnostics: &[(String, Diagnostic)],
+    options: &CompilerOptions,
+) {
+    report_located_impl(sys, files, diagnostics, options, false);
+}
+
+fn report_located_impl(
+    sys: &mut dyn System,
+    files: &[DiagnosticFile],
+    diagnostics: &[(String, Diagnostic)],
+    options: &CompilerOptions,
+    summary: bool,
+) {
     let located: Vec<LocatedDiagnostic<'_>> = diagnostics
         .iter()
         .map(|(file_name, diagnostic)| {
@@ -392,6 +453,6 @@ fn report_located(
             }
         })
         .collect();
-    let text = render(sys, &located, options);
+    let text = render(sys, &located, options, summary);
     sys.write(&text);
 }

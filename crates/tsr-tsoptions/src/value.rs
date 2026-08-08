@@ -205,7 +205,7 @@ fn property_name(name: PropertyName<'_>) -> Option<String> {
     }
 }
 
-fn span_of(node: Node<'_>, nodes: &NodeTable) -> Option<Span> {
+pub(crate) fn span_of(node: Node<'_>, nodes: &NodeTable) -> Option<Span> {
     node.node_id().map(|id| nodes.span(id))
 }
 

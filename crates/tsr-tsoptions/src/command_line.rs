@@ -305,7 +305,7 @@ impl Parser<'_> {
                 index += 1;
             }
             OptionKind::List(_) | OptionKind::PathMap => {
-                let (values, consumed) = Self::parse_list_option(&argument);
+                let (values, consumed) = self.parse_list_option(option, &argument);
                 self.set(option, &ConfigValue::List(values));
                 if consumed {
                     index += 1;
@@ -373,7 +373,15 @@ impl Parser<'_> {
     /// the next option rather than this one's list, so it is left in place and
     /// the list is empty — which is how `tsc --lib --strict` reports a missing
     /// argument for `--lib` instead of swallowing `--strict`.
-    fn parse_list_option(value: &str) -> (Vec<ConfigValue>, bool) {
+    ///
+    /// An element that is not a valid value is **dropped and reported**, which
+    /// is upstream's `core.MapFiltered` over `convertJsonOptionOfEnumType`: the
+    /// rest of the list still applies.
+    fn parse_list_option(
+        &mut self,
+        option: &'static OptionDeclaration,
+        value: &str,
+    ) -> (Vec<ConfigValue>, bool) {
         let trimmed = value.trim();
         if trimmed.starts_with('-') {
             return (Vec::new(), false);
@@ -381,11 +389,19 @@ impl Parser<'_> {
         if trimmed.is_empty() {
             return (Vec::new(), true);
         }
-        let values: Vec<ConfigValue> = trimmed
-            .split(',')
-            .map(|entry| ConfigValue::String(entry.trim().to_string()))
-            .filter(|entry| entry.as_str().is_some_and(|text| !text.is_empty()))
-            .collect();
+        let mut values = Vec::new();
+        for entry in trimmed.split(',') {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            if !list_element_is_valid(option, entry) {
+                let error = invalid_list_element_error(option);
+                self.result.errors.push(error);
+                continue;
+            }
+            values.push(ConfigValue::String(entry.to_string()));
+        }
         (values, true)
     }
 
@@ -465,6 +481,37 @@ fn value_type_string(option: &OptionDeclaration) -> String {
         OptionKind::String | OptionKind::Enum => "string".to_string(),
         OptionKind::List(_) | OptionKind::PathMap => "Array".to_string(),
     }
+}
+
+/// Whether a list element is one this option accepts.
+///
+/// **`lib` is the only list-of-enum option this port declares**, and its values
+/// live in the generated `LIB_MAP` rather than on the declaration — 107 names
+/// that exist already and would be a second copy if inlined here. Upstream
+/// reaches them through `opt.Elements().EnumMap()`, which is the same table
+/// behind one more indirection this port has no other use for.
+///
+/// Every other list is free-form strings (`types`, `rootDirs`, `paths`), so it
+/// accepts anything.
+fn list_element_is_valid(option: &OptionDeclaration, element: &str) -> bool {
+    if option.name != "lib" {
+        return true;
+    }
+    crate::libs::get_lib_file_name(&element.to_ascii_lowercase()).is_some()
+}
+
+/// The `Argument for '--lib' option must be: …` error, listing all 107 values.
+fn invalid_list_element_error(option: &OptionDeclaration) -> Diagnostic {
+    let names: Vec<&str> = if option.name == "lib" {
+        crate::libs::lib_option_names().collect()
+    } else {
+        option.enum_names.to_vec()
+    };
+    Diagnostic::with_args(
+        &messages::ARGUMENT_FOR_0_OPTION_MUST_BE_COLON_1,
+        tsr_core::Span::new(0, 0),
+        [format!("--{}", option.name), format!("'{}'", names.join("', '"))],
+    )
 }
 
 /// `createDiagnosticForInvalidEnumType` — list what the option does accept.

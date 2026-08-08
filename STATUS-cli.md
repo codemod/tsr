@@ -25,7 +25,7 @@ Measured at the CLI-scaffold landing, 2026-08-08, by
 
 | | |
 |---|---:|
-| **`cli_baselines`** | **28/43 judged = 65.12%** |
+| **`cli_baselines`** | **30/43 judged = 69.77%** |
 | behind the emitter (excluded) | 151 |
 | total `tsc` baselines | 194 |
 
@@ -177,7 +177,7 @@ run the driver, and diff. Add a `cli_baselines` suite to `tsr-conformance`
 alongside the existing sixteen.
 
 **Landed. The suite reads 28/43 judged (65.12%), 151 excluded as behind the
-emitter.** It has read 13 → 19 → 20 → 25 → 26 → 28 as each phase landed.
+emitter.** It has read 13 → 19 → 20 → 25 → 26 → 28 → 30 as each phase landed.
 
 **The runner also reads the Go test source.** A `tsc` baseline does not record
 the environment its scenario runs under — that lives in `tsc_test.go` as a
@@ -382,14 +382,14 @@ too, because phase 0 exists.
 
 | # | item | worth | why here |
 |---|---|---|---|
-| 1 | **config-file error paths** | ~3 baselines | `non-object-config-root`, `extends` with non-string `files`/`include` |
+| 1 | **`extends`** | ~3 baselines | not supported at all: `extends-config-with-non-string-*` and `configDir-template-showConfig` all need it |
 | 2 | **`--help --all`** | 1 baseline | needs all 135 options with descriptions, plus watch and build tables |
 | 3 | ~~the wide `--help` layout~~ | **ported**; 1 baseline still differs, §7.8 | `getPrettyOutput`'s hard wrap and the header icon |
-| 4 | **`--lib` value validation** | 1 baseline | `TS6046` listing all 104 lib names; the names exist in `tsr_tsoptions::libs` |
+| 4 | ~~`--lib` value validation~~ | **done**, +2 | `TS6046` over `LIB_MAP`'s 107 names, in upstream's order |
 | 5 | option table 76 → 135 | all | a missing option is an unknown-option error, not a default |
 | 6 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 31 hand-written tests |
 | 7 | watch option table | 0 today | `--watchFile` reports as unknown; upstream accepts it |
-| 8 | `${configDir}` templates | 1 baseline | `extends/configDir-template-showConfig` |
+| 8 | `${configDir}` templates | 1 baseline | needs `extends` first |
 | 9 | ~~the baseline runner's `env` section~~ | **done**, +2 | parsed out of `tsc_test.go` |
 | 10 | emit (`tsr-transformers`) | **151 baselines** | not a CLI item; the ceiling above everything |
 
@@ -506,6 +506,16 @@ in users' repositories, so it reports `NotImplemented` (upstream's own status 5)
    **Not fudged**: adding four to one branch would make this baseline pass and
    every other width wrong, and the discrepancy is worth more as a question than
    as a constant.
+
+9. **`non-object-config-root` is one blank line from passing.** `[]` as a
+   `tsconfig.json` root now reports TS18003 then TS5092, the latter positioned
+   at `tsconfig.json:1:1` with the root value squiggled, and exits 2 with no
+   error summary — upstream builds `reportErrorSummary` *after* that branch
+   (`tsc.go:225`), so a config that fails to parse prints its diagnostics and
+   stops. What remains is a single trailing blank line the replay does not
+   reproduce. Recorded rather than patched: the runner trims trailing newlines
+   on both sides, so the difference is not where it appears to be, and finding
+   out costs more than the one case is worth today.
 
 ## 8. Updating this file
 

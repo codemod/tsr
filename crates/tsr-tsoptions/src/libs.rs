@@ -23,6 +23,16 @@
 //! a merged global interface is seen first, so a sort that looked tidier by
 //! sorting alphabetically would change what the program means.
 
+/// Every `--lib` value, in upstream's declaration order.
+///
+/// The order is the error message's: `Argument for '--lib' option must be:
+/// 'es5', 'es6', 'es2015', …` lists them exactly like this, and the list is
+/// baselined. `LIB_MAP` is generated from upstream's own table, so this cannot
+/// drift from what [`get_lib_file_name`] accepts.
+pub fn lib_option_names() -> impl Iterator<Item = &'static str> {
+    crate::LIB_MAP.iter().map(|(name, _)| *name)
+}
+
 /// The file a `--lib` value selects (`tsoptions.GetLibFileName`).
 ///
 /// Accepts the option spelling (`es2015`) or the file spelling

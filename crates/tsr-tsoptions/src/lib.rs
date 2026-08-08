@@ -115,10 +115,45 @@ pub fn parse_config_file(
     };
 
     let mut config = Config::default();
-    if let Some(properties) = value::root_properties(parsed.source_file, &parsed.nodes) {
-        config.read(&properties, &base_path_for_file_names, &parsed.nodes);
-    }
+    let root_is_object = match value::root_properties(parsed.source_file, &parsed.nodes) {
+        Some(properties) => {
+            config.read(&properties, &base_path_for_file_names, &parsed.nodes);
+            true
+        }
+        None => false,
+    };
     let Config { mut compiler_options, raw, mut errors } = config;
+
+    // `[]`, `"x"`, `42` — anything whose root is not an object. Upstream reports
+    // it and carries on with an empty configuration, so the compilation still
+    // runs and still reports whatever *else* is wrong; the alternative, bailing
+    // here, would hide the no-inputs error that follows and that upstream's
+    // baseline expects alongside this one.
+    //
+    // The empty file is deliberately **not** an error: `tsconfig.json` holding
+    // nothing at all is a valid empty configuration, and it reaches this same
+    // `None` because there is no root expression to read.
+    if !root_is_object && let Some(statement) = parsed.source_file.statements.first() {
+        // Positioned over the root value itself, so the frame squiggles `[]`
+        // rather than a single column. A zero-length span would squiggle one
+        // character, which is what an "expected" diagnostic wants and this is
+        // not.
+        errors.push(Diagnostic::with_args(
+            &messages::THE_ROOT_VALUE_OF_A_0_FILE_MUST_BE_AN_OBJECT,
+            {
+                let tsr_ast::Statement::ExpressionStatement(statement) = statement else {
+                    unreachable!("a JSON root is parsed as an expression statement")
+                };
+                statement
+                    .expression
+                    .and_then(|expression| {
+                        value::span_of(tsr_ast::Node::from(expression), &parsed.nodes)
+                    })
+                    .unwrap_or_default()
+            },
+            ["tsconfig.json".to_string()],
+        ));
+    }
     if !config_file_name.is_empty() {
         compiler_options.config_file_path = normalize_slashes(config_file_name);
     }
