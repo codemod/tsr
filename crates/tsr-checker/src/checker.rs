@@ -620,6 +620,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_value_types: rustc_hash::FxHashMap::default(),
             enum_access_spelling: rustc_hash::FxHashMap::default(),
             named_union_by_members: rustc_hash::FxHashMap::default(),
+
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,

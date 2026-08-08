@@ -2709,3 +2709,34 @@ Three experiments, two reverted with numbers, one landed:
    `classExtendsItselfIndirectly2`) and `typeValueConflict`'s
    value-shadowed classes, all degenerate-source cases.
    `checker_types` right 401,730 → **401,783 (83.89%)**.
+## §61 — the auto-var cascade, trip-only
+
+The §14.1 mountain's decoded mechanism, first slice: an untyped JS `var`
+upstream is typed by checking every assignment's RHS, each RHS typing
+its references transitively — the 2000-cap trips inside that cascade
+and sets the GLOBAL `flowAnalysisDisabled`, after which every read
+prints ` : error` (`parsingDeepParenthensizedExpression`'s 333). The
+slice is TRIP-ONLY: the cascade runs with a shared step counter
+(one step per assignment RHS checked, transitive through nested
+auto-var computations); if it exceeds the cap the global disable is set
+and the var answers `error`; an UNTRIPPED cascade discards its result
+and falls through to today's `any` — zero risk to every small JS file.
+Self-reference inside a cascade answers `any` (the `cascade_active`
+guard), not the circularity error.
+
+**Falsifiers.** (a) Files where upstream's evaluator does NOT trip but
+this counter does (the counting granularity differs) — R→G/R→W across
+mid-size JS cases; (b) the global disable leaking into TS files sharing
+a program — the flag is per-checker and programs are per-case, so a
+multi-file case with one JS file could poison its TS files; counted.
+
+**§61 REFUSED — the counter cannot reach the cap.** Built and
+instrumented: the cascade runs (227 assignments in the mountain's
+container) but accumulates ~43 flow-node ticks TOTAL, because this
+port's iterative walk breaks at the nearest assignment — the recursion
+upstream's 2000-cap measures is exactly the inefficiency ADR-0003-era
+design removed. Reproducing the trip means reproducing the recursion,
+and any other counting basis fitted to one case is a knob, not a port.
+The 333-line mountain stays; its honest road is either (a) the full
+assigned-union computation with upstream's recursive walk shape behind
+a flag, or (b) accepting the divergence permanently. Reverted whole.
