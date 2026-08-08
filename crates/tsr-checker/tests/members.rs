@@ -21,6 +21,7 @@ fn type_of(source: &str, name: &str) -> String {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -48,6 +49,7 @@ fn property_of(source: &str, owner: &str, property: &str) -> Option<(String, Sym
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -71,6 +73,7 @@ fn declaring_line(source: &str, owner: &str, property: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -235,6 +238,7 @@ fn type_of_property(source: &str, owner: &str, property: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -283,6 +287,7 @@ fn value_property(source: &str, owner: &str, property: &str) -> Option<(String, 
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

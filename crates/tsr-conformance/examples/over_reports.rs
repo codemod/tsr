@@ -74,8 +74,9 @@ fn main() {
                 let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
                 ours.push((diagnostic.message.code(), line + 1, character + 1, false));
             }
-            parsed.with_ast(|file| {
+            parsed.with_ast_and_arena(|file, arena| {
                 let bound = tsr_binder::bind(
+                    arena,
                     file,
                     parsed.nodes(),
                     tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },

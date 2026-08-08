@@ -24,6 +24,7 @@ fn bind<'a>(arena: &'a Arena, source: &'a str) -> Bound<'a> {
     // SAFETY-free: `result` borrows the same arena as `parsed`, and both live
     // as long as the caller's `arena`.
     let result = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -406,6 +407,7 @@ fn a_jsx_attribute_declares_a_property_on_the_attributes_object() {
     let parsed = tsr_parser::parse_with_script_kind(&arena, source, tsr_parser::ScriptKind::Tsx);
     assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
     let result = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.tsx", text: source },
@@ -433,6 +435,7 @@ fn bind_as<'a>(arena: &'a Arena, source: &'a str, file_name: &'a str) -> Bound<'
     let parsed = tsr_parser::parse(arena, source);
     assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
     let result = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: file_name, text: source },
@@ -922,6 +925,7 @@ fn a_late_bound_object_literal_member_is_parented_to_the_literal() {
 fn bind_source<'a>(arena: &'a Arena, source: &'a str) -> BindResult<'a> {
     let parsed = tsr_parser::parse(arena, source);
     tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -1291,6 +1295,7 @@ fn a_function_or_constructor_type_node_gets_an_anonymous_type_symbol() {
         let source = arena.alloc_str(source);
         let parsed = tsr_parser::parse(&arena, source);
         let result = tsr_binder::bind(
+            &arena,
             parsed.source_file,
             &parsed.nodes,
             tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -1316,4 +1321,30 @@ fn a_function_or_constructor_type_node_gets_an_anonymous_type_symbol() {
         assert_eq!(data.declarations.len(), 1, "{source}");
         assert!(data.members.is_empty(), "the `__call` member is the documented gap: {source}");
     }
+}
+
+#[test]
+fn a_numeric_member_binds_under_its_canonical_value() {
+    // Upstream's scanner canonicalises every numeric token value
+    // (`scanner.go:2194`, `jsnum.FromString(…).String()`), so `0b11`, `3` and
+    // `3.0` all name ONE member and merge (`GetPropertyNameForPropertyNameNode`
+    // reads that value, `ast/utilities.go:3160`). The node keeps the source
+    // spelling for the printer; the symbol's name is the value's.
+    let arena = Arena::new();
+    let bound = bind(&arena, "class C { 0b11: number; }\nenum E { 0xF00D }\nconst o = { 1.0: 1 };");
+
+    let class = bound.result.lookup_local(bound.root(), "C").expect("class C");
+    let members = &bound.result.symbols().get(class).members;
+    assert!(members.contains_key("3"), "0b11 binds as its value");
+    assert!(!members.contains_key("0b11"), "the source spelling is not the name");
+
+    let r#enum = bound.result.lookup_local(bound.root(), "E").expect("enum E");
+    assert!(bound.result.symbols().get(r#enum).exports.contains_key("61453"));
+
+    // A signed computed name is upstream's third static form
+    // (`ast/utilities.go:3170`): `[-1]` declares `-1`.
+    let arena2 = Arena::new();
+    let bound2 = bind(&arena2, "class D { [-1] = 1; }");
+    let class2 = bound2.result.lookup_local(bound2.root(), "D").expect("class D");
+    assert!(bound2.result.symbols().get(class2).members.contains_key("-1"));
 }

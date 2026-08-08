@@ -836,63 +836,9 @@ fn decimal_literal<'a>(factory: &mut Factory<'a, '_>, text: &str, span: Span) ->
     ))
 }
 
-/// The value of a numeric literal as written.
-///
-/// Handles the four radix prefixes, `_` separators, and legacy octal (`0755`),
-/// which is still a numeric literal in a non-strict file.
-pub(crate) fn numeric_value(text: &str) -> f64 {
-    let cleaned: String = text.chars().filter(|c| *c != '_').collect();
-    let lower = cleaned.to_ascii_lowercase();
-    #[allow(clippy::cast_precision_loss)]
-    let radix_parse = |digits: &str, radix: u32| -> f64 {
-        u128::from_str_radix(digits, radix).map_or(f64::NAN, |value| value as f64)
-    };
-    if let Some(digits) = lower.strip_prefix("0x") {
-        return radix_parse(digits, 16);
-    }
-    if let Some(digits) = lower.strip_prefix("0o") {
-        return radix_parse(digits, 8);
-    }
-    if let Some(digits) = lower.strip_prefix("0b") {
-        return radix_parse(digits, 2);
-    }
-    if cleaned.len() > 1
-        && cleaned.starts_with('0')
-        && cleaned.bytes().all(|b| b.is_ascii_digit())
-        && !cleaned.contains(['8', '9'])
-    {
-        return radix_parse(&cleaned[1..], 8);
-    }
-    cleaned.parse::<f64>().unwrap_or(f64::NAN)
-}
-
-/// Format a number the way a `.d.ts` writes it.
-pub(crate) fn format_number(value: f64) -> String {
-    if value.is_nan() {
-        return "NaN".to_string();
-    }
-    if value.is_infinite() {
-        return if value > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() };
-    }
-    let magnitude = value.abs();
-    if magnitude >= 1e21 || (magnitude != 0.0 && magnitude < 1e-6) {
-        let scientific = format!("{value:e}");
-        let (mantissa, exponent) = scientific.split_once('e').expect("Rust scientific notation");
-        let exponent: i32 = exponent.parse().expect("Rust scientific exponent");
-        return if exponent >= 0 {
-            format!("{mantissa}e+{exponent}")
-        } else {
-            format!("{mantissa}e{exponent}")
-        };
-    }
-    #[allow(clippy::float_cmp, clippy::cast_possible_truncation)]
-    if value.fract() == 0.0 {
-        // `{}` on an integral f64 prints a trailing `.0`; a `.d.ts` never does.
-        format!("{}", value as i128)
-    } else {
-        format!("{value}")
-    }
-}
+/// JavaScript number semantics, shared with the binder's member naming —
+/// `tsr_core::jsnum`, where the upstream anchors live.
+pub(crate) use tsr_core::jsnum::{format_number, numeric_value};
 
 /// Whether a type node is the `const` of `x as const`.
 ///

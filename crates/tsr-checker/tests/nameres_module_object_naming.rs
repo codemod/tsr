@@ -77,6 +77,7 @@ fn program<'a>(arena: &'a Arena, files: &[(&'static str, &str)]) -> Fixture<'a> 
         host.files.push((name, source_file.node_id.expect("a parsed file has an id")));
         bound = tsr_binder::bind_into(
             bound,
+            &arena,
             source_file,
             &nodes,
             tsr_binder::FileInfo { name: file_name, text: source },

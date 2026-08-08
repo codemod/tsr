@@ -24,6 +24,7 @@ fn type_of_annotation(source: &str) -> String {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -173,6 +174,7 @@ fn a_call_through_a_function_typed_value_resolves() {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

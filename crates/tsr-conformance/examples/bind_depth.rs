@@ -50,8 +50,9 @@ fn measure() {
                 file.content.clone(),
                 tsr_parser::ScriptKind::TypeScript,
             );
-            let depth = parsed.with_ast(|ast| {
+            let depth = parsed.with_ast_and_arena(|ast, arena| {
                 let bound = tsr_binder::bind(
+                    arena,
                     ast,
                     parsed.nodes(),
                     tsr_binder::FileInfo { name: &file.name, text: parsed.source() },

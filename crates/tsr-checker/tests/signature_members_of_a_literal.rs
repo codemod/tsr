@@ -47,12 +47,14 @@ fn type_of_last_annotation(source: &str) -> String {
 
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

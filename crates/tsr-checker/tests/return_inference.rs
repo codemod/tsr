@@ -30,6 +30,7 @@ fn type_of_declaration(source: &str, name: &str) -> String {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -145,12 +146,14 @@ fn type_of_declaration_with_promise(source: &str, name: &str) -> String {
     );
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib_file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: lib },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         parsed.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -208,12 +211,14 @@ fn type_of_declaration_with_generator(source: &str, name: &str) -> String {
     );
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib_file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: lib },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         parsed.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

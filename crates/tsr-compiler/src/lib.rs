@@ -226,7 +226,7 @@ impl<'a> Program<'a> {
     #[must_use]
     pub fn in_arena(arena: &'a Arena, options: ProgramOptions) -> Self {
         let mut program = Self::parse(arena, options);
-        program.bind_source_files();
+        program.bind_source_files(&arena);
         program
     }
 
@@ -355,7 +355,7 @@ impl<'a> Program<'a> {
             binder: BindResult::empty(),
             bound_file_count: 0,
         };
-        program.bind_source_files();
+        program.bind_source_files(&arena);
         program
     }
 
@@ -372,12 +372,13 @@ impl<'a> Program<'a> {
     /// Idempotent, as upstream's `file.IsBound()` guard makes it: only the files
     /// past `bound_file_count` are bound, so calling this twice binds nothing
     /// the second time.
-    pub fn bind_source_files(&mut self) {
+    pub fn bind_source_files(&mut self, arena: &'a Arena) {
         for index in self.bound_file_count..self.files.len() {
             let file = &self.files[index];
             let previous = std::mem::replace(&mut self.binder, BindResult::empty());
             self.binder = tsr_binder::bind_into(
                 previous,
+                arena,
                 file.source_file(),
                 &self.nodes,
                 FileInfo { name: file.file_name(), text: file.text() },
@@ -766,7 +767,7 @@ mod tests {
         );
         assert_eq!(program.bound_file_count(), 0, "parse does not bind");
         assert_eq!(program.binder().symbols().len(), 0);
-        program.bind_source_files();
+        program.bind_source_files(&arena);
         assert_eq!(program.bound_file_count(), 1);
         let after_one = program.binder().flow().len();
         assert!(after_one > 0);
@@ -781,7 +782,7 @@ mod tests {
         // symbol count is unchanged and the flow count doubles. Flow nodes are
         // appended unconditionally, so they are the part of a bind that a
         // repeat cannot hide.
-        program.bind_source_files();
+        program.bind_source_files(&arena);
         assert_eq!(program.binder().flow().len(), after_one, "a second bind adds nothing");
     }
 

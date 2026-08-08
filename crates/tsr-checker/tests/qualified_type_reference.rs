@@ -52,6 +52,7 @@ fn type_of_reference(source: &str, index: usize) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },

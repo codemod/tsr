@@ -18,6 +18,7 @@ fn type_of_initialiser(source: &str) -> String {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -84,6 +85,7 @@ fn an_unported_expression_form_is_error_not_any() {
     let source = "const x = 1 satisfies number;";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -110,6 +112,7 @@ fn identical_literals_are_one_interned_type() {
     let source = r#"const a = "x"; const b = "x"; const c = "y";"#;
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -137,6 +140,7 @@ fn the_intrinsics_that_print_alike_are_still_distinct_types() {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, "");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: "" },
@@ -156,6 +160,7 @@ fn a_literal_type_widens_to_its_primitive() {
     let source = r#"const x = "a";"#;
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -189,6 +194,7 @@ fn an_expression_is_typed_once_however_many_times_it_is_asked_for() {
     let source = r#"const x = "a";"#;
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -231,6 +237,7 @@ fn type_of_declaration(source: &str, name: &str) -> String {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -325,6 +332,7 @@ fn an_unported_type_node_is_an_error_type_not_an_any() {
     let source = "declare const x: keyof string;";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -372,6 +380,7 @@ fn a_symbols_type_is_computed_once_and_memoised() {
     let source = r#"const x = "a";"#;
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -423,6 +432,7 @@ fn an_unresolved_name_is_upstreams_any() {
     let source = "const a = nowhere;";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -473,6 +483,7 @@ fn a_declaration_kind_this_slice_does_not_port_is_an_error_type() {
     let source = "const { a } = { a: 1 };";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -686,6 +697,7 @@ fn a_type_parameter_is_its_own_named_type() {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -728,6 +740,7 @@ fn declared_type_of(source: &str, name: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -875,6 +888,7 @@ fn the_same_instantiation_written_twice_is_one_type() {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -1001,6 +1015,7 @@ fn type_of_nested_declaration(source: &str, name: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -1092,6 +1107,7 @@ fn type_of_super(source: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },
@@ -1204,6 +1220,7 @@ fn type_of_member(source: &str, owner: &str, member: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -1458,6 +1475,7 @@ fn a_shorthand_ambient_module_is_any_and_not_a_gap() {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty());
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -1525,6 +1543,7 @@ fn a_function_symbols_type_is_memoised_on_the_symbol() {
     let source = "function f(x: string) {}";
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -2138,6 +2157,7 @@ fn type_of_enum_member(source: &str, enum_name: &str, member_name: &str) -> Stri
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

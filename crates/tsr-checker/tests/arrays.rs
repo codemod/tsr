@@ -34,12 +34,14 @@ fn type_of_annotation_at(source: &str, index: usize) -> String {
 
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -91,12 +93,14 @@ fn an_array_type_is_the_same_type_as_the_generic_reference() {
     let file = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -200,12 +204,14 @@ fn a_global_array_of_the_wrong_arity_is_not_the_array_target() {
     let file = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib_file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: lib },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -231,6 +237,7 @@ fn without_a_global_array_an_array_type_is_a_gap() {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

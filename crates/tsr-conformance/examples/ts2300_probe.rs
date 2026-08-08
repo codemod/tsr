@@ -66,8 +66,9 @@ fn main() {
         println!("=== {label} ===");
         let parsed =
             ParsedFile::parse_with_script_kind((*source).to_string(), ScriptKind::TypeScript);
-        parsed.with_ast(|file| {
+        parsed.with_ast_and_arena(|file, arena| {
             let bound = tsr_binder::bind(
+                arena,
                 file,
                 parsed.nodes(),
                 tsr_binder::FileInfo { name: "probe.ts", text: parsed.source() },

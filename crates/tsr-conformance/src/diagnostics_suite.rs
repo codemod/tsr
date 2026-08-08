@@ -161,8 +161,9 @@ pub fn reported_for(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         let mut reported = parsed.diagnostics().to_vec();
         // The binder reports strict-mode and grammar diagnostics that the
         // parser does not, and they appear in the same baselines.
-        parsed.with_ast(|file| {
+        parsed.with_ast_and_arena(|file, arena| {
             let bound = tsr_binder::bind(
+                arena,
                 file,
                 parsed.nodes(),
                 tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },

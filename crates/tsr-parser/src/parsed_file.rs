@@ -172,6 +172,17 @@ impl ParsedFile {
         self.cell.with_dependent(|_owner, ast| f(ast.source_file, &ast.jsdoc))
     }
 
+    /// Run `f` over the tree and the arena it lives in.
+    ///
+    /// For callers that go on to *allocate* against the tree's lifetime — the
+    /// binder interns the few symbol names that are not source borrows.
+    pub fn with_ast_and_arena<R>(
+        &self,
+        f: impl for<'a> FnOnce(&'a SourceFile<'a>, &'a Arena) -> R,
+    ) -> R {
+        self.cell.with_dependent(|owner, ast| f(ast.source_file, &owner.arena))
+    }
+
     /// How many statements the file has, without exposing the tree.
     ///
     /// Convenience for callers that only need a summary.

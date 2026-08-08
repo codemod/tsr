@@ -138,6 +138,11 @@ const STACK_CHECK_INTERVAL: u32 = 32;
 // checkable against upstream line by line.
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Binder<'a, 'n> {
+    /// The arena symbol names live in — almost every name borrows from the
+    /// source, and the exceptions are the canonical numeric spellings
+    /// upstream's scanner computes into its token value
+    /// (`scanner.go:2194`, `jsnum.FromString(…).String()`).
+    arena: &'a tsr_core::Arena,
     /// Current and peak `bind()` recursion depth. Measured, not bounded; see the
     /// note above this struct and `bd tsr-el3.3`.
     depth: u32,
@@ -326,7 +331,11 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// precisely the set of fields that should survive, and letting the type
     /// system enumerate them means a field added later cannot be silently
     /// forgotten.
-    pub(crate) fn resuming(nodes: &'n NodeTable, previous: BindResult<'a>) -> Self {
+    pub(crate) fn resuming(
+        arena: &'a tsr_core::Arena,
+        nodes: &'n NodeTable,
+        previous: BindResult<'a>,
+    ) -> Self {
         let BindResult {
             max_depth,
             symbols,
@@ -367,6 +376,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         node_flow.resize(nodes.len(), None);
 
         Self {
+            arena,
             depth: 0,
             max_depth,
             // Carried across files: a second file must not re-synthesise it.
@@ -2689,7 +2699,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                             .then_some(JsDeclaration::ModuleExports);
                     }
                     if (is_module_exports_access(target) || is_exports_identifier(target))
-                        && access_name(left).is_some()
+                        && access_name(self.arena, left).is_some()
                     {
                         return Some(JsDeclaration::ExportsProperty);
                     }
@@ -2772,7 +2782,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                     return None;
                 }
                 let Node::BinaryExpression(binary) = node else { return None };
-                let name = access_name(binary.left?)?;
+                let name = access_name(self.arena, binary.left?)?;
                 let flags = if expression_is_alias(binary.right) {
                     SymbolFlags::ALIAS
                 } else {
@@ -2804,7 +2814,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                     return None;
                 }
                 let Node::CallExpression(call) = node else { return None };
-                let name = string_or_numeric_text(Node::from(call.arguments[1]))?;
+                let name = string_or_numeric_text(self.arena, Node::from(call.arguments[1]))?;
                 let module = self.module_symbol?;
                 let file = self.file_node;
                 Some(self.declare_into(
@@ -2897,8 +2907,10 @@ impl<'a, 'n> Binder<'a, 'n> {
         let symbol = self.initializer_symbol(symbol)?;
 
         let name = match node {
-            Node::BinaryExpression(binary) => access_name(binary.left?),
-            Node::CallExpression(call) => string_or_numeric_text(Node::from(call.arguments[1])),
+            Node::BinaryExpression(binary) => access_name(self.arena, binary.left?),
+            Node::CallExpression(call) => {
+                string_or_numeric_text(self.arena, Node::from(call.arguments[1]))
+            }
             _ => None,
         };
         // A computed name is late-bound; see `lib.rs`.
@@ -2943,7 +2955,7 @@ impl<'a, 'n> Binder<'a, 'n> {
                 let target = access_target(expression)?;
                 let outer = self.lookup_entity(target, container);
                 let outer = self.initializer_symbol(outer)?;
-                let name = access_name(expression)?;
+                let name = access_name(self.arena, expression)?;
                 self.symbols.get(outer).exports.get(name).copied()
             }
         }
@@ -3023,7 +3035,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             return None;
         }
         // A computed `this[k] = 1` is late-bound; see `lib.rs`.
-        let name = access_name(left)?;
+        let name = access_name(self.arena, left)?;
         let owner = self.owner?;
 
         // Upstream files a *static* member in the class's exports and an
@@ -3057,7 +3069,7 @@ impl<'a, 'n> Binder<'a, 'n> {
 
     /// The declared name, threading the file text the JSX case needs.
     fn declaration_name(&self, node: Node<'a>) -> Option<&'a str> {
-        declaration_name(node, self.nodes, self.source)
+        declaration_name(self.arena, node, self.nodes, self.source)
     }
 
     /// Create a symbol for `node` if it declares one.
@@ -3108,7 +3120,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         // (`bindPropertyOrMethodOrAccessor` -> `bindAnonymousDeclaration`).
         // Without it the declaration has no symbol at all and its members and
         // flow have nowhere to go.
-        if let Some(computed) = dynamic_name(node) {
+        if let Some(computed) = dynamic_name(self.arena, node) {
             let symbol = self.symbols.create(INTERNAL_COMPUTED, flags);
             self.symbols.get_mut(symbol).declarations.push(id);
             if flags.intersects(SymbolFlags::ENUM_MEMBER | SymbolFlags::CLASS_MEMBER) {
@@ -3781,7 +3793,7 @@ fn bindable_object_define_property_target(node: Node<'_>) -> Option<Expression<'
     {
         return None;
     }
-    if access_name(Expression::PropertyAccessExpression(callee)) != Some("defineProperty") {
+    if access_name_source(Expression::PropertyAccessExpression(callee)) != Some("defineProperty") {
         return None;
     }
     if !matches!(
@@ -3821,20 +3833,32 @@ fn computed_property_name(node: Node<'_>) -> Option<&tsr_ast::ComputedPropertyNa
 /// signed-numeric case (`[-1]`) is upstream's third static form and is not
 /// ported, because building the name needs an owned string where every name here
 /// borrows from the source.
-fn dynamic_name(node: Node<'_>) -> Option<&tsr_ast::ComputedPropertyName<'_>> {
+fn dynamic_name<'a>(
+    arena: &'a tsr_core::Arena,
+    node: Node<'a>,
+) -> Option<&'a tsr_ast::ComputedPropertyName<'a>> {
     let computed = computed_property_name(node)?;
-    computed_name(computed).is_none().then_some(computed)
+    computed_name(arena, computed).is_none().then_some(computed)
 }
 
 /// The text of a string or numeric literal, which is what a statically-named
 /// `Object.defineProperty` call and a bracketed access carry.
-fn string_or_numeric_text(node: Node<'_>) -> Option<&str> {
+fn string_or_numeric_text<'a>(arena: &'a tsr_core::Arena, node: Node<'a>) -> Option<&'a str> {
     match skip_parentheses(node) {
         Node::StringLiteral(literal) => Some(literal.text),
-        Node::NumericLiteral(literal) => Some(literal.text),
+        Node::NumericLiteral(literal) => Some(canonical_numeric(arena, literal.text)),
         Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text),
         _ => None,
     }
+}
+
+/// A numeric member name, spelled the way upstream's scanner canonicalises its
+/// token value (`scanner.go:2194`, `jsnum.FromString(…).String()`): `0b11`
+/// binds as `3`, `1.0` as `1`. The node keeps the source spelling for the
+/// printer; the *name* is the value's.
+fn canonical_numeric<'a>(arena: &'a tsr_core::Arena, text: &'a str) -> &'a str {
+    let canonical = tsr_core::jsnum::canonical_numeric_text(text);
+    if canonical == text { text } else { arena.alloc_str(&canonical) }
 }
 
 /// Whether an expression is a *name*: an identifier, or a dotted chain of them.
@@ -3853,7 +3877,7 @@ fn is_entity_name_expression(expression: Expression<'_>, allow_js: bool) -> bool
         }
         Expression::ElementAccessExpression(access) => {
             allow_js
-                && access_name(expression).is_some()
+                && access_name_source(expression).is_some()
                 && access
                     .expression
                     .is_some_and(|target| is_entity_name_expression(target, allow_js))
@@ -3890,7 +3914,10 @@ fn access_target(expression: Expression<'_>) -> Option<Expression<'_>> {
 /// Upstream's `GetElementOrPropertyAccessName`: an identifier for `a.b`, and a
 /// string or numeric literal for `a["b"]`. `a[k]` names nothing the binder can
 /// know, which is the late-bound case.
-fn access_name(expression: Expression<'_>) -> Option<&str> {
+/// [`access_name`] without canonical numeric spelling, for the free-function
+/// callers that only compare against identifier names (`defineProperty`,
+/// `exports`) or test presence — a numeric spelling can never equal those.
+fn access_name_source(expression: Expression<'_>) -> Option<&str> {
     match expression {
         Expression::PropertyAccessExpression(access) => match access.name? {
             tsr_ast::MemberName::Identifier(identifier) => Some(identifier.text),
@@ -3908,6 +3935,24 @@ fn access_name(expression: Expression<'_>) -> Option<&str> {
     }
 }
 
+fn access_name<'a>(arena: &'a tsr_core::Arena, expression: Expression<'a>) -> Option<&'a str> {
+    match expression {
+        Expression::PropertyAccessExpression(access) => match access.name? {
+            tsr_ast::MemberName::Identifier(identifier) => Some(identifier.text),
+            tsr_ast::MemberName::PrivateIdentifier(_) => None,
+        },
+        Expression::ElementAccessExpression(access) => {
+            match skip_parentheses(Node::from(access.argument_expression?)) {
+                Node::StringLiteral(literal) => Some(literal.text),
+                Node::NumericLiteral(literal) => Some(canonical_numeric(arena, literal.text)),
+                Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Whether `expression` is the identifier `exports` (`IsExportsIdentifier`).
 fn is_exports_identifier(expression: Expression<'_>) -> bool {
     matches!(expression, Expression::Identifier(identifier) if identifier.text == "exports")
@@ -3917,7 +3962,7 @@ fn is_exports_identifier(expression: Expression<'_>) -> bool {
 fn is_module_exports_access(expression: Expression<'_>) -> bool {
     let Some(target) = access_target(expression) else { return false };
     matches!(target, Expression::Identifier(identifier) if identifier.text == "module")
-        && access_name(expression) == Some("exports")
+        && access_name_source(expression) == Some("exports")
 }
 
 /// Whether a file is a declaration file, and so an ambient context.
@@ -4111,18 +4156,23 @@ fn name_node_of(node: Node<'_>) -> Option<NodeId> {
     }
 }
 
-fn declaration_name<'a>(node: Node<'a>, nodes: &NodeTable, source: &'a str) -> Option<&'a str> {
-    fn from_property_name(name: tsr_ast::PropertyName<'_>) -> Option<&str> {
+fn declaration_name<'a>(
+    arena: &'a tsr_core::Arena,
+    node: Node<'a>,
+    nodes: &NodeTable,
+    source: &'a str,
+) -> Option<&'a str> {
+    let from_property_name = |name: tsr_ast::PropertyName<'a>| -> Option<&'a str> {
         match name {
             tsr_ast::PropertyName::Identifier(i) => Some(i.text),
             tsr_ast::PropertyName::StringLiteral(s) => Some(s.text),
-            tsr_ast::PropertyName::NumericLiteral(n) => Some(n.text),
+            tsr_ast::PropertyName::NumericLiteral(n) => Some(canonical_numeric(arena, n.text)),
             tsr_ast::PropertyName::PrivateIdentifier(p) => Some(p.text),
-            tsr_ast::PropertyName::ComputedPropertyName(computed) => computed_name(computed),
+            tsr_ast::PropertyName::ComputedPropertyName(computed) => computed_name(arena, computed),
             tsr_ast::PropertyName::BigIntLiteral(b) => Some(b.text),
             tsr_ast::PropertyName::NoSubstitutionTemplateLiteral(t) => Some(t.text),
         }
-    }
+    };
 
     match node {
         Node::FunctionDeclaration(n) => n.name.map(|i| i.text),
@@ -4200,15 +4250,29 @@ fn jsx_attribute_name<'a>(
 /// the checker, so the binder declares nothing and the member is invisible until
 /// then.
 ///
-/// Upstream also handles a signed numeric literal (`[-1]`), building the name by
-/// concatenating the operator with the operand. That needs an owned string where
-/// every name here is a borrow from the source, and `[-1]` as a property name is
-/// vanishingly rare, so it is left late-bound instead.
-fn computed_name<'a>(computed: &'a tsr_ast::ComputedPropertyName<'a>) -> Option<&'a str> {
+/// Upstream's third static form, a signed numeric literal (`[-1]`), builds the
+/// name by concatenating the operator with the operand
+/// (`ast/utilities.go:3170`); the arena supplies the owned string that used to
+/// keep it late-bound here.
+fn computed_name<'a>(
+    arena: &'a tsr_core::Arena,
+    computed: &'a tsr_ast::ComputedPropertyName<'a>,
+) -> Option<&'a str> {
     match computed.expression? {
         Expression::StringLiteral(literal) => Some(literal.text),
         Expression::NoSubstitutionTemplateLiteral(literal) => Some(literal.text),
-        Expression::NumericLiteral(literal) => Some(literal.text),
+        Expression::NumericLiteral(literal) => Some(canonical_numeric(arena, literal.text)),
+        Expression::PrefixUnaryExpression(unary)
+            if matches!(unary.operator.kind, SyntaxKind::MinusToken | SyntaxKind::PlusToken) =>
+        {
+            let Some(Expression::NumericLiteral(literal)) = unary.operand else { return None };
+            let operand = canonical_numeric(arena, literal.text);
+            if unary.operator.kind == SyntaxKind::MinusToken {
+                Some(arena.alloc_str(&format!("-{operand}")))
+            } else {
+                Some(operand)
+            }
+        }
         _ => None,
     }
 }

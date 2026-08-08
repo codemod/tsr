@@ -19,6 +19,7 @@ fn type_of_binding(source: &str, name: &str) -> String {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

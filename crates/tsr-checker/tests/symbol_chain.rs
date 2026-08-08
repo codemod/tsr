@@ -80,6 +80,7 @@ fn declared_type_at(
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },
@@ -208,6 +209,7 @@ fn a_namespace_local_has_no_container_and_stays_bare() {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },
@@ -245,6 +247,7 @@ fn an_intrinsic_is_not_a_name_the_chain_can_touch() {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },
@@ -268,6 +271,7 @@ fn the_parent_is_looked_up_as_a_namespace() {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },

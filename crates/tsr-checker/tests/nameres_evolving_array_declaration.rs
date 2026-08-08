@@ -53,6 +53,7 @@ fn bind<'a>(arena: &'a Arena, source: &str) -> Fixture<'a> {
     );
     let bound = tsr_binder::bind_into(
         BindResult::empty(),
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "/test.ts", text: source },

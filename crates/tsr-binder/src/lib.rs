@@ -723,8 +723,13 @@ pub struct FileInfo<'a> {
 
 /// Bind a parsed file.
 #[must_use]
-pub fn bind<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable, info: FileInfo<'a>) -> BindResult<'a> {
-    bind_into(BindResult::empty(), file, nodes, info)
+pub fn bind<'a>(
+    arena: &'a tsr_core::Arena,
+    file: &'a SourceFile<'a>,
+    nodes: &NodeTable,
+    info: FileInfo<'a>,
+) -> BindResult<'a> {
+    bind_into(BindResult::empty(), arena, file, nodes, info)
 }
 
 /// Bind a file **into what the program's earlier files produced**.
@@ -746,9 +751,10 @@ pub fn bind<'a>(file: &'a SourceFile<'a>, nodes: &NodeTable, info: FileInfo<'a>)
 #[must_use]
 pub fn bind_into<'a>(
     previous: BindResult<'a>,
+    arena: &'a tsr_core::Arena,
     file: &'a SourceFile<'a>,
     nodes: &NodeTable,
     info: FileInfo<'a>,
 ) -> BindResult<'a> {
-    binder::Binder::resuming(nodes, previous).bind_source_file(file, info)
+    binder::Binder::resuming(arena, nodes, previous).bind_source_file(file, info)
 }

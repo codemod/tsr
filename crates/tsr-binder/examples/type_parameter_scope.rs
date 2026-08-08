@@ -25,6 +25,7 @@ fn main() {
         let arena = Arena::new();
         let parsed = tsr_parser::parse(&arena, source);
         let bound = tsr_binder::bind(
+            &arena,
             parsed.source_file,
             &parsed.nodes,
             tsr_binder::FileInfo { name: "probe.ts", text: source },

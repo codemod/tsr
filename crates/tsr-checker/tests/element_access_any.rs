@@ -27,6 +27,7 @@ fn type_of_at(source: &str, index: usize) -> String {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -72,6 +73,7 @@ fn type_of_first_return(source: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

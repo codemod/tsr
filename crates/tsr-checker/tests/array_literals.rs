@@ -28,12 +28,14 @@ fn type_of_initialiser(source: &str) -> String {
     );
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -74,12 +76,14 @@ fn an_empty_array_literal_is_undefined_when_strict_null_checks_is_off() {
     let file = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -136,12 +140,14 @@ fn an_array_literal_is_the_same_type_as_the_annotation_would_give() {
     let file = tsr_parser::parse_into(&arena, source, options, &mut nodes, &mut node_map);
     let bound = tsr_binder::bind_into(
         tsr_binder::BindResult::empty(),
+        &arena,
         lib.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "lib.d.ts", text: LIB },
     );
     let bound = tsr_binder::bind_into(
         bound,
+        &arena,
         file.source_file,
         &nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

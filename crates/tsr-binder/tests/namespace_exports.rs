@@ -20,6 +20,7 @@ fn resolves(source: &str, name: &str, meaning: SymbolFlags) -> bool {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },

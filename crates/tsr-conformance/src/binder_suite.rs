@@ -216,11 +216,32 @@ impl Suite for BinderSymbols {
                     // Accepting any suffix is the honest approximation; it weakens the
                     // test slightly, since `C.m` would also match a `C.m` nested
                     // somewhere else entirely.
+                    // The binder names a numeric member by its canonical value
+                    // (`0xF00D` binds as `61453`, matching upstream's token
+                    // value), but the baseline prints `symbolToString`, which
+                    // spells the *declaration's written name*
+                    // (`Symbol(Nums.0xF00D, …)`). Offer each written spelling
+                    // beside the canonical one.
+                    let written = written_name_spellings(&program, symbol, |d| file.contains(d));
                     for full in
                         display_names(bound, nodes, id, &names_by_declaration, &unit.content)
                     {
                         for offset in dotted_suffixes(&full) {
                             ours.entry(full[offset..].to_string()).or_default().extend(&declared);
+                        }
+                        for spelling in &written {
+                            if spelling.as_str() == symbol.name {
+                                continue;
+                            }
+                            let respelled = match full.rfind('.') {
+                                Some(dot) => format!("{}.{spelling}", &full[..dot]),
+                                None => spelling.clone(),
+                            };
+                            for offset in dotted_suffixes(&respelled) {
+                                ours.entry(respelled[offset..].to_string())
+                                    .or_default()
+                                    .extend(&declared);
+                            }
                         }
                     }
                 }
@@ -734,6 +755,55 @@ fn is_numeric_literal(text: &str) -> bool {
     })
 }
 
+/// The numeric spellings a symbol's declarations were written with.
+///
+/// The binder's name is the canonical value; `symbolToString` — what the
+/// baseline prints — spells the declaration's name node as written. Only
+/// numeric names can differ between the two.
+fn written_name_spellings(
+    program: &tsr_compiler::Program<'_>,
+    symbol: &tsr_binder::Symbol<'_>,
+    in_file: impl Fn(tsr_ast::NodeId) -> bool,
+) -> Vec<String> {
+    let mut spellings = Vec::new();
+    for declaration in &symbol.declarations {
+        if !in_file(*declaration) {
+            continue;
+        }
+        let Some(node) = program.node_map().get(*declaration) else { continue };
+        let Some(name) = declared_property_name(node) else { continue };
+        let text = match name {
+            tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
+            tsr_ast::PropertyName::ComputedPropertyName(computed) => match computed.expression {
+                Some(tsr_ast::Expression::NumericLiteral(literal)) => literal.text.to_string(),
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if !spellings.contains(&text) {
+            spellings.push(text);
+        }
+    }
+    spellings
+}
+
+/// The property name a declaration was written with, for the kinds that carry
+/// one.
+fn declared_property_name<'a>(node: tsr_ast::Node<'a>) -> Option<tsr_ast::PropertyName<'a>> {
+    use tsr_ast::Node;
+    match node {
+        Node::PropertyDeclaration(n) => Some(n.name),
+        Node::PropertySignatureDeclaration(n) => Some(n.name),
+        Node::MethodDeclaration(n) => Some(n.name),
+        Node::MethodSignatureDeclaration(n) => Some(n.name),
+        Node::GetAccessorDeclaration(n) => Some(n.name),
+        Node::SetAccessorDeclaration(n) => Some(n.name),
+        Node::EnumMember(n) => Some(n.name),
+        Node::PropertyAssignment(n) => Some(n.name),
+        _ => None,
+    }
+}
+
 /// Resolve an `import x = a.b.c` alias's target through the binder's tables.
 ///
 /// `None` for anything that is not an entity-name import-equals in the current
@@ -888,6 +958,7 @@ mod tests {
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty(), "the snippet should parse cleanly");
         let bound = tsr_binder::bind(
+            &arena,
             parsed.source_file,
             &parsed.nodes,
             tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -942,6 +1013,7 @@ mod tests {
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty(), "the snippet should parse cleanly");
         let bound = tsr_binder::bind(
+            &arena,
             parsed.source_file,
             &parsed.nodes,
             tsr_binder::FileInfo { name: "a.ts", text: source },

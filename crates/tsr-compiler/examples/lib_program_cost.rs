@@ -134,7 +134,13 @@ fn time_program(files: &[(String, String)]) -> (std::time::Duration, usize, usiz
             &mut nodes,
             &mut node_map,
         );
-        bound = tsr_binder::bind_into(bound, parsed.source_file, &nodes, FileInfo { name, text });
+        bound = tsr_binder::bind_into(
+            bound,
+            &arena,
+            parsed.source_file,
+            &nodes,
+            FileInfo { name, text },
+        );
     }
     let elapsed = start.elapsed();
     (elapsed, nodes.len(), bound.globals().len())

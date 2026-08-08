@@ -14,6 +14,7 @@ fn type_of_declaration(src: &str, name: &str) -> String {
     let parsed = tsr_parser::parse(&arena, src);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: src },
@@ -31,6 +32,7 @@ fn type_of_initialiser(src: &str) -> String {
     let parsed = tsr_parser::parse(&arena, src);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: src },

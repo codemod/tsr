@@ -114,8 +114,14 @@ fn main() {
     let bound: Vec<_> = parsed
         .iter()
         .zip(&sources)
-        .map(|(file, (name, text))| {
-            tsr_binder::bind(file.source_file, &file.nodes, tsr_binder::FileInfo { name, text })
+        .zip(&arenas)
+        .map(|((file, (name, text)), arena)| {
+            tsr_binder::bind(
+                arena,
+                file.source_file,
+                &file.nodes,
+                tsr_binder::FileInfo { name, text },
+            )
         })
         .collect();
 

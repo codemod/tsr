@@ -1490,6 +1490,7 @@ mod tests {
         let parsed = tsr_parser::parse(&arena, source);
         assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
         let bound = tsr_binder::bind(
+            &arena,
             parsed.source_file,
             &parsed.nodes,
             tsr_binder::FileInfo { name: "t.ts", text: source },
@@ -1514,6 +1515,7 @@ mod tests {
             tsr_parser::parse_with_script_kind(&arena, source, tsr_parser::ScriptKind::Tsx);
         assert!(parsed.diagnostics.is_empty(), "fixture must parse: {source:?}");
         let bound = tsr_binder::bind(
+            &arena,
             parsed.source_file,
             &parsed.nodes,
             tsr_binder::FileInfo { name: "t.tsx", text: source },

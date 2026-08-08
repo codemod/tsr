@@ -33,7 +33,8 @@ fn bind_program<'a>(
     for (name, text) in files {
         let file = parse_into(arena, text, ParseOptions::for_file(name), nodes, node_map);
         let root = file.source_file.node_id.expect("the source file is registered");
-        result = tsr_binder::bind_into(result, file.source_file, nodes, FileInfo { name, text });
+        result =
+            tsr_binder::bind_into(result, &arena, file.source_file, nodes, FileInfo { name, text });
         parsed.push(File { name, root, nodes: file.node_range });
     }
     (result, parsed)
@@ -280,6 +281,7 @@ fn a_file_bound_alone_resolves_exactly_as_it_always_did() {
         "declare var only: number; function f() { const nested = 1; return only + nested; }";
     let parsed = tsr_parser::parse(&arena, source);
     let result = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         FileInfo { name: "a.ts", text: source },
@@ -317,6 +319,7 @@ fn a_module_bound_alone_has_no_globals_at_all() {
     let source = "export const exported = 1;";
     let parsed = tsr_parser::parse(&arena, source);
     let result = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         FileInfo { name: "m.ts", text: source },

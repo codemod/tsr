@@ -60,8 +60,9 @@ fn run(shape: &str, depth: usize, stage: &str) {
         std::hint::black_box(parsed.diagnostics().len());
         return;
     }
-    parsed.with_ast(|file| {
+    parsed.with_ast_and_arena(|file, arena| {
         let bound = tsr_binder::bind(
+            arena,
             file,
             parsed.nodes(),
             tsr_binder::FileInfo { name: "stress.ts", text: parsed.source() },

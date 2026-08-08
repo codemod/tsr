@@ -21,6 +21,7 @@ fn type_of_declaration(source: &str, name: &str) -> String {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -111,6 +112,7 @@ fn typeof_this_stays_a_gap_while_typeof_a_name_does_not() {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty());
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -148,6 +150,7 @@ fn typeof_a_parameter_prints_as_written_inside_its_signature() {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty());
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -181,6 +184,7 @@ fn typeof_in_parameter_position_prints_as_written_too() {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty());
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

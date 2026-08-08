@@ -18,6 +18,7 @@
 
 pub mod arena;
 pub mod index;
+pub mod jsnum;
 pub mod line_map;
 pub mod options;
 pub mod side_table;

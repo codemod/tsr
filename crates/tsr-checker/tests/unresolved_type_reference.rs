@@ -19,6 +19,7 @@ fn type_of_annotation(source: &str) -> String {
     let parsed = tsr_parser::parse(&arena, source);
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },
@@ -104,6 +105,7 @@ fn an_unresolved_operand_still_propagates_as_a_gap() {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "t.ts", text: source },

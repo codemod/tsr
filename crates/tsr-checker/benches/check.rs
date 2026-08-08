@@ -83,6 +83,7 @@ fn parse_bind_check(name: &str, source: &str) -> usize {
     };
     let parsed = tsr_parser::parse_with_options(&arena, source, options);
     let bound = tsr_binder::bind(
+        &arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name, text: source },

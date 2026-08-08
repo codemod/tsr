@@ -371,8 +371,9 @@ fn main() {
                     // separates a declaration name from an object-literal key.
                     let parsed =
                         tsr_parser::ParsedFile::parse_with_script_kind(unit.content.clone(), kind);
-                    parsed.with_ast(|file| {
+                    parsed.with_ast_and_arena(|file, arena| {
                         let _bound = tsr_binder::bind(
+                            arena,
                             file,
                             parsed.nodes(),
                             tsr_binder::FileInfo { name: &unit.name, text: parsed.source() },
