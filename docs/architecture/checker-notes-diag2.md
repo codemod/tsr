@@ -4043,3 +4043,56 @@ read-only through its alias symbol, which this rule does not follow),
 `intersectionTypeReadonly` and `intersectionsAndReadonlyProperties` (the
 `CheckFlagsReadonly` row, named as expected to stay short), and
 `incrementOperatorWithEnumType` (`E.a++` on an enum member).
+
+---
+
+## 54. `diagreach.rs` — the number this workstream had never measured
+
+Eleven builds this session ended the same way: a row of 12–16 cases converting
+3, 1, 3, 1. §53 is the extreme — **71 right lines for one conversion**. The
+cause is always the same and §2 named it: *the single-code column says which
+code a case is blocked on, not how many of that code the case needs*, and a case
+blocked by TS2540 **and** TS2322 appears in neither of their sole-obstacle rows.
+
+`examples/diagreach.rs` (new) asks the complementary question. A case counts
+when
+
+- it reports **nothing** the baseline does not, and
+- every diagnostic it is missing carries a code some rule in this port
+  **already emits**.
+
+Such a case needs no new rule at all — only the rules it already triggers,
+reporting more completely.
+
+```
+cases reachable by deepening existing rules: 1,334
+```
+
+**1,334 of the 4,300 still failing**, against 1,188 passing. That is the largest
+single number this workstream has produced and it had never been taken.
+
+```
+== per code: which RULE to deepen ==
+TS2322  548     TS2345  138     TS2339  128     TS2304   88     TS2741   81
+TS2454   58     TS2353   52     TS2554   37     TS2564   36     TS2411   34
+TS2352   32     TS7006   28     TS2416   27     TS2430   26     TS2365   21
+```
+
+### What it changes about the board
+
+**It does not contradict §5's TS2322 refusal — it prices it.** 548 of the 1,334
+want TS2322 lines this port does not emit, and the reason it does not emit them
+is the structural relation and the members table, exactly as recorded. What is
+new is the *size*: the assignability family alone is worth more cases than the
+whole suite currently passes.
+
+**And 786 of the 1,334 do not involve TS2322 at all.** The second tier —
+TS2345 138, TS2339 128, TS2304 88, TS2741 81 — is the same subsystem seen from
+four more doors, but TS2304 (88), TS2454 (58), TS2554 (37), TS2564 (36) and
+TS7006 (28) are **not**: those five rules are incomplete for reasons already
+written down in their own sections, and none of them needs the relation.
+
+**The instrument to run first from now on is this one**, and `diaggap.rs`'s
+single-code column drops to what it always was — an ordering over *new* rules.
+`diagmissing.rs` then says which lines a chosen rule is short, and `diagcase.rs`
+reads one.
