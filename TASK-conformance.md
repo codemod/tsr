@@ -1,14 +1,22 @@
 THIS FILE IS THE NON-CHECKER, NON-DIAGNOSTICS CONFORMANCE WORKSTREAM'S HANDOFF.
 
-CURRENT PROGRESS (2026-08-08, twelfth session, measured at `814fd4d`)
+CURRENT PROGRESS (2026-08-08, thirteenth session on main — the binder-symbols push)
 
   parser_typescript      5,031/5,031 = 100.00%
   printer_round_trip   11,776/11,776 = 100.00% (was 11,755/11,778 — COMPLETE;
                                                 two error-recovery cases became
                                                 faithful parse-diagnostic skips)
-  binder_symbols          8,411/8,473 = 99.27% (was 8,310/8,473 — alias
-                                                transparency, canonical numeric
-                                                member names, +101 cases)
+  binder_symbols          8,422/8,461 = 99.54% (was 8,310/8,473; the thirteenth
+                                                session added late-bound bracket
+                                                spellings, const-propagated
+                                                computed names, export-default
+                                                naming, module-specifier and
+                                                namespace-import transparency,
+                                                exact unit pairing, and the
+                                                reserved-word parser fidelity
+                                                that moved 12 error-recovery
+                                                cases out of the population
+                                                faithfully)
   dts_emit                  333/374  = 89.04%  (was 327/374; +6 this session)
   dts_shape                860/1,008 = 85.32%  (was 859/1,007; the `!!!!`
                                                 marker fix moved one case in)
@@ -64,13 +72,16 @@ What remains, classified (from dts_failures + the binder snapshot at 8dcdc71):
   resolves ambient-module targets (privacyGloImport), and line counting honors
   CR/LS/PS breaks (allowUnescapedParagraphAndLineSeparators…).
 
-  - binder_symbols 62 failures: ~~numeric-name canonicalization~~ LANDED at
-    `2c3de45` (`bd tsr-1` closed) — bind/bind_into take the compilation's
-    arena and numeric member names bind under their canonical value, with the
-    suite indexing written spellings beside them; computed-name constant
-    folding (checker late-binding),
-    export= augmentation targets, JSDoc @overload declaration lists, escaped/
-    unicode name decodings, and a long tail of singles.
+  - binder_symbols 39 failures, all filed: the JSDoc declaration family
+    (~10, `bd tsr-2` — typedef/callback/template/overload lines need the
+    JSDocTable plumbed into bind, the arena precedent shows the shape), the
+    augmentation-of-reexport family (~8, `bd tsr-3` — checker-owned merge,
+    the namespace_import_target seam is where a transparency layer would go),
+    late-bound expando/contextual members (~6, `bd tsr-4` — one case's
+    generated-Go baseline disagrees with a plain reading of
+    GetPropertyNameForPropertyNameNode's signed arm; resolve against the
+    oracle first), and singles (unicode JSX attributes, ramdaTools type-alias
+    scoping, moduleElementsInWrongContext recovery lines).
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
 tsconfig/jsconfig files and walks actual program roots and dependencies, so the
