@@ -256,3 +256,37 @@ subsystem-scale (temporal 400 = §53 residue + namespace types;
 longObjectInstantiationChain3 166 = generic-alias body instantiation;
 inferTypePredicates 158; jsdocTemplateTag6 127; dependent
 destructuring 127; instanceof-hasInstance 96 = narrowing legs).
+
+
+ADDENDUM AFTER BUILD 135 (84.33%):
+
+Builds 127-135: +623 more right lines (403,242 at 131 → 403,865), all
+zero-adverse or residue-owned:
+  - §74 generic construct inference (+30); §74.1 order refused (-2).
+  - §75 generic contextual signatures uninstantiated (+49).
+  - §76 family: destructuring tuple contexts, index-correlated slot
+    walk (+196/+3/+5) — three falsifiers each became a measured gate.
+  - §71.2 nested pattern rendering (+89).
+  - §77 SINGLE-QUOTE-GATED written-annotation reuse (+370, ZERO
+    adverse — largest zero-cost build since §64) + §77.1 mint spelling
+    (+53) + §77.3 member-name quotes (+54). The old blanket-reuse
+    refusal's diagnosis was half-right and the gate is the fix.
+  - §77.2 union WRITTEN ORDER refused TWICE (35:249, then 0:20 with
+    the mechanism located: the order-wanting unions are built by
+    OPTIONALITY and narrowing rebuilds, not the annotation mint).
+
+PROCESS: the §88 byte-identity trap fired TWICE this window through
+my own git pull --rebase (the parallel session moved checker_types
++57 and +60 under me); both caught by stash/re-accept/re-measure.
+One shipped-red landing (build 127) corrected in follow-up; gates are
+now READ before the landing commit, separate commands.
+
+REMAINING quote-family residue (~228): union order (optionality
+builder, §52.1 site-sensitivity), aliased-condition discriminant
+narrowing (controlFlowAliasing 77), readonly const-context inference
+(inferFromNestedSameShapeTuple).
+
+NEXT HEADS on the shape census: true|boolean 97 (best-common-type
+freshness retention — subsystem), T|any residue, temporal 400 (§53
+residue + namespace types), generic-alias body instantiation
+(longObjectInstantiationChain3 166 + Omit/merge).
