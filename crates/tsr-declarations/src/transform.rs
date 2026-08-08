@@ -862,7 +862,10 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         jsdoc_annotation: Option<TypeNode<'a>>,
     ) -> &'a tsr_ast::VariableDeclaration<'a> {
         let host = LiteralConstHost::Variable(declaration, is_const);
-        let initializer = self.ensure_no_initializer(host);
+        // A JSDoc `@type` is a written annotation: it wins over the
+        // literal-const initializer form just as a written one would.
+        let initializer =
+            if jsdoc_annotation.is_some() { None } else { self.ensure_no_initializer(host) };
         let annotation = declaration
             .r#type
             .map(|r#type| self.transform_written_type(r#type))
@@ -1556,7 +1559,15 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     ) -> Option<TypeNode<'a>> {
         let source = self.options.source_text?;
         let text = &comment[start..end];
-        if text.contains(['\n', '\r']) || text.trim().is_empty() {
+        if text.trim().is_empty() {
+            return None;
+        }
+        // A multi-line braced text is real type syntax only when its
+        // continuation lines carry no `*` decoration; stripping decorations
+        // would break the offset the graft depends on.
+        if text.contains(['\n', '\r'])
+            && text.lines().skip(1).any(|line| line.trim_start().starts_with('*'))
+        {
             return None;
         }
         let comment_offset = (comment.as_ptr() as usize).checked_sub(source.as_ptr() as usize)?;
@@ -1598,19 +1609,42 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             let end = start + close + 2;
             cursor = end;
             let comment = &source[start..end];
+            // Comment ownership (`recursiveTypeReferences2` pins all four
+            // arms): an alias replays its consecutive typedef-comment run only
+            // when the run is followed by a blank line or end of input —
+            // otherwise the comments are the following code's leading trivia
+            // (a member's JSDoc, a `@type` comment) and replay there or not at
+            // all. Owning aliases take a zero-width span at the run's end so
+            // ordinary replay walks the whole run; the rest take a zero span.
+            let run_end = typedef_run_end(source, end);
+            let span = if followed_by_blank_line(source, run_end) {
+                let position = u32::try_from(run_end).unwrap_or(0);
+                Span::new(position, position)
+            } else {
+                Span::new(0, 0)
+            };
             if let Some(range) = jsdoc_braced_range(comment, "typedef") {
                 let after = &comment[range.1 + 1..];
                 let name_start = range.1 + 1 + (after.len() - after.trim_start().len());
                 let Some(name) = identifier_at(comment, name_start) else { continue };
-                let Some(r#type) = self.graft_jsdoc_range(comment, range) else { continue };
-                let alias = self.jsdoc_alias(&name, r#type, comment, is_module);
+                // `@typedef {Object}` plus `@property` tags is JSDoc's object
+                // literal spelling, and the tags are the members.
+                let braced = comment[range.0..range.1].trim();
+                let r#type = if braced.eq_ignore_ascii_case("object") {
+                    self.jsdoc_property_object_type(comment)
+                        .or_else(|| self.graft_jsdoc_range(comment, range))
+                } else {
+                    self.graft_jsdoc_range(comment, range)
+                };
+                let Some(r#type) = r#type else { continue };
+                let alias = self.jsdoc_alias(&name, r#type, comment, is_module, span);
                 result.push((start, alias));
             } else if let Some(name) = jsdoc_tag_text(comment, "callback") {
                 if identifier_at(&name, 0).as_deref() != Some(name.as_str()) {
                     continue;
                 }
                 let Some(r#type) = self.jsdoc_callback_type(comment) else { continue };
-                let alias = self.jsdoc_alias(&name, r#type, comment, is_module);
+                let alias = self.jsdoc_alias(&name, r#type, comment, is_module, span);
                 result.push((start, alias));
             }
         }
@@ -1623,10 +1657,8 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         r#type: TypeNode<'a>,
         comment: &'a str,
         is_module: bool,
+        span: Span,
     ) -> Statement<'a> {
-        // A zero span: the alias is hoisted away from its comment, and upstream
-        // does not replay the declaring `@typedef` block above it.
-        let span = Span::new(0, 0);
         let type_parameters = self.jsdoc_template_parameters(comment, span);
         let text = self.factory.alloc_str(name);
         let name = self.factory.identifier(text, span);
@@ -1694,6 +1726,35 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         self.factory.slice(&parameters)
     }
 
+    /// The object type an `@typedef {Object}` block declares through its
+    /// `@property`/`@prop` tags, built as text and grafted.
+    fn jsdoc_property_object_type(&mut self, comment: &'a str) -> Option<TypeNode<'a>> {
+        let source = self.options.source_text?;
+        let mut properties = jsdoc_tagged_types(comment, "@property");
+        properties.extend(jsdoc_tagged_types(comment, "@prop "));
+        if properties.is_empty() {
+            return None;
+        }
+        let mut text = String::from("{ ");
+        for (range, name, optional) in properties {
+            text.push_str(&name);
+            if optional {
+                text.push('?');
+            }
+            text.push_str(": ");
+            text.push_str(&comment[range.0..range.1]);
+            text.push_str("; ");
+        }
+        text.push('}');
+        if text.contains(['\n', '\r']) {
+            return None;
+        }
+        let offset = (comment.as_ptr() as usize).checked_sub(source.as_ptr() as usize)?;
+        let padded = format!("{}{}", " ".repeat(offset), text);
+        let padded = self.factory.alloc_str(&padded);
+        self.factory.parse_grafted_type(padded)
+    }
+
     /// The function type a `@callback` block declares, built from its `@param`
     /// tags and `@returns`, then parsed like any other grafted type.
     fn jsdoc_callback_type(&mut self, comment: &'a str) -> Option<TypeNode<'a>> {
@@ -1703,12 +1764,20 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             if index > 0 {
                 text.push_str(", ");
             }
+            // `@param {...T} args` is JSDoc's rest-parameter spelling; the
+            // dots move onto the parameter and the element type stays as
+            // written (`callbackTagVariadicType` keeps `...args: string`).
+            let mut r#type = &comment[range.0..range.1];
+            if let Some(rest) = r#type.strip_prefix("...") {
+                text.push_str("...");
+                r#type = rest;
+            }
             text.push_str(&name);
             if optional {
                 text.push('?');
             }
             text.push_str(": ");
-            text.push_str(&comment[range.0..range.1]);
+            text.push_str(r#type);
         }
         text.push_str(") => ");
         match jsdoc_braced_range(comment, "returns")
@@ -2791,6 +2860,36 @@ fn statement_modifiers<'a>(statement: &Statement<'a>) -> Option<&'a [ModifierLik
 ///
 /// Returning one comment is intentional: an intervening non-internal comment
 /// prevents an older `@internal` comment from being attached to the declaration.
+/// The end of the consecutive typedef/callback comment run continuing at
+/// `from` (the end of a comment): each further comment must be separated by
+/// whitespace without a blank line and itself declare a typedef or callback.
+fn typedef_run_end(source: &str, mut from: usize) -> usize {
+    loop {
+        let rest = &source[from..];
+        let trimmed = rest.trim_start();
+        let gap_len = rest.len() - trimmed.len();
+        if rest[..gap_len].matches('\n').count() > 1 || !trimmed.starts_with("/**") {
+            return from;
+        }
+        let Some(close) = trimmed.find("*/") else { return from };
+        let comment = &trimmed[..close + 2];
+        if jsdoc_braced_range(comment, "typedef").is_none()
+            && jsdoc_tag_text(comment, "callback").is_none()
+        {
+            return from;
+        }
+        from += gap_len + close + 2;
+    }
+}
+
+/// Whether only whitespace containing a blank line — or the end of input —
+/// follows `from`.
+fn followed_by_blank_line(source: &str, from: usize) -> bool {
+    let rest = &source[from..];
+    let trimmed = rest.trim_start();
+    trimmed.is_empty() || rest[..rest.len() - trimmed.len()].matches('\n').count() > 1
+}
+
 /// The identifier starting at `position`, when one does and nothing dotted
 /// follows it.
 fn identifier_at(text: &str, position: usize) -> Option<String> {
@@ -2882,11 +2981,16 @@ fn jsdoc_tag_text(comment: &str, tag: &str) -> Option<String> {
 /// `[name=default]`) is JSDoc's optional syntax; the brackets and default are
 /// not part of the name.
 fn jsdoc_param_tags(comment: &str) -> Vec<((usize, usize), String, bool)> {
+    jsdoc_tagged_types(comment, "@param")
+}
+
+/// Every `@<tag> {T} name` occurrence, shared by `@param` and `@property`.
+fn jsdoc_tagged_types(comment: &str, marker: &str) -> Vec<((usize, usize), String, bool)> {
     let mut result = Vec::new();
     let mut cursor = 0usize;
-    while let Some(found) = comment[cursor..].find("@param") {
+    while let Some(found) = comment[cursor..].find(marker) {
         let index = cursor + found;
-        let after = index + "@param".len();
+        let after = index + marker.len();
         cursor = after;
         if !comment[after..].chars().next().is_none_or(char::is_whitespace) {
             continue;

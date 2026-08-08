@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 853/1007 (84.71%)
-Failed         : 154
+Passed         : 855/1007 (84.91%)
+Failed         : 152
 Skipped        : 11437 (excluded from the denominator)
 
   9  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11437 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   9  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 154 failures:
+First 100 of 152 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations

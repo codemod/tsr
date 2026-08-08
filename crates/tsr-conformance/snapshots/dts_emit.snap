@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 321/378 (84.92%)
-Failed         : 57
+Passed         : 324/378 (85.71%)
+Failed         : 54
 Skipped        : 12066 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -96,8 +96,6 @@ compiler/unionTypeWithLeadingOperator
   line 1: want `export type D = /*leading1*/ 1 | /*leading2*/ 2;`, got `export type D = 1 | 2;`
 conformance/assignmentToVoidZero1
   line 1: missing `export declare var y: 2;`
-conformance/callbackTagVariadicType
-  line 1: want `/**`, got `/** @type {Foo} */`
 conformance/contextuallyTypedStringLiteralsInJsxAttributes01
   line 9: want `declare const FooComponent: (props: {`, got `declare const FooComponent: any;`
 conformance/declarationEmitThisPredicatesWithPrivateName02
@@ -106,8 +104,6 @@ conformance/declarationEmitWorkWithInlineComments
   line 5: want `    constructor(`, got `    constructor(isInternal1: string, isInternal2: string, isInternal3: string, isInternal4: string, isInternal5: string, isInternal6: string, isInternal7: string, notInternal1: string, notInternal2: string, notInternal3: string);`
 conformance/genericContextualTypes1
   line 22: want `declare const arrayMap: <T, U>(f: (x: T) => U) => (a: T[]) => U[];`, got `declare const arrayMap: any;`
-conformance/importDeferJsdoc
-  line 2: want ` * @import defer * as ns from "./types"`, got ` * @type { ns.X }`
 conformance/jsDeclarationsClassStatic2
   line 6: want `export declare namespace Foo {`, got `export {};`
 conformance/jsDeclarationsImportNamespacedType
@@ -115,11 +111,9 @@ conformance/jsDeclarationsImportNamespacedType
 conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
   line 2: want `export declare const a: any | null;`, got `export declare const a: null;`
 conformance/jsDeclarationsTypedefDescriptionsPreserved
-  line 1: want `/**`, got `type FooOptions = Object;`
-conformance/jsdocTemplateTagNameResolution
-  line 1: want `/**`, got `type Foo<T, K extends keyof T> = T[K];`
+  line 8: want `    /**`, got `    bar: boolean;`
 conformance/recursiveTypeReferences2
-  line 1: want `/** @typedef {ReadonlyArray<Json>} JsonArray */`, got `type JsonArray = ReadonlyArray<Json>;`
+  line 9: want `type XMLObject<T> = {`, got `/**`
 conformance/typeFromPropertyAssignment39
   line 1: want `declare const foo: {`, got `declare const foo: {};`
 conformance/varianceAnnotationsWithCircularlyReferencesError

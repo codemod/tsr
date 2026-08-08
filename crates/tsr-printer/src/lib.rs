@@ -187,20 +187,29 @@ impl<'t> Printer<'t> {
         let Some(source) = self.source_text else { return };
         let Some(node_id) = node_id else { return };
         let start = self.nodes.span(node_id).start as usize;
-        let Some((comment_start, comment_end)) = leading_jsdoc_range(source, start) else {
-            return;
-        };
-        if !self.emitted_comments.insert((comment_start, comment_end)) {
-            return;
+        // Every JSDoc block in the node's leading trivia, in source order —
+        // stacked `@typedef` blocks all belong to the declaration below them
+        // (`recursiveTypeReferences2` replays three in a row).
+        let mut ranges = Vec::new();
+        let mut cursor = start;
+        while let Some((comment_start, comment_end)) = leading_jsdoc_range(source, cursor) {
+            ranges.push((comment_start, comment_end));
+            cursor = comment_start;
         }
-
-        let line_start = source[..comment_start].rfind(['\n', '\r']).map_or(0, |index| index + 1);
-        let margin = &source[line_start..comment_start];
-        let comment = &source[comment_start..comment_end];
-        for (index, line) in comment.lines().enumerate() {
-            let line = if index == 0 { line } else { line.strip_prefix(margin).unwrap_or(line) };
-            self.write(line);
-            self.write_line();
+        for (comment_start, comment_end) in ranges.into_iter().rev() {
+            if !self.emitted_comments.insert((comment_start, comment_end)) {
+                continue;
+            }
+            let line_start =
+                source[..comment_start].rfind(['\n', '\r']).map_or(0, |index| index + 1);
+            let margin = &source[line_start..comment_start];
+            let comment = &source[comment_start..comment_end];
+            for (index, line) in comment.lines().enumerate() {
+                let line =
+                    if index == 0 { line } else { line.strip_prefix(margin).unwrap_or(line) };
+                self.write(line);
+                self.write_line();
+            }
         }
     }
 
