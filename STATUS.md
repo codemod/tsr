@@ -45,13 +45,13 @@ fixes ride into the checker rows.
 | `module_resolution` | 95/95 | 100% | |
 | `file_loader` | 96/96 | 100% | |
 | **`printer_round_trip`** | **11,776/11,776** | **100%** | **COMPLETE** — was 99.80%; see the non-checker branch's row in §7 |
-| **`binder_symbols`** | **8,408/8,473** | **99.23%** | 8,310 → 8,408 — alias-transparent indexing plus three follow-ups, +98 cases (subsumes the ECMA-line-map +1 main took independently) |
+| **`binder_symbols`** | **8,411/8,473** | **99.27%** | 8,310 → 8,411 — alias-transparent indexing, three follow-ups, and canonical numeric member names (`bd tsr-1` closed at `2c3de45`; the arena-threaded bind API it needed moved `checker_types` +1 beside it) |
 | `isolated_declarations` | 13/15 | 86.67% | |
 | **`dts_emit`** | **333/374** | **89.04%** | 327 → 333 |
 | `dts_shape` | 860/1,008 | 85.32% | the `!!!!`-marker fix moved one case in, and it passes |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 492/1,162 | 42.34% | |
-| **`checker_types`** | **3,926/9,538** | **41.16%** | measured at `185877d`; **gradient 84.33% at build 135** (this row's case count was taken at build ~133 by the diagnostics session; the .types session's builds 128–135 landed §75–§77.3 on top — see §7's newest row). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
+| **`checker_types`** | **3,927/9,538** | **41.17%** | measured at `2c3de45` (gradient 84.34% — member lookups by canonical numeric value resolve); **gradient 84.33% at build 135** (this row's case count was taken at build ~133 by the diagnostics session; the .types session's builds 128–135 landed §75–§77.3 on top — see §7's newest row). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
 | `diagnostics` | **1,406/5,488** | **25.62%** | measured at `185877d`; **thirteenth session §86–§108, +59 over 15 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,405, **17.6×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
 
 ### `checker_types`, the number the project is steered by

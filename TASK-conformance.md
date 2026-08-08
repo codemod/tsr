@@ -6,9 +6,9 @@ CURRENT PROGRESS (2026-08-08, twelfth session, measured at `814fd4d`)
   printer_round_trip   11,776/11,776 = 100.00% (was 11,755/11,778 — COMPLETE;
                                                 two error-recovery cases became
                                                 faithful parse-diagnostic skips)
-  binder_symbols          8,408/8,473 = 99.23% (was 8,310/8,473 — the suite now
-                                                indexes alias-transparent
-                                                spellings, +98 cases)
+  binder_symbols          8,411/8,473 = 99.27% (was 8,310/8,473 — alias
+                                                transparency, canonical numeric
+                                                member names, +101 cases)
   dts_emit                  333/374  = 89.04%  (was 327/374; +6 this session)
   dts_shape                860/1,008 = 85.32%  (was 859/1,007; the `!!!!`
                                                 marker fix moved one case in)
@@ -64,9 +64,11 @@ What remains, classified (from dts_failures + the binder snapshot at 8dcdc71):
   resolves ambient-module targets (privacyGloImport), and line counting honors
   CR/LS/PS breaks (allowUnescapedParagraphAndLineSeparators…).
 
-  - binder_symbols 65 failures: numeric-name canonicalization (~6 cases,
-    `bd tsr-1` — needs an arena through FileInfo or a value field on
-    NumericLiteral), computed-name constant folding (checker late-binding),
+  - binder_symbols 62 failures: ~~numeric-name canonicalization~~ LANDED at
+    `2c3de45` (`bd tsr-1` closed) — bind/bind_into take the compilation's
+    arena and numeric member names bind under their canonical value, with the
+    suite indexing written spellings beside them; computed-name constant
+    folding (checker late-binding),
     export= augmentation targets, JSDoc @overload declaration lists, escaped/
     unicode name decodings, and a long tail of singles.
 
