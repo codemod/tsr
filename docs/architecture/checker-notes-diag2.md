@@ -7210,3 +7210,53 @@ initialiser-ordering shapes that `sole_signature_arity` declines with
 (`argumentsObjectCreatesRestForJs`, `argumentsPropertyNameInJsMode1`/`2`) are
 behind `in_js_file`, and §74's rule applies: **a JS decline does not transfer
 between arms** — they need measuring, not assuming.
+
+### §90 BUILT — measured
+
+`diag2307` with `RULE_CODES = [2554, 2555, 2345]` (the three codes this rule
+emits, isolated together because the argument-type half shares its gate):
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 28 | 0 | 115 | 14 |
+| after | **30** | **0** | 129 | **10** |
+
+**+2 cases, +14 right lines, and the wrong column DOWN 4.** Coverage
+`1,371 → 1,373 / 5,488` (24.98% → **25.02%**). `checker_types.snap` unchanged —
+no diff at all, not merely the same totals.
+
+The range formatting turned out to be already present: the **call** arm at
+`call_arity.rs:88` composes `format!("{minimum}-{maximum}")` into the same
+`EXPECTED_0_ARGUMENTS_BUT_GOT_1`. §90's finding was derived from the baseline and
+then found sitting in this file's other half — the `new` arm had simply never
+needed it, because it declined every callee that could produce a range.
+
+### The wrong column, read — and the four lines this build REMOVED
+
+The first cut measured **+5 new wrong lines**, all in
+`inheritedConstructorWithRestParams2`, and reading the top row is what found the
+real defect:
+
+```ts
+declare class BaseBase<T, U> extends BaseBase2 { constructor(x: T, ...y: U[]); … }
+class Base extends BaseBase<string, number> { }
+new Derived("", 3, 3);   // reported "Expected 1 arguments, but got 3"
+```
+
+The base-class hop advanced while no class had a constructor **with a body**, so
+it walked straight past `BaseBase`'s three ambient overloads into `BaseBase2`'s
+`constructor(x: number)` and priced every call against it. `getSignaturesOfType`
+takes a class's own construct signatures whenever it declares any — a body is
+not what makes a signature. Stopping at any declared constructor fixed the six
+lines **and removed four that predated this build**, which is why the column
+reads 10 rather than 14.
+
+Only the generic-base decline was newly lifted; the "walk past a bodyless
+constructor" defect was already there, hidden behind it. **A decline can conceal
+a bug rather than prevent one**, and lifting it is the only way to find out
+which.
+
+Remaining wrong, both pre-existing and both already owned: `callWithMissingVoid`
+(§78, owner `parameter_annotation_is_void`) and
+`objectCreationOfElementAccessExpression` (the callee is not an identifier;
+owner `callee_symbol`).

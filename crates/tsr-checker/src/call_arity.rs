@@ -172,10 +172,16 @@ impl<'a> Checker<'a, '_> {
         }) {
             return;
         }
-        let Some((parameters, minimum)) = self.sole_constructor_parameters(callee) else { return };
-        // Argument types first, exactly as the call arm orders them.
-        for (index, argument) in call.arguments.iter().enumerate() {
-            let Some(annotation) = parameters.get(index).copied().flatten() else { break };
+        let Some(arity) = self.sole_constructor_parameters(callee) else { return };
+        let ConstructorArity { annotations, minimum, maximum, check_argument_types } = arity;
+        // Argument types first, exactly as the call arm orders them — and only
+        // where the signature is a single non-generic one, §90.
+        for (index, argument) in call.arguments.iter().enumerate().take(if check_argument_types {
+            usize::MAX
+        } else {
+            0
+        }) {
+            let Some(annotation) = annotations.get(index).copied().flatten() else { break };
             let Some(argument_id) = argument.node_id() else { continue };
             let Some(target) = self.type_from_annotation_id(annotation) else { continue };
             let before = self.diagnostics.len();
@@ -197,22 +203,24 @@ impl<'a> Checker<'a, '_> {
         // Comparing against the length alone read `constructor(x?: string)` as
         // requiring one — §56.
         let arguments = call.arguments.len();
-        let expected = parameters.len();
-        if arguments >= minimum && arguments <= expected {
+        if arguments >= minimum && arguments <= maximum {
             return;
         }
         let message = &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1;
-        let at = if arguments > expected {
-            call.arguments.get(expected).and_then(tsr_ast::Expression::node_id).unwrap_or(node)
+        let at = if arguments > maximum {
+            call.arguments.get(maximum).and_then(tsr_ast::Expression::node_id).unwrap_or(node)
         } else {
             node
         };
+        // `Expected 1-2 arguments, but got 0.` is the SAME message and the same
+        // code: upstream composes the range into `{0}` rather than selecting a
+        // second diagnostic. There is no `Expected_0_1_arguments_but_got_2` in
+        // `messages.rs` to reach for — §90.
+        let expected =
+            if minimum == maximum { maximum.to_string() } else { format!("{minimum}-{maximum}") };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);
-        self.report(
-            file,
-            Diagnostic::with_args(message, span, [expected.to_string(), arguments.to_string()]),
-        );
+        self.report(file, Diagnostic::with_args(message, span, [expected, arguments.to_string()]));
     }
 
     /// The written parameter annotations of a class's **sole** constructor.
@@ -221,10 +229,7 @@ impl<'a> Checker<'a, '_> {
     /// overloaded constructor (more than one, or one without a body), and a class
     /// with **no** constructor at all — the last because its signature comes from
     /// the base class, which is `getBaseConstructorTypeOfClass`.
-    fn sole_constructor_parameters(
-        &mut self,
-        callee: NodeId,
-    ) -> Option<(Vec<Option<NodeId>>, usize)> {
+    fn sole_constructor_parameters(&mut self, callee: NodeId) -> Option<ConstructorArity> {
         let Some(Node::Identifier(identifier)) = self.node_map.get(callee) else { return None };
         let symbol = self.binder.resolve_name(
             self.nodes,
@@ -241,56 +246,100 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::ClassDeclaration(class)) = self.node_map.get(entry.declarations[0]) else {
             return None;
         };
-        if !class.type_parameters.is_empty() {
-            return None;
-        }
+        // A generic class is NOT declined: `constructor(x: T)` takes one
+        // argument whether or not `T` is inferred, and arity is the only
+        // question this rule needs answered. What generics do rule out is the
+        // argument-TYPE half, which needs the instantiated parameter type — so
+        // the flag travels with the arity rather than the whole rule declining.
+        // §90.
+        let mut check_argument_types = class.type_parameters.is_empty();
         let mut class = class;
         // `getSignaturesOfType` on a class with no constructor of its own
         // resolves the **base**'s (`classWithBaseClassButNoConstructor`). One
         // `extends` link is the whole of what that family wants; a deeper
         // chain, a generic base, or a base this port cannot resolve declines.
         let mut hops = 0u32;
-        while !class.members.iter().any(|member| {
-            matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(constructor)
-                if constructor.body.is_some())
-        }) {
+        // The hop stops at a class that DECLARES a constructor, with or without
+        // a body. `getSignaturesOfType` takes a class's own construct signatures
+        // whenever it has any, and an ambient overload set
+        // (`declare class BaseBase<T, U> { constructor(x: T, ...y: U[]); … }`)
+        // is a set of signatures. Testing for a body walked straight past it
+        // into `BaseBase2` and priced every `new Derived(…)` against the wrong
+        // constructor — the six wrong lines of `inheritedConstructorWithRestParams2`.
+        while !class
+            .members
+            .iter()
+            .any(|member| matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(_)))
+        {
             hops += 1;
             if hops > 8 {
                 return None;
             }
             let base = self.sole_extends_class_declaration(class)?;
+            if !base.type_parameters.is_empty() {
+                check_argument_types = false;
+            }
             class = base;
         }
-        let mut constructors = class.members.iter().filter_map(|member| match member {
-            tsr_ast::ClassElement::ConstructorDeclaration(constructor) => Some(*constructor),
-            _ => None,
-        });
-        let constructor = constructors.next()?;
-        if constructors.next().is_some() || constructor.body.is_none() {
+        let constructors: Vec<&tsr_ast::ConstructorDeclaration<'_>> = class
+            .members
+            .iter()
+            .filter_map(|member| match member {
+                tsr_ast::ClassElement::ConstructorDeclaration(constructor) => Some(*constructor),
+                _ => None,
+            })
+            .collect();
+        // `getSignaturesOfSymbol`: where a constructor is overloaded, the call
+        // signatures are the **overloads** and the implementation is not one of
+        // them. With no overloads the single implementation is the signature.
+        let overloaded = constructors.len() > 1;
+        let signatures: Vec<&tsr_ast::ConstructorDeclaration<'_>> = if overloaded {
+            constructors.iter().filter(|c| c.body.is_none()).copied().collect()
+        } else {
+            constructors.clone()
+        };
+        let [first, ..] = signatures.as_slice() else { return None };
+        if !overloaded && first.body.is_none() {
             return None;
         }
-        let parameters: Vec<&tsr_ast::ParameterDeclaration<'_>> = constructor
+        if overloaded {
+            check_argument_types = false;
+        }
+        // Each signature's (minimum, length). A rest parameter makes the
+        // maximum unbounded, which this rule has never reported on — decline
+        // the whole callee rather than guess a bound.
+        let mut ranges = Vec::with_capacity(signatures.len());
+        for signature in &signatures {
+            let parameters: Vec<&tsr_ast::ParameterDeclaration<'_>> = signature
+                .parameters
+                .iter()
+                .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
+                .copied()
+                .collect();
+            if parameters.iter().any(|parameter| parameter.dot_dot_dot_token.is_some()) {
+                return None;
+            }
+            // `getMinArgumentCount`: the index of the first parameter that is
+            // optional or carries an initialiser.
+            let minimum = parameters
+                .iter()
+                .position(|parameter| {
+                    parameter.question_token.is_some() || parameter.initializer.is_some()
+                })
+                .unwrap_or(parameters.len());
+            ranges.push((minimum, parameters.len()));
+        }
+        let minimum = ranges.iter().map(|(minimum, _)| *minimum).min()?;
+        let maximum = ranges.iter().map(|(_, length)| *length).max()?;
+        // The written annotations belong to the sole signature; with overloads
+        // there is no single list and `check_argument_types` is already false.
+        let annotations = first
             .parameters
             .iter()
             .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
-            .take_while(|parameter| parameter.dot_dot_dot_token.is_none())
-            .copied()
+            .map(|parameter| parameter.r#type.and_then(|annotation| annotation.node_id()))
             .collect();
-        // `getMinArgumentCount`: the index of the first parameter that is
-        // optional or carries an initialiser.
-        let minimum = parameters
-            .iter()
-            .position(|parameter| {
-                parameter.question_token.is_some() || parameter.initializer.is_some()
-            })
-            .unwrap_or(parameters.len());
-        Some((
-            parameters
-                .iter()
-                .map(|parameter| parameter.r#type.and_then(|annotation| annotation.node_id()))
-                .collect(),
-            minimum,
-        ))
+        Some(ConstructorArity { annotations, minimum, maximum, check_argument_types })
     }
 
     /// The class declaration a class `extends`, when the heritage names a
@@ -304,9 +353,10 @@ impl<'a> Checker<'a, '_> {
             .iter()
             .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)?;
         let [base] = clause.types else { return None };
-        if !base.type_arguments.is_empty() {
-            return None;
-        }
+        // `extends C2<T, U>` is not declined: the base's type ARGUMENTS change
+        // what its constructor's parameters mean, never how many there are, and
+        // the caller turns off argument-type checking for a generic base
+        // anyway — §90.
         let expression = base.expression?.node_id()?;
         let Some(Node::Identifier(name)) = self.node_map.get(expression) else { return None };
         let symbol = self.binder.resolve_name(
@@ -322,9 +372,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         match self.node_map.get(entry.declarations[0])? {
-            Node::ClassDeclaration(declaration) if declaration.type_parameters.is_empty() => {
-                Some(declaration)
-            }
+            Node::ClassDeclaration(declaration) => Some(declaration),
             _ => None,
         }
     }
@@ -574,4 +622,21 @@ impl<'a> Checker<'a, '_> {
     fn is_this_parameter_declaration(parameter: &tsr_ast::ParameterDeclaration<'_>) -> bool {
         matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
     }
+}
+
+/// What `sole_constructor_parameters` knows about a `new` callee.
+///
+/// Arity and argument types are separate answers: a generic or overloaded
+/// constructor has a perfectly well-defined `(minimum, maximum)` and no single
+/// instantiated parameter list, so the second half declines on its own —
+/// `checker-notes-diag2.md` §90.
+struct ConstructorArity {
+    /// The written annotations of the sole signature, positionally.
+    annotations: Vec<Option<NodeId>>,
+    /// `getMinArgumentCount`, minimised over the overload set.
+    minimum: usize,
+    /// The parameter count, maximised over the overload set.
+    maximum: usize,
+    /// Whether the arguments may also be checked against `annotations`.
+    check_argument_types: bool,
 }
