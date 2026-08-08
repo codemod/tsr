@@ -9858,3 +9858,47 @@ when the *names* match and upstream says "different" because the *constraints*
 do. **Owner: `getDeclaredTypeOfSymbol`'s local type parameters**, which is
 `checker_types`' road, and the target for the next measurement is 7 conversions
 with the wrong column under 3.
+
+## §141 — TS2451 belongs to TS7026's owner, and that item is now the board's largest
+
+`diaggap` prices TS2451 (`Cannot redeclare block-scoped variable`) at **10
+sole-obstacle cases**, and the binder already emits the code — so it reads like a
+deepening. `diagmissing` says otherwise. All but one of its 21 missing lines are
+one family:
+
+```
+checkMergedGlobalUMDSymbol                     global.d.ts(3,21) (6,16)
+duplicateIdentifierRelatedSpans_moduleAugmentation  /dir/a.ts(1,14) /dir/b.ts(4,18) (8,18)
+letDeclarations-scopes-duplicates2             file1.ts(1,5)
+```
+
+**Global and cross-file merging.** A UMD global merged with a `declare global`,
+a module augmentation redeclaring across files, and a `let` at global scope
+colliding with one in *another file*. None is a redeclaration this binder can
+see, because it does not merge across files at global scope — which is
+`tsr_binder`'s missing merge, the same subsystem §5 refuses TS7026 for, §85
+grew with ~13 of TS2454's, and §130 traced `mergeSymbolRexportFunction` to.
+
+### What that item now costs, added up
+
+| row | cases | source |
+|---|---:|---|
+| TS7026 | 28 | §5 |
+| TS2454's share | ~13 | §85 |
+| TS2451 | 10 | here |
+| TS1362's last line | 1 | §130 |
+| **total** | **~52** | |
+
+**That is the largest single owner on this board** — larger than the parser's
+yield/await context (11) and TS1100 (12) put together, and second only to the
+947-case assignability family, which is not this workstream's at all.
+
+§5 has refused TS7026 for thirteen sessions on §13's number (12 conversions for
+47 wrong lines). **That number was measured against TS7026 alone.** It is not
+the price of the subsystem; it is the price of one row inside it, and the
+subsystem now has four rows.
+
+**Actionable: re-measure the binder-merge item as one build against all four
+rows before quoting §13's refusal again.** A build worth ~52 cases is priced
+differently from one worth 28, and nothing has re-taken that number since the
+constituency doubled.
