@@ -259,7 +259,17 @@ impl Suite for BinderSymbols {
                     // spells the *declaration's written name*
                     // (`Symbol(Nums.0xF00D, …)`). Offer each written spelling
                     // beside the canonical one.
-                    let written = written_name_spellings(&program, symbol, |d| file.contains(d));
+                    let mut written =
+                        written_name_spellings(&program, nodes, &unit.content, symbol, |d| {
+                            file.contains(d)
+                        });
+                    // An identifier spelled with an INVALID escape keeps the
+                    // characters minus the backslash upstream
+                    // (`var \u0031a` binds `u0031a` —
+                    // `invalidUnicodeEscapeSequance4`).
+                    if symbol.name.contains('\\') {
+                        written.push(symbol.name.replace('\\', ""));
+                    }
                     for full in
                         display_names(bound, nodes, id, &names_by_declaration, &unit.content)
                     {
@@ -603,7 +613,17 @@ fn display_names(
     let containers: Vec<String> = match symbol.parent {
         None => vec![String::new()],
         Some(parent) => match anonymity_of(symbols.get(parent).name) {
-            Anonymity::Unnameable => vec![String::new()],
+            // Bare, and — when a variable's annotation or initializer supplies
+            // the literal — also under that variable's name: `let q: {[k:
+            // string]: number}` prints its index member `q.__index`
+            // (`noUncheckedIndexedAccessDestructuring`).
+            Anonymity::Unnameable => {
+                let mut names = vec![String::new()];
+                if let Some(named) = assigned_name(bound, nodes, parent) {
+                    names.extend(display_names(bound, nodes, named, names_by_declaration, source));
+                }
+                names
+            }
             Anonymity::Displayed(fallback) => assigned_name(bound, nodes, parent).map_or_else(
                 || vec![fallback.to_string()],
                 |named| display_names(bound, nodes, named, names_by_declaration, source),
@@ -1002,6 +1022,8 @@ fn computed_display(text: &str) -> Option<String> {
 /// numeric names can differ between the two.
 fn written_name_spellings(
     program: &tsr_compiler::Program<'_>,
+    nodes: &NodeTable,
+    source: &str,
     symbol: &tsr_binder::Symbol<'_>,
     in_file: impl Fn(tsr_ast::NodeId) -> bool,
 ) -> Vec<String> {
@@ -1018,6 +1040,25 @@ fn written_name_spellings(
                 Some(tsr_ast::Expression::NumericLiteral(literal)) => literal.text.to_string(),
                 _ => continue,
             },
+            // The baseline reproduces a string name's SOURCE spelling —
+            // `{ "\t"() {} }` prints the member as `\t`, two characters —
+            // while the symbol's name is the cooked value
+            // (`objectLiteralGettersAndSetters`).
+            tsr_ast::PropertyName::StringLiteral(literal) => {
+                let Some(id) = literal.node_id else { continue };
+                let span = nodes.span(id);
+                let Some(source_text) = source.get(span.start as usize..span.end as usize) else {
+                    continue;
+                };
+                let inner = source_text
+                    .strip_prefix(['"', '\''])
+                    .and_then(|rest| rest.strip_suffix(['"', '\'']))
+                    .unwrap_or(source_text);
+                if inner == literal.text {
+                    continue;
+                }
+                inner.to_string()
+            }
             _ => continue,
         };
         if !spellings.contains(&text) {

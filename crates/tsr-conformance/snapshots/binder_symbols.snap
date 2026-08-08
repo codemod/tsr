@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8425/8473 (99.43%)
-Failed         : 48
+Passed         : 8427/8473 (99.46%)
+Failed         : 46
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -82,10 +82,6 @@ conformance/moduleExportsAliasLoop2
   1 symbol(s): fn2: declared on {1}, expected to include {0, 1}
 conformance/noUncheckedIndexedAccessDestructuring
   2 symbol(s): q.__index: no symbol; t2.__index: no symbol
-conformance/objectLiteralGettersAndSetters
-  1 symbol(s): \t: no symbol
-conformance/objectTypeWithStringNamedPropertyOfIllegalCharacters
-  1 symbol(s): ~!@#$%^&*()_+{}|:'<>?\/.,`: no symbol
 conformance/overloadTag1
   2 symbol(s): overloaded: declared on {0}, expected to include {0, 1, 6}; uncheckedInternally: declared on {25}, expected to include {25, 28, 33}
 conformance/parserComputedPropertyName1
