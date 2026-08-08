@@ -322,16 +322,11 @@ impl Suite for BinderSymbols {
                                 // A recovery-shaped member (`{ [e] }` binds
                                 // `__missing`) records no computed-name entry;
                                 // the name node is still on the declaration.
-                                match program.node_map().get(*declaration)? {
-                                    node => {
-                                        declared_property_name(node).and_then(|name| match name {
-                                            tsr_ast::PropertyName::ComputedPropertyName(c) => {
-                                                c.node_id
-                                            }
-                                            _ => None,
-                                        })
-                                    }
-                                }
+                                let node = program.node_map().get(*declaration)?;
+                                declared_property_name(node).and_then(|name| match name {
+                                    tsr_ast::PropertyName::ComputedPropertyName(c) => c.node_id,
+                                    _ => None,
+                                })
                             });
                             let Some(computed) = computed else {
                                 continue;
