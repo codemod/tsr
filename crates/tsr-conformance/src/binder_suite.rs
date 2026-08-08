@@ -240,6 +240,19 @@ impl Suite for BinderSymbols {
                     // Accepting any suffix is the honest approximation; it weakens the
                     // test slightly, since `C.m` would also match a `C.m` nested
                     // somewhere else entirely.
+                    // A module file's own symbol prints as the specifier that
+                    // reached it — `import('./test')` inside `test.ts` prints
+                    // `Symbol("./test", Decl(test.ts, 0, 0))` — while this
+                    // binder names it by the path with the extension removed.
+                    // Offer the relative-specifier spellings.
+                    if symbol.declarations.iter().any(|d| {
+                        file.contains(*d) && nodes.kind(*d) == SyntaxKind::SourceFile
+                    }) {
+                        let stem = symbol.name.rsplit('/').next().unwrap_or(symbol.name);
+                        for spelling in [format!("./{stem}"), format!("./{}", symbol.name)] {
+                            ours.entry(spelling).or_default().extend(&declared);
+                        }
+                    }
                     // The binder names a numeric member by its canonical value
                     // (`0xF00D` binds as `61453`, matching upstream's token
                     // value), but the baseline prints `symbolToString`, which
