@@ -123,7 +123,19 @@ impl<'a> Checker<'a, '_> {
             // site exactly as one at a declaration is — the contextual type is
             // the parameter's. `check_excess_properties` is the same function
             // §23 wrote; only the target changes.
+            // **If the elaboration spoke, the outer code does not.**
+            // `checkTypeRelatedToAndOptionallyElaborate` walks an object
+            // literal's members and reports the offending *member*; the outer
+            // `Argument of type … is not assignable` is what it says when
+            // there is nothing finer to point at.
+            // `process({ a: true, b: "y" })` is one TS2322 upstream and was a
+            // TS2322 **and** a TS2345 here — §59's standing loss, diagnosed in
+            // §72.
+            let before = self.diagnostics.len();
             self.check_excess_properties(target, argument_id);
+            if self.diagnostics.len() != before {
+                return;
+            }
             let source = self.check_expression(*argument);
             // `getSignatureApplicabilityError` **returns on the first
             // failure** — a signature that fails is not asked about its
@@ -166,6 +178,11 @@ impl<'a> Checker<'a, '_> {
             let Some(annotation) = parameters.get(index).copied().flatten() else { break };
             let Some(argument_id) = argument.node_id() else { continue };
             let Some(target) = self.type_from_annotation_id(annotation) else { continue };
+            let before = self.diagnostics.len();
+            self.check_excess_properties(target, argument_id);
+            if self.diagnostics.len() != before {
+                break;
+            }
             let source = self.check_expression(*argument);
             if self.report_argument_failure(argument_id, source, target) {
                 break;

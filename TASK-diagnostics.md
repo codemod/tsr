@@ -11,7 +11,7 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,299/5,488 = 23.67%   (was 1,118 = 20.37%; +181 over 32 builds,
+  diagnostics    1,300/5,488 = 23.69%   (was 1,118 = 20.37%; +182 over 33 builds,
                  **zero cases lost in any of them**)
   checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -55,6 +55,11 @@ ratio, and the two differ by whatever the concentration happens to be.
 | `examples/diag2307.rs` | the per-rule counterfactual. Put the rule's codes in `RULE_CODES` **alone**, measure, then **restore the full list** (one commit shipped it pinned and needed a follow-up). CONVERTS / LOST / RIGHT / WRONG |
 | `examples/extragap.rs` | splits the *extra* column into `displaced` and `invented` |
 | `examples/diaggap.rs` | the old board. Now an ordering over **new** rules only |
+
+**Carry a standing LOST with its case name and diagnose it before the next
+build in the same family.** `diag2307.rs` prints LOST on both sides of an edit,
+so a loss the rule already had reads as furniture. Both of this session's two
+were one-line findings (§71, §72) after being carried across four builds apiece.
 
 **Isolate a code before quoting its wrong column.** `diag2307.rs` prints only the
 first 400 distinct entries; §50's bar was registered against "16 wrong lines"

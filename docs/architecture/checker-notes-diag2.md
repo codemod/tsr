@@ -5329,3 +5329,63 @@ not been diagnosed yet*, and this file has now twice treated one as furniture �
 §59's is still there.
 
 `extraonly.rs` is **five for six**.
+
+---
+
+## 72. §59's standing loss, diagnosed: the elaboration reports instead of the outer code
+
+§71 said a standing loss is a finding that has not been diagnosed yet and named
+§59's as still open. It is `objectLitTargetTypeCallSite`:
+
+```ts
+function process(x: { a: number; b: string }) { }
+process({ a: true, b: "y" });
+```
+
+Upstream reports **TS2322 on the `a` property** and nothing on the argument.
+`getSignatureApplicabilityError` calls `checkTypeRelatedToAndOptionallyElaborate`,
+and `elaborateError` walks an object-literal source's members and reports the
+offending *member* — the outer `Argument of type … is not assignable` is what it
+says when there is nothing finer to point at.
+
+This port runs both: `check_excess_properties` reports the member (which is
+where its TS2322 comes from) and `report_argument_failure` reports the argument.
+The case passed before TS2345 existed and has been this rule's only loss since.
+
+**The rule is "if the elaboration spoke, the outer code does not"**, and it is
+exact rather than approximate because both live in one function: the argument
+loop counts the diagnostics before the member check and skips the outer report
+if the count grew.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,299**. Forecast **+1** |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | **LOST 1 → 0** on `diag2307.rs` with `RULE_CODES = [2345]` — the leg this build exists for |
+| 4 | TS2345's WRONG falls; RIGHT falls by at most as much |
+| 5 | every other snapshot unchanged |
+
+### Scored — **+1, past 1,300**, and the standing loss is gone
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,299, forecast +1 | **1,300 / 5,488 = 23.69%** | pass, exactly |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | **LOST 1 → 0** | **0** | pass |
+| 4 | WRONG falls, RIGHT falls by at most as much | **10 → 6**, RIGHT **37 → 37** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2345: **CONVERTS 19 · RIGHT 37 · WRONG 10 → 6 ·
+LOST 1 → 0.**
+
+**Both of the session's standing losses turned out to be one-line findings**
+(§71's and this one), and both had been carried across four builds apiece as
+"pre-existing". The number that made them visible was the same one that hid
+them: `diag2307.rs` prints LOST on both sides of an edit, so a loss the rule
+already had reads as furniture unless somebody asks what it is.
+
+> **Carry a standing loss with its case name, and diagnose it before the next
+> build in the same family.** Four wrong lines and two conversions were sitting
+> in two case names this file had been printing for twenty builds.
