@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,747/9,538** | **39.28%** | **gradient 83.47%** — the target (builds 25–100) |
+| **`checker_types`** | **3,747/9,538** | **39.28%** | **gradient 83.49%** — the target (builds 25–101) |
 | `diagnostics` | **1,346/5,488** | **24.53%** | **measured at HEAD, twelfth session (§76–§84), +44 over 8 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
@@ -201,7 +201,9 @@ declines; the §52.1 member-set index measured +39/11 and reverted to the
 §39 reshape's account; 1 adverse at 41:1) = 399,558; then + 237 (§53: ORIGIN-CARRYING UNIONS — the §39 reshape
 built and landed with four falsifier-driven refinements, superseding the
 §39 refusal for enum/plain entry shapes; 19 adverse at 12.5:1 owned by
-&&'s unported non-strict arm, queued) = 399,795 exactly — builds 25–100.
+&&'s unported non-strict arm, queued) = 399,795; then + 104 (§54: &&'s non-strict falsy source — one line,
+92 pre-existing wrongs converted, ZERO adverse) = 399,899 exactly —
+builds 25–101.
 Build 96 (scorepair) and the probefile tool are the loop's new
 instruments; the full run is 21s since the §52 memo. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
