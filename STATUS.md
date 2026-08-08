@@ -865,6 +865,13 @@ conversion is unknown, rank by how cheap it is to find out.**
 
 ### 4.-1 The driver, newly on the board — and the tracker it is not filed in
 
+> **The full plan now lives in [STATUS-cli.md](STATUS-cli.md)**, which is this
+> file's discipline applied to the CLI workstream: the inventory, the baseline
+> oracle (194 `tsc` + 41 `tscWatch` + 80 `config` cases, asserting exact stdout
+> and exit status), the measured ceiling without emit (**50 of 194**), nine
+> phases each with a gate, and the refusals. The four items below are its head;
+> that file supersedes them on any detail.
+
 > **`bd` does not work in a fresh clone of this repository, and these four items
 > could not be filed.** `.beads/` carries config, hooks and `metadata.json`
 > (`"backend": "dolt"`, `"dolt_mode": "embedded"`) but the database itself is

@@ -437,6 +437,11 @@ overload resolution · JSX · decorators · declaration-emit types.
 `Program`, watch, incremental, `--build`.
 **Gate:** upstream `tsc` CLI baselines pass; self-hosting on real repos.
 
+**Detailed plan: [STATUS-cli.md](STATUS-cli.md).** It records one correction to
+this phase's placement: the `tsc` baselines mostly compile trivial files, so the
+CLI suite can ratchet while the checker is still wrong — the ordering here
+implies a dependency on Phase 4 that the oracle does not have.
+
 ### Phase 7 — Language service
 Split by feature: completions · quickinfo · goto-definition · find-references ·
 rename · organize-imports · auto-import · formatting · code fixes. Requires porting
