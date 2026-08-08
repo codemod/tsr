@@ -2261,3 +2261,27 @@ fired. `checker_types` right 399,406 → **399,418 (83.39%)**. The
 remaining `controlFlowOptionalChain` wrongs are the truthiness/`in`
 halves of chain containment and the chain-link marker mechanics — TASK
 item 6's standing residue.
+
+## §51.3 — truthiness on a discriminant property (the surprise build)
+
+`if (s.done)` over `{ done: false; value: T } | { done: true }` — the
+iterator-result idiom. Upstream's `narrowType` routes an access condition
+whose RECEIVER is the reference through `narrowTypeByDiscriminant` with
+the TRUTHY/FALSY facts as the member transform. The slice: every
+constituent's member must be DECIDABLE for truthiness — a unit literal or
+boolean — and the constituent is kept when the faceted member is not
+`never`; any opaque member declines whole (a `get_type_with_facts`
+identity on an opaque member would silently keep it — the §16-family
+Kleene rule, applied at the member). Kept-all/kept-empty are identity
+declines (§51's alias-name lesson).
+
+**Falsifiers.** (a) Non-unit but still-decidable members (nullable
+objects: `{ x: T } | { x: undefined }` — undefined is falsy-decidable);
+zero-coverage there is a residue, mis-narrowing is a leg. (b) The §51
+declaration-position anomaly again.
+
+**§51.3 score — LANDED.** **+13 (9 W→R, 4 G→R), ZERO adverse.** Neither
+falsifier fired. `checker_types` right 399,418 → **399,431 (83.40%)**.
+The discriminant family now has four members sharing two filters:
+property switch (§51), property equality (§51.1), chain containment
+(§51.2), property truthiness (§51.3).

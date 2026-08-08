@@ -2203,10 +2203,24 @@ impl Checker<'_, '_> {
             | Node::ElementAccessExpression(_) => {
                 if self.is_matching_reference(state, condition) {
                     let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
-                    self.get_type_with_facts(t, facts)
-                } else {
-                    t
+                    return self.get_type_with_facts(t, facts);
                 }
+                // §51.3 (`checker-notes-narrow.md`): `if (s.done)` — an
+                // access whose RECEIVER is the reference discriminates by
+                // the member's truthiness (`narrowTypeByDiscriminant` with
+                // the truthy facts as the member transform). Decidable
+                // members only; any opaque one declines whole.
+                if let Node::PropertyAccessExpression(access) = node
+                    && access
+                        .expression
+                        .and_then(|receiver| receiver.node_id())
+                        .is_some_and(|id| self.is_matching_reference(state, id))
+                    && let Some(tsr_ast::MemberName::Identifier(name)) = access.name
+                {
+                    let member = name.text.to_string();
+                    return self.filter_union_by_member_truthiness(t, &member, assume_true);
+                }
+                t
             }
             Node::ParenthesizedExpression(inner) => inner
                 .expression
@@ -2480,6 +2494,48 @@ impl Checker<'_, '_> {
             });
         }
         false
+    }
+
+    /// §51.3: keep constituents whose MEMBER admits the assumed
+    /// truthiness. Every member must be truthiness-DECIDABLE — a unit
+    /// literal or boolean-family type — or the whole filter declines.
+    fn filter_union_by_member_truthiness(
+        &mut self,
+        t: TypeId,
+        member: &str,
+        assume_true: bool,
+    ) -> TypeId {
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let total = constituents.len();
+        let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
+        let mut kept = Vec::new();
+        for constituent in constituents {
+            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
+                return t;
+            };
+            let decidable = {
+                let flags = self.store.get(member_type).flags;
+                flags.intersects(TypeFlags::UNIT | TypeFlags::BOOLEAN)
+                    || matches!(&self.store.get(member_type).data, TypeData::Union { types, .. }
+                    if types.iter().all(|&part| {
+                        self.store.get(part).flags.intersects(TypeFlags::UNIT)
+                    }))
+            };
+            if !decidable {
+                return t;
+            }
+            let faceted = self.get_type_with_facts(member_type, facts);
+            if !self.store.get(faceted).flags.intersects(TypeFlags::NEVER) {
+                kept.push(constituent);
+            }
+        }
+        if kept.is_empty() || kept.len() == total {
+            return t;
+        }
+        self.get_union_type(&kept)
     }
 
     /// The §50/§51.1 shared discriminant filter: keep constituents whose
