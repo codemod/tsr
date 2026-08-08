@@ -394,6 +394,18 @@ impl Checker<'_, '_> {
             _ => ambient,
         };
         self.check_unreachable(node, ambient);
+        // `checkGrammarModifiers` runs on the declaration that carries the
+        // list. Bounded to class elements and parameters — `defaultKeywordWithoutExport1`
+        // is the statement-level shape and is declined, §103.
+        match typed {
+            Node::PropertyDeclaration(n) => self.check_modifier_order(n.modifiers),
+            Node::MethodDeclaration(n) => self.check_modifier_order(n.modifiers),
+            Node::GetAccessorDeclaration(n) => self.check_modifier_order(n.modifiers),
+            Node::SetAccessorDeclaration(n) => self.check_modifier_order(n.modifiers),
+            Node::ConstructorDeclaration(n) => self.check_modifier_order(n.modifiers),
+            Node::ParameterDeclaration(n) => self.check_modifier_order(n.modifiers),
+            _ => {}
+        }
         self.check_type_parameter_list(type_parameters_of(typed));
         self.check_truthiness_sites(node, ambient);
         self.note_member_name_at(node);
@@ -1859,6 +1871,73 @@ impl Checker<'_, '_> {
                     [name.text.to_string()],
                 ),
             );
+        }
+    }
+
+    /// TS1029 — `'{0}' modifier must precede '{1}' modifier.`
+    ///
+    /// `checkGrammarModifiers` (`grammarchecks.go:290`), the `must precede`
+    /// arms of its accessibility and `override` cases. A left-to-right scan
+    /// accumulating what has been seen; a modifier that should have come before
+    /// something already seen is the error.
+    ///
+    /// **At most one report per node.** Every arm upstream is
+    /// `return c.grammarErrorOnNode(...)`, so `private static override x` is one
+    /// diagnostic and not three — see `checker-notes-diag2.md` §103.
+    ///
+    /// The `else if` **order is the specification**: `static public async`
+    /// reports *"public must precede static"* because `static` is tested before
+    /// `async`. It is ported in upstream's order for that reason.
+    fn check_modifier_order(&mut self, modifiers: &[ModifierLike<'_>]) {
+        let mut seen: Vec<SyntaxKind> = Vec::new();
+        for modifier in modifiers {
+            let ModifierLike::Token(token) = modifier else { continue };
+            let kind = token.kind;
+            let precede: Option<&str> = match kind {
+                SyntaxKind::PublicKeyword
+                | SyntaxKind::ProtectedKeyword
+                | SyntaxKind::PrivateKeyword => [
+                    (SyntaxKind::OverrideKeyword, "override"),
+                    (SyntaxKind::StaticKeyword, "static"),
+                    (SyntaxKind::AccessorKeyword, "accessor"),
+                    (SyntaxKind::ReadonlyKeyword, "readonly"),
+                    (SyntaxKind::AsyncKeyword, "async"),
+                ]
+                .into_iter()
+                .find(|(earlier, _)| seen.contains(earlier))
+                .map(|(_, name)| name),
+                SyntaxKind::OverrideKeyword => [
+                    (SyntaxKind::ReadonlyKeyword, "readonly"),
+                    (SyntaxKind::AccessorKeyword, "accessor"),
+                    (SyntaxKind::AsyncKeyword, "async"),
+                ]
+                .into_iter()
+                .find(|(earlier, _)| seen.contains(earlier))
+                .map(|(_, name)| name),
+                _ => None,
+            };
+            if let Some(after) = precede {
+                // `visibilityToString` — the keyword's own text.
+                let text = match kind {
+                    SyntaxKind::PublicKeyword => "public",
+                    SyntaxKind::ProtectedKeyword => "protected",
+                    SyntaxKind::PrivateKeyword => "private",
+                    _ => "override",
+                };
+                let Some(id) = token.node_id else { return };
+                let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
+                let span = self.error_span(id);
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                        span,
+                        [text.to_string(), after.to_string()],
+                    ),
+                );
+                return;
+            }
+            seen.push(kind);
         }
     }
 

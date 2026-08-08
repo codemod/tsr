@@ -7940,3 +7940,83 @@ live. Excludes masks are different: every one of them is exercised by
 The reading is sufficient evidence for the masks and is **not** sufficient
 evidence for anything about behaviour, which is why nothing here is claimed as
 converted or refused.
+
+## §103 — TS1029, modifier order: a rule with no types in it at all
+
+### The bar, before the code
+
+**+6 cases**, at most 3 new wrong lines. TS1029 has **12 sole-obstacle cases**
+at §102's commit, and it is the first target this session with *no type
+machinery whatsoever* — `checkGrammarModifiers` (`grammarchecks.go:290`) is a
+left-to-right scan over a modifier list accumulating a flag set.
+
+Falsifiers:
+
+1. **Upstream reports at most ONE grammar error per node** — every arm is
+   `return c.grammarErrorOnNode(...)`. A port that reports every violation in a
+   list turns `private static override x` into three lines where upstream writes
+   one. The scan must stop at the first.
+2. **If the corpus's cases are mostly statement-level**, the class-element bound
+   below converts far fewer. Checked: of the twelve, ten are class members
+   (`multipleClassPropertyModifiers`, `staticMustPrecedePublic`, `Protected6`,
+   `override11`, `overrideKeywordOrder` ×5, `parserAccessibilityAfterStatic1`/`10`)
+   and `defaultKeywordWithoutExport1` is the statement-level one — declined.
+3. **If the parser drops out-of-order modifiers** rather than keeping them in
+   written order, the scan has nothing to read. `parserAccessibilityAfterStatic1`
+   is in the missing column rather than the extra one, which is consistent with
+   the modifiers being present and simply unexamined.
+
+### The shape
+
+```go
+case ast.KindPublicKeyword, ast.KindProtectedKeyword, ast.KindPrivateKeyword:
+    if flags&ModifierFlagsAccessibilityModifier != 0 { …already seen… }
+    else if flags&ModifierFlagsOverride  != 0 { must precede "override" }
+    else if flags&ModifierFlagsStatic    != 0 { must precede "static" }
+    else if flags&ModifierFlagsAccessor  != 0 { must precede "accessor" }
+    else if flags&ModifierFlagsReadonly  != 0 { must precede "readonly" }
+    else if flags&ModifierFlagsAsync     != 0 { must precede "async" }
+```
+
+The order of the `else if` chain is the specification, not an implementation
+detail: `static public async` reports *"public must precede static"* and not
+*"public must precede async"*, because `static` is tested first. Ported in the
+same order for the same reason.
+
+`override` has its own shorter chain (`readonly`, `accessor`, `async`), and the
+arms this build does **not** port — `already seen`, `cannot be used with`,
+`cannot appear on a module or namespace element` — are different codes and
+belong to their own rows.
+
+### Measured
+
+`diag2307` with `RULE_CODES = [1029]`:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 0 | 0 | 0 | 0 |
+| **after** | **9** | **0** | **20** | **0** |
+
+**+9 cases for zero wrong lines**, against a bar of +6 / at most 3. Coverage
+`1,386 → 1,395 / 5,488` (25.26% → **25.42%**), the session's second-largest
+build and its cheapest per line of code. `checker_types` identical at
+3,864/9,538 · 84.21% and `binder_symbols` unmoved, both by stash-and-remeasure.
+
+All three falsifiers were live and none fired: the one-report-per-node rule was
+implemented from the start (upstream's `return`), the class-element bound covers
+ten of the twelve cases, and the parser does keep out-of-order modifiers in
+written order.
+
+### Why this was sitting on the board for thirteen sessions
+
+**It needs nothing.** No types, no symbols, no flow, no relation — a `Vec` of
+seen keywords and a left-to-right walk. It converted nine cases at zero risk,
+and the reason it had never been picked is that every previous session ranked
+targets by `diagreach`, which measures *cases reachable by deepening rules that
+exist*. TS1029 has no rule to deepen, so it appears only in `diaggap`'s
+single-code column and only once the rows above it have been worked.
+
+**The lesson for ranking: `diagreach` and `diaggap` answer different questions,
+and the cheap grammar codes live exclusively in the second.** `TS1100` (12
+cases), `TS1109` (11), `TS1163` (10) and `TS1183` are the same shape and are the
+first things the next session should price — none of them needs a type either.
