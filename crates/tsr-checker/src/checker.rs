@@ -279,6 +279,11 @@ pub struct Checker<'a, 'n> {
     /// enum-spelled regular the access road answers instead.
     pub(crate) enum_access_spelling:
         rustc_hash::FxHashMap<crate::types::TypeId, crate::types::TypeId>,
+    /// §58: sorted member list of every NAMED union → the named type, for
+    /// the flow-JOIN rebuild only (annotation positions keep expansions —
+    /// the §52.1 study's split).
+    pub(crate) named_union_by_members:
+        rustc_hash::FxHashMap<Vec<crate::types::TypeId>, crate::types::TypeId>,
 
     /// Upstream's `c.strictNullChecks` (`checker.go:604`, set from the
     /// compiler options at `:919` via `GetStrictOptionValue`).
@@ -611,6 +616,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             union_origin: rustc_hash::FxHashMap::default(),
             enum_value_types: rustc_hash::FxHashMap::default(),
             enum_access_spelling: rustc_hash::FxHashMap::default(),
+            named_union_by_members: rustc_hash::FxHashMap::default(),
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,

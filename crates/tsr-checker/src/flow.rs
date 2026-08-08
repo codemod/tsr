@@ -1494,7 +1494,19 @@ impl Checker<'_, '_> {
                 types.push(t);
             }
         }
-        let t = if types.is_empty() { never } else { self.get_union_type(&types) };
+        let t = if types.is_empty() {
+            never
+        } else {
+            // §58 (`checker-notes-narrow.md`): a join re-forming a NAMED
+            // union's exact member set answers the named type.
+            let joined = self.get_union_type(&types);
+            match &self.store.get(joined).data {
+                TypeData::Union { types: members, symbol: None, .. } => {
+                    self.named_union_by_members.get(members).copied().unwrap_or(joined)
+                }
+                _ => joined,
+            }
+        };
         FlowType { t, incomplete: false }
     }
 

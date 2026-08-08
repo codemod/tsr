@@ -533,7 +533,13 @@ impl Checker<'_, '_> {
             return types[0];
         }
         let named = symbol.map(|id| (id, self.binder.symbols().get(id).name.to_string()));
-        create_union(&mut self.store, extra_flags, types, named)
+        let built = create_union(&mut self.store, extra_flags, types.clone(), named);
+        // §58: named unions register their member set for the flow-join
+        // identity consult.
+        if symbol.is_some() {
+            self.named_union_by_members.entry(types).or_insert(built);
+        }
+        built
     }
 
     /// §53: mint a union whose SPELLING comes from `entries` (unexpanded)

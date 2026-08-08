@@ -1491,7 +1491,13 @@ impl<'a> Checker<'a, '_> {
                     // a LET's retained literals flow into reassignment joins
                     // this port's assignment narrowing cannot reduce
                     // (upstream's `getAssignmentReducedType` is unported) —
-                    // CONST holders only.
+                    // CONST holders only. A §58 re-admission of LET was
+                    // measured at +43/12 (3.6:1, below standard) — the joins
+                    // of §56-retained ANONYMOUS object literals error in the
+                    // union print road (`tryCatchFinallyControlFlow`'s 11,
+                    // reproduced minimally: a catch-join of
+                    // `{ tag: "one" }`-typed branches), which is that road's
+                    // seam, not this gate's. Re-deferred with the diagnosis.
                     if !self.combined_node_flags(holder).intersects(tsr_ast::NodeFlags::CONSTANT) {
                         return None;
                     }

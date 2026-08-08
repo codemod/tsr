@@ -2568,3 +2568,31 @@ denominator itself moved**, so the percentage (85.31% → 85.32% on the
 new base... measured: 401,521/470,619 = 85.32% aligned-right share;
 the coverage bin's fraction against 478,954 reads 83.83%). Numbers from
 the landing run; the newly-aligned wrong/gap rows join the board.
+## §58 — join-position member-set identity
+
+Third sighting of one phenomenon: a flow JOIN whose branch types re-form
+a NAMED union's exact member set prints the name — `let state: State`
+narrowed per-branch by `getAssignmentReducedType` re-joins to `State`
+(`tryCatchFinallyControlFlow`), as `x || y` re-formed `T` (the §53
+subsumption's cousin) and the §52.1 study's `b = x || y`. The §52.1
+member-set index REFUSED globally because ANNOTATION positions want the
+expansion; the JOIN position wants the name — so the index consult lives
+at `get_type_at_flow_branch_label`'s rebuild ONLY. Named unions register
+their sorted member list at creation; the join consults before minting.
+This also un-defers §56's let-holder retention (~30 wins) — re-enabled
+in the same build, measured together.
+
+**Falsifiers.** (a) Joins where upstream prints the expansion despite a
+full named set — R→W at join reads. (b) The §52.1 first-writer hazard:
+two aliases, one member set — the second alias's joins print the first's
+name; W on the second's lines.
+
+**§58 score — LANDED (the join identity), let re-deferred.** The join
+consult: **+10 (W→R), ZERO adverse** — neither falsifier fired. The §56
+let re-admission it was meant to unlock measured +43/12 (3.6:1, below
+standard) and is RE-DEFERRED with a sharper diagnosis: the adverse is
+not reassignment-join reduction (that works — the minimal probe joins
+to `State` cleanly) but the union PRINT road erroring on joins of
+§56-retained ANONYMOUS object-literal types inside try/catch flows —
+that road's seam, queued as its own row. `checker_types` right 401,521
+→ **401,531 (83.83%)**.
