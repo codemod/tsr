@@ -2680,4 +2680,7 @@ the callee and hit a stack overflow (`arrayToLocaleStringES2015`).
 **§56.3 score — LANDED.** **+91 (W→R), ZERO adverse** — 79 of them in
 `compiler/temporal`, the board's top mountain moving for the first time
 (its option-bag arguments under unit-membered parameter types).
-`checker_types` right 401,639 → **401,730 (83.88%)**.
+`checker_types` right 401,639 → **401,730 (83.88%)**. A §56.4 (`new`-argument
+position via the constructor-interface road) measured ZERO — the
+corpus's constructor option-bags sit behind generic or class-declared
+construct signatures, not the interface road — and was reverted.
