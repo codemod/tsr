@@ -1696,6 +1696,16 @@ impl<'a> Checker<'a, '_> {
         {
             return Some(self.add_optionality_for_declaration(contextual, declaration));
         }
+        // §38.1: a for-IN binding is `string`, unconditionally
+        // (`getTypeForVariableLikeDeclaration`'s ForIn arm,
+        // `checker.go:16698` region — upstream returns `stringType`).
+        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && let Some(list) = self.nodes.parent(declaration)
+            && let Some(statement) = self.nodes.parent(list)
+            && self.nodes.kind(statement) == SyntaxKind::ForInStatement
+        {
+            return Some(self.intrinsics.string);
+        }
         // §38 (`checker-notes-callres.md`): a for-of binding takes the
         // iterated element — array references, tuples, and strings; every
         // other RHS keeps the implicit-any road.
