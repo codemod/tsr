@@ -1286,7 +1286,12 @@ its whole deliverable and accept that it converts nothing until finished.
   `export =` family untouchable on the strength of the fixture's own `// Error`
   comment; `importEquals1.errors.txt` puts TS1361 on the four **consumer** files
   and nothing on the re-exporting one, so those two lines were plain false
-  positives and declining cost nothing. Three remain, both families unread.
+  positives and declining cost nothing. **§126 read both**: `computedPropertyName`'s baseline stops at line 24 and ours
+  fire at 32 and 36, so they are sites the abstract/`TypeLiteral` clause excuses
+  and §123's port does not reach; `mergeSymbolRexportFunction`'s baseline has
+  **no TS1362 anywhere**, making ours a pure false positive — suspect the
+  merged-symbol hazard §97 declined for. **All three lines now have a baseline
+  read and a named predicate; none is inferred.**
 - **FOUR instrument failures this session, all one shape — the artefact decides,
   not the description of it.** §118 a probe below an early return; §122 a `grep`
   over a `head`-truncated listing; §124 **a fixture's `// Error` comment read as
