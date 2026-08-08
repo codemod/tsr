@@ -116,8 +116,33 @@ From `docs/architecture/declaration-emit.md`:
 
 These account for some baseline incompatibilities (~2% of failures).
 
+## Session 11 Summary
+
+**Work Completed:**
+1. ✅ Ran full conformance suite and captured current state (1,067+ remaining failures)
+2. ✅ Updated snapshots with recent improvements (checker_types +10 cases, +1220 lines; diagnostics +6 cases)
+3. ✅ Updated STATUS.md with comprehensive progress tracking
+4. ✅ Investigated printer_round_trip JSDoc token issue (added diagnostic tests)
+5. ✅ Identified dts_reachable_target as structural limitation (not bugs)
+6. ✅ Analyzed dts_emit path reference calculation bug
+7. ✅ Documented all findings in this roadmap
+
+**Testing/Debugging Done:**
+- Added round-trip tests for JSDoc typedefs (basic cases pass)
+- Traced printer token handling code (`emit_token_node` works correctly)
+- Examined declaration reference path calculation
+- Reviewed parser fixes that completed parser_typescript (99.40% → 100%)
+
+**Next Session Priorities:**
+1. Implement JSDoc token handling fix (13/23 printer failures)
+2. Fix dts_emit path reference re-relativization
+3. Continue dts_shape declaration structure improvements
+4. Investigate binder_symbols merging issues
+
 ## Files Modified This Session
-- `STATUS.md` - Updated with current numbers
+- `STATUS.md` - Updated with current numbers and progress notes
+- `CONFORMANCE_TODO.md` - Created with comprehensive roadmap and investigation findings
+- `crates/tsr-printer/tests/round_trip.rs` - Added JSDoc debugging tests
 - `crates/tsr-conformance/snapshots/checker_types.snap` - Reflected improvements
 - `crates/tsr-conformance/snapshots/diagnostics.snap` - Reflected improvements
 
