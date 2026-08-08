@@ -998,22 +998,31 @@ fn render_case(
     // only site the gradient constructs a checker through; the field moves
     // into `CompilerOptions` when a second consumer arrives. The union
     // constructor is what consumes it (`checker.go:25783`).
-    let explicit = |name: &str| case.options.get(name).map(|v| v.eq_ignore_ascii_case("true"));
-    let strict_null_checks = explicit("strictnullchecks").or_else(|| explicit("strict"));
-    checker.set_strict_null_checks(strict_null_checks.unwrap_or(true));
-    checker.set_no_unchecked_indexed_access(explicit("nouncheckedindexedaccess").unwrap_or(false));
-    // Defaults from the EXPLICIT `@strict` directive only — the corpus's
-    // directive-less default keeps `any` (`capturedLetConstInLoop9`), and a
-    // bare `@strictNullChecks: true` does not imply it
-    // (`defaultOfAnyInStrictNullChecks`, the §21 bar's fired leg).
-    checker.set_use_unknown_in_catch_variables(
-        explicit("useunknownincatchvariables").or_else(|| explicit("strict")).unwrap_or(false),
-    );
-    // §65's axis: explicit flag wins, then `@strict`; the corpus's
-    // directive-less default measured FALSE (the §65 pair decides).
-    checker.set_no_implicit_any(
-        explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(false),
-    );
+    // One derivation, upstream's, shared with `diagnostics_suite` (ADR-0042).
+    //
+    // # This replaced two *measured* defaults, and the measurements were stale
+    //
+    // What stood here read the raw `@directive` map and defaulted
+    // `noImplicitAny` and `useUnknownInCatchVariables` to **false** when neither
+    // they nor `@strict` were written — against upstream, where
+    // `GetStrictOptionValue` answers `Strict != TSFalse` and an unset option is
+    // therefore **true**. It was not a guess: both defaults were measured off
+    // the `.types` baselines and `false` won at the time (the notes' §21 and §65
+    // pairs), and the sibling suite's contradicting reading was recorded as a
+    // known disagreement.
+    //
+    // **Re-measured at this commit, the faithful reading wins: 3,842 → 3,863
+    // cases (+21) and 84.13% → 84.14% of lines.** The earlier number is not
+    // disowned — it was true of the checker that produced it. What changed is
+    // the checker underneath: with `catch (e)` typed `unknown` and an
+    // un-annotated parameter implicitly erroring, the baselines those defaults
+    // were compensating for now render correctly on their own.
+    //
+    // The lesson worth keeping is narrower than "measure less": a default tuned
+    // against a partial implementation measures *the gap*, not the language, and
+    // it has to be re-measured whenever the gap closes. An unfaithful default
+    // that scores better is a marker for an unported rule somewhere else.
+    checker.apply_compiler_options(program.compiler_options());
 
     let mut ours = Vec::new();
     for expected_file in expected {

@@ -10,6 +10,7 @@ authors.workspace = true
 
 [dependencies]
 tsr-core = { workspace = true }
+tsr-path = { workspace = true }
 bitflags = { workspace = true }
 
 [lints]

@@ -244,71 +244,20 @@ fn from_check_traversal(test: &crate::TestCase) -> Vec<BaselineDiagnostic> {
         program.node_map(),
         Some(&program),
     );
-    // Upstream's `IsTrueOrUnknown` (`checker.go:5321`) makes an unset option
-    // `true`, so only an explicit `false` turns the side-effect-import
-    // diagnostic off.
-    checker.set_no_unchecked_side_effect_imports(
-        test.options
-            .get("nouncheckedsideeffectimports")
-            .is_none_or(|value| !value.eq_ignore_ascii_case("false")),
-    );
-
-    // `GetStrictOptionValue(strictPropertyInitialization)` (`checker.go:922`):
-    // the explicit flag wins, `@strict` is the fallback, and unset is on — the
-    // same three-step read `types_producer` makes for `strictNullChecks`.
-    let explicit = |name: &str| test.options.get(name).map(|v| v.eq_ignore_ascii_case("true"));
-    let strict = explicit("strictpropertyinitialization")
-        .or_else(|| explicit("strictnullchecks"))
-        .or_else(|| explicit("strict"))
-        .unwrap_or(true);
-    checker.set_strict_null_checks(
-        explicit("strictnullchecks").or_else(|| explicit("strict")).unwrap_or(true),
-    );
-    checker.set_strict_property_initialization(strict);
-    checker.set_allow_unreachable_code(
-        test.options.get("allowunreachablecode").is_some_and(|v| v.eq_ignore_ascii_case("true")),
-    );
-    // `unreachableCodeIsError` (`binder.go`) is `AllowUnreachableCode ==
-    // core.TSFalse` — **explicitly** false. Unset is a *suggestion* upstream and
-    // never reaches a `.errors.txt`, so this cannot be the negation of the line
-    // above (`checker-notes-diag2.md` §82).
-    checker.set_unreachable_code_is_error(
-        test.options.get("allowunreachablecode").is_some_and(|v| v.eq_ignore_ascii_case("false")),
-    );
-    // `ShouldPreserveConstEnums` is `PreserveConstEnums.IsTrue() ||
-    // IsolatedModules.IsTrue()` — an `IsTrue()` option, so unset is **false**,
-    // unlike the strict options above (`checker-notes-diag2.md` §84's table).
-    checker.set_preserve_const_enums(
-        ["preserveconstenums", "isolatedmodules"]
-            .iter()
-            .any(|key| test.options.get(*key).is_some_and(|v| v.eq_ignore_ascii_case("true"))),
-    );
-
-    // `unusedIsError` (`checker.go:7104`) reads both as `IsTrue()`, so an unset
-    // option is off and `crate::unused` reports nothing at all — which is what
-    // confines that family to the cases that write the directive.
-    // `c.noImplicitAny = GetStrictOptionValue(NoImplicitAny)` (`checker.go:924`),
-    // and `GetStrictOptionValue` (`core/compileroptions.go:294`) answers
-    // `options.Strict != TSFalse` for an unset option — so an unset
-    // `noImplicitAny` with an unset `strict` is **true**. That is the same rule
-    // `strictNullChecks` above already applies; these two lines disagreed about
-    // one question for eleven sessions, and `strictNullChecks` was the right
-    // one (`checker-notes-diag2.md` §80).
-    // `c.useUnknownInCatchVariables = GetStrictOptionValue(...)`
-    // (`checker.go:926`) — a strict option like the three above, and the one
-    // this harness never set at all. Every un-annotated `catch (e)` in the
-    // corpus therefore had type `any` here and `unknown` upstream
-    // (`checker-notes-diag2.md` §84).
-    checker.set_use_unknown_in_catch_variables(
-        explicit("useunknownincatchvariables").or_else(|| explicit("strict")).unwrap_or(true),
-    );
-    checker.set_no_implicit_any(
-        explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(true),
-    );
-    checker.set_no_unused(
-        test.options.get("nounusedlocals").is_some_and(|v| v.eq_ignore_ascii_case("true")),
-        test.options.get("nounusedparameters").is_some_and(|v| v.eq_ignore_ascii_case("true")),
-    );
+    // Eleven options, one derivation, upstream's (ADR-0042). This block used to
+    // read `test.options` — the raw `@directive` strings — and resolve each
+    // default by hand; `types_producer` did the same independently and the two
+    // disagreed. Both now read the `CompilerOptions` the program was built with,
+    // which `apply_test_directives` filled from those same directives.
+    //
+    // **One rule changed in the move, and it is the reason this is a fidelity
+    // fix rather than a refactor.** `strictPropertyInitialization` used to fall
+    // back through `strictNullChecks` and only then to `strict`. Upstream's
+    // `GetStrictOptionValue` (`core/compileroptions.go:294`) has no such leg: it
+    // reads the explicit value, then `strict`. A case setting
+    // `@strictNullChecks: false` with `strict` unset therefore turned property
+    // initialization off here and left it on upstream.
+    checker.apply_compiler_options(program.compiler_options());
 
     // `set_checked_files` before the first `check_source_file`, because the set
     // is a property of the program: a rule that asks "is this declaration in a

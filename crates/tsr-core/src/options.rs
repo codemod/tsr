@@ -52,6 +52,12 @@ impl Tristate {
         matches!(self, Self::True | Self::Unknown)
     }
 
+    /// Whether the option was left unset (`Tristate.IsUnknown`).
+    #[must_use]
+    pub fn is_unknown(self) -> bool {
+        self == Self::Unknown
+    }
+
     /// Whether the option was explicitly turned off.
     #[must_use]
     pub fn is_false(self) -> bool {
@@ -456,6 +462,46 @@ pub struct CompilerOptions {
     /// `None` is upstream's zero, which is what makes a `.js` dependency's own
     /// imports invisible by default.
     pub max_node_module_js_depth: Option<i32>,
+
+    // ---- The checker. Every field below is read by `Checker`, and each one was
+    // ---- previously derived by each caller from its own raw string map; see
+    // ---- `CompilerOptions::configure` on the checker side and
+    // ---- docs/adr/0042-checker-options-come-from-compiler-options.md.
+    /// Treat `null` and `undefined` as distinct from every other type.
+    /// A **strict-family** option: see [`Self::strict_option_value`].
+    pub strict_null_checks: Tristate,
+    /// Require every declared class property to be definitely assigned.
+    /// Strict-family.
+    pub strict_property_initialization: Tristate,
+    /// Give an un-annotated `catch (e)` the type `unknown` rather than `any`.
+    /// Strict-family.
+    pub use_unknown_in_catch_variables: Tristate,
+    /// Add `undefined` to the result of an index signature access.
+    ///
+    /// Read as `== TSTrue` upstream (`checker.go:6115`), **not** as a
+    /// strict-family option — `strict` does not turn it on.
+    pub no_unchecked_indexed_access: Tristate,
+    /// Report a local that is never read.
+    pub no_unused_locals: Tristate,
+    /// Report a parameter that is never read.
+    pub no_unused_parameters: Tristate,
+    /// Permit code the control-flow graph proves unreachable.
+    ///
+    /// Three-valued in a way that matters and is easy to get wrong: unset makes
+    /// unreachable code a *suggestion*, which never reaches a `.errors.txt`,
+    /// while an explicit `false` makes it an error. So "is it an error" is
+    /// `is_false()` and **not** the negation of "is it allowed".
+    pub allow_unreachable_code: Tristate,
+    /// Emit `const enum` declarations rather than erasing them.
+    pub preserve_const_enums: Tristate,
+    /// Require every import to be resolvable as written, with no elision.
+    /// Turns on `isolatedModules` behaviour (`GetIsolatedModules`).
+    pub verbatim_module_syntax: Tristate,
+    /// Check a side-effect-only `import "x"` resolves.
+    ///
+    /// Reads as **on when unset** (`IsTrueOrUnknown`), which is why only an
+    /// explicit `false` silences it.
+    pub no_unchecked_side_effect_imports: Tristate,
 }
 
 impl CompilerOptions {
@@ -609,6 +655,44 @@ impl CompilerOptions {
             None
         });
         (roots, false)
+    }
+
+    /// Resolve one member of the strict family (`GetStrictOptionValue`).
+    ///
+    /// Ported from `internal/core/compileroptions.go:294`. The rule is three
+    /// steps and the third is the surprising one: an explicit value wins;
+    /// otherwise `strict` decides; and an **unset `strict` counts as on**,
+    /// because upstream asks `options.Strict != TSFalse` rather than
+    /// `options.Strict == TSTrue`.
+    ///
+    /// That last step is why a file compiled with no options at all is checked
+    /// under `strictNullChecks`, `noImplicitAny`, `strictPropertyInitialization`
+    /// and `useUnknownInCatchVariables`. Two callers in this repository derived
+    /// the rule independently and disagreed about it for eleven sessions
+    /// (`docs/architecture/checker-notes-diag2.md` §80); having one function is
+    /// the point of it existing.
+    #[must_use]
+    pub fn strict_option_value(&self, value: Tristate) -> bool {
+        if value.is_unknown() { !self.strict.is_false() } else { value.is_true() }
+    }
+
+    /// Whether every file must stand alone (`GetIsolatedModules`).
+    ///
+    /// `internal/core/compileroptions.go:330`. `verbatimModuleSyntax` implies it,
+    /// which is the leg a hand-written derivation reliably forgets.
+    #[must_use]
+    pub fn get_isolated_modules(&self) -> bool {
+        self.isolated_modules.is_true() || self.verbatim_module_syntax.is_true()
+    }
+
+    /// Whether `const enum` members survive emit (`ShouldPreserveConstEnums`).
+    ///
+    /// `internal/core/compileroptions.go:278`. An `IsTrue()` option rather than a
+    /// strict-family one, so unset is **off** — the opposite default from
+    /// [`Self::strict_option_value`], and the two are easy to conflate.
+    #[must_use]
+    pub fn should_preserve_const_enums(&self) -> bool {
+        self.preserve_const_enums.is_true() || self.get_isolated_modules()
     }
 
     /// Whether `types` contains `*` (`UsesWildcardTypes`).

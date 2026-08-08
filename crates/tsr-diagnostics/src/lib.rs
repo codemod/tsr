@@ -15,8 +15,13 @@
 //! assert_eq!(messages::_0_EXPECTED.format(&[";"]), "';' expected.");
 //! ```
 
+pub mod format;
 mod generated;
 
+pub use format::{
+    DiagnosticFile, FormattingOptions, LocatedDiagnostic, format_diagnostics,
+    write_error_summary_text, write_format_diagnostics,
+};
 pub use generated::messages;
 use tsr_core::Span;
 

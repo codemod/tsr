@@ -18,6 +18,7 @@
 
 pub mod arena;
 pub mod index;
+pub mod line_map;
 pub mod options;
 pub mod side_table;
 pub mod span;
@@ -25,6 +26,7 @@ pub mod stack;
 
 pub use arena::Arena;
 pub use index::{Idx, IndexVec};
+pub use line_map::{compute_line_of_position, ecma_line_starts, line_and_character, utf16_len};
 pub use options::{
     CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, OrderedMap, ResolutionMode,
     ScriptTarget, Tristate,

@@ -667,6 +667,74 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.module_host
     }
 
+    /// Configure every option this checker reads, from one `CompilerOptions`.
+    ///
+    /// The port of upstream's option block in `NewChecker`
+    /// (`internal/checker/checker.go:915-928`) plus the three options upstream
+    /// reads lazily at their use sites — `NoUnusedLocals`/`NoUnusedParameters`
+    /// (`unusedIsError`, `checker.go:7104`), `AllowUnreachableCode`
+    /// (`checker.go:2264` and `:2448`), and `NoUncheckedSideEffectImports`
+    /// (`checker.go:5321`). Upstream can afford to read those late because the
+    /// checker holds its `compilerOptions`; this port copies each into a `bool`
+    /// field at construction, so they are all resolved here instead.
+    ///
+    /// # Why this exists rather than each caller deriving its own
+    ///
+    /// Because two callers did, and disagreed. The rules are not uniform — three
+    /// different defaults appear in the eleven lines below, and which family an
+    /// option belongs to is not guessable from its name:
+    ///
+    /// | read | unset means | example |
+    /// |---|---|---|
+    /// | [`CompilerOptions::strict_option_value`] | **on**, unless `strict: false` | `strictNullChecks` |
+    /// | `IsTrue()` | off | `noUnusedLocals` |
+    /// | `IsTrueOrUnknown()` | on, unconditionally | `noUncheckedSideEffectImports` |
+    ///
+    /// `allowUnreachableCode` belongs to none of them and needs *two* reads: an
+    /// unset value makes unreachable code a suggestion, which never reaches a
+    /// `.errors.txt`, so `unreachable_code_is_error` is `is_false()` and is **not**
+    /// the negation of `allow_unreachable_code`
+    /// (`docs/architecture/checker-notes-diag2.md` §82).
+    ///
+    /// See
+    /// [ADR-0042](../../../docs/adr/0042-checker-options-come-from-compiler-options.md).
+    ///
+    /// # When to call it
+    ///
+    /// Immediately after construction, before any type is created. The union
+    /// constructor consults `strict_null_checks` at build time, so flipping it
+    /// once types exist leaves a store built under two configurations.
+    pub fn apply_compiler_options(&mut self, options: &tsr_core::CompilerOptions) {
+        // The strict family (`checker.go:919-926`).
+        self.strict_null_checks = options.strict_option_value(options.strict_null_checks);
+        self.strict_property_initialization =
+            options.strict_option_value(options.strict_property_initialization);
+        self.use_unknown_in_catch_variables =
+            options.strict_option_value(options.use_unknown_in_catch_variables);
+        self.no_implicit_any = options.strict_option_value(options.no_implicit_any);
+
+        // `== TSTrue` (`checker.go:6115`) — `strict` does not reach it.
+        self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();
+
+        // `unusedIsError` (`checker.go:7104`), both `IsTrue()`. An unset option
+        // reports nothing at all, which is what confines the unused family to the
+        // cases that ask for it.
+        self.no_unused_locals = options.no_unused_locals.is_true();
+        self.no_unused_parameters = options.no_unused_parameters.is_true();
+
+        // Two reads of one option, deliberately not each other's negation.
+        self.allow_unreachable_code = options.allow_unreachable_code.is_true();
+        self.unreachable_code_is_error = options.allow_unreachable_code.is_false();
+
+        // `ShouldPreserveConstEnums`, which folds in `isolatedModules` — and, via
+        // `GetIsolatedModules`, `verbatimModuleSyntax` too.
+        self.preserve_const_enums = options.should_preserve_const_enums();
+
+        // `IsTrueOrUnknown` (`checker.go:5321`): on unless explicitly off.
+        self.no_unchecked_side_effect_imports =
+            options.no_unchecked_side_effect_imports.is_true_or_unknown();
+    }
+
     /// Set [`Checker::strict_null_checks`] from a case's compiler options.
     ///
     /// Called by the conformance harness before any type is created — the

@@ -562,6 +562,31 @@ pub fn get_relative_path_from_directory(
     get_path_from_path_components(&get_path_components_relative_to(from_directory, to, options))
 }
 
+/// A path as a diagnostic should print it (`tspath.ConvertToRelativePath`).
+///
+/// `internal/tspath/path.go:785`. An absolute path becomes relative to
+/// `options.current_directory`; anything already relative is returned untouched.
+/// This is why `tsc` prints `src/a.ts(1,1)` rather than the absolute path it
+/// resolved internally, and why the same compilation run from two directories
+/// produces two different-looking error logs.
+///
+/// Deliberately **not** routed through [`get_relative_path_from_directory`],
+/// whose assertion that both paths are rooted-or-neither would fire here:
+/// upstream reaches [`get_path_components_relative_to`] directly
+/// (`GetRelativePathToDirectoryOrUrl`, `:793`), and an empty current directory
+/// with an absolute file is a legitimate configuration.
+#[must_use]
+pub fn convert_to_relative_path(path: &str, options: &ComparePathsOptions) -> String {
+    if !is_rooted_disk_path(path) {
+        return path.to_string();
+    }
+    get_path_from_path_components(&get_path_components_relative_to(
+        &options.current_directory,
+        path,
+        options,
+    ))
+}
+
 /// Call `f` on `directory` and each ancestor until it returns a value
 /// (`tspath.ForEachAncestorDirectory`).
 ///

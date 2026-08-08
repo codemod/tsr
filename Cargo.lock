@@ -369,6 +369,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "tsr-core",
+ "tsr-path",
 ]
 
 [[package]]

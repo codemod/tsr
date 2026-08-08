@@ -418,6 +418,36 @@ pub fn apply_test_directives(
         check_js: tristate("checkjs", base.check_js),
         strict: tristate("strict", base.strict),
         no_implicit_any: tristate("noimplicitany", base.no_implicit_any),
+        // The rest of what the checker reads. These land in `CompilerOptions`
+        // **unresolved** — as the `Tristate` the directive wrote, not as the
+        // `bool` the checker wants — because resolving them is
+        // `Checker::apply_compiler_options`'s job and there is now exactly one
+        // copy of that logic (ADR-0042). Before it, `diagnostics_suite` derived
+        // all eleven here from the raw string map, and `types_producer` derived
+        // two of them differently.
+        strict_null_checks: tristate("strictnullchecks", base.strict_null_checks),
+        strict_property_initialization: tristate(
+            "strictpropertyinitialization",
+            base.strict_property_initialization,
+        ),
+        use_unknown_in_catch_variables: tristate(
+            "useunknownincatchvariables",
+            base.use_unknown_in_catch_variables,
+        ),
+        no_unchecked_indexed_access: tristate(
+            "nouncheckedindexedaccess",
+            base.no_unchecked_indexed_access,
+        ),
+        no_unused_locals: tristate("nounusedlocals", base.no_unused_locals),
+        no_unused_parameters: tristate("nounusedparameters", base.no_unused_parameters),
+        allow_unreachable_code: tristate("allowunreachablecode", base.allow_unreachable_code),
+        preserve_const_enums: tristate("preserveconstenums", base.preserve_const_enums),
+        isolated_modules: tristate("isolatedmodules", base.isolated_modules),
+        verbatim_module_syntax: tristate("verbatimmodulesyntax", base.verbatim_module_syntax),
+        no_unchecked_side_effect_imports: tristate(
+            "nouncheckedsideeffectimports",
+            base.no_unchecked_side_effect_imports,
+        ),
         declaration: tristate("declaration", base.declaration),
         es_module_interop: tristate("esmoduleinterop", base.es_module_interop),
         allow_synthetic_default_imports: tristate(
@@ -506,11 +536,14 @@ pub fn apply_test_directives(
         paths: base.paths,
         paths_base_path: base.paths_base_path,
         config_file_path: base.config_file_path,
-        // `isolatedModules` IS a directive upstream (80 corpus cases) and is
-        // dropped here for the same reason `lib` was. It belongs to the
-        // declaration-emit suites rather than to `checker_types`, so it is filed
-        // rather than changed in this commit: `bd tsr-e7a`.
-        isolated_modules: base.isolated_modules,
+        // **`isolatedModules` is now honoured** — it is a directive upstream (80
+        // corpus cases) and was dropped here, filed as `bd tsr-e7a`, on the
+        // grounds that it belonged to the declaration-emit suites rather than to
+        // `checker_types`. That was only ever half true: `diagnostics_suite` read
+        // it out of the raw directive map itself, because
+        // `ShouldPreserveConstEnums` folds it in. Routing every checker option
+        // through `CompilerOptions` (ADR-0042) left nowhere for that private read
+        // to live, so the directive is applied above with the rest.
     }
 }
 

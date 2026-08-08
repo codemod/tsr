@@ -286,6 +286,72 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         is_file_path: false,
         apply: |options, value| tristate(options, value, |o| &mut o.no_implicit_any),
     },
+    // The strict family and the rest of what the checker reads. Every name here
+    // is upstream's spelling from `declscompiler.go`; the lookup is
+    // case-insensitive, so a `.errors.txt` case writing `@strictNullChecks` and a
+    // tsconfig writing `"strictNullChecks"` reach the same entry.
+    OptionDeclaration {
+        name: "strictNullChecks",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.strict_null_checks),
+    },
+    OptionDeclaration {
+        name: "strictPropertyInitialization",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.strict_property_initialization),
+    },
+    OptionDeclaration {
+        name: "useUnknownInCatchVariables",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.use_unknown_in_catch_variables),
+    },
+    OptionDeclaration {
+        name: "noUncheckedIndexedAccess",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_unchecked_indexed_access),
+    },
+    OptionDeclaration {
+        name: "noUnusedLocals",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_unused_locals),
+    },
+    OptionDeclaration {
+        name: "noUnusedParameters",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_unused_parameters),
+    },
+    OptionDeclaration {
+        name: "allowUnreachableCode",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.allow_unreachable_code),
+    },
+    OptionDeclaration {
+        name: "preserveConstEnums",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.preserve_const_enums),
+    },
+    OptionDeclaration {
+        name: "verbatimModuleSyntax",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| tristate(options, value, |o| &mut o.verbatim_module_syntax),
+    },
+    OptionDeclaration {
+        name: "noUncheckedSideEffectImports",
+        kind: OptionKind::Boolean,
+        is_file_path: false,
+        apply: |options, value| {
+            tristate(options, value, |o| &mut o.no_unchecked_side_effect_imports)
+        },
+    },
     OptionDeclaration {
         name: "declaration",
         kind: OptionKind::Boolean,

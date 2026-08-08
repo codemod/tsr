@@ -19,11 +19,18 @@
 //!
 //! # What is deliberately missing
 //!
-//! Writing, watching, globbing, and the real-disk implementation. Nothing needs
-//! them yet: the corpus is the only consumer, and a real host arrives with
-//! `tsr-tsoptions` (bd tsr-9or).
+//! Writing and watching. Nothing needs them yet: emit does not exist, so there
+//! is nothing to write, and there is no watch mode to invalidate.
+//!
+//! The real-disk implementation is no longer missing — see [`os`], added when
+//! the driver needed to compile something that was not a corpus case. The
+//! in-memory host remains the conformance harness's, and the two implement the
+//! same six questions.
 
 pub mod glob;
+pub mod os;
+
+pub use os::OsFileSystem;
 
 use std::collections::BTreeMap;
 
