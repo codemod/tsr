@@ -10262,3 +10262,45 @@ The row began as *"TS2540 needs `checker_types`"* (§143) and ends pointing at
 the reporting infrastructure shared by every rule. **Zero builds, zero reverts,
 nine commands.** Each section named a candidate and wrote the probe that would
 disprove it; the ninth disproved the row itself.
+
+## §151 — `Checker::report` does not deduplicate, and the alarm is cleared
+
+§150 raised the only hypothesis on this board that would have invalidated other
+measurements: if `self.report` silently drops diagnostics, every wrong-column
+figure in this file was taken through an undocumented filter. Read
+(`check.rs:3522`):
+
+```rust
+pub(crate) fn report(&mut self, file: NodeId, diagnostic: Diagnostic) {
+    self.diagnostics.push((file, diagnostic));
+}
+```
+
+**A plain push. No dedup, no filter, no condition.** `diagnostics()` hands the
+vector back and the consumer drains it — ADR-0040 decision (1).
+
+**So §16's 988, §24's 6, §13's 47 and every bar set this session stand.** That
+is the result worth having from §150, and it is a negative one: the ten minutes
+spent reading ten lines bought confidence in roughly forty recorded numbers.
+
+### Where TS2540's missing line actually is
+
+Seventeen distinct spans are pushed and the suite's actual column is sixteen, so
+the loss is in **`diagnostics_suite::reported_for`** — the collection side, not
+the checker. It restricts to the case's own files and applies the harness's skip
+rules; a diagnostic whose `file` node id resolves outside that set disappears
+without trace. `constDeclarations-access3` is a single-file case, which makes a
+**file-id mismatch** the shape to check first — the same `file` argument
+`report` takes and nothing in the rule verifies.
+
+**Next action: print the `file` node id alongside each of the seventeen and
+compare against the id the suite collects for.** One line, and it is the last
+unexamined link in a chain this row has now walked end to end.
+
+### The row, closed as an investigation
+
+**Ten attributions, ten corrections, zero builds, zero reverts, ten commands.**
+It began at *"TS2540 is `checker_types`-adjacent"* and ends having (a) localised
+a defect to one link in the reporting chain and (b) **cleared the integrity of
+every measurement in this file** — the second worth more than the eleven cases
+the row was originally priced at.
