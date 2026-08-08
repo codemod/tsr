@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 3803/9538 (39.87%)
-Assertion lines: 401928/478954 (83.92%)  — a gradient, not a pass rate
-Failed         : 5735
+Passed         : 3822/9538 (40.07%)
+Assertion lines: 402316/478954 (84.00%)  — a gradient, not a pass rate
+Failed         : 5716
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 5735 failures:
+First 100 of 5716 failures:
 compiler/2dArrays
   2dArrays.ts: >allShipsSunk : error — expected >allShipsSunk : () => boolean
 compiler/ClassDeclaration26
@@ -37,8 +37,6 @@ compiler/accessorDeclarationEmitJs
   /a.js: >t1 : error — expected >t1 : { p: string; readonly getter: string; }
 compiler/accessorInferredReturnTypeErrorInReturnStatement
   accessorInferredReturnTypeErrorInReturnStatement.ts: >basePrototype : error — expected >basePrototype : { readonly primaryPath: any; }
-compiler/accessorsEmit
-  accessorsEmit.ts: >Property : null — expected >Property : any
 compiler/accessors_spec_section-4.5_error-cases
   accessors_spec_section-4.5_error-cases.ts: >aStr : any — expected >aStr : string
 compiler/accessors_spec_section-4.5_inference
@@ -201,10 +199,6 @@ compiler/arithmeticOnInvalidTypes2
   arithmeticOnInvalidTypes2.ts: >z1 : error — expected >z1 : any
 compiler/arityErrorRelatedSpanBindingPattern
   arityErrorRelatedSpanBindingPattern.ts: >foo : error — expected >foo : (a: any, b: any, { c }: { c: any; }) => void
-compiler/arrayAssignmentTest2
-  arrayAssignmentTest2.ts: >arr_any = function () { return null;} : () => null — expected >arr_any = function () { return null;} : () => any
-compiler/arrayAssignmentTest4
-  arrayAssignmentTest4.ts: >arr_any = function () { return null;} : () => null — expected >arr_any = function () { return null;} : () => any
 compiler/arrayBestCommonTypes
   arrayBestCommonTypes.ts: >[[3, 4], [null]][0][0] : error — expected >[[3, 4], [null]][0][0] : number | null
 compiler/arrayBindingPatternOmittedExpressions
@@ -213,3 +207,9 @@ compiler/arrayBufferIsViewNarrowsType
   arrayBufferIsViewNarrowsType.ts: >ArrayBuffer.isView(obj) : error — expected >ArrayBuffer.isView(obj) : boolean
 compiler/arrayCast
   arrayCast.ts: >[{ foo: "s" }, {}] : error — expected >[{ foo: "s" }, {}] : ({ foo: string; } | {})[]
+compiler/arrayConcat2
+  arrayConcat2.ts: >a.concat("hello", 'world') : error — expected >a.concat("hello", 'world') : string[]
+compiler/arrayConcat3
+  arrayConcat3.ts: >doStuff : <T extends object, T1 extends T>(a: Fn<T>[], b: Fn<T1>[]) => void — expected >doStuff : <T extends object, T1 extends T>(a: Array<Fn<T>>, b: Array<Fn<T1>>) => void
+compiler/arrayConcatMap
+  arrayConcatMap.ts: >x : error — expected >x : any[]

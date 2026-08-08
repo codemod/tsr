@@ -2756,3 +2756,15 @@ recorded residue at 30:1.
 
 **§62 score — LANDED.** **+60 W→R / 2 R→W (30:1).** `checker_types`
 right 401,783 → **401,841 (83.90%)**.
+## §64 — non-strict nullable widening at return inference
+
+`function f() { return null; }` infers `() => any` under
+`strictNullChecks: false` — `getWidenedType`'s nullable arm at a second
+position (the §20 rule's return twin). One JS-file leg fired
+(`typeFromJSInitializer3`'s 8 — JS return-null semantics differ) and is
+gated out.
+
+**§64 score — LANDED.** **+388 (339 W→R, 49 G→R), ZERO adverse** — the
+non-strict corpus's null-returning functions had been mis-printing since
+return inference landed. `checker_types` right 401,933 → **402,316
+(84.00%)** — the gradient crosses 84%.

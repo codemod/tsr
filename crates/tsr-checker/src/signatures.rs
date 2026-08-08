@@ -1072,6 +1072,18 @@ impl<'a> Checker<'a, '_> {
         if widened != id && self.has_a_written_contextual_type(declaration) {
             return None;
         }
+        // §64 (`checker-notes-narrow.md`): the non-strict nullable widening
+        // at RETURN inference — `function f() { return null; }` infers
+        // `() => any` with `strictNullChecks` off (`getWidenedType`'s
+        // nullable arm, the §20 rule at a second position; 75 corpus lines).
+        if !self.strict_null_checks && !self.in_js_file(declaration) {
+            let flags = self.store.get(widened).flags;
+            if flags.intersects(crate::flags::TypeFlags::NULLABLE)
+                && !flags.intersects(!crate::flags::TypeFlags::NULLABLE)
+            {
+                return Some(self.intrinsics.any);
+            }
+        }
         Some(widened)
     }
 

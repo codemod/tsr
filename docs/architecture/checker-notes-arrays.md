@@ -863,3 +863,5 @@ extended here), and readonly tuple contexts.
 **§63.1 — the assignment-target arm, LANDED.** **+32 (30 W→R, 2 G→R),
 ZERO adverse.** The target's declared type (not the flowed one) decides,
 as §6.3 learned. `checker_types` right 401,896 → **401,928 (83.92%)**.
+**§63.2 — the empty tuple.** `const t: [] = []` prints the empty TUPLE:
+the non-empty guard dropped, **+5/0**, right → **401,933**.

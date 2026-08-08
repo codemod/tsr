@@ -147,7 +147,10 @@ impl Checker<'_, '_> {
                     }
                 }
             }
-            if clean && !elements.is_empty() {
+            if clean {
+                // Empty included: `const t: [] = []` prints the empty TUPLE
+                // (`[]`, 90 baseline instances per the tuple notes), not
+                // `never[]`.
                 return self.create_tuple_type(elements, false);
             }
         }
