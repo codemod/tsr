@@ -1519,6 +1519,21 @@ impl<'a> Checker<'a, '_> {
         if let Some(text) = Self::type_query_written_text(annotation) {
             return Some(text);
         }
+        // §77 (`checker-notes-narrow.md`): an annotation whose subtree holds
+        // a SINGLE-QUOTED string literal type is reused as WRITTEN — quote
+        // character and union order both — because a fresh render can
+        // reproduce neither (`'foo'` bakes to `"foo"`, constituents sort).
+        // The single-quote gate is what separates this from the blanket
+        // written-union reuse that measured +323/−270 and was reverted: a
+        // double-quoted annotation keeps the fresh-render road untouched.
+        {
+            let mut single_quoted = false;
+            if let Some(text) = Self::written_type_text(annotation, &mut single_quoted)
+                && single_quoted
+            {
+                return Some(text);
+            }
+        }
         // §36.1 (`checker-notes-callres.md`): a bare alias name whose target
         // is a TEMPLATE-bodied alias — §36 made those expand, and node reuse
         // keeps the written name in signature prints
@@ -1580,6 +1595,91 @@ impl<'a> Checker<'a, '_> {
             return Some(format!("{{ {text}; }}"));
         }
         None
+    }
+
+    /// §77's bounded written-node renderer. `None` for any shape outside the
+    /// bounded set; sets `single_quoted` when a `'…'` literal appears, which
+    /// is the caller's gate.
+    fn written_type_text(annotation: TypeNode<'_>, single_quoted: &mut bool) -> Option<String> {
+        match annotation {
+            TypeNode::KeywordTypeNode(keyword) => match keyword.kind {
+                SyntaxKind::StringKeyword => Some("string".to_string()),
+                SyntaxKind::NumberKeyword => Some("number".to_string()),
+                SyntaxKind::BooleanKeyword => Some("boolean".to_string()),
+                SyntaxKind::AnyKeyword => Some("any".to_string()),
+                SyntaxKind::UnknownKeyword => Some("unknown".to_string()),
+                SyntaxKind::UndefinedKeyword => Some("undefined".to_string()),
+                SyntaxKind::NeverKeyword => Some("never".to_string()),
+                SyntaxKind::VoidKeyword => Some("void".to_string()),
+                SyntaxKind::ObjectKeyword => Some("object".to_string()),
+                _ => None,
+            },
+            TypeNode::LiteralTypeNode(literal) => match literal.literal? {
+                Node::StringLiteral(string) => {
+                    if string.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE) {
+                        *single_quoted = true;
+                        Some(format!("'{}'", string.text))
+                    } else {
+                        Some(format!("\"{}\"", string.text))
+                    }
+                }
+                Node::NumericLiteral(numeric) => Some(numeric.text.to_string()),
+                _ => None,
+            },
+            TypeNode::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
+                match reference.type_name {
+                    Some(tsr_ast::EntityName::Identifier(identifier)) => {
+                        Some(identifier.text.to_string())
+                    }
+                    _ => None,
+                }
+            }
+            TypeNode::ArrayTypeNode(array) => {
+                let element = array.element_type?;
+                let inner = Self::written_type_text(element, single_quoted)?;
+                if matches!(element, TypeNode::UnionTypeNode(_)) {
+                    Some(format!("({inner})[]"))
+                } else {
+                    Some(format!("{inner}[]"))
+                }
+            }
+            TypeNode::UnionTypeNode(union) => {
+                let mut parts = Vec::with_capacity(union.types.len());
+                for constituent in union.types {
+                    parts.push(Self::written_type_text(*constituent, single_quoted)?);
+                }
+                (parts.len() > 1).then(|| parts.join(" | "))
+            }
+            TypeNode::TypeLiteralNode(literal) => {
+                let mut parts = Vec::with_capacity(literal.members.len());
+                for member in literal.members {
+                    let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member
+                    else {
+                        return None;
+                    };
+                    if !property.modifiers.is_empty() {
+                        return None;
+                    }
+                    let tsr_ast::PropertyName::Identifier(name) = property.name else {
+                        return None;
+                    };
+                    let optional =
+                        property.postfix_token.is_some_and(|t| t.kind == SyntaxKind::QuestionToken);
+                    let inner = Self::written_type_text(property.r#type?, single_quoted)?;
+                    parts.push(format!(
+                        "{}{}: {inner};",
+                        name.text,
+                        if optional { "?" } else { "" }
+                    ));
+                }
+                if parts.is_empty() {
+                    Some("{}".to_string())
+                } else {
+                    Some(format!("{{ {} }}", parts.join(" ")))
+                }
+            }
+            _ => None,
+        }
     }
 
     /// The written text of a `typeof x` annotation, for the node-reuse rule on

@@ -2979,3 +2979,23 @@ written union order (`number | string` vs `string | number`,
 structure.
 
 **§71.2 score — LANDED.** right 403,242 → **403,331 (84.22%)**.
+
+## §77 — single-quote-gated written-annotation reuse
+
+The quote-style head measured 478 lines whose got differed from want
+by QUOTE CHARACTER alone (plus written union order behind it) —
+upstream reuses the annotation node, and a fresh render can reproduce
+neither `'foo'` (bakes to `"foo"`) nor the written constituent order
+(sorts). New bounded renderer `written_type_text` (keywords,
+literals, bare references, arrays, unions, property-only type
+literals — anything else declines whole), wired into
+`written_annotation_text` behind a SINGLE-QUOTE GATE: only a subtree
+holding a `'…'` literal returns, so every double-quoted annotation
+keeps the fresh-render road. The gate is what separates this from the
+blanket written-union reuse that measured +323/−270 sessions ago and
+was reverted — that experiment's diagnosis ("node reuse loses") was
+half-right: reuse loses where the fresh render is already exact, and
+wins precisely where it cannot be.
+
+**§77 score — LANDED.** right 403,331 → **403,701 (84.30%)** —
+**+370, ZERO adverse**, the largest zero-cost build since §64.
