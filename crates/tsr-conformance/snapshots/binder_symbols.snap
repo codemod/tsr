@@ -25,7 +25,7 @@ compiler/ramdaToolsNoInfinite2
 compiler/staticFieldWithInterfaceContext
   3 symbol(s): c.x: declared on {3}, expected to include {3, 15, 17}; c10.x: no symbol; c11.x: no symbol
 conformance/autoAccessorNoUseDefineForClassFields
-  2 symbol(s): file3.ts: C3.x: no symbol; file3.ts: C3.x: no symbol
+  1 symbol(s): file3.ts: C3.x: no symbol
 conformance/moduleExportsAliasLoop2
   1 symbol(s): fn2: declared on {1}, expected to include {0, 1}
 conformance/noUncheckedIndexedAccessDestructuring

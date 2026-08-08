@@ -133,25 +133,59 @@ impl Suite for BinderSymbols {
         // borrows from it, which is why it is a local of this function rather
         // than something the suite owns — see ADR-0034.
         let arena = tsr_core::Arena::new();
+        // A case may repeat an `@filename` (`autoAccessorNoUseDefineForClassFields`
+        // declares `file3.ts` twice, and the baseline carries two sections for
+        // it); the program dedups by path, so later duplicates get a synthetic
+        // directory prefix and sections pair positionally below.
+        let mut seen_names: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut program_names: Vec<String> = Vec::new();
+        let files: Vec<(String, String)> = parsed
+            .files
+            .iter()
+            .filter(|unit| crate::scanner_suite::is_typescript_unit(&unit.name))
+            .map(|unit| {
+                let occurrence = seen_names.entry(unit.name.clone()).or_insert(0);
+                *occurrence += 1;
+                let name = if *occurrence == 1 {
+                    unit.name.clone()
+                } else {
+                    format!("__dup{occurrence}/{}", unit.name)
+                };
+                program_names.push(name.clone());
+                (name, unit.content.clone())
+            })
+            .collect();
         let program = tsr_compiler::Program::in_arena(
             &arena,
-            tsr_compiler::ProgramOptions {
-                files: parsed
-                    .files
-                    .iter()
-                    .filter(|unit| crate::scanner_suite::is_typescript_unit(&unit.name))
-                    .map(|unit| (unit.name.clone(), unit.content.clone()))
-                    .collect(),
-                ..Default::default()
-            },
+            tsr_compiler::ProgramOptions { files, ..Default::default() },
         );
+        let mut section_occurrences: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
 
         for expected_file in &expected_files {
             // Exact name first: a case can hold both `utils/index.ts` and
             // `index.ts`, and the suffix rule would pair the section with
             // whichever comes first (`esModuleInteropImportTSLibHasImport`).
-            let Some(unit) =
-                parsed.files.iter().find(|unit| unit.name == expected_file.file).or_else(|| {
+            let occurrence = {
+                let counter = section_occurrences.entry(expected_file.file.as_str()).or_insert(0);
+                *counter += 1;
+                *counter
+            };
+            let Some(unit) = parsed
+                .files
+                .iter()
+                .filter(|unit| unit.name == expected_file.file)
+                .nth(occurrence - 1)
+                .or_else(|| {
+                    parsed
+                        .files
+                        .iter()
+                        .filter(|unit| same_unit(&unit.name, &expected_file.file))
+                        .nth(occurrence - 1)
+                })
+                .or_else(|| parsed.files.iter().find(|unit| unit.name == expected_file.file))
+                .or_else(|| {
                     parsed.files.iter().find(|unit| same_unit(&unit.name, &expected_file.file))
                 })
             else {
@@ -160,7 +194,15 @@ impl Suite for BinderSymbols {
             if !crate::scanner_suite::is_typescript_unit(&unit.name) {
                 continue;
             }
-            let Some(file) = program.source_file(&unit.name) else { continue };
+            let typed_index = parsed
+                .files
+                .iter()
+                .filter(|candidate| crate::scanner_suite::is_typescript_unit(&candidate.name))
+                .position(|candidate| std::ptr::eq(candidate, unit));
+            let program_name = typed_index
+                .and_then(|index| program_names.get(index))
+                .map_or_else(|| unit.name.clone(), Clone::clone);
+            let Some(file) = program.source_file(&program_name) else { continue };
             // A file we cannot parse tells us nothing about the binder.
             if !file.diagnostics().is_empty() {
                 unparsable += 1;
@@ -192,7 +234,7 @@ impl Suite for BinderSymbols {
                 // expression, so `symbolToString` prints `foo`
                 // (`exportDefaultClassAndValue`). No symbol shares that
                 // declaration, so the name is read off the statement.
-                if let Some(source_file) = program.source_file(&unit.name) {
+                if let Some(source_file) = program.source_file(&program_name) {
                     for statement in source_file.source_file().statements {
                         let tsr_ast::Statement::ExportAssignment(assignment) = statement else {
                             continue;
