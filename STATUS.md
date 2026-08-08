@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the §15 landing, 2026-08-07 (ninth session, continued: builds 25–31).
+Measured at HEAD, 2026-08-08 (eleventh session, grind/non-checker-conformance).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -32,16 +32,16 @@ Measured at the §15 landing, 2026-08-07 (ninth session, continued: builds 25–
 | `scanner_clean_files` | 5,031/5,031 | 100% | |
 | `module_resolution` | 95/95 | 100% | |
 | `file_loader` | 96/96 | 100% | |
-| `printer_round_trip` | 11,682/11,738 | 99.52% | **corrected** — the published 11,681/11,737 was one case stale; the snapshot has read 11,682/11,738 since before this session |
-| `parser_typescript` | 5,001/5,031 | 99.40% | |
-| `binder_symbols` | 8,293/8,460 | 98.03% | |
+| `parser_typescript` | 5,031/5,031 | 100% | **elevated** — was 99.40% |
+| `printer_round_trip` | 11,755/11,778 | 99.80% | 11,682 → 11,755 |
+| `binder_symbols` | 8,311/8,475 | 98.06% | 8,293 → 8,311 |
+| **`dts_emit`** | **327/374** | **87.43%** | **from 47.49% — ten recent commits focused on JSDoc type handling** |
+| **`dts_shape`** | **859/1,007** | **85.30%** | **from 67.76%** |
 | `isolated_declarations` | 13/15 | 86.67% | |
-| `dts_shape` | 618/912 | 67.76% | |
-| `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
-| `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,078/9,538** | **32.27%** | **gradient 76.98%** — the target |
-| `diagnostics` | **993/5,488** | **18.09%** | **tenth session, +276** — 717 → 993 across twenty-two builds and four measured refusals; the running total is 80 → 993, 12.4× |
+| `dts_reachable_target` | 492/1,162 | 42.34% | 495 → 492 |
+| **`checker_types`** | **3,088/9,538** | **32.38%** | **gradient 77.24%** — the target; +10 cases, +1220 assertion lines |
+| `diagnostics` | **999/5,488** | **18.20%** | **+6 cases from prior session** |
 
 ### `checker_types`, the number the project is steered by
 
