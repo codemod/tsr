@@ -7650,3 +7650,51 @@ walk can quit where upstream quits. That is a small, well-defined function and
 is the whole of what stands between this and thirteen cases. **Next attempt
 should port it first and re-run this exact measurement** — the two numbers above
 are the baseline to beat, and beating them means LOST 0 and WRONG well under 10.
+
+## §98 — the container ported: CONVERTS 6 → 8, and the refusal now rests on ONE case
+
+Third measurement on `isBlockScopedNameDeclaredBeforeUse`, and the last this
+session takes. `GetEnclosingBlockScopeContainer` (`ast/utilities.go:2171`) and
+`IsBlockScope` (`:2177`) are ported, so
+`isUsedInFunctionOrInstanceProperty`'s walk quits where upstream's quits.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 6 | **0** | 14 | **0** |
+| §96 approximated | 7 | 6 | 23 | 176 |
+| §97 deferrals ported | 7 | 1 | 21 | 21 |
+| **§98 container ported** | **8** | **1** | 31 | 21 |
+
+**Reverted, on the LOST alone.** Everything else is now in range: two extra
+conversions, and a wrong column that fell from 176 to 21 across three attempts
+while the right column more than doubled.
+
+### The refusal is now one named case
+
+`conformance/controlFlowNullishCoalesce`, and §98 narrowed *which arm*: removing
+the enum arm entirely leaves LOST at 1, so it is the **block-scoped-variable**
+arm. That is the whole of what is unresolved — one fixture, one arm, and a rule
+that is otherwise measuring well.
+
+The three findings to carry forward, each bought with a measurement:
+
+1. **The type-context deferral** (`checker.go:1932`) — 155 of §96's 176 wrong
+   lines.
+2. **The multi-declaration decline** — a merged symbol's declaration position is
+   arbitrary among its members; took LOST from 6 to 1.
+3. **The container-bounded walk** (`checker.go:2011` + `utilities.go:2171`) —
+   worth +1 conversion and +10 right lines over §97, because a use and a
+   declaration sharing a function are compared by position rather than deferred.
+
+### Why three refusals on one item is not three wasted attempts
+
+Each measurement isolated a different arm, and the numbers only make sense as a
+sequence: 176 → 21 → 21-with-two-more-conversions. A single attempt that landed
+at 21 wrong would have been reverted with no idea which of five missing arms
+mattered. **The sequence is the diagnosis.** What is left is not "port more of
+the predicate" — the predicate is ported — it is *debug one fixture*, which is a
+different and much smaller job than the one this section started with.
+
+Thirteen sole-obstacle cases remain behind it (TS2448 7, TS2449 5, TS2450 1),
+all relation-free. **Next session: reproduce `controlFlowNullishCoalesce` with
+`diagcase`, find the arm, and this lands.**
