@@ -5,13 +5,13 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  325/378  = 85.98%  (denominator moved three times:
+  dts_emit                  326/378  = 86.24%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
                                                 mispairings, grew to 378 with
                                                 positional duplicate pairing)
-  dts_shape                855/1,007 = 84.91%  (same corrections; was 753/918
+  dts_shape                856/1,007 = 85.00%  (same corrections; was 753/918
                                                 before them)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -253,7 +253,10 @@ arms); rest params keep their written element type behind moved dots, and
 a following non-typedef comment claims a `@typedef` run's trivia but not a
 `@callback`'s — grafted nodes carry `NodeFlags::REPARSED` so reparsed mapped
 types print single-line, and nested property assignments on an empty-object
-const spell its type literal (`typeFromPropertyAssignment39`, +1 emit).
+const spell its type literal (`typeFromPropertyAssignment39`, +1 emit). A
+dotted `@typedef` name wraps in `export declare namespace` with the alias
+exported inside, its comment staying on the host statement
+(`jsDeclarationsImportNamespacedType`, +1 emit and +1 shape).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

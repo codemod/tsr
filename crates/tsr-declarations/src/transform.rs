@@ -1719,6 +1719,18 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             if let Some(range) = jsdoc_braced_range(comment, "typedef") {
                 let after = &comment[range.1 + 1..];
                 let name_start = range.1 + 1 + (after.len() - after.trim_start().len());
+                // `@typedef {T} A.B` declares `namespace A { export type B }`
+                // (`reparser.go`'s `wrapInJSDocNamespace`); the declaring
+                // comment stays on its host statement.
+                if let Some(segments) = dotted_name_at(comment, name_start)
+                    && segments.len() > 1
+                {
+                    let Some(r#type) = self.graft_jsdoc_range(comment, range) else { continue };
+                    let namespace =
+                        self.jsdoc_namespace_alias(&segments, r#type, comment, is_module);
+                    result.push((start, namespace));
+                    continue;
+                }
                 let Some(name) = identifier_at(comment, name_start) else { continue };
                 // `@typedef {Object}` plus `@property` tags is JSDoc's object
                 // literal spelling, and the tags are the members.
@@ -1772,6 +1784,70 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             span,
             NodeFlags::empty(),
         ))
+    }
+
+    /// The namespace-wrapped alias a dotted `@typedef` name declares.
+    fn jsdoc_namespace_alias(
+        &mut self,
+        segments: &[String],
+        r#type: TypeNode<'a>,
+        comment: &'a str,
+        is_module: bool,
+    ) -> Statement<'a> {
+        let span = Span::new(0, 0);
+        let type_parameters = self.jsdoc_template_parameters(comment, span);
+        let export = self.factory.modifier(SyntaxKind::ExportKeyword, span);
+        let alias_modifiers = self.factory.slice(&[export]);
+        let (last, outer) = segments.split_last().expect("dotted name has segments");
+        let text = self.factory.alloc_str(last);
+        let name = self.factory.identifier(text, span);
+        let mut statement = Statement::TypeAliasDeclaration(self.factory.alloc(
+            tsr_ast::TypeAliasDeclaration::new(
+                alias_modifiers,
+                Some(name),
+                type_parameters,
+                Some(r#type),
+            ),
+            SyntaxKind::TypeAliasDeclaration,
+            span,
+            NodeFlags::empty(),
+        ));
+        for (index, segment) in outer.iter().enumerate().rev() {
+            let statements = self.factory.slice(&[statement]);
+            let block = self.factory.alloc(
+                tsr_ast::ModuleBlock::new(statements),
+                SyntaxKind::ModuleBlock,
+                span,
+                NodeFlags::empty(),
+            );
+            let modifiers: &'a [ModifierLike<'a>] = if index == 0 {
+                let declare = self.factory.modifier(SyntaxKind::DeclareKeyword, span);
+                if is_module {
+                    let export = self.factory.modifier(SyntaxKind::ExportKeyword, span);
+                    self.factory.slice(&[export, declare])
+                } else {
+                    self.factory.slice(&[declare])
+                }
+            } else {
+                &[]
+            };
+            let keyword = self.factory.token(SyntaxKind::NamespaceKeyword, span);
+            let text = self.factory.alloc_str(segment);
+            let name = self.factory.identifier(text, span);
+            statement = Statement::ModuleDeclaration(self.factory.alloc(
+                tsr_ast::ModuleDeclaration::new(
+                    modifiers,
+                    keyword,
+                    Some(tsr_ast::ModuleName::Identifier(name)),
+                    Some(tsr_ast::ModuleBody::ModuleBlock(block)),
+                    None,
+                ),
+                SyntaxKind::ModuleDeclaration,
+                span,
+                NodeFlags::empty(),
+            ));
+        }
+        statement
     }
 
     /// `@template T` and `@template {C} K` tags as alias type parameters.
@@ -3034,6 +3110,28 @@ fn property_path(expression: &Expression<'_>) -> Option<(String, Vec<String>)> {
             Some((base, path))
         }
         _ => None,
+    }
+}
+
+/// The dotted identifier path starting at `position`, when one does.
+fn dotted_name_at(text: &str, position: usize) -> Option<Vec<String>> {
+    let mut segments = Vec::new();
+    let mut cursor = position;
+    loop {
+        let rest = text.get(cursor..)?;
+        let head = rest.chars().next()?;
+        if !(head.is_alphabetic() || head == '_' || head == '$') {
+            return None;
+        }
+        let name: String =
+            rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$').collect();
+        cursor += name.len();
+        segments.push(name);
+        if text.get(cursor..).is_some_and(|rest| rest.starts_with('.')) {
+            cursor += 1;
+        } else {
+            return Some(segments);
+        }
     }
 }
 

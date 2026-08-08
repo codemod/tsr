@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 325/378 (85.98%)
-Failed         : 53
+Passed         : 326/378 (86.24%)
+Failed         : 52
 Skipped        : 12066 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -106,8 +106,6 @@ conformance/genericContextualTypes1
   line 22: want `declare const arrayMap: <T, U>(f: (x: T) => U) => (a: T[]) => U[];`, got `declare const arrayMap: any;`
 conformance/jsDeclarationsClassStatic2
   line 6: want `export declare namespace Foo {`, got `export {};`
-conformance/jsDeclarationsImportNamespacedType
-  line 1: want `export declare namespace Dotted {`, got `/** @typedef {number} Dotted.Name */`
 conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
   line 2: want `export declare const a: any | null;`, got `export declare const a: null;`
 conformance/jsDeclarationsTypedefDescriptionsPreserved

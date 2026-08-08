@@ -264,6 +264,23 @@ fn nested_assignments_on_an_empty_object_const_build_its_type() {
 }
 
 #[test]
+fn a_dotted_typedef_name_declares_a_namespace_member() {
+    // `jsDeclarationsImportNamespacedType`: `@typedef {number} Dotted.Name`
+    // wraps in `export declare namespace Dotted { export type Name }`, and
+    // the declaring comment stays on its host statement.
+    let output = emit_javascript("/** @typedef {number} Dotted.Name */\nexport var dummy = 1;");
+    assert!(
+        output
+            .starts_with("export declare namespace Dotted {\n    export type Name = number;\n}\n"),
+        "{output}"
+    );
+    assert!(
+        output.contains("/** @typedef {number} Dotted.Name */\nexport declare var dummy"),
+        "{output}"
+    );
+}
+
+#[test]
 fn a_jsdoc_implements_tag_becomes_a_heritage_clause() {
     // `jsdocImplements_properties`: braced, bare, and comment-closing forms.
     let output = emit_javascript("class A {}\n/** @implements A*/\nclass B {}");
