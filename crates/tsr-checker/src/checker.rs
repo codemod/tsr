@@ -251,6 +251,19 @@ pub struct Checker<'a, 'n> {
     /// wrong answer, which is why it is part of the port and not an
     /// optimisation.
     pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
+    /// §52's reentrancy guard: operand nodes currently being typed FROM
+    /// INSIDE an equality-narrowing walk. Typing `value` can re-enter the
+    /// same reference's flow walk through the operand's own narrowing and
+    /// loop; a node already on this stack answers `t` unchanged instead.
+    pub(crate) narrow_value_stack: std::collections::HashSet<tsr_ast::NodeId>,
+    /// §52's operand memo — upstream's `getTypeOfExpression` is CACHED, and
+    /// without the cache every equality re-types its operand, each typing
+    /// re-entering other references' walks: exponential on condition
+    /// chains (`compiler/con*` hung the corpus run, caught by `sample`
+    /// showing the `narrow_type_by_equality` ↔ `get_type_at_flow_node`
+    /// spin).
+    pub(crate) narrow_value_types: rustc_hash::FxHashMap<tsr_ast::NodeId, crate::types::TypeId>,
+
     /// Upstream's `c.strictNullChecks` (`checker.go:604`, set from the
     /// compiler options at `:919` via `GetStrictOptionValue`).
     ///
@@ -577,6 +590,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             flow_analysis_disabled: false,
             flow_disabled_containers: rustc_hash::FxHashSet::default(),
             shared_flows: Vec::new(),
+            narrow_value_stack: std::collections::HashSet::new(),
+            narrow_value_types: rustc_hash::FxHashMap::default(),
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,

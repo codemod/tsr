@@ -119,16 +119,19 @@ fn the_narrowing_does_not_escape_the_branch_it_belongs_to() {
 fn an_unported_guard_leaves_the_declared_type_rather_than_a_wrong_one() {
     // The property that makes a partial port of `narrowType` safe: its default
     // arm returns the type unchanged, so a form this port does not recognise
-    // gives the answer it gave before narrowing existed. This fixture used a
-    // `typeof` guard as its stand-in until `bd tsr-q9g` landed that arm and
-    // it came due — the third such expiry in one session, which is exactly why
-    // the conventions require the PAIR. The stand-in is now **comparability**
-    // (`x === "a"` needs `areTypesComparable`, unported, `bd tsr-97d`), and
-    // the ported half of the pair is asserted beside it in
+    // gives the answer it gave before narrowing existed. This fixture's
+    // stand-in has expired FOUR times now (`typeof` -> `bd tsr-q9g`;
+    // comparability -> §52, `checker-notes-narrow.md`), which is exactly why
+    // the conventions require the PAIR. The stand-in is now an `instanceof`
+    // guard against a local class — `narrowTypeByInstanceof` needs
+    // prototype-chain machinery this port does not have — and the ported
+    // half of the pair is asserted beside it in
     // `a_typeof_guard_narrows_by_the_named_primitive`.
     assert_eq!(
-        type_of_last_expression("let x: string | undefined;\nif (x === \"a\") { x; }"),
-        "string | undefined"
+        type_of_last_expression(
+            "class C { c: string = \"\"; }\nlet x: C | undefined;\nif (x instanceof C) { x; }"
+        ),
+        "C | undefined"
     );
 }
 
@@ -337,15 +340,15 @@ fn a_non_nullable_type_is_left_alone_by_the_inequality() {
 
 #[test]
 fn an_equality_against_a_non_nullable_operand_narrows_nothing() {
-    // The comparability branch of `narrowTypeByEquality` is not ported — it
-    // needs `areTypesComparable`. `x === "a"` therefore leaves the declared
-    // type, which is `narrow_type`'s standing default rather than a new
-    // guess, and this test is what fails if someone routes a non-nullable
-    // operand into the facts filter: `string | undefined` has no constituent
-    // carrying a `"a"`-comparability fact, so it would collapse to `never`.
+    // RE-POINTED by §52 (`checker-notes-narrow.md`): the comparability
+    // branch of `narrowTypeByEquality` is now ported, so `x === "a"`
+    // filters to the comparable constituent and
+    // `replacePrimitivesWithLiterals` spells it as the literal — the
+    // answer upstream gives. The never-collapse this test feared is pinned
+    // by the filter's kept-empty guard instead.
     assert_eq!(
         type_of_last_expression("declare const x: string | undefined;\nif (x === \"a\") { x; }"),
-        "string | undefined"
+        "\"a\""
     );
 }
 

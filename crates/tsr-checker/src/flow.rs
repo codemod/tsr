@@ -2818,7 +2818,94 @@ impl Checker<'_, '_> {
         // upstream reaches the same two types through `getTypeOfExpression`,
         // and a non-literal operand lands in the unported comparability branch
         // either way, so nothing reachable is given up.
-        let Some(value_type) = self.nullable_literal_type(value) else { return t };
+        let Some(value_type) = self.nullable_literal_type(value) else {
+            // §52 (`checker-notes-narrow.md`): the comparable-filter half
+            // (`flow.go:580`) for a NON-nullable value — strict operators
+            // only, Kleene whole-decline.
+            if double_equals {
+                return t;
+            }
+            // Reentrancy: typing the operand can re-enter this same walk
+            // through the operand's own narrowing (the recursion the
+            // nullable-only port declined to risk) — a node already being
+            // typed for narrowing answers unchanged.
+            if !self.narrow_value_stack.insert(value) {
+                return t;
+            }
+            let value_type = if let Some(&cached) = self.narrow_value_types.get(&value) {
+                cached
+            } else {
+                let computed = self
+                    .node_map
+                    .get(value)
+                    .and_then(|node| tsr_ast::Expression::try_from(node).ok())
+                    .map_or(self.intrinsics.error, |expression| self.check_expression(expression));
+                self.narrow_value_types.insert(value, computed);
+                computed
+            };
+            self.narrow_value_stack.remove(&value);
+            let value_flags = self.store.get(value_type).flags;
+            if value_type == self.intrinsics.error
+                || value_flags.intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::NULLABLE)
+            {
+                return t;
+            }
+            // §52's contained leg: an alias-NAMED union declines — the
+            // narrowed rebuild loses the alias spelling and the corpus
+            // wants BOTH spellings for one member set by creation path
+            // (`numericLiteralTypes1` position 175 wants `1 | 2` beside
+            // 178's `Tag`), which is the §39 origin reshape's territory.
+            // The §52 wins are all ANONYMOUS unions (`Thing | undefined`).
+            let constituents: Vec<TypeId> = match &self.store.get(t).data {
+                TypeData::Union { types, symbol, .. } => {
+                    if symbol.is_some() {
+                        return t;
+                    }
+                    types.clone()
+                }
+                _ => vec![t],
+            };
+            let total = constituents.len();
+            let mut kept = Vec::new();
+            if assume_true {
+                for constituent in constituents {
+                    match self.comparable_ternary(constituent, value_type) {
+                        Some(true) => kept.push(constituent),
+                        Some(false) => {}
+                        None => return t,
+                    }
+                }
+            } else {
+                // The false branch acts only on a UNIT value: drop the
+                // unit-like comparable constituents (`flow.go:601`).
+                if !value_flags.intersects(TypeFlags::UNIT) {
+                    return t;
+                }
+                for constituent in constituents {
+                    let unit_like = self.store.get(constituent).flags.intersects(TypeFlags::UNIT);
+                    if !unit_like {
+                        kept.push(constituent);
+                        continue;
+                    }
+                    match self.comparable_ternary(constituent, value_type) {
+                        Some(true) => {}
+                        Some(false) => kept.push(constituent),
+                        None => return t,
+                    }
+                }
+            }
+            if kept.is_empty() || kept.len() == total {
+                if assume_true && kept.is_empty() {
+                    return self.intrinsics.never;
+                }
+                return t;
+            }
+            let filtered = self.get_union_type(&kept);
+            if assume_true {
+                return self.replace_primitives_with_literals(filtered, value_type);
+            }
+            return filtered;
+        };
         let value_flags = self.store.get(value_type).flags;
         debug_assert!(value_flags.intersects(TypeFlags::NULLABLE));
         // `if !c.strictNullChecks { return t }` (`flow.go:565`). Upstream

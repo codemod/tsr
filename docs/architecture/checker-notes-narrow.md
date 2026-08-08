@@ -2331,3 +2331,62 @@ already-non-nullish union disagrees with upstream's on any line, R→W.
 **§51.5 score — LANDED.** **+15 (13 W→R, 2 G→R), ZERO adverse.** The
 falsifier did not fire. `checker_types` right 399,503 → **399,518
 (83.42%)**.
+
+## §52 — equality's comparable-filter half
+
+`narrow_type_by_equality` ported only the nullable-operand half; the
+doc's stated reason — typing the operand from inside the walk could
+recurse — has since been survived by every §50/§51 arm, which all
+`check_expression` their operands mid-walk. Upstream's other half
+(`flow.go:580`): for a NON-nullable value, assumeTrue filters
+constituents by `areTypesComparable` then
+`replacePrimitivesWithLiterals`; assumeFalse with a UNIT value drops the
+unit-like comparable constituents. The slice: STRICT operators only (the
+`isCoercibleUnderDoubleEquals` and unknown/empty-object arms stay
+unported); the comparable test is `comparable_ternary` with Kleene
+whole-decline; any/unknown/error values decline.
+
+**Falsifiers.** (a) The uniform-union/`removeType` distinction upstream
+draws on the false branch — if dropping comparable unit-likes diverges
+from `removeType` somewhere, R→W on `!==` else-branches. (b)
+`replacePrimitivesWithLiterals` fidelity — §16 landed it for switches;
+an equality-position divergence shows as literal-spelling wrongs.
+
+**§52 score — LANDED (three mechanisms, one narrowing).** The build
+needed: (1) a REENTRANCY guard (typing the operand re-enters other
+references' walks — the recursion the nullable-only port declined to
+risk is real); (2) an operand MEMO (`narrow_value_types`) — upstream's
+`getTypeOfExpression` is cached, and without it condition chains are
+EXPONENTIAL: `compiler/con*` hung the corpus run, diagnosed by `sample`
+showing the `narrow_type_by_equality` ↔ `get_type_at_flow_node` spin,
+and the memo also cut the full corpus run 41s → 21s; (3) an alias-NAMED
+union decline — the narrowed rebuild loses the alias spelling, and the
+corpus wants BOTH spellings for one member set by creation path
+(`numericLiteralTypes1` wants `1 | 2` at position 175 beside `Tag` at
+178) — a §52.1 member-set index was built, measured (+39/11 with a
+written-road split), and REVERTED whole: the real mechanism is
+upstream's member-set INTERNING plus origin, i.e. the §39 reshape, and
+a text-level index cannot decide which spelling a site wants. Final:
+**+41 W→R, 4 W→G / 1 R→W (41:1)** — the 1 is an element-access
+WRITE-position read (`x['o'] = true`'s LHS narrowed; the §12.7 dispatch
+covers identifiers only), recorded as that seam's residue.
+`checker_types` right 399,518 → **399,558 (83.43%)**.
+
+## §52.1 — rebuilt unions rediscover their name
+
+§52's falsifier surfaced a standing identity divergence: upstream interns
+unions on the MEMBER SET, so a branch-join that rebuilds `"" | "foo"`
+gets the SAME type object the alias `T` declared — and prints `T`. This
+port interns on `(flags, text, members)`, so the rebuild minted a
+second, anonymous spelling (9 R→W: `stringLiteralTypesInUnionTypes04`,
+`numericLiteralTypes1/2` — every one a §52-narrowed branch re-joining).
+The port equivalent: a `named_union_by_members` index — the sorted
+member list of every NAMED union (enum declared types, alias-named
+unions), consulted by the plain union road before minting. Exact-list
+hits return the named type; everything else unchanged.
+
+**Falsifiers.** (a) Two aliases with identical member sets — first-writer
+wins in the index where upstream's alias-symbol choice may differ; W on
+the second alias's lines. (b) Positions where upstream prints the
+EXPANDED form despite the name existing (the §39 study's evaluated
+positions) — W there says the index needs the §39 position split.
