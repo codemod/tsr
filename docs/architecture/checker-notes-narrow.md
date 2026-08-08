@@ -2786,3 +2786,15 @@ with the `undefined` IDENTIFIER widens to `any`; class PROPERTIES keep
 `undefined` (`implicitAnyCastedValue`, itself @noImplicitAny — the third
 key), and derived undefineds (`void 0`) keep everywhere. **+9 (W→R),
 ZERO adverse.** `checker_types` right 402,316 → **402,325 (84.00%)**.
+
+## §66 — the class-heritage relater arm REFUSED at zero
+
+Built for §7's named blocker (`generatedContextualTyping`'s `Base[]`,
+62): a heritage-chain walk answering Related for `Derived` → `Base`.
+Un-gated it folded generic instantiations wrongly (2 R→G,
+`arrayLiteralsWithRecursiveGenerics` — the arm compares no arguments);
+gated to bare instance types it reached ZERO population — the target
+case's pairs never route through the pre-structural verdicts (they
+decline earlier, likely at the signature-bearing gate or arrive as
+instantiated references). The 62 need the pair's ACTUAL decline point
+traced with an instrument, not another speculative arm.
