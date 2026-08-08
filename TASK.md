@@ -3,6 +3,14 @@ The `diagnostics` workstream's is **TASK-diagnostics.md** — the two were
 overwriting each other in this one file, and the ninth session's diagnostics
 handoff was lost that way before it was read.
 
+TOOLING (build 96): the scoring pair is now ONE command —
+`cargo run --release -p tsr-conformance --example scorepair` runs the
+corpus, diffs against `target/verdict_baseline.tsv`, and prints the
+transition matrix with per-case attribution; `-- --accept` advances the
+baseline after a landing (full runs only, enforced). `TSR_FILTER=case`
+on scorepair or verdictdump gives the sub-second inner loop (41s -> 0.36s
+measured). Iterate filtered; LAND only on a full-run matrix.
+
 FIRST: git pull. Read STATUS.md §1 and §7's top rows (the ninth session's
 continuation appended SIXTEEN rows, builds 25–40), then
 docs/architecture/checker-notes-narrow.md §12.6–§22 — that run is the
