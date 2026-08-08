@@ -105,8 +105,15 @@ TS2540      12         9
    It had sat untouched for thirteen sessions because every session ranked with
    `diagreach`, which measures cases reachable by **deepening rules that exist**;
    a code with no rule appears only in `diaggap`. **§104 then took `TS1163` for +10 cases**
-   (10 lines / 10 cases, concentration 1.0). **`TS1100` (12 cases), `TS1109` (11)
-   and `TS1183` remain unpriced and are the same shape.**
+   (10 lines / 10 cases, concentration 1.0). **§105 PRICED the rest and two of the three are NOT the
+   same shape**: `TS1100` (12 cases) is the **binder's** —
+   `checkStrictModeEvalOrArguments` (`binder.go:1449`) from seven call sites,
+   needing `b.inStrictMode` and a **three-way** message split of which only one
+   is TS1100 (TS1210 in a class, TS1215 in a module); `TS1109` (11 cases) is the
+   **parser's**, every line a yield/await recovery position; and `TS1183`
+   measures **zero** and is off the board. **The cheap-grammar seam is now
+   exhausted — re-read `diaggap` for the next one rather than assuming a `TS1xxx`
+   code is cheap.**
    Before porting any rule that reads a `NodeFlag`, **grep whether anything sets
    it**: `NodeFlags::YIELD_CONTEXT` is a fourth declared-and-never-set flag
    alongside `AMBIENT`, `JAVASCRIPT_FILE` and `SymbolFlags::OPTIONAL`, and §104
