@@ -1,14 +1,14 @@
 THIS FILE IS THE NON-CHECKER, NON-DIAGNOSTICS CONFORMANCE WORKSTREAM'S HANDOFF.
 
-CURRENT PROGRESS (2026-08-08, twelfth session, measured at `8dcdc71`)
+CURRENT PROGRESS (2026-08-08, twelfth session, measured at `814fd4d`)
 
   parser_typescript      5,031/5,031 = 100.00%
   printer_round_trip   11,776/11,776 = 100.00% (was 11,755/11,778 — COMPLETE;
                                                 two error-recovery cases became
                                                 faithful parse-diagnostic skips)
-  binder_symbols          8,401/8,473 = 99.15% (was 8,310/8,473 — the suite now
+  binder_symbols          8,408/8,473 = 99.23% (was 8,310/8,473 — the suite now
                                                 indexes alias-transparent
-                                                spellings, +91 cases)
+                                                spellings, +98 cases)
   dts_emit                  333/374  = 89.04%  (was 327/374; +6 this session)
   dts_shape                860/1,008 = 85.32%  (was 859/1,007; the `!!!!`
                                                 marker fix moved one case in)
@@ -57,7 +57,14 @@ What remains, classified (from dts_failures + the binder snapshot at 8dcdc71):
   - dts_shape 148 failures: dominated by checker-driven import
     synthesis/retention ("want import") — the emitted type names the import,
     and the type is inferred. Not reachable per-unit without the checker.
-  - binder_symbols 72 failures: numeric-name canonicalization (~6 cases,
+  Then four binder-suite follow-ups (d7d765a, c800d98, 814fd4d and the
+  compounding fix) took binder_symbols 8,401 -> 8,408: transparency compounds
+  through alias members (circularImportAlias), chains resolve through
+  intermediate aliases (importStatementsInterfaces), `import x = require("m")`
+  resolves ambient-module targets (privacyGloImport), and line counting honors
+  CR/LS/PS breaks (allowUnescapedParagraphAndLineSeparators…).
+
+  - binder_symbols 65 failures: numeric-name canonicalization (~6 cases,
     `bd tsr-1` — needs an arena through FileInfo or a value field on
     NumericLiteral), computed-name constant folding (checker late-binding),
     export= augmentation targets, JSDoc @overload declaration lists, escaped/

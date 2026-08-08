@@ -34,7 +34,7 @@ Measured at `8dcdc71`, 2026-08-08 (twelfth session, grind/non-checker-conformanc
 | `file_loader` | 96/96 | 100% | |
 | `parser_typescript` | 5,031/5,031 | 100% | |
 | **`printer_round_trip`** | **11,776/11,776** | **100%** | **COMPLETE** — was 99.80%; see the twelfth session's row in §7 |
-| **`binder_symbols`** | **8,401/8,473** | **99.15%** | 8,310 → 8,401 — alias-transparent indexing, +91 cases |
+| **`binder_symbols`** | **8,408/8,473** | **99.23%** | 8,310 → 8,408 — alias-transparent indexing plus three follow-ups, +98 cases |
 | **`dts_emit`** | **333/374** | **89.04%** | 327 → 333 |
 | `dts_shape` | 860/1,008 | 85.32% | the `!!!!`-marker fix moved one case in, and it passes |
 | `isolated_declarations` | 13/15 | 86.67% | |

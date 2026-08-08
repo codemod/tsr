@@ -17,7 +17,7 @@ case-level roadmap. Numbers below are from the coverage run at `8dcdc71`.
 | `file_loader` | 100% | 0 | ✅ Complete |
 | `parser_typescript` | 100% | 0 | ✅ Complete |
 | `printer_round_trip` | **100%** | **0** | ✅ **Complete this session** (11,776/11,776) |
-| `binder_symbols` | 99.15% | 72 | was 163 — alias transparency indexed |
+| `binder_symbols` | 99.23% | 65 | was 163 — alias transparency indexed |
 | `dts_emit` | 89.04% | 41 | was 47 |
 | `dts_shape` | 85.32% | 148 | dominated by checker-driven import synthesis |
 | `isolated_declarations` | 86.67% | 2 | diagnostic-related (TS9025/9026), out of scope |
