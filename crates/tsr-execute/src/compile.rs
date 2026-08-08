@@ -236,10 +236,35 @@ pub fn run_compilation(
         &host,
         tsr_compiler::LoadOptions {
             compiler_options: options.clone(),
-            root_file_names: root_files,
+            root_file_names: root_files.clone(),
             default_library_path: sys.default_library_path().to_string(),
         },
     );
+
+    // A root file the loader could not reach is a diagnostic, not silence.
+    // Upstream reports it from `processAllProgramFiles`
+    // (`fileloader.go:407`); this port's loader drops it, so the driver asks
+    // afterwards which roots made it into the program.
+    //
+    // The name is reported **as written** — `tsc`, not the absolute path it was
+    // resolved to — which is why the command line's own file names are kept
+    // alongside the absolutised roots.
+    let mut missing_roots = Vec::new();
+    if config_file_name.is_empty() {
+        for (written, absolute) in command_line.file_names.iter().zip(&root_files) {
+            if program.source_file(absolute).is_none() {
+                missing_roots.push(Diagnostic::with_args(
+                    &messages::FILE_0_NOT_FOUND,
+                    tsr_core::Span::new(0, 0),
+                    [tsr_path::normalize_slashes(written)],
+                ));
+            }
+        }
+    }
+    if !missing_roots.is_empty() {
+        report(sys, &missing_roots, &options);
+        return ExitStatus::DiagnosticsPresentOutputsSkipped;
+    }
 
     if options.list_files.is_true() || options.list_files_only.is_true() {
         let mut listing = String::new();
@@ -436,29 +461,6 @@ fn report_located(
     diagnostics: &[(String, Diagnostic)],
     options: &CompilerOptions,
 ) {
-    report_located_impl(sys, files, diagnostics, options, true);
-}
-
-/// As [`report_located`], but without the `Found N errors` block.
-// Unused since the caller was refactored; kept because the sibling
-// `report_located` reads against it. Not this workstream's to delete.
-#[allow(dead_code)]
-fn report_located_without_summary(
-    sys: &mut dyn System,
-    files: &[DiagnosticFile],
-    diagnostics: &[(String, Diagnostic)],
-    options: &CompilerOptions,
-) {
-    report_located_impl(sys, files, diagnostics, options, false);
-}
-
-fn report_located_impl(
-    sys: &mut dyn System,
-    files: &[DiagnosticFile],
-    diagnostics: &[(String, Diagnostic)],
-    options: &CompilerOptions,
-    summary: bool,
-) {
     let located: Vec<LocatedDiagnostic<'_>> = diagnostics
         .iter()
         .map(|(file_name, diagnostic)| {
@@ -468,6 +470,6 @@ fn report_located_impl(
             }
         })
         .collect();
-    let text = render(sys, &located, options, summary);
+    let text = render(sys, &located, options, true);
     sys.write(&text);
 }
