@@ -268,6 +268,11 @@ pub struct Checker<'a, 'n> {
     /// union's text renders from these; its constituent list stays the
     /// flattened members; narrowing filters PROJECT them.
     pub(crate) union_origin: rustc_hash::FxHashMap<crate::types::TypeId, Vec<crate::types::TypeId>>,
+    /// §55: value-keyed enum literal interning — `getEnumLiteralType`
+    /// (`checker.go:25362`). Key: (enum symbol, folded value's canonical
+    /// string). `enum E { A, B = A }` gives both members ONE type.
+    pub(crate) enum_value_types:
+        rustc_hash::FxHashMap<(tsr_binder::SymbolId, String), crate::types::TypeId>,
 
     /// Upstream's `c.strictNullChecks` (`checker.go:604`, set from the
     /// compiler options at `:919` via `GetStrictOptionValue`).
@@ -598,6 +603,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             narrow_value_stack: std::collections::HashSet::new(),
             narrow_value_types: rustc_hash::FxHashMap::default(),
             union_origin: rustc_hash::FxHashMap::default(),
+            enum_value_types: rustc_hash::FxHashMap::default(),
             instantiation_depth: 0,
             instantiation_count: 0,
             strict_null_checks: true,

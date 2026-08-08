@@ -1609,14 +1609,84 @@ impl<'a> Checker<'a, '_> {
     /// upstream interns them into one. Nothing observable depends on that yet
     /// because nothing compares enum members for value equality.
     fn get_declared_type_of_enum(&mut self, symbol: SymbolId) -> TypeId {
+        // §55 (`checker-notes-narrow.md`): the sequential constant folder.
+        // `None` = computed; auto-increment dies after a string or computed
+        // predecessor, per the language.
+        #[derive(Clone, PartialEq)]
+        enum MemberValue {
+            Num(f64),
+            Str(String),
+        }
+        // §55: fold the member's value. Identifier and same-enum
+        // qualified references reach PRIOR members only.
+        fn eval(
+            expr: &tsr_ast::Expression<'_>,
+            enum_name: &str,
+            folded: &[(String, Option<MemberValue>)],
+        ) -> Option<MemberValue> {
+            match expr {
+                tsr_ast::Expression::NumericLiteral(n) => {
+                    n.text.parse::<f64>().ok().map(MemberValue::Num)
+                }
+                tsr_ast::Expression::StringLiteral(s) => Some(MemberValue::Str(s.text.to_string())),
+                tsr_ast::Expression::PrefixUnaryExpression(u) => {
+                    let inner =
+                        u.operand.as_ref().and_then(|operand| eval(operand, enum_name, folded))?;
+                    match (&inner, u.operator.kind) {
+                        (MemberValue::Num(n), SyntaxKind::MinusToken) => Some(MemberValue::Num(-n)),
+                        (MemberValue::Num(n), SyntaxKind::PlusToken) => Some(MemberValue::Num(*n)),
+                        _ => None,
+                    }
+                }
+                tsr_ast::Expression::Identifier(identifier) => folded
+                    .iter()
+                    .rev()
+                    .find(|(n, _)| n == identifier.text)
+                    .and_then(|(_, v)| v.clone()),
+                tsr_ast::Expression::PropertyAccessExpression(access) => {
+                    let receiver = match access.expression {
+                        Some(tsr_ast::Expression::Identifier(r)) => r.text,
+                        _ => return None,
+                    };
+                    if receiver != enum_name {
+                        return None;
+                    }
+                    let member_name = match access.name {
+                        Some(tsr_ast::MemberName::Identifier(n)) => n.text,
+                        _ => return None,
+                    };
+                    folded.iter().rev().find(|(n, _)| n == member_name).and_then(|(_, v)| v.clone())
+                }
+                _ => None,
+            }
+        }
         let declarations =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
         let name = self.binder.symbols().get(symbol).name.to_string();
         let mut members = Vec::new();
+        let canonical = |value: &MemberValue| match value {
+            MemberValue::Num(n) => format!("n:{n}"),
+            MemberValue::Str(s) => format!("s:{s}"),
+        };
+        let mut folded: Vec<(String, Option<MemberValue>)> = Vec::new();
         for declaration in declarations {
             let Some(Node::EnumDeclaration(node)) = self.node_map.get(declaration) else {
                 continue;
             };
+            // An AMBIENT non-const enum has NO auto-increment: its
+            // initializer-less members are opaque upstream
+            // (`ambientDeclarations`' E2 — auto `b` beside `c = 2` stays
+            // two members because `b` never folds to 2).
+            let is_ambient = node.modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                    if token.kind == SyntaxKind::DeclareKeyword)
+            });
+            let is_const = node.modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                    if token.kind == SyntaxKind::ConstKeyword)
+            });
+            let no_auto = is_ambient && !is_const;
+            let mut auto: Option<f64> = Some(0.0);
             for member in node.members {
                 // `hasBindableName` (`checker.go:23879`), asked of the binder: a
                 // member the binder gave no symbol to is one whose name is a
@@ -1660,7 +1730,45 @@ impl<'a> Checker<'a, '_> {
                 } else {
                     format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
                 };
+                let value: Option<MemberValue> = match member.initializer {
+                    None if no_auto => None,
+                    None => auto.map(MemberValue::Num),
+                    Some(ref expr) => eval(expr, &name, &folded),
+                };
+                auto = match &value {
+                    Some(MemberValue::Num(n)) => Some(n + 1.0),
+                    _ => None,
+                };
+                folded.push((member_name.clone(), value.clone()));
+                // Value-keyed interning: a later member with a seen value
+                // REUSES the first member's type (`B = A` prints `E9.A`);
+                // a computed member's type IS the enum
+                // (`createComputedEnumType`, `E8.B : E8`).
+                if let Some(value) = &value {
+                    let key = (symbol, canonical(value));
+                    if let Some(&existing) = self.enum_value_types.get(&key) {
+                        let fresh = self.get_fresh_type_of_literal_type(existing);
+                        self.declared_types.insert(member_symbol, fresh);
+                        continue;
+                    }
+                }
+                // §55's second split, from `enumBasics2`: a VALID computed
+                // member (`'foo'.length`) is the enum's own type, but an
+                // ERROR-VALUED one (`a.b` where `a` is a number-typed
+                // member) keeps its per-name literal — upstream's evaluator
+                // error path. Classified by checking the initializer, which
+                // is safe mid-fold because prior members' declared types are
+                // already inserted.
+                // A COMPUTED member keeps its per-name literal in this
+                // slice: `enumBasics2` wants `Bar.a` for `(1).valueOf()`.
+                // The single-distinct-value spelling split (`E8.B : E8`
+                // beside `B : E8.A`-style declaration prints) is the
+                // recorded residue — it needs fresh/regular SPELLING
+                // divergence, §55's postscript.
                 let member_type = self.store.new_named(TypeFlags::ENUM, member_text, None);
+                if let Some(value) = &value {
+                    self.enum_value_types.insert((symbol, canonical(value)), member_type);
+                }
                 // `checker.go:23890`: the member's own declared type is the
                 // *fresh* form of its literal type.
                 //

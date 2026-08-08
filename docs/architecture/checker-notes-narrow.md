@@ -2456,3 +2456,44 @@ falsifier did not fire, and the arm converted 73 pre-existing wrongs
 beyond §53's 19 (`parserRealSource12` +25 among them — the non-strict
 corpus's `&&` chains had been mis-unioning since the strict-only port).
 `checker_types` right 399,795 → **399,899 (83.49%)**.
+
+## §55 — enum member VALUES (the surprise build)
+
+A 261-line WRONG class nobody queued (`want E, got E.A` and kin) decodes
+into upstream's enum value semantics, absent since `bd tsr-8pz`:
+`getEnumMemberValue` evaluates each member, `getEnumLiteralType`
+(`checker.go:25362`) interns literals BY VALUE — `enum E9 { A, B = A }`
+gives B the SAME type as A, printing `E9.A` — and a member the evaluator
+cannot fold takes `createComputedEnumType`: the ENUM ITSELF is its type
+(`E8.B : E8` for `B = 'x'.length`, `enumBasics`).
+
+The slice: a sequential constant folder per declaration — numeric and
+string literals, unary +/- on numerics, auto-increment (`None` after a
+string or computed predecessor, per the language), and identifier /
+same-enum-qualified references to PRIOR members. Everything else is
+computed. Value-keyed interning via `enum_value_types`; the computed
+members share one per-enum type spelled as the enum.
+
+**Falsifiers.** (a) Cross-enum and forward references fold upstream via
+the full evaluator — those stay computed here; wants with literal prints
+there are the residue, wrongs are a leg. (b) The §10.16 collapse
+machinery keys on `symbol: None` — if value-interning breaks the
+enum-union collapse (`enumOperations`), R→G/R→W there.
+
+**§55 score — LANDED (three model corrections, each from one
+counterexample).** (1) A computed-shared enum type was tried and
+REVERTED: `enumBasics2` wants `Bar.a` for `(1).valueOf()` — computed
+members keep per-name literals; the `E8.B : E8` pattern that suggested
+sharing is the single-distinct-value SPELLING split (fresh prints
+per-name, regular prints via the enum symbol), recorded as residue
+needing fresh/regular spelling divergence. (2) A reference-provenance
+sharing model was tried and REVERTED: it scored +34/2 against value
+interning's +64/1 — the one value-interning counterexample
+(`ambientDeclarations`' auto-`b` beside `c = 2`) is explained by (3):
+an AMBIENT non-const enum has NO auto-increment — its initializer-less
+members are opaque upstream, so the collision never folds. Final:
+**+64 (W→R), ZERO adverse.** `checker_types` right 399,899 →
+**399,963 (83.51%)**. Residue: the spelling split, string-`length`
+folding, cross-enum references, and the entry-order class
+(`(E7 | E8 | E3 | E4)[]` — type-creation order, the §53 order
+question's sibling).
