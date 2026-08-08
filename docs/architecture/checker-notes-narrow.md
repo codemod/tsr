@@ -2684,3 +2684,28 @@ the callee and hit a stack overflow (`arrayToLocaleStringES2015`).
 position via the constructor-interface road) measured ZERO — the
 corpus's constructor option-bags sit behind generic or class-declared
 construct signatures, not the interface road — and was reverted.
+## §60 — the qualified heritage base (and two expensive re-measurements)
+
+Three experiments, two reverted with numbers, one landed:
+
+1. **The inside-namespace un-gating re-measured** (`TSR_QUAL_INSIDE`):
+   +316/232 raw (1.4:1) — the refusal HOLDS post-§53/§56/§58, and the
+   adverse decomposes: `bluebirdStaticThis`' 52 are the `R_1` RENAME
+   family (not qualification), `resolvingClassDeclaration`'s 80 are the
+   heritage-expression compensation (below). Re-gated.
+2. **The §33 rename decline GENERALIZED** (collision without const):
+   **850 R→G** — the promisePermutations family prints reused names
+   UN-renamed, so renames are site-sensitive and only const-carrying
+   prints (no baseline stake) may decline. Reverted; §33's const gate is
+   load-bearing and now says why.
+3. **LANDED — the qualified heritage base**: `class B extends N.C<A>`
+   resolves through the namespace's exports in the producer's extends
+   compensation (binder-direct, gate-independent) and prints the
+   QUALIFIED instantiated spelling via a new checker mint
+   (`qualified_heritage_reference`). Contained: CLASS-only bases
+   (`extends Interface` is upstream's error case), direct and one-hop
+   self-extension declines. **+61 W→R / 10 adverse (6:1)** — the 10 are
+   deep-cycle self-extension error recovery (`recursiveBaseCheck`,
+   `classExtendsItselfIndirectly2`) and `typeValueConflict`'s
+   value-shadowed classes, all degenerate-source cases.
+   `checker_types` right 401,730 → **401,783 (83.89%)**.

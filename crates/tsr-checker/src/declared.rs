@@ -1270,6 +1270,34 @@ impl<'a> Checker<'a, '_> {
     /// symbol whose declared type it has not asked for. The registered bar was
     /// `lost == 0`, and a mechanism that cannot move a line it does not render
     /// is how that is met by construction rather than by measurement.
+    /// §60: the heritage-EXPRESSION twin of the §42-v2 qualified mint — a
+    /// `class B extends N.C<A>` base prints the QUALIFIED instantiated
+    /// spelling. Public for the types producer's extends compensation.
+    pub fn qualified_heritage_reference(
+        &mut self,
+        text: String,
+        symbol: SymbolId,
+        arguments: Vec<TypeId>,
+    ) -> TypeId {
+        let printed_arguments: Vec<String> =
+            arguments.iter().map(|&a| self.type_to_string(a)).collect();
+        let text = if arguments.is_empty() {
+            text
+        } else {
+            format!("{text}<{}>", printed_arguments.join(", "))
+        };
+        let key = (text.clone(), symbol);
+        if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            return existing;
+        }
+        let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(symbol));
+        self.qualified_reference_types.insert(key, minted);
+        if !arguments.is_empty() {
+            self.type_reference_targets.insert(minted, (symbol, arguments));
+        }
+        minted
+    }
+
     fn qualified_type_reference(
         &mut self,
         node: &tsr_ast::TypeReferenceNode<'a>,

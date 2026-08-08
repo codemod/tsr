@@ -420,11 +420,77 @@ pub fn type_id_at_location<'a>(
             nodes.parent(clause).map(|owner| nodes.kind(owner)),
             Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
         )
-        && nodes.kind(id) == SyntaxKind::Identifier
-        && let Some(Node::Identifier(name)) = map.get(id)
-        && let Some(symbol) =
-            binder.resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
+        && let Some(symbol_and_text) = (match map.get(id) {
+            Some(Node::Identifier(name)) if nodes.kind(id) == SyntaxKind::Identifier => binder
+                .resolve_name(nodes, map, id, name.text, tsr_binder::SymbolFlags::TYPE)
+                .map(|s| (s, None)),
+            // §60: a QUALIFIED base (`extends N.C<...>`) resolves through
+            // the namespace and prints the qualified spelling — the newly
+            // un-gated §41 road's heritage-expression twin.
+            Some(Node::PropertyAccessExpression(access)) => (|| {
+                let tsr_ast::Expression::Identifier(receiver) = access.expression? else {
+                    return None;
+                };
+                let receiver_id = receiver.node_id?;
+                let namespace = binder.resolve_name(
+                    nodes,
+                    map,
+                    receiver_id,
+                    receiver.text,
+                    tsr_binder::SymbolFlags::NAMESPACE,
+                )?;
+                let tsr_ast::MemberName::Identifier(member) = access.name? else { return None };
+                let exports = &binder.symbols().get(namespace).exports;
+                let found = exports.get(member.text).copied()?;
+                // §60's two fired legs: a base that is (or merges with) the
+                // EXTENDING class itself re-enters resolution upstream
+                // detects as a cycle (`recursiveBaseCheck`,
+                // `classExtendsItselfIndirectly2`); and a VALUE-only export
+                // is not a heritage TYPE (`typeValueConflict*`). Both
+                // decline to the pre-§60 answer.
+                // CLASS only: `extends Interface` is upstream's error case
+                // (`classExtendsInterfaceInModule`) and prints error-side.
+                if !binder.symbols().get(found).flags.contains(tsr_binder::SymbolFlags::CLASS) {
+                    return None;
+                }
+                // Self-extension DIRECT or through the base's own heritage
+                // (`recursiveBaseCheck`'s A->N.B->A): decline when the found
+                // class's extends clause names the extending class back —
+                // one hop is what the corpus exercises.
+                let extending = nodes.parent(clause).and_then(|owner| binder.symbol_of(owner));
+                if extending == Some(found) {
+                    return None;
+                }
+                if let Some(base_declaration) =
+                    binder.symbols().get(found).declarations.first().copied()
+                    && let Some(Node::ClassDeclaration(base)) = map.get(base_declaration)
+                    && base.heritage_clauses.iter().any(|h| {
+                        h.types.iter().any(|e| {
+                            e.expression.and_then(|x| x.node_id()).and_then(|x| {
+                                if nodes.kind(x) == SyntaxKind::Identifier {
+                                    if let Some(Node::Identifier(n)) = map.get(x) {
+                                        return binder.resolve_name(
+                                            nodes,
+                                            map,
+                                            x,
+                                            n.text,
+                                            tsr_binder::SymbolFlags::TYPE,
+                                        );
+                                    }
+                                }
+                                None
+                            }) == extending
+                        })
+                    })
+                {
+                    return None;
+                }
+                Some((found, Some(format!("{}.{}", receiver.text, member.text))))
+            })(),
+            _ => None,
+        })
     {
+        let (symbol, qualified_text) = symbol_and_text;
         // With WRITTEN type arguments the heritage records the INSTANTIATED
         // reference — `class B extends A<Base>` records `>A : A<Base>`
         // (`subtypingWithNumericIndexer.types:50`; the `A<Base> → A<T>` W2
@@ -444,11 +510,19 @@ pub fn type_id_at_location<'a>(
                 arguments.push(argument_type);
             }
             if !arguments.is_empty() {
-                let instantiated = checker.create_type_reference_public(symbol, arguments);
+                let instantiated = match &qualified_text {
+                    Some(text) => {
+                        checker.qualified_heritage_reference(text.clone(), symbol, arguments)
+                    }
+                    None => checker.create_type_reference_public(symbol, arguments),
+                };
                 if instantiated != error {
                     return instantiated;
                 }
             }
+        }
+        if let Some(text) = qualified_text {
+            return checker.qualified_heritage_reference(text, symbol, Vec::new());
         }
         let declared = checker.get_declared_type_of_symbol(symbol);
         // Upstream's `t == nil || IsTypeAny(t)` fallback: when the base's

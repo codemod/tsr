@@ -1349,6 +1349,12 @@ impl<'a> Checker<'a, '_> {
                         }
                     }
                 }
+                // §60 re-learned §33's lesson the expensive way: a
+                // GENERALIZED collision decline (no const gate) measured
+                // 850 R→G — the promisePermutations family prints reused
+                // names UN-renamed, so renames are site-sensitive and only
+                // the const-carrying prints (which have no baseline stake)
+                // may decline.
                 if any_const && collision {
                     return self.intrinsics.error;
                 }
