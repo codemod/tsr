@@ -1273,7 +1273,21 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ### New, thirteenth session, `diagnostics`
 
-- **§118 ANSWERED §117 in one run: the rule's HOST never runs.**
+- **§118's conclusion was WRONG and §119 corrects it.** There is **no traversal
+  coverage gap**: no unit is skipped and `component.ts` is checked with
+  `parse_errors=false`. §118's probe sat at `check_value_identifier`'s meaning
+  ladder, *after* the early return taken when a name resolves with `VALUE` — and
+  this port's alias symbols answer `VALUE`, so everything returned before
+  reaching it. **The silence measured the probe's position, not the rule's
+  execution.** Corrected rule: the print must be at the rule's **entry**, not at
+  the branch you care about; a probe that can be silent for two reasons has told
+  you nothing. Likely real cause, **unmeasured and claimed as such**: upstream
+  tests `Alias && !Value` (`checker.go:1860`) and this port's aliases carry
+  `VALUE` — a symbol-flags divergence of the §93/§95/§100 family, owner
+  `classify`'s `S::ALIAS`. **§102's audit passed that flag as "not a collapse",
+  which was true of the flag and silent about the meaning it answers.** The 18
+  cases stay on the board, same owner, same size.
+- **(superseded, kept for the sequence)** §118 claimed the rule's host never runs.
   `TSR_DEBUG_1361` at `check_value_identifier` prints **zero lines** for
   `conformance/computedPropertyName` — no identifier in the case reaches the
   rule at all. TS1361/TS1362 is **not a rule gap**; it is `crate::check`'s
