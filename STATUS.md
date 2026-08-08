@@ -1328,7 +1328,13 @@ its whole deliverable and accept that it converts nothing until finished.
   attributed these lines from every artefact except the 19-line test file.
   `diagmissing` prints case names, `diagcase` prints line numbers, `diag2307`
   prints columns — none of them prints the code. Read the fixture before the
-  fourth hypothesis.** **Six inferences, two right,
+  fourth hypothesis.**
+- **§132 built §131's two clauses and only the ambient one worked** (wrong
+  3 → 2): `declare class H` routes through §99's ambient walk, but the abstract
+  member is **neither `MethodSignatureDeclaration` nor
+  `PropertySignatureDeclaration`** in this parser. **Reading the fixture
+  explained which upstream clause applies — not what this parser produced**, and
+  those are different questions. Next step is a probe of `nodes.kind(member)`. **Six inferences, two right,
   then one probe that cost less than any of them — every wrong guess reasoned
   from artefacts describing *upstream*, while the defect was in what this port
   did with an argument it never had.**
