@@ -2596,3 +2596,10 @@ to `State` cleanly) but the union PRINT road erroring on joins of
 §56-retained ANONYMOUS object-literal types inside try/catch flows —
 that road's seam, queued as its own row. `checker_types` right 401,521
 → **401,531 (83.83%)**.
+
+**§55 postscript — `'x'.length` folding REFUSED at −16.** The fold is
+upstream-faithful in isolation but its VALUES feed the §55 interning and
+collide member types upstream keeps apart (`enumMerging` 15 R→W —
+cross-declaration merges where a folded length equals another member's
+constant). Upstream's sharing must key on more than the numeric value in
+merged enums; refused until that key is decoded.
