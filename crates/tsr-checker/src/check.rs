@@ -1397,9 +1397,27 @@ impl Checker<'_, '_> {
             return false;
         }
         let container = self.enclosing_block_scope_container(declaration);
+        let mut came_from = node;
         for ancestor in self.nodes.ancestors(node) {
             if Some(ancestor) == container {
                 return true;
+            }
+            // **Edge, not node** — §108. Upstream's own test is
+            // `initializerOfProperty := propertyDeclaration.Initializer() == current`
+            // (`checker.go:2025`): a `PropertyDeclaration` defers a use in its
+            // *initialiser*, and a computed property name is not that. It is
+            // evaluated where the class is, so it defers nothing.
+            if self.nodes.kind(came_from) == SyntaxKind::ComputedPropertyName
+                && matches!(
+                    self.nodes.kind(ancestor),
+                    SyntaxKind::PropertyDeclaration
+                        | SyntaxKind::MethodDeclaration
+                        | SyntaxKind::GetAccessor
+                        | SyntaxKind::SetAccessor
+                )
+            {
+                came_from = ancestor;
+                continue;
             }
             if matches!(
                 self.nodes.kind(ancestor),
@@ -1420,6 +1438,7 @@ impl Checker<'_, '_> {
             ) {
                 return false;
             }
+            came_from = ancestor;
         }
         true
     }

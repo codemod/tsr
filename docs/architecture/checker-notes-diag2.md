@@ -8324,3 +8324,55 @@ is currently asked of ancestor *nodes*, and at least three of them —
 will have cases where the answer depends on **which child the walk came up
 through**. A computed property name, a parameter initialiser and a decorator all
 sit syntactically inside a construct whose scope they do not share.
+
+## §109 — §108's idea applied to the sibling walk, at a verified zero
+
+§108 generalised: **the boundary test in a scope walk is a property of the edge,
+not the node.** `use_is_not_deferred` is the other walk with that shape, and
+upstream's own test there is already edge-aware:
+
+```go
+if current.Parent != nil && ast.IsPropertyDeclaration(current.Parent) {
+    initializerOfProperty := propertyDeclaration.Initializer() == current
+    if initializerOfProperty { … }
+}
+```
+(`checker.go:2023-2026`)
+
+A `PropertyDeclaration` defers a use in its **initialiser**. A computed property
+name is not that — it is evaluated where the class is — so it defers nothing.
+This port's walk deferred on the *node*, which meant a use inside `[…]` was
+treated as though it were inside the member.
+
+### Measured: byte-identical
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 9 | 0 | 33 | 0 |
+| after | 9 | 0 | 33 | 0 |
+
+**Every number unchanged.** No corpus case exercises a block-scoped name used
+before its declaration from inside a computed property name — the shape exists
+in the corpus for `yield` (§108) and not for this rule.
+
+### Landed at a verified zero, and the reason is not the same as §84's
+
+§84 landed an option audit at zero because the **table** was the durable
+artefact. §101 landed a zero because it **deleted scaffolding**. This one lands
+for a third reason: **it pre-empts, in the sibling walk, the exact defect §108
+had just measured four wrong lines for in the first.** The two walks ask the
+same question about the same tree; leaving one edge-aware and the other not is a
+divergence waiting for the corpus case that distinguishes them.
+
+That is a weaker justification than a measurement and is recorded as such. **The
+honest statement is: this is faithful to `checker.go:2023`, it costs nothing
+today, and nothing proves it right.** Its falsifier is a future case where a
+`let`, `class` or `enum` is used before its declaration inside a computed
+property name; if that case ever appears and this rule reports on it, look here
+first.
+
+`enclosing_block_scope_container` is the **third** walk of this shape and was
+left alone: its boundary set comes from `IsBlockScope` (`utilities.go:2177`),
+which is genuinely node-keyed apart from the `Block` case it already handles by
+reading the parent. Two of three needed the edge; one did not, and checking was
+the only way to know which.
