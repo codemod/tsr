@@ -64,6 +64,17 @@ STATE AT HANDOFF (verify with a fresh coverage run):
   §31.1 (ES-import findability) measured zero/refused — recorded, do not
   re-derive.
 
+  AUTO-VAR WALK, SHARPENED (build 111 analysis): the §14.1 mountain's
+  trip is NOT read-side hop counting (measured zero — our iterative walk
+  breaks at the nearest assignment) but the AUTO-VAR TYPE CASCADE:
+  upstream types `var v` (no annotation/initializer, JS) by checking
+  EVERY assignment's RHS, each RHS typing its own references
+  transitively — thousands of nested walks, the 2000-cap trips, global
+  flowAnalysisDisabled, and every later read prints ` : error`. The port
+  needs the assigned-union computation (with hop counting inside it) to
+  reproduce the trip; the lazy any-typing never starts the cascade.
+  parsingDeep's 333 + the auto-var families hang on this one mechanism.
+
   NEXT HEADS, each with its section: the enum residue (string-length
   folding, cross-enum refs, §53's entry-order class), the || early-return
   divergence (7 lines, blocked on non-strict per-constituent facts), the
