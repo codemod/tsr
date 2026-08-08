@@ -113,7 +113,7 @@ conformance/jsDeclarationsReusesExistingNodesMappingJSDocTypes
 conformance/jsDeclarationsTypedefDescriptionsPreserved
   line 8: want `    /**`, got `    bar: boolean;`
 conformance/recursiveTypeReferences2
-  line 9: want `type XMLObject<T> = {`, got `/**`
+  line 17: want `} & {`, got `} & { [K in keyof T]?: (T[K] extends string ? string : XMLObject<T[K]>); };`
 conformance/typeFromPropertyAssignment39
   line 1: want `declare const foo: {`, got `declare const foo: {};`
 conformance/varianceAnnotationsWithCircularlyReferencesError

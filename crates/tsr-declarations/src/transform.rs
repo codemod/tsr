@@ -1617,7 +1617,9 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             // all. Owning aliases take a zero-width span at the run's end so
             // ordinary replay walks the whole run; the rest take a zero span.
             let run_end = typedef_run_end(source, end);
-            let span = if followed_by_blank_line(source, run_end) {
+            let is_callback = jsdoc_braced_range(comment, "typedef").is_none()
+                && jsdoc_tag_text(comment, "callback").is_some();
+            let span = if owns_comment_run(source, run_end, is_callback) {
                 let position = u32::try_from(run_end).unwrap_or(0);
                 Span::new(position, position)
             } else {
@@ -2882,12 +2884,37 @@ fn typedef_run_end(source: &str, mut from: usize) -> usize {
     }
 }
 
-/// Whether only whitespace containing a blank line — or the end of input —
-/// follows `from`.
-fn followed_by_blank_line(source: &str, from: usize) -> bool {
+/// Whether the typedef-comment run ending at `from` owns its comments.
+///
+/// Owned — the synthesized aliases replay the run — exactly when a blank line
+/// (or end of input) separates the run from what follows, and what follows is
+/// not an ordinary comment: a following non-typedef comment claims the whole
+/// leading trivia for the code below it (`recursiveTypeReferences2`'s
+/// `XMLObject` block stays with `const p`, while its three single-line
+/// typedefs hoist).
+fn owns_comment_run(source: &str, from: usize, is_callback: bool) -> bool {
     let rest = &source[from..];
     let trimmed = rest.trim_start();
-    trimmed.is_empty() || rest[..rest.len() - trimmed.len()].matches('\n').count() > 1
+    if trimmed.is_empty() {
+        return true;
+    }
+    if rest[..rest.len() - trimmed.len()].matches('\n').count() < 2 {
+        return false;
+    }
+    // A following non-typedef comment claims the trivia for the code below it
+    // — but only away from `@typedef` runs; a `@callback` keeps its comment
+    // (`callbackTagVariadicType` versus `recursiveTypeReferences2`, both
+    // baseline-pinned).
+    if is_callback {
+        return true;
+    }
+    if let Some(after_open) = trimmed.strip_prefix("/**") {
+        let Some(close) = after_open.find("*/") else { return false };
+        let comment = &trimmed[..close + 2 + 3];
+        return jsdoc_braced_range(comment, "typedef").is_some()
+            || jsdoc_tag_text(comment, "callback").is_some();
+    }
+    !trimmed.starts_with("//") && !trimmed.starts_with("/*")
 }
 
 /// The identifier starting at `position`, when one does and nothing dotted

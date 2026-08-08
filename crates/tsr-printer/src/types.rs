@@ -234,10 +234,13 @@ impl Printer<'_> {
             TypeNode::MappedTypeNode(mapped) => {
                 self.write("{");
                 // Upstream's default is multiline; only an explicit SingleLine
-                // emit flag uses the compact form. This tree has no emit-context
-                // override yet, so source and declaration mapped types take the
-                // default path rather than silently behaving as SingleLine.
-                let single_line = self.single_line_type_depth > 0;
+                // emit flag uses the compact form. Synthesized-signature
+                // context and reparsed JSDoc trees (`NodeFlagsReparsed`,
+                // `reparser.go`) are the two places that flag is set.
+                let single_line = self.single_line_type_depth > 0
+                    || mapped.node_id.is_some_and(|id| {
+                        self.nodes.flags(id).contains(tsr_ast::NodeFlags::REPARSED)
+                    });
                 if single_line {
                     self.write(" ");
                 } else {

@@ -195,11 +195,19 @@ pub fn parse_standalone_type<'a>(
 ) -> Option<tsr_ast::TypeNode<'a>> {
     let options =
         ParseOptions { script_kind: ScriptKind::TypeScript, jsdoc: false, ..Default::default() };
+    let first_node = nodes.len();
     let mut parser =
         Parser::with_tables(arena, source, options, std::mem::take(nodes), tsr_ast::NodeMap::new());
     let r#type = parser.parse_type();
     let consumed = parser.at(tsr_ast::SyntaxKind::EndOfFile);
-    let (diagnostics, node_table, _, _) = parser.finish();
+    let (diagnostics, mut node_table, _, _) = parser.finish();
+    // Upstream marks nodes rebuilt from JSDoc `NodeFlagsReparsed`
+    // (`reparser.go`); emit layout reads it — a reparsed mapped type prints
+    // single-line.
+    for index in first_node..node_table.len() {
+        let id = tsr_ast::NodeId::new(u32::try_from(index).expect("node count exceeds u32"));
+        node_table.add_flags(id, tsr_ast::NodeFlags::REPARSED);
+    }
     *nodes = node_table;
     (diagnostics.is_empty() && consumed).then_some(r#type)
 }
