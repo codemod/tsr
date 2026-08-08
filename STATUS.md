@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,691/9,538** | **38.70%** | **gradient 83.01%** — the target (builds 25–87) |
+| **`checker_types`** | **3,692/9,538** | **38.71%** | **gradient 83.01%** — the target (builds 25–88) |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
@@ -177,7 +177,9 @@ objects decline by the fired leg, 2 accepted wrongs at 60:1) = 396,815; then + 3
 contained, 22 accepted wrongs at 15:1) = 397,139; then + 453 (§36-callres: template-literal types print as
 written, three positional narrowings — the annotation-reuse vs
 alias-evaluation split — net wrong −219; §35.1's concrete keyof refused
-at +3/32 en route) = 397,592 exactly — builds 25–87. §35 records a FINDING: tsgo prints
+at +3/32 en route) = 397,592; then + 12 (§36.1 v2: template-alias names reuse in signature
+prints — the written_text seam after v1's type-level mint measured +18/52
+and reverted) = 397,604 exactly — builds 25–88. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
