@@ -375,11 +375,36 @@ honest ceiling for a session that does not build that subsystem is the long tail
 and the long tail is what this session spent itself on.
 
 
-### `diagnostics`, the eleventh session — **+57 to 21.41%**, and five of seven builds were a sentence rather than a mechanism
+### `diagnostics`, the eleventh session — **+113 to 22.43%**, and the instrument that reframed the board
 
-Measured at `adfd789`. **1,118 → 1,175 of 5,488 = 21.41%.** Seven builds, **zero
-cases lost in any of them**, `checker_types` unmoved by every one (the parallel
-`.types` workstream took it 3,645 → 3,681 over the same hours; those are theirs).
+Measured at `2b0f9ab`. **1,118 → 1,231 of 5,488 = 22.43%.** Fourteen builds,
+**zero cases lost in any of them**, `checker_types` unmoved by every one (the
+parallel `.types` workstream took it 3,645 → 3,682 over the same hours; those are
+theirs).
+
+**The single most useful thing this session produced is a number, not a rule.**
+`examples/diagreach.rs` (§54) counts the cases that report **nothing extra** and
+whose every missing diagnostic carries a code some rule here **already emits** —
+cases needing no new rule at all, only completeness:
+
+```
+cases reachable by deepening existing rules: 1,334   (against 1,188 passing)
+TS2322 548 · TS2345 138 · TS2339 128 · TS2304 88 · TS2741 81 · TS2454 58
+TS2353  52 · TS2554  37 · TS2564  36 · TS2411 34 · TS2352 32 · TS7006 28
+```
+
+It does not contradict §5's TS2322 refusal — it **prices** it: the assignability
+family alone is worth more cases than the whole suite currently passes. And 786
+of the 1,334 do not involve TS2322 at all. **Run it first from now on.**
+`diaggap.rs`'s single-code column drops to what it always was, an ordering over
+*new* rules; §55 was chosen off `diagreach` and is the session's largest build at
+**+43**.
+
+`diagreach` also corrects an arithmetic trap the session fell into once and
+recorded: a **converted** case leaves the reachable set by definition, so
+`before − after` over-counts the damage from new false positives by exactly the
+conversions. §55's real cost was 10 cases pushed out of reach against 43 banked —
+**count what a wrong line costs in cases, not in lines.**
 
 | build | rule | net cases | wrong lines |
 |---|---|---:|---:|
@@ -391,6 +416,13 @@ cases lost in any of them**, `checker_types` unmoved by every one (the parallel
 | §46 | TS2352 ported to `getBaseTypeOfLiteralType` instead of its proxy | 0 | 0 (kept) |
 | §47 | **TS2872 / TS2873**, `checkTruthinessOfType` | **+21** | 4 → **0** |
 | §48 | `GetErrorRangeForNode`, centrally over 36 report sites | 0 | −4, **0 lost** |
+| §49 | TS2365 — `+` and the relational operands | +3 | 58 → **0** |
+| §50 | TS18050 is chosen by the **node**, not the type | +5 | 96 → **0** |
+| §51 | `checkNonNullType`'s other five messages | +1 | 2 |
+| §52 | TS2464 — the computed property name's type | +3 | **0** |
+| §53 | TS2540 — the read-only assignment target | +1 | **0** (71 right lines) |
+| §54 | **`diagreach.rs`** — the reachable-by-deepening count | — | — |
+| §55 | **TS2304 in *type* positions** | **+43** | +51 |
 
 **The session's finding, and it recurred five times in seven builds: the thing
 between a rule at +2 and the same rule at +15 was a sentence about *why*, not a
@@ -1010,6 +1042,28 @@ its whole deliverable and accept that it converts nothing until finished.
 
 ## 5. Refused, with the number that refused it
 
+### New, eleventh session, `diagnostics` — the later builds
+
+- **TS2365's four declines**, each with an owner rather than a threshold (§49):
+  a **type parameter** on either side (constraint following is unported —
+  48 wrong lines), an **ES symbol** operand (upstream reports TS2469 in its
+  place), **`+=`** (the assignment-target checks answer `errorType` first, and
+  `f += 1` on a class is TS2629 — neither TS2629 nor TS2364 is ported), and a
+  union **containing** `undefined` (`checkNonNullType` reports TS18048).
+- **The spelling-suggestion arm in TYPE positions — REFUSED at 143 wrong lines
+  for 1 conversion** (§55). `getSuggestedSymbolForNonexistentSymbol` searches the
+  names in scope **with the requested meaning** and `Binder::names_in_scope` is
+  meaning-blind, so a missing *type* is answered with a nearby *variable*.
+  `parserRealSource13` alone was 105 wrong TS2552 lines for one missing `AST`.
+  **Returns when `names_in_scope` takes a meaning.**
+- **A class type parameter named from a static member is TS2302, not TS2304**
+  (§55) — upstream's resolver *finds* it and the position is the error. Declined
+  here; 39 wrong lines. Same for an `infer T` name inside its conditional type.
+- **TS2464's union target, decomposed constituent by constituent — REFUSED at
+  2 wrong lines for 0 right** (§52). The decomposition is *sound* for a non-union
+  source, and whatever the relater cannot decide about the union it cannot decide
+  about the constituents either.
+
 ### New, eleventh session, `diagnostics`
 
 - **TS2454's `declared == errorType` decline — REFUSED, and it is upstream's own
@@ -1144,6 +1198,9 @@ Built and maintained; **use them, do not rebuild them.**
 
 | instrument | answers |
 |---|---|
+| `examples/diagreach.rs` | **`diagnostics`, run this first.** Cases reachable by deepening the rules that already exist — nothing extra reported, every missing code one this port already emits. **1,334** at `2b0f9ab`, ranked by which rule to deepen (`checker-notes-diag2.md` §54) |
+| `examples/diagmissing.rs` | the **missing** half of one code, restricted to the cases that code alone blocks, so each case printed is exactly one conversion |
+| `examples/diagcase.rs` | one case's expected and actual diagnostics side by side, through the suite's own `reported_for` |
 | `examples/gaproot.rs` | root/cause split — ranks **causes**, not symptoms |
 | `examples/casedelta.rs` | **per-case joinable TSV.** A net hides a change that helps and harms at once |
 | `examples/reconcile.rs` | a probe's denominator against the suite's |
@@ -1181,6 +1238,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-08 | §55 landing (`2b0f9ab`) | — | **`diagnostics` 1,231 / 5,488 = 22.43%** | **+113, 0 lost, 14 builds** | **The eleventh session, `diagnostics`.** §42–§48 (+57, in the row below), then §49 TS2365 (+3, four declines took its wrong column 58 → 0), §50 TS18050 is chosen by the NODE not the type (+5, wrong 96 → 0), §51 the other five `checkNonNullType` messages (+1), §52 TS2464 (+3), §53 TS2540 (+1 for 71 right lines), **§54 `diagreach.rs`** — 1,334 cases reachable by deepening existing rules, the largest number this workstream has taken — and §55 TS2304 in **type** positions (**+43**, the session's largest single build) |
 | 2026-08-08 | §48 landing (`adfd789`) | — | **`diagnostics` 1,175 / 5,488 = 21.41%** | **+57, 0 lost, 7 builds** | **The eleventh session, `diagnostics`.** §42 the outer-variable disjunct (+1 — `markNodeAssignments` was already ported and the handoff still named it as missing), §42.1 the named-union PRINTING guard silencing a non-printing consumer (+7), §43 TS2564's private and computed name kinds plus `is_error` for `== errorType` (+14), §44 the same correction at `pair_is_reportable` (a measured zero, kept), §45 TS2367 (+15 — §31's inherited decline was a stand-in for `getBaseTypeOfLiteralType`, not for the relation), §46 TS2352 ported to the real widening (zero, kept), §47 `checkTruthinessOfType` (+21, the top of its forecast), §48 `GetErrorRangeForNode` centrally (0 converted, 4 wrong lines removed, **0 lost across 36 report sites**). New instruments: `diagmissing.rs`, `diagcase.rs` |
 | 2026-08-07 | §49 landing | **82.62%** | **3,659** | **+734/268** | **Builds 71–74: the reference/member block.** Alias bodies carry members (§46, +46), `this` results answer receivers (§29-callres, +66), plain binding patterns render (§48, +149 — the token-kind trap's second firing caught by the pair), union property projection (§49, +734 — the dependent-flow family's prerequisite laid). The shipped-red protocol now reads: FULL suite before the landing commit |
 | 2026-08-07 | build-70 landing | **82.41%** | **3,645** | **+891/147** | **Builds 67–70: the typed-array chase.** Three probes walked the row's decline inward — class defaults (§43, +4), all-defaulted construct signatures (§44, +4), and the real gate: the candidates loop's `?` letting ONE unbuildable overload kill the interface. Skip-with-agreement converted typed arrays and every uniform-return constructor interface; §45's `Record<string, V>` (+274) and its measured-and-reverted option refinement (−6) round out the block |

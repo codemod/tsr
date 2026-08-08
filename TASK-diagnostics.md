@@ -1,205 +1,154 @@
 THE `diagnostics` WORKSTREAM'S HANDOFF.
 
-`TASK.md` is the `.types` gradient workstream's and the two have been
-overwriting each other — the ninth session's diagnostics handoff was replaced in
-`TASK.md` by the parallel session's before it was read. They are separate files
-from now on. Nothing below touches `checker_types`, and every `diagnostics` build
-this session left it byte-identical.
+`TASK.md` is the `.types` gradient workstream's. They are separate files because
+they were overwriting each other. Nothing below touches `checker_types`, and
+every `diagnostics` build of the eleventh session left it unmoved.
 
 FIRST: git pull. Then read, in this order:
-  STATUS.md §1's `diagnostics` block (rewritten — the tenth session's chain and
-  the reason 50% was not reachable), STATUS.md §5's new `diagnostics` refusals,
-  and docs/architecture/checker-notes-diag2.md §15–§20 end to end. Every section
-  there is a build or a refusal with its number.
+  STATUS.md §1's `diagnostics` block and §5's `diagnostics` refusals, then
+  docs/architecture/checker-notes-diag2.md **§54 first** (the instrument that
+  reframed the board), then §42–§55 in order. Every section is a build or a
+  refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,110/5,488 = 20.23%   (was 717 = 13.06%; running total 80 → 993)
-  checker_types  3,043/9,538 · 74.46% gradient — the other workstream's
+  diagnostics    1,231/5,488 = 22.43%   (was 1,118 = 20.37%; +113 over 14 builds,
+                 **zero cases lost in any of them**)
+  checker_types  3,682/9,538 · 82.83% — the other workstream's. Do not touch it;
+                 re-check it is byte-identical after every build.
 
-WHAT THE SESSION WAS ASKED FOR, AND WHAT IT MEASURED
-  The instruction was "do not stop until 50%". **50% is not reachable by adding
-  rules, and this is now a measured statement rather than an opinion.**
-  Measured three ways, not asserted once. (1) `diaggap.rs`'s single-code column
-  sums to 3,217 cases and 50% of the suite is 2,744 passing, so it means
-  converting essentially every row. (2) **The session then built the members
-  subsystem the ninth handoff named as the prerequisite** — `member_completeness`
-  — and ran three rules on it: TS2339's 143-case row converted **12**, TS2741's
-  40-case row **1**, TS2353's 37-case row **6**. The `STILL SHORT` column says
-  why: 22, 15 and 2 cases gain a *correct* diagnostic of that code and still
-  fail. **The single-code column measures which code a case is blocked on, not
-  how many of that code it needs** — this project had been reading it as the
-  latter. (3) TS2403 and ~70 cases with it are behind `isTypeIdenticalTo`, a
-  relation mode that does not exist (§24).
+## READ §54 FIRST, AND RUN ITS INSTRUMENT FIRST
 
-  The costed forecast: the relation and the members table together are worth on
-  the order of 800–1,000 cases, landing the suite near **30%**; the rest is a
-  long tail of rows worth 10–30 cases each. That is a multi-session number.
+`examples/diagreach.rs` (new) counts the cases that report **nothing extra** and
+whose every missing diagnostic carries a code some rule here **already emits** —
+cases that need no new rule at all, only completeness.
 
-THE NUMBER THE NEXT SESSION SHOULD START FROM
-  The first TS2322 build was gated on nothing but the error type and measured
-  **947 right against 988 wrong** — the relation disagreeing with upstream on
-  half the assignments it was asked about. That is `checker_types`' 26%
-  non-gradient arriving as diagnostics, and it is the first direct measurement
-  of *"an incomplete relation does not report less, it reports wrongly."*
-  It is also the sizing for the subsystem: finish the members table and roughly
-  900 already-correct TS2322 lines stop being wrong.
+```
+cases reachable by deepening existing rules: 1,334      (against 1,231 passing)
+TS2322 548 · TS2345 138 · TS2339 128 · TS2304 88 · TS2741 81 · TS2454 58
+TS2353  52 · TS2554  37 · TS2564  36 · TS2411 34 · TS2352 32 · TS7006 28
+```
 
-THE INSTRUMENTS — use them, do not rebuild them
-  examples/extragap.rs   **NEW and the one to run first.** Splits the *extra*
-                         column into `displaced` (same code missing elsewhere in
-                         the file — one diagnostic in the wrong PLACE) and
-                         `invented` (the baseline never mentions it), and ranks
-                         by "cases where one code, right in both directions,
-                         finishes the case". It found TS1160 — 12 cases for one
-                         argument — which `diaggap.rs` could not have.
-  examples/diaggap.rs    the board. Single-code column is the ONLY forecastable
-                         one. RE-RUN AFTER EVERY RULE — rows GROW as rules land.
-  examples/diag2307.rs   the per-rule counterfactual. Put the rule's codes in
-                         RULE_CODES **alone** to isolate it, measure, then
-                         restore the full list. CONVERTS / LOST / RIGHT / WRONG.
-                         LOST must read 0. It calls `diagnostics_suite::
-                         reported_for`, so probe and build cannot diverge.
+**This is the board now.** Eleven builds of this session each took a
+`diaggap.rs` single-code row of 12–16 cases and converted 1 to 3, because that
+column says *which* code a case is blocked on and not *how many* of it the case
+needs (§2, and §53 is the extreme at **71 right lines for one conversion**).
+`diagreach` asks the question that actually predicts a conversion. §55 was chosen
+off it and is the session's largest build at **+43**.
 
-READ §25 FIRST. The single most valuable thing this session found is that
-`crate::relater` is **three-valued** and every consumer that acts on a *negative*
-must call `relate_ternary`, not `is_type_assignable_to`. The binary projection
-collapses `Ternary::Unknown` into `false`, and that one wrong call produced 988
-wrong lines, a bogus diagnosis ("the relation disagrees half the time"), and a
-primitives-only gate that suppressed four whole rows. Correcting it was **+37
-cases across four builds** with zero losses. **Before writing any rule that
-reports because a relation failed, check which function you are calling.**
+**The arithmetic trap it comes with, paid for once.** A *converted* case leaves
+the reachable set by definition, so `before − after` over-counts the damage from
+new false positives by exactly the conversions. §55's real cost was **10 cases
+pushed out of reach against 43 banked**, not the 53 the naive subtraction
+suggested. **Count what a wrong line costs in CASES, not in lines** — every
+"gained per wrong" figure older than §55 in `checker-notes-diag2.md` is a line
+ratio, and the two differ by whatever the concentration happens to be.
 
-RANKED NEXT ITEMS, with what each is actually blocked on
-  0. **More consumers of `relate_ternary`.** TS2411 is DONE (+2). TS2352 is DONE (+4, 0 wrong) with
-     assignability standing in for comparability behind two named declines (§31).
-     **TS2367 (no-overlap comparison, 23 cases) remains** and is the same
-     substitution at a different site — §31 prices what `isTypeComparableTo`
-     would buy.
-  0a. **TS2454's row is on the MISSING side, and that is now measured — the
-     best-priced single build left on this page.** Its extras are closed (114 →
-     10 wrong lines across three declines) and *none of the three converted a
-     single case*. `extragap.rs` says **66 cases have TS2454 as their sole
-     obstacle**, so ~60 are missing diagnostics. The bound is documented at
-     `check_used_before_assigned` and excludes **outer variables, parameters,
-     aliases and binding elements** — the ninth session's named residual,
-     "outer variables and assignment marking". Worth ~60 cases.
-     **ONE APPROACH ALREADY REFUSED, tenth session's last measurement.** Lifting
-     the `isOuterVariable` refusal in favour of a *syntactic* `isNeverInitialized`
-     — "no identifier of this name stands in a write position anywhere in the
-     file" — measured **+5 converts, 4 LOST, wrong 10 → 65** and was reverted.
-     The scan is not the question: upstream's `isSymbolAssignedDefinitely` reads
-     `markNodeAssignments`, which records assignments *per symbol* during the
-     bind, and a name-based scan cannot tell one `x` from another's. The build is
-     `markNodeAssignments` in the binder, not a walk in the checker.
-  0a1. **THE DECLINE AUDIT IS EXHAUSTED — do not re-run it from scratch.**
-     Every condition in every rule of this workstream was disabled and measured
-     at the tenth session's close. Twelve paid (+34 cases, `checker-notes-diag2.md`
-     §35–§40.6); **~25 more returned zero or negative** and are listed there as
-     confirmed-exact. Re-running the whole set costs about 25 coverage runs for
-     nothing. **Run it again only after a build that changes what the port can
-     *decide*** — §25 (`relate_ternary`) and §35 (`Anonymous` completeness) are
-     the two that invalidated gates written before them, and both were
-     invisible until the audit.
-  0a2. **BUILD A PASS-SET DIFF PROBE BEFORE ANY MORE POSITION WORK.**
-     `diag2307.rs`'s *before* side removes a code entirely, so it cannot see a
-     rule being **moved**: TS2300's `export =` arm measured +2 converts / −17
-     wrong in the probe and **−3 on the suite** (§33.1). What is needed is a
-     probe that diffs the suite's pass set across two builds, not across a code
-     list. §30's three position fixes were additive and got away with it.
-  0b. **The rest of `extragap.rs`'s displaced column.** DONE and worth +29
-     between them: TS2300 (47 displaced, +11), TS1160 (12, +12), TS1125 (86, +5),
-     TS1002 (16, +1). **TS1109's 18 are the only untried remainder.** TS1005's
-     **241 displaced are NOT this shape** — JSX and conflict-marker parser
-     *recovery* differences, 32 lines at one EOF position in
-     `jsxUnclosedParserRecovery` alone; that is a parser project, not a position,
-     and this line exists so nobody re-derives it. A measured negative beside it:
-     the `s.pos` correction does **not** generalise to the unterminated *regex*
-     and *JSX string* sites — applying it there cost 2 cases and was reverted.
-     The rule is "report where upstream's call reports", not "the scanner always
-     reports at `pos`".
-  0c. **More definite negatives the relater declines to give** (§29). It answers
-     `Unknown` for any pair it did not reach structurally, and two of those are
-     decidable from flags alone: an object source against a primitive target, and
-     a primitive source against a target requiring a property. Both are asked in
-     the rule rather than in `crate::relater`, because widening what the relater
-     calls a definite negative moves `checker_types`. **Look for more of these
-     before writing another rule** — the first one was worth +12 cases.
-  1. **`isTypeIdenticalTo` — the relation in identity mode.** `crate::relater`
-     has assignability and subtype and no identity. It is a relater build rather
-     than a diagnostics one and it is the best-priced item on this page: TS2403
-     30 cases, TS2320 14, TS2717 and TS2394 13 each — **~70 cases behind one
-     function**, and §24 is the measurement that says interning cannot stand in
-     for it.
-  2. **TS2741's four residual owners** (§22). The machinery is built and switched
-     off behind `REPORT_MISSING_REQUIRED_PROPERTY`; the blockers are the binder's
-     numeric-name normalisation, private-identifier table keys, an unread
-     inherited modifier, and narrowing. Turning the constant back on is the whole
-     of the code change.
-  3. TS2322's remaining anchors — object-literal property assignments, JSX
-     attributes, `as`/`satisfies`. Each is worth its own measurement against the
-     existing gate in `assignreport.rs`, which is proven at 0 lost.
-  4. TS2304 residual 86 and TS2454 residual 62 — the two largest non-relation
-     rows. Diffuse; the ninth session's notes name TS2583 lib suggestions and
-     class/namespace scope divergences in `resolve_name` as the owners.
-  5. The strict-mode binder family — TS1212 (22 cases) and TS1100 (11).
-     `checkStrictModeIdentifier` / `checkStrictModeEvalOrArguments` are
-     **unported in `tsr-binder`** and the crate's own module header says so.
-     Needs compiler options plumbed into `tsr_binder::bind`, which nothing does
-     today.
-  6. TS7031 / TS7005 / TS7008 / TS7010 — the rest of the `noImplicitAny` family.
-     Same option gate as `implicit_any.rs`, so the same bounded blast radius.
-  7. The extras column: 36 cases blocked by an unexpected diagnostic **alone**
-     and 586 by both. Removing a false positive can only help, and it is the one
-     kind of work that cannot produce a new wrong line.
+## THE INSTRUMENTS — use them, do not rebuild them
 
-TRAPS PAID FOR THIS SESSION, do not repay
-  - **A register site inside a conditional is a precondition of the rule.**
-    `registerForUnusedIdentifiersCheck(sourceFile)` sits inside
-    `if IsExternalOrCommonJSModule` (`checker.go:2210`). Missing that reported
-    every top-level `class`, `function` and `namespace` of every script in the
-    unused corpus: 108 of 158 wrong lines and all three losses. Same class of
-    error as the ninth session's `Pos()`/`End()`: the code was copied and the
-    question it was answering was not.
-  - **The error node can differ by direction.** TS2554 reports on the callee for
-    too *few* arguments and on the first excess argument for too *many*
-    (`checker.go:9770` vs `:9804`). Getting one half right looks like a working
-    rule and is 16 wrong lines.
-  - **`isUse` is not always true.** `getResolvedSymbol` resolves with
-    `isUse: !IsWriteOnlyAccess(node)` (`checker.go:13896`), so `y = 1` is not a
-    reference to `y`. `unusedLocalsInMethod3` reads *"All variables are unused"*
-    upstream for `var x, y; y = 1;`.
-  - **A directive's position is `lastLineStart`, not the `/*`.**
-    `processCommentDirective` (`scanner.go:674`). And `isCommentOrBlankLine`
-    (`program.go:1445`) recognises `//` and **not** `/*`. Both are tests in
-    `crate::comment_directives` now; each was three wrong lines.
-  - **JSDoc is a wrong-answer generator for every option-gated rule.** A `.js`
-    file's `@param` and `@type` supply types this port does not parse, so a
-    checked JS file reports an implicit any on every *annotated* parameter.
-    28 wrong lines in one measurement, 15 of them on one line of source.
-  - **TS2322's message arguments are not compared.** The suite compares
-    `(file, line, column, code)`. Nothing in that family needs type printing.
-  - **Interning is not an identity relation** (§24). Two `{}` type literals are
-    two anonymous types; `TypeId` equality models `isTypeIdenticalTo` for
-    primitives, literals and named references and for nothing structural.
-  - **`SymbolFlags::OPTIONAL` is declared and set by nothing** — the third
-    writerless flag, after `NodeFlags::AMBIENT` and `NodeFlags::JAVASCRIPT_FILE`.
-    Read optionality off the declaration's `?`.
-  - **A rule's yield is not its row.** TS2339 converted 12 of 143, TS2741 1 of
-    40, TS2353 6 of 37, and TS2322 emitted **294 correct lines to finish 15
-    cases**. Check `STILL SHORT` before pricing anything from `diaggap.rs`.
-  - **`is_type_assignable_to` is the wrong function for a reporting rule** — see
-    the top of this file and §25.
+| instrument | answers |
+|---|---|
+| `examples/diagreach.rs` | **NEW, run first.** Cases reachable by deepening the rules that already exist, ranked by which rule |
+| `examples/diagmissing.rs` | **NEW.** `diagmissing -- 2454` prints every baseline line of that code the port does not emit, restricted to cases that code alone blocks. Four of this session's builds were steered by reading it |
+| `examples/diagcase.rs` | **NEW.** One case's expected and actual diagnostics side by side |
+| `examples/diag2307.rs` | the per-rule counterfactual. Put the rule's codes in `RULE_CODES` **alone**, measure, then **restore the full list** (one commit shipped it pinned and needed a follow-up). CONVERTS / LOST / RIGHT / WRONG |
+| `examples/extragap.rs` | splits the *extra* column into `displaced` and `invented` |
+| `examples/diaggap.rs` | the old board. Now an ordering over **new** rules only |
 
-THE LOOP THAT WORKED SEVEN TIMES
-  diaggap.rs for the size -> isolate the codes in diag2307.rs's RULE_CODES ->
-  register the bar in checker-notes-diag2.md BEFORE the code -> build anchored to
-  upstream file:line -> measure -> READ THE TOP ROW OF THE WRONG COLUMN and
-  decline (never "tighten" — every fix this session was a decline with a named
-  owner) -> restore RULE_CODES -> coverage -> five gates EACH ITS OWN INVOCATION
-  (fmt · clippy 0 · test · anchors · issue-ids) -> commit -> STATUS -> push.
+**Isolate a code before quoting its wrong column.** `diag2307.rs` prints only the
+first 400 distinct entries; §50's bar was registered against "16 wrong lines"
+read off a truncated full-list printout when the real figure was **96**.
 
-issue-ids and anchors both RUN here (0 dangling, 0 unresolved) — earlier handoffs
-said issue-ids skips locally; it did not this session. Check rather than assume.
+## THE SESSION'S ONE TRANSFERABLE FINDING
 
-Diagnostics is a long tail with one subsystem at its head. Keep grinding, and
-build the members table when the tail stops paying.
+**Five of the first seven builds turned on a sentence about *why*, not on a
+threshold.** In each, the port had transcribed something faithfully-looking that
+was answering a different question:
+
+1. **A printing guard applied where nothing prints** (§42.1). `union_type_worker`
+   answers `errorType` for a union with a named constituent so `E | undefined`
+   does not print `E.a | E.b | undefined`. TS2454 compares
+   `(file, line, column, code)`, and the guard was silencing it on every
+   enum-typed declaration in the corpus. `get_union_type_unprinted` is the fix.
+2. **A comment describing three cases above code handling one** (§43).
+3. **`== self.intrinsics.error` where `Checker::is_error` was meant** (§43, §44).
+   This port has **two** error types — the intrinsic, and the `Named` an
+   unresolved type reference mints — and upstream has one, `TypeFlagsAny`-carrying.
+   **31 more identity tests against `intrinsics.error` remain in the checker and
+   each is the same question.**
+4. **A decline copied with its conclusion and not its cause** (§45). §31's
+   `same_primitive_family` reads as a statement about comparability and is really
+   a stand-in for `getBaseTypeOfLiteralType`, which only assertion sites apply.
+   Inheriting it into TS2367 read 2 conversions instead of 15.
+5. **A literal's text compared against a literal's value** (§47). A
+   `NumericLiteral`'s `Text` upstream is the scanner's **normalised** value —
+   `0.0` reads `"0"`.
+
+And the site trap fired **four** times: `registerForUnusedIdentifiersCheck` (§15),
+`checkTruthinessExpression`'s seven call sites (§47), an earlier `match` arm
+already claiming `+`/`<`/`>` (§49 — the rule measured zero because it never ran),
+and `checkNonNullType` being conditional for `+` alone (§50.2).
+**When a new rule measures zero, check that it ran before checking what it
+decided.**
+
+## THE THREE-VALUED RELATION HAS THREE CORRECT PROJECTIONS
+
+Which one is right is a property of the **caller's direction**, and getting it
+wrong is worth tens of lines each way:
+
+| the caller | the reading |
+|---|---|
+| reports **because** a relation failed (§25, §52) | fire only on `== NotRelated` |
+| stays silent **because** a relation held, upstream three-valued (§49) | `!= NotRelated` |
+| stays silent because a relation held, upstream **binary** (§50.2) | `== Related` — reading `Unknown` as a positive declined 28 correct lines |
+
+## RANKED NEXT ITEMS
+
+0. **Run `diagreach.rs` and pick from it.** Everything below is that list read
+   at this commit.
+1. **`Binder::names_in_scope` should take a meaning** — §55 refused the
+   suggestion arm in type positions at **143 wrong lines for 1 conversion**
+   because it cannot. Fixing it returns TS2552 to half the corpus and is a
+   binder change with a bounded blast radius.
+2. **TS2554 (37) / TS2564 (36) / TS7006 (28) / TS2454 (58) / TS2304 (88 − 43
+   landed)** — five rules `diagreach` says are incomplete and **none of which
+   needs the relation**. Read `diagmissing.rs` for each; that is exactly how
+   §43, §45, §47 and §55 were found.
+3. **`checkNonNullType` at the OTHER call sites** — property access, element
+   access, call targets. §51 built the six messages and restricted them to
+   binary operands, and its twelve non-converting cases are all `STILL SHORT`
+   for want of those sites.
+4. **TS2341 (15) and TS2305 (15)** are the largest unbuilt rows left.
+   TS2305 (`Module '{0}' has no exported member '{1}'`) has many sibling codes
+   — TS2459, TS2613, TS2614 — and picking the branch **is** the rule
+   (`reportNonExportedMember`, `checker.go:14908`).
+5. **TS1212 (22)** still needs compiler options plumbed into `tsr_binder::bind`,
+   which nothing does today. Unchanged from the tenth session's handoff.
+6. **The assignability family (TS2322 548, TS2345 138, TS2741 81, TS2353 52)**
+   is §5's standing refusal and `diagreach` now prices it at more cases than the
+   suite currently passes. It is a `checker_types` build, not a diagnostics one.
+
+## TRAPS PAID FOR, DO NOT REPAY
+
+- **The parse-error gate is a per-rule measurement, not a house style.**
+  §40.3 deleted TS2304's for +6 and §50.1 re-measured it at −6 seven builds
+  later; §43 refused TS2564's at −1 even though it zeroed that rule's wrong
+  column. A zero wrong column is not the objective.
+- **`GetErrorRangeForNode` exists now** (§48, `Checker::error_span`) and every
+  `report` site goes through it. Four of upstream's arms need the file's text
+  and are unported — `SourceFile`, `ArrowFunction`, case/default clauses, and
+  `return`/`yield`/`constructor`. A displaced `return` diagnostic is that.
+- **Three declared flags are set by nothing**: `NodeFlags::AMBIENT`,
+  `NodeFlags::JAVASCRIPT_FILE`, `SymbolFlags::OPTIONAL`.
+- **A rule's yield is not its row.** Check `STILL SHORT` before pricing.
+
+## THE LOOP, sixty-two for sixty-two
+
+`diagreach.rs` for the target → `diagmissing.rs` for the lines → isolate the
+codes in `diag2307.rs`'s `RULE_CODES` → **register the bar in
+checker-notes-diag2.md BEFORE the code** → build anchored to upstream file:line
+→ measure → READ THE TOP ROW OF THE WRONG COLUMN and **decline with a named
+owner** (never "tighten") → **restore RULE_CODES** → coverage → five gates each
+its own invocation (fmt · clippy `grep -c "^error"` == 0 · test · anchors ·
+issue-ids) → commit → STATUS → push. LOST must read 0 in every measurement.
+
+Push before you stop. A build that is not pushed did not happen.
