@@ -2436,3 +2436,23 @@ only ENUM): a numeric enum beside `number` drops entirely
 `checker_types` right 399,558 → **399,795 (83.47%)**. The §39 refusal is
 SUPERSEDED by this slice; the un-gated entry shapes (object-bearing,
 generic-alias) remain its residue.
+
+## §54 — `&&`'s non-strict falsy source
+
+`checker.go:12496`: under `!strictNullChecks` the falsy extraction runs
+over `getBaseTypeOfLiteralType(RIGHT)`, not the left — `boolean && string`
+answers `string` (falsy-of-string-base is `never`... upstream's
+`getDefinitelyFalsyPartOfType(string)` is `""`? the corpus decides:
+`logicalAndOperatorWithEveryType` wants plain `string`, so the extraction
+of the right's base unions to nothing visible). §53's 19 adverse are this
+arm's population. One-line port: the strict/non-strict source split.
+
+**Falsifier.** If `get_definitely_falsy_part_of_type` diverges from
+upstream's on the right-base (the `""`/`0`/`false` parts), the same lines
+stay wrong with new spellings — the pair decides.
+
+**§54 score — LANDED.** **+104 (92 W→R, 12 G→R), ZERO adverse.** The
+falsifier did not fire, and the arm converted 73 pre-existing wrongs
+beyond §53's 19 (`parserRealSource12` +25 among them — the non-strict
+corpus's `&&` chains had been mis-unioning since the strict-only port).
+`checker_types` right 399,795 → **399,899 (83.49%)**.

@@ -406,7 +406,13 @@ impl Checker<'_, '_> {
             // evaluated and the result is the left type unchanged.
             return left;
         }
-        let falsy = self.extract_definitely_falsy_types(left);
+        // §54 (`checker-notes-narrow.md`): the falsy SOURCE splits on
+        // strictness (`checker.go:12500`) — non-strict extracts from the
+        // RIGHT's literal base, which is what makes `boolean && string`
+        // answer `string` there.
+        let source =
+            if self.strict_null_checks { left } else { self.get_base_type_of_literal_type(right) };
+        let falsy = self.extract_definitely_falsy_types(source);
         self.get_union_type(&[falsy, right])
     }
 
