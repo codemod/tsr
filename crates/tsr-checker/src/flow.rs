@@ -2205,6 +2205,18 @@ impl Checker<'_, '_> {
                     let facts = if assume_true { TypeFacts::TRUTHY } else { TypeFacts::FALSY };
                     return self.get_type_with_facts(t, facts);
                 }
+                // §51.4 (`checker-notes-narrow.md`): `if (o?.foo)` — under
+                // strictNullChecks the true branch narrows the chain base
+                // NE_UNDEFINED_OR_NULL, and FALLS THROUGH to the
+                // discriminant filter (`flow.go:432`'s ordering).
+                let t = if self.strict_null_checks
+                    && assume_true
+                    && self.optional_chain_contains_reference(state, condition)
+                {
+                    self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL)
+                } else {
+                    t
+                };
                 // §51.3 (`checker-notes-narrow.md`): `if (s.done)` — an
                 // access whose RECEIVER is the reference discriminates by
                 // the member's truthiness (`narrowTypeByDiscriminant` with
@@ -2343,18 +2355,24 @@ impl Checker<'_, '_> {
                         }
                     }
                 }
-                // §51.2 (`checker-notes-narrow.md`): `o?.foo === value` —
-                // the comparison holding implies every chain link evaluated
-                // (`narrowTypeByOptionalChainContainment`); the BASE narrows
-                // NE_UNDEFINED. Strict operators only; the value's type must
-                // exclude undefined/any/unknown.
-                if matches!(
-                    operator.kind,
-                    SyntaxKind::EqualsEqualsEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
-                ) {
-                    let holds = assume_true
-                        != matches!(operator.kind, SyntaxKind::ExclamationEqualsEqualsToken);
-                    if holds {
+                // §51.4 (`checker-notes-narrow.md`): the WHOLE containment
+                // table (`flow.go:1032`), replacing §51.2's one quadrant —
+                // facts NE_UNDEFINED_OR_NULL, loose operators included.
+                {
+                    let equals_operator = matches!(
+                        operator.kind,
+                        SyntaxKind::EqualsEqualsToken | SyntaxKind::EqualsEqualsEqualsToken
+                    );
+                    let loose = matches!(
+                        operator.kind,
+                        SyntaxKind::EqualsEqualsToken | SyntaxKind::ExclamationEqualsToken
+                    );
+                    let strict = matches!(
+                        operator.kind,
+                        SyntaxKind::EqualsEqualsEqualsToken
+                            | SyntaxKind::ExclamationEqualsEqualsToken
+                    );
+                    if loose || strict {
                         let chain_pair =
                             [(left, right), (right, left)].into_iter().find(|&(candidate, _)| {
                                 self.optional_chain_contains_reference(state, candidate)
@@ -2367,9 +2385,26 @@ impl Checker<'_, '_> {
                                 .map(|expression| self.check_expression(expression));
                             if let Some(value_type) = value_type
                                 && value_type != self.intrinsics.error
-                                && !self.type_mentions_undefined_or_top(value_type)
                             {
-                                return self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED);
+                                let nullable =
+                                    if loose { TypeFlags::NULLABLE } else { TypeFlags::UNDEFINED };
+                                let parts: Vec<TypeId> = match &self.store.get(value_type).data {
+                                    TypeData::Union { types, .. } => types.clone(),
+                                    _ => vec![value_type],
+                                };
+                                let every = |checker: &Self, test: &dyn Fn(TypeFlags) -> bool| {
+                                    parts.iter().all(|&part| test(checker.store.get(part).flags))
+                                };
+                                let remove = (equals_operator != assume_true
+                                    && every(self, &|flags| flags.intersects(nullable)))
+                                    || (equals_operator == assume_true
+                                        && every(self, &|flags| {
+                                            !flags.intersects(TypeFlags::ANY_OR_UNKNOWN | nullable)
+                                        }));
+                                if remove {
+                                    return self
+                                        .get_type_with_facts(t, TypeFacts::NE_UNDEFINED_OR_NULL);
+                                }
                             }
                         }
                     }
@@ -2475,25 +2510,6 @@ impl Checker<'_, '_> {
                 _ => return false,
             }
         }
-    }
-
-    /// §51.2's value gate: the compared value's type must contain no
-    /// `undefined`, `any`, or `unknown` — those admit an undefined chain
-    /// result and the containment argument collapses.
-    fn type_mentions_undefined_or_top(&self, t: TypeId) -> bool {
-        let flags = self.store.get(t).flags;
-        if flags.intersects(TypeFlags::UNDEFINED | TypeFlags::ANY_OR_UNKNOWN) {
-            return true;
-        }
-        if let TypeData::Union { types, .. } = &self.store.get(t).data {
-            return types.iter().any(|&constituent| {
-                self.store
-                    .get(constituent)
-                    .flags
-                    .intersects(TypeFlags::UNDEFINED | TypeFlags::ANY_OR_UNKNOWN)
-            });
-        }
-        false
     }
 
     /// §51.3: keep constituents whose MEMBER admits the assumed

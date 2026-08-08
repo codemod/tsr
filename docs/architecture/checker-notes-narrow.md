@@ -2289,3 +2289,29 @@ property switch (§51), property equality (§51.1), chain containment
 idiom) measured ZERO and was reverted: the corpus's instances pair the
 object member with an opaque sibling, so the whole-decline holds either
 way.
+
+## §51.4 — chain containment, the whole table
+
+§51.2 ported one quadrant of `narrowTypeByOptionalChainContainment`
+(`flow.go:1032`); the function's own comment is an eight-row truth table
+and the facts are `NEUndefinedOrNull` — BOTH nullish forms leave, which
+is why 13 `Thing | null` lines stayed wrong. This build replaces the
+slice with the table verbatim: `nullableFlags` = NULLABLE for loose
+operators, UNDEFINED for strict; remove when (equalsOp ≠ assumeTrue and
+the value is every-nullable) or (equalsOp = assumeTrue and the value
+excludes AnyOrUnknown|nullable); facts `NE_UNDEFINED_OR_NULL`. And the
+TRUTHINESS leg (`flow.go:432`): under strictNullChecks, `if (o?.foo)`
+on the true branch narrows the base `NE_UNDEFINED_OR_NULL` and FALLS
+THROUGH to the discriminant filter, exactly as upstream's
+`narrowTypeByTruthiness` orders them.
+
+**Falsifiers.** (a) `getAdjustedTypeWithFacts` vs this port's
+`get_type_with_facts` — the adjustment re-derives freshness; divergence
+shows as literal-spelling wrongs. (b) The loose-operator rows depend on
+`== null` equivalence the §51.2 slice deliberately skipped; wrongs there
+say the value-type `every` test is mis-ported.
+
+**§51.4 score — LANDED.** **+72 (W→R), ZERO adverse.** Neither falsifier
+fired. `checker_types` right 399,431 → **399,503 (83.42%)**. First build
+scored through `scorepair` (the sub-second filtered iterate showed +70 in
+the target before the full run confirmed +72/0).
