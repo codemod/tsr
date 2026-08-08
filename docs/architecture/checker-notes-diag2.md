@@ -9493,3 +9493,60 @@ turned a lint into a type error. Line-indexed replacement, with an assertion on
 the line's content, is the form to use when the string is not unique — the same
 class of defect as §122's truncated `grep`: **an operation that can silently
 apply to the wrong target is an operation that will.**
+
+## §133 — the probe overturns §132: the abstract clause works
+
+§132 concluded that adding the signature member kinds changed nothing, therefore
+`abstract [onInit](): void` "is neither of those kinds in this parser". The
+probe §132 itself prescribed says otherwise:
+
+```
+MEMBER kind=MethodDeclaration abstract=false mods=[]
+MEMBER kind=MethodDeclaration abstract=true  mods=["AbstractKeyword"]
+```
+
+**The abstract member is a plain `MethodDeclaration`, `member_is_abstract`
+already enumerated that kind, and it answers `true`.** The clause was working
+before §132 touched it — which is exactly why adding `MethodSignature` and
+`PropertySignature` changed nothing. §132 read "no change" as "wrong kind" when
+it meant "already handled".
+
+### What the residual actually is
+
+The probe enumerates every computed-name site in the file:
+
+| member | owner | verdict |
+|---|---|---|
+| `MethodDeclaration` ×2 | `ClassDeclaration` | one `abstract=true` → valid |
+| `PropertyDeclaration` ×4 | `ClassDeclaration` | reported |
+| `MethodSignature` | `InterfaceDeclaration` | valid |
+| `PropertySignature` | `TypeLiteral` | valid |
+| **`PropertyAssignment`** | **`ObjectLiteralExpression`** | **reported** |
+
+Upstream expects **four** lines and this port emits **six**. The
+object-literal computed name is one of the two extras and is **not covered by
+any clause of `IsValidTypeOnlyAliasUseSite`** as ported — upstream's predicate
+would report it too, so the divergence is elsewhere: most likely the *symbol*
+resolved at that site, not the site itself.
+
+**Unattributed, deliberately.** This row has now had thirteen attributions and
+the failure mode is stable: each one reads a *new* artefact and concludes from
+it alone.
+
+### The pattern, stated plainly enough to act on
+
+| what was read | what it answers | what it cannot |
+|---|---|---|
+| `diaggap` / `diagmissing` | which cases, which lines | why |
+| the `.errors.txt` baseline | what upstream reports | what this port did |
+| upstream's Go source | what upstream computes | what this port computed |
+| the fixture | which language rule applies | which code path ran |
+| a probe | **which code path ran, with what** | — |
+
+**Only the last one answers the question this row keeps asking**, and it has
+been right every time it was run at the correct depth (§128 the symbol, §130 the
+loop, §133 the member). Each of the other four has produced at least one
+confident wrong answer here.
+
+**Next action: probe the SYMBOL at `component.ts(32,12)`** — its flags and
+declarations, the way §128 did for `Row` — before touching another clause.
