@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1425/5488 (25.97%)
-Failed         : 4063
+Passed         : 1430/5488 (26.06%)
+Failed         : 4058
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4063 failures:
+First 100 of 4058 failures:
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
 compiler/ClassDeclaration26

@@ -844,7 +844,15 @@ impl Checker<'_, '_> {
         if self
             .binder
             .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::VALUE)
-            .is_some()
+            .is_some_and(|value| {
+                // …unless it resolved to an alias that is type-only somewhere
+                // along its chain: `resolveNameEx` (`checker.go:1860`) tests
+                // `Alias && !Value`, and this port's alias symbols answer
+                // `VALUE` where upstream's do not (§119), so the test belongs
+                // here rather than on the meaning ladder below. §121.
+                self.report_type_only_alias_used_as_value(node, value, text);
+                true
+            })
         {
             return;
         }
@@ -968,6 +976,77 @@ impl Checker<'_, '_> {
             came_from = ancestor;
         }
         false
+    }
+
+    /// TS1361 / TS1362 — an alias declared `import type` / `export type` used
+    /// as a value (`checker.go:1860`; the message splits at `:1863`).
+    fn report_type_only_alias_used_as_value(
+        &mut self,
+        node: NodeId,
+        symbol: tsr_binder::SymbolId,
+        text: &str,
+    ) {
+        let Some(exported) = self.type_only_alias_declaration(symbol) else { return };
+        let message = if exported {
+            &messages::_0_CANNOT_BE_USED_AS_A_VALUE_BECAUSE_IT_WAS_EXPORTED_USING_EXPORT_TYPE
+        } else {
+            &messages::_0_CANNOT_BE_USED_AS_A_VALUE_BECAUSE_IT_WAS_IMPORTED_USING_IMPORT_TYPE
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+    }
+
+    /// `getTypeOnlyAliasDeclarationEx` (`checker.go:1861`), reduced to its
+    /// answer: **which kind** of declaration in the alias chain carried the
+    /// `type`, or `None` if none did.
+    ///
+    /// Upstream follows re-exports and intermediate aliases rather than reading
+    /// only the symbol's own declaration — §120 measured 7 wrong lines for
+    /// stopping at the first hop. The walk here is the same one, bounded, using
+    /// [`Checker::resolve_alias`]. §121.
+    fn type_only_alias_declaration(&mut self, symbol: tsr_binder::SymbolId) -> Option<bool> {
+        let mut current = self.binder.merged_symbol(symbol);
+        for _ in 0..16 {
+            let entry = self.binder.symbols().get(current);
+            if !entry.flags.intersects(SymbolFlags::ALIAS) {
+                return None;
+            }
+            let declaration = *entry.declarations.first()?;
+            if let Some(exported) = self.declaration_is_type_only(declaration) {
+                return Some(exported);
+            }
+            current = self.binder.merged_symbol(self.resolve_alias(current)?);
+        }
+        None
+    }
+
+    /// `Some(true)` for `export type`, `Some(false)` for `import type`, `None`
+    /// when this declaration is not type-only.
+    fn declaration_is_type_only(&self, declaration: NodeId) -> Option<bool> {
+        let enclosing = |kind: SyntaxKind| {
+            self.nodes.ancestors(declaration).find(|&a| self.nodes.kind(a) == kind)
+        };
+        match self.node_map.get(declaration)? {
+            Node::ImportSpecifier(n) if n.is_type_only => Some(false),
+            Node::ImportSpecifier(_) | Node::NamespaceImport(_) | Node::ImportClause(_) => {
+                match self.node_map.get(enclosing(SyntaxKind::ImportClause)?)? {
+                    Node::ImportClause(clause) => clause
+                        .phase_modifier
+                        .is_some_and(|token| token.kind == SyntaxKind::TypeKeyword)
+                        .then_some(false),
+                    _ => None,
+                }
+            }
+            Node::ExportSpecifier(n) if n.is_type_only => Some(true),
+            Node::ExportSpecifier(_) => {
+                match self.node_map.get(enclosing(SyntaxKind::ExportDeclaration)?)? {
+                    Node::ExportDeclaration(n) if n.is_type_only => Some(true),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     fn check_type_reference_name(&mut self, node: NodeId, text: &str) {

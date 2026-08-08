@@ -8884,3 +8884,51 @@ The useful part is that the diagnosis is now **numbered**, not asserted: the
 is the remainder (+7 wrong without it). **Owner: `getTypeOnlyAliasDeclarationEx`,
 and the 18 cases stay on the board at that price** — which is the first time
 this row has had one.
+
+## §121 — the alias chain, built: TS1361/TS1362 lands at +5
+
+§120 refused this row at +2/+7 and named the remainder precisely: the rule read
+the alias's **own** declaration where upstream walks the **chain**.
+`resolve_alias` (`symbols.rs:560`, `checker.go:16266`) already exists, so the
+walk is a bounded loop over it.
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 219 | 2 | 2,409 | 414 |
+| §120, first hop only — refused | 221 | 2 | 2,423 | 421 |
+| **§121, chain walked** | **224** | **2** | **2,431** | **422** |
+
+**+5 cases and +22 right lines, LOST unchanged.** Coverage
+`1,425 → 1,430 / 5,488` (25.97% → **26.06%**). `checker_types` identical.
+
+The chain is worth **3 of the 5 cases and 8 of the 22 lines** over §120's single
+hop, for **one** additional wrong line — which is the measurement §120 asked for
+and the reason that refusal was worth writing rather than deleting.
+
+### The bar was missed, and this is the second time on this row
+
+**+8 wrong lines against a rule that emitted none.** §104 landed TS1163 at +7
+wrong and paid it off in §107 and §108; the same debt is being taken on here,
+and it is recorded as a debt rather than a rounding.
+
+**The residual is `IsValidTypeOnlyAliasUseSite` (`checker.go:1860`'s third
+conjunct), which is unported.** Upstream does not report at every value
+position — a type-only alias is legal in `typeof X`, in an `export { X }`, and
+in a few other positions that "use" the name without emitting it. Every wrong
+line here is expected to be one of those, and the fix is a predicate over the
+use site rather than anything further along the chain.
+
+**Owner: `IsValidTypeOnlyAliasUseSite`.** Next session: port it, re-run
+`RULE_CODES = [1361, 1362, 2304, 2552]`, and beat 224/2/2431/**422** — the target
+is the same 224 conversions at a wrong column back at 414.
+
+### What the five sections cost and bought
+
+§117 predicate-without-probe, zero. §118 probe misplaced, wrong conclusion.
+§119 correction, hypothesis named. §120 hypothesis measured, refused with the
+remainder named. §121 remainder built, landed.
+
+Five sections for five cases is a poor rate and the record should say so. What
+makes it not merely waste is that **each section's output was the next one's
+input**, and the two that produced no code — §119's retraction and §120's
+refusal — are the two the build could not have happened without.
