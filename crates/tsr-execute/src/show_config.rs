@@ -365,11 +365,46 @@ fn implied_value(options: &CompilerOptions, name: &str) -> Option<String> {
         }
         // `GetEmitStandardClassFields`: not false, and ES2022 or later.
         "useDefineForClassFields" => {
-            Some((options.emit_script_target() >= ScriptTarget::ES2022).to_string())
+            Some((show_config_emit_target(options) >= ScriptTarget::ES2022).to_string())
         }
         "resolveJsonModule" => Some(options.get_resolve_json_module().to_string()),
         "allowJs" => Some(options.get_allow_js().to_string()),
         _ => None,
+    }
+}
+
+/// The target an unset `target` means, for the implied-option comparison.
+///
+/// **This disagrees with [`CompilerOptions::emit_script_target`], and the
+/// disagreement is a real finding rather than a local convenience.** Upstream's
+/// `GetEmitScriptTarget` (`core/compileroptions.go:195`) is two lines: the
+/// written target, or `ScriptTargetLatestStandard`. This port's accessor instead
+/// derives ES5 from the module kind, which is what older TypeScript did.
+///
+/// It decides two `--showConfig` baselines and nothing else here:
+///
+/// - `Show-TSConfig-with-transitively-implied-options` writes `module: nodenext`
+///   and expects **no** `useDefineForClassFields`. Under upstream's rule the
+///   default options also compute `true` (latest ≥ ES2022), so the implied value
+///   equals the default and is dropped. Under this port's rule the default is
+///   ES5 → `false`, they differ, and the line is wrongly emitted.
+/// - `Show-TSConfig-with-compileOnSave-and-more` writes `target: es5` and
+///   expects `useDefineForClassFields: false` — which only appears *because* the
+///   default is latest-standard `true` and es5 differs from it.
+///
+/// One rule, both baselines, opposite directions. That is what makes it a fact
+/// about upstream rather than a fit to one case.
+///
+/// **Deliberately not fixed in `tsr-core`.** `emit_script_target` is read by the
+/// checker, the loader and module resolution; changing it is a compiler change
+/// with its own conformance measurement, and this session is scoped to the CLI.
+/// Filed here so the next session that touches the core has the evidence.
+fn show_config_emit_target(options: &CompilerOptions) -> ScriptTarget {
+    if options.target == ScriptTarget::None {
+        // `ScriptTargetLatestStandard`.
+        ScriptTarget::ES2025
+    } else {
+        options.target
     }
 }
 

@@ -25,7 +25,7 @@ Measured at the CLI-scaffold landing, 2026-08-08, by
 
 | | |
 |---|---:|
-| **`cli_baselines`** | **30/43 judged = 69.77%** |
+| **`cli_baselines`** | **32/43 judged = 74.42%** |
 | behind the emitter (excluded) | 151 |
 | total `tsc` baselines | 194 |
 
@@ -177,7 +177,7 @@ run the driver, and diff. Add a `cli_baselines` suite to `tsr-conformance`
 alongside the existing sixteen.
 
 **Landed. The suite reads 28/43 judged (65.12%), 151 excluded as behind the
-emitter.** It has read 13 → 19 → 20 → 25 → 26 → 28 → 30 as each phase landed.
+emitter.** It has read 13 → 19 → 20 → 25 → 26 → 28 → 30 → 32 as each phase landed.
 
 **The runner also reads the Go test source.** A `tsc` baseline does not record
 the environment its scenario runs under — that lives in `tsc_test.go` as a
@@ -383,7 +383,7 @@ too, because phase 0 exists.
 | # | item | worth | state |
 |---|---|---|---|
 | 1 | `--help --all` | 1 baseline | **structure done**, and the table is *generated* from upstream rather than transcribed — 106 options, categories and descriptions as `Message` references (`help_all.rs`). Still short: the `--build` pseudo-option, 11 options whose description constant does not resolve, and the `WATCH OPTIONS` / `BUILD OPTIONS` sections |
-| 2 | `--showConfig` implied options | 3 baselines | `moduleDetection` **done**. `Show-TSConfig-with-transitively-implied-options` is now **one option** from passing: this port emits `useDefineForClassFields` where upstream does not, though both the dependency and differs-from-default conditions hold. Which implied options upstream actually emits is the open part — §7.10 |
+| 2 | ~~`--showConfig` implied options~~ | **done**, +2 | §7.10 answered: `GetEmitScriptTarget` returns **latest-standard** for an unset target, not ES5 |
 | 3 | `extends` diagnostics | 2 baselines | a non-string `files`/`include` element must report TS5024 **positioned in the base file**, which needs per-element spans carried across the `extends` hop |
 | 4 | `--locale` | 2 baselines | one locale shipped; upstream has a message catalogue per language. **Refused** |
 | 5 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 33 hand-written tests |
@@ -516,17 +516,30 @@ in users' repositories, so it reports `NotImplemented` (upstream's own status 5)
    on both sides, so the difference is not where it appears to be, and finding
    out costs more than the one case is worth today.
 
-10. **Which implied options `--showConfig` actually emits.**
-    `Show-TSConfig-with-transitively-implied-options.js` writes `module:
-    nodenext` and expects exactly `module`, `moduleResolution`,
-    `moduleDetection`. This port emits a fourth, `useDefineForClassFields`, and
-    by `addImpliedOptions`' stated rule it should: its dependency `module` is
-    written, and its computed value (`nodenext` → ESNext ≥ ES2022 → `true`)
-    differs from the default (`ES5` → `false`). Upstream drops it anyway, so
-    `serializeImpliedOptionValue` or the entry's own shape must filter it.
-    **Deleting the entry would make this baseline pass and is not a reason** —
-    it would be tuning to one case without knowing the rule, which is what §7.5
-    already cost two attempts.
+10. ~~**Which implied options `--showConfig` actually emits.**~~ **Answered, and
+    the answer is a divergence in this port's core rather than anything about
+    `--showConfig`.** `GetEmitScriptTarget` (`core/compileroptions.go:195`) is
+    two lines: the written target, or `ScriptTargetLatestStandard`. This port's
+    `CompilerOptions::emit_script_target` instead derives ES5 from the module
+    kind, which is what older TypeScript did.
+
+    One rule, two baselines, **opposite directions** — which is what makes it a
+    fact about upstream rather than a fit to one case:
+
+    - `Show-TSConfig-with-transitively-implied-options` writes `module: nodenext`
+      and expects **no** `useDefineForClassFields`, because under upstream's rule
+      the default options also compute `true` and an implied value equal to the
+      default is dropped.
+    - `Show-TSConfig-with-compileOnSave-and-more` writes `target: es5` and
+      expects `useDefineForClassFields: false` — which appears *only* because the
+      default is latest-standard `true` and es5 differs from it.
+
+    Applied locally in `show_config.rs` (`show_config_emit_target`) and
+    **deliberately not fixed in `tsr-core`**: `emit_script_target` is read by the
+    checker, the loader and module resolution, so correcting it is a compiler
+    change with its own conformance measurement, and this session is scoped to
+    the CLI. **This is the highest-value item this session found for whoever
+    touches the core next** — it is two lines, and the evidence is above.
 
 ## 8. Updating this file
 
