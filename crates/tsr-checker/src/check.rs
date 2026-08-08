@@ -1330,11 +1330,7 @@ impl Checker<'_, '_> {
         };
         // §83's class arm keeps its `extends` bound exactly as measured; the
         // arms §96-§99 added carry the deferral predicate instead.
-        if is_class {
-            if !self.is_in_extends_clause(node) {
-                return;
-            }
-        } else if !self.use_is_not_deferred(node, declaration) {
+        if !self.is_in_extends_clause(node) && !self.use_is_not_deferred(node, declaration) {
             return;
         }
         // `declarationFile != useFile` returns `true` outright upstream —

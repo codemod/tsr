@@ -7828,3 +7828,54 @@ faithful test gives an unfaithful answer, suspect the flag before the test.**
 `classify` is now checked against upstream's binder for modules and enums. The
 remaining collapse candidates, unaudited: `S::PROPERTY` for five different node
 kinds, and `S::ALIAS` for five import/export forms.
+
+## §101 — §83's `extends` bound retired, at +0 cases
+
+Once §97–§100 had the deferral predicate, the question §83 could not ask became
+askable: **is the `extends`-clause bound still doing anything?**
+
+§83 introduced it because `extends` is the one position
+`isBlockScopedNameDeclaredBeforeUse`'s deferral arms cannot apply to, which made
+a class arm possible without porting them. They are ported now, so the bound is
+either redundant or it is hiding something.
+
+Replacing `is_in_extends_clause(node)` for the class arm with the same
+`use_is_not_deferred` the other two arms use — keeping `extends` as a disjunct,
+since a heritage clause is a value position the predicate need not re-derive:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §100 | 9 | 0 | 31 | **0** |
+| **§101** | **9** | **0** | **33** | **0** |
+
+**+0 cases, +2 right lines, wrong still zero.** Coverage unchanged at
+`1,386 / 5,488` — measured on both sides, not assumed.
+
+### Landed anyway, and why that is not a contradiction
+
+A build worth zero cases is normally not worth landing; the standing rule is
+that a population is a ceiling, not a conversion, and §84's option audit landed
+at a *verified* zero for a specific reason. This one has its own:
+
+- It **deletes a workaround.** The bound was scaffolding for a rule that could
+  not yet ask the real question, and scaffolding left in place reads as a
+  deliberate bound to the next person — §96 spent its first measurement partly
+  because this section's own handoff described the bound as load-bearing.
+- It is **strictly more faithful**: the class arm now asks what
+  `checker.go:1922` asks, at every position, rather than at one.
+- The two extra right lines are cases still short on other codes, so they
+  convert for free when those land.
+
+The falsifier was real and it did not fire: if the deferral arms had been
+weaker than the `extends` bound, the wrong column would have moved off zero.
+It did not, which is independent evidence that §97–§100's port is sound —
+**a bound removed without cost is a test of what replaced it.**
+
+### Where this rule now stands
+
+Nine conversions, thirty-three right lines, **zero wrong, zero LOST**, from six
+measurements. What is still unported are the deferral arms no corpus case has
+exercised: the JSDoc arm, the instance-property `isStatic` split, the
+binding-element recursion, and the decorator arms behind `legacyDecorators`.
+None has a case behind it today; each is one `STILL SHORT` row away from
+mattering.
