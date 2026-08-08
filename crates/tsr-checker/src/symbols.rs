@@ -2028,6 +2028,22 @@ impl<'a> Checker<'a, '_> {
             return id;
         }
         let widened = self.get_widened_literal_type(id);
+        // §65 (keyed on the decoded axis): under `noImplicitAny` the
+        // `undefined`-identifier initializer widens to `any`
+        // (`controlFlowNoImplicitAny`); without the flag it keeps
+        // `undefined` (`implicitAnyCastedValue`).
+        if self.no_implicit_any
+            && widened == self.intrinsics.undefined
+            // VARIABLES only — a class PROPERTY `foo = undefined` keeps
+            // `undefined` (`implicitAnyCastedValue`, itself @noImplicitAny).
+            && self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && matches!(
+                self.initializer_of(declaration),
+                Some(tsr_ast::Expression::Identifier(name)) if name.text == "undefined"
+            )
+        {
+            return self.intrinsics.any;
+        }
         // `getWidenedTypeWithContext`'s nullable arm (`checker.go:18368`):
         // a purely nullable WIDENING type is `any`. The widening twins exist
         // only with `strictNullChecks` OFF — strict `let x = null` keeps

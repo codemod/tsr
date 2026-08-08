@@ -319,6 +319,7 @@ pub struct Checker<'a, 'n> {
     /// annotation-less catch variable is `unknown`
     /// (`checker-notes-narrow.md` §21).
     pub(crate) use_unknown_in_catch_variables: bool,
+
     /// `compilerOptions.strictPropertyInitialization` through
     /// `GetStrictOptionValue` (`checker.go:922`) — so it follows `strict` when
     /// unset, exactly as [`Checker::strict_null_checks`] does.

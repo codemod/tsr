@@ -2777,3 +2777,12 @@ per-case contradiction defies both keys. The discriminator is likely
 `noImplicitAny` (the case names say so) — a THIRD option axis this
 port's producer already parses; a future slice keys on it. Refused with
 both matrices.
+
+**§65 UN-REFUSED — three keys, LANDED.** The same session plumbed the
+`noImplicitAny` axis (the setter already existed for the diagnostics
+workstream; the types producer now sets it explicit-or-@strict) and the
+contradiction resolved: under `noImplicitAny`, a VARIABLE initialized
+with the `undefined` IDENTIFIER widens to `any`; class PROPERTIES keep
+`undefined` (`implicitAnyCastedValue`, itself @noImplicitAny — the third
+key), and derived undefineds (`void 0`) keep everywhere. **+9 (W→R),
+ZERO adverse.** `checker_types` right 402,316 → **402,325 (84.00%)**.

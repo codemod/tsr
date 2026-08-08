@@ -1008,6 +1008,11 @@ fn render_case(
     checker.set_use_unknown_in_catch_variables(
         explicit("useunknownincatchvariables").or_else(|| explicit("strict")).unwrap_or(false),
     );
+    // §65's axis: explicit flag wins, then `@strict`; the corpus's
+    // directive-less default measured FALSE (the §65 pair decides).
+    checker.set_no_implicit_any(
+        explicit("noimplicitany").or_else(|| explicit("strict")).unwrap_or(false),
+    );
 
     let mut ours = Vec::new();
     for expected_file in expected {
