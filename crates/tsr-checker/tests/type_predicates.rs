@@ -179,13 +179,16 @@ fn a_predicate_whose_type_is_unported_gaps_and_a_ported_one_does_not() {
     // that a construct refuses *whole*: a predicate whose own type node this
     // port cannot resolve is a gap, not `x is error` and not `x is any`.
     //
-    // `keyof` is the unported type node used as the stand-in
-    // (`declared.rs`'s `TypeOperatorNode` arm takes `readonly` only), and the
-    // ported half beside it is the same declaration with a resolvable type. If
-    // `keyof` lands, this test comes due and should be re-pointed at whatever
-    // type node is still refused then — not deleted.
+    // A MAPPED type is the unported type node used as the stand-in — it
+    // came due once already: `keyof T` was the original stand-in and §35
+    // (`checker-notes-callres.md`) landed its deferred print, so this was
+    // re-pointed exactly as the previous paragraph instructed. If mapped
+    // types land, re-point again — not delete.
     assert_eq!(
-        type_of_declaration("declare function f<T>(x: unknown, o: T): x is keyof T;", "f"),
+        type_of_declaration(
+            "declare function f<T>(x: unknown, o: T): x is { [K in keyof T]: T[K] };",
+            "f"
+        ),
         "error"
     );
     assert_eq!(

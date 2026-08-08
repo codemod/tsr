@@ -128,6 +128,55 @@ impl<'a> Checker<'a, '_> {
                 }
                 self.intrinsics.error
             }
+            // §35 (`checker-notes-callres.md`): DEFERRED `keyof` over a type
+            // parameter prints as written — the §34 mint, the §31
+            // registration. Concrete operands resolve upstream and decline.
+            TypeNode::TypeOperatorNode(node) if node.operator.kind == SyntaxKind::KeyOfKeyword => {
+                let deferred = match node.r#type {
+                    Some(TypeNode::TypeReferenceNode(operand))
+                        if operand.type_arguments.is_empty() =>
+                    {
+                        let is_type_parameter = operand
+                            .type_name
+                            .and_then(|name| match name {
+                                tsr_ast::EntityName::Identifier(identifier) => {
+                                    identifier.node_id.and_then(|id| {
+                                        self.binder.resolve_name(
+                                            self.nodes,
+                                            self.node_map,
+                                            id,
+                                            identifier.text,
+                                            SymbolFlags::TYPE,
+                                        )
+                                    })
+                                }
+                                tsr_ast::EntityName::QualifiedName(_) => None,
+                            })
+                            .is_some_and(|symbol| {
+                                self.binder
+                                    .symbols()
+                                    .get(symbol)
+                                    .flags
+                                    .contains(SymbolFlags::TYPE_PARAMETER)
+                            });
+                        if is_type_parameter {
+                            Self::entity_name_text(operand.type_name)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                match deferred {
+                    Some(operand) => {
+                        let printed = format!("keyof {operand}");
+                        let id = self.store.new_named(TypeFlags::ANY, printed, None);
+                        self.unresolved_types.insert(id);
+                        id
+                    }
+                    None => self.intrinsics.error,
+                }
+            }
             // §34 (`checker-notes-callres.md`): a DEFERRED indexed access —
             // the index is a type parameter, upstream cannot resolve it until
             // instantiation — prints as written via the §31 mint; is_error
@@ -1361,6 +1410,10 @@ impl<'a> Checker<'a, '_> {
         let wrap = (ty.flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
             && !crate::printing::prints_as_a_single_token(ty))
             || text.starts_with("typeof ")
+            // §35: a deferred `keyof T` mint under `[]` binds wrongly
+            // unwrapped — `keyof T[]` is keyof-of-array
+            // (`keyofIsLiteralContexualType` wants `(keyof T)[]`).
+            || text.starts_with("keyof ")
             || has_top_level_arrow(&text);
         if wrap { format!("({text})") } else { text }
     }

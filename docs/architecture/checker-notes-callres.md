@@ -1572,3 +1572,30 @@ objects now decline. Final pair: **+121 G→R / 2 G→W** — the 2 are
 falsifier (a)'s population (constraint substitution under instantiation,
 `deeplyNestedConstraints`), accepted at 60:1 per the §23/§6 precedent.
 `checker_types` right 396,694 → **396,815 (82.85%)**.
+
+### §35 Deferred `keyof` prints as written
+
+270 want-`keyof ...` lines; the head (~110) is `keyof T` over a TYPE
+PARAMETER — deferred upstream exactly as §34's indexed access, printed as
+written. Same mint, same registration (`unresolved_types`), same
+consequence: only the printed line changes. Concrete operands (`keyof
+Interface`) resolve to key-literal unions upstream and stay DECLINED —
+answering the written text there would be a wrong line. Composites
+(`keyof T | keyof U`) ride the union road only if it composes ANY-flagged
+mints without collapsing; not this build's claim.
+
+**Falsifiers.** (a) Instantiation sites substituting T — the §34 leg,
+same 60:1 tolerance. (b) If baselines spell the operand differently than
+written (qualified vs bare), W on those.
+
+**§35 score — LANDED (narrowed twice).** First pair +312/47: falsifier
+(a) fired through a side door — generic calls whose type-parameter
+CONSTRAINTS mention the mint stopped gapping and inferred without
+literal retention (`pick(['b'], …)` inferred `string` where upstream's
+keyof-constrained parameter keeps `"b"`); such calls now decline as they
+always had. A parenthesization bug surfaced en route: `keyof T` under
+`[]` printed `keyof T[]` — the array-element wrapper learned the `keyof `
+prefix (`(keyof T)[]`). Final: **+324 G→R / 22 G→W** (15:1, accepted per
+the §23/§34 precedent — residue: written `Array<U>` spellings, an
+`import("lodash")` type, narrowing corners). `checker_types` right
+396,815 → **397,139 (82.91%)**.

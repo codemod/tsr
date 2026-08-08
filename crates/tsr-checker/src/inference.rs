@@ -154,6 +154,19 @@ impl Checker<'_, '_> {
         if returned == error {
             return error;
         }
+        // §35's contained leg (`checker-notes-callres.md`): a type
+        // parameter whose CONSTRAINT is a minted deferred type (`keyof T`)
+        // steers upstream's literal retention (`isLiteralOfContextualType`
+        // keeps `'b'` under a keyof-constrained parameter) — machinery this
+        // inference lacks, and the mint had been the accidental gate. The
+        // call declines as it always had.
+        if signature.type_parameters.iter().any(|parameter| {
+            parameter
+                .constraint
+                .is_some_and(|constraint| self.unresolved_types.contains(&constraint))
+        }) {
+            return error;
+        }
         let Some(parameters) = self.type_parameter_types(signature) else {
             return error;
         };
