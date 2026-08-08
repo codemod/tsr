@@ -3208,6 +3208,40 @@ subagents** — explicit `sleep` poll loops — and to release rebuilds after ea
 > attribute cost to the most rigorous-looking activity is self-flattering and,
 > here, was off by more than an order of magnitude on the specific claim.
 
+### The scoring pair is one tool now — iterate filtered, land unfiltered
+
+Measured 2026-08-07, after twenty-one builds of running the pair by hand:
+
+```
+scorepair            (full corpus, diff, matrix)   41 s
+scorepair TSR_FILTER=<two cases>                 0.36 s   (~115×)
+```
+
+`cargo run --release -p tsr-conformance --example scorepair` runs the
+corpus, diffs against the last accepted baseline
+(`target/verdict_baseline.tsv` — per-checkout derived data, never
+committed), and prints the transition matrix with per-case attribution
+and example line keys on every adverse transition. `-- --accept`
+advances the baseline at a landing. `TSR_FILTER=<substrings>` restricts
+the run for the inner loop; the same variable works on `verdictdump`.
+The row computation is shared (`tsr_conformance::verdict`), so the dump
+and the scorer cannot drift.
+
+Three rules are enforced by the tool rather than remembered, and each
+one is a mistake this project actually made:
+
+- **`--accept` refuses a filtered run.** A baseline must be a full run;
+  a partial one silently becoming the reference is how a regression
+  hides.
+- **A filtered score labels itself `[PARTIAL]`** and diffs only its
+  subset. Adverse movement routinely lands in cases a change never
+  touched (`classBlockScoping` from `new`-gate work, `awaitInNonAsync`
+  from for-of work), so a filtered run may ITERATE but never LAND.
+- **The diff is against a stored baseline, not the previous ad-hoc
+  dump.** Two measurements in one session diffed against a stale file
+  and mis-attributed a build's whole matrix
+  (`checker-notes-callres.md` §36's first pair).
+
 ## `ast-grep` — verified patterns, and one silent-failure trap
 
 `ast-grep` (0.45.0) is installed and every pattern below was run before being
