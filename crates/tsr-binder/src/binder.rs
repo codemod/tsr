@@ -2714,6 +2714,12 @@ impl<'a, 'n> Binder<'a, 'n> {
                             }
                         }
                         JSDocTag::JSDocTemplateTag(template) => {
+                            // A braced constraint is parsed syntax whose
+                            // members upstream binds (`jsdocTemplateTag3`:
+                            // `@template {{ a: number }} T`).
+                            if let Some(constraint) = template.constraint {
+                                self.bind(constraint);
+                            }
                             for parameter in template.type_parameters {
                                 let Some(name) = parameter.name else { continue };
                                 let Some(id) = parameter.node_id else { continue };
@@ -2724,6 +2730,25 @@ impl<'a, 'n> Binder<'a, 'n> {
                                     id,
                                 );
                             }
+                        }
+                        // `@property {T} name` on a `@typedef {Object}` block
+                        // declares the member at the tag's own line
+                        // (`typedefTagNested`); its kind token separates it
+                        // from `@param`, which declares nothing new.
+                        JSDocTag::JSDocParameterOrPropertyTag(property)
+                            if self.nodes.kind(property.node_id.unwrap_or(NodeId::ZERO))
+                                == SyntaxKind::JSDocPropertyTag =>
+                        {
+                            let name = match property.name {
+                                Some(tsr_ast::EntityName::Identifier(identifier)) => {
+                                    identifier.text
+                                }
+                                _ => continue,
+                            };
+                            let Some(id) = property.node_id else { continue };
+                            let symbol = self.symbols.create(name, SymbolFlags::PROPERTY);
+                            self.symbols.get_mut(symbol).declarations.push(id);
+                            self.node_symbols[id.index()] = Some(symbol);
                         }
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };

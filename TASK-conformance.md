@@ -6,7 +6,7 @@ CURRENT PROGRESS (2026-08-08, thirteenth session on main — the binder-symbols 
   printer_round_trip   11,776/11,776 = 100.00% (was 11,755/11,778 — COMPLETE;
                                                 two error-recovery cases became
                                                 faithful parse-diagnostic skips)
-  binder_symbols          8,422/8,461 = 99.54% (was 8,310/8,473; the thirteenth
+  binder_symbols          8,432/8,461 = 99.66% (the tsr-2 JSDoc-into-binder slice landed: typedef/callback/template/overload/property tags declare, type expressions and template constraints bind their members) (was 8,310/8,473; the thirteenth
                                                 session added late-bound bracket
                                                 spellings, const-propagated
                                                 computed names, export-default

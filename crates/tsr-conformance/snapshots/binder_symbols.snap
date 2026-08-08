@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8427/8461 (99.60%)
-Failed         : 34
+Passed         : 8432/8461 (99.66%)
+Failed         : 29
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -28,8 +28,6 @@ compiler/duplicateObjectLiteralProperty_computedName1
   1 symbol(s): +1: declared on {15, 20, 21}, expected to include {15, 16, 20, 21}
 compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
-compiler/jsDeclarationEmitDoesNotRenameImport
-  1 symbol(s): index.js: test: declared on {13}, expected to include {4}
 compiler/moduleAugmentationDoesInterfaceMergeOfReexport
   1 symbol(s): augment.ts: ns.Foo.self: no symbol
 compiler/moduleAugmentationDoesNamespaceEnumMergeOfReexport
@@ -46,20 +44,14 @@ compiler/ramdaToolsNoInfinite2
   3 symbol(s): ONonNullable: declared on {489}, expected to include {183, 489}; UKeys: declared on {23, 113}, expected to include {23, 96, 113}; UNonNullable: declared on {165}, expected to include {137, 165}
 compiler/staticFieldWithInterfaceContext
   3 symbol(s): c.x: declared on {3}, expected to include {3, 15, 17}; c10.x: no symbol; c11.x: no symbol
-compiler/strictOptionalProperties4
-  1 symbol(s): foo: no symbol
 conformance/autoAccessorNoUseDefineForClassFields
   2 symbol(s): file3.ts: C3.x: no symbol; file3.ts: C3.x: no symbol
-conformance/checkJsdocTypedefInParamTag1
-  2 symbol(s): anotherX: declared on {27}, expected to include {18, 27}; x: declared on {14, 41}, expected to include {3, 14, 31, 41}
 conformance/exportNestedNamespaces2
   2 symbol(s): first.js: exports: no symbol; second.js: exports: no symbol
 conformance/inlineJsxFactoryDeclarationsLocalTypes
   3 symbol(s): renderer.d.ts: dom.JSX: no symbol; renderer.d.ts: dom.JSX.Element: no symbol; renderer2.d.ts: predom.JSX: no symbol
 conformance/inlineJsxFactoryLocalTypeGlobalFallback
   2 symbol(s): renderer2.d.ts: predom.JSX: no symbol; renderer2.d.ts: predom.JSX.Element: no symbol
-conformance/jsdocTemplateTag3
-  3 symbol(s): a: declared on {19, 20}, expected to include {1, 19, 20}; b: declared on {19}, expected to include {1, 19}; c: declared on {19}, expected to include {2, 19}
 conformance/jsdocTemplateTag6
   1 symbol(s): x: declared on {5, 17, 29, 40, 54, 55, 64, 70}, expected to include {5, 17, 29, 40, 48, 54, 55, 64, 70}
 conformance/moduleExportsAliasLoop2
@@ -76,7 +68,5 @@ conformance/thisTag1
   2 symbol(s): (Missing): no symbol; n: declared on {9}, expected to include {0, 9}
 conformance/thisTypeInFunctionsNegative
   2 symbol(s): (Missing): no symbol; C: declared on {0}, expected to include {0, 171}
-conformance/typedefTagNested
-  3 symbol(s): name: declared on {9, 35}, expected to include {9, 29, 35}; nested: declared on {35}, expected to include {31, 35}; not: declared on {35}, expected to include {30, 35}
 conformance/unicodeEscapesInJsxtags
   1 symbol(s): data-video: no symbol
