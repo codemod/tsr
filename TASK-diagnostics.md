@@ -8,11 +8,11 @@ byte-identical**.
 FIRST: git pull. Then read, in this order:
   STATUS.md §1's `diagnostics` block and §5's `diagnostics` refusals, then
   docs/architecture/checker-notes-diag2.md **§75 and §79 first** (the board and
-  the metric), then §76–§83 — the twelfth session, eight sections, seven builds
+  the metric), then §76–§84 — the twelfth session, nine sections, eight builds
   and one refusal.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,346/5,488 = 24.53%   (was 1,302; +44 over 7 builds,
+  diagnostics    1,346/5,488 = 24.53%   (was 1,302; +44 over 8 builds,
                  **zero cases lost in any of them**)
   checker_types  3,742/9,538 · 83.41% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -78,25 +78,18 @@ TS2540      12         9
 0. **Run `diagreach.rs` and `diaggap.rs` and pick from them.** Everything below
    is that list read at this commit.
 
-1. **PLUMB THE COMPILER OPTIONS IN ONE BUILD.** Three of the twelfth session's
-   six builds turned on an option's tristate, and a fourth (§82's residual) is
-   still blocked on one. This is now the cheapest thing on the board.
-   - **§80's finding, and check every sibling**: `GetStrictOptionValue`
-     (`core/compileroptions.go:294`) answers `options.Strict != TSFalse` for an
-     unset option — **unset is TRUE**. `diagnostics_suite.rs` had
-     `noImplicitAny` at `unwrap_or(false)` *ten lines below* a `strictNullChecks`
-     at `unwrap_or(true)`, and the two disagreed for eleven sessions.
-     `strictFunctionTypes`, `strictBindCallApply`, `noImplicitThis`,
-     `useUnknownInCatchVariables` and `alwaysStrict` are the rest of that family
-     and **none of them has been checked**.
-   - **Not every option is strict.** `noUnusedLocals`/`noUnusedParameters` read
-     as `IsTrue()` (`unusedIsError`, `checker.go:7104`) and are correctly
-     opt-in. `allowUnreachableCode` is a **Tristate with three meanings** —
-     §82 needed `unreachableCodeIsError` = *explicitly* `TSFalse`, because unset
-     is a *suggestion* that never reaches a `.errors.txt`.
-   - **`preserveConstEnums` is the one §82 wanted and could not ask for.** It is
-     three wrong lines today and it gates `isInstantiatedModule`, which several
-     rules will need.
+1. ~~Plumb the compiler options in one build~~ **AUDITED, §84.** Five of the
+   seven were already right; the one wrong was `useUnknownInCatchVariables`,
+   a strict option (`checker.go:926`) the harness **never set at all**, and it
+   landed at a *verified* zero. The audit table is in §84 and is the durable
+   part. **What is still missing is `preserveConstEnums`** — §82's three wrong
+   lines want it, and it gates `isInstantiatedModule`, which more rules will.
+   The general rule the audit produced: `GetStrictOptionValue`
+   (`core/compileroptions.go:294`) answers `Strict != TSFalse` for an unset
+   option, so **unset is TRUE for a strict option and FALSE for everything
+   else** — and `allowUnreachableCode` is neither, it is a Tristate whose unset
+   state is a *suggestion* that never reaches a `.errors.txt`. Check which of
+   the three shapes an option is before writing its default.
 
 2. ~~TS2449, the `extends` slice~~ **DONE, §83, +6 for ZERO wrong.** What is
    left is **`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) proper** —
