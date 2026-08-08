@@ -1349,7 +1349,7 @@ impl<'a> Parser<'a> {
             match self.token.kind {
                 SyntaxKind::DotToken => {
                     self.next_token();
-                    let name = self.parse_identifier();
+                    let name = self.parse_identifier_name();
                     let node = self.finish_node(
                         PropertyAccessExpression::new(
                             Some(expression),
@@ -1536,7 +1536,31 @@ impl<'a> Parser<'a> {
     // ---- names ----------------------------------------------------------
 
     /// Parse an identifier, synthesising one if the cursor is elsewhere.
+    ///
+    /// Ported from `Parser.parseIdentifier` via `isIdentifier`
+    /// (`parser.go:6248`): a reserved word — `enum`, `class`, `while` — is NOT
+    /// an identifier and errors, producing a missing one; a contextual keyword
+    /// above `LastReservedWord` is. Positions upstream reads with
+    /// `parseIdentifierName` — the right of a dot, property names — use
+    /// [`Self::parse_identifier_name`], where every keyword is a name.
     pub(crate) fn parse_identifier(&mut self) -> &'a Identifier<'a> {
+        let start = self.pos();
+        let admissible = self.at(SyntaxKind::Identifier)
+            || (self.token.kind.is_keyword()
+                && (self.token.kind as u16) > (SyntaxKind::LAST_RESERVED_WORD as u16));
+        if admissible {
+            let text = self.token_value();
+            self.next_token();
+            return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
+        }
+        self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+        self.missing_identifier()
+    }
+
+    /// Parse an identifier name: any keyword qualifies — `a.class` is legal.
+    ///
+    /// Upstream's `parseIdentifierName` (`parser.go:6316`).
+    pub(crate) fn parse_identifier_name(&mut self) -> &'a Identifier<'a> {
         let start = self.pos();
         if self.at(SyntaxKind::Identifier) || self.token.kind.is_keyword() {
             let text = self.token_value();
@@ -1559,7 +1583,7 @@ impl<'a> Parser<'a> {
             );
             return MemberName::PrivateIdentifier(node);
         }
-        MemberName::Identifier(self.parse_identifier())
+        MemberName::Identifier(self.parse_identifier_name())
     }
 
     /// Parse a property name: identifier, string, number, or `[computed]`.
@@ -1605,7 +1629,7 @@ impl<'a> Parser<'a> {
                 );
                 PropertyName::PrivateIdentifier(node)
             }
-            _ => PropertyName::Identifier(self.parse_identifier()),
+            _ => PropertyName::Identifier(self.parse_identifier_name()),
         }
     }
 
@@ -1732,8 +1756,14 @@ impl<'a> Parser<'a> {
             matched
         };
 
-        // `{ a: b }` renames; `{ a }` does not.
+        // `{ a: b }` renames; `{ a }` does not. A keyword property that
+        // renames is legal — `{ enum: e }` — because upstream reads the
+        // property with `parsePropertyName`, an identifier-name position
+        // (`declarationEmitKeywordDestructuring`).
+        let keyword_renames =
+            self.token.kind.is_keyword() && self.peek_kind(|kind| kind == SyntaxKind::ColonToken);
         let (property_name, name) = if bracket_is_computed_key
+            || keyword_renames
             || self.at(SyntaxKind::StringLiteral)
             || self.at(SyntaxKind::NumericLiteral)
         {
@@ -1798,7 +1828,14 @@ impl<'a> Parser<'a> {
         let modifiers = self.parse_modifiers();
         let dot_dot_dot =
             if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
-        let name = self.parse_binding_name();
+        // A `this` parameter is the one reserved word a parameter name admits:
+        // upstream's `parseParameter` reads it with `parseIdentifierName`
+        // (`parser.go`, the `KindThisKeyword` arm).
+        let name = if self.at(SyntaxKind::ThisKeyword) {
+            BindingName::Identifier(self.parse_identifier_name())
+        } else {
+            self.parse_binding_name()
+        };
         let question =
             if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
         let type_node = self.parse_type_annotation();

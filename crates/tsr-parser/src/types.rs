@@ -1109,10 +1109,13 @@ impl<'a> Parser<'a> {
     /// A dotted name: `A`, `A.B`, `A.B.C`.
     pub(crate) fn parse_entity_name(&mut self) -> EntityName<'a> {
         let start = self.pos();
-        let mut name = EntityName::Identifier(self.parse_identifier());
+        // `parseEntityNameOfTypeReference` passes `allowReservedWords: true`
+        // (`parser.go:2897`): `typeof this` and a reserved-word head both
+        // parse, and the checker owns any complaint.
+        let mut name = EntityName::Identifier(self.parse_identifier_name());
         while self.at(SyntaxKind::DotToken) {
             self.next_token();
-            let right = self.parse_identifier();
+            let right = self.parse_identifier_name();
             let node = self.finish_node(
                 QualifiedName::new(Some(name), Some(right)),
                 SyntaxKind::QualifiedName,

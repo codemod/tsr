@@ -537,7 +537,7 @@ impl<'a> Parser<'a> {
                     literal_start,
                 ))
             } else {
-                ImportAttributeName::Identifier(self.parse_identifier())
+                ImportAttributeName::Identifier(self.parse_identifier_name())
             };
             self.expect(SyntaxKind::ColonToken);
             let value = self.parse_assignment_expression();
@@ -573,7 +573,7 @@ impl<'a> Parser<'a> {
                 start,
             ));
         }
-        ModuleExportName::Identifier(self.parse_identifier())
+        ModuleExportName::Identifier(self.parse_identifier_name())
     }
 
     /// The `"module"` in `from "module"`.

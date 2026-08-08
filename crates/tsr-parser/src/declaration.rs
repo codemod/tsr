@@ -138,13 +138,16 @@ impl<'a> Parser<'a> {
                     paren_start,
                 ))
             }
-            _ => Expression::Identifier(self.parse_identifier()),
+            // The heritage operand is a LeftHandSideExpression, so `extends
+            // null` parses — the fallback reads an identifier NAME, and the
+            // checker owns any complaint (`classExtendingNull`).
+            _ => Expression::Identifier(self.parse_identifier_name()),
         };
         loop {
             match self.token.kind {
                 SyntaxKind::DotToken => {
                     self.next_token();
-                    let name = self.parse_identifier();
+                    let name = self.parse_identifier_name();
                     let node = self.finish_node(
                         PropertyAccessExpression::new(
                             Some(expression),

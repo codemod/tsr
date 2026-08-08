@@ -245,9 +245,11 @@ impl Suite for BinderSymbols {
                     // `Symbol("./test", Decl(test.ts, 0, 0))` — while this
                     // binder names it by the path with the extension removed.
                     // Offer the relative-specifier spellings.
-                    if symbol.declarations.iter().any(|d| {
-                        file.contains(*d) && nodes.kind(*d) == SyntaxKind::SourceFile
-                    }) {
+                    if symbol
+                        .declarations
+                        .iter()
+                        .any(|d| file.contains(*d) && nodes.kind(*d) == SyntaxKind::SourceFile)
+                    {
                         let stem = symbol.name.rsplit('/').next().unwrap_or(symbol.name);
                         for spelling in [format!("./{stem}"), format!("./{}", symbol.name)] {
                             ours.entry(spelling).or_default().extend(&declared);
@@ -284,13 +286,12 @@ impl Suite for BinderSymbols {
                             if spelling.as_str() == symbol.name {
                                 continue;
                             }
-                            let respelled = if full.len() > symbol.name.len()
-                                && full.ends_with(symbol.name)
-                            {
-                                format!("{}{spelling}", &full[..full.len() - symbol.name.len()])
-                            } else {
-                                spelling.clone()
-                            };
+                            let respelled =
+                                if full.len() > symbol.name.len() && full.ends_with(symbol.name) {
+                                    format!("{}{spelling}", &full[..full.len() - symbol.name.len()])
+                                } else {
+                                    spelling.clone()
+                                };
                             for offset in dotted_suffixes(&respelled) {
                                 ours.entry(respelled[offset..].to_string())
                                     .or_default()
@@ -380,9 +381,13 @@ impl Suite for BinderSymbols {
                             continue;
                         }
                         let Some(parent) = symbol.parent else { continue };
-                        for container in
-                            display_names(bound, nodes, parent, &names_by_declaration, &unit.content)
-                        {
+                        for container in display_names(
+                            bound,
+                            nodes,
+                            parent,
+                            &names_by_declaration,
+                            &unit.content,
+                        ) {
                             ours.entry(format!("{container}[{}]", symbol.name))
                                 .or_default()
                                 .extend(&declared);
@@ -988,9 +993,7 @@ fn declared_with_an_escape(
     };
     let Some(name_id) = name_id else { return false };
     let span = nodes.span(name_id);
-    source
-        .get(span.start as usize..span.end as usize)
-        .is_some_and(|text| text.contains('\\'))
+    source.get(span.start as usize..span.end as usize).is_some_and(|text| text.contains('\\'))
 }
 
 /// The baseline's spelling of a computed member name, from its written text.
@@ -1324,8 +1327,12 @@ mod tests {
     }
 
     #[test]
-    fn an_object_literal_member_is_never_qualified() {
-        assert_eq!(qualified("const o = { salt: 2 };", "salt"), "salt");
+    fn an_object_literal_member_spells_bare_first_and_assigned_second() {
+        // Bare is the primary spelling; the assigned variable's qualification
+        // is offered beside it for the annotated-literal shape
+        // (`q.__index` — see `display_names`' Unnameable arm).
+        let names = qualified_all("const o = { salt: 2 };", "salt");
+        assert_eq!(names, ["salt", "o.salt"]);
     }
 
     #[test]
