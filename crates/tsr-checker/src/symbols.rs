@@ -1482,6 +1482,40 @@ impl<'a> Checker<'a, '_> {
             let holder = self.nodes.parent(literal)?;
             match self.nodes.kind(holder) {
                 SyntaxKind::PropertyAssignment => current = holder,
+                // §56.1: the RETURN position — the literal returned from a
+                // function whose return type is WRITTEN resolves its member
+                // path against that annotation, the same rule at the arc's
+                // second syntactically-provable position.
+                SyntaxKind::ReturnStatement => {
+                    let mut function = self.nodes.parent(holder)?;
+                    loop {
+                        match self.nodes.kind(function) {
+                            SyntaxKind::FunctionDeclaration
+                            | SyntaxKind::FunctionExpression
+                            | SyntaxKind::ArrowFunction
+                            | SyntaxKind::MethodDeclaration => break,
+                            SyntaxKind::SourceFile
+                            | SyntaxKind::ClassDeclaration
+                            | SyntaxKind::ClassExpression => return None,
+                            _ => function = self.nodes.parent(function)?,
+                        }
+                    }
+                    let annotation = match self.node_map.get(function)? {
+                        Node::FunctionDeclaration(f) => f.r#type,
+                        Node::FunctionExpression(f) => f.r#type,
+                        Node::ArrowFunction(f) => f.r#type,
+                        Node::MethodDeclaration(f) => f.r#type,
+                        _ => None,
+                    }?;
+                    let mut t = self.get_type_from_type_node(annotation);
+                    for name in path.iter().rev() {
+                        if t == self.intrinsics.error {
+                            return None;
+                        }
+                        t = self.get_type_of_property_of_type(t, name)?;
+                    }
+                    return (t != self.intrinsics.error).then_some(t);
+                }
                 SyntaxKind::VariableDeclaration => {
                     let Some(Node::VariableDeclaration(variable)) = self.node_map.get(holder)
                     else {

@@ -2603,3 +2603,14 @@ collide member types upstream keeps apart (`enumMerging` 15 R→W —
 cross-declaration merges where a folded length equals another member's
 constant). Upstream's sharing must key on more than the numeric value in
 merged enums; refused until that key is decoded.
+
+## §56.1 — the return position
+
+The arc's second syntactically-provable position: a literal RETURNED from
+a function with a WRITTEN return annotation resolves its member path
+against that annotation — the §56 walk gains a ReturnStatement arm
+(class-boundary guarded, expression-bodied arrows excluded by
+construction since the walk requires a return statement).
+
+**§56.1 score — LANDED.** **+10 (W→R), ZERO adverse.** `checker_types`
+right 401,531 → **401,541 (83.84%)**.
