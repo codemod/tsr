@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,743/9,538** | **39.24%** | **gradient 83.42%** — the target (builds 25–98) |
+| **`checker_types`** | **3,742/9,538** | **39.23%** | **gradient 83.41%** — the target (builds 25–98) |
 | `diagnostics` | **1,322/5,488** | **24.09%** | **measured at `77e2866`, twelfth session (§76–§79), +20 over 3 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
