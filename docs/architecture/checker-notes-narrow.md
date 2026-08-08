@@ -2865,3 +2865,17 @@ the landed one.
 
 **§70 score — LANDED.** `checker_types` right 402,649 → **402,717
 (84.08%)**.
+
+## §71 — renamed binding elements render verbatim
+
+§48's pattern printer declined any element with a `property_name`; the
+corpus prints the written `prop: bound` pair verbatim
+(`({ name: alias, name: alias2 }: Named) => void`). Extended to
+identifier property names only — computed/string-literal keys,
+initializers, and rests keep the decline. **+61 G→R, 20 G→W** — the 20
+are NOT this rule misfiring: they are positions wanting the ALIAS name
+(`F4`) where the new structural print replaced a prior `error`; the
+alias-preservation head owns them
+(`renamingDestructuredPropertyInFunctionType{,2}`).
+
+**§71 score — LANDED.** right 402,802 → **402,863 (84.11%)**.

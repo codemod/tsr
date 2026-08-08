@@ -1375,16 +1375,25 @@ impl<'a> Checker<'a, '_> {
             Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
                 let mut names = Vec::with_capacity(pattern.elements.len());
                 for element in pattern.elements {
-                    if element.dot_dot_dot_token.is_some()
-                        || element.initializer.is_some()
-                        || element.property_name.is_some()
-                    {
+                    if element.dot_dot_dot_token.is_some() || element.initializer.is_some() {
                         return None;
                     }
                     let Some(tsr_ast::BindingName::Identifier(inner)) = element.name else {
                         return None;
                     };
-                    names.push(inner.text.to_string());
+                    // §71: a RENAMED element (`{ name: alias }`) renders its
+                    // written `prop: bound` pair verbatim — the corpus prints
+                    // `({ name: alias, name: alias2 }: Named) => void` for
+                    // `declarationEmitBindingPatternsUnused`'s functions.
+                    // Only identifier property names; computed/string-literal
+                    // keys keep the decline.
+                    match element.property_name {
+                        None => names.push(inner.text.to_string()),
+                        Some(tsr_ast::PropertyName::Identifier(prop)) => {
+                            names.push(format!("{}: {}", prop.text, inner.text));
+                        }
+                        Some(_) => return None,
+                    }
                 }
                 // The side-table kind, not the token field — the §16
                 // CaseKeyword lesson's second application.
