@@ -1752,3 +1752,39 @@ corner (`parserForOfStatement19`), accepted. `checker_types` right
 IterableIterator RHS) measured ZERO — no decidable population reaches
 for-of through those references today — and was reverted rather than
 kept as unproven breadth.
+
+### §39 Named-union constituents keep an ORIGIN print
+
+`arithmeticOperatorWithEnumUnion` (161), plus every `E | undefined`
+option-type in the corpus: upstream's `origin` denormalisation
+(`checker.go:25705`) prints a union that CONTAINS a named union
+unexpanded — `E | F`, `E | string` — while the type's constituent list
+stays the flattened, sorted members. This port's worker declined those
+whole (the guard was about the printed line). The port equivalent of
+`origin`: the worker now builds the union with the flattened set AND a
+TEXT OVERRIDE — the ORIGINAL input list's prints in input (written)
+order, deduped — so consumers see members and the line prints the origin.
+
+**Falsifiers.** (a) Upstream's origin print order diverges from written
+order somewhere — W on those spellings. (b) Reduction visibility: if a
+literal in the written list is absorbed by a base in ANOTHER constituent
+(`E | number`?) upstream's origin may still print both — mismatches
+counted by the pair.
+
+**§39 REFUSED at ~2:1 after three refinements — the text hack is not
+origin.** Variants measured: (v1) input-order origin text +277/153;
+(v2) node-road-only origin + full-set enum reconstruction for computed
+unions +246/125; (v3) + no-reduction gate, no-mint gate, and SORTED
+origin members (`numberAssignableToEnumInsideUnion` wants `boolean | E`
+for the written `E | boolean`) +238/129. The stable adverse core:
+`temporal`'s 82 (named-union prints inside signatures whose alias
+spellings are site-sensitive — the §41-class refusal reached through a
+new door) plus filtered-union subsets (upstream's origin SURVIVES
+`filterType` and subsets member-wise — `string[] | Color` stays named
+after a narrowing filter; a creation-time text cannot). The mechanism
+upstream actually has is an ORIGIN TYPE carried on the union and
+propagated through filter/map operations, printed by re-formatting at
+print time. That is a store reshape (`TypeData::Union` gains an origin
+list; `filterType`/narrowing filters learn to subset it), not a text
+override. REFUSED until that reshape; the +246 winnable lines
+(`arithmeticOperatorWithEnumUnion` 161 at the head) are its bounty.
