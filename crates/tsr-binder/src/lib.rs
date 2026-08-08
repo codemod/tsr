@@ -523,22 +523,49 @@ impl<'a> BindResult<'a> {
         node_map: &NodeMap<'a>,
         start: NodeId,
     ) -> Vec<&'a str> {
+        self.names_in_scope_with_meaning(nodes, node_map, start, SymbolFlags::all())
+    }
+
+    /// [`Binder::names_in_scope`], restricted to the names whose symbol carries
+    /// one of `meaning`'s flags.
+    ///
+    /// Upstream's `getSuggestedSymbolForNonexistentSymbol` searches
+    /// `symbolsInScope(location, meaning)` and **always** passes a meaning
+    /// (`checker.go`). Ignoring it is harmless where nearly every name in scope
+    /// is a value and wrong in a type position, where it offers a nearby
+    /// *variable* for a missing *type*: `parserRealSource13` was 105 wrong
+    /// TS2552 lines for one missing `AST`
+    /// (`docs/architecture/checker-notes-diag2.md` §55, §57).
+    #[must_use]
+    pub fn names_in_scope_with_meaning(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+        meaning: SymbolFlags,
+    ) -> Vec<&'a str> {
         let _ = node_map;
         let mut names: Vec<&'a str> = Vec::new();
+        let push = |names: &mut Vec<&'a str>, table: &SymbolTable<'a>| {
+            for (name, symbol) in table {
+                if self.symbols.get(*symbol).flags.intersects(meaning) {
+                    names.push(name);
+                }
+            }
+        };
         let mut current = Some(start);
         while let Some(node) = current {
             if let Some(table) = self.locals.get(&node) {
-                names.extend(table.keys().copied());
+                push(&mut names, table);
             }
             if let Some(symbol) = self.symbol_of(node) {
                 let symbol = self.symbols.get(symbol);
-                names.extend(symbol.members.keys().copied());
-                names.extend(symbol.exports.keys().copied());
+                push(&mut names, &symbol.members);
+                push(&mut names, &symbol.exports);
             }
-            let _ = nodes;
             current = nodes.parent(node);
         }
-        names.extend(self.globals.keys().copied());
+        push(&mut names, &self.globals);
         names
     }
 

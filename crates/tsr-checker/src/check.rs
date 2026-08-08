@@ -902,15 +902,30 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        // **No suggestion arm here**, and that is a decline with an owner.
-        // `getSuggestedSymbolForNonexistentSymbol` searches the names in scope
-        // *with the requested meaning*, and `names_in_scope` is
-        // meaning-blind — which is harmless in a value position, where almost
-        // every name in scope is a value, and wrong in a type position, where
-        // it offers a nearby *variable* for a missing *type*.
-        // `parserRealSource13` alone was **105 wrong TS2552 lines** for
-        // `AST` — every one a TS2304 upstream. Returns when
-        // `Binder::names_in_scope` takes a meaning.
+        // The suggestion arm, over the names in scope **with the TYPE
+        // meaning**. §55 refused it outright because `names_in_scope` was
+        // meaning-blind and answered a missing *type* with a nearby
+        // *variable* — `parserRealSource13` was 105 wrong TS2552 lines for one
+        // `AST`. `names_in_scope_with_meaning` is that refusal's named unlock
+        // (§57).
+        let candidates = self.binder.names_in_scope_with_meaning(
+            self.nodes,
+            self.node_map,
+            node,
+            SymbolFlags::TYPE,
+        );
+        if let Some(suggestion) = spelling_suggestion(text, &candidates) {
+            let suggestion = suggestion.to_string();
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
+                    span,
+                    [text.to_string(), suggestion],
+                ),
+            );
+            return;
+        }
         self.report(
             file,
             Diagnostic::with_args(&messages::CANNOT_FIND_NAME_0, span, [text.to_string()]),
@@ -1037,7 +1052,12 @@ impl Checker<'_, '_> {
     /// which upstream's weighted distance accepts and a plain edit count does
     /// not. The algorithm is ported instead — see [`spelling_suggestion`].
     fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
-        let candidates = self.binder.names_in_scope(self.nodes, self.node_map, node);
+        let candidates = self.binder.names_in_scope_with_meaning(
+            self.nodes,
+            self.node_map,
+            node,
+            SymbolFlags::VALUE,
+        );
         spelling_suggestion(text, &candidates).map(ToString::to_string)
     }
 

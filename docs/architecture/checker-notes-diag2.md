@@ -4296,3 +4296,46 @@ deeper than eight.
 `callWithMissingVoid`'s seven cases stay open by design — a `void` parameter is
 optional through `getMinArgumentCount`'s type test, which is a type question in
 the middle of an otherwise syntactic rule.
+
+---
+
+## 57. `names_in_scope` takes a meaning — §55's refusal retired, **+7**
+
+§55 refused the spelling-suggestion arm in type positions at **143 wrong lines
+for 1 conversion**, and named its own return condition in the same sentence:
+*"Returns when `Binder::names_in_scope` takes a meaning."* This is that.
+
+`getSuggestedSymbolForNonexistentSymbol` searches `symbolsInScope(location,
+meaning)` and **always** passes one. `Binder::names_in_scope` collected every
+key of every table it walked. `names_in_scope_with_meaning` filters each entry by
+the symbol's flags; the old function is now a call to it with every flag set, so
+nothing that did not ask changed.
+
+**The bar is the refusal's stated condition rather than a fresh forecast**, which
+is the whole point of writing a refusal with one: legs 2–5 stand as §55's, and
+leg 1 is *"the 143 lines become right and the 1 case comes back"*.
+
+### Scored — and the value arm wanted it too
+
+| | CONVERTS | RIGHT | WRONG | suite |
+|---|---:|---:|---:|---:|
+| §55 as shipped (no suggestion in type positions) | 194 | 2,367 | 495 | 1,232 |
+| + the type arm, meaning-filtered | 199 | 2,395 | **467** | 1,237 |
+| + **the value arm**, meaning-filtered | **201** | **2,406** | **456** | **1,239** |
+
+**+7 cases and the wrong column falls by 39.** Legs 2, 3 and 5 hold —
+`checker_types` 3,682 and byte-identical, LOST 0.
+
+**The value arm was the surprise.** §33 built the suggestion machinery for value
+positions and measured it there, and this file has said twice that a
+meaning-blind search is *harmless* in a value position "because almost every name
+in scope is a value". It is not: filtering it is worth **2 more cases and 11
+fewer wrong lines**. Interfaces, type aliases and type parameters are near
+neighbours of variable names often enough to matter, and the sentence excusing
+the omission was an argument standing in for a measurement — §40.5's shape,
+recorded there and repeated here.
+
+> **A refusal that names its return condition is an asset; one that does not is
+> a dead end.** Third retirement in this file by the procedure §21 set (§9's,
+> §22's, and now §55's), and the first where the condition was named in the same
+> session it was met.
