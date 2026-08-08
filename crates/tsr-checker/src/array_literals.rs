@@ -48,6 +48,114 @@ use tsr_ast::{ArrayLiteralExpression, Expression};
 
 use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
+/// §76's context kinds — see `array_literal_tuple_context_kind`.
+#[derive(PartialEq, Clone, Copy)]
+enum TupleContext {
+    No,
+    /// A tuple ANNOTATION or declared tuple target supplies the shape.
+    Annotated,
+    /// A destructuring pattern supplies it; nests through inner literals
+    /// index-by-index (`destructuring_array_pattern_slot`).
+    Destructured,
+}
+
+/// The array pattern a destructured literal is assigned into — either a
+/// binding pattern (`var [x] = …`) or an assignment target (`[x] = …`).
+enum PatternSlot<'a> {
+    Binding(&'a tsr_ast::BindingPattern<'a>),
+    Assignment(&'a tsr_ast::ArrayLiteralExpression<'a>),
+}
+
+impl<'a> Checker<'a, '_> {
+    /// §76's destructuring slot: the array PATTERN this literal is assigned
+    /// into, when there is one that makes it a tuple context. `var [x] =
+    /// [1, "hello"]` answers the binding pattern; `[x, y] = [1, "hello"]`
+    /// answers the target literal; a NESTED literal answers only when the
+    /// pattern element at ITS INDEX is itself an array pattern — `var [a3,
+    /// b3] = [[x13, y13], …]` does NOT nest, because `a3` is a plain name
+    /// and the inner array is assigned whole
+    /// (`declarationEmitDestructuringArrayPattern2`). Empty and
+    /// rest-bearing patterns widen at every level.
+    fn destructuring_array_pattern_slot(
+        &mut self,
+        literal: tsr_ast::NodeId,
+    ) -> Option<PatternSlot<'a>> {
+        let parent = self.nodes.parent(literal)?;
+        match self.node_map.get(parent)? {
+            tsr_ast::Node::VariableDeclaration(declaration)
+                if declaration.r#type.is_none()
+                    && declaration.initializer.and_then(|i| i.node_id()) == Some(literal) =>
+            {
+                match declaration.name {
+                    Some(tsr_ast::BindingName::BindingPattern(pattern))
+                        if !pattern.elements.is_empty()
+                            && !pattern.elements.iter().any(|e| e.dot_dot_dot_token.is_some())
+                            && pattern.node_id.is_some_and(|p| {
+                                self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
+                            }) =>
+                    {
+                        Some(PatternSlot::Binding(pattern))
+                    }
+                    _ => None,
+                }
+            }
+            tsr_ast::Node::BinaryExpression(binary)
+                if binary
+                    .operator_token
+                    .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+                    && binary.right.and_then(|r| r.node_id()) == Some(literal) =>
+            {
+                match binary.left {
+                    Some(tsr_ast::Expression::ArrayLiteralExpression(target))
+                        if !target.elements.is_empty()
+                            && !target
+                                .elements
+                                .iter()
+                                .any(|e| matches!(e, Expression::SpreadElement(_))) =>
+                    {
+                        Some(PatternSlot::Assignment(target))
+                    }
+                    _ => None,
+                }
+            }
+            tsr_ast::Node::ArrayLiteralExpression(outer) => {
+                let index = outer.elements.iter().position(|e| e.node_id() == Some(literal))?;
+                let outer_id = outer.node_id?;
+                match self.destructuring_array_pattern_slot(outer_id)? {
+                    PatternSlot::Binding(pattern) => match pattern.elements.get(index)?.name {
+                        Some(tsr_ast::BindingName::BindingPattern(inner))
+                            if !inner.elements.is_empty()
+                                && !inner
+                                    .elements
+                                    .iter()
+                                    .any(|e| e.dot_dot_dot_token.is_some())
+                                && inner.node_id.is_some_and(|p| {
+                                    self.nodes.kind(p) == tsr_ast::SyntaxKind::ArrayBindingPattern
+                                }) =>
+                        {
+                            Some(PatternSlot::Binding(inner))
+                        }
+                        _ => None,
+                    },
+                    PatternSlot::Assignment(target) => match target.elements.get(index)? {
+                        Expression::ArrayLiteralExpression(inner)
+                            if !inner.elements.is_empty()
+                                && !inner
+                                    .elements
+                                    .iter()
+                                    .any(|e| matches!(e, Expression::SpreadElement(_))) =>
+                        {
+                            Some(PatternSlot::Assignment(inner))
+                        }
+                        _ => None,
+                    },
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
 impl Checker<'_, '_> {
     /// Ported from `Checker.checkArrayLiteral` (`checker.go:8021`).
     ///
@@ -67,6 +175,81 @@ impl Checker<'_, '_> {
     /// like a formatting bug. So **two or more object-typed constituents make
     /// the literal a gap**, and one is fine: `[{a: 1}, 1]` is unaffected,
     /// because subtype reduction would not have merged those either.
+    /// Whether this array literal sits in a TUPLE context — §63/§63.1's
+    /// annotated-initializer and assignment-target arms, §76's destructuring
+    /// and nesting arms. Only the DESTRUCTURING arms nest (an element of a
+    /// destructured literal is itself destructured); an annotation-driven
+    /// tuple context does not — its element types, not the pattern, decide
+    /// the inner shapes (`arrayLiterals2ES5`'s `[number[], string[]]`).
+    fn array_literal_in_tuple_context(&mut self, node: &ArrayLiteralExpression<'_>) -> bool {
+        self.array_literal_tuple_context_kind(node) != TupleContext::No
+    }
+
+    fn array_literal_tuple_context_kind(
+        &mut self,
+        node: &ArrayLiteralExpression<'_>,
+    ) -> TupleContext {
+        if let Some(id) = node.node_id
+            && self.destructuring_array_pattern_slot(id).is_some()
+        {
+            return TupleContext::Destructured;
+        }
+        'context: {
+            let Some(id) = node.node_id else { break 'context TupleContext::No };
+            let Some(parent) = self.nodes.parent(id) else {
+                break 'context TupleContext::No;
+            };
+            match self.node_map.get(parent) {
+                Some(tsr_ast::Node::VariableDeclaration(declaration))
+                    if declaration.initializer.and_then(|i| i.node_id()) == Some(id) =>
+                {
+                    match declaration.r#type {
+                        Some(annotation) => {
+                            let t = self.get_type_from_type_node(annotation);
+                            if self.tuple_element_lists.contains_key(&t) {
+                                TupleContext::Annotated
+                            } else {
+                                TupleContext::No
+                            }
+                        }
+                        // §76: the destructuring legs are decided by
+                        // `destructuring_array_pattern_slot` below.
+                        None => TupleContext::No,
+                    }
+                }
+                // §63.1: the assignment-target arm — the target's DECLARED
+                // type (the §6.3 rule, extended to spread-free literals).
+                Some(tsr_ast::Node::BinaryExpression(binary))
+                    if binary
+                        .operator_token
+                        .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+                        && binary.right.and_then(|r| r.node_id()) == Some(id) =>
+                {
+                    match binary.left {
+                        Some(tsr_ast::Expression::Identifier(identifier)) => {
+                            let annotated = identifier
+                                .node_id
+                                .and_then(|left_id| {
+                                    self.binder.resolve_name(
+                                        self.nodes,
+                                        self.node_map,
+                                        left_id,
+                                        identifier.text,
+                                        tsr_binder::SymbolFlags::VALUE,
+                                    )
+                                })
+                                .map(|symbol| self.get_type_of_symbol(symbol))
+                                .is_some_and(|t| self.tuple_element_lists.contains_key(&t));
+                            if annotated { TupleContext::Annotated } else { TupleContext::No }
+                        }
+                        _ => TupleContext::No,
+                    }
+                }
+                _ => TupleContext::No,
+            }
+        }
+    }
+
     pub(crate) fn check_array_literal(&mut self, node: &ArrayLiteralExpression<'_>) -> TypeId {
         let error = self.intrinsics.error;
         // §6.3 (`checker-notes-arrays.md`): a literal with a TUPLE spread
@@ -85,49 +268,7 @@ impl Checker<'_, '_> {
         // context mints the tuple too — `const y: [number, number] = [0, 0]`
         // prints the literal as `[number, number]` (~170 corpus lines);
         // the §6.3 context test extends to all literals.
-        let tuple_context = 'context: {
-            let Some(id) = node.node_id else { break 'context false };
-            let Some(parent) = self.nodes.parent(id) else { break 'context false };
-            match self.node_map.get(parent) {
-                Some(tsr_ast::Node::VariableDeclaration(declaration))
-                    if declaration.initializer.and_then(|i| i.node_id()) == Some(id) =>
-                {
-                    match declaration.r#type {
-                        Some(annotation) => {
-                            let t = self.get_type_from_type_node(annotation);
-                            self.tuple_element_lists.contains_key(&t)
-                        }
-                        None => false,
-                    }
-                }
-                // §63.1: the assignment-target arm — the target's DECLARED
-                // type (the §6.3 rule, extended to spread-free literals).
-                Some(tsr_ast::Node::BinaryExpression(binary))
-                    if binary
-                        .operator_token
-                        .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
-                        && binary.right.and_then(|r| r.node_id()) == Some(id) =>
-                {
-                    match binary.left {
-                        Some(tsr_ast::Expression::Identifier(identifier)) => identifier
-                            .node_id
-                            .and_then(|left_id| {
-                                self.binder.resolve_name(
-                                    self.nodes,
-                                    self.node_map,
-                                    left_id,
-                                    identifier.text,
-                                    tsr_binder::SymbolFlags::VALUE,
-                                )
-                            })
-                            .map(|symbol| self.get_type_of_symbol(symbol))
-                            .is_some_and(|t| self.tuple_element_lists.contains_key(&t)),
-                        _ => false,
-                    }
-                }
-                _ => false,
-            }
-        };
+        let tuple_context = self.array_literal_in_tuple_context(node);
         if tuple_context && !has_tuple_spread {
             let mut elements = Vec::with_capacity(node.elements.len());
             let mut clean = true;

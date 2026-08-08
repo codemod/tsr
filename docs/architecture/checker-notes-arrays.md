@@ -879,3 +879,31 @@ array. A contextual claim rewriting the literal broke 62 standing
 rights. The case's residue belongs to the §56-family's
 function-expression positions and the §36 node-reuse rule — traced,
 recorded, reverted.
+
+## §76 — destructuring is a tuple context, index-correlated
+
+`var [x] = [1, "hello"]` prints the literal `[number, string]`;
+`[x, y] = [1, "hello"]` likewise. Three falsifiers fired during the
+build and each became a gate, all measured:
+
+- an EMPTY pattern widens (`var [] = [1, "hello"]` wants
+  `(string | number)[]` — `declarationEmitDestructuringArrayPattern1`);
+- a REST-bearing pattern widens (`var [...a5] = [1, 2, 3]` wants
+  `number[]` — pattern 4);
+- nesting is INDEX-CORRELATED, not blanket: `var [a3, b3] =
+  [[x13, y13], …]` does NOT nest because `a3` is a plain name — the
+  inner literal is assigned whole and widens (pattern 2). The first
+  nesting attempt (any element of a destructured literal nests)
+  measured 227:41 and was replaced by
+  `destructuring_array_pattern_slot`, a walk that answers the array
+  PATTERN a literal is assigned into, descending pattern element by
+  index. An annotation-driven tuple context does NOT nest at all —
+  its element types decide the inner shapes (`arrayLiterals2ES5`'s
+  `[number[], string[]]`); the `TupleContext` enum separates the two.
+
+Residue, owned elsewhere: pattern-element DEFAULT initializers
+(`[b2, …] = ["abc", …]` inside a pattern wants a tuple too), and the
+`y12: true` freshness split.
+
+**§76 score — LANDED.** right 403,033 → **403,229 (84.20%)** — +196
+(188 W→R, 8 G→R), ZERO adverse.
