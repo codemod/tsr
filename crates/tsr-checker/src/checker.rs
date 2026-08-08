@@ -361,6 +361,9 @@ pub struct Checker<'a, 'n> {
     /// `exactOptionalPropertyTypes` (`checker.go:987`): a `?:` property's
     /// optionality is `missingType`, removed at write positions.
     pub(crate) exact_optional_property_types: bool,
+    /// §82: depth cap for aliased-condition inlining — upstream's
+    /// `inlineLevel` (`flow.go`), capped at 5.
+    pub(crate) alias_inline_level: u8,
     pub(crate) no_unused_locals: bool,
     /// `compilerOptions.noUnusedParameters` (`checker.go:7109`).
     pub(crate) no_unused_parameters: bool,
@@ -648,6 +651,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             preserve_const_enums: false,
             no_implicit_any: false,
             exact_optional_property_types: false,
+            alias_inline_level: 0,
             no_unused_locals: false,
             no_unused_parameters: false,
             symbol_reference_kinds: FxHashMap::default(),

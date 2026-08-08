@@ -3118,3 +3118,27 @@ as the `import("...").Name` spelling
 (`privacyFunctionCannotNameParameterTypeDeclFile`): PER-SITE printing
 context. `tsr-93f` stays refused until that exists; no narrower gate
 (lib-file, ambient-only) changes the inside-view half.
+
+## §82/§82.1 — aliased conditions narrow
+
+`const isFoo = obj.kind === 'foo'; if (isFoo)` narrows as the
+condition itself would: `narrowType`'s identifier arm inlines a CONST
+variable's un-annotated initializer, depth-capped at 5 exactly as
+upstream's `inlineLevel`. Two falsifiers fired in sequence and each
+became a mechanism:
+
+- §82.1: `const both = isA || isB` — an inlined initializer has NO
+  flow branch nodes, so `narrowType` needed the logical arms
+  (`narrowTypeByBinaryExpression`): `a || b` true is the union of
+  (a true) and (a false, then b true), duals by symmetry.
+- the constant-reference gate: `obj` REASSIGNED in the body must not
+  narrow through the alias (`isConstantReference` — const variables,
+  never-assigned parameters/locals via `mark_node_assignments`' map,
+  readonly properties on constant receivers). The ungated first
+  measure read +59 with 12 adverse; gated, **+43 with ZERO adverse**.
+
+Residues, owned: instanceof-through-alias (`controlFlowAliasing2`'s
+`TestA`), element-access constant references (`obj[0]`), and the
+union-ORDER rows the §77.2 refusal already prices.
+
+**§82 score — LANDED.** right 404,219 → **404,262 (84.41%)**.

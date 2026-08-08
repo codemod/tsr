@@ -801,6 +801,60 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `isConstantReference` (`checker.go`): the reference an ALIASED
+    /// condition may narrow. An identifier must be a `const` variable or a
+    /// parameter/local with NO recorded assignment (`obj` reassigned in the
+    /// body killed f15's narrowing upstream and must here — the §82 gate's
+    /// firing falsifier); a property access needs a READONLY property on a
+    /// constant receiver.
+    fn is_constant_reference(&mut self, reference: NodeId) -> bool {
+        match self.node_map.get(reference) {
+            Some(Node::Identifier(identifier)) => {
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    reference,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return false;
+                };
+                if self.is_constant_variable(symbol) {
+                    return true;
+                }
+                // A parameter or local counts when nothing assigns it —
+                // `ensure_assignments_marked` walks the symbol's enclosing
+                // function once, then the map answers.
+                self.ensure_assignments_marked(symbol);
+                self.is_parameter_or_mutable_local_variable(symbol)
+                    && !self.last_assignment_pos.contains_key(&symbol)
+            }
+            Some(Node::PropertyAccessExpression(access)) => {
+                let Some(tsr_ast::MemberName::Identifier(_)) = access.name else {
+                    return false;
+                };
+                let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
+                    return false;
+                };
+                let receiver_type = match self.node_map.get(reference) {
+                    Some(Node::PropertyAccessExpression(node)) => {
+                        let Some(expression) = node.expression else { return false };
+                        self.check_expression(expression)
+                    }
+                    _ => return false,
+                };
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                    return false;
+                };
+                let readonly = self
+                    .get_property_of_type(receiver_type, name.text)
+                    .is_some_and(|property| self.is_readonly_symbol(property));
+                readonly && self.is_constant_reference(receiver)
+            }
+            _ => false,
+        }
+    }
+
     fn is_constant_variable(&self, symbol: SymbolId) -> bool {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;
@@ -2320,6 +2374,34 @@ impl Checker<'_, '_> {
                     let member = name.text.to_string();
                     return self.filter_union_by_member_truthiness(t, &member, assume_true);
                 }
+                // §82 (`checker-notes-narrow.md`): the ALIASED CONDITION —
+                // `const isFoo = obj.kind === 'foo'; if (isFoo)` narrows as
+                // the condition itself would (`narrowType`'s identifier arm,
+                // `flow.go`: a CONST variable's initializer is inlined, depth
+                // capped at 5 exactly as upstream's `inlineLevel`).
+                if let Node::Identifier(identifier) = node
+                    && self.alias_inline_level < 5
+                    && self.is_constant_reference(state.reference)
+                    && let Some(symbol) = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        condition,
+                        identifier.text,
+                        tsr_binder::SymbolFlags::VALUE,
+                    )
+                    && self.is_constant_variable(symbol)
+                    && let Some(declaration) =
+                        self.binder.symbols().get(symbol).value_declaration
+                    && let Some(Node::VariableDeclaration(variable)) =
+                        self.node_map.get(declaration)
+                    && variable.r#type.is_none()
+                    && let Some(initializer) = variable.initializer.and_then(|i| i.node_id())
+                {
+                    self.alias_inline_level += 1;
+                    let narrowed = self.narrow_type(state, t, initializer, assume_true);
+                    self.alias_inline_level -= 1;
+                    return narrowed;
+                }
                 t
             }
             Node::ParenthesizedExpression(inner) => inner
@@ -2362,6 +2444,33 @@ impl Checker<'_, '_> {
                         return self.narrow_type_by_in_keyword(t, literal.text, assume_true);
                     }
                     return t;
+                }
+                // §82.1: `&&`/`||` INSIDE an inlined aliased condition —
+                // there are no flow branch nodes inside a const initializer,
+                // so `const both = isA || isB; if (both)` needs the logical
+                // arms `narrowType` itself has (`flow.go`'s
+                // `narrowTypeByBinaryExpression`): `a || b` true is the
+                // union of (a true) and (a false, then b true); the duals by
+                // symmetry.
+                if matches!(
+                    operator.kind,
+                    SyntaxKind::AmpersandAmpersandToken | SyntaxKind::BarBarToken
+                ) {
+                    let (Some(left), Some(right)) = (left.node_id(), right.node_id()) else {
+                        return t;
+                    };
+                    let is_or = operator.kind == SyntaxKind::BarBarToken;
+                    return if assume_true == is_or {
+                        // `a || b` true / `a && b` false: two paths, unioned.
+                        let first = self.narrow_type(state, t, left, is_or);
+                        let other_base = self.narrow_type(state, t, left, !is_or);
+                        let second = self.narrow_type(state, other_base, right, is_or);
+                        self.get_union_type(&[first, second])
+                    } else {
+                        // `a && b` true / `a || b` false: one path, chained.
+                        let after_left = self.narrow_type(state, t, left, assume_true);
+                        self.narrow_type(state, after_left, right, assume_true)
+                    };
                 }
                 if !matches!(
                     operator.kind,
