@@ -185,6 +185,9 @@ impl Suite for BinderSymbols {
                 // What we produced, keyed by *qualified* name.
                 let mut ours: std::collections::HashMap<String, BTreeSet<u32>> =
                     std::collections::HashMap::new();
+                // `(bracket spelling, value key)` pairs for the cross-link
+                // pass below.
+                let mut computed_value_links: Vec<(String, String)> = Vec::new();
                 for (id, symbol) in bound.symbols().iter() {
                     // **Only this file's symbols.** Under program-wide identity
                     // (ADR-0034) the store holds every unit's, and a `Span` is
@@ -304,6 +307,15 @@ impl Suite for BinderSymbols {
                                 for container in &containers {
                                     spelled.push(format!("{container}.{value}"));
                                 }
+                                if let Some(bracket) = computed_display(text) {
+                                    for container in &containers {
+                                        computed_value_links.push((
+                                            format!("{container}{bracket}"),
+                                            format!("{container}.{value}"),
+                                        ));
+                                    }
+                                    computed_value_links.push((bracket, value.clone()));
+                                }
                             }
                             for name in spelled {
                                 ours.entry(name).or_default().extend(&declared);
@@ -331,6 +343,18 @@ impl Suite for BinderSymbols {
                                 .or_default()
                                 .extend(&declared);
                         }
+                    }
+                }
+                // Late-bound members that resolve to the same constant value
+                // are ONE symbol upstream, displayed under each member's
+                // bracket spelling with every declaration
+                // (`dynamicNamesErrors`: `[c0]` and `[c1]` with the value `1`
+                // both print `Symbol(T3[c0], Decl(16), Decl(17))`). The value
+                // key already unions the lines; copy them onto each bracket
+                // spelling.
+                for (bracket_key, value_key) in &computed_value_links {
+                    if let Some(lines) = ours.get(value_key).cloned() {
+                        ours.entry(bracket_key.clone()).or_default().extend(lines);
                     }
                 }
                 // Alias transparency, the same accommodation as the dotted
