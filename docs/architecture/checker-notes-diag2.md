@@ -5389,3 +5389,63 @@ already had reads as furniture unless somebody asks what it is.
 > **Carry a standing loss with its case name, and diagnose it before the next
 > build in the same family.** Four wrong lines and two conversions were sitting
 > in two case names this file had been printing for twenty builds.
+
+---
+
+## 73. §72's rule at the four assignment anchors
+
+§72's finding is not about arguments. `checkTypeRelatedToAndOptionallyElaborate`
+is what every assignability *report* goes through upstream, and its elaboration
+walks an object-literal source's members and reports the offending member
+**instead of** the outer message. `crate::assignreport` has four anchors that
+call `check_excess_properties` and then `report_assignability_failure`
+unconditionally:
+
+- the assignment operator (`x = { … }`),
+- a variable declaration's annotation against its initialiser,
+- a property declaration's,
+- a parameter default's.
+
+Each can emit a member TS2322 and an outer TS2322 for one source, where upstream
+emits one. §72 fixed the argument anchor because that is where the loss was;
+this applies the same guard at the other four, where the symptom is a *wrong
+line* rather than a loss.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,300**. Forecast **0 to +6** — a double report costs a case only when the case is otherwise exact |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow (**0** on `RULE_CODES = [2322, 2741, 2353, 2561]`) |
+| 4 | that family's WRONG falls; its RIGHT falls by at most as much |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If RIGHT falls by more than WRONG, upstream really does report
+both at some anchor — the elaboration returns `false` and the caller reports
+after it — and the guard belongs only where §72 measured it.
+
+### Scored — **+1** and six wrong lines, at five anchors
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,300, forecast 0 to +6 | **1,301 / 5,488 = 23.71%** | pass |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **0 → 0** | pass |
+| 4 | WRONG falls, RIGHT falls by at most as much | **112 → 106**, RIGHT **504 → 504** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2322, 2741, 2353, 2561]`: **CONVERTS 85 → 86 · RIGHT 504 →
+504 · WRONG 112 → 106 · LOST 0.**
+
+**Five anchors, not four** — the return-statement one had the same shape and was
+missed on the first read of the file; the count came from grepping
+`check_excess_properties`'s call sites rather than from remembering them. The
+fifth added no measurable change, which is its own small finding: a `return
+{ … }` against an annotated return type does not double-report anywhere in the
+corpus, and the guard is there for the shape rather than for a number.
+
+**Six wrong lines removed with no right line lost** is the signature of a
+port-shaped defect rather than a bound in the wrong place: upstream has *one*
+reporting function and this port has two walks, so the fix is an ordering, not a
+decline.

@@ -64,7 +64,15 @@ impl<'a> Checker<'a, '_> {
         let Some(target) = self.assignment_target_type(left_id) else { return };
         let source = self.check_expression(right);
         let Some(right_id) = right.node_id() else { return };
+        // §72's rule: if the **elaboration** spoke, the outer message does not.
+        // `checkTypeRelatedToAndOptionallyElaborate` reports an object
+        // literal's offending member instead of the outer assignability
+        // failure — §73.
+        let before = self.diagnostics.len();
         self.check_excess_properties(target, right_id);
+        if self.diagnostics.len() != before {
+            return;
+        }
         self.report_assignability_failure(left_id, right_id, source, target);
     }
 
@@ -91,7 +99,12 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
+        // §73: the elaboration reports the member instead of the outer message.
+        let before = self.diagnostics.len();
         self.check_excess_properties(target, initializer_id);
+        if self.diagnostics.len() != before {
+            return;
+        }
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 
@@ -123,7 +136,12 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
+        // §73: the elaboration reports the member instead of the outer message.
+        let before = self.diagnostics.len();
         self.check_excess_properties(target, initializer_id);
+        if self.diagnostics.len() != before {
+            return;
+        }
         self.report_assignability_failure(node, initializer_id, source, target);
     }
 
@@ -147,7 +165,12 @@ impl<'a> Checker<'a, '_> {
         let target = self.get_type_from_type_node(annotation);
         let source = self.check_expression(expression);
         let Some(expression_id) = expression.node_id() else { return };
+        // §73: the elaboration reports the member instead of the outer message.
+        let before = self.diagnostics.len();
         self.check_excess_properties(target, expression_id);
+        if self.diagnostics.len() != before {
+            return;
+        }
         self.report_assignability_failure(node, expression_id, source, target);
     }
 
