@@ -432,9 +432,18 @@ impl<'a, 'n> Binder<'a, 'n> {
     }
 
     pub(crate) fn bind_source_file(
+        self,
+        file: &'a SourceFile<'a>,
+        info: FileInfo<'a>,
+    ) -> BindResult<'a> {
+        self.bind_source_file_with_jsdoc(file, info, &[])
+    }
+
+    pub(crate) fn bind_source_file_with_jsdoc(
         mut self,
         file: &'a SourceFile<'a>,
         info: FileInfo<'a>,
+        jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
     ) -> BindResult<'a> {
         let file_name = info.name;
         self.source = info.text;
@@ -474,6 +483,16 @@ impl<'a, 'n> Binder<'a, 'n> {
         if self.commonjs_module {
             self.declare_commonjs_variable("module", root_id);
             self.declare_commonjs_variable("exports", root_id);
+        }
+
+        // In a JavaScript file, JSDoc tags DECLARE: a `@typedef`/`@callback`
+        // is a type alias, `@template` declares type parameters, and an
+        // `@overload` block is another declaration of the function it
+        // documents. Upstream reparses these into the tree and binds them like
+        // written syntax (`parser.reparseTags`); here the parser kept them in
+        // a side table, so the binder files them from it after the main walk.
+        if self.in_js_file {
+            self.bind_jsdoc_declarations(root_id, jsdoc);
         }
 
         self.merge_globals(root_id);
@@ -2647,6 +2666,92 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// first `module.exports =` says a JavaScript file is a `CommonJS` one. The
     /// second may happen part-way through the walk, which is why the symbol is
     /// remembered on the binder rather than in the [`Self::owner`] cursor.
+    /// File `@typedef`/`@callback`/`@template`/`@overload` declarations.
+    ///
+    /// A fresh symbol per tag is enough for name-and-lines fidelity: a
+    /// same-named written declaration merges at the *suite's* union key, and
+    /// the checker's JSDoc reading has its own road. `@overload` differs — it
+    /// is another declaration of the documented function's own symbol, so the
+    /// tag's node joins that symbol's declaration list, exactly where
+    /// upstream's reparsed signature would sit.
+    fn bind_jsdoc_declarations(
+        &mut self,
+        root: NodeId,
+        jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+    ) {
+        use tsr_ast::JSDocTag;
+        for (host, docs) in jsdoc {
+            for doc in *docs {
+                for tag in doc.tags {
+                    match tag {
+                        JSDocTag::JSDocTypedefTag(typedef) => {
+                            let name = match typedef.name {
+                                Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+                                    identifier.text
+                                }
+                                _ => continue,
+                            };
+                            let Some(id) = typedef.node_id else { continue };
+                            self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
+                        }
+                        JSDocTag::JSDocCallbackTag(callback) => {
+                            let name = match callback.name {
+                                Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+                                    identifier.text
+                                }
+                                _ => continue,
+                            };
+                            let Some(id) = callback.node_id else { continue };
+                            self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
+                        }
+                        JSDocTag::JSDocTemplateTag(template) => {
+                            for parameter in template.type_parameters {
+                                let Some(name) = parameter.name else { continue };
+                                let Some(id) = parameter.node_id else { continue };
+                                self.declare_jsdoc_symbol(
+                                    root,
+                                    name.text,
+                                    SymbolFlags::TYPE_PARAMETER,
+                                    id,
+                                );
+                            }
+                        }
+                        JSDocTag::JSDocOverloadTag(overload) => {
+                            let Some(id) = overload.node_id else { continue };
+                            if let Some(symbol) = self.node_symbols[host.index()] {
+                                self.symbols.get_mut(symbol).declarations.push(id);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
+    fn declare_jsdoc_symbol(
+        &mut self,
+        root: NodeId,
+        name: &'a str,
+        flags: SymbolFlags,
+        declaration: NodeId,
+    ) {
+        let locals = self.locals.entry(root).or_default();
+        if let Some(existing) = locals.get(name).copied() {
+            let entry = self.symbols.get_mut(existing);
+            if entry.flags.intersects(SymbolFlags::TYPE_ALIAS | SymbolFlags::TYPE_PARAMETER) {
+                entry.declarations.push(declaration);
+                self.node_symbols[declaration.index()] = Some(existing);
+                return;
+            }
+        }
+        let symbol = self.symbols.create(name, flags);
+        self.symbols.get_mut(symbol).declarations.push(declaration);
+        self.node_symbols[declaration.index()] = Some(symbol);
+        self.locals.entry(root).or_default().entry(name).or_insert(symbol);
+    }
+
     fn bind_source_file_as_external_module(&mut self, file: NodeId) -> SymbolId {
         // `bindSourceFileAsExternalModule` names the symbol after the path with
         // its extension removed. Upstream wraps that in quotes, the way

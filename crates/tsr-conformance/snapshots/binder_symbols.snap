@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8422/8461 (99.54%)
-Failed         : 39
+Passed         : 8424/8461 (99.56%)
+Failed         : 37
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -32,8 +32,6 @@ compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
 compiler/jsDeclarationEmitDoesNotRenameImport
   1 symbol(s): index.js: test: declared on {13}, expected to include {4}
-compiler/jsFileMethodOverloads
-  2 symbol(s): Example.getTypeName: declared on {9}, expected to include {9, 12, 17}; Example.transform: declared on {26}, expected to include {26, 30, 35}
 compiler/moduleAugmentationDoesInterfaceMergeOfReexport
   1 symbol(s): augment.ts: ns.Foo.self: no symbol
 compiler/moduleAugmentationDoesNamespaceEnumMergeOfReexport
@@ -72,8 +70,6 @@ conformance/moduleExportsAliasLoop2
   1 symbol(s): fn2: declared on {1}, expected to include {0, 1}
 conformance/noUncheckedIndexedAccessDestructuring
   2 symbol(s): q.__index: no symbol; t2.__index: no symbol
-conformance/overloadTag1
-  2 symbol(s): overloaded: declared on {0}, expected to include {0, 1, 6}; uncheckedInternally: declared on {25}, expected to include {25, 28, 33}
 conformance/parserComputedPropertyName1
   1 symbol(s): [e]: no symbol
 conformance/propertyAssignmentUseParentType1

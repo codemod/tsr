@@ -376,12 +376,14 @@ impl<'a> Program<'a> {
         for index in self.bound_file_count..self.files.len() {
             let file = &self.files[index];
             let previous = std::mem::replace(&mut self.binder, BindResult::empty());
-            self.binder = tsr_binder::bind_into(
+            let jsdoc: Vec<_> = file.jsdoc().iter().collect();
+            self.binder = tsr_binder::bind_into_with_jsdoc(
                 previous,
                 arena,
                 file.source_file(),
                 &self.nodes,
                 FileInfo { name: file.file_name(), text: file.text() },
+                &jsdoc,
             );
         }
         self.bound_file_count = self.files.len();

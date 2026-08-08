@@ -758,3 +758,22 @@ pub fn bind_into<'a>(
 ) -> BindResult<'a> {
     binder::Binder::resuming(arena, nodes, previous).bind_source_file(file, info)
 }
+
+/// [`bind_into`], with the file's JSDoc side table along.
+///
+/// In a JavaScript file, `@typedef`/`@callback`/`@template` tags declare and
+/// an `@overload` block is another declaration of the function it documents —
+/// upstream reparses them into the tree (`parser.reparseTags`) and binds them
+/// as written syntax. This parser keeps JSDoc in a side table, so the binder
+/// takes the entries and files the declarations from them.
+#[must_use]
+pub fn bind_into_with_jsdoc<'a>(
+    previous: BindResult<'a>,
+    arena: &'a tsr_core::Arena,
+    file: &'a SourceFile<'a>,
+    nodes: &NodeTable,
+    info: FileInfo<'a>,
+    jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+) -> BindResult<'a> {
+    binder::Binder::resuming(arena, nodes, previous).bind_source_file_with_jsdoc(file, info, jsdoc)
+}
