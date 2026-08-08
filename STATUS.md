@@ -1304,8 +1304,19 @@ its whole deliverable and accept that it converts nothing until finished.
   measured unchanged at 3, reverted. **Seven inferences on three lines, two
   right, and both of those were cases where an upstream artefact stated the
   answer outright.** Every inference about *this port's internal behaviour* has
-  failed. **Next action is a probe printing the declaration kind AT EACH HOP of
-  `type_only_alias_declaration` — not a build.** **Six inferences, two right,
+  failed. **§130 ran that probe and it answered: the TS1362 line is a MISSING BINDER
+  MERGE, not a rule defect.** The chain reaches a type-only re-export; upstream
+  reaches it too and stays silent because `Row` also names a **variable** and
+  its `result.Flags&Value == 0` conjunct fires. This binder never merges the
+  import alias with the variable, so `resolve_name` returns an alias with no
+  `VALUE` bit and the conjunct cannot fire — restoring it changed nothing.
+  **Owner: `tsr_binder`'s symbol merging**, the subsystem §5 names for TS7026.
+  The case has been called `mergeSymbolRexportFunction` the whole time.
+- **The probe that works prints every step of the thing you are guessing about**
+  (§118/§128/§130): §118 probed below an early return and learned nothing, §128
+  probed the symbol and found a missing argument, §130 probed the **loop** and
+  found the loop was never the problem. Eight attempts on three lines, two
+  conversions, and the answer came from a two-line probe rather than any fix. **Six inferences, two right,
   then one probe that cost less than any of them — every wrong guess reasoned
   from artefacts describing *upstream*, while the defect was in what this port
   did with an argument it never had.**
