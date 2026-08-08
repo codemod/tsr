@@ -368,6 +368,10 @@ impl Checker<'_, '_> {
                 self.check_type_argument_arity(node);
                 ambient
             }
+            Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_) => {
+                self.check_increment_operand_type(node, ambient);
+                ambient
+            }
             Node::Identifier(identifier) => {
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);

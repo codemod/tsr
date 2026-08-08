@@ -4939,3 +4939,66 @@ sole-obstacle cases — because those lines almost always arrive beside a code
 this port already emits. **A code with a huge `want`, a zero `have` and a tiny
 sole-obstacle row is the signature of a rule worth building**, and it is exactly
 the signature the old board hid.
+
+---
+
+## 66. TS2356 — the same predicate at the `++` / `--` operand
+
+`diagemit.rs` ranks TS2356 third among the unported rows, **198 baseline lines**,
+and it is `checkArithmeticOperandType` a third time — the same one-line predicate
+§65 ported, called from `checkPrefixUnaryExpression` (`checker.go:10899`) and
+`checkPostfixUnaryExpression` (`:10915`).
+
+**Only `++` and `--`.** Unary `+`, `-` and `~` take a different arm
+(`checker.go:10875`) that reports TS2469 for a `symbol` operand and nothing
+about numerics — `-"a"` is not this diagnostic. Reading the switch rather than
+generalising from the message's wording is the whole of the site question here,
+and getting it wrong would put the rule on every negated string in the corpus.
+
+The operand check runs **before** `checkReferenceExpression` and gates it —
+*"run check only if former checks succeeded to avoid reporting cascading
+errors"* — so TS2357 is downstream of this one and not affected by adding it.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes ≥ **1,284**. Forecast **+2 to +8** — 198 lines, and `diaggap.rs` gives TS2356 no sole-obstacle row at all |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2356]` |
+| 4 | own WRONG ≤ **20** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column carries unary `-`, `+` or `~`, the site list
+was generalised from the message instead of read off the switch.
+
+### Scored — **+5 for zero wrong**, after one decline the falsifier did not name
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes ≥ 1,284, forecast +2 to +8 | **1,289 / 5,488 = 23.49%** | pass |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | own WRONG ≤ 20 | **31 → 0** after the decline | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` isolated to 2356: **CONVERTS 5 · RIGHT 145 · WRONG 0 · LOST 0.**
+
+**The registered falsifier did not fire and a different one did.** The bar
+watched for unary `-`, `+` and `~` leaking in from a message-shaped site list;
+the site list was read off the switch and none appeared. What did appear was
+`++ENUM` — sixteen of the thirty-one wrong lines across
+`incrementOperatorWithEnumTypeInvalidOperations` and its `decrement…` twin.
+
+Upstream reports **TS2628** there, `Cannot assign to 'ENUM' because it is an
+enum`, from `checkIdentifier`'s assignment-target arm (`checker.go:11080`),
+which runs *before* the operand's type is looked at. The same arm has TS2629 for
+a class, TS2631 for a namespace, TS2630 for a function and TS2632 for an import.
+An operand naming something that is **not a variable** is one of those five, so
+the decline is one predicate and it took the column to zero — the remaining
+fifteen were the same shape at a `.js` or strict-mode site.
+
+> **A falsifier that does not fire is not a wasted one.** It bought the site
+> list being read rather than inferred, which is why the wrong column contained
+> no `-x` at all and the one family it did contain was diagnosable in a single
+> `diagcase` run.

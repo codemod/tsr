@@ -317,6 +317,82 @@ impl Checker<'_, '_> {
     }
 }
 
+impl Checker<'_, '_> {
+    /// TS2356 — `An arithmetic operand must be of type 'any', 'number',
+    /// 'bigint' or an enum type.`
+    ///
+    /// `checkArithmeticOperandType` again (`checker.go:10899` and `:10915`),
+    /// this time at the operand of `++` or `--`.
+    ///
+    /// **Only those two.** Unary `+`, `-` and `~` take a different arm
+    /// (`checker.go:10875`) which reports TS2469 for a `symbol` operand and
+    /// nothing about numerics — `-"a"` is not this diagnostic.
+    /// `docs/architecture/checker-notes-diag2.md` §66.
+    pub(crate) fn check_increment_operand_type(&mut self, node: NodeId, ambient: bool) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+            return;
+        }
+        let operand = match self.node_map.get(node) {
+            Some(Node::PrefixUnaryExpression(unary))
+                if matches!(
+                    unary.operator.kind,
+                    SyntaxKind::PlusPlusToken | SyntaxKind::MinusMinusToken
+                ) =>
+            {
+                unary.operand
+            }
+            Some(Node::PostfixUnaryExpression(unary)) => unary.operand,
+            _ => return,
+        };
+        let Some(operand) = operand else { return };
+        let Some(at) = operand.node_id() else { return };
+        // An operand naming something that is **not a variable** is
+        // `checkIdentifier`'s assignment-target arm (`checker.go:11080`),
+        // which reports TS2628 for an enum, TS2629 for a class, TS2631 for a
+        // namespace, TS2630 for a function and TS2632 for an import — and
+        // reaches them *before* the operand type is looked at. `++ENUM` was
+        // sixteen wrong TS2356 lines (§66).
+        if let Some(Node::Identifier(identifier)) = self.node_map.get(at)
+            && self
+                .binder
+                .resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    at,
+                    identifier.text,
+                    tsr_binder::SymbolFlags::VALUE,
+                )
+                .is_some_and(|symbol| {
+                    !self
+                        .binder
+                        .symbols()
+                        .get(symbol)
+                        .flags
+                        .intersects(tsr_binder::SymbolFlags::VARIABLE)
+                })
+        {
+            return;
+        }
+        let operand_type = self.check_expression(operand);
+        // `checkNonNullType` wraps the argument (`checker.go:10899`) and
+        // reports TS18050 / TS18048 in place of this one.
+        if self.operand_is_nullish(operand_type)
+            || !self.operand_is_definitely_not_numeric(operand_type)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::AN_ARITHMETIC_OPERAND_MUST_BE_OF_TYPE_ANY_NUMBER_BIGINT_OR_AN_ENUM_TYPE,
+                span,
+            ),
+        );
+    }
+}
+
 /// The operators whose operands `checkArithmeticOperandType` guards —
 /// arithmetic, shift and bitwise, with their compound forms. `+` is excluded:
 /// it is overloaded with concatenation and has its own arm (§49).
