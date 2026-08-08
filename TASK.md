@@ -46,9 +46,11 @@ STATE AT HANDOFF (verify with a fresh coverage run):
   ArrowFunction ~1,300 (contextual parameters), NewExpression ~900
   (generic instantiation; Intl.Locale 86 is lib), ElementAccess ~1,000,
   and TWO no-value-decl rows (~1,700 combined, want-any heavy —
-  "declaration name, symbol has no type", possibly cheap implicit-any
-  admissions; PROBE THESE FIRST next session, they smell like §31-class
-  boundary rules).
+  "declaration name, symbol has no type", probed SAME session: they are
+  ES-import aliases, and the §31-class admission REFUSED at 2.7:1 —
+  resolver parity, not rule shape; see checker-notes-callres §31.1.
+  They stay with bd tsr-9or.1 until the host learns symlink/path-mapping
+  resolution — DO NOT re-derive).
 
   NEXT HEADS, each with its section: the enum residue (string-length
   folding, cross-enum refs, §53's entry-order class), the || early-return
