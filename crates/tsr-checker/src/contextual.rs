@@ -308,6 +308,31 @@ impl<'a> Checker<'a, '_> {
             // §68.1: `ParenthesizedExpression` (`checker.go:29392`) — the
             // one-line recursion, un-rejected with §68's own argument.
             Node::ParenthesizedExpression(_) => self.get_contextual_type(parent),
+            // §68.2: an ARRAY LITERAL element's contextual type is the
+            // array's contextual ELEMENT type
+            // (`getContextualTypeForElementExpression`, `checker.go:29972`) —
+            // the Array-reference and tuple halves this port can read.
+            Node::ArrayLiteralExpression(literal) => {
+                let contextual = self.get_contextual_type(parent)?;
+                if let Some((target, arguments)) =
+                    self.type_reference_targets.get(&contextual).cloned()
+                    && arguments.len() == 1
+                    && ["Array", "ReadonlyArray"].iter().any(|name| {
+                        self.global_type_symbol(name).map(|s| self.binder.merged_symbol(s))
+                            == Some(self.binder.merged_symbol(target))
+                    })
+                {
+                    return Some(arguments[0]);
+                }
+                if let Some((elements, _)) = self.tuple_element_lists.get(&contextual) {
+                    let index = literal
+                        .elements
+                        .iter()
+                        .position(|element| element.node_id() == Some(node))?;
+                    return elements.get(index).copied();
+                }
+                None
+            }
             Node::ReturnStatement(_) => {
                 let mut function = self.nodes.parent(parent)?;
                 loop {

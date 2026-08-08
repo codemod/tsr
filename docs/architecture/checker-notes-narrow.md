@@ -2820,3 +2820,11 @@ concise-body and nested-return positions). `checker_types` right
 `checker.go:29392`, one line, un-rejected with §68's own argument.
 **+16 (15 W→R, 1 G→R), ZERO adverse.** `checker_types` right 402,349 →
 **402,365 (84.02%)**.
+
+## §68.2 — the array-element contextual arm
+
+`getContextualTypeForElementExpression` (`checker.go:29972`), the
+Array-reference and tuple halves. **+4 (W→R), ZERO adverse** — the
+contextual functions inside array literals are fewer than the old
+33-function measurement suggested once §63's tuple minting took the
+tuple half's population. right → **402,369 (84.02%)**.
