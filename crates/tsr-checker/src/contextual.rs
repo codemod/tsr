@@ -479,9 +479,42 @@ impl<'a> Checker<'a, '_> {
 
         let callee = call.expression?;
         let callee_type = self.check_expression(callee);
-        let parameter =
-            self.single_call_signature(callee_type)?.parameters.into_iter().nth(index)?;
-        Some(parameter.r#type)
+        if let Some(parameter) = self
+            .single_call_signature(callee_type)
+            .and_then(|s| s.parameters.into_iter().nth(index))
+        {
+            return Some(parameter.r#type);
+        }
+        // §70 (`checker-notes-narrow.md`): OVERLOADED/GENERIC callees whose
+        // every candidate AGREES on the parameter's type at this index — the
+        // agreement is what upstream's per-candidate contextual pass
+        // converges to when the position's type mentions no type parameter
+        // (`parenthesizedContexualTyping2`'s FuncType callbacks, 73 lines).
+        let TypeData::Anonymous { symbol, .. } = self.store.get(callee_type).data else {
+            return None;
+        };
+        let candidates = self.get_signatures_of_symbol(symbol)?;
+        let mut agreed: Option<TypeId> = None;
+        for candidate in &candidates {
+            let parameter = candidate.parameters.get(index)?;
+            if parameter.rest || parameter.optional {
+                return None;
+            }
+            // A parameter whose type MENTIONS the candidate's own type
+            // parameters (by ID, walked two levels through signatures and
+            // reference arguments — a TEXT test collided the callback's own
+            // `<T>` with the candidate's and killed the wins) is not
+            // position-stable — decline.
+            if self.mentions_any_type_parameter(parameter.r#type, 2) {
+                return None;
+            }
+            match agreed {
+                None => agreed = Some(parameter.r#type),
+                Some(t) if t == parameter.r#type => {}
+                Some(_) => return None,
+            }
+        }
+        agreed
     }
 
     /// The one call signature of `id`, or `None` if it has any other number of
@@ -493,6 +526,40 @@ impl<'a> Checker<'a, '_> {
     /// arguments checked, and a generic signature is `None` because its
     /// parameter types would print as their own type parameters — `T`, not the
     /// type the caller supplied.
+    /// §70's mention walk: whether `id` is, or transitively contains (to
+    /// `depth` levels through signature parameters/returns and reference
+    /// arguments), a type-parameter type. Conservative: ANY type-parameter
+    /// mention declines, not just the candidate's own — a callback's inner
+    /// generic re-binds its names and cannot leak the outer parameter.
+    fn mentions_any_type_parameter(&mut self, id: TypeId, depth: u8) -> bool {
+        if self.type_parameter_symbols.contains_key(&id) {
+            return true;
+        }
+        if depth == 0 {
+            return false;
+        }
+        if let Some((_, arguments)) = self.type_reference_targets.get(&id).cloned()
+            && arguments.iter().any(|&a| self.mentions_any_type_parameter(a, depth - 1))
+        {
+            return true;
+        }
+        if let Some(signatures) = self.signatures_of_type(id) {
+            let signatures = signatures.clone();
+            for signature in &signatures {
+                if signature.type_parameters.is_empty()
+                    && (signature
+                        .parameters
+                        .iter()
+                        .any(|p| self.mentions_any_type_parameter(p.r#type, depth - 1))
+                        || self.mentions_any_type_parameter(signature.r#type, depth - 1))
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     fn single_call_signature(&mut self, id: TypeId) -> Option<Signature> {
         let TypeData::Anonymous { symbol, .. } = self.store.get(id).data else {
             return None;

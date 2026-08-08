@@ -2850,3 +2850,18 @@ auto-accessor flows (the member-typing order inside static blocks), and
 three scopeCheck cases where `getTypeOfSymbol(class)` gaps (the static
 side's own resolution holes) — each a named residue, none this arm's
 rule. `checker_types` right 402,370 → **402,649 (84.07%)**.
+
+## §70 — the overload-agreement contextual argument
+
+`getContextualTypeForArgument` for OVERLOADED/GENERIC callees whose
+every candidate agrees on the parameter's type at the index — the
+convergence upstream's per-candidate pass reaches when the position
+mentions no type parameter. The mention test walks IDs two levels
+through signatures and reference arguments (a TEXT test collided the
+callback's own `<T>` with the candidate's and killed the wins — names
+re-bind, ids don't). Three configurations measured: direct-id
+(+127/49), text (+8/0), id-walk (**+68 with 41 W→G, ZERO adverse**) —
+the landed one.
+
+**§70 score — LANDED.** `checker_types` right 402,649 → **402,717
+(84.08%)**.
