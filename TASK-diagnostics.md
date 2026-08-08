@@ -11,7 +11,7 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,244/5,488 = 22.67%   (was 1,118 = 20.37%; +126 over 20 builds,
+  diagnostics    1,245/5,488 = 22.69%   (was 1,118 = 20.37%; +127 over 21 builds,
                  **zero cases lost in any of them**)
   checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -50,7 +50,7 @@ ratio, and the two differ by whatever the concentration happens to be.
 | `examples/diagreach.rs` | **NEW, run first.** Cases reachable by deepening the rules that already exist, ranked by which rule |
 | `examples/diagmissing.rs` | **NEW.** `diagmissing -- 2454` prints every baseline line of that code the port does not emit, restricted to cases that code alone blocks. Four of this session's builds were steered by reading it |
 | `examples/diagcase.rs` | **NEW.** One case's expected and actual diagnostics side by side |
-| `examples/extraonly.rs` | **NEW, and the only exact forecast in the workstream.** The cases blocked by an **extra** diagnostic alone — each is one false positive from passing, so the count IS the conversion count. 54 at `b78c4d7`; §58, §59 and §60 were forecast off it and all three came in exact. TS1005 38 and TS1012 15 of the original 58 are the **parser's**, not this workstream's |
+| `examples/extraonly.rs` | **NEW, and the only exact forecast in the workstream.** The cases blocked by an **extra** diagnostic alone — each is one false positive from passing, so the count IS the conversion count. 54 at `b78c4d7`; §58, §59 and §60 were forecast off it and all three came in exact; §61.1 then showed its limit — it says a case is one removal from passing, **not** that the removal is expressible. TS1005 38 and TS1012 15 of the original 58 are the **parser's**, not this workstream's |
 | `examples/diag2307.rs` | the per-rule counterfactual. Put the rule's codes in `RULE_CODES` **alone**, measure, then **restore the full list** (one commit shipped it pinned and needed a follow-up). CONVERTS / LOST / RIGHT / WRONG |
 | `examples/extragap.rs` | splits the *extra* column into `displaced` and `invented` |
 | `examples/diaggap.rs` | the old board. Now an ordering over **new** rules only |
