@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 329/374 (87.97%)
-Failed         : 45
+Passed         : 331/374 (88.50%)
+Failed         : 43
 Skipped        : 12070 (excluded from the denominator)
 
   636  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -72,12 +72,8 @@ compiler/referenceTypesPreferedToPathIfPossible
   line 1: want `export declare const thing: () => import("url").Url;`, got `export declare const thing: any;`
 compiler/typeReferenceDirectives13
   line 1: want `export interface A {`, got `import { $ } from "./ref";`
-compiler/typeReferenceDirectives4
-  line 3: want `declare let y: () => $;`, got `declare let y: any;`
 compiler/typeReferenceDirectives5
   line 1: want `export interface A {`, got `import { $ } from "./ref";`
-compiler/typeReferenceDirectives6
-  line 2: want `declare let y: () => $;`, got `declare let y: any;`
 compiler/typeReferenceDirectives7
   line 3: want `export declare let y: () => number;`, got `export declare let y: any;`
 compiler/unionTypeWithLeadingOperator

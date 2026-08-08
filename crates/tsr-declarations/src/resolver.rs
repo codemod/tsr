@@ -170,9 +170,11 @@ impl<'a> LiteralConstHost<'_, 'a> {
 /// Everything it knows comes from two sources: the visibility set
 /// [`tsr_dts::visibility`] computed for this file, and the syntax of the node in
 /// front of it. It never looks at a type.
-pub struct SyntacticResolver {
+pub struct SyntacticResolver<'a> {
     visible: tsr_dts::visibility::Visible,
     strict_null_checks: bool,
+    /// File-level annotated names, for the arrow-return identifier copy.
+    scope: type_builder::FileScope<'a>,
     /// Every *top-level* statement of the file.
     ///
     /// Needed to tell "this declaration is not visible" from "this pass has
@@ -182,19 +184,20 @@ pub struct SyntacticResolver {
     top_level: rustc_hash::FxHashSet<NodeId>,
 }
 
-impl SyntacticResolver {
+impl<'a> SyntacticResolver<'a> {
     /// Build the resolver for one file.
     #[must_use]
-    pub fn new(file: &tsr_ast::SourceFile<'_>, strict_null_checks: bool) -> Self {
+    pub fn new(file: &tsr_ast::SourceFile<'a>, strict_null_checks: bool) -> Self {
         Self {
             visible: tsr_dts::visibility::visible_declarations(file),
             strict_null_checks,
+            scope: type_builder::FileScope::of(file),
             top_level: file.statements.iter().filter_map(Statement::node_id).collect(),
         }
     }
 }
 
-impl<'a> EmitResolver<'a> for SyntacticResolver {
+impl<'a> EmitResolver<'a> for SyntacticResolver<'a> {
     /// Upstream computes this in `PrecalculateDeclarationEmitVisibility` by
     /// walking symbols; here it is reachability from the exports, which is the
     /// approximation `docs/architecture/isolated-declarations.md` documents.
@@ -279,7 +282,13 @@ impl<'a> EmitResolver<'a> for SyntacticResolver {
         initializer: Option<&Expression<'a>>,
         freshness: Freshness,
     ) -> Option<TypeNode<'a>> {
-        type_builder::type_of_expression(factory, initializer?, freshness, self.strict_null_checks)
+        type_builder::type_of_expression(
+            factory,
+            initializer?,
+            freshness,
+            self.strict_null_checks,
+            &self.scope,
+        )
     }
 
     /// A return type is never recoverable from syntax: it is the type of whatever

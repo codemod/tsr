@@ -1117,3 +1117,33 @@ fn annotated_object_accessors_keep_their_shape() {
         "export declare const c: {\n    x: number;\n};",
     );
 }
+
+// ----- arrow returns that name a declaration --------------------------------
+
+#[test]
+fn an_arrow_returning_an_annotated_name_copies_the_annotation() {
+    // `typeReferenceDirectives4`: upstream resolves the reference and prints its
+    // declared type; the syntactic dual copies the written annotation when the
+    // file scope is provably the only scope in reach.
+    assert_emits(
+        "export interface $ { x: number }\nexport declare let x: $;\nexport let y = () => x;",
+        "export interface $ {\n    x: number;\n}\nexport declare let x: $;\nexport declare let y: () => $;",
+    );
+    // A parameter shadows the file scope and its annotation wins; the
+    // unreferenced outer `x` is pruned by reachability as usual.
+    assert_emits(
+        "declare let x: string;\nexport let y = (x: number) => x;",
+        "export declare let y: (x: number) => number;",
+    );
+}
+
+#[test]
+fn a_typeof_annotation_is_not_copied_into_a_return() {
+    // `typeReferenceDirectives7`: `typeof $` resolves through to the value's
+    // type in upstream's print, so copying it would restate something upstream
+    // does not write. Declining leaves the honest `any`.
+    assert_emits(
+        "export let $ = 1;\nexport let x: typeof $;\nexport let y = () => x;",
+        "export declare let $: number;\nexport declare let x: typeof $;\nexport declare let y: any;",
+    );
+}

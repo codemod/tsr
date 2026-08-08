@@ -48,6 +48,87 @@ use tsr_core::Span;
 
 use crate::{Freshness, factory::Factory};
 
+/// Written annotations of the file's top-level variables, for typing a returned
+/// identifier by the declaration it names.
+///
+/// `let x: $; let y = () => x` types `y` as `() => $` upstream because the
+/// checker resolves `x` and prints its type; the syntactic dual is copying the
+/// *written annotation* of the declaration the name resolves to. That is only
+/// sound when the resolution is certain, so the map holds file-level
+/// single-declaration names only, and the arrow arm consults it only when no
+/// scope can sit between the arrow and the file (see
+/// [`no_scope_between_arrow_and_file`]).
+#[derive(Debug, Default)]
+pub(crate) struct FileScope<'a> {
+    annotations: rustc_hash::FxHashMap<&'a str, TypeNode<'a>>,
+}
+
+impl<'a> FileScope<'a> {
+    /// Collect the file-level annotated variable names. A name declared more
+    /// than once is dropped: two annotations make the copy ambiguous.
+    #[must_use]
+    pub(crate) fn of(file: &tsr_ast::SourceFile<'a>) -> Self {
+        let mut annotations = rustc_hash::FxHashMap::default();
+        let mut duplicates: Vec<&'a str> = Vec::new();
+        for statement in file.statements {
+            let tsr_ast::Statement::VariableStatement(variable) = statement else { continue };
+            let Some(list) = variable.declaration_list else { continue };
+            for declaration in list.declarations {
+                let Some(tsr_ast::BindingName::Identifier(name)) = declaration.name else {
+                    continue;
+                };
+                let Some(annotation) = declaration.r#type else {
+                    duplicates.push(name.text);
+                    continue;
+                };
+                // A `typeof` query does not survive the checker's print — it
+                // resolves through to the referenced value's type
+                // (`typeReferenceDirectives7`: `x: typeof $` with `$ = 1`
+                // prints `number`) — so copying it restates something upstream
+                // does not write.
+                if contains_type_query(&annotation) {
+                    duplicates.push(name.text);
+                    continue;
+                }
+                if annotations.insert(name.text, annotation).is_some() {
+                    duplicates.push(name.text);
+                }
+            }
+        }
+        for name in duplicates {
+            annotations.remove(name);
+        }
+        Self { annotations }
+    }
+
+    fn annotation(&self, name: &str) -> Option<TypeNode<'a>> {
+        self.annotations.get(name).copied()
+    }
+}
+
+/// Whether a `typeof` query appears anywhere in the type.
+fn contains_type_query(annotation: &TypeNode<'_>) -> bool {
+    struct Finder {
+        found: bool,
+    }
+    impl<'a> tsr_ast::Visit<'a> for Finder {
+        fn visit_node(&mut self, node: Node<'a>) {
+            if self.found {
+                return;
+            }
+            if matches!(node, Node::TypeQueryNode(_)) {
+                self.found = true;
+                return;
+            }
+            tsr_ast::visit::walk_node(self, node);
+        }
+    }
+    use tsr_ast::Visit as _;
+    let mut finder = Finder { found: false };
+    finder.visit_node(Node::from(*annotation));
+    finder.found
+}
+
 /// Ported from `ast.IsPrimitiveLiteralValue` (`internal/ast/utilities.go`), which
 /// upstream calls with `includeBigInt = true` from `ensureNoInitializer`.
 ///
@@ -125,6 +206,7 @@ pub(crate) fn type_of_expression<'a>(
     expression: &Expression<'a>,
     freshness: Freshness,
     strict_null_checks: bool,
+    scope: &FileScope<'a>,
 ) -> Option<TypeNode<'a>> {
     let span = factory.span_of(expression.node_id());
     match expression {
@@ -189,9 +271,13 @@ pub(crate) fn type_of_expression<'a>(
             Freshness::Widening => Some(factory.keyword_type(SyntaxKind::StringKeyword, span)),
             Freshness::Const => None,
         },
-        Expression::ParenthesizedExpression(inner) => {
-            type_of_expression(factory, inner.expression.as_ref()?, freshness, strict_null_checks)
-        }
+        Expression::ParenthesizedExpression(inner) => type_of_expression(
+            factory,
+            inner.expression.as_ref()?,
+            freshness,
+            strict_null_checks,
+            scope,
+        ),
         // `x as const` enters a const context; `x as T` states `T` outright, and
         // the annotation is reused rather than rebuilt.
         Expression::AsExpression(as_expression) => {
@@ -201,6 +287,7 @@ pub(crate) fn type_of_expression<'a>(
                     as_expression.expression.as_ref()?,
                     Freshness::Const,
                     strict_null_checks,
+                    scope,
                 )
             } else {
                 as_expression.r#type
@@ -214,9 +301,10 @@ pub(crate) fn type_of_expression<'a>(
             satisfies.expression.as_ref()?,
             freshness,
             strict_null_checks,
+            scope,
         ),
         Expression::ObjectLiteralExpression(object) => {
-            object_literal_type(factory, object, freshness, strict_null_checks, span)
+            object_literal_type(factory, object, freshness, strict_null_checks, scope, span)
         }
         // Only a const array is inferable — `tsr_dts` reports `TS9017` for a
         // mutable one — and a const array is a `readonly` tuple of its elements'
@@ -232,6 +320,7 @@ pub(crate) fn type_of_expression<'a>(
                     element,
                     Freshness::Const,
                     strict_null_checks,
+                    scope,
                 )?);
             }
             let elements = factory.slice(&elements);
@@ -244,8 +333,7 @@ pub(crate) fn type_of_expression<'a>(
             Some(readonly_operator(factory, tuple, span))
         }
         Expression::ArrowFunction(arrow) => {
-            let inferred =
-                arrow_return_type(factory, arrow.body.as_ref(), strict_null_checks, span);
+            let inferred = arrow_return_type(factory, arrow, strict_null_checks, scope, span);
             function_type(
                 factory,
                 arrow.type_parameters,
@@ -298,6 +386,7 @@ fn object_literal_type<'a>(
     object: &tsr_ast::ObjectLiteralExpression<'a>,
     freshness: Freshness,
     strict_null_checks: bool,
+    scope: &FileScope<'a>,
     span: Span,
 ) -> Option<TypeNode<'a>> {
     use tsr_ast::ObjectLiteralElementLike as Member;
@@ -307,7 +396,8 @@ fn object_literal_type<'a>(
         let member = match property {
             Member::PropertyAssignment(assignment) => {
                 let value = assignment.initializer.as_ref()?;
-                let r#type = type_of_expression(factory, value, freshness, strict_null_checks)?;
+                let r#type =
+                    type_of_expression(factory, value, freshness, strict_null_checks, scope)?;
                 let member_span = factory.span_of(assignment.node_id);
                 property_signature(factory, assignment.name, Some(r#type), freshness, member_span)
             }
@@ -623,11 +713,12 @@ fn strip_binding_initializers<'a>(
 
 fn arrow_return_type<'a>(
     factory: &mut Factory<'a, '_>,
-    body: Option<&tsr_ast::ConciseBody<'a>>,
+    arrow: &tsr_ast::ArrowFunction<'a>,
     strict_null_checks: bool,
+    scope: &FileScope<'a>,
     span: Span,
 ) -> Option<TypeNode<'a>> {
-    let body = body?;
+    let body = arrow.body.as_ref()?;
     if let tsr_ast::ConciseBody::Block(block) = body {
         return block
             .statements
@@ -635,7 +726,54 @@ fn arrow_return_type<'a>(
             .then(|| factory.keyword_type(SyntaxKind::VoidKeyword, span));
     }
     let expression = Expression::try_from(Node::from(*body)).ok()?;
-    type_of_expression(factory, &expression, Freshness::Widening, strict_null_checks)
+    // A returned identifier types as the written annotation of the declaration
+    // it names — upstream resolves the reference and prints its declared type
+    // (`typeReferenceDirectives4`: `let x: $; let y = () => x` emits
+    // `() => $`). The copy is sound only when the resolution is certain: the
+    // arrow's own annotated parameter, or a file-level name with nothing but
+    // non-scoping expression nodes between the arrow and the file.
+    if let Expression::Identifier(identifier) = &expression {
+        for parameter in arrow.parameters {
+            if let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name {
+                if name.text == identifier.text {
+                    return parameter.r#type;
+                }
+            }
+        }
+        if no_scope_between_arrow_and_file(factory, arrow.node_id) {
+            return scope.annotation(identifier.text);
+        }
+        return None;
+    }
+    type_of_expression(factory, &expression, Freshness::Widening, strict_null_checks, scope)
+}
+
+/// Whether every ancestor of the arrow up to the source file is a node that
+/// introduces no bindings, so the file scope is the *only* scope the returned
+/// identifier can resolve in. Anything unexpected — a namespace body, another
+/// function, a class — answers `false` and the lookup declines.
+fn no_scope_between_arrow_and_file(
+    factory: &Factory<'_, '_>,
+    node_id: Option<tsr_ast::NodeId>,
+) -> bool {
+    let nodes = factory.nodes();
+    let mut current = node_id;
+    while let Some(id) = current {
+        let parent = nodes.parent(id);
+        let Some(parent_id) = parent else { return false };
+        match nodes.kind(parent_id) {
+            SyntaxKind::SourceFile => return true,
+            SyntaxKind::VariableDeclaration
+            | SyntaxKind::VariableDeclarationList
+            | SyntaxKind::VariableStatement
+            | SyntaxKind::ParenthesizedExpression
+            | SyntaxKind::AsExpression
+            | SyntaxKind::SatisfiesExpression => {}
+            _ => return false,
+        }
+        current = Some(parent_id);
+    }
+    false
 }
 
 fn empty_function_body_return_type<'a>(
