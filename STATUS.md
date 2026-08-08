@@ -22,7 +22,7 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at HEAD, 2026-08-08 (eleventh session, grind/non-checker-conformance).
+Measured at `8dcdc71`, 2026-08-08 (twelfth session, grind/non-checker-conformance).
 
 | suite | passed | rate | note |
 |---|---:|---:|---|
@@ -32,16 +32,16 @@ Measured at HEAD, 2026-08-08 (eleventh session, grind/non-checker-conformance).
 | `scanner_clean_files` | 5,031/5,031 | 100% | |
 | `module_resolution` | 95/95 | 100% | |
 | `file_loader` | 96/96 | 100% | |
-| `parser_typescript` | 5,031/5,031 | 100% | **elevated** — was 99.40% |
-| `printer_round_trip` | 11,755/11,778 | 99.80% | 11,682 → 11,755 |
-| `binder_symbols` | 8,311/8,475 | 98.06% | 8,293 → 8,311 |
-| **`dts_emit`** | **327/374** | **87.43%** | **from 47.49% — ten recent commits focused on JSDoc type handling** |
-| **`dts_shape`** | **859/1,007** | **85.30%** | **from 67.76%** |
+| `parser_typescript` | 5,031/5,031 | 100% | |
+| **`printer_round_trip`** | **11,776/11,776** | **100%** | **COMPLETE** — was 99.80%; see the twelfth session's row in §7 |
+| **`binder_symbols`** | **8,401/8,473** | **99.15%** | 8,310 → 8,401 — alias-transparent indexing, +91 cases |
+| **`dts_emit`** | **333/374** | **89.04%** | 327 → 333 |
+| `dts_shape` | 860/1,008 | 85.32% | the `!!!!`-marker fix moved one case in, and it passes |
 | `isolated_declarations` | 13/15 | 86.67% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
-| `dts_reachable_target` | 492/1,162 | 42.34% | 495 → 492 |
-| **`checker_types`** | **3,088/9,538** | **32.38%** | **gradient 77.24%** — the target; +10 cases, +1220 assertion lines |
-| `diagnostics` | **999/5,488** | **18.20%** | **+6 cases from prior session** |
+| `dts_reachable_target` | 492/1,162 | 42.34% | |
+| `checker_types` | 3,093/9,538 | 32.43% | gradient 77.25% — rode along +5 cases on the twelfth session's parser fix |
+| `diagnostics` | 1,000/5,488 | 18.22% | rode along +1 |
 
 ### `checker_types`, the number the project is steered by
 
@@ -439,10 +439,10 @@ Per-crate, by what the conformance suites actually assert — not by what exists
 |---|---|---|
 | scanner | **done** | 100% termination and clean-files |
 | parser | **done for TypeScript** | 99.38%; `parser_reachable_target` is a wider target set |
-| binder | **near done** | 98.03%; `getMergedSymbol` redirect landed 2026-08-06 |
+| binder | **near done** | 99.15% at `8dcdc71`; `getMergedSymbol` redirect landed 2026-08-06 |
 | module resolution | **done** | 95/95, `file_loader` 96/96, [ADR-0041](docs/adr/0041-the-checker-asks-its-program-for-a-module.md) |
-| printer | **near done** | 99.52% round-trip |
-| declaration emit | **partial** | `dts_shape` 67.76%, `dts_emit` 47.49% |
+| printer | **done** | 100% round-trip at `8dcdc71` |
+| declaration emit | **partial** | `dts_shape` 85.32%, `dts_emit` 89.04% at `8dcdc71` |
 | **checker** | **72.56% of lines** | the mountain; §4 and §5 |
 | transformers | **not started** | |
 | diagnostics | **started — 6.89%** | the check traversal (ADR-0040 (1) and (2)) plus three rules; §1 and `docs/architecture/checker-notes-diag2.md` |
@@ -985,6 +985,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
+| 2026-08-08 | `8dcdc71` | 77.25% | 3,093 | **printer_round_trip 11,755/11,778 → 11,776/11,776 = 100% (COMPLETE); binder_symbols 8,310 → 8,401 (+91); dts_emit 327 → 333; dts_shape 859/1,007 → 860/1,008** | **The twelfth session (non-checker conformance): a suite retired and two others advanced, seven commits.** (1) `36c5918` closed the round trip's last 23: sixteen were JSDoc trivia leaking into the token histogram (the gate's own scope statement — "JSDoc is trivia" — made positional via the JSDoc side table's spans); five were the parser diverging from upstream's class-element grammar (`tryParseConstructorDeclaration` commits on the keyword alone and parses type parameters + return type, `parser.go:1917`; an asterisk commits to a method, `:1944` — `*constructor() {}` is a *method* upstream); two were the printer dropping setter return type annotations upstream's `emitSignature` prints. The parser fix moved `checker_types` +5 and `diagnostics` +1 as riders. Also in it: dts path references rebase against the emitted file's directory (`getReferencedFiles`, `transform.go:464`) — `commonSourceDirectory`. (2) Three dts slices: annotated object-literal accessors keep their shape (pair → both signatures, lone getter → `readonly` property, lone setter → mutable property); an arrow returning an annotated name copies the annotation, gated on certain resolution (own parameter first, file scope only when no scope can intervene, `typeof` annotations never copy — they resolve through upstream's print); JSDoc `@returns`/setter-`@param` type JavaScript accessors. Plus `!!!!` baseline-runner annotations recognized as metadata (`noEmitOnError` — the noCheck emit is the right oracle for a checker-free emitter). (3) `8dcdc71`: the binder suite indexes **alias-transparent spellings** — the `.symbols` baseline is checker-written and prints an aliased symbol under the alias's name with the *target's* declarations; an entity `import x = a.b.c` resolves through `resolve_name` + exports tables and indexes its target (members three deep) under the alias spelling; an alias the binder failed to create adds nothing, which keeps the gate honest. +91 cases, no binder behavior changed. **Filed `bd tsr-1`**: numeric member names should canonicalize (`0b11` binds as `3` upstream, `ast/utilities.go:3160` + scanner value) — needs an arena through `FileInfo` or a value field on `NumericLiteral`; ~6 cases. Residue classified in `TASK-conformance.md` and `CONFORMANCE_TODO.md`: dts_emit's remaining 41 are ~25 checker-owned + ~10 faithful parse skips + comment-preservation and CommonJS-exports families; dts_shape's 148 are dominated by checker-driven import synthesis; binder's 72 are canonicalization, late-bound folding, export= augmentation, `@overload` lists and singles |
 | 2026-08-07 | §15 landing | **76.98%** | **3,078** | **+1,147/5 (229×), +3 cases** | **Build 31: compound assignments do not narrow.** The `2,624 number ← any` board row decoded at `flow.go:229`: upstream's assignment arm SKIPS a compound target's effect, answering the antecedent's type at the literal's base — the md5 chains stay `number` through every `a += any` because the plain shift re-anchors and `+=` never injects. `binaryArithmeticControlFlowGraphNotTooLarge` whole (968) plus `controlFlowSelfReferentialLoop`'s remaining 131. Fired leg: catch variables were misclassified auto and the skip exposed it (`useUnknownInCatchVariables01` — `is_auto_typed_declaration` now excludes catch clauses). 3 residual = `noImplicitAny`-off, options unplumbed, `bd tsr-4sc.11`. Diagnostics rode along 964 → 993 (+29 across two builds) |
 | 2026-08-07 | §14 landing | **76.75%** | **3,075** | **+10,000/0 — one build, one case, +2.09 points** | **Build 30: the too-large bail.** The wrong board's head was ONE case — `largeControlFlowGraph`, 10,001 lines want-`any`, 29% of the entire wrong column. Mechanism: upstream's DELIBERATE give-up — 10k chained `data[0] = 0` against `const data = []` (autoArrayType) trips the flow depth cap through `getTypeAtFlowArrayMutation`'s per-mutation recursion (`flow.go:118`/`1404`), TS2563 reports once at the declaration, `flowAnalysisDisabled` poisons the containing body (`checkBlock` save/restore, `checker.go:3791`), and every flow reference answers `errorType` — **which upstream prints as `any`**. The port: a mutation-count stand-in for the recursion (≥2,000 same-name element assignments in the container), a per-container disabled set scoped by lexical containment, and the `any` intrinsic as the bail's answer — with the ADR-0038 boundary argued in `checker-notes-narrow.md` §14: `error`-printing is for THIS port's failures; TS2563 is upstream's own, and its observable IS `any`. One leg fired in-build: the declaration keeps its widened `any[]` (the poison is for references, not the symbol). Falsifier (a) held: `binaryArithmeticControlFlowGraphNotTooLarge` (10k nodes, iterative walk upstream, no trip) untouched |
 | 2026-08-07 | §13 landing | **74.66%** | **3,074** | **+166 net across three more builds (77+0+89), 0 adverse lines** | **Builds 27–29.** §21: a decided overload failure answers the INTERSECTION of candidate returns (`createUnionOfSignaturesForOverloadFailure`, `checker.go:9620`) — the iteration-errors `foo(x) : never` decoded; its bar's falsifier fired on `fn1(undefined)` under `@strict: false` and was honoured by the non-strict undefined/null guard (ambiguity stays a gap). §12.8: upstream's empty-so-far loop re-entry restart, landed at a measured ZERO with the wrong prediction recorded. §13: past-last-assignment closure narrowing — the `flowContainer` extension loop, the START walk-out through the closure's creation-site flow (one binder `record_flow` arm), and `markNodeAssignments`' single-walk position marking; two legs fired in-build (stack-order vs source-order → maximum extended position; `export let` exclusion) and the final pair read +89/0. Diagnostics rode along +12 (949 → 961) |
