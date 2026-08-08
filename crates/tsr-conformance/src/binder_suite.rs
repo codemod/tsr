@@ -789,7 +789,7 @@ fn written_name_spellings(
 
 /// The property name a declaration was written with, for the kinds that carry
 /// one.
-fn declared_property_name<'a>(node: tsr_ast::Node<'a>) -> Option<tsr_ast::PropertyName<'a>> {
+fn declared_property_name(node: tsr_ast::Node<'_>) -> Option<tsr_ast::PropertyName<'_>> {
     use tsr_ast::Node;
     match node {
         Node::PropertyDeclaration(n) => Some(n.name),

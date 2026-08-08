@@ -24,7 +24,7 @@ fn bind<'a>(arena: &'a Arena, source: &'a str) -> Bound<'a> {
     // SAFETY-free: `result` borrows the same arena as `parsed`, and both live
     // as long as the caller's `arena`.
     let result = tsr_binder::bind(
-        &arena,
+        arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
@@ -435,7 +435,7 @@ fn bind_as<'a>(arena: &'a Arena, source: &'a str, file_name: &'a str) -> Bound<'
     let parsed = tsr_parser::parse(arena, source);
     assert!(parsed.diagnostics.is_empty(), "the source should parse cleanly");
     let result = tsr_binder::bind(
-        &arena,
+        arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: file_name, text: source },
@@ -925,7 +925,7 @@ fn a_late_bound_object_literal_member_is_parented_to_the_literal() {
 fn bind_source<'a>(arena: &'a Arena, source: &'a str) -> BindResult<'a> {
     let parsed = tsr_parser::parse(arena, source);
     tsr_binder::bind(
-        &arena,
+        arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },

@@ -443,7 +443,7 @@ pub(crate) fn emits_anything(unit: &crate::TestFile) -> bool {
 /// file's directory — `getReferencedFiles(outputFilePath)` with
 /// `outputFilePath = GetDirectoryPath(declarationFilePath)` and
 /// `GetRelativePathToDirectoryOrUrl` doing the math
-/// (`vendor/typescript-go/internal/transformers/declarations/transform.go:464`).
+/// (`internal/transformers/declarations/transform.go:464`).
 /// The source spelling is only correct when the declaration lands beside its
 /// source; under `outDir` the reference gains a step (`commonSourceDirectory`:
 /// `../types/bar.d.ts` written in `/app/index.ts` must read

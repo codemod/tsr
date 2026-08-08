@@ -226,7 +226,7 @@ impl<'a> Program<'a> {
     #[must_use]
     pub fn in_arena(arena: &'a Arena, options: ProgramOptions) -> Self {
         let mut program = Self::parse(arena, options);
-        program.bind_source_files(&arena);
+        program.bind_source_files(arena);
         program
     }
 
@@ -355,7 +355,7 @@ impl<'a> Program<'a> {
             binder: BindResult::empty(),
             bound_file_count: 0,
         };
-        program.bind_source_files(&arena);
+        program.bind_source_files(arena);
         program
     }
 

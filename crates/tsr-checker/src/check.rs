@@ -399,6 +399,16 @@ impl Checker<'_, '_> {
         // is the statement-level shape and is declined, §103.
         match typed {
             Node::YieldExpression(_) => self.check_yield_grammar(node),
+            // `NodeCanBeDecorated` rejects every one of these outright.
+            Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::InterfaceDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::TypeAliasDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::VariableStatement(n) => self.check_illegal_decorator(n.modifiers),
+            Node::ImportEqualsDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::ModuleDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::ImportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
+            Node::ExportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::PropertyDeclaration(n) => self.check_modifier_order(n.modifiers),
             Node::MethodDeclaration(n) => self.check_modifier_order(n.modifiers),
             Node::GetAccessorDeclaration(n) => self.check_modifier_order(n.modifiers),
@@ -2052,6 +2062,31 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// TS1206 — `Decorators are not valid here.`
+    ///
+    /// `reportObviousDecoratorErrors` → `findFirstIllegalDecorator`
+    /// (`grammarchecks.go:642`), and the `NodeCanBeDecorated` arm at `:246`.
+    /// A decorator is legal on a class, a method with a body, an accessor, a
+    /// property and a parameter of those; **every other declaration rejects
+    /// it**, and the report lands on the decorator's first token, not on the
+    /// declaration.
+    ///
+    /// Only the declaration kinds that can never be decorated are ported —
+    /// the parameter and private-name arms need `NodeCanBeDecorated`'s
+    /// grandparent tests and are left to their own row
+    /// (`checker-notes-diag2.md` §112).
+    fn check_illegal_decorator(&mut self, modifiers: &[ModifierLike<'_>]) {
+        let Some(decorator) = modifiers.iter().find_map(|modifier| match modifier {
+            ModifierLike::Decorator(decorator) => decorator.node_id,
+            ModifierLike::Token(_) => None,
+        }) else {
+            return;
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(decorator) else { return };
+        let span = self.nodes.span(decorator);
+        self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
     }
 
     /// Does the subtree rooted at `node` reach `this.<text>` in any position?

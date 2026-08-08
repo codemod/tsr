@@ -75,7 +75,7 @@ fn program<'a>(arena: &'a Arena, files: &[(&'static str, &str)]) -> Fixture<'a> 
         let file_name: &'a str = arena.alloc_str(&format!("/{name}.ts"));
         bound = tsr_binder::bind_into(
             bound,
-            &arena,
+            arena,
             source_file,
             &nodes,
             tsr_binder::FileInfo { name: file_name, text: source },

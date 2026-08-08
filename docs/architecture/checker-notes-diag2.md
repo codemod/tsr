@@ -8429,3 +8429,53 @@ returned from annotated functions whose annotation supplies **no** call
 signature for that member. Distinguishing them needs the contextual type, which
 is `checker_types`' road and §80's recorded partiality. **Owner: the contextual
 type. Do not re-attempt this on syntax alone — this is its number.**
+
+## §112 — TS1206, decorators where they are not valid: a row taken to exhaustion
+
+Re-taking `diaggap` after sixteen builds — the move that found TS1029 and
+TS1163 — surfaced TS1206 at **10 sole-obstacle cases**, and it is the same
+shape: a grammar check with no types in it.
+
+`reportObviousDecoratorErrors` → `findFirstIllegalDecorator`
+(`grammarchecks.go:642`) and the `NodeCanBeDecorated` arm at `:246`. A decorator
+is legal on a class, a method **with a body**, an accessor, a property and a
+parameter of those. Every other declaration rejects it, and the report lands on
+the **decorator's first token**, not on the declaration it precedes.
+
+Ported for the declaration kinds that can never be decorated — enum, function,
+interface, type alias, variable statement, `import =`, namespace, import and
+export declarations. The parameter and private-name arms need
+`NodeCanBeDecorated`'s grandparent tests and are left to their own row.
+
+| | CONVERTS | LOST | RIGHT | WRONG | STILL SHORT |
+|---|---:|---:|---:|---:|---:|
+| before | 0 | 0 | 0 | 0 | 8 |
+| **after** | **8** | **0** | **8** | **0** | **0** |
+
+**+8 cases for zero wrong lines, and `STILL SHORT` reached 0** — every case this
+rule can reach, it reached. Coverage `1,406 → 1,414 / 5,488` (**25.77%**);
+`checker_types` 3,927/9,538 · 84.34%.
+
+**A `STILL SHORT` of zero is the row's own completion signal** and this is the
+first time this workstream has seen one. It means the remaining TS1206 lines
+(`parameterDecoratorsEmitCrash`, `privateNamesAndDecorators`) are in cases that
+need *other* codes too, so the parameter arm is worth nothing until those land —
+which is a stronger statement than "3 lines left" and is only visible in this
+column.
+
+### Two gates failed on code this build did not touch
+
+Worth recording because both cost time and neither was diagnostic of anything
+here:
+
+- **clippy, six `needless_borrow` sites** in binder and checker *test* files,
+  arrived through the same pull as the `.types` builds. Fixed with
+  `cargo clippy --fix`; they are not this build's and are not left for the next
+  session.
+- **`xtask anchors`, one unresolved**: `dts_emit_suite.rs:446` wrote
+  `vendor/typescript-go/internal/…` where every other anchor in the tree writes
+  `internal/…`. The checker resolves **relative to the vendor root**, so the
+  prefix made it look for `vendor/typescript-go/vendor/typescript-go/…`. The
+  file exists; the path was doubly rooted. **An anchor that names a real file
+  can still fail, and the failure message says "no such file", which points at
+  upstream rather than at the prefix.**

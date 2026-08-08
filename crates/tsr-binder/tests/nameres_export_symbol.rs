@@ -28,7 +28,7 @@ fn bind<'a>(arena: &'a Arena, source: &'a str) -> Bound<'a> {
         parsed.diagnostics.iter().map(tsr_diagnostics::Diagnostic::text).collect::<Vec<_>>()
     );
     let result = tsr_binder::bind(
-        &arena,
+        arena,
         parsed.source_file,
         &parsed.nodes,
         tsr_binder::FileInfo { name: "test.ts", text: source },
