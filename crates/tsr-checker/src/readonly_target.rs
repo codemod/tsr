@@ -156,7 +156,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(property) = self.get_property_of_type(receiver_type, name.text) else { return };
-        // **Every** declaration must carry `private`, not just the value one.
+        // **Every** declaration must carry the modifier, not just the value one.
         // A `get`/`set` pair may diverge — `get PublicPrivate()` beside
         // `private set PublicPrivate(v)` — and upstream decides accessibility
         // from the accessor the *access kind* selects, a read from the getter
@@ -165,15 +165,48 @@ impl Checker<'_, '_> {
         // `divergentAccessorsVisibility1` was 12 wrong lines and
         // `accessorDeclarationOrder` was this rule's only loss (§67).
         let declarations = self.binder.symbols().get(property).declarations.clone();
-        if declarations.is_empty()
-            || !declarations
-                .iter()
-                .all(|&declaration| self.member_declaration_is_private(declaration))
-        {
+        if declarations.is_empty() {
             return;
         }
+        let all_carry = |checker: &Self, keyword: SyntaxKind| {
+            declarations
+                .iter()
+                .all(|&declaration| checker.member_declaration_has(declaration, keyword))
+        };
+        let is_private = all_carry(self, SyntaxKind::PrivateKeyword);
+        let message = if is_private {
+            &messages::PROPERTY_0_IS_PRIVATE_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1
+        } else if all_carry(self, SyntaxKind::ProtectedKeyword) {
+            &messages::PROPERTY_0_IS_PROTECTED_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1_AND_ITS_SUBCLASSES
+        } else {
+            return;
+        };
         let Some(declaring) = self.nodes.parent(declarations[0]) else { return };
-        if self.enclosing_class_of(node) == Some(declaring) {
+        // **Every** enclosing class, not the nearest one. `isNodeWithinClass`
+        // and `forEachEnclosingClass` walk the whole chain, so a reference in a
+        // class nested inside a subclass is still inside it —
+        // `protectedClassPropertyAccessibleWithinNestedSubclass1` was 21 wrong
+        // lines before this (§68).
+        // A function with a **`this` parameter** carries the class through its
+        // type rather than lexically, and upstream's accessibility check reads
+        // the `this` type (`getThisTypeOfDeclaration`). This port has no such
+        // reading, so the whole shape is declined —
+        // `protectedMembersThisParameter`, `thisTypeAccessibility` and
+        // `protectedAccessThroughContextualThis` (§68).
+        if self.reference_is_inside_a_this_parameter_function(node) {
+            return;
+        }
+        let enclosing: Vec<NodeId> = self.enclosing_classes_of(node);
+        let permitted = if is_private {
+            enclosing.contains(&declaring)
+        } else {
+            // `protected`: an enclosing class must **derive from** the
+            // declaring one (§68). The walk declines the moment it cannot
+            // follow a link, which is `base_symbols_of`'s contract at a
+            // different question.
+            enclosing.iter().any(|&class| self.class_derives_from(class, declaring))
+        };
+        if permitted {
             return;
         }
         let Some(class_name) = self.declaration_name_of_class(declaring) else { return };
@@ -181,16 +214,61 @@ impl Checker<'_, '_> {
         let span = self.error_span(name_id);
         self.report(
             file,
-            Diagnostic::with_args(
-                &messages::PROPERTY_0_IS_PRIVATE_AND_ONLY_ACCESSIBLE_WITHIN_CLASS_1,
-                span,
-                [name.text.to_string(), class_name],
-            ),
+            Diagnostic::with_args(message, span, [name.text.to_string(), class_name]),
         );
     }
 
-    /// Does this class member carry a `private` modifier?
-    fn member_declaration_is_private(&self, declaration: NodeId) -> bool {
+    /// Does `class` reach `base` through its `extends` chain, or **is** it
+    /// `base`? A link this port cannot follow answers `false`, which is the
+    /// reporting direction — see §68's falsifier.
+    fn class_derives_from(&self, class: NodeId, base: NodeId) -> bool {
+        let mut current = class;
+        for _ in 0..16 {
+            if current == base {
+                return true;
+            }
+            let Some(next) = self.extends_class_declaration(current) else { return false };
+            current = next;
+        }
+        false
+    }
+
+    /// The class declaration a class `extends`, when the heritage names one
+    /// non-generic class this port can resolve — §56's shape.
+    fn extends_class_declaration(&self, class: NodeId) -> Option<NodeId> {
+        let heritage = match self.node_map.get(class)? {
+            Node::ClassDeclaration(declaration) => declaration.heritage_clauses,
+            Node::ClassExpression(declaration) => declaration.heritage_clauses,
+            _ => return None,
+        };
+        let clause =
+            heritage.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)?;
+        let [base] = clause.types else { return None };
+        let expression = base.expression?.node_id()?;
+        let Some(Node::Identifier(written)) = self.node_map.get(expression) else { return None };
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            expression,
+            written.text,
+            tsr_binder::SymbolFlags::VALUE,
+        )?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.intersects(tsr_binder::SymbolFlags::CLASS) || entry.declarations.len() != 1
+        {
+            return None;
+        }
+        let candidate = entry.declarations[0];
+        matches!(
+            self.nodes.kind(candidate),
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+        )
+        .then_some(candidate)
+    }
+
+    /// Does this class member carry the given accessibility modifier?
+    fn member_declaration_has(&self, declaration: NodeId, keyword: SyntaxKind) -> bool {
         let modifiers = match self.node_map.get(declaration) {
             Some(Node::PropertyDeclaration(property)) => property.modifiers,
             Some(Node::MethodDeclaration(method)) => method.modifiers,
@@ -200,20 +278,41 @@ impl Checker<'_, '_> {
             _ => return false,
         };
         modifiers.iter().any(|modifier| {
-            matches!(modifier, tsr_ast::ModifierLike::Token(token)
-                if token.kind == SyntaxKind::PrivateKeyword)
+            matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == keyword)
         })
     }
 
-    /// The nearest enclosing class declaration or expression —
-    /// `getContainingClass`.
-    fn enclosing_class_of(&self, node: NodeId) -> Option<NodeId> {
-        self.nodes.ancestors(node).find(|&ancestor| {
-            matches!(
-                self.nodes.kind(ancestor),
-                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-            )
+    /// Is the reference inside a function-like declaration that names a `this`
+    /// parameter? See §68.
+    fn reference_is_inside_a_this_parameter_function(&self, node: NodeId) -> bool {
+        self.nodes.ancestors(node).any(|ancestor| {
+            let parameters: &[&tsr_ast::ParameterDeclaration<'_>] =
+                match self.node_map.get(ancestor) {
+                    Some(Node::FunctionDeclaration(n)) => n.parameters,
+                    Some(Node::FunctionExpression(n)) => n.parameters,
+                    Some(Node::ArrowFunction(n)) => n.parameters,
+                    Some(Node::MethodDeclaration(n)) => n.parameters,
+                    _ => return false,
+                };
+            parameters.iter().any(|parameter| {
+                matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name))
+                    if name.text == "this")
+            })
         })
+    }
+
+    /// Every enclosing class declaration or expression, innermost first —
+    /// `isNodeWithinClass` / `forEachEnclosingClass`.
+    fn enclosing_classes_of(&self, node: NodeId) -> Vec<NodeId> {
+        self.nodes
+            .ancestors(node)
+            .filter(|&ancestor| {
+                matches!(
+                    self.nodes.kind(ancestor),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+            .collect()
     }
 
     /// A class's written name, for the message's second argument.

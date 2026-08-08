@@ -5086,3 +5086,88 @@ them.
 > predicate. The bar's own falsifier — "references *inside* the declaring
 > class" — was about the walk and the walk was right; what was wrong was which
 > declaration the modifier was read from.
+
+---
+
+## 68. TS2445 — the `protected` sibling §67 left
+
+§67 built `checkPropertyAccessibility`'s `private` half and said why it stopped:
+*"`protected` … needs the `extends` chain and the `this`-type rules upstream
+applies on top."* `diagemit.rs` prices the half left behind at **102 baseline
+lines, zero emitted**.
+
+The rule is `private`'s with one clause changed: the reference's enclosing class
+must **derive from** the declaring class rather than *be* it. The chain walk is
+§56's `sole_extends_class_declaration` shape — one `extends` clause naming one
+non-generic class this port can resolve — and it declines the moment it cannot
+follow a link, which is `crate::members`' `base_symbols_of` contract applied to
+a different question.
+
+**The `this`-type half is not built.** Upstream additionally requires that a
+protected *instance* member be accessed through a receiver of the enclosing
+class or a subclass (TS2446, `Property '{0}' is protected and only accessible
+through an instance of class '{1}'`). That is a second code with its own row and
+a relation question; declining it costs a missing diagnostic in a case that
+already gets TS2445 right or nothing at all.
+
+§67's divergent-accessor decline carries over unchanged: every declaration of
+the symbol must carry the modifier.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,296**. Forecast **+3 to +10** |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST == **0** on `diag2307.rs` with `RULE_CODES = [2341, 2445]` |
+| 4 | TS2341's WRONG stays **0**; TS2445's own ≤ **20** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column carries accesses from a class that *does*
+derive, the walk is stopping at a link it should follow — a generic base, a base
+named through a qualified name, or one declared in another file — and the answer
+is to widen the walk or decline those bases rather than the rule.
+
+### Scored — **a measured zero on the suite**, +44 right lines, kept
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,296, forecast +3 to +10 | **1,296** — no conversion | **fired** |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST == 0 | **0** | pass |
+| 4 | TS2341's WRONG stays 0; TS2445's ≤ 20 | **31 → 10 → 0** after two declines | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2341, 2445]`: **CONVERTS 7 · RIGHT 47 → 91 · WRONG 0 ·
+LOST 0.** The seven are §67's; TS2445 converts **none** on its own.
+
+### The two declines, and the first was a misread of the walk
+
+The registered falsifier named a walk that stops at a link it should follow, and
+what the wrong column actually held was a walk that stopped at the **wrong
+level**:
+
+- **`protectedClassPropertyAccessibleWithinNestedSubclass1`, 21 lines.**
+  `isNodeWithinClass` and `forEachEnclosingClass` walk **every** enclosing
+  class, not the nearest, so a reference inside a class nested within a subclass
+  is still inside the subclass. §67's `enclosing_class_of` took the innermost
+  one — correct for its own measurement because `private` never met a nested
+  class in the corpus, and wrong the moment `protected` did.
+- **A `this` parameter, 10 lines.** `protectedMembersThisParameter`,
+  `thisTypeAccessibility` and `protectedAccessThroughContextualThis` reach a
+  protected member from a *function*, carrying the class through
+  `this: Subclass` rather than lexically. Upstream reads the `this` type; this
+  port has no such reading, and the whole shape is declined.
+
+### Kept on the reachable set, not on the suite
+
+`diagreach.rs` reads **1,299** after this against 1,296 passing, up from 1,283
+before §65 — the 44 new right lines put three more cases within reach of rules
+that already exist. That is the honest justification: TS2445 converts nothing
+today because every case wanting it wants something else too, and the something
+else is now the only thing missing.
+
+> **A rule that converts zero and emits no wrong line is not the same as one
+> that converts zero and does** (§44 was the first kind, §61.1 the second). The
+> distinction is `diagreach.rs`, and it is why the instrument is worth running
+> on a zero.
