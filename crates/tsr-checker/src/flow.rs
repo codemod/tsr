@@ -2320,32 +2320,60 @@ impl Checker<'_, '_> {
                                     | SyntaxKind::ExclamationEqualsEqualsToken
                             );
                             let keep_match = assume_true != negated;
-                            let constituents: Vec<TypeId> = match &self.store.get(t).data {
-                                TypeData::Union { types, .. } => types.clone(),
-                                _ => vec![t],
-                            };
-                            let regular = self.get_regular_type_of_literal_type(literal_type);
-                            let mut kept = Vec::new();
-                            for constituent in constituents {
-                                let Some(member_type) =
-                                    self.get_type_of_property_of_type(constituent, &member)
-                                else {
-                                    return t;
-                                };
-                                match self.comparable_ternary(regular, member_type) {
-                                    Some(admits) => {
-                                        if admits == keep_match {
-                                            kept.push(constituent);
-                                        }
+                            return self.filter_union_by_member_literal(
+                                t,
+                                &member,
+                                literal_type,
+                                keep_match,
+                            );
+                        }
+                    }
+                }
+                // §51.1 (`checker-notes-narrow.md`): `s.kind === 0` — a
+                // property access whose RECEIVER is the reference
+                // discriminates by the member, the §50 filter with the
+                // member from the access (`narrowTypeByDiscriminantProperty`).
+                let access_pair =
+                    [(left, right), (right, left)].into_iter().find_map(|(candidate, value)| {
+                        match self.node_map.get(candidate) {
+                            Some(Node::PropertyAccessExpression(access))
+                                if access
+                                    .expression
+                                    .and_then(|receiver| receiver.node_id())
+                                    .is_some_and(|id| self.is_matching_reference(state, id)) =>
+                            {
+                                match access.name {
+                                    Some(tsr_ast::MemberName::Identifier(name)) => {
+                                        Some((name.text.to_string(), value))
                                     }
-                                    None => return t,
+                                    _ => None,
                                 }
                             }
-                            if kept.is_empty() {
-                                return t;
-                            }
-                            return self.get_union_type(&kept);
+                            _ => None,
                         }
+                    });
+                if let Some((member, literal_node)) = access_pair {
+                    let literal_type = self
+                        .node_map
+                        .get(literal_node)
+                        .and_then(|node| tsr_ast::Expression::try_from(node).ok())
+                        .map(|expression| self.check_expression(expression));
+                    if let Some(literal_type) = literal_type
+                        && literal_type != self.intrinsics.error
+                        && self.store.get(literal_type).flags.intersects(TypeFlags::UNIT)
+                    {
+                        let negated = matches!(
+                            operator.kind,
+                            SyntaxKind::ExclamationEqualsToken
+                                | SyntaxKind::ExclamationEqualsEqualsToken
+                        );
+                        let keep_match = assume_true != negated;
+                        return self.filter_union_by_member_literal(
+                            t,
+                            &member,
+                            literal_type,
+                            keep_match,
+                        );
                     }
                 }
                 // Upstream normalises with `getReferenceCandidate` on the left
@@ -2363,6 +2391,43 @@ impl Checker<'_, '_> {
             }
             _ => t,
         }
+    }
+
+    /// The §50/§51.1 shared discriminant filter: keep constituents whose
+    /// MEMBER admits (or refutes) the literal. Declines whole — answers `t`
+    /// — on a missing member, a Kleene unknown, an emptied set, or a
+    /// kept-ALL set (the §51 alias-name identity).
+    fn filter_union_by_member_literal(
+        &mut self,
+        t: TypeId,
+        member: &str,
+        literal_type: TypeId,
+        keep_match: bool,
+    ) -> TypeId {
+        let constituents: Vec<TypeId> = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let total = constituents.len();
+        let regular = self.get_regular_type_of_literal_type(literal_type);
+        let mut kept = Vec::new();
+        for constituent in constituents {
+            let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
+                return t;
+            };
+            match self.comparable_ternary(regular, member_type) {
+                Some(admits) => {
+                    if admits == keep_match {
+                        kept.push(constituent);
+                    }
+                }
+                None => return t,
+            }
+        }
+        if kept.is_empty() || kept.len() == total {
+            return t;
+        }
+        self.get_union_type(&kept)
     }
 
     /// `Checker.narrowTypeByEquality` (`flow.go:556`), **nullable-operand half

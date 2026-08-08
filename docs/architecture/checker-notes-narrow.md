@@ -2216,3 +2216,24 @@ declaration-position flow question is its own row, accepted here at
 48:1. The 1 G→W is switch-exhaustiveness reachability (`area : number`
 needs the no-assignment path proved dead). `checker_types` right
 399,024 → **399,212 (83.35%)**.
+
+## §51.1 — the equality twin: `if (s.kind === 0)`
+
+`narrowTypeByDiscriminantProperty` (`flow.go`, the equality dispatch
+before the direct-reference arm): a property access whose RECEIVER is
+the matching reference, compared to a literal, filters the union by the
+member — the §50 equality filter with the member from the ACCESS instead
+of a pattern sibling. Shared as one helper. Same declines: missing
+member, Kleene unknown, kept-all identity (§51's alias-name lesson,
+applied at birth here), kept-empty.
+
+**Falsifiers.** (a) the §51 declaration-position anomaly recurs on
+equality-narrowed functions — counted; (b) literal-vs-literal-union
+member comparability mis-answers — comparable_ternary's unit-pair rung
+already decides those; R→W would say otherwise.
+
+**§51.1 score — LANDED.** **+196 (142 W→R, 54 G→R), 6 W→G / 2 G→W +
+2 R→W (49:1).** The adverse: `switch (true)` clause-expression narrowing
+(`narrowByClauseExpressionInSwitchTrue3` — the case-expression road, not
+this arm's) and a `this`-member loop-antecedent pair. `checker_types`
+right 399,212 → **399,406 (83.39%)**.
