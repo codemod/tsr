@@ -101,10 +101,14 @@ TS2540      12         9
 
 0ab. **READ THE EXISTING RULE BEFORE ASSUMING THE MISSING ARM** (§143). TS2540's
    11 cases are `++M.x` and look like a missing operator arm; `assignment_target`
-   already handles `++`/`--`, and the gap is the receiver-type half
-   (`declared_members_are_complete` / `get_property_of_type` over `typeof M`),
-   which is `checker_types`-adjacent. **Twelve lines of `expressions.rs` were the
-   tell.** `diaggap` ranks by case count and says nothing about which layer a row
+   already handles `++`/`--`, and **§144's probe showed all four
+   receiver-type gates PASS** (`err=false anyunk=false complete=true
+   prop=true`), so §143's own attribution was wrong too. The failure is at
+   `is_readonly_symbol` — which already has upstream's const-variable arm — so
+   either `M.x`'s symbol is not `VARIABLE` here (a namespace export filed as
+   `PROPERTY`, §102's `classify` territory) or `is_constant_variable` misses the
+   `const`. **Next probe, one line: print `record.flags` and
+   `is_readonly_symbol(property)` at that gate.** `diaggap` ranks by case count and says nothing about which layer a row
    needs.
 
 0aa. **READ THE FIXTURE BEFORE THE FOURTH HYPOTHESIS.** Nine sections

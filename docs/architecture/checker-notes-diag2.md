@@ -9985,3 +9985,49 @@ Four rows this session looked syntactic and were (TS1029, TS1163, TS1206,
 TS18013); this one looks syntactic and is not. **The tell was cheap: read the
 existing rule before assuming the missing arm is the obvious one** — twelve
 lines of `expressions.rs` said the operator was already handled.
+
+## §144 — the probe corrects §143: all four receiver-type gates pass
+
+§143 priced TS2540's gap as the receiver-type half and named two candidates —
+`declared_members_are_complete` and `get_property_of_type` — explicitly as
+candidates, unmeasured. §143's own instruction was to probe before building on
+that paragraph. Probed:
+
+```
+2540 x  err=false  anyunk=false  complete=true  prop=true
+```
+
+**All four pass.** The receiver type resolves, its members are complete, and
+`x` is found. §143's attribution was wrong in the same way six earlier ones on
+this board were: it named the plausible layer instead of the measured one.
+
+So the failure is further down, at one of the two tests that follow:
+
+```rust
+if !self.is_readonly_symbol(property) && !self.property_signature_is_readonly(property) {
+    return;
+}
+if self.assignment_is_inside_the_declaring_constructor(node, property) {
+```
+
+And `is_readonly_symbol` (`flow.rs:787`) **already has** upstream's const-variable
+arm — `flags.intersects(VARIABLE) && self.is_constant_variable(symbol)`, which is
+`checker.go`'s `Variable && NodeFlagsConst`. So either `M.x`'s symbol is not
+`VARIABLE` here (a namespace export may be filed as `PROPERTY`, which is §102's
+`classify` territory and §100's shape), or `is_constant_variable` does not see
+the `const`.
+
+**Next probe, one line: print `record.flags` and `is_readonly_symbol(property)`
+at that gate.** That distinguishes the two in a single run, and this section
+deliberately does not guess which.
+
+### Third correction of an attribution this session, and the cheapest yet
+
+§143 cost one paragraph and the probe cost one run. The earlier ones cost
+builds — §122 a revert, §126 two implemented fixes, §129 a whole guard. **The
+cost of a wrong attribution is set by how far you build on it before probing**,
+and §143 was written *with* the instruction to probe first, which is why it cost
+almost nothing to be wrong.
+
+That is the practice worth keeping from this row: **name the layer, label it a
+candidate, and write the probe that would settle it in the same breath.**
