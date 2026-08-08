@@ -3034,3 +3034,16 @@ measured against a RE-TAKEN baseline (the §88 trap fired a second
 time this window: another workstream's §103 builds arrived through
 build 134's own rebase; stash-and-remeasure caught it, right 403,754
 → 403,811 was theirs).
+
+## §77.2-retry — still refused, now at 0:20 with the mechanism located
+
+The fallback repaired the R→G leg (an erroring origin build now falls
+back to the plain union), but the retry measured **0 W→R against 20
+R→W**: the order-wanting positions (`narrowingUnionWithBang`,
+`controlFlowAliasing`) never reach the union-NODE path at all — their
+unions are built by OPTIONALITY (`?:` adding `undefined` under
+strict) and by narrowing rebuilds, not from a written UnionTypeNode —
+while the path the retry did reach (const-context literal unions) is
+one upstream genuinely sorts. The head's owner is the optionality
+union builder and the §52.1 site-sensitivity class, not the
+annotation mint. Refusal stands.
