@@ -9251,3 +9251,57 @@ what six sections of reasoning have not.
 The rule this session paid for seven times over is the one that applies:
 **print whether the rule runs and what it saw, before asking why it decided.**
 It has been skipped or misapplied three times on this row alone.
+
+## §128 — the instrument settles it: the `Ex` in `getTypeOnlyAliasDeclarationEx`
+
+§127 forbade a seventh inference and prescribed an entry-point probe. One run,
+both cases, deduplicated:
+
+```
+onInit decls=[ImportSpecifier] parents=[ComputedPropertyName, MethodDeclaration,  ClassDeclaration]      valid=false
+onInit decls=[ImportSpecifier] parents=[ComputedPropertyName, PropertyDeclaration, ClassDeclaration]     valid=false
+onInit decls=[ImportSpecifier] parents=[ComputedPropertyName, PropertyAssignment,  ObjectLiteralExpression] valid=false
+onInit decls=[ImportSpecifier] parents=[ComputedPropertyName, MethodSignature,    InterfaceDeclaration]  valid=true
+onInit decls=[ImportSpecifier] parents=[ComputedPropertyName, PropertySignature,  TypeLiteral]           valid=true
+Row    decls=[ImportSpecifier] parents=[CallExpression, ExpressionStatement, SourceFile]                 valid=false
+```
+
+**The computed-property clause is working.** Interface and type-literal members
+answer `valid=true`; class members and object-literal properties answer `false`
+and are reported, which is upstream's own rule. §126's "the grandparent test is
+too narrow" was wrong, and §127's measurement already said so — the probe says
+*why*: nothing was missing.
+
+### The real defect, and it is one dropped argument
+
+`Row` is the whole of `mergeSymbolRexportFunction`, and the probe names it: its
+only declaration is an **`ImportSpecifier`**, yet the emitted code is **TS1362**,
+the *export* message. So the chain walk followed the alias to a type-only
+**export** specifier and reported through it.
+
+Upstream cannot: `getTypeOnlyAliasDeclarationEx(result, ast.SymbolFlagsValue)`
+(`checker.go:1861`) takes a **meaning** argument, and this port's
+`type_only_alias_declaration` **has no such parameter**. The `Ex` is a filter —
+a type-only declaration is only disqualifying for the meaning it actually
+blocks. A re-export that is type-only in *type* space does not stop the name
+being used as a value if the original import is not.
+
+**That is the cause of the TS1362 line, it was invisible to six inferences, and
+one probe showed it.** It is also why §127's merged-symbol fix did nothing:
+searching every declaration finds the same wrong declaration faster.
+
+### What to build
+
+Thread `meaning` through `type_only_alias_declaration` and stop the walk at a
+declaration that does not block it, exactly as `getTypeOnlyAliasDeclarationEx`
+does. Then re-run `RULE_CODES = [1361, 1362]` and beat **5 converts / 22 right /
+3 wrong**; the expectation is 3 → 1, with the two class-member and
+object-literal computed names remaining and needing their own read.
+
+### The session's most-repeated lesson, in its sharpest form
+
+Six inferences, two right, then one probe. **The probe cost less than any of the
+six and was prescribed by the section that ran out of inferences, not by the one
+that ran out of patience.** Every wrong guess here was made by reasoning from
+artefacts that describe *upstream*; the defect was in what *this port* did with
+an argument it never had.
