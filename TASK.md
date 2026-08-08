@@ -75,6 +75,17 @@ STATE AT HANDOFF (verify with a fresh coverage run):
   reproduce the trip; the lazy any-typing never starts the cascade.
   parsingDeep's 333 + the auto-var families hang on this one mechanism.
 
+  BUILDS 111–116 addendum: §60 qualified heritage (6:1, plus the
+  inside-namespace refusal re-priced at 1.4:1 and the §33 const gate
+  proved load-bearing at 850 R→G); §61 auto-var counter proved
+  IMPOSSIBLE (43 ticks vs the 2000 cap — the recursion IS the count);
+  §62 unique symbols per-declaration (30:1); §63/§63.1/§63.2 the tuple-
+  context family complete (+92/0); §64 non-strict null-return widening
+  (+388/0 — the census's biggest single find); §65 undefined-initializer
+  un-refused with three keys (noImplicitAny plumbed into the producer);
+  §65.1's null twin refused at 2.4:1 (fourth key undecoded — START THERE
+  or at the argument-road generalization). 84% and 40% both crossed.
+
   NEXT HEADS, each with its section: the enum residue (string-length
   folding, cross-enum refs, §53's entry-order class), the || early-return
   divergence (7 lines, blocked on non-strict per-constituent facts), the
