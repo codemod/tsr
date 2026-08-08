@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,788/9,538** | **39.71%** | **gradient 83.84%** — the target (builds 25–108) |
+| **`checker_types`** | **3,794/9,538** | **39.78%** | **gradient 83.88%** — the target (builds 25–110) |
 | `diagnostics` | **1,373/5,488** | **25.02%** | **measured at HEAD, thirteenth session (§86–§90), +27 over 4 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,373, **17.2×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
 
 ### `checker_types`, the number the project is steered by
@@ -220,7 +220,10 @@ union-print diagnosis) = 401,531; then + 10 (§56.1: return-position retention, 
 closed by a one-line TSR_JOIN_DEBUG diagnosis, §56's let gate lifted, 6
 adverse at 5.5:1 owned by the switch(true) road; §31.1 ES-import
 findability refused at 2.7:1 and §56.2 parameter defaults at zero en
-route) = 401,574 exactly — builds 25–108. The
+route) = 401,574; then + 65 (§59: switch(true) clause expressions, 4 honest
+declines at 33:1) = 401,639; then + 91 (§56.3: argument-position
+retention, ZERO adverse — temporal's first 79 lines move) = 401,730
+exactly — builds 25–110. The
 right+gap+wrong identity now sums against 470,619.
 Build 96 (scorepair) and the probefile tool are the loop's new
 instruments; the full run is 21s since the §52 memo. §35 records a FINDING: tsgo prints
