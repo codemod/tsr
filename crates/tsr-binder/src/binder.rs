@@ -2750,6 +2750,45 @@ impl<'a, 'n> Binder<'a, 'n> {
                             self.symbols.get_mut(symbol).declarations.push(id);
                             self.node_symbols[id.index()] = Some(symbol);
                         }
+                        JSDocTag::JSDocParameterOrPropertyTag(property) => {
+                            // A braced `@param`/`@property` type carries
+                            // members upstream binds (`jsdocTemplateTag6`).
+                            if let Some(expression) = property.type_expression {
+                                self.bind(tsr_ast::Node::from(expression));
+                            }
+                            if self.nodes.kind(property.node_id.unwrap_or(NodeId::ZERO))
+                                != SyntaxKind::JSDocPropertyTag
+                            {
+                                continue;
+                            }
+                            let name = match property.name {
+                                Some(tsr_ast::EntityName::Identifier(identifier)) => {
+                                    identifier.text
+                                }
+                                _ => continue,
+                            };
+                            let Some(id) = property.node_id else { continue };
+                            let symbol = self.symbols.create(name, SymbolFlags::PROPERTY);
+                            self.symbols.get_mut(symbol).declarations.push(id);
+                            self.node_symbols[id.index()] = Some(symbol);
+                        }
+                        // `@this {{ n: number }}`, `@returns` and `@type`
+                        // braced types are parsed syntax too (`thisTag1`).
+                        JSDocTag::JSDocThisTag(this_tag) => {
+                            if let Some(expression) = this_tag.type_expression {
+                                self.bind(tsr_ast::Node::from(expression));
+                            }
+                        }
+                        JSDocTag::JSDocReturnTag(return_tag) => {
+                            if let Some(expression) = return_tag.type_expression {
+                                self.bind(tsr_ast::Node::from(expression));
+                            }
+                        }
+                        JSDocTag::JSDocTypeTag(type_tag) => {
+                            if let Some(expression) = type_tag.type_expression {
+                                self.bind(tsr_ast::Node::from(expression));
+                            }
+                        }
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };
                             if let Some(symbol) = self.node_symbols[host.index()] {
