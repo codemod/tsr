@@ -5,13 +5,14 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  309/376  = 82.18%  (denominator moved twice: grew
-                                                341 -> 395 pairing outDir-
-                                                remapped baselines, then shrank
-                                                to 376 removing mispairings
-                                                against flattened input echoes)
-  dts_shape                837/1,005 = 83.28%  (same two corrections; was
-                                                753/918 before them)
+  dts_emit                  311/378  = 82.28%  (denominator moved three times:
+                                                grew 341 -> 395 pairing outDir-
+                                                remapped baselines, shrank to
+                                                376 removing input-echo
+                                                mispairings, grew to 378 with
+                                                positional duplicate pairing)
+  dts_shape                840/1,007 = 83.42%  (same corrections; was 753/918
+                                                before them)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -217,6 +218,13 @@ JSDoc `@protected`/`@private` tags now act as accessibility modifiers on
 JavaScript class members, keyed off the root `JAVASCRIPT_FILE` node flag the
 harness stamps because the parser never sees file names
 (`lateBoundAssignmentCandidateJS3`).
+
+Output pairing is now positional per basename group: exact-name claiming was
+actively wrong when two flattened outputs share a name
+(`moduleDeclarationExportStarShadowingGlobalIsNameable` closed). A preserved
+reference already naming a declaration file keeps its name — rewriting produced
+`bar.d.d.ts` (`commonSourceDirectory` now fails only on outDir-relative path
+depth, which needs output-path awareness).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

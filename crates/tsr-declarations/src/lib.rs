@@ -296,6 +296,12 @@ fn declaration_reference_name(name: &str) -> String {
     // directory. typescript-go normalizes an explicit same-directory `./`
     // prefix away before replacing the source extension.
     let name = name.strip_prefix("./").unwrap_or(name);
+    // A reference to a declaration file keeps its name: rewriting `.ts` off
+    // `bar.d.ts` would produce `bar.d.d.ts` (`commonSourceDirectory`).
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".d.ts") || lower.ends_with(".d.mts") || lower.ends_with(".d.cts") {
+        return name.to_string();
+    }
     for (source, declaration) in [
         (".mts", ".d.mts"),
         (".cts", ".d.cts"),

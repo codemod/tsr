@@ -2,13 +2,13 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 309/376 (82.18%)
+Passed         : 311/378 (82.28%)
 Failed         : 67
-Skipped        : 12068 (excluded from the denominator)
+Skipped        : 12066 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
   15  skipped: a unit of this case does not parse cleanly
-  8327  skipped: the emit baseline has no emitted .d.ts section
+  8325  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
 
@@ -26,6 +26,8 @@ compiler/argumentsReferenceInConstructor6_Js
   line 2: want `    /**`, got `    constructor();`
 compiler/argumentsReferenceInConstructor7_Js
   line 2: want `    /**`, got `    constructor();`
+compiler/commonSourceDirectory
+  line 1: want `/// <reference path="../../types/bar.d.ts" preserve="true" />`, got `/// <reference path="../types/bar.d.ts" preserve="true" />`
 compiler/declarationEmitClassAccessorsJs1
   line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
@@ -82,8 +84,6 @@ compiler/mappedTypeGenericInstantiationPreservesHomomorphism
   line 1: want `export declare const mappedUnionWithPrivateType: <T extends unknown[]>(...args: T) => T[any] extends infer T_1 ? { [K in keyof T_1]: T_1[K]; } : never;`, got `export declare const mappedUnionWithPrivateType: any;`
 compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
-compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
-  line 1: want `export * from "./account";`, got `declare global {`
 compiler/modulePreserve4
   line 1: want `export = _default;`, got `declare const _default: () => void;`
 compiler/noEmitOnError

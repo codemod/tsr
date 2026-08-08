@@ -180,8 +180,31 @@ pub(crate) fn output_units<'a>(
     baseline: &'a JsBaseline,
     case: &'a crate::TestCase,
 ) -> Vec<(&'a crate::TestFile, &'a crate::js_baseline::Section)> {
+    pair_units(baseline, case)
+        .into_iter()
+        .filter_map(|(unit, section)| Some((unit, section?)))
+        .collect()
+}
+
+/// Every emittable unit paired with its declaration section, if upstream wrote
+/// one.
+///
+/// Pairing is positional where names collide: two `@filename` directories can
+/// flatten to the same section name (`moduleDeclarationExportStarShadowingGlobalIsNameable`
+/// has two `index.ts` units and two `index.d.ts` outputs), and upstream writes
+/// outputs in program order, so the k-th unit claiming a name pairs with the
+/// k-th section bearing it. Exact full-name matches are claimed first so a
+/// pathed output never loses its section to a basename collision.
+fn pair_units<'a>(
+    baseline: &'a JsBaseline,
+    case: &'a crate::TestCase,
+) -> Vec<(&'a crate::TestFile, Option<&'a crate::js_baseline::Section>)> {
+    fn base(path: &str) -> &str {
+        path.rsplit('/').next().unwrap_or(path)
+    }
     let emitted = emitted_sections(baseline, case);
-    case.files
+    let units: Vec<&crate::TestFile> = case
+        .files
         .iter()
         .filter(|unit| {
             ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
@@ -191,10 +214,28 @@ pub(crate) fn output_units<'a>(
                 // (compositeWithNodeModulesSourceFile).
                 && !unit.name.contains("node_modules/")
         })
-        .filter_map(|unit| {
-            let section = matching_section(&emitted, case, &unit.name)?;
-            Some((unit, section))
-        })
+        .collect();
+
+    // Positional within each basename group: exact-name claiming is actively
+    // wrong when two flattened outputs share a name, because a bare-named unit
+    // would grab the *first* section regardless of whose output it is
+    // (`moduleDeclarationExportStarShadowingGlobalIsNameable`).
+    let mut claimed = vec![false; emitted.len()];
+    let mut pairs: Vec<Option<usize>> = vec![None; units.len()];
+    for (index, unit) in units.iter().enumerate() {
+        let wanted = declaration_name(&unit.name);
+        if let Some(found) = emitted.iter().enumerate().position(|(position, section)| {
+            !claimed[position] && section.is_declaration() && base(&section.name) == base(&wanted)
+        }) {
+            claimed[found] = true;
+            pairs[index] = Some(found);
+        }
+    }
+
+    units
+        .into_iter()
+        .zip(pairs)
+        .map(|(unit, section)| (unit, section.map(|index| emitted[index])))
         .collect()
 }
 
@@ -226,43 +267,6 @@ fn emitted_sections<'a>(
         .position(|section| !is_echo(section))
         .unwrap_or(baseline.sections.len());
     baseline.sections[boundary..].iter().collect()
-}
-
-/// The baseline declaration section a source unit was emitted into.
-///
-/// Matching is exact first. When `outDir`/`declarationDir` remap output paths,
-/// the baseline names the *output* location (`thing.d.ts`) while the unit names
-/// the *source* one (`src/thing.ts`), so a fallback compares final path
-/// components — but only when that basename is unique among both the case's
-/// units and the baseline's declaration sections, because an ambiguous basename
-/// would silently pair the wrong files.
-fn matching_section<'a>(
-    emitted: &[&'a crate::js_baseline::Section],
-    case: &crate::TestCase,
-    unit_name: &str,
-) -> Option<&'a crate::js_baseline::Section> {
-    let name = declaration_name(unit_name);
-    if let Some(section) =
-        emitted.iter().find(|section| section.name == name && section.is_declaration())
-    {
-        return Some(section);
-    }
-
-    let base = |path: &str| path.rsplit('/').next().map(str::to_string).unwrap_or_default();
-    let wanted = base(&name);
-    if case.files.iter().filter(|other| base(&declaration_name(&other.name)) == wanted).count() != 1
-    {
-        return None;
-    }
-    let mut candidates = emitted
-        .iter()
-        .filter(|section| section.is_declaration())
-        .filter(|section| base(&section.name) == wanted);
-    let section = candidates.next()?;
-    if candidates.next().is_some() {
-        return None;
-    }
-    Some(section.to_owned())
 }
 
 /// Stamp the JavaScript-file root flag upstream's parser derives from its
@@ -358,18 +362,9 @@ pub(crate) fn unemitted_units<'a>(
     baseline: &'a JsBaseline,
     case: &'a crate::TestCase,
 ) -> Vec<&'a crate::TestFile> {
-    let emitted = emitted_sections(baseline, case);
-    case.files
-        .iter()
-        .filter(|unit| {
-            ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
-                && !is_declaration_file_name(&unit.name)
-                // Files under node_modules are program inputs, never outputs:
-                // upstream writes no .js or .d.ts for them
-                // (compositeWithNodeModulesSourceFile).
-                && !unit.name.contains("node_modules/")
-        })
-        .filter(|unit| matching_section(&emitted, case, &unit.name).is_none())
+    pair_units(baseline, case)
+        .into_iter()
+        .filter_map(|(unit, section)| section.is_none().then_some(unit))
         .collect()
 }
 

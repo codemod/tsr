@@ -2,17 +2,17 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 837/1005 (83.28%)
-Failed         : 168
-Skipped        : 11439 (excluded from the denominator)
+Passed         : 840/1007 (83.42%)
+Failed         : 167
+Skipped        : 11437 (excluded from the denominator)
 
   9  skipped: a unit of this case does not parse cleanly
-  8327  skipped: the emit baseline has no emitted .d.ts section
+  8325  skipped: the emit baseline has no emitted .d.ts section
   2477  skipped: upstream recorded no .js emit baseline
   617  skipped: upstream recorded no output for this case
   9  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 168 failures:
+First 100 of 167 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -183,8 +183,6 @@ compiler/jsxDeclarationsWithEsModuleInteropNoCrash
   #0: want `import`, got `function Foo`
 compiler/lateBoundAssignmentCandidateJS2
   #0: want `var prop`, got `class foo1`
-compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
-  #0: want `export{}`, got `namespace global`
 compiler/modulePreserve4
   #0: want `export=`, got `var _default`
 compiler/multiImportExport
@@ -213,3 +211,5 @@ compiler/symbolLinkDeclarationEmitModuleNames
   #0: want `import`, got `var CONTROLLER_CLASS`
 compiler/symbolLinkDeclarationEmitModuleNamesRootDir
   #0: want `import`, got `var CONTROLLER_CLASS`
+compiler/typeReferenceDirectives13
+  #0: want `interface A`, got `import`
