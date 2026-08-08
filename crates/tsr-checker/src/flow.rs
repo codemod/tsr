@@ -1756,6 +1756,20 @@ impl Checker<'_, '_> {
             let narrowed = self.narrow_union_by_member_switch(incoming.t, &member, switch, &clause);
             return FlowType { t: narrowed, incomplete: incoming.incomplete };
         }
+        // §51 (`checker-notes-narrow.md`): `switch (s.kind)` — a property
+        // access whose RECEIVER is the reference narrows by the member,
+        // through §50.1's filter (`narrowTypeBySwitchOnDiscriminantProperty`).
+        if let tsr_ast::Expression::PropertyAccessExpression(access) = expr
+            && access
+                .expression
+                .and_then(|receiver| receiver.node_id())
+                .is_some_and(|id| self.is_matching_reference(state, id))
+            && let Some(tsr_ast::MemberName::Identifier(name)) = access.name
+        {
+            let member = name.text.to_string();
+            let narrowed = self.narrow_union_by_member_switch(incoming.t, &member, switch, &clause);
+            return FlowType { t: narrowed, incomplete: incoming.incomplete };
+        }
         let narrowed = if expr.node_id().is_some_and(|id| self.is_matching_reference(state, id)) {
             self.narrow_type_by_switch_on_discriminant(incoming.t, switch, &clause)
         } else if let tsr_ast::Expression::TypeOfExpression(type_of) = expr
@@ -1837,6 +1851,7 @@ impl Checker<'_, '_> {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![t],
         };
+        let constituents_len = constituents.len();
         let mut kept = Vec::new();
         for constituent in constituents {
             let Some(member_type) = self.get_type_of_property_of_type(constituent, member) else {
@@ -1859,6 +1874,12 @@ impl Checker<'_, '_> {
             }
         }
         if kept.is_empty() {
+            return t;
+        }
+        // §51: keeping EVERY constituent is the identity — rebuilding the
+        // union would lose an alias-named type's name (`numericLiteralTypes1`
+        // wants `Item`, not the re-formed constituent list).
+        if kept.len() == constituents_len {
             return t;
         }
         self.get_union_type(&kept)

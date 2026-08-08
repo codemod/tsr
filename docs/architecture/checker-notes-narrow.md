@@ -2186,3 +2186,33 @@ falsifier fired. `checker_types` right 396,472 → **396,500 (82.79%)**.
 Residue: the generic contextual slice (declined by construction), and the
 non-annotation contextual roads (argument-position arrows) behind the
 contextual refusal.
+
+## §51 — switch on a discriminant PROPERTY
+
+`exhaustiveSwitchStatements1` (16 WRONG un-narrowed + 53 GAP downstream):
+`switch (s.kind)` where `s` is the flow reference — upstream's
+`narrowTypeBySwitchOnDiscriminantProperty` (`flow.go`, beside the §16
+arm) filters the union by the named member against the clause range.
+§50.1's `narrow_union_by_member_switch` IS that filter; the arm was only
+ever reachable through the pseudo-pattern sibling road. Wire the direct
+shape: switch expression is a PropertyAccess whose RECEIVER matches the
+reference → filter by the property's name. Default clauses and Kleene
+declines keep §50.1's behavior (whole-decline).
+
+**Falsifiers.** (a) `isMatchingReference` on the receiver is stricter
+than identifier equality — deep receivers (`a.b.kind`) mis-matching would
+R→W. (b) Optional/unlisted members in some constituent — §50.1 declines
+whole there already; zero risk claimed, measured anyway.
+
+**§51 score — LANDED.** **+140 G→R, 52 W→R / 4 R→W + 1 G→W (48:1).**
+Neither named falsifier — the 4 are a PARAMETER-NAME-LINE anomaly: the
+declaration `x` in `function f20(x: Item)` prints the switch-narrowed
+constituent because this port's identifier road runs the flow walk at
+the declaration name's own position, and §51 made that walk narrow where
+it previously declined whole. Upstream's declaration line never narrows.
+The kept-all identity arm was added en route (re-forming a full union
+loses an alias-named print) though these 4 are not that shape — the
+declaration-position flow question is its own row, accepted here at
+48:1. The 1 G→W is switch-exhaustiveness reachability (`area : number`
+needs the no-assignment path proved dead). `checker_types` right
+399,024 → **399,212 (83.35%)**.
