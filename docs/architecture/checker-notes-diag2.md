@@ -8376,3 +8376,56 @@ left alone: its boundary set comes from `IsBlockScope` (`utilities.go:2177`),
 which is genuinely node-keyed apart from the `Block` case it already handles by
 reading the parent. Two of three needed the edge; one did not, and checking was
 the only way to know which.
+
+## §111 — a contextual-typing decline for class expressions, measured at −4 right lines, REFUSED
+
+`extraonly.rs` re-read after sixteen builds surfaced a new false-positive row
+that is this workstream's: `contextuallyTypedClassExpressionMethodDeclaration01`,
+**4 extra TS7006 lines**, one case, one shape:
+
+```ts
+function getFoo2(): Foo {
+    return class {
+        static method1 = (arg) => { … }     // `arg` IS contextually typed, via Foo
+    }
+}
+```
+
+§80's allow-list admits a function whose parent is a `PropertyDeclaration` with
+no annotation, on the theory that nothing there supplies a signature. A class
+expression in a contextually typed position does supply one.
+
+Narrowing that arm — decline when an ancestor `ClassExpression` is the operand
+of a `return` in a function with a written return annotation:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 25 | 0 | **218** | 9 |
+| after | 25 | 0 | **214** | 5 |
+
+**The four wrong lines go and four RIGHT lines go with them**, and coverage is
+`1,406` on both sides of a `git stash` — **+0 cases**. Refused and reverted.
+
+### Why the case matching exactly was not enough
+
+`diagcase` after the change showed
+`contextuallyTypedClassExpressionMethodDeclaration01` matching upstream
+line-for-line, which is exactly the kind of evidence that makes a build feel
+finished. It was not: **the same predicate silences four correct TS7006 in cases
+that are still failing for other reasons**, and the whole-suite counterfactual is
+what said so. A per-case diff cannot see a rule's cost outside the case you are
+looking at.
+
+That is the §88 lesson arriving from the other direction. There, a *wrong* column
+was priced with the wrong instrument; here a *right* one was, and in both cases
+the fix was to ask the instrument that measures the whole corpus.
+
+### What would make it land
+
+The decline is too broad because it is keyed on the class expression's
+*position* rather than on whether a contextual signature actually reaches the
+parameter. The four right lines it silences are presumably class expressions
+returned from annotated functions whose annotation supplies **no** call
+signature for that member. Distinguishing them needs the contextual type, which
+is `checker_types`' road and §80's recorded partiality. **Owner: the contextual
+type. Do not re-attempt this on syntax alone — this is its number.**
