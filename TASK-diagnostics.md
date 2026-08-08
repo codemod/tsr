@@ -11,7 +11,7 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,271/5,488 = 23.16%   (was 1,118 = 20.37%; +153 over 24 builds,
+  diagnostics    1,296/5,488 = 23.62%   (was 1,118 = 20.37%; +178 over 27 builds,
                  **zero cases lost in any of them**)
   checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -50,6 +50,7 @@ ratio, and the two differ by whatever the concentration happens to be.
 | `examples/diagreach.rs` | **NEW, run first.** Cases reachable by deepening the rules that already exist, ranked by which rule |
 | `examples/diagmissing.rs` | **NEW.** `diagmissing -- 2454` prints every baseline line of that code the port does not emit, restricted to cases that code alone blocks. Four of this session's builds were steered by reading it |
 | `examples/diagcase.rs` | **NEW.** One case's expected and actual diagnostics side by side |
+| `examples/diagemit.rs` | **NEW, and the one that found the biggest build.** `want` against `have`, per code. A large `want` with a **zero** `have` is a rule that is not running; a small `have` is one declining. **A code with a huge `want`, a zero `have` and a tiny sole-obstacle row is the signature of a rule worth building** — TS2362 (863 lines) and TS2363 (768) were the two largest unported rows in the corpus and had 1 and 4 sole-obstacle cases between them |
 | `examples/extraonly.rs` | **NEW, and the only exact forecast in the workstream.** The cases blocked by an **extra** diagnostic alone — each is one false positive from passing, so the count IS the conversion count. 54 at `b78c4d7`; §58, §59 and §60 were forecast off it and all three came in exact; §61.1 then showed its limit — it says a case is one removal from passing, **not** that the removal is expressible. TS1005 38 and TS1012 15 of the original 58 are the **parser's**, not this workstream's |
 | `examples/diag2307.rs` | the per-rule counterfactual. Put the rule's codes in `RULE_CODES` **alone**, measure, then **restore the full list** (one commit shipped it pinned and needed a follow-up). CONVERTS / LOST / RIGHT / WRONG |
 | `examples/extragap.rs` | splits the *extra* column into `displaced` and `invented` |
@@ -139,6 +140,12 @@ wrong is worth tens of lines each way:
    both `checker_types` gaps arriving as false positives), TS2304 9 (parser
    divergences: `validRegexp`'s ambiguous `/`, `exportDefaultAbstractClass`),
    TS7006 4, TS2345 1, TS2307 3, TS2552 2, TS6133 2.
+2c. **Run `diagemit.rs` and read the `unported` rows by `want`.** After §65–§67
+   the largest left are TS7026 386 (refused, §5), TS2769 217, TS7031 193,
+   TS2403 157 (refused — `isTypeIdenticalTo`), **TS2445 102** (`protected`, the
+   sibling §67 deliberately left — it needs the `extends` chain),
+   TS2558 96, TS2703 90, TS1487 86, TS7010 82, TS2449 80, TS2693 78,
+   TS2344 76, TS2364 69, TS7027 67, TS2374 66. **No ported rule reads SILENT.**
 3. **`checkNonNullType` at the OTHER call sites** — property access, element
    access, call targets. §51 built the six messages and restricted them to
    binary operands, and its twelve non-converting cases are all `STILL SHORT`
