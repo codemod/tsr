@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,709/9,538** | **38.89%** | **gradient 83.19%** — the target (builds 25–90) |
+| **`checker_types`** | **3,740/9,538** | **39.21%** | **gradient 83.31%** — the target (builds 25–91) |
 | `diagnostics` | **1,078/5,488** | **19.64%** | **tenth session, +361** — 717 → 1,078 across forty-one builds and nine measured refusals; the running total is 80 → 1,078, 13.5×. One build shipped with a named loss (§33); every other is 0 lost |
 
 ### `checker_types`, the number the project is steered by
@@ -183,7 +183,8 @@ and reverted) = 397,604; then + 636 (§37-callres: `arguments` binds
 IArguments through the mounted libs, arrows/class-field contexts decline
 by the fired leg, 29 adverse at 22:1) = 398,240; then + 224 (§38-callres: for-of bindings
 take the iterated element, both empty-array spellings declined by the
-fired legs, ZERO adverse) = 398,464 exactly — builds 25–90. §35 records a FINDING: tsgo prints
+fired legs, ZERO adverse) = 398,464; then + 566 (§38.1: for-in bindings are string,
+6 adverse at 94:1) = 399,030 exactly — builds 25–91. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
