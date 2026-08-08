@@ -8733,3 +8733,49 @@ Three candidates, none eliminated, and eliminating them is one `eprintln!` each
 twelfth session paid for, and the one this attempt skipped. A byte-identical
 measurement is the cheapest possible signal that the answer is (1) or (3) rather
 than a wrong predicate, and it cost one build to get it the expensive way.
+
+## §118 — the instrument answers §117 in one run: the rule's HOST never runs
+
+§117 recorded three candidates for why TS1361 measured a byte-identical zero and
+said to instrument before coding. One `eprintln!` behind `TSR_DEBUG_1361` at
+`check_value_identifier`'s meaning ladder, one `diagcase` run over
+`conformance/computedPropertyName`:
+
+```
+$ TSR_DEBUG_1361=1 … --example diagcase -- conformance/computedPropertyName
+0 lines
+```
+
+**Not one identifier in that case reaches `check_value_identifier`** — not the
+type-only aliases, not the ordinary names either. Candidate (1) confirmed and
+candidates (2) and (3) are irrelevant: the predicate was never the question, and
+`is_type_only` / `phase_modifier` may be perfectly well set.
+
+### What this means for the row
+
+TS1361/TS1362's 18 cases are **not** blocked on a missing rule. They are blocked
+on the value-identifier walk not visiting this case's files at all — a
+*coverage* gap in `crate::check`'s traversal, not a *rule* gap. The candidates,
+in the order they cost nothing to check:
+
+- the case is **multi-file** (`component.ts` is one of several) and the walk may
+  run over only one unit;
+- `file_has_parse_errors` gates `check_value_identifier` and would silence every
+  identifier in the file at once, which is exactly the shape observed;
+- the identifiers sit in positions `is_value_reference` rejects — but that would
+  not silence *every* name in the file.
+
+**The second is the one to test first**, because "zero identifiers, not few" is
+its signature and it is one `eprintln!` above the one this section already
+placed.
+
+### The rule this pays for the seventh time, after being skipped once
+
+§117 wrote the full predicate, the TS1361/TS1362 message split and the
+phase-modifier handling before ever asking whether the code ran. The instrument
+answered in **one run** what a build could not: the measurement was
+byte-identical because **nothing was executing**, and no amount of predicate
+work would have changed that.
+
+*Print whether the rule runs before asking what it decided.* Six payments, one
+skip, and the skip cost a build while the payment cost five minutes.
