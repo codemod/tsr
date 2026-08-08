@@ -168,6 +168,15 @@ impl Checker<'_, '_> {
         if self.enclosing_class_declares_private_name(node, name.text) {
             return;
         }
+        // Upstream runs this against the receiver's **type**, and `any`
+        // permits the access — `privateNameAndAny` was 3 of §138's 10 wrong
+        // lines, an index signature the fourth. The syntactic test cannot see
+        // either, so the receiver's type is asked here and only here. §139.
+        let Some(receiver) = access.expression else { return };
+        let receiver_type = self.check_expression(receiver);
+        if receiver_type == self.intrinsics.any {
+            return;
+        }
         let Some(at) = name.node_id else { return };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.error_span(at);

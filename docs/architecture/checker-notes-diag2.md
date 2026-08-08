@@ -9767,3 +9767,44 @@ re-taking `diaggap` after a run of builds has produced a double-digit row**, and
 TS18013 is not even grammar — it is a *scoping* question that happens to need no
 types. **The generalisation: a code needs no subsystem if its rule is decidable
 from the tree, and "grammar" was too narrow a name for that class.**
+
+## §139 — §138's debt, half paid, and the half that could not be
+
+§138 named the receiver type as the owner of its ten wrong lines. Two versions
+were measured:
+
+| gate | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §138, none | 11 | 0 | 26 | 10 |
+| `any` **or** `error`/`unknown` | **9** | 0 | 21 | **5** |
+| **§139, `any` alone** | **11** | **0** | **26** | **7** |
+
+The broad gate halves the wrong column and **costs two conversions**: an
+`errorType` receiver is one upstream still reports through, because upstream's
+check asks whether the *class* declares the name and reaches that question even
+when the receiver's type is unresolved. Declining there trades a wrong line for
+a missing one, which is §111's trade and was refused for the same reason.
+
+**`any` alone: wrong 10 → 7 at zero cost.** Landed. Coverage holds at
+`1,443 / 5,488`; `checker_types` identical.
+
+### The seven that remain, and why they are not the receiver's type
+
+Three were the `any` receivers and are gone. The rest are the index-signature
+and parse-error families §138 named — and the index-signature one is **not** an
+`any`: upstream permits `obj.#x` when the receiver's type has a matching index
+signature, which needs the *members* of the type, not its identity.
+
+**Owner: `get_index_info_of_type`**, which is `checker_types`' road. This is the
+boundary of a syntactic rule that reaches 11 cases without one, and the
+remaining seven are the price of not having the members table.
+
+### The pattern that keeps repaying
+
+*Try the narrow gate before the broad one.* §139's first cut was three
+conditions and cost two cases; one condition removed three wrong lines for
+nothing. **§87 made the same choice deliberately** — *"classifying occurrences
+instead puts every misclassification into the wrong column"* — and this is the
+same shape arriving from the other direction: a decline that is too broad is as
+expensive as one that is too narrow, and only the measurement distinguishes
+them.
