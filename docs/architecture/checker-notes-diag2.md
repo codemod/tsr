@@ -8574,3 +8574,61 @@ the edge*. The first two were right. This one had the right idea and the wrong
 **host**: knowing which child you came through is useless if you are asking the
 question somewhere the answer is not yet known. **An idea that generalises is
 not an idea that transplants.**
+
+## §115 — the last three unchecked rows, priced: all three are the RESOLVER's
+
+§113 named TS1361/TS1362, TS2302 and TS2303 as the remaining unchecked rows of
+the cheap-grammar shape. §114 measured TS2302 and refused it. This prices the
+other two, and the answer is the same for all three — which is the finding.
+
+### TS1361 / TS1362 — 9 cases each — `resolveNameEx`, same branch as TS2302
+
+`checker.go:1860`:
+
+```go
+if errorLocation != nil && meaning&SymbolFlagsValue != 0 &&
+   result.Flags&SymbolFlagsAlias != 0 && result.Flags&SymbolFlagsValue == 0 &&
+   !ast.IsValidTypeOnlyAliasUseSite(errorLocation) {
+    typeOnlyDeclaration := c.getTypeOnlyAliasDeclarationEx(result, SymbolFlagsValue)
+    …
+}
+```
+
+Four things a checker-side port cannot supply: the **resolved symbol's flags**
+(`Alias` present, `Value` absent), `getTypeOnlyAliasDeclarationEx`'s walk along
+the **alias chain** to find which declaration carried `type`,
+`IsValidTypeOnlyAliasUseSite`, and the export-vs-import split that chooses
+between TS1362 and TS1361. `is_type_only` exists on this port's
+`ImportSpecifier`/`ExportDeclaration` nodes, which makes the *syntax* half look
+available and is exactly the trap — **§114 measured what happens when the syntax
+half is available and the resolution half is not: +137 wrong lines.**
+
+### TS2303 — 10 cases — alias resolution with a cycle guard
+
+`Circular definition of import alias` (`checker.go:16286`, `:18837`) is reported
+from `resolveAlias`'s own recursion guard. It cannot exist before alias
+resolution does; there is no syntactic approximation of a cycle.
+
+### The finding
+
+**Every remaining relation-free row on this board is resolver-owned.** Three
+rows, three different codes, one subsystem — and the boundary is sharp: what is
+left needs a name to have been *resolved*, and everything this workstream has
+built cheaply needed only the tree.
+
+That is a better statement of where the `diagnostics` workstream stands than any
+case count. The seam that produced §103, §104, §112 and §113 — grammar checks
+readable off the syntax — is now genuinely exhausted, and the sentence
+"re-take `diaggap`, the seam may not be closed" (which was right twice) has
+stopped being right. **The next `diagnostics` build is a `tsr_binder`
+`resolve_name` build**, and it pays for TS2302 (9), TS1361/TS1362 (18) and
+TS2303 (10) together — 37 cases behind one subsystem — plus TS1100's 12 behind
+the same crate's strict-mode state.
+
+**Falsifier for this claim, and it should be run before believing it:** re-take
+`diaggap` after the next `.types` landing and look for a row that is neither
+relation-bound nor resolver-bound. Twice this session a "seam is closed" claim
+was premature (§105 said the grammar seam was exhausted and §112 found TS1206;
+§112's own note said so). The difference now is that the three top remaining
+rows were each read against upstream rather than inferred from a code number —
+but the corpus moves, and one `diagmissing` run is the cost of checking.
