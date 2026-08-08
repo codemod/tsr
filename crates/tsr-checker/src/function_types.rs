@@ -132,7 +132,18 @@ impl<'a> Checker<'a, '_> {
         let Some(signature) = self.get_signature_from_declaration(id) else {
             return error;
         };
-        let text = self.signature_to_string(&signature);
+        // §72 (`checker-notes-narrow.md`): `getAliasForTypeNode`'s three arms,
+        // the SAME three the type-literal and union nodes take — a body under
+        // a non-generic alias prints the alias's name (`type F2 = ({ a:
+        // string }: O) => any` records `>F2 : F2`), a generic one gaps rather
+        // than dropping its arguments, an unaliased node renders structurally.
+        let text = match self.alias_symbol_for_type_node(id) {
+            None => self.signature_to_string(&signature),
+            Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
+                self.binder.symbols().get(alias).name.to_string()
+            }
+            Some(_) => return error,
+        };
         // The symbol is `bindFunctionOrConstructorType`'s `__type` symbol, whose
         // members table holds the `__call` signature symbol. A node that somehow
         // has none is a gap rather than a type with a synthetic identity — see

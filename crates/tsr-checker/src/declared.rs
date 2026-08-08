@@ -1012,7 +1012,7 @@ impl<'a> Checker<'a, '_> {
     /// The host is the nearest ancestor that is not a parenthesised type or a
     /// `readonly` type operator, and it names the type only when it is a type
     /// alias declaration.
-    fn alias_symbol_for_type_node(&self, node: tsr_ast::NodeId) -> Option<SymbolId> {
+    pub(crate) fn alias_symbol_for_type_node(&self, node: tsr_ast::NodeId) -> Option<SymbolId> {
         let mut host = self.nodes.parent(node)?;
         loop {
             let kind = self.nodes.kind(host);
@@ -2041,7 +2041,7 @@ impl<'a> Checker<'a, '_> {
     /// (`checker.go`), without the merging across declarations: a symbol with two
     /// declarations takes the first, which is where upstream would find the same
     /// list in every case this slice reaches.
-    fn local_type_parameters_of(
+    pub(crate) fn local_type_parameters_of(
         &self,
         symbol: SymbolId,
     ) -> &'a [&'a tsr_ast::TypeParameterDeclaration<'a>] {

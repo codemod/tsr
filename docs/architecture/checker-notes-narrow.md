@@ -2889,3 +2889,15 @@ Rests keep the decline. **+52 (38 G→R, 14 W→R), 1 G→W** — the 1 is the
 alias-preservation head again (want `Foo`, structure correct).
 
 **§71.1 score — LANDED.** right 402,863 → **402,915 (84.12%)**.
+
+## §72 — function/constructor type nodes take the alias's name
+
+`signature_bearing_type_node` never consulted `getAliasForTypeNode`'s
+port, so `type F = (a: number) => any` printed structurally everywhere
+— the only signature-bearing node kind missing the three-arm rule the
+type-literal and union nodes share. Non-generic alias → alias name;
+generic → gap; unaliased → structural. **+39, zero adverse**
+(`parenthesizedContexualTyping2` 12, `taggedTemplateContextualTyping2`
+6 — the residue §71/§71.1 exposed, now closed at its root).
+
+**§72 score — LANDED.** right 402,915 → **402,954 (84.13%)**.
