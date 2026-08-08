@@ -313,12 +313,27 @@ impl Suite for BinderSymbols {
                     // sibling `__computed` symbols of one written name union
                     // under one key exactly as upstream's one late-bound symbol
                     // lists every declaration.
-                    if symbol.name == "__computed" {
+                    if symbol.name == "__computed" || symbol.name == "__missing" {
                         for declaration in &symbol.declarations {
                             if !file.contains(*declaration) {
                                 continue;
                             }
-                            let Some(computed) = bound.computed_name(*declaration) else {
+                            let computed = bound.computed_name(*declaration).or_else(|| {
+                                // A recovery-shaped member (`{ [e] }` binds
+                                // `__missing`) records no computed-name entry;
+                                // the name node is still on the declaration.
+                                match program.node_map().get(*declaration)? {
+                                    node => {
+                                        declared_property_name(node).and_then(|name| match name {
+                                            tsr_ast::PropertyName::ComputedPropertyName(c) => {
+                                                c.node_id
+                                            }
+                                            _ => None,
+                                        })
+                                    }
+                                }
+                            });
+                            let Some(computed) = computed else {
                                 continue;
                             };
                             let span = nodes.span(computed);
@@ -1302,7 +1317,7 @@ fn resolve_import_equals_target_at(
             let importing = program
                 .source_files()
                 .iter()
-                .find(|f| f.source_file().node_id.is_some_and(|root| in_file(root)))
+                .find(|f| f.source_file().node_id.is_some_and(&in_file))
                 .map_or("", |f| f.file_name());
             let target = resolve_specifier(program, importing, literal.text)?;
             let root = target.source_file().node_id?;
