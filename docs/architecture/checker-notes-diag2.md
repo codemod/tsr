@@ -7334,3 +7334,59 @@ The wrong column is unchanged and both entries are pre-existing and owned:
 `callWithMissingVoid` (§78, owner `parameter_annotation_is_void`) and
 `objectCreationOfElementAccessExpression` (the callee is not an identifier;
 owner `callee_symbol`).
+
+## §93 — excludes is not a function of includes
+
+The largest single family in TS2300's missing column —
+`callSignaturesWithDuplicateParameters` alone is 44 of 120 lines, plus
+`functionCall15`, `declarationEmitDestructuring2`, `propertySignatures` — and it
+was not a missing arm. It was a **shape divergence in `declare_into`**.
+
+Upstream's `declareSymbol` (`binder.go:202`) takes `includes` and `excludes` as
+two independent arguments, and `bindParameter` (`binder.go:1200`) passes:
+
+```go
+b.declareSymbolAndAddToSymbolTable(node, ast.SymbolFlagsFunctionScopedVariable,
+                                         ast.SymbolFlagsParameterExcludes)
+```
+
+`FunctionScopedVariable` for what it declares, and `ParameterExcludes` — plain
+`Value` — for what it collides with. This port derives excludes from the flags,
+so a parameter got `FunctionScopedVariableExcludes`, which is
+`Value & ~FunctionScopedVariable` and therefore **deliberately does not collide
+with another function-scoped variable** — because `var x; var x;` is legal.
+Consequence: `function bar(a, a) {}` reported nothing at all.
+
+Upstream's own comment at `binder.go:1176` is explicit that the distinction
+exists for exactly this:
+
+> Using ParameterExcludes flag allows the compiler to report an error on
+> duplicate identifiers in Parameter Declaration
+> `function foo([a,a]) {}` // Duplicate Identifier error
+
+**A derived value that is right at most call sites is not the same as a
+parameter.** Twelve sessions read `flags.excludes()` as the definition of
+excludes; it is the *default*, and one binding site overrides it.
+
+`declare_into` keeps its signature and delegates to
+`declare_into_with_excludes`, so the seven other call sites are untouched and
+the counterfactual measures only the parameter arm. `IsPartOfParameterDeclaration`
+is ported for the binding-element case (`function foo([a, a]) {}`) by walking out
+through the pattern and letting the first non-pattern ancestor decide — a
+variable declaration or a `catch` keeps the derived excludes.
+
+**Measured**, `diag2307` with `RULE_CODES = [2300, 2451, 2567, 2528]` (every
+code `declare_into` can emit, isolated together because one predicate feeds all
+four): CONVERTS 47 → **50**, RIGHT 426 → **490**, WRONG 79 → **79**, LOST 0.
+Coverage `1,378 → 1,381 / 5,488` (25.11% → **25.16%**).
+
+**The `binder_symbols` rail did not move: 8,311/8,475 · 98.06% with and without**,
+and `checker_types` likewise at 3,842/9,538 · 84.13% — both by
+stash-and-remeasure, which is the fifth time this session the snapshot had moved
+underneath a build and the fifth time it was the other workstream's.
+
+Sixty-four right lines from one argument is the largest line yield of the
+session, and it is worth being clear about why it was cheap: **nothing was
+missing.** The diagnostic, its message selection, its position and its
+report-on-every-declaration loop were all built and correct; they were simply
+never reached for a parameter.

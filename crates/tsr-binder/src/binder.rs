@@ -3236,7 +3236,22 @@ impl<'a, 'n> Binder<'a, 'n> {
         if let Some(name_node) = name_node_of(node) {
             self.name_nodes.insert(id, name_node);
         }
-        let symbol = self.declare_into(destination, table_owner, self.owner, name, flags, id);
+        // `bindParameter` / `bindBindingElement`'s `ParameterExcludes`
+        // (`binder.go:1182`, `:1200`) — see `declare_into_with_excludes`.
+        let excludes = if self.is_part_of_parameter_declaration(node) {
+            SymbolFlags::VALUE
+        } else {
+            flags.excludes()
+        };
+        let symbol = self.declare_into_with_excludes(
+            destination,
+            table_owner,
+            self.owner,
+            name,
+            flags,
+            excludes,
+            id,
+        );
         self.node_symbols[id.index()] = Some(symbol);
         self.record_expando_initializer(node, id);
         // `{ ['a']: 1 }` declares `a` statically, but it was still *written* as a
@@ -3266,6 +3281,29 @@ impl<'a, 'n> Binder<'a, 'n> {
         Some(symbol)
     }
 
+    /// `IsPartOfParameterDeclaration` (`ast/utilities.go`): this node is a
+    /// parameter, or a binding element inside one — `function foo([a, a]) {}`
+    /// is the second form and upstream reports it for the same reason.
+    fn is_part_of_parameter_declaration(&self, node: Node<'a>) -> bool {
+        if matches!(node, Node::ParameterDeclaration(_)) {
+            return true;
+        }
+        if !matches!(node, Node::BindingElement(_)) {
+            return false;
+        }
+        // Walk out through the pattern; the first ancestor that is neither a
+        // binding element nor a pattern decides. Anything other than a
+        // parameter means the pattern belongs to a variable declaration or a
+        // `catch`, which keep `FunctionScopedVariableExcludes`.
+        self.ancestors
+            .iter()
+            .rev()
+            .find(|(_, ancestor)| {
+                !matches!(ancestor, Node::BindingElement(_) | Node::BindingPattern(_))
+            })
+            .is_some_and(|(_, ancestor)| matches!(ancestor, Node::ParameterDeclaration(_)))
+    }
+
     /// The span a redeclaration diagnostic is anchored on.
     ///
     /// The declaration's name, falling back to the declaration itself — upstream's
@@ -3287,6 +3325,41 @@ impl<'a, 'n> Binder<'a, 'n> {
         flags: SymbolFlags,
         declaration: NodeId,
     ) -> SymbolId {
+        let excludes = flags.excludes();
+        self.declare_into_with_excludes(
+            destination,
+            table_owner,
+            symbol_owner,
+            name,
+            flags,
+            excludes,
+            declaration,
+        )
+    }
+
+    /// `declareSymbol` with `excludes` passed rather than derived.
+    ///
+    /// **Excludes is not a function of includes.** Upstream's `declareSymbol`
+    /// (`binder.go:202`) takes `includes` and `excludes` as two arguments, and
+    /// `bindParameter` (`binder.go:1200`) passes `SymbolFlagsFunctionScopedVariable`
+    /// for the first and `SymbolFlagsParameterExcludes` — plain `Value` — for the
+    /// second. Deriving excludes from the flags gives a parameter
+    /// `FunctionScopedVariableExcludes`, which deliberately does *not* collide
+    /// with another function-scoped variable because `var x; var x;` is legal —
+    /// so `function bar(a, a) {}` reported nothing. Upstream's own comment at
+    /// `binder.go:1176` says this is exactly what the distinction is for.
+    /// See `checker-notes-diag2.md` §93.
+    #[allow(clippy::too_many_arguments)]
+    fn declare_into_with_excludes(
+        &mut self,
+        destination: Destination,
+        table_owner: NodeId,
+        symbol_owner: Option<SymbolId>,
+        name: &'a str,
+        flags: SymbolFlags,
+        excludes: SymbolFlags,
+        declaration: NodeId,
+    ) -> SymbolId {
         let existing =
             match destination {
                 Destination::Locals => {
@@ -3301,7 +3374,7 @@ impl<'a, 'n> Binder<'a, 'n> {
 
         let symbol = if let Some(existing) = existing {
             let existing_flags = self.symbols.get(existing).flags;
-            if flags.excludes().intersects(existing_flags) {
+            if excludes.intersects(existing_flags) {
                 // Ported from `binder.declareSymbol` (`internal/binder/binder.go:202`),
                 // whose message selection this originally collapsed into one
                 // diagnostic at one position. Three separate defects, all of which
