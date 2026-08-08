@@ -319,15 +319,7 @@ impl<'a> Checker<'a, '_> {
             if parameters.iter().any(|parameter| parameter.dot_dot_dot_token.is_some()) {
                 return None;
             }
-            // `getMinArgumentCount`: the index of the first parameter that is
-            // optional or carries an initialiser.
-            let minimum = parameters
-                .iter()
-                .position(|parameter| {
-                    parameter.question_token.is_some() || parameter.initializer.is_some()
-                })
-                .unwrap_or(parameters.len());
-            ranges.push((minimum, parameters.len()));
+            ranges.push((Self::minimum_argument_count(&parameters), parameters.len()));
         }
         let minimum = ranges.iter().map(|(minimum, _)| *minimum).min()?;
         let maximum = ranges.iter().map(|(_, length)| *length).max()?;
@@ -531,23 +523,10 @@ impl<'a> Checker<'a, '_> {
             .filter(|parameter| !Self::is_this_parameter_declaration(parameter))
             .collect();
         if parameters.iter().any(|parameter| parameter.dot_dot_dot_token.is_some()) {
-            let minimum = parameters
-                .iter()
-                .position(|parameter| {
-                    parameter.question_token.is_some()
-                        || parameter.initializer.is_some()
-                        || parameter.dot_dot_dot_token.is_some()
-                })
-                .unwrap_or(parameters.len());
-            return Some((minimum, None));
+            return Some((Self::minimum_argument_count(&parameters), None));
         }
         let maximum = parameters.len();
-        let mut minimum = parameters
-            .iter()
-            .position(|parameter| {
-                parameter.question_token.is_some() || parameter.initializer.is_some()
-            })
-            .unwrap_or(maximum);
+        let mut minimum = Self::minimum_argument_count(&parameters);
         // `getMinArgumentCountEx` (`relater.go:1737`) walks back from the
         // minimum and drops every trailing parameter whose type contains
         // `void` — a `void` parameter may be omitted. `callWithMissingVoid` is
@@ -556,6 +535,25 @@ impl<'a> Checker<'a, '_> {
             minimum -= 1;
         }
         Some((minimum, Some(maximum)))
+    }
+
+    /// `minArgumentCount` as `getSignatureFromDeclaration` builds it
+    /// (`checker.go:19872-19879`): the count is reset to the running parameter
+    /// count at **every non-optional parameter**, so the answer is the position
+    /// after the **last** required one — not the position of the first optional
+    /// one. The two agree on every well-formed signature and disagree on
+    /// `function f(a, b = 0, c)`, which upstream requires **three** arguments
+    /// for. `requiredInitializedParameter1` is that case, and the first-optional
+    /// reading silently accepted `f(0, 1)`.
+    fn minimum_argument_count(parameters: &[&tsr_ast::ParameterDeclaration<'_>]) -> usize {
+        parameters
+            .iter()
+            .rposition(|parameter| {
+                parameter.question_token.is_none()
+                    && parameter.initializer.is_none()
+                    && parameter.dot_dot_dot_token.is_none()
+            })
+            .map_or(0, |index| index + 1)
     }
 
     /// Is this parameter's **written** annotation the `void` keyword?

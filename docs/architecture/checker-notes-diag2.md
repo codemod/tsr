@@ -7260,3 +7260,44 @@ Remaining wrong, both pre-existing and both already owned: `callWithMissingVoid`
 (§78, owner `parameter_annotation_is_void`) and
 `objectCreationOfElementAccessExpression` (the callee is not an identifier;
 owner `callee_symbol`).
+
+## §91 — `getMinArgumentCount` counts backwards, and this port counted forwards
+
+Both arity arms computed the minimum as *"the index of the first parameter that
+is optional or carries an initialiser"*. Upstream builds it the other way round,
+in `getSignatureFromDeclaration` (`checker.go:19872-19879`):
+
+```go
+isOptionalParameter := isOptionalDeclaration(param) || param.Initializer() != nil ||
+    isRestParameter(param) || …
+if !isOptionalParameter {
+    minArgumentCount = len(parameters)      // reset at EVERY required parameter
+}
+```
+
+The count is overwritten at every non-optional parameter, so what survives the
+loop is **the position after the LAST required one**. The two readings agree on
+every signature whose optional parameters are trailing — which is nearly all of
+them, which is why this stood — and disagree on exactly one shape:
+
+```ts
+function f1(a, b = 0, c) { }
+f1(0, 1);      // TS2554: Expected 3 arguments, but got 2
+```
+
+The first-optional reading answers `1` and accepts the call silently. The
+backward scan answers `3`. `requiredInitializedParameter1` is the case, and it
+is legal TypeScript — an initialiser does not make the parameters after it
+optional, it only makes *that* one omissible-by-position, which the language
+does not actually allow you to exploit.
+
+Written once and shared by all three sites (the call arm, its rest-parameter
+early return, and §90's `new` arm), which is also how the `new` arm inherited
+the fix for free.
+
+**Measured**, `diag2307` with `RULE_CODES = [2554, 2555, 2345]`: CONVERTS
+30 → **31**, RIGHT 129 → 131, WRONG 10 → **10**, LOST 0. Coverage
+`1,374 → 1,375 / 5,488` (**25.05%**). `checker_types` identical at
+3,838/9,538 · 84.10% by stash-and-remeasure — the snapshot moved in this commit
+because the `.types` workstream's build arrived through the same pull, which is
+§88's trap firing a third time and being caught by the rule §88 wrote.
