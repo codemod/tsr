@@ -11,7 +11,7 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,245/5,488 = 22.69%   (was 1,118 = 20.37%; +127 over 21 builds,
+  diagnostics    1,271/5,488 = 23.16%   (was 1,118 = 20.37%; +153 over 24 builds,
                  **zero cases lost in any of them**)
   checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -90,6 +90,22 @@ already claiming `+`/`<`/`>` (§49 — the rule measured zero because it never r
 and `checkNonNullType` being conditional for `+` alone (§50.2).
 **When a new rule measures zero, check that it ran before checking what it
 decided.**
+
+## PRINT WHETHER THE RULE RUNS BEFORE ASKING WHAT IT DECIDED
+
+§49: a new rule measured **zero** because an earlier `match` arm already claimed
+its node kinds. §64: an **old** rule converted a fraction of its row because
+`Binder::symbol_of` answers `None` for a `Constructor`, so
+`checkFunctionOrConstructorSymbol` returned on its first line and silenced
+TS2390, TS2391, TS2392 and TS2393 together. Neither is visible in a decline
+audit, because neither is a decline.
+
+**The cheapest instrument in this workstream is one `eprintln!` behind an env
+var at a rule's early returns**, and it has now paid twice. Do it before pricing
+a rule's residual. And note §64's second lesson: `diagreach.rs` counts a case
+once per code, so **the row of the code you noticed is a lower bound** on what a
+silencing gate was costing — §64 forecast +4 to +8 off TS2390's eight cases and
+landed +10.
 
 ## THE THREE-VALUED RELATION HAS THREE CORRECT PROJECTIONS
 
