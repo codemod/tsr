@@ -25,7 +25,7 @@ Measured at the CLI-scaffold landing, 2026-08-08, by
 
 | | |
 |---|---:|
-| **`cli_baselines`** | **32/43 judged = 74.42%** |
+| **`cli_baselines`** | **33/43 judged = 76.74%** |
 | behind the emitter (excluded) | 151 |
 | total `tsc` baselines | 194 |
 
@@ -177,7 +177,7 @@ run the driver, and diff. Add a `cli_baselines` suite to `tsr-conformance`
 alongside the existing sixteen.
 
 **Landed. The suite reads 28/43 judged (65.12%), 151 excluded as behind the
-emitter.** It has read 13 → 19 → 20 → 25 → 26 → 28 → 30 → 32 as each phase landed.
+emitter.** It has read 13 → 19 → 20 → 25 → 26 → 28 → 30 → 32 → 33 as each phase landed.
 
 **The runner also reads the Go test source.** A `tsc` baseline does not record
 the environment its scenario runs under — that lives in `tsc_test.go` as a
@@ -388,7 +388,7 @@ too, because phase 0 exists.
 | 4 | `--locale` | 2 baselines | one locale shipped; upstream has a message catalogue per language. **Refused** |
 | 5 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 33 hand-written tests |
 | 6 | the wide `--help` header | 1 baseline | §7.8: four columns unexplained |
-| 7 | `non-object-config-root`'s trailing line | 1 baseline | §7.9 |
+| 7 | ~~`non-object-config-root`~~ | **done**, +1 | §7.9 answered: the summary *is* printed, and the pretty reporter writes one newline after the last frame |
 | 8 | `references` in the program | 1 baseline | `Config-with-references-…` |
 | 9 | emit (`tsr-transformers`) | **151 baselines** | **not a CLI item**; the ceiling above everything |
 
@@ -506,15 +506,24 @@ in users' repositories, so it reports `NotImplemented` (upstream's own status 5)
    every other width wrong, and the discrepancy is worth more as a question than
    as a constant.
 
-9. **`non-object-config-root` is one blank line from passing.** `[]` as a
-   `tsconfig.json` root now reports TS18003 then TS5092, the latter positioned
-   at `tsconfig.json:1:1` with the root value squiggled, and exits 2 with no
-   error summary — upstream builds `reportErrorSummary` *after* that branch
-   (`tsc.go:225`), so a config that fails to parse prints its diagnostics and
-   stops. What remains is a single trailing blank line the replay does not
-   reproduce. Recorded rather than patched: the runner trims trailing newlines
-   on both sides, so the difference is not where it appears to be, and finding
-   out costs more than the one case is worth today.
+9. ~~**`non-object-config-root`'s trailing line.**~~ **Answered, and the earlier
+   note here was wrong in a way worth keeping.** It recorded that config-parse
+   errors print *no* error summary, reasoning from `tsc.go:225` building
+   `reportErrorSummary` after that branch. The baseline says otherwise: it ends
+   with `Found 2 errors in the same file, starting at: tsconfig.json:1`. The
+   reporter built at `:225` is the *watch* one.
+
+   With the summary restored, the remaining difference was a single blank line,
+   and it belonged to the **pretty reporter**, not to the config path:
+   `CreateDiagnosticReporter`'s pretty arm writes a newline after each
+   diagnostic where the plain arm relies on the diagnostic's own trailing one.
+   The two blank lines before the summary are one from there and one from the
+   summary's own leading newline.
+
+   **Reading the expected bytes settled in a minute what reading the call order
+   had got backwards twice.** The line-diff the runner prints was actively
+   misleading here — it reported the mismatch at the summary, which was correct
+   output in the wrong place.
 
 10. ~~**Which implied options `--showConfig` actually emits.**~~ **Answered, and
     the answer is a divergence in this port's core rather than anything about

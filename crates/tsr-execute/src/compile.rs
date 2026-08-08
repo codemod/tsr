@@ -83,6 +83,15 @@ fn render(
             located,
             &formatting,
         );
+        // One more newline after the last frame. `CreateDiagnosticReporter`'s
+        // pretty arm writes `NewLine` after each diagnostic, where the plain arm
+        // relies on the diagnostic's own trailing one.
+        // `non-object-config-root.js` pins the count: two blank lines between
+        // the last squiggle and `Found 2 errors`, one from here and one from the
+        // summary's own leading newline.
+        if !located.is_empty() {
+            text.push_str(&formatting.newline);
+        }
     } else {
         tsr_diagnostics::format::write_format_diagnostics(&mut text, located, &formatting);
     }
@@ -178,11 +187,14 @@ pub fn run_compilation(
             })
             .collect();
         let files: Vec<DiagnosticFile> = config_file.into_iter().collect();
-        // **No error summary.** Upstream builds `reportErrorSummary` *after*
-        // this branch (`tsc.go:225`), so a config that fails to parse prints its
-        // diagnostics and stops. Passing `quiet` here would be the same effect
-        // by the wrong mechanism.
-        report_located_without_summary(sys, &files, &located, &options);
+        // **The summary IS printed**, and an earlier version of this suppressed
+        // it. `tsc.go:225` builds `reportErrorSummary` after this branch, which
+        // reads as "config errors get no summary" and is wrong: the reporter
+        // built there is the *watch* one, and `non-object-config-root.js`
+        // expects `Found 2 errors in the same file, starting at: tsconfig.json:1`
+        // after its two diagnostics. Reading the baseline settled it where
+        // reading the call order did not.
+        report_located(sys, &files, &located, &options);
         return ExitStatus::DiagnosticsPresentOutputsGenerated;
     }
 
