@@ -1635,6 +1635,47 @@ impl<'a> Checker<'a, '_> {
     ///
     /// `None` means "nothing could be inferred", which upstream signals with a
     /// nil `*Type` and turns into the implicit `any` one level up.
+    /// §38's element slice: `Array`/`ReadonlyArray` references answer the
+    /// argument, tuples the union of their elements, strings `string`.
+    /// `None` declines to the implicit-any road.
+    fn for_of_element_type(&mut self, iterated: TypeId) -> Option<TypeId> {
+        if iterated == self.intrinsics.error {
+            return None;
+        }
+        if let Some((elements, _)) = self.tuple_element_lists.get(&iterated) {
+            let elements = elements.clone();
+            if elements.is_empty() {
+                return None;
+            }
+            return Some(self.get_union_type(&elements));
+        }
+        if let Some((target, arguments)) = self.type_reference_targets.get(&iterated).cloned()
+            && arguments.len() == 1
+        {
+            let target = self.binder.merged_symbol(target);
+            let is_array = self.global_type_symbol("Array").map(|s| self.binder.merged_symbol(s))
+                == Some(target)
+                || self.global_type_symbol("ReadonlyArray").map(|s| self.binder.merged_symbol(s))
+                    == Some(target);
+            // A `never` element is `[]`'s signature — `undefined` its
+            // non-strict spelling (`array_literals.rs:122`) — upstream's
+            // binding there reads `any` (the §38 second fired leg); decline.
+            if is_array
+                && arguments[0] != self.intrinsics.never
+                && arguments[0] != self.intrinsics.undefined
+            {
+                return Some(arguments[0]);
+            }
+        }
+        let flags = self.store.get(iterated).flags;
+        if flags.intersects(crate::flags::TypeFlags::STRING_LITERAL)
+            || iterated == self.intrinsics.string
+        {
+            return Some(self.intrinsics.string);
+        }
+        None
+    }
+
     fn get_type_for_variable_like_declaration(&mut self, declaration: NodeId) -> Option<TypeId> {
         // An annotation wins over an initialiser, always.
         if let Some(annotation) = self.type_annotation_of(declaration) {
@@ -1654,6 +1695,27 @@ impl<'a> Checker<'a, '_> {
             && let Some(contextual) = self.get_contextually_typed_parameter_type(declaration)
         {
             return Some(self.add_optionality_for_declaration(contextual, declaration));
+        }
+        // §38 (`checker-notes-callres.md`): a for-of binding takes the
+        // iterated element — array references, tuples, and strings; every
+        // other RHS keeps the implicit-any road.
+        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+            && let Some(list) = self.nodes.parent(declaration)
+            && let Some(statement) = self.nodes.parent(list)
+            && self.nodes.kind(statement) == SyntaxKind::ForOfStatement
+            && let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement)
+            // `for await` iterates the AWAITED element — unported, and the
+            // non-async-position error renders `any` upstream; both decline.
+            && for_of.await_modifier.is_none()
+            && let Some(expression) = for_of.expression
+        {
+            let iterated = self.check_expression(expression);
+            let element = self.for_of_element_type(iterated);
+            if let Some(element) = element {
+                let widened = self.get_widened_literal_type(element);
+                return Some(widened);
+            }
+            return None;
         }
         let initializer = self.initializer_of(declaration)?;
 

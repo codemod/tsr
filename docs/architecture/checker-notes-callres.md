@@ -1715,3 +1715,30 @@ for-of-element inference class (`for (let x of []) … () => x + a` wants
 `string`, this port answers `any`) newly unlocked downstream, plus one
 `{ arguments }`-shorthand corner. `checker_types` right 397,604 →
 **398,240 (83.15%)**.
+
+### §38 for-of bindings take the iterated element
+
+`capturedLetConstInLoop2`/`_ES6` (~500 GAP, plus §37's 24 exposed
+wrongs): `for (let x of arr)` — upstream's
+`getTypeForVariableLikeDeclaration` routes a for-of binding through
+`checkRightHandSideOfForOf` → the iterated element type
+(`checker.go:16700` region). The slice: the RHS's checked type is an
+`Array`/`ReadonlyArray` reference → its argument; a tuple → the union of
+its elements; the `string` intrinsic or a string literal → `string`
+(String iteration). Every other RHS (`Iterable<T>`, generators, unions,
+`[]`'s `never[]`… ) answers None — the implicit-any road unchanged.
+
+**Falsifiers.** (a) `--downlevelIteration`/target-sensitive differences
+in string iteration — W on string-RHS cases. (b) Freshness: if upstream
+widens the element differently at the binding (literal RHS elements), W
+— widen through `get_widened_literal_type` and re-measure.
+
+**§38 score — LANDED (narrowed twice).** Two legs fired on the way, both
+EMPTY-ARRAY spellings: `for await` declines (the awaited element is
+unported and the non-async error renders `any`), and the `[]` RHS
+declines in BOTH its spellings — `never[]` strict, `undefined[]`
+non-strict (`array_literals.rs:122`) — upstream's binding reads `any`
+there. Final: **+224 W→R, 24 W→G, ZERO adverse.** `checker_types` right
+398,240 → **398,464 (83.19%)**. Residue: `Iterable<T>`/generator RHS
+(decline), `for await`, and the §37-exposed for-of closures now typing
+through this arm.
