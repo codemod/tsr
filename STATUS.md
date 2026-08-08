@@ -379,9 +379,9 @@ and the long tail is what this session spent itself on.
 
 ### `diagnostics`, the eleventh session — **+113 to 22.43%**, and the instrument that reframed the board
 
-Measured at `2b0f9ab`. **1,118 → 1,231 of 5,488 = 22.43%.** Fourteen builds,
+Measured at `ccf2b25`. **1,118 → 1,239 of 5,488 = 22.58%.** Seventeen builds,
 **zero cases lost in any of them**, `checker_types` unmoved by every one (the
-parallel `.types` workstream took it 3,645 → 3,682 over the same hours; those are
+parallel `.types` workstream took it 3,645 → 3,683 over the same hours; those are
 theirs).
 
 **The single most useful thing this session produced is a number, not a rule.**
@@ -390,9 +390,9 @@ whose every missing diagnostic carries a code some rule here **already emits** �
 cases needing no new rule at all, only completeness:
 
 ```
-cases reachable by deepening existing rules: 1,334   (against 1,188 passing)
-TS2322 548 · TS2345 138 · TS2339 128 · TS2304 88 · TS2741 81 · TS2454 58
-TS2353  52 · TS2554  37 · TS2564  36 · TS2411 34 · TS2352 32 · TS7006 28
+cases reachable by deepening existing rules: 1,283   (against 1,239 passing)
+TS2322 549 · TS2345 137 · TS2339 128 · TS2741 80 · TS2454 56 · TS2353 52
+TS2304  40 · TS2554  36 · TS2564  36 · TS2411 34 · TS2352 32 · TS7006 28
 ```
 
 It does not contradict §5's TS2322 refusal — it **prices** it: the assignability
@@ -425,6 +425,8 @@ conversions. §55's real cost was 10 cases pushed out of reach against 43 banked
 | §53 | TS2540 — the read-only assignment target | +1 | **0** (71 right lines) |
 | §54 | **`diagreach.rs`** — the reachable-by-deepening count | — | — |
 | §55 | **TS2304 in *type* positions** | **+43** | +51 |
+| §56 | TS2554 for constructors — optional parameters and the base's | +1 | 31 → **6** |
+| §57 | **`names_in_scope` takes a meaning** — §55's refusal retired | **+7** | 495 → **456** |
 
 **The session's finding, and it recurred five times in seven builds: the thing
 between a rule at +2 and the same rule at +15 was a sentence about *why*, not a
@@ -1240,7 +1242,7 @@ Append one row per session. Keep it to what a future session needs.
 
 | date | commit | gradient | cases | net | what moved it |
 |---|---|---:|---:|---|---|
-| 2026-08-08 | §55 landing (`2b0f9ab`) | — | **`diagnostics` 1,231 / 5,488 = 22.43%** | **+113, 0 lost, 14 builds** | **The eleventh session, `diagnostics`.** §42–§48 (+57, in the row below), then §49 TS2365 (+3, four declines took its wrong column 58 → 0), §50 TS18050 is chosen by the NODE not the type (+5, wrong 96 → 0), §51 the other five `checkNonNullType` messages (+1), §52 TS2464 (+3), §53 TS2540 (+1 for 71 right lines), **§54 `diagreach.rs`** — 1,334 cases reachable by deepening existing rules, the largest number this workstream has taken — and §55 TS2304 in **type** positions (**+43**, the session's largest single build) |
+| 2026-08-08 | §57 landing (`ccf2b25`) | — | **`diagnostics` 1,239 / 5,488 = 22.58%** | **+121, 0 lost, 17 builds** | **The eleventh session, `diagnostics`.** §42–§48 (+57, in the row below), then §49 TS2365 (+3, four declines took its wrong column 58 → 0), §50 TS18050 is chosen by the NODE not the type (+5, wrong 96 → 0), §51 the other five `checkNonNullType` messages (+1), §52 TS2464 (+3), §53 TS2540 (+1 for 71 right lines), **§54 `diagreach.rs`** — 1,334 cases reachable by deepening existing rules, the largest number this workstream has taken — §55 TS2304 in **type** positions (**+43**, the session's largest single build), §56 TS2554 for constructors (+1, wrong 31 → 6), and §57 **`names_in_scope` takes a meaning** (+7 — §55's refusal retired by the condition it named, and the *value* arm wanted the filter too) |
 | 2026-08-08 | §48 landing (`adfd789`) | — | **`diagnostics` 1,175 / 5,488 = 21.41%** | **+57, 0 lost, 7 builds** | **The eleventh session, `diagnostics`.** §42 the outer-variable disjunct (+1 — `markNodeAssignments` was already ported and the handoff still named it as missing), §42.1 the named-union PRINTING guard silencing a non-printing consumer (+7), §43 TS2564's private and computed name kinds plus `is_error` for `== errorType` (+14), §44 the same correction at `pair_is_reportable` (a measured zero, kept), §45 TS2367 (+15 — §31's inherited decline was a stand-in for `getBaseTypeOfLiteralType`, not for the relation), §46 TS2352 ported to the real widening (zero, kept), §47 `checkTruthinessOfType` (+21, the top of its forecast), §48 `GetErrorRangeForNode` centrally (0 converted, 4 wrong lines removed, **0 lost across 36 report sites**). New instruments: `diagmissing.rs`, `diagcase.rs` |
 | 2026-08-07 | §49 landing | **82.62%** | **3,659** | **+734/268** | **Builds 71–74: the reference/member block.** Alias bodies carry members (§46, +46), `this` results answer receivers (§29-callres, +66), plain binding patterns render (§48, +149 — the token-kind trap's second firing caught by the pair), union property projection (§49, +734 — the dependent-flow family's prerequisite laid). The shipped-red protocol now reads: FULL suite before the landing commit |
 | 2026-08-07 | build-70 landing | **82.41%** | **3,645** | **+891/147** | **Builds 67–70: the typed-array chase.** Three probes walked the row's decline inward — class defaults (§43, +4), all-defaulted construct signatures (§44, +4), and the real gate: the candidates loop's `?` letting ONE unbuildable overload kill the interface. Skip-with-agreement converted typed arrays and every uniform-return constructor interface; §45's `Record<string, V>` (+274) and its measured-and-reverted option refinement (−6) round out the block |

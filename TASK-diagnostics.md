@@ -11,9 +11,9 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,231/5,488 = 22.43%   (was 1,118 = 20.37%; +113 over 14 builds,
+  diagnostics    1,239/5,488 = 22.58%   (was 1,118 = 20.37%; +121 over 17 builds,
                  **zero cases lost in any of them**)
-  checker_types  3,682/9,538 · 82.83% — the other workstream's. Do not touch it;
+  checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
 
 ## READ §54 FIRST, AND RUN ITS INSTRUMENT FIRST
@@ -23,9 +23,9 @@ whose every missing diagnostic carries a code some rule here **already emits** �
 cases that need no new rule at all, only completeness.
 
 ```
-cases reachable by deepening existing rules: 1,334      (against 1,231 passing)
-TS2322 548 · TS2345 138 · TS2339 128 · TS2304 88 · TS2741 81 · TS2454 58
-TS2353  52 · TS2554  37 · TS2564  36 · TS2411 34 · TS2352 32 · TS7006 28
+cases reachable by deepening existing rules: 1,283      (against 1,239 passing)
+TS2322 549 · TS2345 137 · TS2339 128 · TS2741 80 · TS2454 56 · TS2353 52
+TS2304  40 · TS2554  36 · TS2564  36 · TS2411 34 · TS2352 32 · TS7006 28
 ```
 
 **This is the board now.** Eleven builds of this session each took a
@@ -105,14 +105,16 @@ wrong is worth tens of lines each way:
 
 0. **Run `diagreach.rs` and pick from it.** Everything below is that list read
    at this commit.
-1. **`Binder::names_in_scope` should take a meaning** — §55 refused the
-   suggestion arm in type positions at **143 wrong lines for 1 conversion**
-   because it cannot. Fixing it returns TS2552 to half the corpus and is a
-   binder change with a bounded blast radius.
-2. **TS2554 (37) / TS2564 (36) / TS7006 (28) / TS2454 (58) / TS2304 (88 − 43
-   landed)** — five rules `diagreach` says are incomplete and **none of which
-   needs the relation**. Read `diagmissing.rs` for each; that is exactly how
-   §43, §45, §47 and §55 were found.
+1. ~~`Binder::names_in_scope` should take a meaning~~ **DONE, §57, +7** — and
+   the *value* arm wanted the filter too, which this file had twice argued was
+   unnecessary. `names_in_scope_with_meaning` exists now.
+2. **TS2454 (56) / TS2554 (36) / TS2564 (36) / TS2411 (34) / TS7006 (28)** —
+   five rules `diagreach` says are incomplete and **none of which needs the
+   relation**. Read `diagmissing.rs` for each; that is exactly how §43, §45,
+   §47, §55 and §56 were found. TS2564's remaining 27 are behind a *type* that
+   does not resolve (`missingTypeArguments1`, `privacyVarDeclFile`) and are a
+   `checker_types` question; TS2554's are `callWithMissingVoid`'s `void`
+   parameter, which §56 left to its own measurement.
 3. **`checkNonNullType` at the OTHER call sites** — property access, element
    access, call targets. §51 built the six messages and restricted them to
    binary operands, and its twelve non-converting cases are all `STILL SHORT`
