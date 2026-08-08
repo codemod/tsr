@@ -5896,3 +5896,138 @@ count of *lines*, and a bar taken off the second will keep overshooting the
 first by whatever the concentration is. **Take the next bar off `diagreach`'s
 case count and the share of it a shape plausibly covers, never off a line
 count.**
+
+---
+
+## 79. `typeof A` is a **value** position, and the allow-list did not say so
+
+Taking the bar off `diagreach`'s case count this time — §78's closing lesson.
+TS2304 is **40 cases**, and its shape is the opposite of the last two builds':
+
+```
+lines missing per case:   30 cases want 1   ·   7 want 2   ·   2 want 6
+```
+
+Thirty cases one line from converting, against §76's 76-lines-into-5-cases and
+§78's 30-into-2. And eleven of the forty are **one family**:
+
+```
+conformance/parserTypeQuery1 … 9   var v: typeof A          (1,15)
+compiler/typeofProperty            interface I1 { a: number; b: typeof a }
+compiler/typeofInObjectLiteralType
+```
+
+`check_value_identifier` never sees these. Its position test is
+`is_value_reference` (`check.rs:1107`), a deliberate **allow**-list of
+expression slots — the module comment says so, on the ground that "a missing
+deny-list arm is a false positive while a missing allow-list arm is only a
+missed conversion". A `TypeQueryNode`'s `expr_name` is not in it.
+
+### It is upstream's position too, not a liberty
+
+`typeof A` resolves `A` with **`SymbolFlagsValue`** — that is the whole point of
+the query, and `typeofProperty`'s comments say it out loud: *"Should yield error
+(a is not a value)"*. `getTypeFromTypeQueryNode` (`checker.go:22964`) calls
+`resolveEntityName` with `SymbolFlagsValue`, which reports the same TS2304 an
+identifier expression gets. The type-query slot is a value slot wearing a type
+node's syntax, and this is the one place in the grammar where that is true.
+
+### Scope: the leftmost name of the entity name, and only under a query
+
+`typeof A.B` resolves `A` as a value and `B` as its member, so only the
+**leftmost** identifier of a `QualifiedName` chain is a value reference — and
+only when the chain's root is a `TypeQueryNode`. A qualified name under a plain
+`TypeReferenceNode` (`var v: A.B`) is a *namespace* miss, which upstream reports
+as TS2503, a different code at the same position. Firing there would be a wrong
+line, which is exactly what an allow-list exists to prevent.
+
+`check_used_before_assigned` — the only other caller of `is_value_reference` —
+declines `is_in_type_query_or_type_node` on its own line and is unaffected.
+
+### The bar
+
+**+9 cases.** The family is eleven cases, all of them blocked on TS2304 alone
+per `diagmissing`, and nine of the eleven want exactly one line. Below +9 the
+family is not what `diagmissing` says it is.
+
+**Falsifier (a):** a wrong line at a qualified name under a `TypeReferenceNode`
+— the chain-root test is not doing what it claims and TS2503 territory is being
+reported as TS2304.
+
+**Falsifier (b):** the parse-error cases. `parserTypeQuery3`, `6` and `9` are
+`var v: typeof A.` and friends — recovered trees. TS2304's parse-error gate was
+deleted by §40.3 (+6) and re-measured by §50.1 (−6), so it is **absent** today
+and these files are read. If the wrong column grows on recovered trees, that
+gate is a per-rule question again and this family is the third measurement of
+it — not a house style, per §43.
+
+**Falsifier (c):** `checker_types` byte-identical.
+
+### Measured: **+13 — the bar of +9 MET, and the wrong column went DOWN**
+
+```
+diagnostics   1,309 -> 1,322    (+13 cases)
+checker_types 3,742 -> 3,742    byte-identical, falsifier (c) did not fire
+diag2307, RULE_CODES = [2304] alone   (368 < 400: NOT truncated, unlike the
+                                       four-code run that read 482)
+  CONVERTS   190 -> 203
+  RIGHT    2,175 -> 2,197        (+22)
+  WRONG      367 -> 358          (-9)
+  LOST         3 -> 3            the same three cases
+```
+
+**The first bar this session to be met, and the first taken off a CASE count
+rather than a line count** — §78's closing instruction, applied to the next
+build and vindicated: 30 cases one line short converted at 13, where two bars
+taken off line counts read 5 and 2 against 8 and 6.
+
+**Falsifier (a) did not fire.** No qualified name under a `TypeReferenceNode`
+appears in the wrong column; `entity_name_root_is_a_type_query` holds.
+
+**Falsifier (b) did not fire, and this is the parse-error gate's THIRD
+measurement.** `parserTypeQuery3`, `6` and `9` are `var v: typeof A.` on
+recovered trees, and all three converted with no wrong line. §40.3 deleted this
+rule's gate for +6, §50.1 re-measured it at −6, and this build is the tie-break:
+**absent is right for TS2304**, and the per-rule finding stands rather than
+becoming a house style.
+
+### Two declines, both found by reading the wrong column, both named
+
+**`typeof this.z` (4 wrong lines).** This parser spells `this` as an
+`Identifier` inside a type query, so the new `QualifiedName` arm handed it to a
+resolver that can never find it; upstream reports TS2339 on the `.z` instead.
+Declined at the same line as `null`, on the same argument — **neither is a
+spellable binding in any scope, so declining can hide no real diagnostic**.
+`initializerReferencingConstructorLocals` and `…Parameters`.
+
+**`import Z = M; var r8: typeof Z` (2 wrong lines, and 10 removed).**
+`resolveEntityName` resolves at `meaning | SymbolFlagsAlias`
+(`checker.go:15772`); this binder gives an import-equals its own `ALIAS` symbol
+and none of the other three meanings, so the rule's meaning-ladder missed it.
+Adding `ALIAS` to the ladder was worth **ten** wrong lines, not the two
+`typeofAnExportedType` showed — the ladder is consulted by every TS2304 in the
+corpus and import-equals aliases were being reported wherever they appeared.
+**A decline found in one family paid four times over outside it**, which is the
+argument for reading the wrong column rather than the case.
+
+### The three standing LOST, carried with their names and now diagnosed
+
+Unchanged by this build and pre-existing, but the handoff rule says diagnose
+before the next build in the family, and all three are also `extraonly.rs`
+entries — each is **one false positive from passing**:
+
+- **`compiler/validRegexp`** — an extra TS2304 at `(1,24)`. The parser reads an
+  ambiguous `/` as division rather than a regular-expression literal, so the
+  regex body's contents are parsed as identifiers. Owner: `tsr_parser`'s
+  regex/division disambiguation. Named in the eleventh session's handoff and
+  still true.
+- **`conformance/resolutionModeTripleSlash1`** (extra TS2304 on `MODULE`) and
+  **`3`** (the same) — **newly diagnosed here.** Both files are
+  `/// <reference types="foo" />` against an `@types/foo` package whose
+  `exports` map sends `import` to `index.d.mts` and `require` to `index.d.cts`.
+  The port loads neither, so both globals are unresolved. The sibling
+  `resolutionModeTripleSlash2` is in `extraonly` too, with two extra **TS2552**
+  on `SCRIPT` — a *suggestion* form, meaning the port did load the `.d.mts`
+  there and offered `MODULE` as the near-miss. **Owner: `file_loader`** — the
+  triple-slash type reference and the conditional-`exports` resolution mode, not
+  a diagnostics rule. Three cases sit behind it.

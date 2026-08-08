@@ -744,7 +744,15 @@ impl Checker<'_, '_> {
         // is not a spellable binding in any scope: declining it can hide no real
         // diagnostic. `classExtendsNull`, `classExtendsNull2` and
         // `classExtendsNull3` were 5 wrong lines.
-        if text == "null" {
+        // …and `typeof this.z` is the same shape at the other keyword. §79 put
+        // the leftmost name of a type query's entity name into the allow-list,
+        // and `this` is spelled as an `Identifier` by this parser there, so it
+        // reached a resolver that can never find it — `initializerReferencing-
+        // ConstructorLocals` and `…Parameters`, 4 wrong lines, where upstream
+        // reports TS2339 on the `.z` instead. Like `null`, `this` is not a
+        // spellable binding in any scope, so declining it can hide no real
+        // diagnostic.
+        if text == "null" || text == "this" {
             return;
         }
         // `checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) runs
@@ -821,15 +829,19 @@ impl Checker<'_, '_> {
         // (`checker.go:1681`, `:1643`): a name that resolves under another
         // meaning gets a *different* code, so silence is the only sound answer
         // until those arms are ported.
-        if self
-            .binder
-            .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::TYPE)
-            .is_some()
-            || self
-                .binder
-                .resolve_name(self.nodes, self.node_map, node, text, SymbolFlags::NAMESPACE)
-                .is_some()
-        {
+        //
+        // **`ALIAS` is on the ladder because `resolveEntityName` puts it
+        // there.** Upstream resolves an entity name at
+        // `meaning | SymbolFlagsAlias` (`checker.go:15772`), so `import Z = M;
+        // var r8: typeof Z` finds the alias and reports nothing. This binder
+        // gives an import-equals its own `ALIAS` symbol and none of the other
+        // three meanings, which made `typeofAnExportedType` §79's only new
+        // wrong line.
+        if [SymbolFlags::TYPE, SymbolFlags::NAMESPACE, SymbolFlags::ALIAS].into_iter().any(
+            |meaning| {
+                self.binder.resolve_name(self.nodes, self.node_map, node, text, meaning).is_some()
+            },
+        ) {
             return;
         }
         // `onFailedToResolveSymbol` reports the **missing lib first**
@@ -1195,8 +1207,44 @@ impl Checker<'_, '_> {
                         )
                     })
             }
+            // `typeof A` — the one place in the grammar where a *type node*
+            // holds a value slot. `getTypeFromTypeQueryNode` (`checker.go:22964`)
+            // resolves the entity name with `SymbolFlagsValue`, so an
+            // unresolvable name there is the same TS2304 an expression gets:
+            // `interface I1 { a: number; b: typeof a }` is
+            // `compiler/typeofProperty`, whose own comments read *"Should yield
+            // error (a is not a value)"*. §79.
+            Node::TypeQueryNode(n) => is(n.expr_name.and_then(|name| name.node_id())),
+            // `typeof A.B` resolves `A` as a value and `B` as its member, so
+            // only the **leftmost** identifier of the chain is a reference — and
+            // only when the chain's root is a type query. A qualified name under
+            // a plain `TypeReferenceNode` is a *namespace* miss, which upstream
+            // reports as TS2503 at the same position; firing there would be a
+            // wrong code, which is what this allow-list exists to prevent.
+            Node::QualifiedName(n) => {
+                is(n.left.and_then(|left| left.node_id()))
+                    && self.entity_name_root_is_a_type_query(parent)
+            }
             _ => false,
         }
+    }
+
+    /// Walk out of a `QualifiedName` chain and ask whether it hangs off a
+    /// `TypeQueryNode` — see [`Checker::is_value_reference`]'s `QualifiedName`
+    /// arm for why the question is asked at all.
+    fn entity_name_root_is_a_type_query(&self, mut at: NodeId) -> bool {
+        // A qualified name nests only to the left, so the walk is the chain's
+        // length. The bound is a cycle guard, not a depth limit: `A.B.C.D…` in
+        // the corpus is three deep at most.
+        for _ in 0..64 {
+            let Some(parent) = self.nodes.parent(at) else { return false };
+            match self.nodes.kind(parent) {
+                SyntaxKind::QualifiedName => at = parent,
+                SyntaxKind::TypeQuery => return true,
+                _ => return false,
+            }
+        }
+        false
     }
 
     /// TS2454 — `Variable '{0}' is used before being assigned.`
