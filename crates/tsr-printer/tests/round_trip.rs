@@ -123,6 +123,28 @@ export function fn(p = /** @type {P} */(something)) {}"#;
 }
 
 #[test]
+fn jsdoc_typedef_stateless_component() {
+    // Test from expandoFunctionContextualTypesJs - the failing case
+    let source = r#"/**
+ * @template P
+ * @typedef {{ (): any; defaultProps?: Partial<P> }} StatelessComponent */
+
+const MyComponent = () => null;"#;
+    let output = printed(source);
+    println!("=== Input ===");
+    println!("{}", source);
+    println!("=== Output ===");
+    println!("{}", output);
+    // Check if the ? is in the output
+    if output.contains("defaultProps?") {
+        println!("✓ Question mark preserved in output");
+    } else {
+        println!("✗ Question mark MISSING in output!");
+    }
+    assert!(round_trips(source));
+}
+
+#[test]
 fn import_attributes_survive() {
     // Dropping these still yields valid syntax, just a smaller tree — which is
     // exactly why only a round trip catches it.
