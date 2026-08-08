@@ -111,6 +111,10 @@ pub(crate) struct Transformer<'a, 't, R> {
     /// `@param {T} name` types from the enclosing signature's JSDoc, active
     /// while that signature's parameters are ensured. JavaScript files only.
     jsdoc_param_types: HashMap<String, TypeNode<'a>>,
+    /// Nested `host.p.q = value` assignments on empty-object consts, keyed by
+    /// the host binding. JavaScript files only
+    /// (`typeFromPropertyAssignment39`).
+    object_expandos: HashMap<String, ObjectExpando<'a>>,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -139,6 +143,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             options,
             javascript_file: false,
             jsdoc_param_types: HashMap::new(),
+            object_expandos: HashMap::new(),
             inference_required: Vec::new(),
         }
     }
@@ -164,6 +169,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let is_module = is_external_module(file.statements) || self.options.force_module;
         reserve_statement_names(file.statements, &mut self.used_names);
         self.expando_members = collect_expando_members(file.statements, self.factory.nodes());
+        self.collect_object_expandos(file.statements);
         self.type_aliases = file
             .statements
             .iter()
@@ -869,7 +875,25 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         let annotation = declaration
             .r#type
             .map(|r#type| self.transform_written_type(r#type))
-            .or(jsdoc_annotation);
+            .or(jsdoc_annotation)
+            .or_else(|| {
+                // An empty-object const with collected property assignments
+                // takes the expando tree as its type.
+                let Some(tsr_ast::BindingName::Identifier(name)) = &declaration.name else {
+                    return None;
+                };
+                let empty_object = matches!(
+                    declaration.initializer.as_ref(),
+                    Some(Expression::ObjectLiteralExpression(literal))
+                        if literal.properties.is_empty()
+                );
+                if !empty_object {
+                    return None;
+                }
+                let expando = self.object_expandos.remove(name.text)?;
+                let span = self.span_of(declaration.node_id);
+                Some(self.object_expando_type(expando, span))
+            });
         let r#type = if initializer.is_some() {
             // `ensureType`'s first branch: a literal const emits its value, not a
             // type, and emitting both would be a syntax error.
@@ -1588,6 +1612,73 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             return Some(node);
         }
         self.rich_jsdoc_type(comment, tag)
+    }
+
+    /// Collect nested property assignments on empty-object consts.
+    ///
+    /// `const foo = {}; foo["baz"] = {}; foo["baz"]["blah"] = 3;` binds `foo`
+    /// to `{ baz: { blah: number; }; }` in JavaScript; upstream builds this in
+    /// the binder, and the syntactic stand-in is a path tree over top-level
+    /// assignment statements.
+    fn collect_object_expandos(&mut self, statements: &'a [Statement<'a>]) {
+        if !self.javascript_file {
+            return;
+        }
+        for statement in statements {
+            let Statement::ExpressionStatement(statement) = statement else { continue };
+            let Some(Expression::BinaryExpression(assignment)) = &statement.expression else {
+                continue;
+            };
+            if assignment.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken) {
+                continue;
+            }
+            let Some(left) = &assignment.left else { continue };
+            let Some((base, path)) = property_path(left) else { continue };
+            if path.is_empty() {
+                continue;
+            }
+            let mut node = self.object_expandos.entry(base).or_default();
+            for segment in path {
+                let position =
+                    node.children.iter().position(|(name, _)| *name == segment).unwrap_or_else(
+                        || {
+                            node.children.push((segment.clone(), ObjectExpando::default()));
+                            node.children.len() - 1
+                        },
+                    );
+                node = &mut node.children[position].1;
+            }
+            if node.value.is_none() {
+                node.value = assignment.right;
+            }
+        }
+    }
+
+    /// The nested type literal an object expando tree spells.
+    fn object_expando_type(&mut self, expando: ObjectExpando<'a>, span: Span) -> TypeNode<'a> {
+        let mut members = Vec::new();
+        for (name, child) in expando.children {
+            let r#type = if child.children.is_empty() {
+                self.ensure_type(None, child.value.as_ref(), Freshness::Widening, None)
+            } else {
+                Some(self.object_expando_type(child, span))
+            };
+            let text = self.factory.alloc_str(&name);
+            let name = tsr_ast::PropertyName::Identifier(self.factory.identifier(text, span));
+            members.push(TypeElement::PropertySignatureDeclaration(self.factory.alloc(
+                tsr_ast::PropertySignatureDeclaration::new(&[], name, None, r#type, None),
+                SyntaxKind::PropertySignature,
+                span,
+                NodeFlags::empty(),
+            )));
+        }
+        let members = self.factory.slice(&members);
+        TypeNode::TypeLiteralNode(self.factory.alloc(
+            tsr_ast::TypeLiteralNode::new(members),
+            SyntaxKind::TypeLiteral,
+            span,
+            NodeFlags::empty(),
+        ))
     }
 
     /// Type aliases a JS file declares through `@typedef` and `@callback`.
@@ -2915,6 +3006,35 @@ fn owns_comment_run(source: &str, from: usize, is_callback: bool) -> bool {
             || jsdoc_tag_text(comment, "callback").is_some();
     }
     !trimmed.starts_with("//") && !trimmed.starts_with("/*")
+}
+
+/// Nested property assignments rooted at one object-literal binding.
+#[derive(Default)]
+struct ObjectExpando<'a> {
+    children: Vec<(String, ObjectExpando<'a>)>,
+    value: Option<Expression<'a>>,
+}
+
+/// `foo.a["b"].c` as its base binding plus named path segments.
+fn property_path(expression: &Expression<'_>) -> Option<(String, Vec<String>)> {
+    match expression {
+        Expression::Identifier(name) => Some((name.text.to_string(), Vec::new())),
+        Expression::PropertyAccessExpression(access) => {
+            let (base, mut path) = property_path(access.expression.as_ref()?)?;
+            let tsr_ast::MemberName::Identifier(name) = access.name.as_ref()? else { return None };
+            path.push(name.text.to_string());
+            Some((base, path))
+        }
+        Expression::ElementAccessExpression(access) => {
+            let (base, mut path) = property_path(access.expression.as_ref()?)?;
+            let Expression::StringLiteral(name) = access.argument_expression.as_ref()? else {
+                return None;
+            };
+            path.push(name.text.to_string());
+            Some((base, path))
+        }
+        _ => None,
+    }
 }
 
 /// The identifier starting at `position`, when one does and nothing dotted

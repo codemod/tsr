@@ -5,7 +5,7 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  324/378  = 85.71%  (denominator moved three times:
+  dts_emit                  325/378  = 85.98%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
@@ -249,7 +249,11 @@ when a blank line or EOF follows the run (`recursiveTypeReferences2` pins all
 arms); rest params keep their written element type behind moved dots, and
 `@typedef {Object}` + `@property` builds the object literal
 (`jsdocTemplateTagNameResolution`, `callbackTagVariadicType`,
-`importDeferJsdoc`, +3 emit, +2 shape).
+`importDeferJsdoc`, +3 emit, +2 shape). Comment-run ownership is kind-aware —
+a following non-typedef comment claims a `@typedef` run's trivia but not a
+`@callback`'s — grafted nodes carry `NodeFlags::REPARSED` so reparsed mapped
+types print single-line, and nested property assignments on an empty-object
+const spell its type literal (`typeFromPropertyAssignment39`, +1 emit).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

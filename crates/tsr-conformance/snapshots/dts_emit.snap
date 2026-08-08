@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 324/378 (85.71%)
-Failed         : 54
+Passed         : 325/378 (85.98%)
+Failed         : 53
 Skipped        : 12066 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -114,8 +114,6 @@ conformance/jsDeclarationsTypedefDescriptionsPreserved
   line 8: want `    /**`, got `    bar: boolean;`
 conformance/recursiveTypeReferences2
   line 17: want `} & {`, got `} & { [K in keyof T]?: (T[K] extends string ? string : XMLObject<T[K]>); };`
-conformance/typeFromPropertyAssignment39
-  line 1: want `declare const foo: {`, got `declare const foo: {};`
 conformance/varianceAnnotationsWithCircularlyReferencesError
   line 1: want `type T1<in , > = T1;`, got `type T1<in in> = T1;`
 conformance/weakTypesAndLiterals01

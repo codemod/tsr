@@ -252,6 +252,18 @@ fn jsdoc_typedef_and_callback_synthesize_type_aliases() {
 }
 
 #[test]
+fn nested_assignments_on_an_empty_object_const_build_its_type() {
+    // `typeFromPropertyAssignment39`: property and element assignments on an
+    // empty-object const spell a nested type literal in JavaScript.
+    let output =
+        emit_javascript("const foo = {};\nfoo[\"baz\"] = {};\nfoo[\"baz\"][\"blah\"] = 3;");
+    assert_eq!(
+        output.trim_end(),
+        "declare const foo: {\n    baz: {\n        blah: number;\n    };\n};"
+    );
+}
+
+#[test]
 fn a_jsdoc_implements_tag_becomes_a_heritage_clause() {
     // `jsdocImplements_properties`: braced, bare, and comment-closing forms.
     let output = emit_javascript("class A {}\n/** @implements A*/\nclass B {}");
