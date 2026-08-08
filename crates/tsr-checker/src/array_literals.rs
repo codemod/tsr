@@ -265,6 +265,19 @@ impl Checker<'_, '_> {
                         _ => TupleContext::No,
                     }
                 }
+                // §76.2: a call ARGUMENT under a TUPLE parameter type —
+                // `f(["string", 1, 2])` against `x: [string, number,
+                // number]` prints the literal as the tuple
+                // (`destructuringParameterDeclaration1ES5iterable`).
+                Some(tsr_ast::Node::CallExpression(call)) => {
+                    let contextual = self.contextual_type_for_argument(call, id);
+                    match contextual {
+                        Some(t) if self.tuple_element_lists.contains_key(&t) => {
+                            TupleContext::Annotated
+                        }
+                        _ => TupleContext::No,
+                    }
+                }
                 _ => TupleContext::No,
             }
         }

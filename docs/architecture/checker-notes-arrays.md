@@ -922,3 +922,15 @@ moved `checker_types` right 403,229 → 403,234 on its own). Rule
 applied: stash, re-accept at HEAD, pop, re-measure.
 
 **§76.1 score — LANDED.** right 403,234 → **403,237 (84.20%)**.
+
+## §76.2 — a call argument under a tuple parameter is a tuple context
+
+One more `TupleContext::Annotated` source: `contextual_type_for_argument`
+(§68.2's road) consulted from the array-literal context test —
+`f(["string", 1, 2])` against `[string, number, number]` prints the
+tuple. **+5, zero adverse** — smaller than the sized family because
+`destructuringParameterDeclaration1ES5iterable`'s remaining rows
+decline inside `contextual_type_for_argument` (spread-bearing calls,
+optional/rest parameters); those legs stay priced.
+
+**§76.2 score — LANDED.** right 403,237 → **403,242 (84.21%)**.

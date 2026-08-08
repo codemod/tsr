@@ -477,7 +477,7 @@ impl<'a> Checker<'a, '_> {
     /// Ported from `Checker.getContextualTypeForArgumentAtIndex`
     /// (`checker.go:29772`), collapsed to the one path that needs no argument
     /// checked — see the module documentation on the recursion this avoids.
-    fn contextual_type_for_argument(
+    pub(crate) fn contextual_type_for_argument(
         &mut self,
         call: &'a CallExpression<'a>,
         argument: NodeId,
