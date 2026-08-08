@@ -11,7 +11,7 @@ FIRST: git pull. Then read, in this order:
   refusal with its number.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,296/5,488 = 23.62%   (was 1,118 = 20.37%; +178 over 27 builds,
+  diagnostics    1,296/5,488 = 23.62%   (was 1,118 = 20.37%; +178 over 30 builds,
                  **zero cases lost in any of them**)
   checker_types  3,683/9,538 · 82.85% — the other workstream's. Do not touch it;
                  re-check it is byte-identical after every build.
@@ -23,9 +23,9 @@ whose every missing diagnostic carries a code some rule here **already emits** �
 cases that need no new rule at all, only completeness.
 
 ```
-cases reachable by deepening existing rules: 1,283      (against 1,239 passing)
-TS2322 549 · TS2345 137 · TS2339 128 · TS2741 80 · TS2454 56 · TS2353 52
-TS2304  40 · TS2554  36 · TS2564  36 · TS2411 34 · TS2352 32 · TS7006 28
+cases reachable by deepening existing rules: 1,304      (against 1,296 passing)
+TS2322 ~549 · TS2345 ~137 · TS2339 ~128 · TS2741 ~80 · TS2454 ~56 · TS2353 ~52
+re-run it; the tail moved a lot over §55–§69
 ```
 
 **This is the board now.** Eleven builds of this session each took a
@@ -145,7 +145,11 @@ wrong is worth tens of lines each way:
    TS2403 157 (refused — `isTypeIdenticalTo`), **TS2445 102** (`protected`, the
    sibling §67 deliberately left — it needs the `extends` chain),
    TS2558 96, TS2703 90, TS1487 86, TS7010 82, TS2449 80, TS2693 78,
-   TS2344 76, TS2364 69, TS7027 67, TS2374 66. **No ported rule reads SILENT.**
+   TS2344 76, TS2364 69, TS7027 67. **No ported rule reads SILENT.**
+   §68 and §69 took TS2445 and TS2374 off that list at **zero conversions** —
+   both were kept because they emit no wrong line and move `diagreach`. Expect
+   more of those: the single-code rows are exhausted, and what is left either
+   needs the relation or converts only in combination.
 3. **`checkNonNullType` at the OTHER call sites** — property access, element
    access, call targets. §51 built the six messages and restricted them to
    binary operands, and its twelve non-converting cases are all `STILL SHORT`
