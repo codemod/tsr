@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 277/341 (81.23%)
-Failed         : 64
+Passed         : 278/341 (81.52%)
+Failed         : 63
 Skipped        : 12103 (excluded from the denominator)
 
   580  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -76,8 +76,6 @@ compiler/mappedTypeWithAsClauseAndLateBoundProperty2
   line 2: want `    [x: number]: number;`, got `    [K in keyof number[] as Exclude<K, "length">]: (number[])[K];`
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   line 1: want `export * from "./account";`, got `declare global {`
-compiler/moduleDetectionIsolatedModulesCjsFileScope
-  line 1: want `export {};`, got `declare const a = 2;`
 compiler/moduleLocalImportNotIncorrectlyRedirected
   line 1: want `import { Position } from './utilities/positioning';`, got `export {};`
 compiler/noEmitOnError

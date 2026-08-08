@@ -5,8 +5,8 @@ CURRENT PROGRESS (2026-08-07)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  277/341  = 81.23%  (up from 161/339)
-  dts_shape                 752/918  = 81.92%  (up from 618/912)
+  dts_emit                  278/341  = 81.52%  (up from 161/339)
+  dts_shape                 753/918  = 82.03%  (up from 618/912)
   printer_round_trip    11,755/11,778 = 99.80%
 
 The parser clean-file milestone is complete. Its harness now prepares virtual
@@ -179,6 +179,11 @@ diagnostics: upstream suppresses declaration output per file when that file has
 declaration-emit errors (`isolatedDeclarationErrorsDefault` emits `f.d.ts` and
 nothing for its five erroring units), and units needing inference are already
 outside the judged population. Three emit and eight shape cases.
+
+Module detection now honors the non-syntactic inputs: a `.mts`/`.cts` unit (or
+`moduleDetection: force`) is a module with no import/export syntax, so its
+private declarations drop and the `export {}` marker remains
+(`moduleDetectionIsolatedModulesCjsFileScope`, +1 emit and +1 shape).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

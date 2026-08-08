@@ -119,6 +119,9 @@ pub struct DeclarationEmit {
 /// source text is optional so existing AST-only callers retain their behavior;
 /// options whose semantics depend on comments are inert without it.
 #[derive(Debug, Clone, Copy, Default)]
+// Each bool mirrors an independent upstream boolean compiler option; folding
+// them into enums would invent states upstream does not have.
+#[allow(clippy::struct_excessive_bools)]
 pub struct DeclarationEmitOptions<'a> {
     /// Original source text used to inspect comment trivia around declarations.
     pub source_text: Option<&'a str>,
@@ -128,6 +131,13 @@ pub struct DeclarationEmitOptions<'a> {
     pub remove_comments: bool,
     /// Preserve `null` as a literal type instead of widening it to `any`.
     pub strict_null_checks: bool,
+    /// Treat the file as a module even without import/export syntax.
+    ///
+    /// Module detection is not purely syntactic: a `.mts`/`.cts` extension (and
+    /// `moduleDetection: force`) makes upstream set the external-module
+    /// indicator, so an extensionless-module file's unexported declarations
+    /// drop and the `.d.ts` keeps an `export {}` marker.
+    pub force_module: bool,
     /// Append a `//# sourceMappingURL=` directive naming this file's
     /// declaration map. The map itself is not produced — only the reference
     /// `declarationMap` makes upstream write at the end of the `.d.ts`.

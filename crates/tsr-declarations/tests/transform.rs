@@ -50,6 +50,7 @@ fn emit_stripping_internal(source: &str) -> String {
             strip_internal: true,
             remove_comments: false,
             strict_null_checks: false,
+            force_module: false,
             source_map_url: None,
         },
     )
@@ -112,10 +113,37 @@ fn emit_with_source(source: &str) -> String {
             strip_internal: false,
             remove_comments: false,
             strict_null_checks: false,
+            force_module: false,
             source_map_url: None,
         },
     )
     .text
+}
+
+#[test]
+fn a_forced_module_drops_unexported_declarations() {
+    // moduleDetectionIsolatedModulesCjsFileScope: a `.cts`/`.mts` extension
+    // marks the file a module with no import/export syntax, so its private
+    // declarations drop and only the module marker remains.
+    let arena = Arena::new();
+    let source = "const a = 2;";
+    let parsed = tsr_parser::parse(&arena, source);
+    assert!(parsed.diagnostics.is_empty());
+    let mut nodes = parsed.nodes;
+    let result = tsr_declarations::emit_with_options(
+        &arena,
+        &mut nodes,
+        parsed.source_file,
+        tsr_declarations::DeclarationEmitOptions {
+            source_text: Some(source),
+            strip_internal: false,
+            remove_comments: false,
+            strict_null_checks: true,
+            force_module: true,
+            source_map_url: None,
+        },
+    );
+    assert_eq!(result.text, "export {};");
 }
 
 /// Assert the emitted text exactly, so spacing and ordering are covered too.
@@ -191,6 +219,7 @@ fn strict_null_checks_controls_null_widening() {
                 strip_internal: false,
                 remove_comments: false,
                 strict_null_checks,
+                force_module: false,
                 source_map_url: None,
             },
         )
@@ -403,6 +432,7 @@ fn a_declaration_map_url_is_appended_after_the_output() {
             strip_internal: false,
             remove_comments: false,
             strict_null_checks: true,
+            force_module: false,
             source_map_url: Some("a.d.ts.map"),
         },
     );
@@ -654,6 +684,7 @@ fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
             strip_internal: false,
             remove_comments: false,
             strict_null_checks: false,
+            force_module: false,
             source_map_url: None,
         },
     );
@@ -674,6 +705,7 @@ fn declaration_emit_preserves_leading_jsdoc_unless_comments_are_removed() {
             strip_internal: false,
             remove_comments: true,
             strict_null_checks: false,
+            force_module: false,
             source_map_url: None,
         },
     );
@@ -695,6 +727,7 @@ fn literal_declarations_preserve_context_and_widen_negative_bigints() {
             strip_internal: false,
             remove_comments: false,
             strict_null_checks: false,
+            force_module: false,
             source_map_url: None,
         },
     );

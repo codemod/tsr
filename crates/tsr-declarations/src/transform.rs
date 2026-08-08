@@ -151,7 +151,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
     /// resolver it stays empty, and the loop runs zero times. That is stated here
     /// rather than deleted, because the shape is what Phase 4 will fill.
     pub(crate) fn transform_source_file(&mut self, file: &SourceFile<'a>) -> &'a SourceFile<'a> {
-        let is_module = is_external_module(file.statements);
+        let is_module = is_external_module(file.statements) || self.options.force_module;
         reserve_statement_names(file.statements, &mut self.used_names);
         self.expando_members = collect_expando_members(file.statements, self.factory.nodes());
         self.type_aliases = file

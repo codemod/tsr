@@ -118,7 +118,11 @@ impl Suite for DtsShape {
                 &mut nodes,
                 parsed.source_file,
                 &references,
-                crate::dts_emit_suite::declaration_emit_options(&parsed_case, &unit.content),
+                crate::dts_emit_suite::declaration_emit_options(
+                    &parsed_case,
+                    &unit.name,
+                    &unit.content,
+                ),
             );
             if let Some(kind) = result.unsupported.first() {
                 return Outcome::Unsupported { reason: format!("printer: {kind}") };

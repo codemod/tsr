@@ -116,7 +116,7 @@ impl Suite for DtsEmit {
             let declaration_file = declaration_name(&unit.name);
             let map_base = declaration_file.rsplit('/').next().unwrap_or(&declaration_file);
             let map_url = format!("{map_base}.map");
-            let mut options = declaration_emit_options(&parsed_case, &unit.content);
+            let mut options = declaration_emit_options(&parsed_case, &unit.name, &unit.content);
             if parsed_case
                 .options
                 .get("declarationmap")
@@ -362,10 +362,23 @@ pub(crate) fn declaration_references(
 
 pub(crate) fn declaration_emit_options<'a>(
     case: &crate::TestCase,
+    unit_name: &str,
     source_text: &'a str,
 ) -> tsr_declarations::DeclarationEmitOptions<'a> {
+    // A `.mts`/`.cts` extension (or `moduleDetection: force`) marks the file a
+    // module regardless of its syntax; upstream's detection is not purely
+    // syntactic and the transform needs the fact.
+    let lower = unit_name.to_ascii_lowercase();
+    let force_module = [".mts", ".cts", ".mjs", ".cjs"]
+        .iter()
+        .any(|extension| lower.ends_with(extension) && !is_declaration_file_name(&lower))
+        || case
+            .options
+            .get("moduledetection")
+            .is_some_and(|value| value.eq_ignore_ascii_case("force"));
     tsr_declarations::DeclarationEmitOptions {
         source_text: Some(source_text),
+        force_module,
         strip_internal: case
             .options
             .get("stripinternal")
@@ -410,18 +423,18 @@ mod tests {
     #[test]
     fn declaration_emit_options_follow_strict_null_directives() {
         let default_case = crate::TestCase::parse("compiler/default", "default.ts", "");
-        assert!(declaration_emit_options(&default_case, "").strict_null_checks);
+        assert!(declaration_emit_options(&default_case, "default.ts", "").strict_null_checks);
 
         let non_strict =
             crate::TestCase::parse("compiler/nonStrict", "nonStrict.ts", "// @strict: false\n");
-        assert!(!declaration_emit_options(&non_strict, "").strict_null_checks);
+        assert!(!declaration_emit_options(&non_strict, "nonStrict.ts", "").strict_null_checks);
 
         let override_case = crate::TestCase::parse(
             "compiler/override",
             "override.ts",
             "// @strict: false\n// @strictNullChecks: true\n",
         );
-        assert!(declaration_emit_options(&override_case, "").strict_null_checks);
+        assert!(declaration_emit_options(&override_case, "override.ts", "").strict_null_checks);
     }
 
     #[test]

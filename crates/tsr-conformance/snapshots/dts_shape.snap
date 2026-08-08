@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 752/918 (81.92%)
-Failed         : 166
+Passed         : 753/918 (82.03%)
+Failed         : 165
 Skipped        : 11526 (excluded from the denominator)
 
   6  skipped: a unit of this case does not parse cleanly
@@ -12,7 +12,7 @@ Skipped        : 11526 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   8  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 166 failures:
+First 100 of 165 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -181,8 +181,6 @@ compiler/libTypeScriptSubfileResolving
   #0: extra `var a`
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   #0: want `export{}`, got `namespace global`
-compiler/moduleDetectionIsolatedModulesCjsFileScope
-  #0: want `export{}`, got `var a`
 compiler/moduleLocalImportNotIncorrectlyRedirected
   #0: want `import`, got `export{}`
 compiler/nodeNextEsmImportsOfPackagesWithExtensionlessMains
@@ -213,3 +211,5 @@ compiler/reactTransitiveImportHasValidDeclaration
   #0: want `namespace React`, got `var Form`
 compiler/stackDepthLimitCastingType
   #0: want `namespace global`, got `export{}`
+compiler/uniqueSymbolPropertyDeclarationEmit
+  #0: want `import`, got `function foo`
