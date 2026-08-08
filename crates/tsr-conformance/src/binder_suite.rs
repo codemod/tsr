@@ -229,13 +229,20 @@ impl Suite for BinderSymbols {
                         for offset in dotted_suffixes(&full) {
                             ours.entry(full[offset..].to_string()).or_default().extend(&declared);
                         }
+                        // Respelling replaces the symbol's own (canonical)
+                        // name, which may itself contain a dot (`0.12e1` binds
+                        // as `1.2`), so the split point is the canonical
+                        // name's length rather than the last dot.
                         for spelling in &written {
                             if spelling.as_str() == symbol.name {
                                 continue;
                             }
-                            let respelled = match full.rfind('.') {
-                                Some(dot) => format!("{}.{spelling}", &full[..dot]),
-                                None => spelling.clone(),
+                            let respelled = if full.len() > symbol.name.len()
+                                && full.ends_with(symbol.name)
+                            {
+                                format!("{}{spelling}", &full[..full.len() - symbol.name.len()])
+                            } else {
+                                spelling.clone()
                             };
                             for offset in dotted_suffixes(&respelled) {
                                 ours.entry(respelled[offset..].to_string())
@@ -868,7 +875,9 @@ fn const_literal_value(
     else {
         return None;
     };
-    if !nodes.flags(declaration).contains(tsr_ast::NodeFlags::CONST) {
+    // `const` is a flag on the declaration *list*, not the declaration.
+    let list = nodes.parent(declaration)?;
+    if !nodes.flags(list).contains(tsr_ast::NodeFlags::CONST) {
         return None;
     }
     match variable.initializer? {

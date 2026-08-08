@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8417/8473 (99.34%)
-Failed         : 56
+Passed         : 8418/8473 (99.35%)
+Failed         : 55
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -27,9 +27,7 @@ compiler/declarationEmitLateBoundAssignments2
 compiler/duplicateObjectLiteralProperty_computedName1
   1 symbol(s): +1: declared on {15, 20, 21}, expected to include {15, 16, 20, 21}
 compiler/dynamicNamesErrors
-  2 symbol(s): T0.1: declared on {4}, expected to include {3, 4}; T3[c0]: declared on {16}, expected to include {16, 17}
-compiler/enumIdentifierLiterals
-  2 symbol(s): Nums.0.12e1: no symbol; Nums.11e-1: no symbol
+  1 symbol(s): T3[c0]: declared on {16}, expected to include {16, 17}
 compiler/esModuleInteropDefaultImports
   2 symbol(s): b.ts: self.def: no symbol; b.ts: self.default: no symbol
 compiler/esModuleInteropImportTSLibHasImport

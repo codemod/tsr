@@ -3160,9 +3160,10 @@ impl<'a, 'n> Binder<'a, 'n> {
         if let Some(computed) = dynamic_name(self.arena, node) {
             let symbol = self.symbols.create(INTERNAL_COMPUTED, flags);
             self.symbols.get_mut(symbol).declarations.push(id);
-            if flags.intersects(SymbolFlags::ENUM_MEMBER | SymbolFlags::CLASS_MEMBER) {
-                self.symbols.get_mut(symbol).parent = self.owner;
-            }
+            // Parented to the container unconditionally, as
+            // `bindAnonymousDeclaration` does — an interface's or type
+            // literal's late-bound member has the same need as a class's.
+            self.symbols.get_mut(symbol).parent = self.owner;
             if flags.intersects(SymbolFlags::VALUE) {
                 self.symbols.get_mut(symbol).value_declaration = Some(id);
             }
