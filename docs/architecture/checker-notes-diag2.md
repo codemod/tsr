@@ -7390,3 +7390,69 @@ session, and it is worth being clear about why it was cheap: **nothing was
 missing.** The diagnostic, its message selection, its position and its
 report-on-every-declaration loop were all built and correct; they were simply
 never reached for a parameter.
+
+## §94 — the excludes audit: one real divergence found, measured, and REFUSED
+
+§93 raised the general question — `declare_into` derives excludes for the other
+seven call sites too, and upstream passes it at all of them. This is that audit,
+run the way §84 ran the compiler-option one.
+
+**Result: the derivation matches upstream constant-for-constant for every kind
+except one.** `symbol.rs`'s `excludes()` was checked line by line against
+`ast/symbolflags.go:52-74` — function-scoped variable, block-scoped variable,
+property, enum member, function, class, interface, enum, method, accessor, type
+parameter and alias all agree, including the several the comments record as
+having been wrong once and fixed.
+
+### The one divergence
+
+Upstream has **two** module excludes and this port had one:
+
+```go
+SymbolFlagsValueModuleExcludes     = SymbolFlagsValue & ^(Function | Class | RegularEnum | ValueModule)
+SymbolFlagsNamespaceModuleExcludes = SymbolFlagsNone
+```
+
+`excludes()` returned `None` for every module. A namespace that emits JavaScript
+occupies value space and *does* collide with a variable of the same name, which
+is why `module_augmentExistingVariable`, `module_augmentExistingAmbientVariable`,
+`mergedClassWithNamespacePrototype` and
+`augmentedClassWithPrototypePropertyOnModule` sit in TS2300's missing column.
+
+### Measured, and refused
+
+`diag2307` with `RULE_CODES = [2300, 2451, 2567, 2528]`:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| §93 (before) | 50 | 0 | 490 | 79 |
+| ValueModuleExcludes | **52** | 0 | 500 | **93** |
+
+**+2 cases for +14 wrong lines. Refused and reverted.**
+
+The wrong lines name the reason: `augmentExportEquals7`
+(`/node_modules/lib/index.d.ts`), `duplicateExportAssignments`,
+`es6ImportNamedImportIdentifiersParsing`. They are **ambient and augmentation
+module declarations**, which upstream lets merge — and it can, because
+`classify` upstream chooses between `ValueModule` and `NamespaceModule` per
+declaration, using `IsInstantiatedModule`. This port maps every
+`ModuleDeclaration` to `VALUE_MODULE`, so giving that flag the stricter excludes
+applies it to declarations upstream would have flagged `NamespaceModule`.
+
+**Owner: `classify` in `tsr-binder`, and the fix is to choose the flag rather
+than to change what the flag excludes.** §89 already ported
+`GetModuleInstanceState` — into `crate::check`, where the binder cannot reach
+it. Moving it to `tsr-ast` beside the other `ast/utilities.go` ports would let
+both consumers have it, and *then* this divergence is one line.
+
+**Do not repeat this measurement.** +2/−14 is the number; it does not improve by
+adjusting the mask, because the mask is not what is wrong.
+
+### What the audit is worth even though nothing landed
+
+The other eleven derivations are now **checked against upstream rather than
+assumed**, which is the durable part — the same way §84's option table outlived
+its zero. And it sharpens §93's rule: *excludes is not a function of includes*,
+but the deeper problem here is that **includes was not a function of the
+declaration either.** A derived excludes can only be as right as the flag it is
+derived from.
