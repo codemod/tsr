@@ -1379,6 +1379,59 @@ impl Checker<'_, '_> {
                     bump(&COUNTERS.new_resolved);
                     return signature.r#type;
                 }
+                // §74 (`checker-notes-narrow.md`): GENERIC construct
+                // candidates infer from the arguments — `new Set([1, 2, 3])`
+                // is `Set<number>`, not §44's default-map `Set<any>`. Each
+                // candidate answers through the SAME `check_generic_call`
+                // the call road uses (written arguments excluded above), and
+                // the answers must AGREE — overload selection by
+                // assignability is not ported, but candidates that converge
+                // need none.
+                if !node.arguments.is_empty()
+                    && let Some(candidates) = self.signature_candidates_of_named_type(
+                        callee_type,
+                        crate::signatures::SignatureKind::Construct,
+                    )
+                    && !candidates.is_empty()
+                {
+                    let mut agreed: Option<TypeId> = None;
+                    let mut ok = true;
+                    for candidate in &candidates {
+                        // A candidate whose type-parameter CONSTRAINT is
+                        // itself a type parameter (`new <U extends T>` on
+                        // `I<T>`) reaches here UNINSTANTIATED — inference
+                        // against it widens the fresh literal upstream
+                        // keeps. Decline the arm; the reading road stays.
+                        if candidate.type_parameters.iter().any(|tp| {
+                            tp.constraint
+                                .is_some_and(|c| self.type_parameter_symbols.contains_key(&c))
+                        }) {
+                            ok = false;
+                            break;
+                        }
+                        let answer = if candidate.type_parameters.is_empty() {
+                            candidate.r#type
+                        } else {
+                            self.check_generic_call(candidate, None, node.arguments)
+                        };
+                        if answer == error {
+                            ok = false;
+                            break;
+                        }
+                        match agreed {
+                            None => agreed = Some(answer),
+                            Some(t) if t == answer => {}
+                            Some(_) => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if ok && let Some(answer) = agreed {
+                        bump(&COUNTERS.new_resolved);
+                        return answer;
+                    }
+                }
             }
             bump(&COUNTERS.new_callee_not_anonymous);
             return error;

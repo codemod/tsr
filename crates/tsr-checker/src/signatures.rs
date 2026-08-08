@@ -298,6 +298,53 @@ impl<'a> Checker<'a, '_> {
     ///   `Intl.NumberFormat` where this prints `NumberFormat`. `STATUS.md` §5's
     ///   standing refusal (`bd tsr-93f`, 2.7 wrong per right) reached through a
     ///   new door.
+    /// §74's raw candidate list: every construct/call signature a named
+    /// type's interface declarations carry, GENERICS INCLUDED, or `None`
+    /// for shapes `get_signature_of_named_type` also declines (no member
+    /// symbol, a heritage clause). Unbuildable overloads are skipped, as
+    /// there.
+    pub(crate) fn signature_candidates_of_named_type(
+        &mut self,
+        callee: TypeId,
+        kind: SignatureKind,
+    ) -> Option<Vec<Signature>> {
+        let crate::types::TypeData::Named { members: Some(symbol), .. } =
+            self.store.get(callee).data
+        else {
+            return None;
+        };
+        let declarations: Vec<NodeId> =
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+        let mut elements: Vec<NodeId> = Vec::new();
+        for declaration in declarations {
+            let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            if !interface.heritage_clauses.is_empty() {
+                return None;
+            }
+            for member in interface.members {
+                let wanted = match member {
+                    tsr_ast::TypeElement::CallSignatureDeclaration(_) => SignatureKind::Call,
+                    tsr_ast::TypeElement::ConstructSignatureDeclaration(_) => {
+                        SignatureKind::Construct
+                    }
+                    _ => continue,
+                };
+                if wanted == kind {
+                    elements.extend(member.node_id());
+                }
+            }
+        }
+        let mut candidates: Vec<Signature> = Vec::new();
+        for element in elements {
+            if let Some(signature) = self.get_signature_from_declaration(element) {
+                candidates.push(signature);
+            }
+        }
+        Some(candidates)
+    }
+
     pub(crate) fn get_signature_of_named_type(
         &mut self,
         callee: TypeId,

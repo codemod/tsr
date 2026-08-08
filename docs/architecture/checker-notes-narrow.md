@@ -2914,3 +2914,21 @@ kind is not the discriminator. Whatever splits them (error
 propagation through operators, CommonJS binding, something else) is
 finer than any key tried; the head stays priced until someone traces
 upstream's actual split. Reverted.
+
+## §74 — generic construct candidates infer from arguments
+
+The `new` road's named-interface arm answered §44's default-map
+instantiation (`Set<any>`) before inference ever saw the arguments.
+New helper `signature_candidates_of_named_type` (generics INCLUDED,
+same heritage/membership declines), each candidate answering through
+the call road's `check_generic_call`, answers must AGREE — overload
+selection stays unported, convergent sets need none. One falsifier
+fired and became a guard: a candidate whose type-parameter constraint
+is ITSELF a type parameter (`new <U extends T>(u: U): U` on
+`I<string>`) reaches the arm uninstantiated and widens the fresh
+literal upstream keeps (`""` → `string`); such candidates decline.
+`setMethods`' Set stayed unresolved — its two lib overloads do not
+converge; that case is overload SELECTION, still priced.
+
+**§74 score — LANDED.** right 402,954 → **402,984 (84.14%)** — +30,
+zero adverse.
