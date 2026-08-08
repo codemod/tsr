@@ -9206,3 +9206,48 @@ That is the first time this row has been in that state. §121 handed over eight
 lines with a wrong owner, §122 handed over "unknown", §124 handed over three
 families with one of them wrongly declared untouchable. **Reading four baselines
 cost four `grep`s and undid three sections of inference.**
+
+## §127 — §126's two named causes also fail, and this row stops taking inferences
+
+§126 read the baselines and narrowed the three residual lines to two named
+predicates. Both were implemented:
+
+- **every declaration searched for the type-only one**, not `first()` — §97's
+  merged-symbol hazard, the stated cause of `mergeSymbolRexportFunction`'s
+  TS1362;
+- **both the member's parent and its grandparent** tested for
+  `InterfaceDeclaration`/`TypeLiteral` — the stated cause of
+  `computedPropertyName`'s two remaining lines.
+
+**Wrong stayed at 3. Neither fix removed a line.** Reverted.
+
+### The finding is about this row's method, not about TypeScript
+
+That is **five consecutive attempts on these lines built on inference**, each
+plausible, each rejected by measurement:
+
+| § | inferred cause | verdict |
+|---|---|---|
+| 121 | (debt taken, unattributed) | — |
+| 122 | not this rule's lines; owner unknown | wrong (truncated `grep`) |
+| 123 | computed-property clause | **right, 8 → 5** |
+| 124 | `export =` is legal, do not touch | wrong (read the fixture comment) |
+| 125 | `export =` is a false positive | **right, 5 → 3** |
+| 126 | merged-symbol `first()`; grandparent-only test | **wrong** |
+
+Two of six inferences were right. **Reading the baseline (§125, §126) improved
+the *description* of the residual without improving the *hit rate* on its
+cause** — the baseline says what upstream reports, and these three lines are
+about why *this port* reports something extra, which no upstream artefact
+answers.
+
+**Standing instruction for these three lines: do not implement another
+hypothesis. Instrument them.** Put an `eprintln!` **at the entry of
+`report_type_only_alias_used_as_value`** — not at a branch inside it, §118's
+error — printing the symbol's declaration kinds and the use site's parent chain
+for `main.ts(2,1)` and `component.ts(32,12)`. Three lines of output will say
+what six sections of reasoning have not.
+
+The rule this session paid for seven times over is the one that applies:
+**print whether the rule runs and what it saw, before asking why it decided.**
+It has been skipped or misapplied three times on this row alone.
