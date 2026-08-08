@@ -471,11 +471,9 @@ impl Suite for BinderSymbols {
                     for _ in 0..3 {
                         let mut next = Vec::new();
                         for (prefix, at) in frontier {
-                            let container = bound.symbols().get(at);
                             for (member_name, member_id) in
-                                container.exports.iter().chain(container.members.iter())
+                                expanded_module_exports(&program, bound, nodes, at, 3)
                             {
-                                let member_id = bound.merged_symbol(*member_id);
                                 let spelled = format!("{prefix}.{member_name}");
                                 let mut member_lines = lines_of(bound.symbols().get(member_id));
                                 // Transparency compounds: a member that is
@@ -1138,17 +1136,97 @@ fn namespace_import_target(
     let Some(tsr_ast::Expression::StringLiteral(specifier)) = node.module_specifier else {
         return None;
     };
-    let base = specifier.text.strip_prefix("./").unwrap_or(specifier.text);
+    let root = resolve_specifier(program, importing_unit, specifier.text)?.source_file().node_id?;
+    bound.symbol_of(root)
+}
+
+/// The program file a relative specifier names, matched against unit names.
+fn resolve_specifier<'p, 'a>(
+    program: &'p tsr_compiler::Program<'a>,
+    importing_unit: &str,
+    specifier: &str,
+) -> Option<&'p tsr_compiler::ProgramFile<'a>> {
+    let base = specifier.strip_prefix("./").unwrap_or(specifier);
     let directory = importing_unit.rsplit_once('/').map_or("", |(dir, _)| dir);
-    let target_file = program.source_files().iter().find(|candidate| {
+    program.source_files().iter().find(|candidate| {
         let name = candidate.file_name();
         ["ts", "tsx", "d.ts", "js"].iter().any(|ext| {
             let want = format!("{base}.{ext}");
             name == want || (!directory.is_empty() && *name == format!("{directory}/{want}"))
         })
-    })?;
-    let root = target_file.source_file().node_id?;
-    bound.symbol_of(root)
+    })
+}
+
+/// A module-file symbol's exports, widened by what the checker's
+/// initialisation widens them by: `export * from "spec"` pulls the
+/// re-exported module's own (widened) exports through, and a
+/// `declare module "spec"` augmentation anywhere in the program merges its
+/// members in (`mergeModuleAugmentation`). Depth-bounded; the harness resolves
+/// specifiers by unit-name matching.
+fn expanded_module_exports<'a>(
+    program: &tsr_compiler::Program<'a>,
+    bound: &BindResult<'a>,
+    nodes: &NodeTable,
+    module: tsr_binder::SymbolId,
+    depth: u32,
+) -> Vec<(&'a str, tsr_binder::SymbolId)> {
+    let mut out: Vec<(&'a str, tsr_binder::SymbolId)> = Vec::new();
+    let symbol = bound.symbols().get(module);
+    for (name, id) in symbol.exports.iter().chain(symbol.members.iter()) {
+        out.push((name, bound.merged_symbol(*id)));
+    }
+    if depth == 0 {
+        return out;
+    }
+    // Which file this module symbol is, if it is a file.
+    let Some(file_root) =
+        symbol.declarations.iter().copied().find(|d| nodes.kind(*d) == SyntaxKind::SourceFile)
+    else {
+        return out;
+    };
+    let owning = program
+        .source_files()
+        .iter()
+        .find(|candidate| candidate.source_file().node_id == Some(file_root));
+    let Some(owning) = owning else { return out };
+    // `export * from "spec"` in this file.
+    for statement in owning.source_file().statements {
+        let tsr_ast::Statement::ExportDeclaration(export) = statement else { continue };
+        if export.export_clause.is_some() {
+            continue;
+        }
+        let Some(tsr_ast::Expression::StringLiteral(spec)) = export.module_specifier else {
+            continue;
+        };
+        let Some(target) = resolve_specifier(program, owning.file_name(), spec.text) else {
+            continue;
+        };
+        let Some(root) = target.source_file().node_id else { continue };
+        let Some(target_symbol) = bound.symbol_of(root) else { continue };
+        out.extend(expanded_module_exports(program, bound, nodes, target_symbol, depth - 1));
+    }
+    // Augmentations of this file, from anywhere in the program.
+    for other in program.source_files() {
+        for statement in other.source_file().statements {
+            let tsr_ast::Statement::ModuleDeclaration(module_decl) = statement else { continue };
+            let Some(tsr_ast::ModuleName::StringLiteral(spec)) = module_decl.name else {
+                continue;
+            };
+            let Some(target) = resolve_specifier(program, other.file_name(), spec.text) else {
+                continue;
+            };
+            if target.source_file().node_id != Some(file_root) {
+                continue;
+            }
+            let Some(id) = module_decl.node_id else { continue };
+            let Some(augmentation) = bound.symbol_of(id) else { continue };
+            let augmentation = bound.symbols().get(bound.merged_symbol(augmentation));
+            for (name, member) in augmentation.exports.iter().chain(augmentation.members.iter()) {
+                out.push((name, bound.merged_symbol(*member)));
+            }
+        }
+    }
+    out
 }
 
 /// Resolve an `import x = a.b.c` alias's target through the binder's tables.

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8439/8461 (99.74%)
-Failed         : 22
+Passed         : 8443/8461 (99.79%)
+Failed         : 18
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -26,14 +26,6 @@ compiler/declarationEmitLateBoundAssignments2
   3 symbol(s): arrow.B: no symbol; arrow3.77: no symbol; arrow5.101: no symbol
 compiler/invalidUnicodeEscapeSequance4
   1 symbol(s): u0031a: no symbol
-compiler/moduleAugmentationDoesInterfaceMergeOfReexport
-  1 symbol(s): augment.ts: ns.Foo.self: no symbol
-compiler/moduleAugmentationDoesNamespaceEnumMergeOfReexport
-  1 symbol(s): augment.ts: ns.Root.A: no symbol
-compiler/moduleAugmentationDoesNamespaceMergeOfReexport
-  1 symbol(s): augment.ts: ns.Root.Foo.self: no symbol
-compiler/moduleAugmentationEnumClassMergeOfReexportIsError
-  1 symbol(s): augment.ts: ns.Foo: no symbol
 compiler/moduleElementsInWrongContext
   1 symbol(s): Foo: declared on {24}, expected to include {6, 24}
 compiler/module_augmentUninstantiatedModule
