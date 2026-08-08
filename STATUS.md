@@ -420,6 +420,27 @@ of the 1,334 do not involve TS2322 at all. **Run it first from now on.**
 *new* rules; §55 was chosen off `diagreach` and is the session's largest build at
 **+43**.
 
+**And the split that says how much of the suite is this workstream's** (§75,
+`diagreach.rs` carries it):
+
+```
+cases reachable by deepening existing rules : 1,305   (against 1,301 passing)
+  wants only relation-bound codes           :   937
+  wants a mix                               :    52
+  wants NO relation-bound code              :   316
+```
+
+Relation-bound is TS2322, TS2345, TS2339, TS2741, TS2353, TS2352, TS2416,
+TS2430, TS2420, TS2415, TS2403, TS2411 — §5's refused subsystem. **937 of the
+reachable set is the assignability family**, `checker_types`' structural
+relation and members table arriving through a second door, and it converts with
+**no diagnostics work at all** once that lands. **316 need none of it**, about
+the size of the eleventh session's whole harvest, and they are the cheaper
+quarter: every attempt to reach into the relation from this side has been
+refused or bounded (§16, §24, §49). That is the measured answer to *"is it time
+to wait on the checker"* — **not yet**, and re-take the split when relation work
+lands.
+
 `diagreach` also corrects an arithmetic trap the session fell into once and
 recorded: a **converted** case leaves the reachable set by definition, so
 `before − after` over-counts the damage from new false positives by exactly the
