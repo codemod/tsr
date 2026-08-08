@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_emit Summary:
 What a pass means: the .d.ts text this port emits is byte-identical to upstream's, for every unit of a case that needs no inference — the emitter's own rate, over the population dts_reachable_target measures
-Passed         : 306/376 (81.38%)
-Failed         : 70
+Passed         : 308/376 (81.91%)
+Failed         : 68
 Skipped        : 12068 (excluded from the denominator)
 
   632  skipped: a declaration in this case needs inference (see dts_reachable_target)
@@ -26,8 +26,6 @@ compiler/argumentsReferenceInConstructor6_Js
   line 2: want `    /**`, got `    constructor();`
 compiler/argumentsReferenceInConstructor7_Js
   line 2: want `    /**`, got `    constructor();`
-compiler/compositeWithNodeModulesSourceFile
-  emitted /foo/node_modules/myModule/index.d.ts, upstream emitted no declaration file
 compiler/declarationEmitClassAccessorsJs1
   line 5: want `    get path(): string;`, got `    get path(): any;`
 compiler/declarationEmitDuplicateParameterDestructuring
@@ -89,11 +87,9 @@ compiler/mappedTypeWithAsClauseAndLateBoundProperty2
 compiler/moduleDeclarationExportStarShadowingGlobalIsNameable
   line 1: want `export * from "./account";`, got `declare global {`
 compiler/modulePreserve4
-  line 1: want `declare const _default = 0;`, got `declare const _default: number;`
+  line 1: want `export = _default;`, got `declare const _default: () => void;`
 compiler/noEmitOnError
   line 2: missing ``
-compiler/nodeNextCjsNamespaceImportDefault2
-  line 2: want `declare const _default = "string";`, got `declare const _default: string;`
 compiler/paramterDestrcuturingDeclaration
   line 2: want `    ({ p: name }: {`, got `    ({ p: name }: any): any;`
 compiler/referenceTypesPreferedToPathIfPossible

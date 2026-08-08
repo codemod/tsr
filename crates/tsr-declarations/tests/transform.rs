@@ -198,6 +198,14 @@ fn default_export_expression_gets_a_collision_free_binding() {
     assert!(collision.contains("declare const _default_1"), "{collision}");
     assert!(collision.contains("export default _default_1;"), "{collision}");
 
+    // A default-exported *literal* keeps its value as the synthesized const's
+    // initializer instead of widening (`modulePreserve4`).
+    assert_emits("export default 0;", "declare const _default = 0;\nexport default _default;");
+    assert_emits(
+        "export default 'a';",
+        "declare const _default = \"a\";\nexport default _default;",
+    );
+
     let export_equals = emit("export = { answer: 42 };");
     assert!(export_equals.contains("declare const _default"), "{export_equals}");
     assert!(export_equals.contains("export = _default;"), "{export_equals}");

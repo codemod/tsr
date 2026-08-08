@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 dts_shape Summary:
 What a pass means: the declarations this port emits into a .d.ts — their kind, name and order, recursing into namespaces — match upstream's, ignoring types and formatting; judged on every case with declaration output, including the ones dts_emit cannot reach because they need inference
-Passed         : 836/1005 (83.18%)
-Failed         : 169
+Passed         : 837/1005 (83.28%)
+Failed         : 168
 Skipped        : 11439 (excluded from the denominator)
 
   9  skipped: a unit of this case does not parse cleanly
@@ -12,15 +12,13 @@ Skipped        : 11439 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   9  skipped: upstream's .d.ts baseline does not reparse
 
-First 100 of 169 failures:
+First 100 of 168 failures:
 compiler/amdLikeInputDeclarationEmit
   #0: missing `var ExtendedClass`
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
   #0: want `import`, got `class Broken`
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
   #0: want `interface Pretty`, got `var A_base`
-compiler/compositeWithNodeModulesSourceFile
-  emitted /foo/node_modules/myModule/index.d.ts, upstream emitted no declaration file
 compiler/computedPropertyNameWithImportedKey
   #0: want `import`, got `function fn`
 compiler/declFileImportModuleWithExportAssignment
@@ -212,4 +210,6 @@ compiler/privacyTopLevelAmbientExternalModuleImportWithoutExport
 compiler/reuseTypeAnnotationImportTypeInGlobalThisTypeArgument
   #1: missing `type ParamStateRecord`
 compiler/symbolLinkDeclarationEmitModuleNames
+  #0: want `import`, got `var CONTROLLER_CLASS`
+compiler/symbolLinkDeclarationEmitModuleNamesRootDir
   #0: want `import`, got `var CONTROLLER_CLASS`

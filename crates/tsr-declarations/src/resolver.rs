@@ -139,6 +139,10 @@ pub enum LiteralConstHost<'b, 'a> {
     Variable(&'b VariableDeclaration<'a>, /* is_const */ bool),
     /// A `readonly` property declaration.
     Property(&'b PropertyDeclaration<'a>),
+    /// A bare expression hosted by a synthesized `const` — the binding a
+    /// default-exported expression is rewritten into (`modulePreserve4` keeps
+    /// `declare const _default = 0;` rather than widening to `number`).
+    Expression(&'b Expression<'a>),
 }
 
 impl<'a> LiteralConstHost<'_, 'a> {
@@ -146,6 +150,7 @@ impl<'a> LiteralConstHost<'_, 'a> {
         match self {
             Self::Variable(declaration, _) => declaration.initializer.as_ref(),
             Self::Property(property) => property.initializer.as_ref(),
+            Self::Expression(expression) => Some(expression),
         }
     }
 
@@ -155,6 +160,7 @@ impl<'a> LiteralConstHost<'_, 'a> {
         match self {
             Self::Variable(declaration, _) => declaration.r#type.as_ref(),
             Self::Property(property) => property.r#type.as_ref(),
+            Self::Expression(_) => None,
         }
     }
 }
@@ -253,6 +259,8 @@ impl<'a> EmitResolver<'a> for SyntacticResolver {
                 has_modifier(property.modifiers, SyntaxKind::ReadonlyKeyword)
                     && !has_modifier(property.modifiers, SyntaxKind::PrivateKeyword)
             }
+            // The synthesized default-export binding is always a `const`.
+            LiteralConstHost::Expression(_) => true,
         };
         qualifies && node.initializer().is_some_and(type_builder::is_primitive_literal_value)
     }

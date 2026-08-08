@@ -5,12 +5,12 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  306/376  = 81.38%  (denominator moved twice: grew
+  dts_emit                  308/376  = 81.91%  (denominator moved twice: grew
                                                 341 -> 395 pairing outDir-
                                                 remapped baselines, then shrank
                                                 to 376 removing mispairings
                                                 against flattened input echoes)
-  dts_shape                836/1,005 = 83.18%  (same two corrections; was
+  dts_shape                837/1,005 = 83.28%  (same two corrections; was
                                                 753/918 before them)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -207,6 +207,12 @@ node_modules stubs and lib-override inputs
 echo region is now the longest prefix of sections whose basename and content
 match an input unit; only sections after it are outputs. Nineteen emit and
 eleven shape bogus comparisons left the population.
+
+A default-exported primitive literal now keeps its canonicalized value as the
+synthesized const's initializer (`declare const _default = 0;`) instead of
+widening (`modulePreserve4` progressed, `nodeNextCjsNamespaceImportDefault2`
+closed), and node_modules units are excluded from output pairing — they are
+program inputs upstream never emits (`compositeWithNodeModulesSourceFile`).
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

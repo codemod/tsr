@@ -185,6 +185,10 @@ pub(crate) fn output_units<'a>(
         .filter(|unit| {
             ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
                 && !is_declaration_file_name(&unit.name)
+                // Files under node_modules are program inputs, never outputs:
+                // upstream writes no .js or .d.ts for them
+                // (compositeWithNodeModulesSourceFile).
+                && !unit.name.contains("node_modules/")
         })
         .filter_map(|unit| {
             let section = matching_section(&emitted, case, &unit.name)?;
@@ -343,6 +347,10 @@ pub(crate) fn unemitted_units<'a>(
         .filter(|unit| {
             ScriptKind::from_file_name(&unit.name) != ScriptKind::Json
                 && !is_declaration_file_name(&unit.name)
+                // Files under node_modules are program inputs, never outputs:
+                // upstream writes no .js or .d.ts for them
+                // (compositeWithNodeModulesSourceFile).
+                && !unit.name.contains("node_modules/")
         })
         .filter(|unit| matching_section(&emitted, case, &unit.name).is_none())
         .collect()

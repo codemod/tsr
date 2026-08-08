@@ -370,14 +370,23 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
 
         let span = self.span_of(node.node_id);
         let name = self.fresh_default_export_name(span);
-        let r#type =
-            self.ensure_type(None, node.expression.as_ref(), Freshness::Widening, node.node_id);
+        // A literal keeps its value as the synthesized const's initializer —
+        // `export default 0` emits `declare const _default = 0;` — and only a
+        // non-literal widens into a type annotation.
+        let literal = node.expression.as_ref().and_then(|expression| {
+            self.ensure_no_initializer(LiteralConstHost::Expression(expression))
+        });
+        let r#type = if literal.is_some() {
+            None
+        } else {
+            self.ensure_type(None, node.expression.as_ref(), Freshness::Widening, node.node_id)
+        };
         let declaration = self.factory.alloc(
             tsr_ast::VariableDeclaration::new(
                 Some(tsr_ast::BindingName::Identifier(name)),
                 None,
                 r#type,
-                None,
+                literal,
             ),
             SyntaxKind::VariableDeclaration,
             span,
