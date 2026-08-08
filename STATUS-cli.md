@@ -25,7 +25,7 @@ Measured at the CLI-scaffold landing, 2026-08-08, by
 
 | | |
 |---|---:|
-| **`cli_baselines`** | **26/43 judged = 60.47%** |
+| **`cli_baselines`** | **28/43 judged = 65.12%** |
 | behind the emitter (excluded) | 151 |
 | total `tsc` baselines | 194 |
 
@@ -176,8 +176,17 @@ Port enough of `internal/execute/tsctests` to execute a baseline file: parse the
 run the driver, and diff. Add a `cli_baselines` suite to `tsr-conformance`
 alongside the existing sixteen.
 
-**Landed. The suite reads 26/43 judged (60.47%), 151 excluded as behind the
-emitter.** It has read 13 → 19 → 20 → 25 → 26 as each phase landed. The gate as written expected a number near zero; the real first
+**Landed. The suite reads 28/43 judged (65.12%), 151 excluded as behind the
+emitter.** It has read 13 → 19 → 20 → 25 → 26 → 28 as each phase landed.
+
+**The runner also reads the Go test source.** A `tsc` baseline does not record
+the environment its scenario runs under — that lives in `tsc_test.go` as a
+`map[string]string` on the `tscInput` literal — so three baselines
+(`NO_COLOR`, `FORCE_COLOR`, `TS_TEST_TERMINAL_WIDTH`) were being replayed with
+inputs they never had. `ScenarioEnvironments` parses those declarations. The
+alternative was to infer the environment from the file *name*, which those
+three happen to state; that is a guess dressed as a rule and would mis-run
+silently the moment upstream renamed a scenario. The gate as written expected a number near zero; the real first
 reading was 13/43, because the phases below were built alongside rather than
 after. Both halves of the original argument held: the runner found four separate
 defects within minutes of first running — the version string, the exit status for
@@ -375,13 +384,13 @@ too, because phase 0 exists.
 |---|---|---|---|
 | 1 | **config-file error paths** | ~3 baselines | `non-object-config-root`, `extends` with non-string `files`/`include` |
 | 2 | **`--help --all`** | 1 baseline | needs all 135 options with descriptions, plus watch and build tables |
-| 3 | **the wide `--help` layout** | 1 baseline | `getPrettyOutput`'s wrapping and the header icon |
+| 3 | ~~the wide `--help` layout~~ | **ported**; 1 baseline still differs, §7.8 | `getPrettyOutput`'s hard wrap and the header icon |
 | 4 | **`--lib` value validation** | 1 baseline | `TS6046` listing all 104 lib names; the names exist in `tsr_tsoptions::libs` |
 | 5 | option table 76 → 135 | all | a missing option is an unknown-option error, not a default |
 | 6 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 31 hand-written tests |
 | 7 | watch option table | 0 today | `--watchFile` reports as unknown; upstream accepts it |
 | 8 | `${configDir}` templates | 1 baseline | `extends/configDir-template-showConfig` |
-| 9 | the baseline runner's `env` section | 2 baselines | `NO_COLOR`/`FORCE_COLOR` and `TS_TEST_TERMINAL_WIDTH` are set per case and not parsed |
+| 9 | ~~the baseline runner's `env` section~~ | **done**, +2 | parsed out of `tsc_test.go` |
 | 10 | emit (`tsr-transformers`) | **151 baselines** | not a CLI item; the ceiling above everything |
 
 **Refused, with the reason:** `--locale` (`commandLine/locale.js` wants
@@ -482,6 +491,21 @@ in users' repositories, so it reports `NotImplemented` (upstream's own status 5)
 7. **Config-file error paths.** `non-object-config-root` and `extends` with a
    non-string `files`/`include` expect diagnostics the config parser does not
    raise, and an exit status of 2.
+
+8. **The wide `--help` header's padding, off by four columns.** The layout is
+   ported from `getHeader` (`help.go:44`) and the option columns match, but the
+   banner line does not. Measured on
+   `show-help-with-ExitStatus.DiagnosticsPresent_OutputsSkipped.js` at
+   `TS_TEST_TERMINAL_WIDTH=120`: the expected line 1 pads the banner to **119**
+   columns before the icon, while line 2 indents the icon's second row to
+   **115**. Upstream writes both from the same `leftAlign`
+   (`fmt.Sprintf("%-*s", leftAlign, message)` then
+   `strings.Repeat(" ", leftAlign)`), and `leftAlign` is `min(width,120) - 5` =
+   115 — which reproduces line 2 exactly and line 1 four columns short.
+   Something makes the first line wider that is not in the function as read.
+   **Not fudged**: adding four to one branch would make this baseline pass and
+   every other width wrong, and the discrepancy is worth more as a question than
+   as a constant.
 
 ## 8. Updating this file
 

@@ -36,6 +36,91 @@ use tsr_vfs::InMemoryFileSystem;
 use crate::compile::ExitStatus;
 use crate::system::System;
 
+/// The environment a scenario runs under, by baseline file stem.
+///
+/// **Not in the baseline file.** A `tsc` baseline records the current directory,
+/// the input files, the argv, the exit status and the output — but the
+/// environment lives in the Go *test source*, as a `map[string]string` on the
+/// `tscInput` literal keyed by `subScenario` (`tsctests/tsc_test.go:17`). Three
+/// baselines depend on it: two set `NO_COLOR`/`FORCE_COLOR`, one sets
+/// `TS_TEST_TERMINAL_WIDTH` to select `--help`'s wide layout.
+///
+/// Parsing Go source is not something this project does elsewhere and is worth
+/// justifying. The alternative was to infer the environment from the file
+/// *name* — `does-not-add-color-when-NO_COLOR-is-set` does say so — which is a
+/// guess dressed as a rule and would silently mis-run any scenario upstream
+/// renamed. Reading the declaration is narrow, it fails loudly when the shape
+/// changes (the regex stops matching and every scenario gets an empty
+/// environment, which those three baselines then fail on), and it keeps the
+/// oracle's inputs complete.
+#[derive(Debug, Default)]
+pub struct ScenarioEnvironments {
+    /// Baseline stem (`show-help-…`) to its environment.
+    by_scenario: std::collections::HashMap<String, Vec<(String, String)>>,
+}
+
+impl ScenarioEnvironments {
+    /// Parse `tsc_test.go`'s `tscInput` literals.
+    ///
+    /// Deliberately not a Go parser: it walks the text looking for
+    /// `subScenario: "…"` and, if an `env: map[string]string{` follows before
+    /// the next `subScenario`, the `"KEY": "VALUE"` pairs inside it.
+    #[must_use]
+    pub fn parse(source: &str) -> Self {
+        let mut by_scenario = std::collections::HashMap::new();
+        let mut current: Option<String> = None;
+        let mut in_env = false;
+        let mut pairs: Vec<(String, String)> = Vec::new();
+
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("subScenario:") {
+                if let Some(name) = current.take() {
+                    by_scenario.insert(name, std::mem::take(&mut pairs));
+                }
+                in_env = false;
+                current = quoted(rest).map(|name| name.replace(' ', "-"));
+                continue;
+            }
+            if trimmed.starts_with("env:") {
+                in_env = true;
+                continue;
+            }
+            if in_env {
+                if trimmed.starts_with('}') {
+                    in_env = false;
+                    continue;
+                }
+                let mut parts = trimmed.splitn(2, ':');
+                if let (Some(key), Some(value)) = (parts.next(), parts.next())
+                    && let (Some(key), Some(value)) = (quoted(key), quoted(value))
+                {
+                    pairs.push((key, value));
+                }
+            }
+        }
+        if let Some(name) = current {
+            by_scenario.insert(name, pairs);
+        }
+
+        Self { by_scenario }
+    }
+
+    /// The environment for a baseline, by its file stem.
+    #[must_use]
+    pub fn for_scenario(&self, stem: &str) -> &[(String, String)] {
+        self.by_scenario.get(stem).map_or(&[], Vec::as_slice)
+    }
+}
+
+/// The first double-quoted run in `text`.
+fn quoted(text: &str) -> Option<String> {
+    let start = text.find('"')? + 1;
+    let rest = &text[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
 /// One parsed baseline.
 #[derive(Debug, Default)]
 pub struct Baseline {
@@ -56,6 +141,8 @@ pub struct Baseline {
     /// Whether the case expects emitted artifacts, and so cannot pass until
     /// there is an emitter.
     pub expects_emit: bool,
+    /// The environment, from the Go test source. See [`ScenarioEnvironments`].
+    pub environment: Vec<(String, String)>,
 }
 
 /// Parse a baseline file.
@@ -167,6 +254,7 @@ pub struct BaselineSystem {
     fs: InMemoryFileSystem,
     current_directory: String,
     output: String,
+    environment: Vec<(String, String)>,
 }
 
 /// Where the harness puts the fake default library (`tscLibPath`).
@@ -184,6 +272,7 @@ impl BaselineSystem {
             ),
             current_directory: baseline.current_directory.clone(),
             output: String::new(),
+            environment: baseline.environment.clone(),
         }
     }
 
@@ -220,16 +309,17 @@ impl System for BaselineSystem {
     }
 
     fn width_of_terminal(&self) -> usize {
-        // **Zero**, which is upstream's harness default (`tsctests/sys.go:227`)
-        // and which selects `--help`'s narrow layout. A baseline wanting the
-        // wide, two-column form sets `TS_TEST_TERMINAL_WIDTH`; this replay does
-        // not parse the environment section yet, so that one case fails
-        // honestly rather than by a guessed width.
-        0
+        // `tsctests/sys.go:227`: the scenario's `TS_TEST_TERMINAL_WIDTH` if it
+        // set one, and **zero** otherwise — which selects `--help`'s narrow
+        // layout and is why most help baselines show it.
+        self.environment_variable("TS_TEST_TERMINAL_WIDTH").parse().unwrap_or(0)
     }
 
-    fn environment_variable(&self, _name: &str) -> String {
-        String::new()
+    fn environment_variable(&self, name: &str) -> String {
+        self.environment
+            .iter()
+            .find(|(key, _)| key == name)
+            .map_or_else(String::new, |(_, value)| value.clone())
     }
 
     fn since_start(&self) -> std::time::Duration {

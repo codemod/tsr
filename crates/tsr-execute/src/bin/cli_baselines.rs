@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use tsr_execute::baseline::{Verdict, parse_baseline, run_baseline};
+use tsr_execute::baseline::{ScenarioEnvironments, Verdict, parse_baseline, run_baseline};
 
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -31,16 +31,27 @@ fn main() {
     collect(&root, &mut files);
     files.sort();
 
+    // The environment a scenario runs under is not in its baseline; see
+    // `ScenarioEnvironments`.
+    let environments = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .map(|root| root.join("vendor/typescript-go/internal/execute/tsctests/tsc_test.go"))
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map_or_else(ScenarioEnvironments::default, |source| ScenarioEnvironments::parse(&source));
+
     let (mut passed, mut failed, mut needs_emit, mut unparsed) = (0_i32, 0_i32, 0_i32, 0_i32);
     let mut failures: Vec<(String, String)> = Vec::new();
 
     for path in &files {
         let name = path.strip_prefix(&root).unwrap_or(path).display().to_string();
         let Ok(text) = std::fs::read_to_string(path) else { continue };
-        let Some(baseline) = parse_baseline(&name, &text) else {
+        let Some(mut baseline) = parse_baseline(&name, &text) else {
             unparsed += 1;
             continue;
         };
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        baseline.environment = environments.for_scenario(&stem).to_vec();
         match run_baseline(&baseline) {
             Verdict::Passed => passed += 1,
             Verdict::NeedsEmit => needs_emit += 1,

@@ -4,17 +4,19 @@
 //! `printEasyHelp` (`:67`), `generateSectionOptionsOutput` (`:149`),
 //! `generateOptionOutput` (`:222`) and `getHeader` (`:44`).
 //!
-//! # Two width regimes, and only one is ported
+//! # Two width regimes, both ported
 //!
 //! `generateOptionOutput` branches on `terminalWidth >= 80`. Above it, each
-//! option is a two-column layout with the description wrapped and aligned
-//! against the widest option name; below it — and at the harness's **default
-//! width of 0** (`tsctests/sys.go:227`) — each option is three plain lines.
+//! option is a two-column layout with the description hard-wrapped and aligned
+//! against the widest option name in its section, and the header carries a
+//! blue-background "TS" icon; below it — and at the harness's **default width of
+//! 0** (`tsctests/sys.go:227`) — each option is three plain lines and the header
+//! is bare.
 //!
-//! The narrow form is ported. The wide one is not: it needs `getPrettyOutput`'s
-//! wrapping and the blue-background "TS" icon in the header, and exactly one
-//! baseline exercises it (`show-help-with-ExitStatus.DiagnosticsPresent_OutputsSkipped.js`,
-//! which sets `TS_TEST_TERMINAL_WIDTH`). Named here rather than approximated.
+//! The wrap is a **byte slice, not word wrapping**: `getPrettyOutput` cuts the
+//! description at `terminalWidth - leftAlignOfRight` characters and continues on
+//! the next line mid-word. Reproduced rather than improved, because the
+//! baselines contain the cut.
 //!
 //! # `--help --all` is not ported
 //!
@@ -269,6 +271,15 @@ const LIB_VALUES: &str = "one or more: es5, es6/es2015, es7/es2016, es2017, es20
 const BOLD: (&str, &str) = ("\u{1b}[1m", "\u{1b}[22m");
 /// Blue foreground, and the reset that follows it (`colors.blue`).
 const BLUE: (&str, &str) = ("\u{1b}[94m", "\u{1b}[39m");
+/// The blue background the "TS" icon sits on (`colors.blueBackground`).
+///
+/// Upstream picks a 256-colour variant when the terminal supports it; the
+/// harness does not, so the 8-colour form is what every baseline contains.
+const BLUE_BACKGROUND: (&str, &str) = ("\u{1b}[44m", "\u{1b}[39;49m");
+/// `colors.brightWhite`.
+const BRIGHT_WHITE: (&str, &str) = ("\u{1b}[97m", "\u{1b}[39m");
+/// The width at or above which `--help` uses its two-column layout.
+const WIDE_LAYOUT_WIDTH: usize = 80;
 
 /// Whether this run should colour its help (`createColors`).
 ///
@@ -290,12 +301,14 @@ fn use_colors(sys: &dyn System) -> bool {
 /// `--all` is accepted and prints the same thing; see the module docs.
 pub fn print_help(sys: &mut dyn System, _all: bool) {
     let colors = use_colors(sys);
-    let paint = |text: &str, (on, off): (&str, &str)| {
-        if colors { format!("{on}{text}{off}") } else { text.to_string() }
+    let width = sys.width_of_terminal();
+    let paint = |text: &str, style: (&str, &str)| {
+        if colors { format!("{}{text}{}", style.0, style.1) } else { text.to_string() }
     };
 
     let mut output = String::new();
-    let _ = writeln!(output, "tsc: The TypeScript Compiler - Version {}\n", sys.version());
+    let banner = format!("tsc: The TypeScript Compiler - Version {}", sys.version());
+    write_header(&mut output, &banner, width, colors);
 
     let _ = writeln!(output, "{}\n", paint("COMMON COMMANDS", BOLD));
 
@@ -331,48 +344,119 @@ pub fn print_help(sys: &mut dyn System, _all: bool) {
         let _ = writeln!(output, "  {description}\n");
     }
 
-    write_section(&mut output, "COMMAND LINE FLAGS", COMMAND_LINE_OPTIONS, colors, None);
+    write_section(&mut output, "COMMAND LINE FLAGS", COMMAND_LINE_OPTIONS, colors, width, None);
     write_section(
         &mut output,
         "COMMON COMPILER OPTIONS",
         COMMON_COMPILER_OPTIONS,
         colors,
+        width,
         Some("You can learn about all of the compiler options at https://aka.ms/tsc"),
     );
 
     sys.write(&output);
 }
 
-/// One `generateSectionOptionsOutput` section, in the narrow layout.
+/// The banner, with the "TS" icon when there is room (`getHeader`).
+///
+/// The icon is two lines of five columns right-aligned at **120 at most**, even
+/// on a wider terminal. Below `banner.len() + 5` there is no room and the banner
+/// prints bare followed by a blank line.
+fn write_header(output: &mut String, banner: &str, width: usize, colors: bool) {
+    const TS_ICON: &str = "     ";
+    const TS_ICON_TS: &str = "  TS ";
+    const TS_ICON_LENGTH: usize = 5;
+
+    let paint = |text: &str, style: (&str, &str)| {
+        if colors { format!("{}{text}{}", style.0, style.1) } else { text.to_string() }
+    };
+
+    if width >= banner.len() + TS_ICON_LENGTH {
+        let right_align = width.min(120);
+        let left_align = right_align - TS_ICON_LENGTH;
+        let _ = writeln!(output, "{banner:<left_align$}{}", paint(TS_ICON, BLUE_BACKGROUND));
+        // The second line is the icon over a run of spaces, and its inner text
+        // is bright white *inside* the background — two nested styles.
+        let inner = paint(TS_ICON_TS, BRIGHT_WHITE);
+        let _ = writeln!(output, "{}{}", " ".repeat(left_align), paint(&inner, BLUE_BACKGROUND));
+    } else {
+        let _ = writeln!(output, "{banner}\n");
+    }
+}
+
+/// One `generateSectionOptionsOutput` section.
 fn write_section(
     output: &mut String,
     title: &str,
     options: &[HelpOption],
     colors: bool,
+    width: usize,
     after: Option<&str>,
 ) {
-    let paint = |text: &str, (on, off): (&str, &str)| {
-        if colors { format!("{on}{text}{off}") } else { text.to_string() }
+    let paint = |text: &str, style: (&str, &str)| {
+        if colors { format!("{}{text}{}", style.0, style.1) } else { text.to_string() }
     };
 
     let _ = writeln!(output, "{}\n", paint(title, BOLD));
 
+    // `generateGroupOptionOutput`: the left column is as wide as the longest
+    // display name in *this section*, plus two, and the right column starts two
+    // further along.
+    let max_length = options.iter().map(|option| display_name(option).len()).max().unwrap_or(0);
+    let right_align_of_left = max_length + 2;
+    let left_align_of_right = right_align_of_left + 2;
+
     for option in options {
-        let mut name = format!("--{}", option.name);
-        if let Some(short) = option.short {
-            let _ = write!(name, ", -{short}");
-        }
-        let _ = writeln!(output, "{}", paint(&name, BLUE));
-        let _ = writeln!(output, "{}", option.description);
-        // `showAdditionalInfoOutput`: the type/values line and the default are
-        // one block, and an option with neither prints no blank line between
-        // them — which is why these are not two independent `if`s.
-        if option.value_line.is_some() || option.default_line.is_some() {
-            if let Some(values) = option.value_line {
-                let _ = writeln!(output, "{values}");
+        let name = display_name(option);
+        if width >= WIDE_LAYOUT_WIDTH {
+            write_pretty(
+                output,
+                &name,
+                option.description,
+                right_align_of_left,
+                left_align_of_right,
+                width,
+                colors.then_some(BLUE),
+            );
+            if option.value_line.is_some() || option.default_line.is_some() {
+                if let Some(values) = option.value_line {
+                    let (label, rest) = split_label(values);
+                    write_pretty(
+                        output,
+                        &label,
+                        rest,
+                        right_align_of_left,
+                        left_align_of_right,
+                        width,
+                        None,
+                    );
+                }
+                if let Some(default) = option.default_line {
+                    let (label, rest) = split_label(default);
+                    write_pretty(
+                        output,
+                        &label,
+                        rest,
+                        right_align_of_left,
+                        left_align_of_right,
+                        width,
+                        None,
+                    );
+                }
             }
-            if let Some(default) = option.default_line {
-                let _ = writeln!(output, "{default}");
+        } else {
+            let _ = writeln!(output, "{}", paint(&name, BLUE));
+            let _ = writeln!(output, "{}", option.description);
+            // `showAdditionalInfoOutput`: the values line and the default are
+            // one block, so an option with neither prints no blank line between
+            // them.
+            if option.value_line.is_some() || option.default_line.is_some() {
+                if let Some(values) = option.value_line {
+                    let _ = writeln!(output, "{values}");
+                }
+                if let Some(default) = option.default_line {
+                    let _ = writeln!(output, "{default}");
+                }
             }
         }
         output.push('\n');
@@ -380,6 +464,76 @@ fn write_section(
 
     if let Some(after) = after {
         let _ = writeln!(output, "{after}\n");
+    }
+}
+
+/// `--name, -s`, the string the column width is measured against
+/// (`getDisplayNameTextOfOption`).
+fn display_name(option: &HelpOption) -> String {
+    let mut name = format!("--{}", option.name);
+    if let Some(short) = option.short {
+        let _ = write!(name, ", -{short}");
+    }
+    name
+}
+
+/// Split `type: boolean` into its label and the rest.
+///
+/// The wide layout puts the label in the left column and the value in the
+/// right, where the narrow one writes the whole line; that is why these are
+/// stored joined and split here rather than as two fields.
+fn split_label(line: &str) -> (String, &str) {
+    match line.find(": ") {
+        Some(index) => (line[..=index].to_string(), &line[index + 2..]),
+        None => (line.to_string(), ""),
+    }
+}
+
+/// Two columns, with the right one hard-wrapped (`getPrettyOutput`).
+///
+/// A **byte** cut at `terminal_width - left_align_of_right`, not a word wrap.
+/// An empty right column produces no output at all, which is upstream's
+/// `for len(remainRight) > 0` loop never running.
+fn write_pretty(
+    output: &mut String,
+    left: &str,
+    right: &str,
+    right_align_of_left: usize,
+    left_align_of_right: usize,
+    terminal_width: usize,
+    color_left: Option<(&str, &str)>,
+) {
+    let right_character_number = terminal_width.saturating_sub(left_align_of_right).max(1);
+    let mut remaining = right;
+    let mut first = true;
+
+    while !remaining.is_empty() {
+        if first {
+            // Right-aligned within `right_align_of_left`, then left-aligned
+            // within `left_align_of_right` — two paddings, in that order.
+            let padded = format!("{left:>right_align_of_left$}");
+            let padded = format!("{padded:<left_align_of_right$}");
+            match color_left {
+                Some((on, off)) => {
+                    let _ = write!(output, "{on}{padded}{off}");
+                }
+                None => output.push_str(&padded),
+            }
+        } else {
+            output.push_str(&" ".repeat(left_align_of_right));
+        }
+
+        // Cut on a character boundary at or below the byte budget, so a
+        // multi-byte character is never split. Upstream slices bytes and can.
+        let mut cut = right_character_number.min(remaining.len());
+        while cut > 0 && !remaining.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let (chunk, rest) = remaining.split_at(cut.max(1).min(remaining.len()));
+        output.push_str(chunk);
+        output.push('\n');
+        remaining = rest;
+        first = false;
     }
 }
 
