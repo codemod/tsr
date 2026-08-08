@@ -1295,10 +1295,15 @@ its whole deliverable and accept that it converts nothing until finished.
   **Reading the baseline improved the DESCRIPTION of the residual without
   improving the hit rate on its CAUSE**, because the baseline says what upstream
   reports and these lines are about why *this port* reports something extra,
-  which no upstream artefact answers. **Standing instruction: stop inferring on
-  these three. Instrument at the ENTRY of
-  `report_type_only_alias_used_as_value` and print the symbol's declaration
-  kinds and the use site's parent chain.**
+  which no upstream artefact answers. **§128 ran that probe and it named the defect
+  in one run: `getTypeOnlyAliasDeclarationEx(result, SymbolFlagsValue)`
+  (`checker.go:1861`) takes a MEANING argument that this port's walk does not
+  have**, so the chain follows an alias to a type-only *export* specifier and
+  emits TS1362 for a symbol whose only declaration is an `ImportSpecifier`.
+  Thread the meaning through; target wrong 3 → 1. **Six inferences, two right,
+  then one probe that cost less than any of them — every wrong guess reasoned
+  from artefacts describing *upstream*, while the defect was in what this port
+  did with an argument it never had.**
 - **FOUR instrument failures this session, all one shape — the artefact decides,
   not the description of it.** §118 a probe below an early return; §122 a `grep`
   over a `head`-truncated listing; §124 **a fixture's `// Error` comment read as
