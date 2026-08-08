@@ -3208,15 +3208,23 @@ name — 28 W→G now honest gaps), one condition-position leak (row
 
 **§85 score — LANDED.** right 404,377 → **404,419 (84.45%)**.
 
-## §85.1 — the truthy `NonNullable<T>` spelling: REFUSED at 16:11
+## §85.1 — truthy spells `NonNullable<T>`: LANDED after a false refusal
 
-TRUTHY on a type parameter spells `NonNullable<T>` upstream
-(`logicalAndOperatorWithTypeParameters`'s nine second-operand rows),
-and a truthy arm minting it converts exactly those — but every
-variant tried (with/without the `unknown` receiver, with/without the
-reverse-map entry) also fired **8 R→G in `exportNestedNamespaces2`**,
-a JS-namespace case whose `typeof import("./mod")` prints turn to
-`error` through a path no variant isolated. Net +5 at 16:11 with an
-UNEXPLAINED adverse is a no: the arm waits until someone traces how a
-truthy mint on a type parameter reaches the JS module-object road.
-Reverted; §85's NE-family arms stand as landed.
+**The refusal recorded here for one commit was WRONG, and the record
+says so rather than silently editing:** the "unexplained 8 R→G in
+`exportNestedNamespaces2`" that priced every variant was measured
+against a baseline PREDATING build 142's `git pull --rebase` — the
+rows belonged to the parallel session's arrivals and appeared
+identically on a CLEAN checkout. The §88 trap's sixth firing this
+window, and the first to produce a WRONG REFUSAL rather than a wrong
+gain. Rule sharpened: before pricing an adverse, re-run scorepair on
+the clean tree — a transition that survives the revert is not yours.
+
+The arm itself, measured against a re-accepted baseline: TRUTHY on a
+TYPE PARAMETER spells the utility — `u && u` prints the second
+operand `NonNullable<U>` — where the NE-family spells the
+intersection; `unknown`'s truthiness stays on the filter road
+(`narrowingTruthyObject`'s 15 R→G was a REAL adverse and keeps that
+gate). **+16 W→R against 3 R→W, net +12 at 5.3:1.**
+
+**§85.1 score — LANDED.** right 404,411 → **404,423 (84.45%)**.

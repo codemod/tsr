@@ -74,6 +74,8 @@ pub(crate) enum NonNullKind {
     Both,
     NoUndefined,
     NoNull,
+    /// §85.1: the TRUTHY spelling, `NonNullable<T>`.
+    NonNull,
 }
 
 struct FlowState {
@@ -3517,7 +3519,14 @@ impl Checker<'_, '_> {
         if self.strict_null_checks
             && flags.intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN)
         {
-            let asked = if facts.contains(TypeFacts::NE_UNDEFINED_OR_NULL) {
+            let asked = if facts.contains(TypeFacts::TRUTHY) {
+                // §85.1: TRUTHY spells the UTILITY — `u && u` prints the
+                // second operand `NonNullable<U>`
+                // (`logicalAndOperatorWithTypeParameters`); TYPE PARAMETERS
+                // only — `unknown`'s truthiness stays on the filter road
+                // (`narrowingTruthyObject` measured 15 R→G against it).
+                flags.intersects(TypeFlags::TYPE_PARAMETER).then_some(NonNullKind::NonNull)
+            } else if facts.contains(TypeFacts::NE_UNDEFINED_OR_NULL) {
                 Some(NonNullKind::Both)
             } else if facts.contains(TypeFacts::NE_UNDEFINED) {
                 Some(NonNullKind::NoUndefined)
@@ -3529,6 +3538,9 @@ impl Checker<'_, '_> {
             if let Some(asked) = asked {
                 let combined = match (prior, asked) {
                     (None, kind) => kind,
+                    (Some(NonNullKind::NonNull), _) | (_, NonNullKind::NonNull) => {
+                        NonNullKind::NonNull
+                    }
                     (Some(NonNullKind::Both), _)
                     | (_, NonNullKind::Both)
                     | (Some(NonNullKind::NoUndefined), NonNullKind::NoNull)
@@ -3538,19 +3550,19 @@ impl Checker<'_, '_> {
                 if Some(combined) == prior {
                     return t;
                 }
-                let tail = match combined {
-                    NonNullKind::Both => "{}",
-                    NonNullKind::NoUndefined => "{} | null",
-                    NonNullKind::NoNull => "{} | undefined",
-                };
                 let text = if flags.intersects(TypeFlags::UNKNOWN) {
-                    if tail == "{}" { "{}".to_string() } else { tail.to_string() }
+                    match combined {
+                        NonNullKind::Both | NonNullKind::NonNull => "{}".to_string(),
+                        NonNullKind::NoUndefined => "{} | null".to_string(),
+                        NonNullKind::NoNull => "{} | undefined".to_string(),
+                    }
                 } else {
                     let name = crate::printing::type_to_string(self.store.get(base));
-                    if tail == "{}" {
-                        format!("{name} & {{}}")
-                    } else {
-                        format!("{name} & ({tail})")
+                    match combined {
+                        NonNullKind::NonNull => format!("NonNullable<{name}>"),
+                        NonNullKind::Both => format!("{name} & {{}}"),
+                        NonNullKind::NoUndefined => format!("{name} & ({{}} | null)"),
+                        NonNullKind::NoNull => format!("{name} & ({{}} | undefined)"),
                     }
                 };
                 let key = (base, text.clone());
