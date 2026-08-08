@@ -12,9 +12,9 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,375/5,488 = 25.05%   (was 1,346; +29 over 5 builds,
+  diagnostics    1,378/5,488 = 25.11%   (was 1,346; +32 over 6 builds,
                  **zero cases lost, and the wrong column FELL in two of them**)
-  checker_types  3,838/9,538 · 84.10% — the other workstream's, and it moves
+  checker_types  3,841/9,538 · 84.11% — the other workstream's, and it moves
                  HOURLY: it changed three times inside this one session. Do not
                  touch it, and do not compare against this number — remeasure.
 
@@ -105,12 +105,14 @@ TS2540      12         9
 1. **TS2554's remaining families — the row is ALREADY DIAGNOSED in §90.** It was
    18 sole-obstacle cases over 29 missing lines, a **concentration of 1.6**,
    which is the best shape on the board. §90 took the `new` half; what is left
-   is the same overload question on the **call** arm
-   (`functionOverloads29`/`34`/`37` — `sole_signature_arity` requires a symbol
-   with exactly ONE declaration; §90's `new` arm already shows the shape, so
-   this is that change transplanted), rest-parameter ordering (`genericRestArity`,
-   `spreadOfParamsFromGeneratorMakesRequiredParams` — declined by
-   `sole_signature_arity`'s rest handling), and the
+   is **rest-parameter ordering** (`genericRestArity`, `genericRestArityStrict`,
+   `spreadOfParamsFromGeneratorMakesRequiredParams`, `iterableArrayPattern25`,
+   `unionTypeCallSignatures4`), where both arms decline any signature carrying a
+   rest parameter rather than guess a bound — upstream reads the rest's TUPLE
+   type (`relater.go:1713-1726`), which is why it can say "expected 2" for
+   `...args: [number, string]`. That is `checker_types`-shaped and should be
+   priced before it is attempted. The overload question is DONE (§92) and the
+   backward min-count is DONE (§91). Also still open: the
    JS arm, where **§74's rule applies: a JS decline does not transfer between
    arms.** Measure it, do not assume it.
 
