@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; scanner, parser and binder only, with no checker (bd tsr-4sc)
-Passed         : 1248/5488 (22.74%)
-Failed         : 4240
+Passed         : 1261/5488 (22.98%)
+Failed         : 4227
 Skipped        : 6956 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,19 +11,13 @@ Skipped        : 6956 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 4240 failures:
+First 100 of 4227 failures:
 compiler/ClassDeclaration10
   1 missing (first TS2390 at ClassDeclaration10.ts(2,4))
 compiler/ClassDeclaration11
   1 missing (first TS2390 at ClassDeclaration11.ts(2,4))
-compiler/ClassDeclaration13
-  1 missing (first TS2389 at ClassDeclaration13.ts(3,4))
 compiler/ClassDeclaration14
   1 missing (first TS2390 at ClassDeclaration14.ts(3,4))
-compiler/ClassDeclaration21
-  1 missing (first TS2389 at ClassDeclaration21.ts(3,5))
-compiler/ClassDeclaration22
-  1 missing (first TS2389 at ClassDeclaration22.ts(3,5))
 compiler/ClassDeclaration24
   1 missing (first TS2414 at ClassDeclaration24.ts(1,7))
 compiler/ClassDeclaration26
@@ -39,9 +33,9 @@ compiler/ExportAssignment8
 compiler/FunctionDeclaration3
   1 missing (first TS7010 at FunctionDeclaration3.ts(1,10))
 compiler/FunctionDeclaration4
-  2 missing (first TS7010 at FunctionDeclaration4.ts(1,10))
+  1 missing (first TS7010 at FunctionDeclaration4.ts(1,10))
 compiler/FunctionDeclaration6
-  2 missing (first TS7010 at FunctionDeclaration6.ts(2,14))
+  1 missing (first TS7010 at FunctionDeclaration6.ts(2,14))
 compiler/FunctionDeclaration7
   1 missing (first TS7010 at FunctionDeclaration7.ts(2,13))
 compiler/InterfaceDeclaration8
@@ -212,3 +206,9 @@ compiler/assignToExistingClass
   1 missing (first TS2629 at assignToExistingClass.ts(8,13))
 compiler/assignToFn
   1 missing (first TS2322 at assignToFn.ts(8,5))
+compiler/assignToInvalidLHS
+  1 missing (first TS2364 at assignToInvalidLHS.ts(4,9))
+compiler/assignToModule
+  1 missing (first TS2708 at assignToModule.ts(2,1))
+compiler/assigningFromObjectToAnythingElse
+  4 missing (first TS2322 at assigningFromObjectToAnythingElse.ts(3,1))

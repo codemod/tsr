@@ -2126,6 +2126,24 @@ impl Checker<'_, '_> {
     /// wrong code — so the scan's guard is reproduced instead: if the next
     /// sibling is adjacent, of the same kind and carries a body, say nothing.
     fn report_implementation_expected(&mut self, node: NodeId, is_constructor: bool) {
+        // TS2389 first: an adjacent subsequent declaration of the same kind
+        // that **carries a body** and does **not** share this one's name is
+        // the implementation, misnamed (`checker.go:3585`). The error node is
+        // the *subsequent* declaration's name and the argument is this one's —
+        // `checker-notes-diag2.md` §63.
+        if let Some((at, expected)) = self.misnamed_implementation(node) {
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+            let span = self.error_span(at);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::FUNCTION_IMPLEMENTATION_NAME_MUST_BE_0,
+                    span,
+                    [expected],
+                ),
+            );
+            return;
+        }
         if self.next_sibling_is_the_implementation(node) {
             return;
         }
@@ -2140,6 +2158,27 @@ impl Checker<'_, '_> {
             &messages::FUNCTION_IMPLEMENTATION_IS_MISSING_OR_NOT_IMMEDIATELY_FOLLOWING_THE_DECLARATION
         };
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// The subsequent declaration's name node and this one's written name,
+    /// when the pair is upstream's TS2389 shape: adjacent, same kind, the
+    /// subsequent one has a body, and the names differ.
+    ///
+    /// `None` for every other shape, including the name-matching one — that is
+    /// the static/instance arm (TS2387/TS2388), which is its own row and stays
+    /// declined. See `checker-notes-diag2.md` §63.
+    fn misnamed_implementation(&self, node: NodeId) -> Option<(NodeId, String)> {
+        let next = self.next_sibling(node)?;
+        if self.nodes.kind(next) != self.nodes.kind(node) || !self.declaration_has_body(next) {
+            return None;
+        }
+        let name = self.declaration_name_of(node)?;
+        let subsequent = self.declaration_name_of(next)?;
+        let written = self.identifier_text(name)?;
+        if self.identifier_text(subsequent) == Some(written) {
+            return None;
+        }
+        Some((subsequent, written.to_string()))
     }
 
     /// The guard `reportImplementationExpectedError` puts in front of its

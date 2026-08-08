@@ -4693,3 +4693,85 @@ The two cases that did not convert of the seven the shapes named
 (`inheritedMembersAndIndexSignaturesFromDifferentBases`,
 `propertiesAndIndexersForNumericNames`) are `STILL SHORT`: they gain their
 TS2411 lines and want other codes.
+
+---
+
+## 63. TS2389 — the arm §14 declined rather than ported
+
+§14 built `checkFunctionOrConstructorSymbol`'s implementation-expected messages
+and stopped short of one, saying so in the code:
+
+> *"The subsequent-node scan above them selects TS2389 `Function implementation
+> name must be '{0}'` … It is not ported; the effect is that a case wanting
+> TS2389 gets TS2391 instead, which is a wrong code — so the scan's guard is
+> reproduced instead: if the next sibling is adjacent, of the same kind and
+> carries a body, say nothing."*
+
+`diagreach.rs` prices the silence at **14 cases**, 13 of them blocked on TS2389
+alone:
+
+```ts
+function foo(x);
+function foo(x, y);
+function bar() { }     // upstream: Function implementation name must be 'foo'.
+```
+
+`functionOverloadImplementationOfWrongName`, `…2`, `functionNameConflicts`,
+`parserFunctionDeclaration4/6`, `parserClassDeclaration13/21/22` and a tail.
+
+**The decline was already exact, which is what makes this cheap.**
+`next_sibling_is_the_implementation` reproduces upstream's branch structure at
+`checker.go:3566` line for line — adjacent, same kind, and then *names match* or
+*subsequent has a body*. The second disjunct **is** TS2389's condition. Turning
+the silence into the message needs no new analysis, only the message and its two
+positions:
+
+- the error node is the **subsequent** declaration's name (`errorNode :=
+  core.OrElse(subsequentName, subsequentNode)`), not this one's;
+- the argument is **this** declaration's name — the one the implementation
+  should have had.
+
+The static/instance arm (TS2387/TS2388) stays declined: it fires only when the
+names *match* and the two differ in `static`, which is a different disjunct and
+its own row.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,248**. Forecast **+6 to +13** of the 13 |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow |
+| 4 | own WRONG ≤ **8** |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column carries cases where the two declarations
+*do* share a name, the port's name comparison is reading a different node than
+`DeclarationNameToString` does — a computed or private name, where upstream's
+own equality test has three separate arms.
+
+### Scored — **+13, past 22.9%**, and not one new wrong line
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,248, forecast +6 to +13 | **1,261 / 5,488 = 22.98%** | pass, at the top |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **1 → 1** (the family's standing loss, on both sides) | pass |
+| 4 | own WRONG ≤ 8 | **11 → 11**, unchanged | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2389, 2390, 2391, 2392, 2393]`: **CONVERTS 18 → 31 ·
+RIGHT 75 → 90 · WRONG 11 → 11 · LOST 1 → 1.**
+
+**Fifteen new right lines, thirteen conversions, zero new wrong ones — the best
+ratio of the session**, and the reason is that the analysis was already done.
+§14 had reproduced upstream's branch structure exactly in order to *decline*
+correctly, and one of its disjuncts **was** the unported message's condition.
+The build is the message and its two positions.
+
+> **A decline that reproduces upstream's branch structure is half a port.**
+> §14 wrote *"the scan's guard is reproduced instead"* and paid for the guard's
+> correctness at the time; that spend is what made this thirteen cases for
+> twenty lines of code. A decline that had approximated the guard — "next
+> sibling has a body, stay quiet" — would have been just as silent and worth
+> nothing here.
