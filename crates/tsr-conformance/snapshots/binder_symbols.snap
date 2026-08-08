@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8403/8473 (99.17%)
-Failed         : 70
+Passed         : 8407/8473 (99.22%)
+Failed         : 66
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -20,8 +20,6 @@ compiler/augmentExportEquals4
   1 symbol(s): file2.ts: x.b: no symbol
 compiler/augmentExportEquals6
   1 symbol(s): file2.ts: x.B.b: no symbol
-compiler/declFileImportedTypeUseInTypeArgPosition
-  1 symbol(s): x.Foo: no symbol
 compiler/declarationEmitExpandoWithGenericConstraint
   1 symbol(s): Point.zero: no symbol
 compiler/declarationEmitLateBoundAssignments2
@@ -50,8 +48,6 @@ compiler/exportDefaultTypeClassAndValue
   1 symbol(s): foo: declared on {0}, expected to include {0, 1}
 compiler/expressionsForbiddenInParameterInitializers
   1 symbol(s): ./bar: no symbol
-compiler/externalModuleReferenceDoubleUnderscore1
-  1 symbol(s): basics.TimeUnit: no symbol
 compiler/indexTypeNoSubstitutionTemplateLiteral
   1 symbol(s): Foo[`b`]: no symbol
 compiler/invalidUnicodeEscapeSequance4
@@ -76,10 +72,6 @@ compiler/module_augmentUninstantiatedModule
   1 symbol(s): M: declared on {0, 2}, expected to include {0, 2, 6}
 compiler/numericClassMembers1
   2 symbol(s): C234.0: declared on {0}, expected to include {0, 1}; C235.0.0: declared on {5}, expected to include {5, 6}
-compiler/privacyGloImport
-  1 symbol(s): use_glo_M2_public.c1: no symbol
-compiler/privacyGloImportParseErrors
-  1 symbol(s): use_glo_M2_public.c1: no symbol
 compiler/ramdaToolsNoInfinite2
   3 symbol(s): ONonNullable: declared on {489}, expected to include {183, 489}; UKeys: declared on {23, 113}, expected to include {23, 96, 113}; UNonNullable: declared on {165}, expected to include {137, 165}
 compiler/reservedWords3

@@ -779,7 +779,19 @@ fn resolve_import_equals_target_at(
             None
         }
         ModuleReference::QualifiedName(qualified) => Some(*qualified),
-        ModuleReference::ExternalModuleReference(_) => return None,
+        // `import x = require("m")` resolves when `m` is an ambient module the
+        // binder holds in globals (`privacyGloImport`); a reference to a real
+        // sibling file is the checker's module resolution and stays out.
+        ModuleReference::ExternalModuleReference(external) => {
+            let Some(tsr_ast::Expression::StringLiteral(literal)) = external.expression else {
+                return None;
+            };
+            let found = *bound.globals().get(literal.text)?;
+            let found = bound.merged_symbol(found);
+            let is_module =
+                bound.symbols().get(found).flags.intersects(tsr_binder::SymbolFlags::MODULE);
+            return is_module.then_some(found);
+        }
     };
     while let Some(qualified) = reference {
         segments.push(qualified.right?.text);
