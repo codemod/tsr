@@ -5546,3 +5546,130 @@ TS2322, §24's TS2403, §49's type parameters) were all refused or bounded.
 TS2364 7, TS2703 7, TS2558 6), then re-take this split. It moves whenever the
 `.types` workstream lands relation work, and 937 is the number that says how
 much of `diagnostics` that workstream is carrying.
+
+---
+
+## 76. §42.1's guard, one level up: a *union annotation* of named types
+
+`diagreach.rs` at `6cf7726` ranks TS2454 at **56 cases** — the largest
+relation-free row on the board, and 49 of them are blocked by TS2454 alone.
+`diagmissing -- 2454` puts a third of its lines in two cases,
+`conformance/arithmeticOperatorWithEnumUnion` and
+`conformance/additionOperatorWithNumberAndEnum`, and both are the same three
+declarations:
+
+```ts
+var a: any;
+var b: number;
+var c: E | F;     // E and F are enums
+var ra1 = c * a;  // upstream: TS2454 on `c`
+var ra2 = c * b;  // upstream: TS2454 on `c` AND on `b`
+```
+
+The port reports every `b` and **no `c`**. One `eprintln!` behind
+`TSR_DEBUG_2454` at the rule's declared-type read — the instrument this file
+has now recommended three times — answers it in one run:
+
+```
+60 2454 c: declared=TypeId(1) error=TypeId(1) contains_undef=false
+40 2454 b: declared=TypeId(6) error=TypeId(1) contains_undef=false
+```
+
+`declared` for `c` **is** `errorType`, so the rule returns at its first type
+test. This is §42.1 exactly, at a different call: `get_type_from_union_type_node`
+(`declared.rs:695`) routes an un-aliased union node through
+`get_union_type`, whose worker answers `errorType` for any union with a *named*
+constituent because this port computes printed text at type-creation time and
+upstream's `origin` denormalisation (`checker.go:25705`) is unported. §42.1
+fixed the wrapper — `getOptionalType`'s `T | undefined` — and left the
+**annotation itself** on the printing road. `E | F` is a union with two named
+constituents before `undefined` is ever added.
+
+### The bar
+
+`get_union_type_unprinted` already exists and carries §42.1's whole argument: a
+diagnostic that compares `(file, line, column, code)` never prints a type, so
+for that consumer the printing guard converts a right answer into an
+`errorType` that silences the rule. The build gives `check_used_before_assigned`
+a declared type computed the same way — and **only** that rule, so nothing on
+the query road can reach it and `checker_types` stays byte-identical.
+
+Scope deliberately: the annotation is a `UnionTypeNode` with **no enclosing type
+alias**. An aliased union goes to `get_named_union_type`, which is a different
+question (the alias's own printing), and a generic alias is `errorType` for a
+third reason entirely.
+
+**Bar: +8 cases.** Two cases are visible in `diagmissing`'s head and the
+enum-typed union is a common corpus shape; below +8 the row is thinner than the
+instrument suggests and the residual is elsewhere.
+
+**Falsifier (a):** if the wrong column grows on cases where the union's
+constituents are *not* named — that would mean the recomputation is answering a
+different type than the annotation, not the same type unprinted.
+
+**Falsifier (b):** if `contains_undefined_type(declared)` starts reading true
+for annotations that do not write `undefined` — the reduction order in the
+unprinted worker differs from the printed one and the gate at the top of the
+rule is being fed a different type.
+
+**Falsifier (c):** if `checker_types` moves by a single line. Nothing on the
+query road may reach the new helper.
+
+### Measured: **+5, and the bar of +8 was MISSED — recorded, and the build kept**
+
+```
+diagnostics   1,302 -> 1,307     (+5 cases)
+checker_types 3,742 -> 3,742     byte-identical, falsifier (c) did not fire
+diag2307, RULE_CODES = [2454] alone
+  CONVERTS   261 -> 266
+  RIGHT    3,784 -> 3,860        (+76 right lines)
+  WRONG       15 -> 15           the SAME fifteen lines, byte-identical
+  LOST         0 -> 0
+```
+
+**Falsifiers (a) and (b) could not fire: the wrong column did not change at
+all.** Every one of the +76 lines is a line upstream writes. That is the
+strongest form the evidence can take here — the recomputation is answering the
+*same* type the annotation denotes, unprinted, and nothing else moved.
+
+`conformance/arithmeticOperatorWithEnumUnion` — the case that found this —
+converts with **zero** missing and **zero** extra diagnostics.
+
+**The bar said +8 and the build read +5, so the bar was missed by three.** It is
+recorded rather than rationalised: the estimate was taken off two visible head
+cases plus a guess that "enum-typed union" is a common corpus shape, and that
+guess was too generous — 76 right lines concentrated into 5 cases is a
+concentration of 15:1, which is §53's phenomenon (71 right lines for one
+conversion) at a milder ratio. **`diagmissing`'s line count remains a poor
+predictor of conversions**; this is the seventh build to learn it and the first
+to have written the ratio down as the reason.
+
+The build is kept on §68/§69's precedent — a build that emits **no wrong line**
+and moves `diagreach` is worth keeping at any conversion count — and here the
+conversion count is not zero.
+
+### The residual, and its named owner
+
+The fifteen wrong lines are unchanged by this build and therefore **pre-existing,
+not this build's to decline**. Carried forward with their case names per the
+standing-LOST rule, they are three families:
+
+- **exhaustive switch** (`exhaustiveSwitchStatements1` ×4,
+  `exhaustiveSwitchCheckCircularity`) — upstream proves the switch covers the
+  union and the post-switch reference is assigned on every path. Owner:
+  `crate::flow`'s switch-exhaustiveness, unported.
+- **destructuring and rest patterns** (`objectRestNegative`,
+  `restElementWithAssignmentPattern2`/`4`, `iterableArrayPattern24`) — the
+  binding-pattern spellings of a definite assignment that
+  `is_write_only_access` does not reach. Owner: `crate::unused`'s `accessKind`
+  at pattern elements.
+- **type guards** (`typeGuardOfFormNotExpr`,
+  `typeGuardOfFormTypeOfIsOrderIndependent`) —
+  `reference_is_guarded_by_a_condition_on`'s over-approximation reading the
+  wrong way round. Owner: this rule's guard, and §58 already named it.
+
+**What this build did NOT reach.** `diagreach` still ranks TS2454 well above the
+5 converted, and the two head cases in `diagmissing` were the two enum-union
+ones. The rest of that row is the three families above plus
+`compiler/dynamicNames` and the `moduleAugmentation*` family, which are a
+different question again.

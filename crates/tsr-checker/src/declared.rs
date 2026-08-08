@@ -708,6 +708,44 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// [`Checker::get_type_from_type_node`] for a consumer that will never
+    /// **print** the result — see [`Checker::get_union_type_unprinted`].
+    ///
+    /// Only an un-aliased `UnionTypeNode` differs, and only when a constituent
+    /// is *named*: `get_type_from_union_type_node` routes it through
+    /// `get_union_type`, whose worker answers `errorType` there because this
+    /// port computes printed text at type-creation time and upstream's `origin`
+    /// denormalisation (`checker.go:25705`) is unported. `var c: E | F` — two
+    /// enums — therefore *declares* `errorType`, and every rule that gates on
+    /// the declared type is silenced on it.
+    ///
+    /// §42.1 found this at the wrapper (`getOptionalType`'s `T | undefined`)
+    /// and fixed it there; the **annotation itself** was still on the printing
+    /// road, which is `checker-notes-diag2.md` §76.
+    ///
+    /// An *aliased* union is deliberately not rerouted. It goes to
+    /// `get_named_union_type`, which is a different question — the alias's own
+    /// printing — and a generic alias is `errorType` for a third reason.
+    ///
+    /// **How this would be shown wrong:** a caller printing a type obtained
+    /// through here would emit expanded constituents. Nothing may call it from
+    /// the query road, which is what keeps the `checker_types` gradient
+    /// unmoved.
+    pub(crate) fn get_type_from_type_node_unprinted(&mut self, node: TypeNode<'a>) -> TypeId {
+        let TypeNode::UnionTypeNode(union) = node else {
+            return self.get_type_from_type_node(node);
+        };
+        if union.node_id.and_then(|id| self.alias_symbol_for_type_node(id)).is_some() {
+            return self.get_type_from_type_node(node);
+        }
+        let types = union
+            .types
+            .iter()
+            .map(|constituent| self.get_type_from_type_node(*constituent))
+            .collect::<Vec<_>>();
+        self.get_union_type_unprinted(&types)
+    }
+
     /// Ported from `Checker.getTypeFromIntersectionTypeNode` (`checker.go:24218`).
     ///
     /// The constituents in **source order**, which unlike a union's is the order

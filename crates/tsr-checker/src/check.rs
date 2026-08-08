@@ -1349,7 +1349,15 @@ impl Checker<'_, '_> {
                 return;
             }
         }
-        let declared = self.get_type_of_symbol(symbol);
+        // The annotation is read directly rather than through
+        // `get_type_of_symbol`, because a union of *named* types declares
+        // `errorType` on the printing road and this rule prints no type —
+        // `checker-notes-diag2.md` §76, which is §42.1 one level up. Every
+        // other annotation shape answers identically through both.
+        let declared = match variable.r#type {
+            Some(annotation) => self.get_type_from_type_node_unprinted(annotation),
+            None => self.get_type_of_symbol(symbol),
+        };
         if declared == self.intrinsics.error
             || declared == self.intrinsics.any
             || declared == self.intrinsics.unknown
