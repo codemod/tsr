@@ -177,6 +177,44 @@ impl<'a> Checker<'a, '_> {
                     None => self.intrinsics.error,
                 }
             }
+            // §36 (`checker-notes-callres.md`): a template-literal type
+            // prints as written — the §31 mint from the node's parts.
+            // Literal-typed holes decline (upstream RESOLVES those to plain
+            // literals).
+            TypeNode::TemplateLiteralTypeNode(node) => {
+                let Some(head) = node.head else { return self.intrinsics.error };
+                let mut printed = format!("`{}", head.text);
+                for span in node.template_spans {
+                    let Some(hole) = span.r#type else { return self.intrinsics.error };
+                    let hole_type = self.get_type_from_type_node(hole);
+                    if hole_type == self.intrinsics.error
+                        || self
+                            .store
+                            .get(hole_type)
+                            .flags
+                            .intersects(TypeFlags::UNIT | TypeFlags::UNION)
+                    {
+                        return self.intrinsics.error;
+                    }
+                    let rendered = self.type_to_string(hole_type);
+                    let literal_text = match span.literal {
+                        Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(middle)) => middle.text,
+                        Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => tail.text,
+                        None => return self.intrinsics.error,
+                    };
+                    printed.push_str("${");
+                    printed.push_str(&rendered);
+                    printed.push('}');
+                    printed.push_str(literal_text);
+                }
+                printed.push('`');
+                // OBJECT rather than the §31 mints' ANY: a template mint in
+                // a UNION must not trip any-absorption or string-literal
+                // reduction (`"bar" | \`foo-${string}\`` keeps both).
+                let id = self.store.new_named(TypeFlags::OBJECT, printed, None);
+                self.unresolved_types.insert(id);
+                id
+            }
             // §34 (`checker-notes-callres.md`): a DEFERRED indexed access —
             // the index is a type parameter, upstream cannot resolve it until
             // instantiation — prints as written via the §31 mint; is_error
@@ -1007,6 +1045,24 @@ impl<'a> Checker<'a, '_> {
             }
             arguments.push(resolved);
         }
+        // §36's second contained leg: an alias whose body is a CONDITIONAL
+        // type over CONCRETE arguments is EVALUATED upstream (`Foo1<"*x*">`
+        // answers the branch, `templateLiteralTypes3`); the written
+        // reference is a wrong line there. Deferred arguments keep it.
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && let Some(declaration) =
+                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+            && (matches!(alias.r#type, Some(TypeNode::ConditionalTypeNode(_)))
+                || matches!(alias.r#type, Some(TypeNode::KeywordTypeNode(keyword))
+                    if keyword.kind == SyntaxKind::IntrinsicKeyword))
+            && self.in_alias_declared_position(node.node_id)
+        {
+            // Upstream evaluates conditional aliases in alias-declared
+            // positions even through type-parameter arguments
+            // (`PrefixData<P>` answers `\`${P}:baz\``).
+            return error;
+        }
         // §46 (`checker-notes-narrow.md`): a generic ALIAS reference whose
         // body is a type literal answers the §41 shape — name+args print,
         // the body's member symbol, the seam registration.
@@ -1068,6 +1124,19 @@ impl<'a> Checker<'a, '_> {
         let Some(text) = Self::entity_name_text(node.type_name) else {
             return self.intrinsics.error;
         };
+        // §36's first contained leg: an INTRINSIC string mapping over
+        // CONCRETE arguments is EVALUATED upstream (`Uppercase<"aA">` is
+        // `"AA"`), so printing the written call is a wrong line; deferred
+        // arguments (type parameters, mints) keep the written print.
+        if matches!(text.as_str(), "Uppercase" | "Lowercase" | "Capitalize" | "Uncapitalize")
+            && self.in_alias_declared_position(node.node_id)
+        {
+            // Upstream EVALUATES string mappings in alias-declared positions
+            // whatever the argument — including through patterns and even
+            // idempotence (`Uppercase<Uppercase<string>>` reduces). No
+            // written print survives there.
+            return self.intrinsics.error;
+        }
         let mut printed = text;
         if !node.type_arguments.is_empty() {
             let arguments: Vec<String> = node
@@ -1089,6 +1158,28 @@ impl<'a> Checker<'a, '_> {
         let id = self.store.new_named(TypeFlags::ANY, printed, None);
         self.unresolved_types.insert(id);
         id
+    }
+
+    /// §36's positional gate: upstream's node builder REUSES written
+    /// annotation nodes, so a reference in an ANNOTATION prints as written
+    /// whatever it would evaluate to; only the DECLARED type of an alias
+    /// (`type B = Uppercase<A>` — `B`'s own line) shows the evaluation.
+    /// True when the node sits under a `TypeAliasDeclaration` with only
+    /// type-node ancestry between.
+    fn in_alias_declared_position(&self, node: Option<tsr_ast::NodeId>) -> bool {
+        let Some(mut current) = node else { return false };
+        loop {
+            let Some(parent) = self.nodes.parent(current) else { return false };
+            if self.nodes.kind(parent) == SyntaxKind::TypeAliasDeclaration {
+                return true;
+            }
+            let is_type_node =
+                self.node_map.get(parent).is_some_and(|node| TypeNode::try_from(node).is_ok());
+            if !is_type_node {
+                return false;
+            }
+            current = parent;
+        }
     }
 
     /// A type reference `M.I` whose leftmost name **does** resolve as a

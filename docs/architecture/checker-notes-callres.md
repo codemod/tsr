@@ -1624,3 +1624,40 @@ the expression arm's value is captured almost entirely by consumers this
 port hasn't built, and the honest keyof union feeds them confident
 wrongs. Reverted whole. The road into concrete `keyof` is those
 consumers (mapped types, JSX attribute checking), not the operator arm.
+
+### §36 Template-literal type nodes print as written
+
+`` `data${string}` `` in type position: upstream builds a
+`TemplateLiteralType` and the baseline prints it as written (heads,
+spans, hole types in order). This port had no arm — `errorType`,
+gapping §32's template-keyed index-signature prints among others. The §31
+mint again: spell the node from its parts (head text, each span's hole
+type rendered by `type_to_string`, middle/tail texts), register in
+`unresolved_types` — is_error stays true, consumers keep gapping, only
+prints change. A hole whose type errors declines whole.
+
+**Falsifiers.** (a) Upstream NORMALIZES some template types (e.g.
+collapses `${string}` chains or resolves all-literal holes to a plain
+literal — `` `a${"b"}` `` is `"ab"` upstream): wrongs on those spell the
+narrowing (decline literal-typed holes). (b) The §35.1 consumer-unlock
+class — measured by the pair.
+
+**§36 score — LANDED (narrowed three times).** The pair fired repeatedly
+and each narrowing was POSITIONAL, not content-based — the discovery of
+the build: upstream's node builder REUSES written annotation nodes, so
+references print as written in ANNOTATIONS whatever they evaluate to,
+while ALIAS-DECLARED positions show the EVALUATION. Three legs: (1)
+intrinsic string mappings (`Uppercase<…>`) decline in alias-declared
+positions unconditionally (upstream evaluates even `Uppercase<Uppercase<
+string>>` and distributes over patterns); (2) conditional-bodied and
+`intrinsic`-bodied alias references likewise (`PrefixData<P>` evaluates
+even through a type-parameter argument); (3) the template mint carries
+OBJECT flags, not the §31 mints' ANY — a template in a union must not
+trip any-absorption (`"bar" | \`foo-${string}\`` keeps both). Final
+matrix vs the §35 baseline: **+475 G→R, 337 W→G, 118 G→W, 22 R→G — net
+right +453, net wrong −219.** `checker_types` right 397,139 →
+**397,592 (83.01%)**. Residue named: template-bodied ALIASES print their
+expansion where annotation positions want the alias NAME
+(`templateLiteralIntersection2` wants `(p: JoinedPath) => void`) — the
+site-sensitive §41-class alias-name question, queued; and
+`discriminatedUnionTypes4`'s narrowing through pattern literals.
