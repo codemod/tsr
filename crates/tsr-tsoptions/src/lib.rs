@@ -322,16 +322,20 @@ fn extended_configs(
 
 /// `getExtendsConfigPath` — the file an `extends` value names.
 ///
-/// Only the rooted and explicitly-relative forms are resolved. A bare name is
-/// a *module* upstream (`module.ResolveConfig` against `node_modules`), which
-/// this port declines rather than approximates: resolving it wrongly would load
-/// the wrong configuration silently, where declining reports `File '0' not
-/// found`.
+/// A rooted or explicitly-relative name resolves against the config's directory;
+/// **anything else is a module**, resolved through `node_modules` exactly as an
+/// `import` would be (`module.ResolveConfig`, `resolver.go:2077`).
+///
+/// The module form is not exotic. `"extends":
+/// "@scope/tsconfig/base.json"` is how every monorepo shares a configuration,
+/// and it was the *first* thing a real repository hit when this port declined
+/// it — which is why the earlier decision to decline was wrong in practice even
+/// though it was defensible in the abstract.
 fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Option<String> {
     let name = normalize_slashes(name);
     if !(tsr_path::is_rooted_disk_path(&name) || name.starts_with("./") || name.starts_with("../"))
     {
-        return None;
+        return resolve_extends_module(&name, base_path, fs);
     }
     let path = get_normalized_absolute_path(&name, base_path);
     if fs.file_exists(&path) {
@@ -350,6 +354,39 @@ fn resolve_extends_path(name: &str, base_path: &str, fs: &dyn FileSystem) -> Opt
         }
     }
     None
+}
+
+/// Resolve a bare `extends` name through `node_modules` (`module.ResolveConfig`).
+///
+/// The resolver needs a host, and the only thing it uses one for here is the
+/// file system and a current directory — so the config's own directory serves
+/// as both.
+fn resolve_extends_module(name: &str, base_path: &str, fs: &dyn FileSystem) -> Option<String> {
+    struct ConfigHost<'a> {
+        fs: &'a dyn FileSystem,
+        current_directory: String,
+    }
+    impl tsr_module::types::ResolutionHost for ConfigHost<'_> {
+        fn fs(&self) -> &dyn FileSystem {
+            self.fs
+        }
+        fn current_directory(&self) -> &str {
+            &self.current_directory
+        }
+    }
+
+    let host = ConfigHost { fs, current_directory: base_path.to_string() };
+    // `nodenext`, not the project's own setting: the config being extended has
+    // not been read yet, so its `moduleResolution` is what this is resolving
+    // *toward*.
+    let options = CompilerOptions {
+        module_resolution: tsr_core::ModuleResolutionKind::NodeNext,
+        ..CompilerOptions::default()
+    };
+    let resolver = tsr_module::resolver::Resolver::new(&host, options);
+    let from_config = tsr_path::combine_paths(base_path, &["tsconfig.json"]);
+    let found = resolver.resolve_config(name, &from_config);
+    found.is_resolved().then(|| found.resolved_file_name.clone())
 }
 
 /// Layer `own` over `base`, field by field.

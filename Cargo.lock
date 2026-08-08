@@ -458,6 +458,7 @@ dependencies = [
  "tsr-ast",
  "tsr-core",
  "tsr-diagnostics",
+ "tsr-module",
  "tsr-parser",
  "tsr-path",
  "tsr-vfs",

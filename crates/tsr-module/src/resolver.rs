@@ -281,6 +281,40 @@ impl<'host> Resolver<'host> {
         (result, state.traces)
     }
 
+    /// Resolve a `tsconfig.json`'s `extends` target (`module.ResolveConfig`).
+    ///
+    /// `resolver.go:2077` plus `resolveConfig` (`:371`). Three things make it
+    /// different from an ordinary module resolution, and all three already exist
+    /// in [`ResolutionState`] — this is the entry point that was missing, not
+    /// the machinery:
+    ///
+    /// - **`is_config_lookup`**, which makes a bare directory resolve to
+    ///   `tsconfig.json` rather than `index.js` and changes which
+    ///   `package.json` field is consulted.
+    /// - **JSON-only extensions**: an `extends` target is a config file, so a
+    ///   sibling `.ts` must not satisfy it.
+    /// - **`nodenext` regardless of the project's own `moduleResolution`**,
+    ///   because the config has not been read yet — its `moduleResolution` is
+    ///   the thing being resolved *toward*.
+    ///
+    /// `containing_file` is the config doing the extending; resolution starts
+    /// from its directory.
+    #[must_use]
+    pub fn resolve_config(&self, module_name: &str, containing_file: &str) -> ResolvedModule {
+        let containing_directory = get_directory_path(containing_file).to_string();
+        let mut state = ResolutionState::new(
+            self,
+            module_name.to_string(),
+            containing_directory,
+            /* is_type_reference_directive */ false,
+            ResolutionMode::CommonJS,
+            /* tracing */ false,
+        );
+        state.is_config_lookup = true;
+        state.extensions = Extensions::JSON;
+        state.resolve_node_like()
+    }
+
     /// Resolve a `/// <reference types="..." />`
     /// (`Resolver.ResolveTypeReferenceDirective`).
     pub fn resolve_type_reference_directive(
