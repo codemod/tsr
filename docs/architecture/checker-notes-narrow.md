@@ -2901,3 +2901,16 @@ generic → gap; unaliased → structural. **+39, zero adverse**
 6 — the residue §71/§71.1 exposed, now closed at its root).
 
 **§72 score — LANDED.** right 402,915 → **402,954 (84.13%)**.
+
+## §73 — JS-wide unresolved-prints-error: REFUSED at 199:1,743
+
+`error | any` is a 342-line wrong head, 324 in one machine-generated
+JS case (`parsingDeepParenthensizedExpression`) where upstream prints
+`error` for unresolved names this port answers `any`. Keying on
+`in_js_file` measured **199 right against 1,743 adverse** — 1,504 of
+the adverse INSIDE the same case: upstream prints BOTH `any` and
+`error` for unresolved-name-involving lines in one file, so the file
+kind is not the discriminator. Whatever splits them (error
+propagation through operators, CommonJS binding, something else) is
+finer than any key tried; the head stays priced until someone traces
+upstream's actual split. Reverted.
