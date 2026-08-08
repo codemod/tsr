@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8402/8473 (99.16%)
-Failed         : 71
+Passed         : 8403/8473 (99.17%)
+Failed         : 70
 Skipped        : 3971 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -110,8 +110,6 @@ conformance/importCallExpressionAsyncES2020
   1 symbol(s): ./test: no symbol
 conformance/importCallExpressionAsyncES6CJS
   1 symbol(s): ./test: no symbol
-conformance/importStatementsInterfaces
-  2 symbol(s): b: declared on {20}, expected to include {4, 20}; b.Point3D: no symbol
 conformance/inlineJsxFactoryDeclarationsLocalTypes
   3 symbol(s): renderer.d.ts: dom.JSX: no symbol; renderer.d.ts: dom.JSX.Element: no symbol; renderer2.d.ts: predom.JSX: no symbol
 conformance/inlineJsxFactoryLocalTypeGlobalFallback

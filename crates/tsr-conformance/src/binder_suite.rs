@@ -744,9 +744,25 @@ fn resolve_import_equals_target(
     bound: &BindResult<'_>,
     nodes: &NodeTable,
     symbol: &tsr_binder::Symbol<'_>,
-    in_file: impl Fn(tsr_ast::NodeId) -> bool,
+    in_file: impl Fn(tsr_ast::NodeId) -> bool + Copy,
+) -> Option<tsr_binder::SymbolId> {
+    resolve_import_equals_target_at(program, bound, nodes, symbol, in_file, 0)
+}
+
+/// [`resolve_import_equals_target`] with a recursion bound: alias chains pass
+/// through other aliases, and two aliases can point at each other.
+fn resolve_import_equals_target_at(
+    program: &tsr_compiler::Program<'_>,
+    bound: &BindResult<'_>,
+    nodes: &NodeTable,
+    symbol: &tsr_binder::Symbol<'_>,
+    in_file: impl Fn(tsr_ast::NodeId) -> bool + Copy,
+    depth: u32,
 ) -> Option<tsr_binder::SymbolId> {
     use tsr_ast::ModuleReference;
+    if depth > 4 {
+        return None;
+    }
     let declaration = symbol
         .declarations
         .iter()
@@ -785,6 +801,23 @@ fn resolve_import_equals_target(
         tsr_binder::SymbolFlags::NAMESPACE | tsr_binder::SymbolFlags::ALIAS,
     )?;
     for segment in rest {
+        // A chain step can pass through another alias (`import a = A;
+        // import b = a.inA;` — `importStatementsInterfaces`), whose own
+        // exports are empty; follow it to the table that has them. Bounded,
+        // because two aliases can point at each other (`circularImportAlias`).
+        for _ in 0..3 {
+            let Some(through) = resolve_import_equals_target_at(
+                program,
+                bound,
+                nodes,
+                bound.symbols().get(current),
+                in_file,
+                depth + 1,
+            ) else {
+                break;
+            };
+            current = through;
+        }
         let exported = *bound.symbols().get(current).exports.get(segment)?;
         current = bound.merged_symbol(exported);
     }
