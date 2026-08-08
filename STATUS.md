@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,786/9,538** | **39.69%** | **gradient 83.84%** — the target (builds 25–107) |
+| **`checker_types`** | **3,788/9,538** | **39.71%** | **gradient 83.84%** — the target (builds 25–108) |
 | `diagnostics` | **1,346/5,488** | **24.53%** | **measured at HEAD, twelfth session (§76–§84), +44 over 8 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
@@ -216,7 +216,11 @@ both falsifiers fired and contained, ZERO adverse) = 400,225; then §57 (the ele
 the let re-admission re-deferred at 3.6:1 with the anonymous-object
 union-print diagnosis) = 401,531; then + 10 (§56.1: return-position retention, ZERO adverse;
 'x'.length enum folding refused at −16 en route — interning collision)
-= 401,541 exactly — builds 25–107. The
+= 401,541; then + 33 (§58.1: the anonymous-object union-print seam
+closed by a one-line TSR_JOIN_DEBUG diagnosis, §56's let gate lifted, 6
+adverse at 5.5:1 owned by the switch(true) road; §31.1 ES-import
+findability refused at 2.7:1 and §56.2 parameter defaults at zero en
+route) = 401,574 exactly — builds 25–108. The
 right+gap+wrong identity now sums against 470,619.
 Build 96 (scorepair) and the probefile tool are the loop's new
 instruments; the full run is 21s since the §52 memo. §35 records a FINDING: tsgo prints
