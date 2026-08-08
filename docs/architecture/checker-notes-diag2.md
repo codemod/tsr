@@ -7534,3 +7534,64 @@ evidence that the port is faithful; it is evidence that the port agrees with
 whatever the tests were written against.** The fixtures were chosen for
 brevity — `namespace N {}` is the shortest namespace you can write — and
 brevity picked the degenerate case three times.
+
+## §96 — TS2448/TS2450 attempted, measured at 176 wrong lines and 6 LOST, REFUSED
+
+`checkResolvedBlockScopedVariable` (`checker.go:1888`) picks its message off the
+symbol's flags — TS2448 for a block-scoped variable, TS2449 for a class, TS2450
+for an enum — and shares everything below, so building the other two arms on
+§83's class arm looked like the cheapest thirteen cases on the board (TS2448 7
+sole-obstacle cases, TS2449 5, TS2450 1).
+
+**It is not.** Measured, `diag2307` with `RULE_CODES = [2448, 2449, 2450]`:
+
+| | CONVERTS | LOST | RIGHT | WRONG |
+|---|---:|---:|---:|---:|
+| before | 6 | **0** | 14 | **0** |
+| the two new arms | 7 | **6** | 23 | **176** |
+
+**One case gained, six lost, and a rule with a perfect wrong column went to 176.**
+Reverted whole. `augmentedTypesInterface`, `enumWithExport`,
+`controlFlowNullishCoalesce` and `importTypeAmbient` are among the six.
+
+### Why §83's bound was doing more work than it looked like
+
+§83 bounded the class arm to the `extends` clause and this section's own handoff
+described that as "the one position the deferral arms cannot apply to". That is
+true, and the implication that was missed is the contrapositive: **outside that
+position the deferral arms are not an edge case, they are the majority of the
+behaviour.** `isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) is roughly
+eighty lines and almost all of them say *"order cannot be determined here, allow
+it"*. A rule that ports the report and approximates the deferrals reports
+constantly.
+
+The approximation tried was: decline any use with a function-like, property,
+decorator or computed-name ancestor, plus the export-specifier and
+binding-element parents. That is nowhere near enough — 176 wrong lines says the
+missing arms are load-bearing, not marginal.
+
+### What the next attempt must do differently
+
+**Port `isBlockScopedNameDeclaredBeforeUse` first and completely, then attach the
+report.** Not the other way round. Specifically the arms this attempt did not
+have:
+
+- `isUsedInFunctionOrInstanceProperty` (`checker.go:1975`) walks up **stopping at
+  the declaration's own container**, so a use and a declaration inside the same
+  function are *not* deferred — the crude "any function ancestor at all"
+  approximation both over-defers there and, more importantly, does not cover the
+  cases that actually matter.
+- The `NodeFlagsJSDoc` arm, the `PropertyDeclaration` instance-initialiser arm
+  with its `isStatic` split, and the `ExportAssignment` arm's `isExportEquals`
+  condition — each declines a shape this attempt reported on.
+- Whatever explains the six LOST, which were not diagnosed before reverting:
+  three of the four named involve **declaration merging** (`augmentedTypesInterface`,
+  `enumWithExport`, `importTypeAmbient`), so `merged_symbol` handing back a
+  symbol whose `declarations` list spans a merge is the first thing to check —
+  the arm picks one declaration by kind and compares *its* position, which for a
+  merged enum or interface is arbitrary among the merge's members.
+
+**Owner: `isBlockScopedNameDeclaredBeforeUse` itself, ported whole.** The
+thirteen cases are still there and still relation-free; what is refused is
+reaching them by extending §83 rather than by building the predicate. Do not
+re-attempt the cheap version — this is its number.
