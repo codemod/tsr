@@ -12,9 +12,9 @@ FIRST: git pull. Then read, in this order:
   builds.
 
 STATE AT HANDOFF (verify with a fresh coverage run):
-  diagnostics    1,378/5,488 = 25.11%   (was 1,346; +32 over 6 builds,
+  diagnostics    1,381/5,488 = 25.16%   (was 1,346; +35 over 7 builds,
                  **zero cases lost, and the wrong column FELL in two of them**)
-  checker_types  3,841/9,538 · 84.11% — the other workstream's, and it moves
+  checker_types  3,842/9,538 · 84.13% — the other workstream's, and it moves
                  HOURLY: it changed three times inside this one session. Do not
                  touch it, and do not compare against this number — remeasure.
 
@@ -116,18 +116,13 @@ TS2540      12         9
    JS arm, where **§74's rule applies: a JS decline does not transfer between
    arms.** Measure it, do not assume it.
 
-2. **Duplicate PARAMETERS — TS2300's other big family, and it is a real
-   structural finding** (§88). `callSignaturesWithDuplicateParameters` alone is
-   44 of 120 missing lines, plus `functionCall15` and
-   `declarationEmitDestructuring2`. Upstream's `declareSymbol` takes `excludes`
-   as a **parameter**, and `bindParameter` passes `ParameterExcludes`
-   (`binder.go:1200`) while declaring with `FunctionScopedVariable` flags. This
-   port derives excludes from the flags, so a parameter gets
-   `FunctionScopedVariableExcludes`, which deliberately does not collide —
-   because `var x; var x;` is legal. **Excludes is not a function of includes.**
-   Upstream's own comment at `binder.go:1176` says so. This is a binder change
-   against the `binder_symbols` rail (8,293/8,460) — **measure that rail, not
-   just `checker_types`.**
+2. ~~Duplicate PARAMETERS~~ **DONE, §93, +3 cases and +64 right lines for zero
+   wrong, and the `binder_symbols` rail did not move.** What that build leaves
+   is the *general* question it raises: `declare_into` still derives excludes
+   for every other site, and upstream passes it at **all** of them. Auditing the
+   remaining seven against `binder.go`'s call sites is the same shape as §84's
+   option audit and should be done the same way — one build, one counterfactual,
+   a verified zero being an acceptable result.
 
 3. **TS2300's 61 false positives** — the largest wrong column this workstream
    owns, and `augmentedTypesModules` / `duplicateExportAssignments` /
