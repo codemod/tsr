@@ -40,7 +40,7 @@ Measured at the §42-v2 landing, 2026-08-07 (ninth session, continued: builds 25
 | `dts_emit` | 161/339 | 47.49% | |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 495/1,162 | 42.60% | |
-| **`checker_types`** | **3,742/9,538** | **39.23%** | **gradient 83.41%** — the target (builds 25–98) |
+| **`checker_types`** | **3,744/9,538** | **39.25%** | **gradient 83.43%** — the target (builds 25–99) |
 | `diagnostics` | **1,346/5,488** | **24.53%** | **measured at HEAD, twelfth session (§76–§84), +44 over 8 builds, 0 lost.** The running total is 80 → 1,322, **16.5×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh and twelfth sessions |
 
 ### `checker_types`, the number the project is steered by
@@ -195,8 +195,12 @@ property — the discriminant family's fourth member, ZERO adverse) =
 399,431; then + 72 (§51.4: chain containment's whole table replacing
 §51.2's quadrant, ZERO adverse — build 96 was the scorepair/TSR_FILTER
 tooling, 41s→0.36s inner loop) = 399,503; then + 15 (§51.5: containment composes with the discriminant —
-the fallthrough control shape, ZERO adverse) = 399,518 exactly — builds
-25–98. §35 records a FINDING: tsgo prints
+the fallthrough control shape, ZERO adverse) = 399,518; then + 40 (§52: equality's comparable-filter half — reentrancy
+guard, operand memo after compiler/con* hung the corpus, alias-named
+declines; the §52.1 member-set index measured +39/11 and reverted to the
+§39 reshape's account; 1 adverse at 41:1) = 399,558 exactly — builds
+25–99. Build 96 (scorepair) and the probefile tool are the loop's new
+instruments; the full run is 21s since the memo. §35 records a FINDING: tsgo prints
 ` : error` in JS chains across 123 baseline files — ADR-0038's premise
 refined, the §31 JS trade re-grounded, and any future gate stays
 source-side (no oracle peeking).
