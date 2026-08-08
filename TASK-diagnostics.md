@@ -140,10 +140,18 @@ TS2540      12         9
    lists none of them, so none is a *sole* obstacle and they are not 61
    conversions. Price them with `extraonly`, not with `diag2307`'s wrong column.
 
-4. **`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) proper** — the
-   eighty lines of *deferral* arms §83 bounded its way around. **Build it once
-   for three codes**: `checkResolvedBlockScopedVariable` picks between TS2449,
-   TS2448 and TS2450 off the symbol's flags and shares everything else.
+4. **`isBlockScopedNameDeclaredBeforeUse` (`checker.go:1922`) — PORT IT WHOLE
+   AND FIRST.** §96 tried attaching the TS2448/TS2450 reports to §83's class arm
+   with an approximation of the deferrals and measured **176 wrong lines and 6
+   LOST**. Thirteen sole-obstacle cases are still there (TS2448 7, TS2449 5,
+   TS2450 1) and still relation-free, but the only order that works is: build
+   the predicate completely — `isUsedInFunctionOrInstanceProperty`
+   (`checker.go:1975`) walking up **to the declaration's own container**, the
+   JSDoc arm, the instance-property arm with its `isStatic` split, the
+   `isExportEquals` condition — *then* attach the report. Also diagnose the six
+   LOST first: three of the four named involve declaration merging, so
+   `merged_symbol` returning a multi-declaration symbol whose position the arm
+   picks arbitrarily is the first suspect.
 
 5. **The rest of `diaggap`'s relation-free single-code column** — re-run it;
    TS2693, TS2364, TS2703, TS2558 were 9/7/7/6 before this session's builds.
