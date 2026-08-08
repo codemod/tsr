@@ -38,6 +38,18 @@ STATE AT HANDOFF (verify with a fresh coverage run):
   single-member SPELLING SPLIT as divergent fresh/regular twins with an
   access-road swap; right crossed 400,000 here).
 
+  FRESH GAPROOT ATTRIBUTION (build 107, gap lines over 47,120):
+  own-rule 53.7% / unmatched 17.9% / type-node 17.3% / no-value-decl 6.0%.
+  Top roots by line count: CallExpression errors ~2,900 (contextual +
+  generic overload resolution — the promise family lives here), property-
+  access receiver misses ~3,600 (lib member resolution through generics),
+  ArrowFunction ~1,300 (contextual parameters), NewExpression ~900
+  (generic instantiation; Intl.Locale 86 is lib), ElementAccess ~1,000,
+  and TWO no-value-decl rows (~1,700 combined, want-any heavy —
+  "declaration name, symbol has no type", possibly cheap implicit-any
+  admissions; PROBE THESE FIRST next session, they smell like §31-class
+  boundary rules).
+
   NEXT HEADS, each with its section: the enum residue (string-length
   folding, cross-enum refs, §53's entry-order class), the || early-return
   divergence (7 lines, blocked on non-strict per-constituent facts), the
