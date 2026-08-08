@@ -22,11 +22,11 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Measured at the merge of `grind/non-checker-conformance` (PR #2) into main,
-2026-08-08. Rows merge two workstreams' sessions: the checker/diagnostics rows
-are the fourteenth session's (driver-seam landing), the printer/binder/dts rows
-the non-checker branch's (its twelfth session at `814fd4d`). Re-measured whole
-by one coverage run at the merge commit — see §7's newest row.
+Measured whole at the merge of `grind/non-checker-conformance` (PR #2) into
+main (`185877d`), 2026-08-08, by one release coverage run on the merge commit.
+The two workstreams COMPOSE: `checker_types` reads 3,926 against the driver
+session's 3,914 and `diagnostics` 1,406 against 1,405 — the branch's parser
+fixes ride into the checker rows.
 
 > **The previous table stood corrected, and the correction was large.** What
 > stood here was labelled "measured at the §42-v2 landing, 2026-08-07" and was
@@ -51,8 +51,8 @@ by one coverage run at the merge commit — see §7's newest row.
 | `dts_shape` | 860/1,008 | 85.32% | the `!!!!`-marker fix moved one case in, and it passes |
 | `parser_reachable_target` | 5,031/10,570 | 47.60% | |
 | `dts_reachable_target` | 492/1,162 | 42.34% | |
-| **`checker_types`** | **3,914/9,538** | **41.04%** | **gradient 84.33% at build 135** (this row's case count was taken at build ~133 by the diagnostics session; the .types session's builds 128–135 landed §75–§77.3 on top — see §7's newest row). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
-| `diagnostics` | **1,405/5,488** | **25.60%** | **measured at HEAD, thirteenth session (§86–§107), +59 over 14 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,405, **17.6×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
+| **`checker_types`** | **3,926/9,538** | **41.16%** | measured at `185877d`; **gradient 84.33% at build 135** (this row's case count was taken at build ~133 by the diagnostics session; the .types session's builds 128–135 landed §75–§77.3 on top — see §7's newest row). **+21 of these are [ADR-0042](docs/adr/0042-checker-options-come-from-compiler-options.md) with no checker change**, counterfactualled twice from different bases (3,842 → 3,863 and 3,864 → 3,885) for the same delta; the §77 base underneath was not separately counterfactualled, so 3,914 is a measurement and the +21 inside it is an attribution |
+| `diagnostics` | **1,406/5,488** | **25.62%** | measured at `185877d`; **measured at HEAD, thirteenth session (§86–§107), +59 over 14 builds, 0 lost, and the wrong column fell in two of them.** The running total is 80 → 1,405, **17.6×**. One build ever shipped with a named loss (§33); every other is 0 lost. `checker_types` byte-identical across every `diagnostics` build of the eleventh, twelfth and thirteenth sessions — verified by stash-and-remeasure, never against a number written down before the last push (§88) |
 
 ### `checker_types`, the number the project is steered by
 
