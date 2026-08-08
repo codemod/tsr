@@ -66,7 +66,7 @@ with an upstream anchor and a test, and no caller sequencing them.
 | | upstream | here | share |
 |---|---:|---:|---:|
 | `CompilerOptions` fields | 130 | 125 | 96% |
-| declared options (`declscompiler.go` / `declarations.rs`) | 121 | 124 | ~100% |
+| declared options (`declscompiler.go` / `declarations.rs`) | 121 | 134 | complete |
 
 Counted by `awk '/^type CompilerOptions struct/,/^}/' | grep -cE '^\t[A-Z]'` and
 `grep -c 'name: "'`. Was 50/48 before the CLI; the 27 added are the command-line
@@ -383,7 +383,7 @@ too, because phase 0 exists.
 | # | item | worth | state |
 |---|---|---|---|
 | 1 | `--help --all` | 1 baseline | **structure done**, and the table is *generated* from upstream rather than transcribed — 106 options, categories and descriptions as `Message` references (`help_all.rs`). Still short: the `--build` pseudo-option, 11 options whose description constant does not resolve, and the `WATCH OPTIONS` / `BUILD OPTIONS` sections |
-| 2 | `--showConfig` implied options | 3 baselines | the *rule* is implemented ([`IMPLIED_OPTIONS`]); `useDefineForClassFields` and `moduleDetection` still differ, and `paths` is not rendered |
+| 2 | `--showConfig` implied options | 3 baselines | `moduleDetection` **done**. `Show-TSConfig-with-transitively-implied-options` is now **one option** from passing: this port emits `useDefineForClassFields` where upstream does not, though both the dependency and differs-from-default conditions hold. Which implied options upstream actually emits is the open part — §7.10 |
 | 3 | `extends` diagnostics | 2 baselines | a non-string `files`/`include` element must report TS5024 **positioned in the base file**, which needs per-element spans carried across the `extends` hop |
 | 4 | `--locale` | 2 baselines | one locale shipped; upstream has a message catalogue per language. **Refused** |
 | 5 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 33 hand-written tests |
@@ -515,6 +515,18 @@ in users' repositories, so it reports `NotImplemented` (upstream's own status 5)
    reproduce. Recorded rather than patched: the runner trims trailing newlines
    on both sides, so the difference is not where it appears to be, and finding
    out costs more than the one case is worth today.
+
+10. **Which implied options `--showConfig` actually emits.**
+    `Show-TSConfig-with-transitively-implied-options.js` writes `module:
+    nodenext` and expects exactly `module`, `moduleResolution`,
+    `moduleDetection`. This port emits a fourth, `useDefineForClassFields`, and
+    by `addImpliedOptions`' stated rule it should: its dependency `module` is
+    written, and its computed value (`nodenext` → ESNext ≥ ES2022 → `true`)
+    differs from the default (`ES5` → `false`). Upstream drops it anyway, so
+    `serializeImpliedOptionValue` or the entry's own shape must filter it.
+    **Deleting the entry would make this baseline pass and is not a reason** —
+    it would be tuning to one case without knowing the rule, which is what §7.5
+    already cost two attempts.
 
 ## 8. Updating this file
 

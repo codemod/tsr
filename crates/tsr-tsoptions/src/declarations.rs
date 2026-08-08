@@ -27,7 +27,8 @@
 //! suite yet.
 
 use tsr_core::{
-    CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, OrderedMap, ScriptTarget, Tristate,
+    CompilerOptions, JsxEmit, ModuleDetectionKind, ModuleKind, ModuleResolutionKind, NewLineKind,
+    OrderedMap, ScriptTarget, Tristate,
 };
 
 use crate::value::ConfigValue;
@@ -1146,6 +1147,55 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         name: "ignoreDeprecations",
         kind: OptionKind::String,
         apply: |options, value| string(options, value, |o| &mut o.ignore_deprecations),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "newLine",
+        kind: OptionKind::Enum,
+        enum_names: &["crlf", "lf"],
+        apply: |options, value| {
+            let Some(kind) = enum_value(
+                value,
+                &[("crlf", NewLineKind::CarriageReturnLineFeed), ("lf", NewLineKind::LineFeed)],
+            ) else {
+                return false;
+            };
+            options.new_line = kind;
+            true
+        },
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "moduleDetection",
+        kind: OptionKind::Enum,
+        enum_names: &["auto", "legacy", "force"],
+        apply: |options, value| {
+            let Some(kind) = enum_value(
+                value,
+                &[
+                    ("auto", ModuleDetectionKind::Auto),
+                    ("legacy", ModuleDetectionKind::Legacy),
+                    ("force", ModuleDetectionKind::Force),
+                ],
+            ) else {
+                return false;
+            };
+            options.module_detection = kind;
+            true
+        },
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "checkers",
+        kind: OptionKind::Number,
+        apply: |options, value| {
+            let ConfigValue::Number(count) = value else { return false };
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                options.checkers = Some(*count as i32);
+            }
+            true
+        },
         ..OptionDeclaration::DEFAULT
     },
 ];

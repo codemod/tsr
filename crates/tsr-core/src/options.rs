@@ -364,6 +364,37 @@ impl<V> FromIterator<(String, V)> for OrderedMap<V> {
     }
 }
 
+/// What ends a line in emitted output (`core.NewLineKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NewLineKind {
+    /// Unset; the host decides.
+    #[default]
+    None,
+    /// `\r\n`.
+    CarriageReturnLineFeed,
+    /// `\n`.
+    LineFeed,
+}
+
+/// How a file is decided to be a module (`core.ModuleDetectionKind`).
+///
+/// Read by `--showConfig`, which prints it when `module` implies it: the
+/// `node16`…`nodenext` family forces module detection, and everything else
+/// leaves it automatic (`GetEmitModuleDetectionKind`,
+/// `core/compileroptions.go:239`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModuleDetectionKind {
+    /// Unset; derived from [`CompilerOptions::module`].
+    #[default]
+    None,
+    /// A file with an import or export is a module.
+    Auto,
+    /// Only `.mts`/`.cts` and `type: module` decide.
+    Legacy,
+    /// Every file is a module.
+    Force,
+}
+
 /// The options a compilation runs under (`core.CompilerOptions`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CompilerOptions {
@@ -560,6 +591,12 @@ pub struct CompilerOptions {
     pub emit_declaration_only: Tristate,
     /// Strip comments from the output.
     pub remove_comments: Tristate,
+    /// What ends a line in emitted output.
+    pub new_line: NewLineKind,
+    /// How a file is decided to be a module.
+    pub module_detection: ModuleDetectionKind,
+    /// How many checker instances to run. Parsed; this port has one.
+    pub checkers: Option<i32>,
 
     // ---- The rest of upstream's declared surface. Added wholesale so a
     // ---- `tsconfig.json` writing any of these is *accepted* rather than
@@ -856,6 +893,22 @@ impl CompilerOptions {
     #[must_use]
     pub fn should_preserve_const_enums(&self) -> bool {
         self.preserve_const_enums.is_true() || self.get_isolated_modules()
+    }
+
+    /// How module detection actually behaves (`GetEmitModuleDetectionKind`).
+    ///
+    /// `node16` through `nodenext` force it; everything else is automatic.
+    #[must_use]
+    pub fn emit_module_detection_kind(&self) -> ModuleDetectionKind {
+        if self.module_detection != ModuleDetectionKind::None {
+            return self.module_detection;
+        }
+        let module = self.emit_module_kind();
+        if (ModuleKind::Node16..=ModuleKind::NodeNext).contains(&module) {
+            ModuleDetectionKind::Force
+        } else {
+            ModuleDetectionKind::Auto
+        }
     }
 
     /// Whether `types` contains `*` (`UsesWildcardTypes`).

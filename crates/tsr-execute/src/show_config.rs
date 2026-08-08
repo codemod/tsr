@@ -60,6 +60,7 @@ const STRUCT_ORDER: &[&str] = &[
     "module",
     "moduleResolution",
     "moduleSuffixes",
+    "moduleDetection",
     "noEmit",
     "noCheck",
     "noErrorTruncation",
@@ -123,6 +124,7 @@ const STRUCT_ORDER: &[&str] = &[
 const IMPLIED_OPTIONS: &[(&str, &[&str])] = &[
     ("module", &["target"]),
     ("moduleResolution", &["module", "target"]),
+    ("moduleDetection", &["module", "target"]),
     ("isolatedModules", &["verbatimModuleSyntax"]),
     ("preserveConstEnums", &["isolatedModules", "verbatimModuleSyntax"]),
     ("declaration", &["composite"]),
@@ -316,6 +318,9 @@ fn option_value(options: &CompilerOptions, name: &str) -> Option<String> {
             Some(format!("\"{}\"", module_resolution_name(options.module_resolution)))
         }
         "jsx" if options.jsx != JsxEmit::None => Some(format!("\"{}\"", jsx_name(options.jsx))),
+        "moduleDetection" if options.module_detection != tsr_core::ModuleDetectionKind::None => {
+            Some(format!("\"{}\"", module_detection_name(options.module_detection)))
+        }
         "lib" if !options.lib.is_empty() => Some(string_array(&options.lib, 2)),
         "rootDirs" if !options.root_dirs.is_empty() => Some(string_array(&options.root_dirs, 2)),
         "moduleSuffixes" if !options.module_suffixes.is_empty() => {
@@ -344,6 +349,9 @@ fn implied_value(options: &CompilerOptions, name: &str) -> Option<String> {
         "module" => Some(format!("\"{}\"", module_name(options.emit_module_kind()))),
         "moduleResolution" => {
             Some(format!("\"{}\"", module_resolution_name(options.module_resolution_kind())))
+        }
+        "moduleDetection" => {
+            Some(format!("\"{}\"", module_detection_name(options.emit_module_detection_kind())))
         }
         "isolatedModules" => Some(options.get_isolated_modules().to_string()),
         "preserveConstEnums" => Some(options.should_preserve_const_enums().to_string()),
@@ -493,6 +501,14 @@ fn module_resolution_name(kind: ModuleResolutionKind) -> &'static str {
         ModuleResolutionKind::Node16 => "node16",
         ModuleResolutionKind::NodeNext => "nodenext",
         ModuleResolutionKind::Bundler => "bundler",
+    }
+}
+
+fn module_detection_name(kind: tsr_core::ModuleDetectionKind) -> &'static str {
+    match kind {
+        tsr_core::ModuleDetectionKind::None | tsr_core::ModuleDetectionKind::Auto => "auto",
+        tsr_core::ModuleDetectionKind::Legacy => "legacy",
+        tsr_core::ModuleDetectionKind::Force => "force",
     }
 }
 

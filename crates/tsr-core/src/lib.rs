@@ -30,8 +30,8 @@ pub use arena::Arena;
 pub use index::{Idx, IndexVec};
 pub use line_map::{compute_line_of_position, ecma_line_starts, line_and_character, utf16_len};
 pub use options::{
-    CompilerOptions, JsxEmit, ModuleKind, ModuleResolutionKind, OrderedMap, ResolutionMode,
-    ScriptTarget, Tristate,
+    CompilerOptions, JsxEmit, ModuleDetectionKind, ModuleKind, ModuleResolutionKind, NewLineKind,
+    OrderedMap, ResolutionMode, ScriptTarget, Tristate,
 };
 pub use side_table::PagedTable;
 pub use span::{GetSpan, Span};
