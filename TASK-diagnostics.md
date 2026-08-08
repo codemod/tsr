@@ -121,8 +121,14 @@ TS2540      12         9
    is the *general* question it raises: `declare_into` still derives excludes
    for every other site, and upstream passes it at **all** of them. Auditing the
    remaining seven against `binder.go`'s call sites is the same shape as §84's
-   option audit and should be done the same way — one build, one counterfactual,
-   a verified zero being an acceptable result.
+   option audit — **and it was DONE, §94.** Eleven derivations verified against
+   `ast/symbolflags.go`; the one divergence (`ValueModuleExcludes`) measured at
+   **+2 cases for +14 wrong** and was refused. **Its owner is `classify`, not
+   `excludes()`** — every `ModuleDeclaration` is mapped to `VALUE_MODULE`, where
+   upstream picks `NamespaceModule` for a non-instantiated one. The unlock is
+   moving §89's `GetModuleInstanceState` out of `crate::check` into `tsr-ast`,
+   after which the flag choice is one line and this refusal reverses. **That is
+   the highest-value item on this board that nobody has started.**
 
 3. **TS2300's 61 false positives** — the largest wrong column this workstream
    owns, and `augmentedTypesModules` / `duplicateExportAssignments` /
