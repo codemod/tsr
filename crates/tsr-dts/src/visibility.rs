@@ -197,6 +197,19 @@ fn index_by_name<'a, 'b>(
     map
 }
 
+/// Every identifier a binding name introduces, patterns included.
+fn collect_bound_names<'a>(name: Option<&tsr_ast::BindingName<'a>>, names: &mut Vec<&'a str>) {
+    match name {
+        Some(tsr_ast::BindingName::Identifier(identifier)) => names.push(identifier.text),
+        Some(tsr_ast::BindingName::BindingPattern(pattern)) => {
+            for element in pattern.elements {
+                collect_bound_names(element.name.as_ref(), names);
+            }
+        }
+        None => {}
+    }
+}
+
 /// The names a top-level statement introduces into the file's scope.
 fn declared_names<'a>(statement: &Statement<'a>) -> Vec<&'a str> {
     match statement {
@@ -214,9 +227,11 @@ fn declared_names<'a>(statement: &Statement<'a>) -> Vec<&'a str> {
             let mut names = Vec::new();
             if let Some(list) = d.declaration_list {
                 for declaration in list.declarations {
-                    if let Some(tsr_ast::BindingName::Identifier(n)) = &declaration.name {
-                        names.push(n.text);
-                    }
+                    // Binding patterns introduce every bound identifier:
+                    // `const { Foo } = A` declares `Foo`, and a class
+                    // extending it must reach the statement
+                    // (`declarationEmitExpressionInExtends6`).
+                    collect_bound_names(declaration.name.as_ref(), &mut names);
                 }
             }
             names
@@ -569,6 +584,12 @@ impl<'a> Visit<'a> for ReferenceCollector<'a> {
         {
             self.collect_computed_keys(initializer);
             self.collect_initializer_types(initializer);
+            // A binding pattern destructuring an entity emits
+            // `typeof <entity>`, so the entity's root must stay reachable in
+            // the source phase too (`declarationEmitExpressionInExtends6`).
+            if matches!(node.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+                self.record_entity_expression(initializer);
+            }
         }
     }
 

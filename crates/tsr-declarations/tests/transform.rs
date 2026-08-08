@@ -295,6 +295,18 @@ fn jsdoc_only_type_spellings_map_to_typescript() {
 }
 
 #[test]
+fn a_binding_pattern_destructuring_an_entity_keeps_its_shape() {
+    // `declarationEmitExpressionInExtends6`: the pattern stays, typed by
+    // `typeof` the destructured entity, and its bound names participate in
+    // reachability.
+    let output = emit_with_source(
+        "import * as A from \"./a\";\nconst { Foo } = A;\nexport default class extends Foo {\n}",
+    );
+    assert!(output.contains("import * as A from \"./a\";"), "{output}");
+    assert!(output.contains("declare const { Foo }: typeof A;"), "{output}");
+}
+
+#[test]
 fn a_qualified_name_root_is_not_shadowed_by_a_type_parameter() {
     // `declarationEmitRetainedAnnotationRetainsImportInOutput`: `E.Whatever`
     // resolves `E` in namespace space, so `<E>` must not drop the import.

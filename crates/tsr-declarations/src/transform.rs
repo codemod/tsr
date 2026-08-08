@@ -115,6 +115,8 @@ pub(crate) struct Transformer<'a, 't, R> {
     /// the host binding. JavaScript files only
     /// (`typeFromPropertyAssignment39`).
     object_expandos: HashMap<String, ObjectExpando<'a>>,
+    /// Names bound by `import * as N`; destructuring one emits `typeof N`.
+    namespace_imports: HashSet<String>,
     /// Where the resolver was asked for a type and had none.
     ///
     /// No upstream counterpart: upstream's resolver always answers. This is what
@@ -144,6 +146,7 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             javascript_file: false,
             jsdoc_param_types: HashMap::new(),
             object_expandos: HashMap::new(),
+            namespace_imports: HashSet::new(),
             inference_required: Vec::new(),
         }
     }
@@ -170,6 +173,20 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
         reserve_statement_names(file.statements, &mut self.used_names);
         self.expando_members = collect_expando_members(file.statements, self.factory.nodes());
         self.collect_object_expandos(file.statements);
+        self.namespace_imports = file
+            .statements
+            .iter()
+            .filter_map(|statement| {
+                let Statement::ImportDeclaration(import) = statement else { return None };
+                let clause = import.import_clause?;
+                let tsr_ast::NamedImportBindings::NamespaceImport(namespace) =
+                    clause.named_bindings.as_ref()?
+                else {
+                    return None;
+                };
+                Some(namespace.name?.text.to_string())
+            })
+            .collect();
         self.type_aliases = file
             .statements
             .iter()
@@ -893,6 +910,29 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
                 let expando = self.object_expandos.remove(name.text)?;
                 let span = self.span_of(declaration.node_id);
                 Some(self.object_expando_type(expando, span))
+            })
+            .or_else(|| {
+                // A binding pattern destructuring a namespace import keeps its
+                // shape, typed by `typeof` that entity: `const { Foo } = A`
+                // emits `declare const { Foo }: typeof A;`
+                // (`declarationEmitExpressionInExtends6`). Other entities need
+                // the checker's member types and stay in the inference bucket.
+                let Some(tsr_ast::BindingName::BindingPattern(_)) = &declaration.name else {
+                    return None;
+                };
+                let initializer = declaration.initializer.as_ref()?;
+                let root = property_path(initializer)?.0;
+                if !self.namespace_imports.contains(&root) {
+                    return None;
+                }
+                let entity = self.entity_of_expression(initializer)?;
+                let span = self.span_of(declaration.node_id);
+                Some(TypeNode::TypeQueryNode(self.factory.alloc(
+                    tsr_ast::TypeQueryNode::new(Some(entity), &[]),
+                    SyntaxKind::TypeQuery,
+                    span,
+                    NodeFlags::empty(),
+                )))
             });
         let r#type = if initializer.is_some() {
             // `ensureType`'s first branch: a literal const emits its value, not a
@@ -1614,6 +1654,30 @@ impl<'a, 't, R: EmitResolver<'a>> Transformer<'a, 't, R> {
             return Some(node);
         }
         self.rich_jsdoc_type(comment, tag)
+    }
+
+    /// An entity name mirroring an identifier or property-access chain.
+    fn entity_of_expression(
+        &mut self,
+        expression: &Expression<'a>,
+    ) -> Option<tsr_ast::EntityName<'a>> {
+        match expression {
+            Expression::Identifier(identifier) => Some(tsr_ast::EntityName::Identifier(identifier)),
+            Expression::PropertyAccessExpression(access) => {
+                let left = self.entity_of_expression(access.expression.as_ref()?)?;
+                let Some(tsr_ast::MemberName::Identifier(right)) = &access.name else {
+                    return None;
+                };
+                let span = self.span_of(access.node_id);
+                Some(tsr_ast::EntityName::QualifiedName(self.factory.alloc(
+                    tsr_ast::QualifiedName::new(Some(left), Some(right)),
+                    SyntaxKind::QualifiedName,
+                    span,
+                    NodeFlags::empty(),
+                )))
+            }
+            _ => None,
+        }
     }
 
     /// Collect nested property assignments on empty-object consts.

@@ -5,13 +5,13 @@ CURRENT PROGRESS (2026-08-08)
   parser_typescript      5,031/5,031 = 100.00% (up from 5,001)
   dts_reachable_target     496/1,162 = 42.69%  (up from 495; corrected visibility
                                                 exposed one inference case)
-  dts_emit                  328/378  = 86.77%  (denominator moved three times:
+  dts_emit                  328/375  = 87.47%  (denominator moved three times:
                                                 grew 341 -> 395 pairing outDir-
                                                 remapped baselines, shrank to
                                                 376 removing input-echo
                                                 mispairings, grew to 378 with
                                                 positional duplicate pairing)
-  dts_shape                857/1,007 = 85.10%  (same corrections; was 753/918
+  dts_shape                859/1,007 = 85.30%  (same corrections; was 753/918
                                                 before them)
   printer_round_trip    11,755/11,778 = 99.80%
 
@@ -189,7 +189,14 @@ outside the judged population. Three emit and eight shape cases.
 Module detection now honors the non-syntactic inputs: a `.mts`/`.cts` unit (or
 `moduleDetection: force`) is a module with no import/export syntax, so its
 private declarations drop and the `export {}` marker remains
-(`moduleDetectionIsolatedModulesCjsFileScope`, +1 emit and +1 shape).
+(`moduleDetectionIsolatedModulesCjsFileScope`, +1 emit and +1 shape). A binding pattern destructuring a namespace import
+keeps its shape typed `typeof` the entity, with pattern bound names joining
+reachability and the source phase retaining the entity's import
+(`declarationEmitExpressionInExtends6`, +2 shape); patterns destructuring any
+other entity honestly moved to the needs-inference bucket
+(`declarationEmitNonExportedBindingPattern`, `destructuredDeclarationEmit` —
+their wants restate checker member types), shrinking the emit denominator
+378 -> 375.
 
 Baseline declaration sections name the *output* location while units name the
 *source* one, so exact-name matching silently excluded every
@@ -256,7 +263,14 @@ types print single-line, and nested property assignments on an empty-object
 const spell its type literal (`typeFromPropertyAssignment39`, +1 emit). A
 dotted `@typedef` name wraps in `export declare namespace` with the alias
 exported inside, its comment staying on the host statement
-(`jsDeclarationsImportNamespacedType`, +1 emit and +1 shape). JSDoc-only type
+(`jsDeclarationsImportNamespacedType`, +1 emit and +1 shape). A binding pattern destructuring a namespace import
+keeps its shape typed `typeof` the entity, with pattern bound names joining
+reachability and the source phase retaining the entity's import
+(`declarationEmitExpressionInExtends6`, +2 shape); patterns destructuring any
+other entity honestly moved to the needs-inference bucket
+(`declarationEmitNonExportedBindingPattern`, `destructuredDeclarationEmit` —
+their wants restate checker member types), shrinking the emit denominator
+378 -> 375. JSDoc-only type
 spellings rewrite to TypeScript before grafting: bare `?` is `any | null`,
 postfix `?`/`=`/`!` are null/undefined unions or plain, `function(...)`
 collapses to `Function`, and `X.<...>` generics lose the dot with `Object.<`
@@ -264,7 +278,14 @@ becoming `Record<` (`jsDeclarationsReusesExistingNodesMappingJSDocTypes`, +1
 emit). A qualified name's root resolves in namespace space, where type
 parameters never shadow, so a signature's `<E>` cannot drop the `import * as
 E` its annotation names (`declarationEmitRetainedAnnotationRetainsImportInOutput`,
-+1 emit and +1 shape).
++1 emit and +1 shape). A binding pattern destructuring a namespace import
+keeps its shape typed `typeof` the entity, with pattern bound names joining
+reachability and the source phase retaining the entity's import
+(`declarationEmitExpressionInExtends6`, +2 shape); patterns destructuring any
+other entity honestly moved to the needs-inference bucket
+(`declarationEmitNonExportedBindingPattern`, `destructuredDeclarationEmit` —
+their wants restate checker member types), shrinking the emit denominator
+378 -> 375.
 
 `TASK.md` belongs to the checker-types gradient and `TASK-diagnostics.md` belongs
 to diagnostics. Do not put work from either stream here. This file owns the

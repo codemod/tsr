@@ -55,7 +55,12 @@ pub fn check<'a>(
     nodes: &NodeTable,
     visible: &Visible,
 ) -> Vec<Diagnostic> {
-    let mut checker = Checker { nodes, out: Vec::new(), in_parameter_default: false };
+    let mut checker = Checker {
+        nodes,
+        out: Vec::new(),
+        in_parameter_default: false,
+        namespace_imports: namespace_import_names(file.statements),
+    };
     for statement in file.statements {
         if visible.contains(statement.node_id()) {
             checker.statement(statement);
@@ -73,6 +78,25 @@ struct Checker<'t> {
     /// type is an error. See `arrow` for the evidence, which is emphatic and
     /// contradicts the corpus's own comments.
     in_parameter_default: bool,
+    /// Names bound by `import * as N`: destructuring one of these emits
+    /// `typeof N` without inference, while any other entity needs the checker.
+    namespace_imports: std::collections::HashSet<String>,
+}
+
+/// The names a file binds through namespace imports.
+fn namespace_import_names(statements: &[Statement<'_>]) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    for statement in statements {
+        if let Statement::ImportDeclaration(import) = statement
+            && let Some(clause) = import.import_clause
+            && let Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) =
+                &clause.named_bindings
+            && let Some(name) = namespace.name
+        {
+            names.insert(name.text.to_string());
+        }
+    }
+    names
 }
 
 impl Checker<'_> {
@@ -216,6 +240,18 @@ impl Checker<'_> {
         // restate the destructuring and cannot carry the default.
         if let Some(tsr_ast::BindingName::BindingPattern(pattern)) = &declaration.name {
             self.binding_pattern(pattern);
+            // A pattern destructuring a namespace import emits
+            // `typeof <entity>` without inference
+            // (`declarationEmitExpressionInExtends6`'s `const { Foo } = A`
+            // becomes `declare const { Foo }: typeof A;`); destructuring any
+            // other entity needs the checker's member types.
+            if declaration
+                .initializer
+                .as_ref()
+                .is_some_and(|expression| self.is_namespace_entity(expression))
+            {
+                return;
+            }
         }
         if declaration.r#type.is_some() {
             // An annotated declaration emits its annotation; the initialiser never
@@ -868,6 +904,19 @@ fn concise_body_is_apparent_literal(body: &tsr_ast::ConciseBody<'_>) -> bool {
             SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword | SyntaxKind::NullKeyword
         ),
         _ => false,
+    }
+}
+
+impl Checker<'_> {
+    /// Whether an entity-name expression is rooted at a namespace import.
+    fn is_namespace_entity(&self, expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::Identifier(identifier) => self.namespace_imports.contains(identifier.text),
+            Expression::PropertyAccessExpression(access) => {
+                access.expression.as_ref().is_some_and(|inner| self.is_namespace_entity(inner))
+            }
+            _ => false,
+        }
     }
 }
 
