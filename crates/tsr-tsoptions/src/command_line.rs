@@ -88,7 +88,17 @@ pub fn find_by_command_line_name(name: &str) -> Option<&'static OptionDeclaratio
     {
         return Some(option);
     }
-    COMPILER_OPTIONS.iter().find(|option| option.name.eq_ignore_ascii_case(&lowered))
+    if let Some(option) =
+        COMPILER_OPTIONS.iter().find(|option| option.name.eq_ignore_ascii_case(&lowered))
+    {
+        return Some(option);
+    }
+    // The watch table, consulted only after the compiler one misses — which is
+    // upstream's order (`commandlineparser.go:150`) and matters because the two
+    // tables share no names today but need not stay that way.
+    crate::declarations::WATCH_OPTIONS
+        .iter()
+        .find(|option| option.name.eq_ignore_ascii_case(&lowered))
 }
 
 /// Parse `args` as a `tsc` command line (`ParseCommandLine`).
@@ -751,6 +761,28 @@ mod tests {
         let parsed = parse_command_line(&["@loop.txt".to_string()], &fs, "/home/project");
         assert_eq!(parsed.errors.len(), 1);
         assert!(parsed.errors[0].text().starts_with("Cannot read file"));
+    }
+
+    #[test]
+    fn a_watch_option_is_accepted_rather_than_unknown() {
+        // Upstream consults the watch table when a name misses the compiler one,
+        // so `tsc --watchFile useFsEvents` is valid even without `--watch`.
+        // These parse and store nothing; the point is that they are not
+        // reported as unknown options.
+        let parsed = parse(&["--watchFile", "useFsEvents", "a.ts"]);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors[0].text());
+        assert_eq!(parsed.file_names, ["a.ts"]);
+
+        let parsed = parse(&["--synchronousWatchDirectory"]);
+        assert!(parsed.errors.is_empty());
+    }
+
+    #[test]
+    fn the_compiler_table_wins_over_the_watch_table() {
+        // Order matters even though the two share no names today: a compiler
+        // option must never be shadowed by a watch one.
+        let parsed = parse(&["--noEmit"]);
+        assert_eq!(parsed.compiler_options.no_emit, Tristate::True);
     }
 
     #[test]

@@ -839,6 +839,393 @@ pub static COMPILER_OPTIONS: &[OptionDeclaration] = &[
         apply: |options, value| tristate(options, value, |o| &mut o.remove_comments),
         ..OptionDeclaration::DEFAULT
     },
+    // The remainder of upstream's table. Each is parsed into a field nothing
+    // reads yet — see the note on `CompilerOptions`.
+    OptionDeclaration {
+        name: "preserveWatchOutput",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.preserve_watch_output),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "explainFiles",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.explain_files),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "diagnostics",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.diagnostics),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "extendedDiagnostics",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.extended_diagnostics),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "inlineSourceMap",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.inline_source_map),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "deduplicatePackages",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.deduplicate_packages),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "assumeChangesOnlyAffectDirectDependencies",
+        kind: OptionKind::Boolean,
+        apply: |options, value| {
+            tristate(options, value, |o| &mut o.assume_changes_only_affect_direct_dependencies)
+        },
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "singleThreaded",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.single_threaded),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "importHelpers",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.import_helpers),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "downlevelIteration",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.downlevel_iteration),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "isolatedDeclarations",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.isolated_declarations),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "erasableSyntaxOnly",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.erasable_syntax_only),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "strictFunctionTypes",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.strict_function_types),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "strictBindCallApply",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.strict_bind_call_apply),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "strictBuiltinIteratorReturn",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.strict_builtin_iterator_return),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noImplicitThis",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_implicit_this),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "stableTypeOrdering",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.stable_type_ordering),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "exactOptionalPropertyTypes",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.exact_optional_property_types),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noImplicitReturns",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_implicit_returns),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noFallthroughCasesInSwitch",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_fallthrough_cases_in_switch),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noImplicitOverride",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_implicit_override),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noPropertyAccessFromIndexSignature",
+        kind: OptionKind::Boolean,
+        apply: |options, value| {
+            tristate(options, value, |o| &mut o.no_property_access_from_index_signature)
+        },
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "allowUmdGlobalAccess",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.allow_umd_global_access),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "allowImportingTsExtensions",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.allow_importing_ts_extensions),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "rewriteRelativeImportExtensions",
+        kind: OptionKind::Boolean,
+        apply: |options, value| {
+            tristate(options, value, |o| &mut o.rewrite_relative_import_extensions)
+        },
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "inlineSources",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.inline_sources),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "experimentalDecorators",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.experimental_decorators),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "emitDecoratorMetadata",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.emit_decorator_metadata),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "emitBOM",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.emit_b_o_m),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "stripInternal",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.strip_internal),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "disableSizeLimit",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.disable_size_limit),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "disableSourceOfProjectReferenceRedirect",
+        kind: OptionKind::Boolean,
+        apply: |options, value| {
+            tristate(options, value, |o| &mut o.disable_source_of_project_reference_redirect)
+        },
+        is_tsconfig_only: true,
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "disableSolutionSearching",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.disable_solution_searching),
+        is_tsconfig_only: true,
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "disableReferencedProjectLoad",
+        kind: OptionKind::Boolean,
+        apply: |options, value| {
+            tristate(options, value, |o| &mut o.disable_referenced_project_load)
+        },
+        is_tsconfig_only: true,
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "noEmitHelpers",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.no_emit_helpers),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "allowUnusedLabels",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.allow_unused_labels),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "forceConsistentCasingInFileNames",
+        kind: OptionKind::Boolean,
+        apply: |options, value| {
+            tristate(options, value, |o| &mut o.force_consistent_casing_in_file_names)
+        },
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "useDefineForClassFields",
+        kind: OptionKind::Boolean,
+        apply: |options, value| tristate(options, value, |o| &mut o.use_define_for_class_fields),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "generateCpuProfile",
+        kind: OptionKind::String,
+        is_file_path: true,
+        apply: |options, value| string(options, value, |o| &mut o.generate_cpu_profile),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "generateTrace",
+        kind: OptionKind::String,
+        apply: |options, value| string(options, value, |o| &mut o.generate_trace),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "pprofDir",
+        kind: OptionKind::String,
+        apply: |options, value| string(options, value, |o| &mut o.pprof_dir),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "tsBuildInfoFile",
+        kind: OptionKind::String,
+        is_file_path: true,
+        apply: |options, value| string(options, value, |o| &mut o.ts_build_info_file),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "sourceRoot",
+        kind: OptionKind::String,
+        is_file_path: true,
+        apply: |options, value| string(options, value, |o| &mut o.source_root),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "mapRoot",
+        kind: OptionKind::String,
+        is_file_path: true,
+        apply: |options, value| string(options, value, |o| &mut o.map_root),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "jsxFactory",
+        kind: OptionKind::String,
+        apply: |options, value| string(options, value, |o| &mut o.jsx_factory),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "jsxFragmentFactory",
+        kind: OptionKind::String,
+        apply: |options, value| string(options, value, |o| &mut o.jsx_fragment_factory),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "reactNamespace",
+        kind: OptionKind::String,
+        apply: |options, value| string(options, value, |o| &mut o.react_namespace),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "ignoreDeprecations",
+        kind: OptionKind::String,
+        apply: |options, value| string(options, value, |o| &mut o.ignore_deprecations),
+        ..OptionDeclaration::DEFAULT
+    },
+];
+
+/// The `watchOptions` table (`tsoptions.OptionsForWatch`).
+///
+/// # Why these exist when watch mode does not
+///
+/// `parseStrings` consults this table when a name misses the compiler one
+/// (`commandlineparser.go:150`), so upstream *accepts* `--watchFile` on any
+/// command line, watch mode or not. Without these entries this port reported
+/// `Unknown compiler option '--watchFile'` for a flag `tsc` takes happily —
+/// a difference a user would hit before they hit anything watch-related.
+///
+/// Every entry parses its value and **stores nothing**: there is no
+/// `WatchOptions` struct here because nothing would read it. That is the
+/// deliberate half of this — an accepted-and-discarded option is honest about a
+/// feature that does not exist, where an unknown-option error is wrong about the
+/// command line. When watch mode lands, these grow setters and a struct to
+/// write into.
+pub static WATCH_OPTIONS: &[OptionDeclaration] = &[
+    OptionDeclaration {
+        name: "watchInterval",
+        kind: OptionKind::Number,
+        apply: |_, value| matches!(value, ConfigValue::Number(_)),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "watchFile",
+        kind: OptionKind::Enum,
+        enum_names: &[
+            "fixedpollinginterval",
+            "prioritypollinginterval",
+            "dynamicprioritypolling",
+            "fixedchunksizepolling",
+            "usefsevents",
+            "usefseventsonparentdirectory",
+        ],
+        apply: |_, value| value.as_str().is_some(),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "watchDirectory",
+        kind: OptionKind::Enum,
+        enum_names: &[
+            "usefsevents",
+            "fixedpollinginterval",
+            "dynamicprioritypolling",
+            "fixedchunksizepolling",
+        ],
+        apply: |_, value| value.as_str().is_some(),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "fallbackPolling",
+        kind: OptionKind::Enum,
+        enum_names: &["fixedinterval", "priorityinterval", "dynamicpriority", "fixedchunksize"],
+        apply: |_, value| value.as_str().is_some(),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "synchronousWatchDirectory",
+        kind: OptionKind::Boolean,
+        apply: |_, value| matches!(value, ConfigValue::Bool(_)),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "excludeDirectories",
+        kind: OptionKind::List(&OptionKind::String),
+        is_file_path: true,
+        apply: |_, value| matches!(value, ConfigValue::List(_)),
+        ..OptionDeclaration::DEFAULT
+    },
+    OptionDeclaration {
+        name: "excludeFiles",
+        kind: OptionKind::List(&OptionKind::String),
+        is_file_path: true,
+        apply: |_, value| matches!(value, ConfigValue::List(_)),
+        ..OptionDeclaration::DEFAULT
+    },
 ];
 
 #[cfg(test)]

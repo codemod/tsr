@@ -560,6 +560,106 @@ pub struct CompilerOptions {
     pub emit_declaration_only: Tristate,
     /// Strip comments from the output.
     pub remove_comments: Tristate,
+
+    // ---- The rest of upstream's declared surface. Added wholesale so a
+    // ---- `tsconfig.json` writing any of these is *accepted* rather than
+    // ---- reported as an unknown option. Nothing reads most of them yet; the
+    // ---- point is that the parser stops lying about what it understands.
+    /// `preserveWatchOutput`. Parsed; not yet read.
+    pub preserve_watch_output: Tristate,
+    /// `explainFiles`. Parsed; not yet read.
+    pub explain_files: Tristate,
+    /// `diagnostics`. Parsed; not yet read.
+    pub diagnostics: Tristate,
+    /// `extendedDiagnostics`. Parsed; not yet read.
+    pub extended_diagnostics: Tristate,
+    /// `inlineSourceMap`. Parsed; not yet read.
+    pub inline_source_map: Tristate,
+    /// `deduplicatePackages`. Parsed; not yet read.
+    pub deduplicate_packages: Tristate,
+    /// `assumeChangesOnlyAffectDirectDependencies`. Parsed; not yet read.
+    pub assume_changes_only_affect_direct_dependencies: Tristate,
+    /// `singleThreaded`. Parsed; not yet read.
+    pub single_threaded: Tristate,
+    /// `importHelpers`. Parsed; not yet read.
+    pub import_helpers: Tristate,
+    /// `downlevelIteration`. Parsed; not yet read.
+    pub downlevel_iteration: Tristate,
+    /// `isolatedDeclarations`. Parsed; not yet read.
+    pub isolated_declarations: Tristate,
+    /// `erasableSyntaxOnly`. Parsed; not yet read.
+    pub erasable_syntax_only: Tristate,
+    /// `strictFunctionTypes`. Parsed; not yet read.
+    pub strict_function_types: Tristate,
+    /// `strictBindCallApply`. Parsed; not yet read.
+    pub strict_bind_call_apply: Tristate,
+    /// `strictBuiltinIteratorReturn`. Parsed; not yet read.
+    pub strict_builtin_iterator_return: Tristate,
+    /// `noImplicitThis`. Parsed; not yet read.
+    pub no_implicit_this: Tristate,
+    /// `stableTypeOrdering`. Parsed; not yet read.
+    pub stable_type_ordering: Tristate,
+    /// `noImplicitReturns`. Parsed; not yet read.
+    pub no_implicit_returns: Tristate,
+    /// `noFallthroughCasesInSwitch`. Parsed; not yet read.
+    pub no_fallthrough_cases_in_switch: Tristate,
+    /// `noImplicitOverride`. Parsed; not yet read.
+    pub no_implicit_override: Tristate,
+    /// `noPropertyAccessFromIndexSignature`. Parsed; not yet read.
+    pub no_property_access_from_index_signature: Tristate,
+    /// `allowUmdGlobalAccess`. Parsed; not yet read.
+    pub allow_umd_global_access: Tristate,
+    /// `allowImportingTsExtensions`. Parsed; not yet read.
+    pub allow_importing_ts_extensions: Tristate,
+    /// `rewriteRelativeImportExtensions`. Parsed; not yet read.
+    pub rewrite_relative_import_extensions: Tristate,
+    /// `inlineSources`. Parsed; not yet read.
+    pub inline_sources: Tristate,
+    /// `experimentalDecorators`. Parsed; not yet read.
+    pub experimental_decorators: Tristate,
+    /// `emitDecoratorMetadata`. Parsed; not yet read.
+    pub emit_decorator_metadata: Tristate,
+    /// `emitBOM`. Parsed; not yet read.
+    pub emit_b_o_m: Tristate,
+    /// `stripInternal`. Parsed; not yet read.
+    pub strip_internal: Tristate,
+    /// `disableSizeLimit`. Parsed; not yet read.
+    pub disable_size_limit: Tristate,
+    /// `disableSourceOfProjectReferenceRedirect`. Parsed; not yet read.
+    pub disable_source_of_project_reference_redirect: Tristate,
+    /// `disableSolutionSearching`. Parsed; not yet read.
+    pub disable_solution_searching: Tristate,
+    /// `disableReferencedProjectLoad`. Parsed; not yet read.
+    pub disable_referenced_project_load: Tristate,
+    /// `noEmitHelpers`. Parsed; not yet read.
+    pub no_emit_helpers: Tristate,
+    /// `allowUnusedLabels`. Parsed; not yet read.
+    pub allow_unused_labels: Tristate,
+    /// `forceConsistentCasingInFileNames`. Parsed; not yet read.
+    pub force_consistent_casing_in_file_names: Tristate,
+    /// `useDefineForClassFields`. Parsed; not yet read.
+    pub use_define_for_class_fields: Tristate,
+    /// `generateCpuProfile`. Parsed; not yet read.
+    pub generate_cpu_profile: String,
+    /// `generateTrace`. Parsed; not yet read.
+    pub generate_trace: String,
+    /// `pprofDir`. Parsed; not yet read.
+    pub pprof_dir: String,
+    /// `tsBuildInfoFile`. Parsed; not yet read.
+    pub ts_build_info_file: String,
+    /// `sourceRoot`. Parsed; not yet read.
+    pub source_root: String,
+    /// `mapRoot`. Parsed; not yet read.
+    pub map_root: String,
+    /// `jsxFactory`. Parsed; not yet read.
+    pub jsx_factory: String,
+    /// `jsxFragmentFactory`. Parsed; not yet read.
+    pub jsx_fragment_factory: String,
+    /// `reactNamespace`. Parsed; not yet read.
+    pub react_namespace: String,
+    /// `ignoreDeprecations`. Parsed; not yet read.
+    pub ignore_deprecations: String,
+
     /// Check a side-effect-only `import "x"` resolves.
     ///
     /// Reads as **on when unset** (`IsTrueOrUnknown`), which is why only an

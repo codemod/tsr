@@ -2390,8 +2390,7 @@ impl Checker<'_, '_> {
                         tsr_binder::SymbolFlags::VALUE,
                     )
                     && self.is_constant_variable(symbol)
-                    && let Some(declaration) =
-                        self.binder.symbols().get(symbol).value_declaration
+                    && let Some(declaration) = self.binder.symbols().get(symbol).value_declaration
                     && let Some(Node::VariableDeclaration(variable)) =
                         self.node_map.get(declaration)
                     && variable.r#type.is_none()

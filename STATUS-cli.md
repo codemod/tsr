@@ -65,8 +65,8 @@ with an upstream anchor and a test, and no caller sequencing them.
 
 | | upstream | here | share |
 |---|---:|---:|---:|
-| `CompilerOptions` fields | 130 | 77 | 59% |
-| declared options (`declscompiler.go` / `declarations.rs`) | 135 | 76 | 56% |
+| `CompilerOptions` fields | 130 | 125 | 96% |
+| declared options (`declscompiler.go` / `declarations.rs`) | 121 | 124 | ~100% |
 
 Counted by `awk '/^type CompilerOptions struct/,/^}/' | grep -cE '^\t[A-Z]'` and
 `grep -c 'name: "'`. Was 50/48 before the CLI; the 27 added are the command-line
@@ -387,9 +387,9 @@ too, because phase 0 exists.
 | 2 | **`--help --all`** | 1 baseline | needs all 135 options with descriptions, plus watch and build tables |
 | 3 | ~~the wide `--help` layout~~ | **ported**; 1 baseline still differs, §7.8 | `getPrettyOutput`'s hard wrap and the header icon |
 | 4 | ~~`--lib` value validation~~ | **done**, +2 | `TS6046` over `LIB_MAP`'s 107 names, in upstream's order |
-| 5 | option table 76 → 135 | all | a missing option is an unknown-option error, not a default |
+| 5 | ~~option table 76 → 135~~ | **done**: 124 of upstream's 121 declared | **+2 `checker_types` cases**, because the config parser now applies options it used to drop |
 | 6 | `commandlineparser_test.go`'s table (572 LOC) | — | a stronger oracle for phase 1 than the 31 hand-written tests |
-| 7 | watch option table | 0 today | `--watchFile` reports as unknown; upstream accepts it |
+| 7 | ~~watch option table~~ | **done** | `--watchFile` is accepted and discarded rather than reported unknown |
 | 8 | ~~`${configDir}` templates~~ | **done** | the value is left un-anchored at read time and substituted after, so it is not joined to the base file's directory |
 | 8b | `paths` in `--showConfig` | 1 baseline | `configDir-template-showConfig` now differs only in the options after `declarationDir` |
 | 9 | ~~the baseline runner's `env` section~~ | **done**, +2 | parsed out of `tsc_test.go` |
