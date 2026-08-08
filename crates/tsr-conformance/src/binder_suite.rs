@@ -1178,6 +1178,16 @@ fn expanded_module_exports<'a>(
     if depth == 0 {
         return out;
     }
+    // `export = ns` makes the module's whole value the assignee: members
+    // reached through a require of this module are the namespace's
+    // (`resolveExternalModuleSymbol`; `augmentExportEquals3`'s `x.b`).
+    if let Some(assignment) = symbol.exports.get("export=").copied() {
+        let assignment = bound.merged_symbol(assignment);
+        let target = bound.symbols().get(assignment);
+        for (name, id) in target.exports.iter().chain(target.members.iter()) {
+            out.push((name, bound.merged_symbol(*id)));
+        }
+    }
     // Which file this module symbol is, if it is a file.
     let Some(file_root) =
         symbol.declarations.iter().copied().find(|d| nodes.kind(*d) == SyntaxKind::SourceFile)
@@ -1281,11 +1291,22 @@ fn resolve_import_equals_target_at(
             let Some(tsr_ast::Expression::StringLiteral(literal)) = external.expression else {
                 return None;
             };
-            let found = *bound.globals().get(literal.text)?;
-            let found = bound.merged_symbol(found);
-            let is_module =
-                bound.symbols().get(found).flags.intersects(tsr_binder::SymbolFlags::MODULE);
-            return is_module.then_some(found);
+            if let Some(found) = bound.globals().get(literal.text).copied() {
+                let found = bound.merged_symbol(found);
+                if bound.symbols().get(found).flags.intersects(tsr_binder::SymbolFlags::MODULE) {
+                    return Some(found);
+                }
+            }
+            // A relative require names a sibling unit
+            // (`augmentExportEquals3`'s `import x = require("./file1")`).
+            let importing = program
+                .source_files()
+                .iter()
+                .find(|f| f.source_file().node_id.is_some_and(|root| in_file(root)))
+                .map_or("", |f| f.file_name());
+            let target = resolve_specifier(program, importing, literal.text)?;
+            let root = target.source_file().node_id?;
+            return bound.symbol_of(root);
         }
     };
     while let Some(qualified) = reference {

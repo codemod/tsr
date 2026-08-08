@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols Summary:
 What a pass means: every symbol in the .symbols baseline exists with the same declaration lines
-Passed         : 8443/8461 (99.79%)
-Failed         : 18
+Passed         : 8446/8461 (99.82%)
+Failed         : 15
 Skipped        : 3983 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -14,12 +14,6 @@ Skipped        : 3983 (excluded from the denominator)
 
 compiler/ambientExternalModuleWithRelativeModuleName
   1 symbol(s): .\\relativeModule: no symbol
-compiler/augmentExportEquals3
-  1 symbol(s): file2.ts: x.b: no symbol
-compiler/augmentExportEquals4
-  1 symbol(s): file2.ts: x.b: no symbol
-compiler/augmentExportEquals6
-  1 symbol(s): file2.ts: x.B.b: no symbol
 compiler/declarationEmitExpandoWithGenericConstraint
   1 symbol(s): Point.zero: no symbol
 compiler/declarationEmitLateBoundAssignments2
