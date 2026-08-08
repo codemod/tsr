@@ -1987,12 +1987,28 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(symbol) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(symbol);
-        if !self.function_symbol_checked.insert(symbol) {
-            return;
-        }
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        // A **constructor has no symbol in this binder**. Upstream binds one as
+        // `__constructor` in the class's member table; here `symbol_of` answers
+        // `None`, so an overload set of constructors had nothing to gather its
+        // declarations from and this rule returned before it started — every
+        // TS2390 §14 converted came in through a method or a function
+        // (`checker-notes-diag2.md` §64). The declarations are the enclosing
+        // class's constructor members in source order, and the dedup
+        // `function_symbol_checked` gives a symbol is given here by running
+        // only for the first of them.
+        let declarations: Vec<NodeId> = if let Some(symbol) = self.binder.symbol_of(node) {
+            let symbol = self.binder.merged_symbol(symbol);
+            if !self.function_symbol_checked.insert(symbol) {
+                return;
+            }
+            self.binder.symbols().get(symbol).declarations.iter().copied().collect()
+        } else {
+            let siblings = self.constructor_siblings_of(node);
+            if siblings.first() != Some(&node) {
+                return;
+            }
+            siblings
+        };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         // The single-file bound: anything else and the per-declaration ambient
         // context is unavailable, so nothing is said.
@@ -2158,6 +2174,29 @@ impl Checker<'_, '_> {
             &messages::FUNCTION_IMPLEMENTATION_IS_MISSING_OR_NOT_IMMEDIATELY_FOLLOWING_THE_DECLARATION
         };
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// Every `constructor` member of the class enclosing `node`, in source
+    /// order — the declaration list a constructor overload set would have had
+    /// if this binder gave it a symbol. Empty for anything that is not a
+    /// constructor. See `checker-notes-diag2.md` §64.
+    fn constructor_siblings_of(&self, node: NodeId) -> Vec<NodeId> {
+        if self.nodes.kind(node) != SyntaxKind::Constructor {
+            return Vec::new();
+        }
+        let members: &[ClassElement<'_>] =
+            match self.nodes.parent(node).and_then(|class| self.node_map.get(class)) {
+                Some(Node::ClassDeclaration(class)) => class.members,
+                Some(Node::ClassExpression(class)) => class.members,
+                _ => return Vec::new(),
+            };
+        members
+            .iter()
+            .filter_map(|member| match member {
+                ClassElement::ConstructorDeclaration(constructor) => constructor.node_id,
+                _ => None,
+            })
+            .collect()
     }
 
     /// The subsequent declaration's name node and this one's written name,

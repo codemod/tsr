@@ -4775,3 +4775,74 @@ The build is the message and its two positions.
 > twenty lines of code. A decline that had approximated the guard — "next
 > sibling has a body, stay quiet" — would have been just as silent and worth
 > nothing here.
+
+---
+
+## 64. TS2390 — a constructor has no symbol in this binder
+
+`class C { constructor(); }` — one constructor overload, no implementation — is
+upstream's **TS2390** `Constructor implementation is missing`, and this port
+says nothing. `diagreach.rs` prices it at 8 cases:
+`ClassDeclaration8/10/11/14` and their `parserClassDeclaration*` twins.
+
+§14's rule opens with
+
+```rust
+let Some(symbol) = self.binder.symbol_of(node) else { return };
+```
+
+and a one-line trace answers why the arm never runs: **`symbol_of` is `None` for
+a `Constructor`**. Upstream binds one as `InternalSymbolNameConstructor`
+(`__constructor`) in the class's member table; this binder does not, so a
+constructor overload set has no symbol to gather its declarations from and the
+rule returns before it starts. Every TS2390 §14 *did* convert came in through a
+`MethodDeclaration` or a `FunctionDeclaration`.
+
+**Repaired in the rule, not in the binder.** Adding a member-table entry in
+`tsr_binder` would move `checker_types`, which is the other workstream's. The
+declarations a constructor overload set needs are the enclosing class's
+constructor members, in source order, and the class's member list is right
+there. The dedup that `function_symbol_checked` provides for symbols is provided
+here by running only when `node` is the **first** constructor of its class.
+
+### The bar
+
+| leg | registered |
+|---|---|
+| 1 | `diagnostics` passes > **1,261**. Forecast **+4 to +8** |
+| 2 | `checker_types` pass count unchanged at **3,683** |
+| 3 | LOST must not grow (currently **1** on the family, standing) |
+| 4 | the family's WRONG ≤ **15**, from 11 |
+| 5 | every other snapshot unchanged |
+
+**Falsifier.** If the wrong column carries classes whose constructor *does* have
+an implementation, the sibling gather is missing the body-bearing member — a
+parameter-property constructor or one the parser attached elsewhere — and the
+answer is the gather, not a decline.
+
+### Scored — **+10**, above the forecast, for one wrong line
+
+| leg | registered | measured | |
+|---|---|---:|---|
+| 1 | passes > 1,261, forecast +4 to +8 | **1,271 / 5,488 = 23.16%** | pass, **above** |
+| 2 | `checker_types` pass count 3,683 | **3,683**, snapshot unchanged | pass |
+| 3 | LOST must not grow | **1 → 1** | pass |
+| 4 | the family's WRONG ≤ 15 | **11 → 12** | pass |
+| 5 | every other snapshot unchanged | only `diagnostics.snap` differs | pass |
+
+`diag2307.rs` over `[2389, 2390, 2391, 2392, 2393]`: **CONVERTS 31 → 41 ·
+RIGHT 90 → 108 · WRONG 11 → 12 · LOST 1 → 1.**
+
+**The forecast was low because the missing symbol was suppressing more than
+TS2390.** `diagreach.rs` counts a case once per *code*, and eight cases wanted
+TS2390 — but a constructor overload set with no symbol also never reached
+TS2391, TS2392 or TS2393, so two more cases arrived with the same repair. A
+gate that returns before a rule starts silences the whole rule, and the row of
+the code you noticed is a lower bound on what it was costing.
+
+> **A one-line trace answered in one run what a decline audit would not have
+> found at all.** §49's lesson — *when a new rule measures zero, check that it
+> ran before checking what it decided* — generalises: when an **old** rule
+> converts less than its row, print whether it runs. `symbol_of` returning
+> `None` for a `Constructor` is not visible in any decline, because it is not a
+> decline.
